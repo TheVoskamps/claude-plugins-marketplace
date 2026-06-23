@@ -3,6 +3,11 @@ on:
   pull_request:
     branches: [main]
 
+# Least-privilege default for the GITHUB_TOKEN. The guard only needs to
+# read the repository (checkout + git fetch); it uploads nothing.
+permissions:
+  contents: read
+
 # This is the only required status check on `main`. It
 # rejects PRs whose head branch contains a back-merge from
 # `main` (a merge commit whose incoming parent is reachable from
