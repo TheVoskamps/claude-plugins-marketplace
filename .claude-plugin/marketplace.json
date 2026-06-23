@@ -1,0 +1,19 @@
+{
+  "name": "thevoskamps",
+  "description": "The Voskamps' Claude Code plugins: issue tracking, SDLC orchestration, GitHub repo setup, and dev tooling.",
+  "owner": {
+    "name": "Edwin Voskamp",
+    "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps"
+  },
+  "plugins": [
+    { "name": "issues", "source": "./plugins/issues" },
+    { "name": "issues-jira", "source": "./plugins/issues-jira" },
+    { "name": "sdlc", "source": "./plugins/sdlc" },
+    { "name": "github-setup", "source": "./plugins/github-setup" },
+    { "name": "git-tools", "source": "./plugins/git-tools" },
+    { "name": "cc-tools", "source": "./plugins/cc-tools" },
+    { "name": "github-claude-identity", "source": "./plugins/github-claude-identity" },
+    { "name": "guardrails", "source": "./plugins/guardrails" },
+    { "name": "claude-vm", "source": "./plugins/claude-vm" }
+  ]
+}

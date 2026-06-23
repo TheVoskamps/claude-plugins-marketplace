@@ -1,0 +1,6 @@
+{
+  "name": "github-claude-identity",
+  "description": "Run git + gh against GitHub as Claude's own bot identity (a dedicated GitHub App account) distinct from the user's personal identity. Bundles gh_wrapper, git_wrapper, and the gh-create-identity-app provisioning skill.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}

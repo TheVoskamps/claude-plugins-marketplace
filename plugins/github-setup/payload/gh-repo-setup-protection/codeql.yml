@@ -1,0 +1,90 @@
+# CodeQL analysis workflow rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/workflows/codeql.yml ONLY when CodeQL
+# is enabled for the target repo (opt-in / auto-detected — see SKILL.md
+# "CodeQL is opt-in"). A markdown-only or non-GHAS-entitled repo, or a
+# repo with no CodeQL-analyzable language, must NOT get this file: a
+# CodeQL check that can never produce results becomes a phantom required
+# check that blocks every PR (issues #91 and #230).
+#
+# Advanced-setup workflow. Committing this workflow AUTOMATICALLY
+# DISABLES GitHub's default CodeQL setup for the languages it covers —
+# that is the mechanism that makes "start at Advanced from the first
+# commit" work, so this file MUST cover every analyzable language or
+# coverage regresses for the dropped ones. The skill also disables
+# default setup server-side (SKILL.md Step 5a, the `configured` branch
+# of its decision table) so the two cannot coexist. Proven against
+# ExampleProject's example-app-repo workflow.
+#
+# Hardening invariants (do not regress these — see issue #222 item 9):
+#   - Every action is SHA-pinned (a floating @v3/@v4 tag is a supply-
+#     chain risk; the trailing comment records the human-readable tag).
+#   - No `autobuild` step: the analyzed languages are extracted from
+#     source without a compile, so autobuild only adds a failure surface.
+#   - `persist-credentials: false` on checkout (least privilege).
+#   - Job permissions are least-privilege; `packages: read` is present
+#     because CodeQL needs it to fetch query packs.
+#
+# Placeholders:
+#   __DEFAULT_BRANCH__     Default branch of the target repo.
+#   __CODEQL_LANGUAGES__   YAML flow-sequence of CodeQL languages to
+#                          analyze, e.g. [ 'javascript-typescript', 'python' ].
+#                          The skill builds this from the ecosystems it
+#                          detected, mapping each to its CodeQL language.
+name: codeql
+
+on:
+  push:
+    branches: [__DEFAULT_BRANCH__]
+  pull_request:
+    branches: [__DEFAULT_BRANCH__]
+  schedule:
+    # Weekly full scan to catch advisories published after the last push.
+    - cron: "27 3 * * 1"
+
+# Only the latest run per ref needs to complete; cancel superseded runs.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default for the GITHUB_TOKEN. The analyze job sets its
+# own permissions block, which REPLACES (does not merge with) this one,
+# so every permission the job needs must be listed at the job level.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      # A job-level permissions block replaces the top-level one
+      # entirely, so every permission the job needs is listed here.
+      security-events: write # upload analysis results to the Security tab
+      packages: read # fetch CodeQL query packs
+      actions: read # required for code scanning on a private repo
+      contents: read # clone the repository
+    strategy:
+      fail-fast: false
+      matrix:
+        language: __CODEQL_LANGUAGES__
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          languages: ${{ matrix.language }}
+          # Path filters and query packs live in the sibling config file.
+          config-file: ./.github/codeql/codeql-config.yml
+
+      # No manual build step: the analyzed languages are extracted from
+      # source without a compile, so CodeQL's default extraction covers
+      # them without autobuild (which only adds a failure surface).
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        with:
+          category: "/language:${{ matrix.language }}"

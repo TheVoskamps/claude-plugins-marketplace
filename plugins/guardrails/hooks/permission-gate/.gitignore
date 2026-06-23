@@ -1,0 +1,4 @@
+# Local dev-build artifact from `go build .` in this directory. The
+# distributed binaries are the cross-compiled ones committed under
+# ../bin/<goos>-<goarch>/ — this stray same-name build must NOT be tracked.
+/permission-gate

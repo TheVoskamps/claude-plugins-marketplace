@@ -1,0 +1,562 @@
+# Template for the public-mirror workflow installed by the
+# `repo-public-mirror-setup` skill.
+#
+# Placeholders (rendered by the skill before writing into the target
+# repo at `.github/workflows/public-mirror.yml`):
+#   __GH_ORG__   GitHub org/user that owns the source repo.
+#   __GH_REPO__  Source repo short name (used for the mirror name
+#                `__GH_REPO__-public` and the `__GH_REPO__.local`
+#                mailmap domain in the bot identity).
+#
+# After rendering, this file MUST contain no `__...__` placeholders.
+# This template is kept byte-for-byte in sync with this repo's own
+# `.github/workflows/public-mirror.yml` (the working source of
+# truth), modulo the two placeholder substitutions above.
+name: public-mirror
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: public-mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source (full history)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install git-filter-repo
+        run: |
+          python3 -m pip install --user git-filter-repo
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Set up SSH deploy key
+        env:
+          DEPLOY_KEY: ${{ secrets.PUBLIC_MIRROR_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_mirror
+          chmod 600 ~/.ssh/id_mirror
+          # NOTE: ssh-keyscan is TOFU (Trust-On-First-Use) — the very
+          # first run trusts whatever key the GitHub IP returns. The
+          # GitHub-hosted runner is reaching GitHub from inside the
+          # same provider's network on every run, so the practical
+          # attack surface is narrow, but pinning is stronger. If
+          # this workflow is ever ported off GitHub-hosted runners,
+          # replace this line with pinned host keys fetched from
+          # https://api.github.com/meta (the `ssh_keys` field, with
+          # the connection itself trusted via TLS PKI).
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<EOF
+          Host github-mirror
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_mirror
+            IdentitiesOnly yes
+          EOF
+
+      - name: Filter into a fresh bare clone with persisted marks
+        env:
+          CONF: ${{ github.workspace }}/.github/public-mirror
+          MIRROR_URL: git@github-mirror:__GH_ORG__/__GH_REPO__-public.git
+          STATE_BRANCH: filter-repo-state
+          META_BRANCH: filter-repo-meta
+        run: |
+          set -euo pipefail
+          WORK=$(mktemp -d)
+          # Clone with --no-local via a file:// URL so filter-repo's
+          # freshness check ("expected freshly packed repo") passes. That
+          # check requires a single pack (packs <= 1) with no non-replace-ref
+          # loose objects. A plain `git clone --bare .` takes git's local-clone
+          # hardlink path, which mirrors the source's pack layout and yields
+          # TWO packs (the Actions checkout is multi-packed), tripping the
+          # check's `packs > 1` clause. --no-local forces the real transfer
+          # protocol, which sends a single packfile (count:0 packs:1). The
+          # file:// URL is required: a plain path can still trigger the
+          # local-clone optimization even with --no-local on some git
+          # versions; the URL form forces the wire protocol. $PWD is the
+          # Actions checkout root here (this is the first git command in the
+          # step, before the cd below). This supersedes the #160/#162 `git gc`
+          # approach, which cleared loose objects but left the 2 packs (2 is
+          # below git's gc pack-consolidation threshold) and so still aborted.
+          # The clone keeps a single remote named origin, which the freshness
+          # logic and the one-remote constraint below depend on. References: #163
+          git clone --no-local --bare "file://$PWD/.git" "$WORK/src.git"
+          cd "$WORK/src.git"
+          # Set the bot identity once, repo-locally, on this bare clone.
+          # All commit-creating paths in this job draw from it: the
+          # meta-branch commit and the CONTRIBUTORS commit below, AND
+          # filter-repo's OWN internal --state-branch mark-saving commit
+          # (git_filter_repo.py's `git -C . commit-tree`, which carries
+          # no -c identity flags of its own). The GitHub-hosted runner
+          # has no git identity in any config scope or GIT_* env, so
+          # without this filter-repo's internal commit fails with
+          # "empty ident name" (see issue #147). Local scope (not
+          # --global) is the narrowest surface that works: filter-repo's
+          # commit-tree runs with cwd inside this clone, so git resolves
+          # identity from $WORK/src.git/config. The identity is rewritten
+          # by the mailmap pass, so the unverifiable .local email is by
+          # design (it is not meant to resolve to a real GitHub account).
+          git config user.name 'public-mirror'
+          git config user.email 'public-mirror@__GH_REPO__.local'
+          # NOTE: we do NOT use `git filter-repo --force` to bypass the
+          # freshness check. The maintainer argues against bypassing it; the
+          # correct fix is the --no-local clone above, which makes the clone
+          # genuinely fresh (count:0 packs:1). References: #163
+          # Deliberately do NOT add a named "mirror" remote here.
+          # git-filter-repo's freshness check (sanity_check, source
+          # ~lines 3461-3465 in 2.47.0) aborts the from-scratch path
+          # unless `git remote` outputs exactly "origin". A second
+          # named remote trips that guard. We therefore read the
+          # persisted state/meta branches by operating on $MIRROR_URL
+          # directly (ls-remote/fetch against a URL do not create a
+          # remote), run filter-repo while the clone is still pristine,
+          # and add the "mirror" remote only afterward (below) for the
+          # push step. See issue #144.
+          # Compute a fingerprint of the filter inputs so we can
+          # detect config changes that invalidate the persisted marks.
+          # If paths.allowlist, mailmap, gitignore.mirror, or the
+          # replacement RULES changed since the last run, filter-repo's
+          # previously-computed SHAs no longer reflect the current
+          # filter, and we must refilter from scratch. gitignore.mirror
+          # belongs in this set because its content becomes the mirror's
+          # `.gitignore` blob via the rename directive in paths.allowlist
+          # (see the MANDATORY note below): editing it changes the
+          # `.gitignore` filter-repo produces, so persisted marks would
+          # go stale — the silent-staleness class issue #208 fixed.
+          #
+          # We hash the CLEANED rule set, not the raw replacements.txt:
+          # the same allow-list grep used to build replacements.clean.txt
+          # below is applied inline here, so the fingerprint reflects
+          # exactly the bytes filter-repo consumes. A comment-only or
+          # blank-line edit to replacements.txt therefore does NOT change
+          # the fingerprint and does NOT trigger a consumer-facing refilter
+          # + force-push. The grep is applied inline (not by reading the
+          # generated replacements.clean.txt, which does not exist yet at
+          # this point) so this stays self-contained and does not entangle
+          # with the freshness / state-branch ordering below. `|| true`
+          # guards grep's non-zero exit on zero matches under `set -euo
+          # pipefail`.
+          #
+          # gitignore.mirror is in the fingerprint and this is MANDATORY
+          # (issue #208). That file is renamed to root `.gitignore` on
+          # the mirror by a rename directive in paths.allowlist, so its
+          # CONTENT determines the `.gitignore` blob filter-repo produces.
+          # But editing gitignore.mirror does NOT change paths.allowlist,
+          # so without hashing it here the fingerprint would not bump: the
+          # persisted marks would be reused and the mirror's `.gitignore`
+          # would go stale relative to gitignore.mirror — the same
+          # silent-staleness bug class that has already cost multiple
+          # debugging cycles. The static CONTRIBUTORS is deliberately NOT
+          # in the fingerprint: it is a normally-tracked source file, so
+          # editing it is a source commit that advances source history and
+          # is handled by filter-repo's normal incremental path (no
+          # marks-staleness concern).
+          LIVE_FP=$( { cat "$CONF/paths.allowlist" "$CONF/mailmap" "$CONF/gitignore.mirror"; \
+                       grep -E '^(literal:|regex:|glob:)' "$CONF/replacements.txt" || true; } \
+                     | sha256sum | awk '{print $1}')
+          echo "Live filter-input fingerprint: $LIVE_FP"
+          # Probe the mirror for the persisted state and meta branches.
+          # We query $MIRROR_URL directly rather than via a named remote
+          # so the clone keeps exactly one remote ("origin") at the time
+          # filter-repo runs (see the freshness-check note above).
+          # Both branches are absent on the very first run. `git ls-remote`
+          # exits 0 with empty output when the ref does not exist, so the
+          # assignment safely yields an empty string and the
+          # `if [ -n "$..._REMOTE_SHA" ]` guards below handle the
+          # first-run case. ls-remote does not write objects, so a
+          # missing lookup is cheap and harmless.
+          STATE_REMOTE_SHA=$(git ls-remote "$MIRROR_URL" "refs/heads/$STATE_BRANCH" | awk '{print $1}')
+          META_REMOTE_SHA=$(git ls-remote "$MIRROR_URL" "refs/heads/$META_BRANCH" | awk '{print $1}')
+          STORED_FP=""
+          if [ -n "$META_REMOTE_SHA" ]; then
+            git fetch "$MIRROR_URL" "refs/heads/$META_BRANCH:refs/heads/$META_BRANCH"
+            STORED_FP=$(git show "refs/heads/$META_BRANCH:inputs.sha256" 2>/dev/null || true)
+            echo "Stored filter-input fingerprint: $STORED_FP"
+          else
+            echo "No meta branch on mirror yet (first run with --state-branch)."
+          fi
+          if [ -n "$STATE_REMOTE_SHA" ]; then
+            git fetch "$MIRROR_URL" "refs/heads/$STATE_BRANCH:refs/heads/$STATE_BRANCH"
+          else
+            echo "No state branch on mirror yet (first run with --state-branch)."
+          fi
+          # Fetch the mirror's main into a local anchor ref so all
+          # reachable target-side objects (commits, trees, blobs) are
+          # present in the bare clone's object store. Without these,
+          # filter-repo's --import-marks=target-marks fails with
+          # "fatal: object not found" because the target-marks SHAs are
+          # public-side objects that only exist on the mirror.
+          # Probe with ls-remote first so the very first run (where the
+          # mirror's main doesn't exist yet) is a no-op rather than a
+          # fetch error. References: #196
+          MIRROR_MAIN_SHA=$(git ls-remote "$MIRROR_URL" "refs/heads/main" | awk '{print $1}')
+          if [ -n "$MIRROR_MAIN_SHA" ]; then
+            git fetch "$MIRROR_URL" "refs/heads/main:refs/heads/_mirror_anchor"
+          else
+            echo "No main on mirror yet (first run); skipping anchor fetch."
+          fi
+          # Fetch the blob-anchor ref (if it exists) into a local ref.
+          # filter-repo's --replace-text creates scrubbed replacement
+          # blobs for every blob it processes via fast-import. These
+          # blobs get marks in target-marks but have no tree entry — they
+          # are unreachable from any ref. Git's transfer protocol only
+          # sends reachable objects, so without this synthetic anchor ref
+          # those blobs would be lost between runs, causing
+          # "fatal: object not found" on the next incremental run.
+          # References: #196
+          BLOBS_SHA=$(git ls-remote "$MIRROR_URL" "refs/heads/filter-repo-blobs" | awk '{print $1}')
+          if [ -n "$BLOBS_SHA" ]; then
+            git fetch "$MIRROR_URL" "refs/heads/filter-repo-blobs:refs/heads/_target_blobs"
+          else
+            echo "No blob anchor on mirror yet (first run); skipping blob fetch."
+          fi
+          # Decide whether to honor the persisted marks. We honor them
+          # only if all three conditions hold: (1) the state branch is
+          # present, (2) the fingerprint matches, and (3) the SHAs in
+          # target-marks resolve in this clone. Any mismatch (or missing
+          # meta, or unresolvable marks) means stale marks: delete the
+          # local state branch so filter-repo starts clean, then write
+          # the new fingerprint. The push step at the end force-pushes
+          # the state and meta branches in lockstep.
+          REFILTER_REASON=""
+          if [ -z "$STATE_REMOTE_SHA" ]; then
+            REFILTER_REASON="first run (no state branch on mirror)"
+          elif [ -z "$STORED_FP" ]; then
+            REFILTER_REASON="meta branch missing or unreadable on mirror"
+          elif [ "$LIVE_FP" != "$STORED_FP" ]; then
+            REFILTER_REASON="filter inputs changed (paths.allowlist, mailmap, gitignore.mirror, or replacement rules edited; comment-only edits to replacements.txt do not count)"
+          fi
+          # Self-healing target-marks validation: if we have a state
+          # branch and none of the checks above triggered a refilter,
+          # verify that the SHAs in target-marks actually resolve in
+          # this clone. If any are missing, the marks are invalid for
+          # incremental use (e.g. a prior from-scratch refilter orphaned
+          # the objects) and we need a fresh refilter. This replaces a
+          # one-time manual refilter block that would silently defeat
+          # incremental support if left in. References: #196, #197
+          if [ -z "$REFILTER_REASON" ] && [ -n "$STATE_REMOTE_SHA" ]; then
+            if git show "$STATE_BRANCH:target-marks" >/dev/null 2>&1; then
+              MARK_SHAS=$(git show "$STATE_BRANCH:target-marks" | awk '{print $2}')
+              MISSING=$(echo "$MARK_SHAS" \
+                | git cat-file --batch-check='%(objectname) %(objecttype)' \
+                | grep ' missing$' || true)
+              if [ -n "$MISSING" ]; then
+                MISSING_COUNT=$(echo "$MISSING" | wc -l | tr -d ' ')
+                REFILTER_REASON="target-marks contain $MISSING_COUNT unresolvable SHAs; state branch is invalid for incremental use"
+              fi
+            fi
+          fi
+          if [ -n "$REFILTER_REASON" ]; then
+            echo "::warning::Refiltering from scratch: $REFILTER_REASON."
+            echo "::warning::This run will force-push the mirror's main and rewrite all public SHAs."
+            echo "::warning::Consumers of the mirror need a one-time 'git fetch && git reset --hard origin/main'."
+            # Delete the local state branch (if we fetched one) so
+            # filter-repo doesn't inherit stale marks. The first run
+            # case has no local branch to delete, hence `|| true`.
+            git update-ref -d "refs/heads/$STATE_BRANCH" || true
+          else
+            echo "Filter inputs unchanged; reusing persisted marks from state branch."
+          fi
+          # Run filter-repo. --state-branch persists fast-import marks
+          # so unchanged source commits keep their previously-computed
+          # public SHAs across runs. --prune-empty=never sidesteps a
+          # documented interaction (filter-repo source ~lines 2233-2249)
+          # where empty-commit pruning fights with --state-branch.
+          # Trade-off: source commits that touch only excluded paths
+          # (.claude/, designs/, memory/, etc.) appear in the public
+          # mirror as empty commits with their original commit messages
+          # intact. This leaks two things about activity on excluded
+          # paths: the timing (commit dates) AND the commit message
+          # contents (which may name excluded directories or describe
+          # the change). The accepted cost for SHA stability; the diff
+          # payload itself stays excluded.
+          # Reduce replacements.txt to real rule lines before feeding it
+          # to filter-repo (see the ALLOW-LIST note below for how).
+          # git-filter-repo's --replace-text
+          # and --replace-message parsers do NOT skip `#`-prefixed lines
+          # (unlike --paths-from-file), so a bare `#` line would parse as
+          # the literal rule `# -> ***REMOVED***` and corrupt every `#` in
+          # every mirrored blob and commit message (shebangs, comments,
+          # markdown headings). See issue #157. We write the cleaned copy
+          # alongside the source file in the checkout (NOT the bare clone)
+          # and point both flags at it. The cleaned file is a runtime CI
+          # artifact: it lives under $CONF (the .github/public-mirror dir,
+          # which is not on paths.allowlist) so it never reaches the
+          # mirror, and it is never committed.
+          #
+          # ALLOW-LIST, not deny-list: every rule in replacements.txt
+          # carries an explicit filter-repo prefix (literal:/regex:/glob:),
+          # so we keep ONLY prefixed lines rather than dropping `#` lines.
+          # A deny-list `grep -v '^#'` would wrongly strip a rule whose
+          # match-text begins with `#` (e.g. `literal:#foo==>bar`); the
+          # allow-list keeps it. Keeping only prefixed lines also drops
+          # comments and blank lines for free. `|| true` guards against
+          # grep's non-zero exit on zero matches: under `set -euo
+          # pipefail` (set at the top of this step) an all-comment file
+          # would otherwise abort the workflow. A silently-empty clean
+          # file is the safer degenerate outcome — the rule set is config
+          # the maintainer controls.
+          grep -E '^(literal:|regex:|glob:)' "$CONF/replacements.txt" > "$CONF/replacements.clean.txt" || true
+          # PERMANENT instrumentation (issue #202). Echo all refs after
+          # the state/meta/anchor/blob fetches so the exact pre-filter ref
+          # state is visible in the log. This is the same class of
+          # debugging as the #181 freshness-check diagnostics below.
+          echo "=== POST-FETCH refs ==="
+          git show-ref | sort
+          # Fold loose objects left by the state/meta/anchor/blob fetches
+          # above into the single pack so filter-repo's freshness check
+          # passes. The --no-local bare clone starts pristine (count:0
+          # packs:1), but the `git fetch "$MIRROR_URL"` calls for the
+          # state, meta, anchor, and blob branches write loose objects
+          # into the clone (the fetch
+          # transfer protocol for a single-ref fetch often stores objects
+          # loose rather than as a packfile). filter-repo's sanity_check
+          # (~12 conditions) aborts on any loose non-replace-ref objects.
+          # `git gc --prune=now` is the widest cleanup tool: it normalizes
+          # packs, loose objects, reflogs, and refs in one pass — the
+          # maintainer-prescribed remediation per filter-repo issue #38,
+          # which covers more of the freshness heuristic than
+          # `git repack -ad` alone. `--prune=now` removes any dependence
+          # on the 2-week default prune grace period, so the fix holds
+          # regardless of object reference timing. On a disposable bare
+          # clone that exists only to be filtered and discarded, the usual
+          # cost/risk of the wide tool is nil. The earlier #160/#162
+          # `git gc` failed not because gc was the wrong tool, but because
+          # it ran BEFORE the state/meta fetches (commit 25e051f placed it
+          # at the identity-config block); placed AFTER the fetches, it is
+          # the correct fix. Confirmed by the #183 probe data: cycle 3
+          # (git gc --prune=now, post-fetch) yielded count:0 packs:1.
+          # The #181 diagnostics block below will print count:0 packs:1
+          # on a normal run, confirming the clone is fresh.
+          # References: #160, #162, #163, #181, #183
+          git gc --prune=now
+          # PERMANENT instrumentation (issue #181). filter-repo's
+          # sanity_check (source ~lines 3394-3500) aborts a from-scratch
+          # run with "this does not look like a fresh clone" when any of
+          # ~12 conditions holds, and the only reliable diagnosis is the
+          # runner's own state at this exact point: AFTER the state/meta
+          # fetches above and immediately BEFORE filter-repo runs its
+          # check. Off-runner testing has repeatedly disagreed with the
+          # runner (see #160/#162, #163/#164), so this block stays in
+          # permanently to report the actual pre-filter inputs every run.
+          # Every command here is READ-ONLY — no gc/repack/prune/fetch/
+          # config-write — so it has zero effect on the clone or the
+          # filter. Each probe that can legitimately exit non-zero (config
+          # --get on an unset key, show-ref on an absent ref, find on a
+          # missing logs dir) is guarded with `|| echo ...` so it cannot
+          # abort the step under this step's `set -euo pipefail` before
+          # filter-repo gets a chance to report.
+          echo "===== filter-repo freshness diagnostics (issue #181) ====="
+          echo "[1-2] git-dir + bare:"; git rev-parse --git-dir --is-bare-repository
+          echo "[3-4] core.ignorecase / core.precomposeunicode:"
+          git config --get core.ignorecase || echo "  (unset)"
+          git config --get core.precomposeunicode || echo "  (unset)"
+          echo "[5] count-objects -v:"; git count-objects -v
+          echo "[6] remotes:"; git remote -v
+          echo "[7] reflog entry counts:"
+          find "$(git rev-parse --git-dir)/logs" -type f -exec sh -c 'echo "  $1: $(wc -l < "$1") lines"' _ {} \; 2>/dev/null || echo "  (no logs dir)"
+          echo "[8] stash ref:"; git show-ref refs/stash || echo "  (no stash)"
+          echo "[9-12] non-bare checks (expect N/A: bare):"
+          echo "  is-bare: $(git rev-parse --is-bare-repository)"
+          echo "  refs total: $(git show-ref | wc -l)"
+          echo "===== end diagnostics ====="
+          git filter-repo \
+            --paths-from-file "$CONF/paths.allowlist" \
+            --mailmap "$CONF/mailmap" \
+            --replace-text "$CONF/replacements.clean.txt" \
+            --replace-message "$CONF/replacements.clean.txt" \
+            --state-branch "$STATE_BRANCH" \
+            --prune-empty=never \
+            --refs refs/heads/main
+          # PERMANENT instrumentation (issue #202). Echo refs and the
+          # main branch's recent log after filter-repo completes, so we
+          # can see exactly what filter-repo produced. This is the same
+          # class of debugging as the #181 freshness-check diagnostics.
+          echo "=== POST-FILTER refs ==="
+          git show-ref | sort
+          echo "=== POST-FILTER main log ==="
+          git log --oneline --decorate -10 refs/heads/main || true
+          echo "=== POST-FILTER main vs _mirror_anchor ==="
+          echo "main:           $(git rev-parse refs/heads/main)"
+          echo "_mirror_anchor: $(git rev-parse refs/heads/_mirror_anchor 2>/dev/null || echo NONE)"
+          echo "merge-base:     $(git merge-base refs/heads/main refs/heads/_mirror_anchor 2>/dev/null || echo NONE)"
+          # filter-repo has run and the freshness check is behind us, so
+          # it is now safe to add the named "mirror" remote. The
+          # Push step reuses this remote; both steps operate inside
+          # $FILTERED. (Adding it earlier would make `git remote` output
+          # two lines and abort filter-repo's from-scratch sanity check —
+          # see issue #144.)
+          git remote add mirror "$MIRROR_URL"
+          # Build a synthetic commit that anchors all target-mark blobs
+          # so they survive the next run's fetch. target-marks contains
+          # both commit and blob SHAs interleaved; we use cat-file
+          # --batch-check to type-classify and build a tree from blobs
+          # only. Commit SHAs as 100644 entries would be interpreted as
+          # gitlinks/submodules, silently corrupting the tree.
+          # Pinned dates make the anchor commit's SHA deterministic when
+          # the blob set hasn't changed, so the push is a true no-op.
+          # References: #196
+          if git show "$STATE_BRANCH:target-marks" >/dev/null 2>&1; then
+            TYPES_FILE=$(mktemp)
+            git show "$STATE_BRANCH:target-marks" | awk '{print $2}' \
+              | git cat-file --batch-check='%(objectname) %(objecttype)' \
+              > "$TYPES_FILE"
+            # Assertion: only blobs and commits expected in target-marks
+            UNEXPECTED=$(awk '$2 != "blob" && $2 != "commit" {print}' "$TYPES_FILE")
+            if [ -n "$UNEXPECTED" ]; then
+              echo "::error::Unexpected object types in target-marks:"
+              echo "$UNEXPECTED"
+              exit 1
+            fi
+            BLOB_COUNT=$(awk '$2 == "blob"' "$TYPES_FILE" | wc -l | tr -d ' ')
+            if [ "$BLOB_COUNT" -gt 0 ]; then
+              ANCHOR_TREE=$(awk '$2 == "blob" {printf "100644 blob %s\tmark-%d\n", $1, NR}' \
+                "$TYPES_FILE" | git mktree)
+              ANCHOR_COMMIT=$(GIT_AUTHOR_DATE='2000-01-01T00:00:00Z' \
+                              GIT_COMMITTER_DATE='2000-01-01T00:00:00Z' \
+                              git commit-tree "$ANCHOR_TREE" \
+                                -m "Anchor $BLOB_COUNT unreachable target-mark blobs")
+              git update-ref "refs/heads/filter-repo-blobs" "$ANCHOR_COMMIT"
+              echo "Built blob anchor: $BLOB_COUNT blobs, commit $ANCHOR_COMMIT"
+            else
+              echo "No blobs in target-marks; skipping blob anchor."
+            fi
+            rm -f "$TYPES_FILE"
+          else
+            echo "No target-marks in state branch; skipping blob anchor."
+          fi
+          # Write the live fingerprint into the meta branch so the
+          # next run can detect a config change. We build a fresh
+          # single-commit meta branch each run (history is meaningless
+          # here — only the current fingerprint matters), keeping the
+          # meta ref small and rebuildable. Pinned dates keep the SHA
+          # deterministic when the fingerprint hasn't changed, so a
+          # no-op meta push is a true no-op.
+          export GIT_INDEX_FILE="${RUNNER_TEMP}/meta-idx"
+          rm -f "$GIT_INDEX_FILE"
+          FP_BLOB=$(printf '%s\n' "$LIVE_FP" | git hash-object -w --stdin)
+          git update-index --add --cacheinfo "100644,$FP_BLOB,inputs.sha256"
+          META_TREE=$(git write-tree)
+          unset GIT_INDEX_FILE
+          # Identity comes from the clone's local git config (set in the
+          # filter step above); no inline -c flags needed. The pinned
+          # GIT_*_DATE env stays — it keeps this commit's SHA deterministic
+          # so an unchanged fingerprint yields a true no-op meta push.
+          META_COMMIT=$(GIT_AUTHOR_DATE='2000-01-01T00:00:00Z' \
+                        GIT_COMMITTER_DATE='2000-01-01T00:00:00Z' \
+                        git commit-tree "$META_TREE" \
+                          -m "filter-repo inputs fingerprint: $LIVE_FP")
+          git update-ref "refs/heads/$META_BRANCH" "$META_COMMIT"
+          echo "FILTERED=$WORK/src.git" >> "$GITHUB_ENV"
+          echo "STATE_BRANCH=$STATE_BRANCH" >> "$GITHUB_ENV"
+          echo "META_BRANCH=$META_BRANCH" >> "$GITHUB_ENV"
+          echo "REFILTER_REASON=$REFILTER_REASON" >> "$GITHUB_ENV"
+
+      # The "Regenerate CONTRIBUTORS" and "Synthesize .gitignore" steps
+      # were removed in issue #208. They created commits ON TOP of
+      # filter-repo's output, which sat outside filter-repo's
+      # --state-branch marks and therefore made every source-change run
+      # diverge from the previous mirror tip and force-push, breaking
+      # consumers' `git pull`. Both files now ship THROUGH filter-repo:
+      # CONTRIBUTORS as a static tracked file on paths.allowlist, and the
+      # mirror `.gitignore` renamed in from gitignore.mirror via the
+      # rename directive in paths.allowlist. Nothing is now stacked on
+      # filter-repo's output, so routine runs fast-forward.
+
+      - name: Push to mirror
+        run: |
+          set -euo pipefail
+          cd "$FILTERED"
+          # The mirror remote was added in the filter step *after*
+          # filter-repo ran (it cannot exist before, or filter-repo's
+          # from-scratch freshness check aborts on a second remote — see
+          # issue #144). The state/meta branches were read earlier via
+          # the $MIRROR_URL directly, without a named remote. Reuse the
+          # remote here; do not re-add it.
+          # Defense-in-depth: if the mirror's current refs/heads/main
+          # already matches our new tip, do not push main. This catches
+          # any case the CONTRIBUTORS short-circuit above misses (and
+          # keeps no-op runs from moving the remote tip even if the
+          # filter output is identical for some other reason).
+          LOCAL_TIP=$(git rev-parse refs/heads/main)
+          REMOTE_TIP=$(git ls-remote mirror refs/heads/main | awk '{print $1}')
+          # PERMANENT instrumentation (issue #202). Echo the local and
+          # remote tips and their ancestry relationship so the push
+          # decision is fully legible in the log. Same class of debugging
+          # as the #181 freshness-check diagnostics.
+          echo "=== PUSH step: LOCAL_TIP=$LOCAL_TIP REMOTE_TIP=$REMOTE_TIP ==="
+          if [ -n "$REMOTE_TIP" ]; then
+            echo "=== PUSH step: merge-base = $(git merge-base $LOCAL_TIP $REMOTE_TIP 2>/dev/null || echo NONE) ==="
+            if git merge-base --is-ancestor $LOCAL_TIP $REMOTE_TIP 2>/dev/null; then
+              echo "LOCAL is ancestor of REMOTE (behind)"
+            else
+              echo "LOCAL is NOT ancestor of REMOTE"
+            fi
+            if git merge-base --is-ancestor $REMOTE_TIP $LOCAL_TIP 2>/dev/null; then
+              echo "REMOTE is ancestor of LOCAL (ahead)"
+            else
+              echo "REMOTE is NOT ancestor of LOCAL"
+            fi
+          fi
+          # Safety guard: if LOCAL is a strict ancestor of REMOTE (local tip is
+          # behind, remote has commits local doesn't), pushing — with or without
+          # --force — would regress the mirror. Force-pushing in this state would
+          # discard the remote's extra commits. Plain push would fail with
+          # non-fast-forward anyway. Fail fast with a clear message so the
+          # failure mode is legible in the log, rather than relying on git's
+          # ambiguous "non-fast-forward / behind" hint.
+          # References: #202, #208
+          if [ -n "$REMOTE_TIP" ] && [ "$LOCAL_TIP" != "$REMOTE_TIP" ] \
+             && git merge-base --is-ancestor "$LOCAL_TIP" "$REMOTE_TIP" 2>/dev/null; then
+            echo "::error::Local main ($LOCAL_TIP) is a strict ancestor of remote main ($REMOTE_TIP)."
+            echo "::error::Pushing would regress the mirror. Refusing to push."
+            echo "::error::This indicates a bug in the workflow: filter-repo"
+            echo "::error::failed to advance main past the remote's current tip. Check the"
+            echo "::error::POST-FETCH and POST-FILTER diagnostics above to localize where"
+            echo "::error::main stopped advancing. Since issue #208 nothing is stacked on"
+            echo "::error::filter-repo's output, so the mirror tip IS filter-repo's output."
+            exit 1
+          fi
+          # Asymmetric -n guard is deliberate: LOCAL_TIP is guaranteed
+          # non-empty (git rev-parse without --verify hard-fails under
+          # set -e if refs/heads/main is missing locally), while
+          # REMOTE_TIP is legitimately empty on a fresh mirror that has
+          # no refs/heads/main yet (bootstrap case — fall through to
+          # the push so the mirror gets its first commit).
+          if [ -n "$REMOTE_TIP" ] && [ "$LOCAL_TIP" = "$REMOTE_TIP" ]; then
+            echo "Mirror refs/heads/main already at $LOCAL_TIP; nothing to push to main."
+          else
+            if [ -n "$REFILTER_REASON" ]; then
+              echo "Refilter run — force-pushing main (history was rewritten)."
+              git push --force mirror refs/heads/main:refs/heads/main
+            else
+              echo "Incremental run — pushing main as fast-forward."
+              git push mirror refs/heads/main:refs/heads/main
+            fi
+          fi
+          # Always push the state, meta, and blob-anchor branches. They
+          # are bookkeeping for the next run; their tips legitimately
+          # change every run that produces filter-repo work (state
+          # branch), recomputes the fingerprint (meta branch — same SHA
+          # when fingerprint is unchanged, so this is a true no-op then),
+          # or updates the target-mark blob set (blob anchor — same SHA
+          # when the blob set is unchanged). Force-push because
+          # filter-repo may rewrite the state branch on a refilter, and
+          # the meta branch gets rebuilt fresh each run. The blob-anchor
+          # push is conditional: the ref may not exist on the first run
+          # or when target-marks contains no blobs.
+          PUSH_REFS=("refs/heads/$STATE_BRANCH:refs/heads/$STATE_BRANCH"
+                     "refs/heads/$META_BRANCH:refs/heads/$META_BRANCH")
+          if git show-ref --verify --quiet "refs/heads/filter-repo-blobs"; then
+            PUSH_REFS+=("refs/heads/filter-repo-blobs:refs/heads/filter-repo-blobs")
+          fi
+          git push --force mirror "${PUSH_REFS[@]}"

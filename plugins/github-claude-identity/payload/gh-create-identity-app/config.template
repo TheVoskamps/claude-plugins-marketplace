@@ -1,0 +1,22 @@
+# Template for /gh-create-identity-app. Rendered into the un-mirrored
+# per-machine location:
+#   ~/.config/claude-github-app/config   (chmod 600)
+#
+# Placeholders (see ${CLAUDE_PLUGIN_ROOT}/payload/README.md for the convention):
+#   __APP_ID__           numeric GitHub App ID (from the App settings page)
+#   __INSTALLATION_ID__  numeric installation ID (install URL ends /installations/<id>)
+#   __APP_SLUG__         the App slug (from the App settings URL)
+#   __BOT_NAME__         display name, conventionally "<slug>[bot]"
+#   __BOT_EMAIL__        "<APP_ID>+<APP_SLUG>[bot]@users.noreply.github.com"
+#                        — this EXACT format earns the [bot] commit badge AND
+#                        is the "is this an App repo?" signal the hook keys on.
+#
+# CRITICAL: the rendered file holds your App identifiers and lives with
+# the private key in the un-mirrored ~/.config/claude-github-app/. It is
+# NEVER committed or mirrored. Only this placeholder template ships.
+APP_ID=__APP_ID__
+INSTALLATION_ID=__INSTALLATION_ID__
+APP_SLUG=__APP_SLUG__
+BOT_NAME="__BOT_NAME__"
+BOT_EMAIL="__BOT_EMAIL__"
+PRIVATE_KEY=~/.config/claude-github-app/private-key.pem

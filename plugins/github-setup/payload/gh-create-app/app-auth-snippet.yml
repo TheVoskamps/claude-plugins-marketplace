@@ -1,0 +1,38 @@
+# Template for /gh-create-app. This is a REFERENCE snippet, not a
+# complete workflow. The skill shows it to the user (rendered with the
+# resolved secret names) as the canonical way to mint an installation
+# token for the App and expose it to downstream steps. Consuming skills
+# (e.g. /gh-repo-setup-pr-automation) embed this pattern in their own
+# workflow files; /gh-create-app does not write a workflow file itself.
+#
+# Placeholders (see the github-setup plugin payload README for the convention):
+#   __APP_NAME__                GitHub App slug used for automation
+#   __APP_ID_SECRET__           secret holding the App ID
+#   __APP_PRIVATE_KEY_SECRET__  secret holding the App private key
+#
+# The pinned action SHA matches the one used elsewhere in this repo's
+# payloads (gh-repo-setup-pr-automation) so a single bump updates all
+# consumers. Auth model: App ID + private key in secrets, a short-lived
+# installation token minted per run by actions/create-github-app-token.
+# There is no long-lived "App token" to store.
+
+# Step: mint the installation token. Place this before any step that
+# needs to act as the App "__APP_NAME__".
+- name: Mint App installation token
+  id: app-token
+  uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+  with:
+    app-id: ${{ secrets.__APP_ID_SECRET__ }}
+    private-key: ${{ secrets.__APP_PRIVATE_KEY_SECRET__ }}
+
+# Step: use the token. Expose it as GH_TOKEN (for the gh CLI) or pass
+# steps.app-token.outputs.token to any action that takes a token input.
+- name: Do privileged work as the App
+  env:
+    GH_TOKEN: ${{ steps.app-token.outputs.token }}
+  run: |
+    set -euo pipefail
+    # Representative call: confirm the token acts as the App. The
+    # installation-token whoami is the /installation endpoint's app slug;
+    # a simpler smoke test is any API the App's permissions allow, e.g.:
+    gh api "/repos/${{ github.repository }}" --jq '.full_name'

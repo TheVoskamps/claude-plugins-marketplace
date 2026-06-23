@@ -1,0 +1,6 @@
+{
+  "name": "git-tools",
+  "description": "Git and dev utilities: clean up merged branches and stale worktrees, generate unit tests.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}

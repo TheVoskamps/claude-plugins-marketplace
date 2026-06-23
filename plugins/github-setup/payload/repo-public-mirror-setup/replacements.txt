@@ -1,0 +1,46 @@
+# filter-repo replacement rules for the public mirror.
+#
+# Used for BOTH --replace-text (blob content) and --replace-message
+# (commit messages) in .github/workflows/public-mirror.yml when the
+# workflow is configured to scrub identifiers. The same file drives
+# both passes.
+#
+# COMMENTS ARE SAFE HERE ONLY BECAUSE OF A STRIPPING STEP. Before
+# git filter-repo reads this file, the workflow keeps only real rule
+# lines via an ALLOW-LIST grep
+# (grep -E '^(literal:|regex:|glob:)') to produce
+# replacements.clean.txt, and points filter-repo at that cleaned copy.
+# git filter-repo --replace-text does NOT itself skip `#` lines: a bare
+# `#` line fed directly to filter-repo parses as the literal rule
+# `# -> ***REMOVED***`, corrupting every `#` in every mirrored file
+# (shebangs, comments, markdown headings). That was the bug in
+# issue #157.
+#
+# EVERY RULE MUST CARRY AN EXPLICIT PREFIX: literal:, regex:, or glob:.
+# The workflow keeps ONLY lines that start with one of those prefixes,
+# which is what drops comments and blank lines. It is also precisely
+# what lets a rule's match-text safely BEGIN with `#`: a deny-list
+# (grep -v '^#') would wrongly strip `literal:#foo==>bar`, but the
+# allow-list keeps it because the line starts with `literal:`. A rule
+# line WITHOUT one of these prefixes is silently dropped and will not
+# take effect — always prefix.
+#
+# So: do NOT remove the stripping step in the workflow, and do NOT
+# point filter-repo directly at this file.
+#
+# ORDERING MATTERS: filter-repo applies replacements in file order.
+# Compound strings (full cluster names, full <RoleName>-<AccountID>
+# SSO profiles) MUST be listed before any prefix or substring that
+# would also match them. Blanket prose sweeps for a bare project token
+# come LAST so the specific compound identifiers above are matched
+# first and only residual prose occurrences reach those rules.
+#
+# This template ships with NO concrete rules — the starter set is empty
+# because redaction rules are inherently repo-specific. Add `literal:`,
+# `regex:`, or `glob:` rules below, following the examples in the
+# header above. A mirror with no sensitive identifiers in history may
+# leave this file rule-free (the allowlist filter is the primary
+# fail-safe; replacements scrub identifiers that survive the allowlist
+# inside shipped files).
+
+# --- repo-specific replacement rules (add below) ---

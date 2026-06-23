@@ -1,0 +1,44 @@
+# This is the mirror's root .gitignore, maintained as a STATIC file.
+#
+# It is renamed to repo-root `.gitignore` on the mirror by the
+# path-rename directive in `paths.allowlist`
+# (`.github/public-mirror/gitignore.mirror==>.gitignore`), so it ships
+# inside filter-repo's own commit rather than as a synthesized commit
+# stacked on top of filter-repo's output. Stacking a synth commit on
+# top of filter-repo's output is exactly what made every source-change
+# run diverge from the previous mirror tip and force-push, breaking
+# consumers' `git pull`. Shipping it through filter-repo keeps the
+# mirror fast-forwarding on routine runs.
+#
+# This file MUST be kept in sync BY HAND with what `paths.allowlist`
+# ships. When you add or remove a shipped path in `paths.allowlist`,
+# add or remove the matching `!/<path>` un-ignore line here. It is NOT
+# regenerated from `paths.allowlist` at runtime — runtime generation is
+# what required a post-filter synth step in the first place; a static
+# file removes that need entirely.
+#
+# The mirror needs its OWN .gitignore (not the source repo's root
+# .gitignore): the source's .gitignore un-ignores paths that exist in
+# the private repo but are deliberately EXCLUDED from the mirror by
+# `paths.allowlist`. Shipping the source .gitignore would make a
+# consumer's `git status` reference un-ignore rules for paths that do
+# not exist in their clone. This file un-ignores exactly the mirror's
+# shipped set and nothing else.
+#
+# The list below covers only the required starter set. When you add a
+# repo-specific path to `paths.allowlist`, add a matching `!/<path>`
+# line here (and a recursive `!/<dir>**` line for directories).
+
+# Ignore everything by default, then un-ignore shipped files.
+/*
+
+# The .gitignore itself must not be ignored.
+!/.gitignore
+
+# Shipped paths (keep in sync with paths.allowlist):
+!/README.md
+!/LICENSE
+!/PATENTS
+!/PRIOR_ART.md
+!/CODEOWNERS
+!/CONTRIBUTORS

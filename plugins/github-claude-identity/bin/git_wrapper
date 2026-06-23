@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Run `git` as the Claude GitHub App identity for ONE invocation by
+# injecting the bot identity (user.name / user.email) and the App-token
+# credential helper via `-c` overrides. Falls through to plain `git`
+# when the App identity isn't configured on this machine.
+#
+# Stateless by design: it writes no persistent git config, touches
+# neither the repo's local config nor ~/.gitconfig, and works even in a
+# repo that was never run through init-repo.sh. The credential helper it
+# wires (credential-helper.sh) shells out to get-token.sh to mint a
+# fresh installation token per call, so pushes/fetches authenticate as
+# the App.
+#
+# Caveat: git ignores a credential helper on SSH remotes, so on an
+# SSH-origin repo the injected credential helper is bypassed and pushes
+# authenticate with the user's SSH key, NOT the bot. The identity
+# injection (user.name / user.email) still applies, but bot-attributed
+# git on such a repo requires running init-repo.sh first, which switches
+# the origin to HTTPS.
+set -euo pipefail
+CONFIG_DIR="$HOME/.config/claude-github-app"
+TOKEN_SCRIPT="$CONFIG_DIR/get-token.sh"
+CONFIG_FILE="$CONFIG_DIR/config"
+CRED_HELPER="$CONFIG_DIR/credential-helper.sh"
+if [[ -x "$TOKEN_SCRIPT" && -f "$CONFIG_FILE" && -x "$CRED_HELPER" ]]; then
+  # shellcheck source=/dev/null
+  source "$CONFIG_FILE"
+  # A hand-edited config missing either identity var should fall through
+  # to plain git rather than erroring out under `set -u`. Test with the
+  # `:-` default so the guard itself doesn't trip the unbound-variable
+  # error it exists to prevent.
+  if [[ -z "${BOT_NAME:-}" || -z "${BOT_EMAIL:-}" ]]; then
+    exec git "$@"
+  fi
+  exec git \
+    -c user.name="$BOT_NAME" \
+    -c user.email="$BOT_EMAIL" \
+    -c credential.helper="$CRED_HELPER" \
+    "$@"
+else
+  exec git "$@"
+fi

@@ -1,0 +1,141 @@
+# Dependency-install-gate workflow rendered by /gh-repo-setup-protection.
+#
+# Installed at <repo-root>/.github/workflows/dependency-install-gate.yml
+# (alongside its sibling script at
+# <repo-root>/.github/scripts/dependency-install-gate.sh) ONLY when the
+# target repo actually has a matching manifest for at least one of the
+# four package managers below (see SKILL.md "Step 5c"). A repo with none
+# of them must NOT get this file: a gate whose jobs never find a manifest
+# is dead weight.
+#
+# Four independent, PER-PACKAGE-MANAGER jobs (`npm`, `pip`, `pnpm`,
+# `yarn`). Each Node package manager keys off its OWN lockfile
+# (npm -> package-lock.json, pnpm -> pnpm-lock.yaml, yarn -> yarn.lock),
+# so a pnpm/yarn repo is gated by the right tool instead of silently
+# passing an npm-only check (the dead-check / false-assurance bug this
+# rendering fixes).
+#
+# PER-JOB RENDERING (the unit of toggling). Each job block below is
+# wrapped in `# >>> JOB:<pm>` / `# <<< JOB:<pm>` delimiter comments. The
+# skill INCLUDES a job's block only when the target repo actually has
+# that PM's manifest, and DROPS the whole block (delimiters and all)
+# otherwise — so a toggled-off PM never runs and is never a required
+# check (see SKILL.md "Step 5c → per-job rendering"). The delimiter
+# comment lines are themselves stripped from every shipped block; the
+# rendered file contains only real jobs, no markers.
+#
+# Purpose: block a drifted package.json/<lockfile> (or an unresolvable
+# requirements pin) from auto-merging into the default branch.
+# Dependabot PRs and hand edits can desync a lockfile from its manifest;
+# without a PR-time gate the desync merges and breaks local dev and
+# downstream pipelines. Proven against ExampleProject's
+# example-app-repo workflow.
+#
+# Install-integrity ONLY -- there is NO build step (`npm run build`,
+# `cdk synth`, etc.); build coverage is out of scope. The discovery +
+# run-all-then-fail logic lives in the sibling script
+# .github/scripts/dependency-install-gate.sh.
+#
+# Hardening invariants (do not regress these — see issue #222 item 9):
+#   - Every action is SHA-pinned (a floating @v4/@v5 tag is a supply-
+#     chain risk; the trailing comment records the human-readable tag).
+#   - `permissions: contents: read` (least privilege; the gate only
+#     reads the tree).
+#   - Each job checks out github.event.pull_request.head.sha so the
+#     gate validates the PR head, not a merge commit.
+#   - Every package-manager job blocks install/build lifecycle scripts
+#     (an arbitrary-code-execution vector from a malicious/compromised
+#     lockfile entry): npm `--ignore-scripts`, pnpm `--ignore-scripts`,
+#     yarn `--ignore-scripts` (v1) / `--mode=skip-build` (Berry). The
+#     integrity check never needs scripts to run, so none are allowed.
+#
+# Placeholders:
+#   __DEFAULT_BRANCH__   Default branch of the target repo. The gate
+#                        runs on pull_request events targeting it.
+name: dependency-install-gate
+
+on:
+  pull_request:
+    branches: [__DEFAULT_BRANCH__]
+
+# Least-privilege: the gate only reads the tree to replay lockfiles and
+# run the resolver pre-flight. No write scopes are needed.
+permissions:
+  contents: read
+
+jobs:
+# >>> JOB:npm
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Strict npm install over discovered lockfiles
+        run: bash .github/scripts/dependency-install-gate.sh npm
+# <<< JOB:npm
+
+# >>> JOB:pnpm
+  pnpm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Strict pnpm install over discovered pnpm-lock.yaml files
+        run: bash .github/scripts/dependency-install-gate.sh pnpm
+# <<< JOB:pnpm
+
+# >>> JOB:yarn
+  yarn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Strict yarn install over discovered yarn.lock files
+        run: bash .github/scripts/dependency-install-gate.sh yarn
+# <<< JOB:yarn
+
+# >>> JOB:pip
+  pip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Strict pip resolver pre-flight over discovered requirements
+        run: bash .github/scripts/dependency-install-gate.sh pip
+# <<< JOB:pip

@@ -1,0 +1,81 @@
+# Invert: .gitignore everything, so invert what we want to NOT .gitignore
+/*
+
+# Standard Repo Files
+!.gitignore
+!.github/
+!.github/**
+# Belt-and-braces: re-ignore the public-mirror workflow's runtime
+# artifact so it can never be accidentally committed from the source
+# tree. The .github/** un-ignore above would otherwise make this
+# generated file git-add-able. This negation must come AFTER that
+# un-ignore — gitignore is last-match-wins (see issue #157 / PR #159).
+.github/public-mirror/replacements.clean.txt
+!/LICENSE
+!/PATENTS
+!/PRIOR_ART.md
+!/README.md
+!/CLAUDE.md
+!/.markdownlint.jsonc
+# Static informational file shipped to the public mirror through
+# git-filter-repo (issue #208). Must be tracked here so it ships.
+!/CONTRIBUTORS
+
+# Marketplace content — whitelist the manifest and plugin directories,
+# ignore everything else by default. New tooling-generated dirs (cache,
+# sessions, projects, todos, ...) stay ignored unless added here.
+# Re-including a file inside an ignored dir requires un-ignoring each
+# parent first (git's negation rule).
+!/.claude-plugin/
+!/.claude-plugin/**
+!/plugins/
+!/plugins/**
+!/docs/
+!/docs/**
+
+# Per-repo config for /issue-address and friends. Lives in the
+# *nested* .claude/ (this repo's root IS ~/.claude, so .claude/ here
+# is the per-repo config for using ~/.claude on itself). Each parent
+# must be un-ignored before the file becomes visible to git.
+!/.claude/
+!/.claude/rules/
+!/.claude/rules/repo-config.md
+
+# Always ignore local/temp/backup/lock files anywhere under .claude/,
+# even inside whitelisted directories
+/**/*.local.*
+/**/*.backup.*
+/**/*.lock
+/**/tmp/
+/**/worktrees/
+
+# Repo-root CLAUDE override files (sibling to CLAUDE.md)
+/CLAUDE.local.*
+
+# Backup files from Claude setup
+*.backup.*
+
+#
+# Below this should be excluded, but it is belt-and-braces
+#
+
+# macOS Finder metadata and temp dirs
+.DS_Store
+__MACOSX/
+
+# macOS system files
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Git repo metadata
+.git/
+
+# Misc
+*.log
+*.tmp
+
+#VSCode swapfile
+*.swp
+

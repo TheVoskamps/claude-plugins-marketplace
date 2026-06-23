@@ -1,0 +1,46 @@
+# Allowlist for the public mirror.
+#
+# Lines starting with `#` and blank lines are ignored. Every other
+# line is a path or path prefix passed to `git-filter-repo
+# --paths-from-file`. Anything not matched is excluded from the
+# mirror (fail-safe for new sensitive files).
+#
+# The starting set below contains the files this skill requires to
+# be present in the mirror. Add repo-specific paths below the
+# marker. Audit additions carefully — paths NOT on this list are
+# excluded, but paths that ARE on this list ship verbatim.
+
+# --- required (do not remove) ---
+README.md
+LICENSE
+PATENTS
+PRIOR_ART.md
+CODEOWNERS
+CONTRIBUTORS
+
+# Do NOT ship `.github/workflows/public-mirror.yml`. Deploy keys cannot
+# write under `.github/workflows/` — the mirror push fails with
+# "refusing to allow an OAuth App to create or update workflow ...
+# without 'workflow' scope". The workflow is upstream-only plumbing.
+
+# Do NOT add the source repo's own root `.gitignore`, or most of
+# `.github/`. The source `.gitignore` un-ignores paths that exist in
+# the private repo but are deliberately EXCLUDED from the mirror, so a
+# consumer's `git status` would reference rules for paths absent from
+# their clone. The mirror ships a distinct, hand-maintained
+# `gitignore.mirror` (renamed to root `.gitignore` by the rename
+# directive below) instead. `.github/` is upstream-only plumbing — the
+# ONE exception is `.github/public-mirror/gitignore.mirror`.
+
+# --- repo-specific (add below) ---
+
+# --- mirror .gitignore: the ONE path under .github/ that survives ---
+# Select `.github/public-mirror/gitignore.mirror` AND rename it to
+# repo-root `.gitignore` on the mirror. filter-repo's
+# --paths-from-file consumes the `==>` rename directive inline. NOTE:
+# in the installed filter-repo version a rename directive does NOT by
+# itself select the source path — it selects *and* renames only when
+# the source path is ALSO present as a plain selection line, so list
+# the source path on its own line first, then the rename directive.
+.github/public-mirror/gitignore.mirror
+.github/public-mirror/gitignore.mirror==>.gitignore

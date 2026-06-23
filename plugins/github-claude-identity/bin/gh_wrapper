@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Run `gh` as the Claude GitHub App identity by minting a fresh
+# installation token per call. Falls through to plain `gh` when the
+# App identity isn't configured on this machine.
+set -euo pipefail
+TOKEN_SCRIPT="$HOME/.config/claude-github-app/get-token.sh"
+if [[ -x "$TOKEN_SCRIPT" ]]; then
+  GH_TOKEN="$("$TOKEN_SCRIPT")" exec gh "$@"
+else
+  exec gh "$@"
+fi

@@ -1,0 +1,6 @@
+{
+  "name": "cc-tools",
+  "description": "Claude Code meta-skills: load all global rules, and track Claude Code feature/bug watchlist status.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}

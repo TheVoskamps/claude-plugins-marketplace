@@ -1,0 +1,15 @@
+# Per-author mailmap used by the public-mirror workflow.
+#
+# Each line maps a private email to a `<localpart>@__GH_REPO__.local`
+# form. The `.local` TLD is RFC-reserved and non-routable, and
+# embedding the source repo short name makes the mirror's origin
+# obvious. `git-filter-repo --mailmap` rewrites author/committer
+# emails on every filtered commit.
+#
+# Add a new entry here when a new author appears in the source repo.
+#
+# This template ships with NO author entries — the skill seeds them at
+# install time from `git log --format='%aN <%aE>' | sort -u` in the
+# target repo, emitting one
+# `<Name> <local@__GH_REPO__.local> <local@original-domain>` line per
+# unique author. Do not invent entries here.

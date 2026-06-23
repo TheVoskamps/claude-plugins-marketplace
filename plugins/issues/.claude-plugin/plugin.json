@@ -1,0 +1,6 @@
+{
+  "name": "issues",
+  "description": "Issue tracker management: create, view, update, link, and set fields on issues across GitHub and Jira backends.",
+  "version": "0.2.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}

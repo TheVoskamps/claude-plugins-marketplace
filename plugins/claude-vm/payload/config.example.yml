@@ -1,0 +1,60 @@
+# claude-vm configuration (example).
+#
+# Two layers, both optional:
+#   global:   ~/.config/claude-vm/config.yml   (machine-wide defaults)
+#   per-repo: <repo>/.claude-vm/config.yml      (project-specific)
+#
+# Layering:
+#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*): repo overrides
+#     global; global fills gaps.
+#   - Lists (egress.allow, mounts): merged -- union of global + repo.
+#
+# NO SECRETS HERE. ANTHROPIC_VM_TOKEN is supplied as an env var and
+# passed to the guest at runtime; it is never read from or written to
+# this file.
+
+cpus: 4
+mem: 8192
+
+# guest_image is a normal scalar; a repo may override it. When unset,
+# the launcher uses a default build/cache location alongside the global
+# config dir (~/.config/claude-vm/images/guest.raw) and builds on demand.
+guest_image: /path/to/guest.raw
+
+repo:
+  mount: clone          # clone (default) | live
+  copy_back: local      # local (default) | none -- post-exit copy-back target
+
+proxy:
+  # A launcher command for your forward proxy. When UNSET, the launcher
+  # defaults to the bundled tinyproxy launcher
+  # (payload/proxy/tinyproxy-launch.sh), which reads the egress allowlist
+  # from $CLAUDE_VM_EGRESS_ALLOWLIST and binds $CLAUDE_VM_PROXY_PORT. Set
+  # this only to override the default with your own forward proxy; it must
+  # read the egress allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST (a
+  # newline-delimited host file the launcher writes from egress.allow
+  # below) rather than a hand-maintained allowlist baked into the command.
+  # cmd: "my-forward-proxy --allowlist-file $CLAUDE_VM_EGRESS_ALLOWLIST --port 3128"
+  port: 3128
+  host_alias: 192.168.127.254
+
+# Guest-image provisioner. When UNSET, the launcher defaults to the
+# bundled podman-mkosi provisioner (payload/provisioners/podman-mkosi.sh):
+# mkosi in a throwaway rootless podman container, producing a raw
+# EFI-bootable Debian guest. Override via the CLAUDE_VM_IMAGE_PROVISIONER
+# env var with a script taking <boot-launcher-path> <output-image-path>.
+# provisioner: podman-mkosi
+
+egress:
+  allow:                # outbound hosts permitted through the proxy
+    - api.anthropic.com
+    - github.com
+    - claude.ai
+
+mounts:                 # extra mounts beyond the repo auto-mount
+  - source: ~/.claude/policy
+    tag: policy
+    mode: ro
+  - source: ~/datasets/foo
+    tag: data
+    mode: ro

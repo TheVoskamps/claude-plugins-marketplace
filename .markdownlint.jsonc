@@ -1,0 +1,14 @@
+{
+  // Repo markdownlint config. Defaults on, with two MD013 carve-outs
+  // that reflect format realities, not error suppression:
+  //   - code_blocks: line-length is a prose constraint; shell/code in
+  //     fences can't be rewrapped to 80 cols without breaking it.
+  //   - tables: you cannot wrap inside a markdown table cell, so
+  //     line-length is undefined for table rows.
+  // MD013 stays enforced on prose. MD060 table pipe style pinned for
+  // consistency. Lint is run on specific files, never globs, so no
+  // ignore file is needed for .claude/worktrees/.
+  "default": true,
+  "MD013": { "code_blocks": false, "tables": false },
+  "MD060": { "style": "leading_and_trailing" }
+}

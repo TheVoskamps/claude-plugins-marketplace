@@ -1,0 +1,7 @@
+{
+  "name": "issues-jira",
+  "description": "Jira backend for the issues plugin. Install to enable Jira (acli) tracker support.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" },
+  "dependencies": ["issues"]
+}
