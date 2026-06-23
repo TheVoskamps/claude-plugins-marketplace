@@ -1,4 +1,4 @@
-# global-claude-plugins-marketplace
+# claude-plugins-marketplace
 
 A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces)
 for The Voskamps' Claude Code plugins.
@@ -31,19 +31,12 @@ The marketplace currently ships these plugins (one entry each in
   `claude-vm-apply-local`, and `claude-vm-apply-remote` companion
   skills.
 
-## Read-only public mirror
-
-If you are reading this on
-`TheVoskamps/global-claude-plugins-marketplace`, that repo is a
-**read-only public mirror**. Issues are welcome here; we triage and fix
-them in the upstream private repo. PRs are not accepted.
-
 ## Add this marketplace
 
 In Claude Code:
 
 ```text
-/plugin marketplace add TheVoskamps/global-claude-plugins-marketplace
+/plugin marketplace add TheVoskamps/claude-plugins-marketplace
 ```
 
 Then browse and install plugins with:
@@ -64,3 +57,19 @@ The marketplace is defined by `.claude-plugin/marketplace.json`. Each
 published plugin is one entry in its `plugins` array. See the
 [marketplace schema](https://code.claude.com/docs/en/plugin-marketplaces)
 for the entry format.
+
+## Contributing
+
+This is a public repository. Contributions are welcome:
+
+- **Fork** the repository and create a feature branch from the default
+  branch.
+- **Open a pull request** from your fork. PRs require a passing CI run,
+  code-owner review (`@evoskamp`), and all review conversations
+  resolved before they can merge.
+- **File an issue** to report a bug or propose a change. Any logged-in
+  GitHub user can open and comment on issues.
+
+Outside contributors have read access: you can fork, open PRs from your
+fork, and file/comment on issues. Push access, merging, and issue
+triage are reserved for maintainers.

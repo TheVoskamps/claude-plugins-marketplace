@@ -1,21 +1,12 @@
 # Contributors
 
-This file is part of a **read-only public mirror**. All commits
-originate upstream in the private source repository. Contributions
-are not accepted in this mirror — see the upstream repo for the
-contribution process.
+This is a public repository and contributions are welcome — see the
+"Contributing" section of README.md for how to fork, open a pull
+request, and file issues.
 
-This is a **static informational file**, shipped to the mirror by
-`git-filter-repo` like any other allowlisted path. It deliberately
-does not embed a frozen contributor list: that data is reproducible
-from the repository's own history and would go stale on every commit.
-It is no longer synthesized as a commit on top of filter-repo's output
-— see `.github/public-mirror/README.md` and issue #208 for why.
-
-To list contributors from the current history, run:
+This file deliberately does not embed a frozen contributor list: that
+data is reproducible from the repository's own history and would go
+stale on every commit. To list contributors from the current history,
+run:
 
     git shortlog -sne
-
-On the mirror, emails appear in the
-`<localpart>@global-claude-plugins-marketplace.local` form (the source identities
-are rewritten during filtering).
