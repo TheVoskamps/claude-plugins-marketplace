@@ -126,6 +126,48 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 
 	var walkStmt func(stmt *syntax.Stmt)
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
+	var walkDeclClause func(c *syntax.DeclClause)
+	var descendCmdSubsts func(w *syntax.Word)
+
+	// descendCmdSubsts finds every command substitution inside a word —
+	// including a `$(cmd)` nested inside a double-quoted string
+	// (`"$(cmd)"`) — and classifies the substituted command(s) by walking
+	// their statements. A plain literal / parameter-expansion word has no
+	// CmdSubst parts and contributes nothing.
+	descendCmdSubsts = func(w *syntax.Word) {
+		if w == nil {
+			return
+		}
+		for _, part := range w.Parts {
+			switch p := part.(type) {
+			case *syntax.CmdSubst:
+				for _, s := range p.Stmts {
+					walkStmt(s)
+				}
+			case *syntax.DblQuoted:
+				for _, dp := range p.Parts {
+					if cs, ok := dp.(*syntax.CmdSubst); ok {
+						for _, s := range cs.Stmts {
+							walkStmt(s)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// walkDeclClause walks every assignment of a declaration clause
+	// (export/local/declare/readonly/typeset). It contributes no program for
+	// the declaration itself (a literal/param-expansion RHS mutates only shell
+	// state); it descends into any command substitution in an assignment RHS so
+	// the inner command is classified by the normal pipeline.
+	walkDeclClause = func(c *syntax.DeclClause) {
+		for _, a := range c.Args {
+			if a != nil {
+				descendCmdSubsts(a.Value)
+			}
+		}
+	}
 
 	walkCmd = func(cmd syntax.Command, redirs []*syntax.Redirect) {
 		if walkErr != nil {
@@ -186,11 +228,29 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 			walkStmt(c.Body)
 		case *syntax.ArithmCmd:
 			// Pure arithmetic; no external command. Ignore.
-		case *syntax.DeclClause, *syntax.LetClause, *syntax.TestClause,
-			*syntax.TimeClause, *syntax.CoprocClause:
-			// These either mutate only shell state or wrap a command we can't
-			// statically reduce safely. Be fail-closed: signal unhandled.
-			walkErr = fmt.Errorf("unhandled shell construct %T", c)
+		case *syntax.LetClause:
+			// `let x=1+2` — pure arithmetic, no external command. Ignore
+			// (same as the ArithmCmd case). (#35 Fix 2)
+		case *syntax.TestClause:
+			// `[[ … ]]` — a builtin test; runs no external command. Ignore.
+			// (#63, folded into #35 Fix 2)
+		case *syntax.TimeClause:
+			// `time cmd` — wraps a real command. Descend into the wrapped
+			// statement and classify it. (#35 Fix 2)
+			walkStmt(c.Stmt)
+		case *syntax.CoprocClause:
+			// `coproc cmd` — wraps a command in a coprocess. Descend into the
+			// wrapped statement and classify it. (#35 Fix 2)
+			walkStmt(c.Stmt)
+		case *syntax.DeclClause:
+			// `export`/`local`/`declare`/`readonly`/`typeset` — walk ALL of its
+			// assignments (a single `export A=x B=y` carries multiple). A plain
+			// literal/parameter-expansion RHS mutates only shell state, so it
+			// contributes no program. When an assignment RHS contains a command
+			// substitution (`local d=$(cmd)`, including the quoted `="$(cmd)"`
+			// form), descend into the substituted command and classify it.
+			// (#59, folded into #35 Fix 2)
+			walkDeclClause(c)
 		default:
 			walkErr = fmt.Errorf("unhandled shell construct %T", c)
 		}

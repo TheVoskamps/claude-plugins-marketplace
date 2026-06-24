@@ -149,10 +149,18 @@ func parseGitGlobals(args []string) (sub string, rest []string, cDir string) {
 }
 
 // gitConfigIdentityRule denies identity-mutating `git config` invocations
-// (#125 write half). `git config user.name X`, `git config user.email X`,
-// `git config --global user.*`, and writes routed through `--file <path>`
-// setting a user.* key (e.g. `git config --file .git/config user.email X`)
-// all match. Read forms (`--get`, `--list`, `-l`) do not.
+// (#125 write half) while leaving identity READS alone. `git config user.name X`,
+// `git config user.email X`, `git config --global user.*`, writes routed through
+// `--file <path>` setting a user.* key (e.g.
+// `git config --file .git/config user.email X`), and explicit write verbs
+// (`--add`/`--replace-all`/`--unset`/`--unset-all` on a user.* key) all DENY.
+//
+// The get form `git config user.email` — a `user.*` key with NO following value
+// operand and no write verb — is a READ. It must defer (return false) so the
+// normal pipeline's `git config:*` read allow governs it. This also resolves the
+// `git -C <path> config --local user.email` false positive (#34): parseGitGlobals
+// already consumes the `-C <path>` global before this rule sees `rest`, so the
+// get-form gap was the sole cause of the #34 repro.
 //
 // The scan must look at ALL non-flag tokens, not just the first: a value-taking
 // flag like `--file <path>` puts a non-flag token (the path) BEFORE the real
@@ -166,9 +174,21 @@ func gitConfigIdentityRule(rest []string) (Decision, bool) {
 			return Decision{}, false
 		}
 	}
-	// Scan for a key token that targets user identity. Value-taking flags
-	// (`--file <path>`, `-f <path>`, `--blob <ref>`) consume the following
-	// token so a path/ref is not misread as the config key.
+	// A write-verb flag turns ANY user.* key reference into a mutation, even
+	// without a value operand (e.g. `git config --unset user.email`).
+	hasWriteVerb := false
+	for _, a := range rest {
+		switch a {
+		case "--add", "--replace-all", "--unset", "--unset-all":
+			hasWriteVerb = true
+		}
+	}
+	// Scan for a key token that targets user identity, tracking whether a
+	// value operand follows it. Value-taking flags (`--file <path>`, `-f <path>`,
+	// `--blob <ref>`) consume the following token so a path/ref is not misread as
+	// the config key (or as the key's value).
+	userKeySeen := false
+	valueAfterKey := false
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
 		if a == "--file" || a == "-f" || a == "--blob" {
@@ -178,20 +198,32 @@ func gitConfigIdentityRule(rest []string) (Decision, bool) {
 		if strings.HasPrefix(a, "-") {
 			continue // other flags (e.g. --global, --local, --file=<path>) carry no separate value token
 		}
+		// Non-flag operand. If we have already seen a user.* key, this operand
+		// is its value → the write form.
+		if userKeySeen {
+			valueAfterKey = true
+			break
+		}
 		key := strings.ToLower(a)
 		if strings.HasPrefix(key, "user.") {
-			return deny("git config user.* (identity write)",
-				"Blocked: writing git identity (user.name / user.email / user.signingkey) is forbidden — "+
-					"it silently changes commit attribution (the #125 write half). "+
-					"The repo's committer identity is configured by the environment, not by ad-hoc 'git config' writes. "+
-					"If you believe identity is genuinely misconfigured, surface it to the human rather than rewriting it."), true
+			userKeySeen = true
+			continue
 		}
 		// A non-flag token that is not a user.* key is the config key being
-		// operated on (e.g. `core.editor`); a `user.*` key, if present, would
-		// already have matched above. Keep scanning in case a value-taking flag
-		// pushed the user.* key later, but a plain `git config core.x y` falls
-		// through to "not an identity write".
+		// operated on (e.g. `core.editor`). A `user.*` key, if present, would
+		// match above; keep scanning in case a value-taking flag pushed the
+		// user.* key later. A plain `git config core.x y` never sets userKeySeen,
+		// so it falls through to "not an identity write".
 	}
+	if userKeySeen && (valueAfterKey || hasWriteVerb) {
+		return deny("git config user.* (identity write)",
+			"Blocked: writing git identity (user.name / user.email / user.signingkey) is forbidden — "+
+				"it silently changes commit attribution (the #125 write half). "+
+				"The repo's committer identity is configured by the environment, not by ad-hoc 'git config' writes. "+
+				"If you believe identity is genuinely misconfigured, surface it to the human rather than rewriting it."), true
+	}
+	// Either no user.* key, or a user.* key with no value and no write verb (a
+	// read) → defer to the normal pipeline's read allow.
 	return Decision{}, false
 }
 
