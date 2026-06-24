@@ -174,9 +174,11 @@ func TestClaudeConfigCarveOut_247(t *testing.T) {
 	wantBucket(t, classifyFileTool(ev2), BucketDeny, "#148 sibling node_modules still denied")
 }
 
-// §10 + #125 (write half): a direct file-tool Write/Edit whose target resolves
-// to a .git/config is denied (the Engine B half of the #125 write criterion).
-func TestGitConfigFileWriteDenied_125(t *testing.T) {
+// §10 + #125 (write half), broadened by #35 Fix 3: a direct file-tool
+// Write/Edit whose target resolves to ANYWHERE under .git/ is denied (the
+// Engine B half of the #125 write criterion, generalized to the whole .git/
+// tree). Reads of .git/ files are not mutations and stay allowed/deferred.
+func TestGitTreeWriteDenied_125_35(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -196,6 +198,39 @@ func TestGitConfigFileWriteDenied_125(t *testing.T) {
 		}
 	}
 
+	// #35 Fix 3: writes to other paths under .git/ are now denied too.
+	for _, rel := range []string{
+		filepath.Join(".git", "hooks", "pre-commit"),
+		filepath.Join(".git", "info", "exclude"),
+	} {
+		target := filepath.Join(repo, rel)
+		ev := &Event{
+			ToolName:  "Write",
+			CWD:       canonicalize(repo),
+			AgentType: "issue-developer",
+			ToolInput: []byte(`{"file_path":"` + target + `"}`),
+		}
+		wantBucket(t, classifyFileTool(ev), BucketDeny, "Write to "+rel)
+	}
+
+	// #35 Fix 3: an Edit of a submodule-style nested .git/config is denied via
+	// the ".git" path-segment check (a literal "*/.git/..." path the
+	// containment layer would otherwise wave through).
+	sub := filepath.Join(repo, "vendor", "mod", ".git", "config")
+	if err := os.MkdirAll(filepath.Dir(sub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sub, []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	subEv := &Event{
+		ToolName:  "Edit",
+		CWD:       canonicalize(repo),
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + sub + `"}`),
+	}
+	wantBucket(t, classifyFileTool(subEv), BucketDeny, "Edit submodule .git/config")
+
 	// A READ of .git/config is not an identity write → must not be denied by
 	// the #125 rule (it is in-repo, so it defers).
 	rev := &Event{
@@ -206,6 +241,21 @@ func TestGitConfigFileWriteDenied_125(t *testing.T) {
 	}
 	if rd := classifyFileTool(rev); rd.Bucket == BucketDeny {
 		t.Errorf("Read of .git/config must not DENY as a #125 write; got %q (%s)", rd.Bucket, rd.Reason)
+	}
+
+	// A normal in-worktree Write (no .git/ segment) is unaffected → defers.
+	own := filepath.Join(repo, "rules", "foo.md")
+	if err := os.MkdirAll(filepath.Dir(own), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ownEv := &Event{
+		ToolName:  "Write",
+		CWD:       canonicalize(repo),
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + own + `"}`),
+	}
+	if od := classifyFileTool(ownEv); od.Bucket == BucketDeny {
+		t.Errorf("in-worktree Write must not DENY; got %q (%s)", od.Bucket, od.Reason)
 	}
 }
 
