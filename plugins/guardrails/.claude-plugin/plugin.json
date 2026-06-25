@@ -1,6 +1,6 @@
 {
   "name": "guardrails",
   "description": "Compiled PreToolUse permission-gate hook: command classification and worktree/cross-repo path containment, ask-defaulting and fail-closed.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }
