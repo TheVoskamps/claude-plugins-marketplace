@@ -15,7 +15,12 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   `classify_command.go`, `rules.go`, `forbidden_forms.go`,
   `engine_a_mcp.go`): parses the Bash command to an AST
   (`mvdan.cc/sh/v3`) and classifies each simple command; branches on
-  MCP tool names.
+  MCP tool names. Constructs whose inner command is not statically
+  resolvable — process substitution `<(…)` / `>(…)`, command
+  substitution `$(…)` — are classified conservatively (the word is
+  marked inexact, so the line never rides the allow track) rather than
+  crashing; an earlier nil `ProcSubst` expander panicked on `<(…)`
+  (#5).
 - **Engine B — path containment** (`engine_b_containment.go`,
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
