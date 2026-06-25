@@ -49,7 +49,7 @@ func forbiddenForm(file *syntax.File) (Decision, bool) {
 					"Forbidden form 'cd <path> && git ...'. The harness gate (CVE-2025-59536) prompts on this "+
 						"regardless of approvals. Use two separate Bash calls instead: first 'cd <path>', then the bare "+
 						"'git <subcommand>'. CWD persists across calls in the main session. See rules/git-workflow.md "+
-						"\"Forbidden command forms\" and issue #78.")
+						"\"Forbidden command forms\".")
 				hit = true
 				return false
 			}
@@ -58,7 +58,7 @@ func forbiddenForm(file *syntax.File) (Decision, bool) {
 			if callIsGitDashCAbs(n) {
 				found = deny("forbidden-form:git-C-abs",
 					"Forbidden form 'git -C <abs-path> <subcommand>'. The harness prompts on these even when "+
-						"allow-listed (#78). Use two separate Bash calls instead: first 'cd <abs-path>', then the bare "+
+						"allow-listed. Use two separate Bash calls instead: first 'cd <abs-path>', then the bare "+
 						"'git <subcommand>'. See rules/git-workflow.md \"Forbidden command forms\".")
 				hit = true
 				return false
