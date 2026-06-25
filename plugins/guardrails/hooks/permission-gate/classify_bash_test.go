@@ -277,6 +277,60 @@ func TestUnparseableFailsClosed(t *testing.T) {
 	}
 }
 
+// TestProcessSubstitutionDoesNotPanic_5 covers #5: the gate panicked with a
+// nil-pointer dereference while classifying `<(...)` / `>(...)` process
+// substitution, because the expand.Config used by literalWord set no ProcSubst
+// handler and expand.Literal calls it unconditionally. The gate must classify
+// these constructs without crashing. Process substitution's inner command is
+// not statically resolvable, so the line must NOT ride the allow track — it
+// defers/asks — but it must never panic.
+func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
+	cmds := []string{
+		"cat <(echo hi)",
+		"diff <(normalize a) <(normalize b)",
+		"comm -12 <(sort a) <(sort b)",
+		"echo >(tee log)",                    // output process substitution
+		"wc -l < <(grep x file)",             // process substitution as a redirect source
+		"diff <(sort a) <(sort b) > out.txt", // procsubst + real-file redirect
+	}
+	for _, cmd := range cmds {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("classifyBash panicked on %q: %v", cmd, r)
+				}
+			}()
+			d := classifyCmd(t, cmd, false)
+			// Inner command of a process substitution is not statically
+			// resolvable, so the line must not auto-allow.
+			if d.Bucket == BucketAllow {
+				t.Errorf("process substitution must not ALLOW (%q); got %q", cmd, d.Bucket)
+			}
+		}()
+	}
+}
+
+// TestMultilineEmbeddedCmdSubstDoesNotPanic_5 covers the sibling traces from
+// #5: a multi-line line that prefixes a command with assignments whose RHS is a
+// command substitution (`ROOT="$(git rev-parse --show-toplevel)"`) followed by
+// a command using the variable. These must classify without panicking.
+func TestMultilineEmbeddedCmdSubstDoesNotPanic_5(t *testing.T) {
+	cmds := []string{
+		"P=\"/abs/path\"  ROOT=\"$(git rev-parse --show-toplevel)\"\n  diff \"$P\" \"$ROOT\"",
+		"S=\"/abs/scratch\"\n  wc -l \"$S/nbm-rendered.yml\"",
+	}
+	for _, cmd := range cmds {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("classifyBash panicked on %q: %v", cmd, r)
+				}
+			}()
+			classifyCmd(t, cmd, false)
+		}()
+	}
+}
+
 func containsSubstr(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && indexOf(s, sub) >= 0)
 }

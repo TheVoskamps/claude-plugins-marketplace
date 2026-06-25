@@ -405,6 +405,14 @@ func literalWord(w *syntax.Word) (string, bool) {
 		Env: expand.FuncEnviron(func(string) string { return "" }),
 		// No command substitution: leave the literal as-is and mark inexact.
 		CmdSubst: func(io.Writer, *syntax.CmdSubst) error { return nil },
+		// Process substitution (`<(cmd)` / `>(cmd)`): expand.Literal calls
+		// cfg.ProcSubst unconditionally when it hits a *syntax.ProcSubst part,
+		// so leaving this nil panics with a nil-pointer deref (#5). The inner
+		// command of a process substitution is not statically resolvable, so we
+		// expand it to an empty string and rely on the fast-path loop above
+		// having already marked the word inexact (ProcSubst hits the default
+		// case there) — the command can never ride the allow track.
+		ProcSubst: func(*syntax.ProcSubst) (string, error) { return "", nil },
 	}
 	lit, err := expand.Literal(cfg, w)
 	if err != nil {
