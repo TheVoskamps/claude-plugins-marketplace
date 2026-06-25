@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 )
 
 // classifyFileTool runs Engine B containment for a Read/Write/Edit/
@@ -37,17 +38,22 @@ func classifyFileTool(ev *Event) Decision {
 	}
 
 	for _, p := range paths {
-		// #125 (write half): a file-mutating tool whose canonicalized target is
-		// a git `config` file is a direct .git/config identity-surface write.
-		// This is denied independently of containment — an in-worktree
-		// .git/config write would otherwise be `contained` and defer. Reads of
-		// .git/config are not mutations, so this is gated on a mutating tool.
-		if isMutatingFileTool(ev.ToolName) && isGitConfigPath(canonicalize(p), rc) {
-			return deny("write:.git/config (#125 write)", fmt.Sprintf(
-				"Blocked: %s target '%s' is a git config file. Directly editing .git/config can rewrite "+
-					"committer identity and other repo settings (the #125 write half) outside the controlled "+
-					"environment. Do not edit .git/config by hand; if a setting is genuinely wrong, surface it to "+
-					"the human rather than rewriting it. See issue #125.",
+		// #125 (write half), broadened (#35 Fix 3): a file-mutating tool whose
+		// canonicalized target is anywhere under a `.git/` directory is a direct
+		// write to the git internals tree. This is denied independently of
+		// containment — an in-worktree `.git/` write would otherwise be
+		// `contained` and defer. There is no legitimate reason for an agent to
+		// hand-edit `.git/`: git's own commands own that tree, and a direct write
+		// can rewrite committer identity (`.git/config`), inject commit/push
+		// hooks (`.git/hooks/pre-commit`), or corrupt repo state. Reads of `.git/`
+		// files are not mutations, so this is gated on a mutating tool.
+		if isMutatingFileTool(ev.ToolName) && isUnderGitDir(canonicalize(p), rc) {
+			return deny("write:.git tree (#125)", fmt.Sprintf(
+				"Blocked: %s target '%s' is inside a .git/ directory. Directly editing anything under .git/ can "+
+					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
+					"repo state. Git's own commands own that tree — do not hand-edit .git/. If you need a scratch "+
+					"file, write it under <repo-root>/.claude/tmp/ (already gitignored). If a setting is genuinely "+
+					"wrong, surface it to the human rather than rewriting it. See issue #125.",
 				ev.ToolName, p))
 		}
 
@@ -167,29 +173,32 @@ func isMutatingFileTool(name string) bool {
 	}
 }
 
-// isGitConfigPath reports whether the canonicalized target is a git `config`
-// file (#125 write half). Two forms are matched:
+// isUnderGitDir reports whether the canonicalized target is anywhere under a
+// git directory (#35 Fix 3, generalizing the former isGitConfigPath #125-config
+// rule to the whole .git/ tree). Two forms are matched:
 //
-//   - The current repo's resolved shared git dir + "/config" (rc.commonDir is
-//     <gitdir>; <gitdir>/config is the canonical config-file location). This is
-//     the precise, canonicalization-safe match for THIS repo.
-//   - Any path whose final two segments are ".git/config", covering a direct
-//     edit of some other ".git/config" the containment layer would otherwise
-//     wave through (e.g. a nested submodule's, or a path the harness presents
-//     literally). The basename is "config" and its parent is ".git".
+//   - The current repo's resolved shared git dir (rc.commonDir is <gitdir>);
+//     the target equals it or is nested under it. This is the precise,
+//     canonicalization-safe match for THIS repo and also covers a linked
+//     worktree whose commonDir is the primary clone's shared .git.
+//   - Any path with a ".git" segment anywhere in it, covering a submodule's
+//     .git/ dir, a nested repo's .git/, or a literal "*/.git/..." path the
+//     containment layer would otherwise wave through. (A canonicalized target
+//     normally has its own .git symlink resolved away, but submodule and nested
+//     layouts can still present a real ".git" directory segment.)
 //
 // real is expected to already be canonicalized.
-func isGitConfigPath(real string, rc *repoContext) bool {
+func isUnderGitDir(real string, rc *repoContext) bool {
 	if real == "" {
 		return false
 	}
-	if rc != nil && rc.commonDir != "" {
-		if real == filepath.Join(rc.commonDir, "config") {
+	if rc != nil && rc.commonDir != "" && pathUnder(real, rc.commonDir) {
+		return true
+	}
+	for _, seg := range strings.Split(real, string(filepath.Separator)) {
+		if seg == ".git" {
 			return true
 		}
-	}
-	if filepath.Base(real) == "config" && filepath.Base(filepath.Dir(real)) == ".git" {
-		return true
 	}
 	return false
 }

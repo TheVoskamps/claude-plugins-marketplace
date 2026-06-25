@@ -28,9 +28,14 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   the carve-out is canonicalized on both sides so it cannot be
   symlink-escaped, and genuine sibling repos are still denied. (2) a
   file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
-  canonical target is a `.git/config` is denied (the Engine B half of
-  the #125 identity-write rule; Read of `.git/config` is not a write
-  and is unaffected).
+  canonical target is anywhere under a `.git/` directory is denied (the
+  Engine B half of the #125 identity-write rule, broadened from
+  `.git/config` to the whole `.git/` tree in #35 — a hand-edit of
+  `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
+  can inject hooks or corrupt repo state just as a `.git/config` write
+  rewrites identity). Reads of `.git/` files are not writes and are
+  unaffected. If you need a scratch file, write it under
+  `<repo-root>/.claude/tmp/` (gitignored).
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the
@@ -52,18 +57,18 @@ recommitting them.**
 ## Build / test / cross-compile
 
 ```sh
-# From the repo root:
-go -C hooks/permission-gate test ./...      # run the test suite
-go -C hooks/permission-gate vet ./...       # static checks
+# From the repo root (the hook lives under plugins/guardrails/):
+go -C plugins/guardrails/hooks/permission-gate test ./...   # run the test suite
+go -C plugins/guardrails/hooks/permission-gate vet ./...    # static checks
 
 # Rebuild the committed binaries (pure Go, CGo disabled):
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
-  go -C hooks/permission-gate build -trimpath -o ../bin/darwin-arm64/permission-gate .
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/darwin-arm64/permission-gate .
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-  go -C hooks/permission-gate build -trimpath -o ../bin/linux-amd64/permission-gate .
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-amd64/permission-gate .
 ```
 
-Committed binaries live under `hooks/bin/<goos>-<goarch>/`
+Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`
 (`darwin-arm64` for this machine, `linux-amd64` for WSL2). The
 `settings.json` registration selects the correct one per platform via
 `uname`.

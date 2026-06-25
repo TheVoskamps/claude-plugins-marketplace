@@ -117,6 +117,115 @@ func TestGitConfigIdentityDenied_125(t *testing.T) {
 	}
 }
 
+// #35 Fix 1 (folds #34): `git config user.*` with NO value operand is git's
+// GET form — a read, not an identity write — and must NOT be denied. Only the
+// write form (key followed by a value, or a write-verb flag) denies. The
+// `-C <path>` global is consumed by parseGitGlobals before the rule sees rest,
+// so the #34 `-C` repro is resolved by the same get-form fix.
+//
+// NOTE on the #34 `-C` form: the issue's test list spells the repro with an
+// ABSOLUTE path (`git -C /some/repo config …`), but `git -C <abs-path>` is
+// independently denied by the pre-existing #78 forbidden-form rule BEFORE the
+// identity classifier runs (see callIsGitDashCAbs). That #78 rule fires only on
+// ABSOLUTE `-C` paths; a RELATIVE `-C` path falls through to classifyGit, where
+// parseGitGlobals consumes the `-C <path>` global and gitConfigIdentityRule sees
+// `rest`. So the relative `-C` form is what actually exercises Fix 1's `-C`
+// path, and the absolute form is asserted separately as a #78 deny so the
+// interaction is documented rather than silently colliding.
+func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
+	// Reads → not denied. (Relative `-C` exercises the #34 path through
+	// parseGitGlobals + gitConfigIdentityRule.)
+	for _, cmd := range []string{
+		"git config user.email",
+		"git config --local user.email",
+		"git config --get --local user.email",
+		"git -C some/repo config --local user.email", // relative -C form, folds #34
+	} {
+		d := classifyCmd(t, cmd, false)
+		if d.Bucket == BucketDeny {
+			t.Errorf("read form must not DENY: %q got %q (%s)", cmd, d.Bucket, d.Reason)
+		}
+	}
+	// Writes → denied.
+	for _, cmd := range []string{
+		"git config user.email foo@bar",
+		"git -C some/repo config --local user.email foo@bar", // relative -C form, folds #34
+		`git config --global user.name Foo`,
+		"git config --unset user.email",
+		"git config --file .git/config user.email foo@bar",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "write form: "+cmd)
+	}
+	// The ABSOLUTE `-C` form (as the issue spells the #34 repro) is denied by the
+	// #78 forbidden-form rule, independently of read-vs-write. Both shapes deny.
+	for _, cmd := range []string{
+		"git -C /some/repo config --local user.email",
+		"git -C /some/repo config --local user.email foo@bar",
+	} {
+		d := classifyCmd(t, cmd, false)
+		wantBucket(t, d, BucketDeny, "abs -C (#78): "+cmd)
+		if !containsSubstr(d.Reason, "#78") {
+			t.Errorf("abs -C form should deny via #78; got %q (%s)", d.Bucket, d.Reason)
+		}
+	}
+	// A non-identity key read/write is unchanged by this rule (must not DENY as
+	// identity).
+	if d := classifyCmd(t, "git config core.editor vim", false); d.Bucket == BucketDeny {
+		t.Errorf("non-identity key must not DENY as identity; got %q (%s)", d.Bucket, d.Reason)
+	}
+}
+
+// #35 Fix 2 (folds #59, #63): export/local (DeclClause), [[ … ]] (TestClause),
+// let (LetClause), time (TimeClause), and command substitutions inside an
+// assignment RHS must be reduced precisely, not blanket-asked as
+// bash:unhandled-construct.
+func TestReducibleConstructs_35(t *testing.T) {
+	notUnhandled := func(cmd string) Decision {
+		t.Helper()
+		d := classifyCmd(t, cmd, false)
+		if d.Bucket == BucketAsk && d.Reason != "" && containsSubstr(d.Reason, "construct the permission gate") {
+			t.Errorf("must not blanket-ask bash:unhandled-construct: %q got (%s)", cmd, d.Reason)
+		}
+		return d
+	}
+
+	// A lone decl with a literal/param-expansion RHS contributes no program →
+	// reduces to nothing → defer (no executable command).
+	wantBucket(t, notUnhandled(`export PATH="$PWD/bin:$PATH"`), BucketDefer, "lone export decl")
+	// Decl ignored; the line reduces to `cd` (defers) + `git status` (allow).
+	// `cd` is not on the allow track, so the aggregate defers — the key fix is
+	// that this is no longer a bash:unhandled-construct ASK. (The leading `cd`
+	// here is `/x` with `&& export …` on its right, so the #78 `cd … && git`
+	// forbidden form does not fire.)
+	wantBucket(t, notUnhandled(`cd /x && export PATH="$PWD/bin:$PATH" && git status`), BucketDefer, "cd + export + git status")
+	// Multi-assignment decl reduces cleanly; with no `cd`, every part is the
+	// read-only git status → ALLOW (folds #59 trace 4).
+	wantBucket(t, notUnhandled(`export A=x B=y && git status`), BucketAllow, "multi-assign export then git status")
+	// Function body with a local decl reduces cleanly; echo is unclassified →
+	// defer.
+	notUnhandled(`f() { local item=$1; echo "$item"; }; f a`)
+	// let / [[ … ]] contribute no command.
+	notUnhandled("let x=1+2")
+	notUnhandled("[[ -f foo ]]")
+	// TestClause reduces cleanly, classifies on echo (folds #63). echo is not
+	// allow-listed → defer.
+	notUnhandled(`[[ "$a" == "$b" ]] && echo eq`)
+	// time wraps a real command → classifies the wrapped git status → ALLOW.
+	wantBucket(t, notUnhandled("time git status"), BucketAllow, "time git status")
+	// A command substitution in an export RHS: the inner git status is
+	// classified (read-only); must NOT be a blanket ask.
+	notUnhandled("export X=$(git status)")
+	// CmdSubst inside DblQuoted in the RHS (folds #59 trace 2). Descends into
+	// the quoted $(mktemp); the wrapped `bash harness.sh` is classified by the
+	// normal pipeline.
+	notUnhandled(`export WORK_LOG="$(mktemp)" && bash harness.sh`)
+	// A destructive inner command in a substitution must be descended into and
+	// classified by the normal pipeline path — assert it is not a blanket ask
+	// (the rm itself defers/asks per the normal pipeline, not the
+	// unhandled-construct backstop).
+	notUnhandled("local d=$(rm -rf /tmp/x)")
+}
+
 // §10: aws list/describe/get, read-only gh/acli/git subcommands allowed.
 func TestReadOnlyAllowed(t *testing.T) {
 	for _, cmd := range []string{
