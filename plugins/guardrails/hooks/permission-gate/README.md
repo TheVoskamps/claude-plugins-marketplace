@@ -35,7 +35,13 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   can inject hooks or corrupt repo state just as a `.git/config` write
   rewrites identity). Reads of `.git/` files are not writes and are
   unaffected. If you need a scratch file, write it under
-  `<repo-root>/.claude/tmp/` (gitignored).
+  `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
+  (#127, #148) are **prescriptive** (#30): a write/edit escape names
+  `<repo-root>/.claude/tmp/` as the scratch destination and warns
+  against `.git/`, so an open-ended denial does not induce the model to
+  improvise a bad landing spot. See
+  [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
+  for the convention.
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the

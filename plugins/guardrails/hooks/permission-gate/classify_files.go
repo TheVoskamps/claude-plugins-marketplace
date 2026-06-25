@@ -64,15 +64,17 @@ func classifyFileTool(ev *Event) Decision {
 			return deny("containment:worktree-escape (#127)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 					"Writes and edits must land inside this worktree. Use the worktree-anchored path instead: %s. "+
-					"Anchor every absolute path to $(git rev-parse --show-toplevel). See issues #127, #188.",
+					"Anchor every absolute path to $(git rev-parse --show-toplevel). For scratch or temporary files, "+
+					"write under $(git rev-parse --show-toplevel)/.claude/tmp/ (already gitignored) rather than picking "+
+					"an arbitrary spot in the worktree; never use .git/ for scratch. See issues #127, #188.",
 				ev.ToolName, p, real, rc.topLevel, correct))
 		case escapeRepo:
 			return deny("containment:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves outside the current repository (%s, repo root %s). "+
 					"Tool-mediated reads and writes must stay within the current repo — do not reach into a sibling "+
 					"repo (e.g. another project's node_modules). If you need third-party API details, consult the "+
-					"dependency's published docs instead. See issue #148.",
-				ev.ToolName, p, real, rc.topLevel))
+					"dependency's published docs instead.%s See issue #148.",
+				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName)))
 		case claudeConfig:
 			// The agent's own ~/.claude global config tree (#247). Required
 			// startup reading, allow-listed in settings.json. Defer so that
@@ -119,14 +121,16 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 			return deny("bash-read:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: '%s' would read '%s' which resolves outside the current repository (%s, repo root %s). "+
 					"Do not read another repo's files (e.g. a sibling project's node_modules) to verify third-party "+
-					"APIs — use the dependency's published docs. See issue #148.",
+					"APIs — use the dependency's published docs. Do not work around this by reading or writing under "+
+					".git/. See issue #148.",
 				prog, p, real, rc.topLevel))
 		case escapeWorktree:
 			// Reading the primary clone from a worktree is suspect but not as
 			// clearly forbidden as a write; escalate to a human.
 			return ask("bash-read:worktree-escape", fmt.Sprintf(
 				"'%s' would read '%s' in the primary clone / shared git dir rather than this worktree (%s). "+
-					"Confirm this is intended.", prog, real, rc.topLevel))
+					"Confirm this is intended. Do not work around this by reading or writing under .git/.",
+				prog, real, rc.topLevel))
 		case claudeConfig:
 			// The agent's own ~/.claude global config tree (#247) — required
 			// startup reading, allow-listed in settings.json. Defer.
@@ -159,6 +163,27 @@ func pathOperands(args []string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// scratchHint returns the prescriptive scratch-destination guidance to append
+// to a containment-escape deny (#30). A guardrail that only forbids invites a
+// workaround; one that prescribes prevents it. The under-specified #148/#127
+// escapes used to leave the correct landing spot to the model's discretion,
+// and a plausible-but-wrong improvisation is to write under .git/ purely
+// because it is gitignored and in-repo, so it slips past containment.
+//
+// For a mutating tool ("I needed somewhere to put a file") the hint names the
+// canonical in-repo scratch destination, <repo-root>/.claude/tmp/ (already
+// gitignored repo-wide via the /**/tmp/ rule), and explicitly warns off .git/.
+// For a read tool the scratch recommendation is not load-bearing, so the hint
+// only forbids the .git/ workaround target. Returns a leading-space-prefixed
+// sentence (or "") so callers can append it inline.
+func scratchHint(toolName string) string {
+	if isMutatingFileTool(toolName) {
+		return " For scratch or temporary files, write under <repo-root>/.claude/tmp/ " +
+			"(already gitignored) instead of an out-of-repo path. Never write scratch files under .git/."
+	}
+	return " Do not work around this by reading or writing under .git/."
 }
 
 // isMutatingFileTool reports whether the tool writes/edits files (as opposed to
