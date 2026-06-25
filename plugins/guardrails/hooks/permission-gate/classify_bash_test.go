@@ -164,8 +164,8 @@ func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 	} {
 		d := classifyCmd(t, cmd, false)
 		wantBucket(t, d, BucketDeny, "abs -C (#78): "+cmd)
-		if !containsSubstr(d.Reason, "#78") {
-			t.Errorf("abs -C form should deny via #78; got %q (%s)", d.Bucket, d.Reason)
+		if !containsSubstr(d.Operation, "forbidden-form:git-C-abs") {
+			t.Errorf("abs -C form should deny via the forbidden-form rule; got op %q (%s)", d.Operation, d.Reason)
 		}
 	}
 	// A non-identity key read/write is unchanged by this rule (must not DENY as

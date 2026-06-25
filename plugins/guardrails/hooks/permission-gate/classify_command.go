@@ -80,13 +80,14 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 				"Blocked: 'git reset --hard' in a subagent discards committed and working-tree state and is forbidden. "+
 					"Remediation: do NOT reset; instead release the branch and re-derive from the remote tip with a "+
 					"detached checkout of origin — e.g. 'git fetch origin <branch>' then 'git checkout --detach origin/<branch>' — "+
-					"or 'git switch -c <branch> origin/<branch>'. See issue #120.")
+					"or 'git switch -c <branch> origin/<branch>'.")
 		}
 		// Main session: still destructive — escalate to a human rather than
 		// auto-allow. (settings.json also lists this in its ask set.)
 		return ask("git reset --hard",
 			"'git reset --hard' discards committed and working-tree state. Confirm this is intended. "+
-				"A safer alternative is a detached checkout of the origin tip (see issue #120).")
+				"A safer alternative is a detached checkout of the origin tip — e.g. 'git fetch origin <branch>' "+
+				"then 'git checkout --detach origin/<branch>'.")
 	}
 
 	// --- ALLOW rules: read-only / non-mutating git subcommands ---
@@ -218,7 +219,7 @@ func gitConfigIdentityRule(rest []string) (Decision, bool) {
 	if userKeySeen && (valueAfterKey || hasWriteVerb) {
 		return deny("git config user.* (identity write)",
 			"Blocked: writing git identity (user.name / user.email / user.signingkey) is forbidden — "+
-				"it silently changes commit attribution (the #125 write half). "+
+				"it silently changes commit attribution. "+
 				"The repo's committer identity is configured by the environment, not by ad-hoc 'git config' writes. "+
 				"If you believe identity is genuinely misconfigured, surface it to the human rather than rewriting it."), true
 	}

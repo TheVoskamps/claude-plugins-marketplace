@@ -53,7 +53,7 @@ func classifyFileTool(ev *Event) Decision {
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
 					"repo state. Git's own commands own that tree — do not hand-edit .git/. If you need a scratch "+
 					"file, write it under <repo-root>/.claude/tmp/ (already gitignored). If a setting is genuinely "+
-					"wrong, surface it to the human rather than rewriting it. See issue #125.",
+					"wrong, surface it to the human rather than rewriting it.",
 				ev.ToolName, p))
 		}
 
@@ -66,14 +66,14 @@ func classifyFileTool(ev *Event) Decision {
 					"Writes and edits must land inside this worktree. Use the worktree-anchored path instead: %s. "+
 					"Anchor every absolute path to $(git rev-parse --show-toplevel). For scratch or temporary files, "+
 					"write under $(git rev-parse --show-toplevel)/.claude/tmp/ (already gitignored) rather than picking "+
-					"an arbitrary spot in the worktree; never use .git/ for scratch. See issues #127, #188.",
+					"an arbitrary spot in the worktree; never use .git/ for scratch.",
 				ev.ToolName, p, real, rc.topLevel, correct))
 		case escapeRepo:
 			return deny("containment:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves outside the current repository (%s, repo root %s). "+
 					"Tool-mediated reads and writes must stay within the current repo — do not reach into a sibling "+
 					"repo (e.g. another project's node_modules). If you need third-party API details, consult the "+
-					"dependency's published docs instead.%s See issue #148.",
+					"dependency's published docs instead.%s",
 				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName)))
 		case claudeConfig:
 			// The agent's own ~/.claude global config tree (#247). Required
@@ -122,7 +122,7 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 				"Blocked: '%s' would read '%s' which resolves outside the current repository (%s, repo root %s). "+
 					"Do not read another repo's files (e.g. a sibling project's node_modules) to verify third-party "+
 					"APIs — use the dependency's published docs. Do not work around this by reading or writing under "+
-					".git/. See issue #148.",
+					".git/.",
 				prog, p, real, rc.topLevel))
 		case escapeWorktree:
 			// Reading the primary clone from a worktree is suspect but not as

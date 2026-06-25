@@ -75,7 +75,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		case "switch":
 			return deny("gh auth switch (#117)",
 				"Blocked: 'gh auth switch' changes the active GitHub identity and is forbidden — "+
-					"it silently re-attributes every subsequent gh action to a different account (#117). "+
+					"it silently re-attributes every subsequent gh action to a different account. "+
 					"Do not switch identities. If the wrong identity is active, surface it to the human; "+
 					"App-managed repos should call the gh_wrapper which mints the correct token per call.")
 		case "login":
@@ -84,7 +84,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 			// is the multi-identity-switch form #117 warns about).
 			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") {
 				return ask("gh auth login --hostname (#117)",
-					"'gh auth login' targeting a specific host can switch the active identity (#117). "+
+					"'gh auth login' targeting a specific host can switch the active identity. "+
 						"Confirm this is intended and not an unprompted identity switch.")
 			}
 		}

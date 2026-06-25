@@ -193,8 +193,13 @@ func TestGitTreeWriteDenied_125_35(t *testing.T) {
 		}
 		d := classifyFileTool(ev)
 		wantBucket(t, d, BucketDeny, tool+" to .git/config")
-		if !containsSubstr(d.Reason, "#125") {
-			t.Errorf("%s .git/config deny reason should cite #125; got %q", tool, d.Reason)
+		if !containsSubstr(d.Operation, "write:.git tree") {
+			t.Errorf("%s .git/config deny should be the .git-tree rule; got op %q (%s)", tool, d.Operation, d.Reason)
+		}
+		// The agent-facing reason must remain actionable on its own — name the
+		// risk and the alternative — and must NOT carry a bare issue-tracker ref.
+		if !containsSubstr(d.Reason, ".claude/tmp/") {
+			t.Errorf("%s .git/config deny reason should steer scratch to .claude/tmp/; got %q", tool, d.Reason)
 		}
 	}
 
