@@ -259,6 +259,94 @@ func TestGitTreeWriteDenied_125_35(t *testing.T) {
 	}
 }
 
+// #30: the under-specified containment-escape denies must be prescriptive —
+// they must name <repo-root>/.claude/tmp/ as the scratch destination for
+// mutating tools and explicitly warn against .git/ as a workaround target.
+// A guardrail that only forbids invites a workaround (writing under .git/
+// because it is gitignored and in-repo); one that prescribes prevents it.
+func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
+	// #148 cross-repo Write deny (the file-tool path) names .claude/tmp/ and
+	// warns against .git/.
+	base := t.TempDir()
+	repoA := filepath.Join(base, "repoA")
+	repoB := filepath.Join(base, "repoB")
+	gitInit(t, repoA)
+	gitInit(t, repoB)
+	target := filepath.Join(repoB, "node_modules", "pkg", "index.js")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeEv := &Event{
+		ToolName:  "Write",
+		CWD:       canonicalize(repoA),
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + target + `"}`),
+	}
+	wd := classifyFileTool(writeEv)
+	wantBucket(t, wd, BucketDeny, "#148 cross-repo Write")
+	if !containsSubstr(wd.Reason, ".claude/tmp/") {
+		t.Errorf("#30: #148 Write deny must name .claude/tmp/; got %q", wd.Reason)
+	}
+	if !containsSubstr(wd.Reason, ".git/") {
+		t.Errorf("#30: #148 Write deny must warn against .git/; got %q", wd.Reason)
+	}
+
+	// #148 cross-repo Read deny (a non-mutating tool) still forbids .git/ but
+	// does not prescribe .claude/tmp/ (the scratch hint is write-only).
+	readEv := &Event{
+		ToolName:  "Read",
+		CWD:       canonicalize(repoA),
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + target + `"}`),
+	}
+	rd := classifyFileTool(readEv)
+	wantBucket(t, rd, BucketDeny, "#148 cross-repo Read")
+	if !containsSubstr(rd.Reason, ".git/") {
+		t.Errorf("#30: #148 Read deny must forbid .git/ as a workaround; got %q", rd.Reason)
+	}
+
+	// #127 worktree-escape Write deny steers scratch writes to the worktree's
+	// .claude/tmp/ and warns against .git/.
+	primary, wt := setupWorktree(t)
+	wtEv := &Event{
+		ToolName:  "Write",
+		CWD:       wt,
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + filepath.Join(primary, "agents", "x.md") + `"}`),
+	}
+	wtd := classifyFileTool(wtEv)
+	wantBucket(t, wtd, BucketDeny, "#127 worktree escape Write")
+	if !containsSubstr(wtd.Reason, ".claude/tmp/") {
+		t.Errorf("#30: #127 Write deny must steer scratch to .claude/tmp/; got %q", wtd.Reason)
+	}
+	if !containsSubstr(wtd.Reason, ".git/") {
+		t.Errorf("#30: #127 Write deny must warn against .git/; got %q", wtd.Reason)
+	}
+
+	// #148 bash-read cross-repo deny explicitly forbids the .git/ workaround.
+	bev := &Event{ToolName: "Bash", CWD: canonicalize(repoA), AgentType: "main"}
+	bd := classifyBash("cat "+target, bev)
+	wantBucket(t, bd, BucketDeny, "#148 bash-read cross-repo")
+	if !containsSubstr(bd.Reason, ".git/") {
+		t.Errorf("#30: #148 bash-read deny must forbid .git/ as a workaround; got %q", bd.Reason)
+	}
+
+	// #127 bash-read worktree-escape ask explicitly forbids the .git/ workaround.
+	siblingFile := filepath.Join(primary, "secret.txt")
+	if err := os.WriteFile(siblingFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bwev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
+	bwd := classifyBash("cat "+siblingFile, bwev)
+	wantBucket(t, bwd, BucketAsk, "#127 bash-read worktree escape")
+	if !containsSubstr(bwd.Reason, ".git/") {
+		t.Errorf("#30: #127 bash-read ask must forbid .git/ as a workaround; got %q", bwd.Reason)
+	}
+}
+
 // §10: a symlinked target that points outside the worktree is blocked (#12 —
 // both sides canonicalized).
 func TestContainmentSymlinkEscape_12(t *testing.T) {
