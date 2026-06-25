@@ -386,12 +386,41 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   PIDS_TO_KILL+=("$!")
   for _ in $(seq 1 50); do [ -S "$GVSOCK" ] && break; sleep 0.1; done
 
+  # Boot the image the SAME WAY the real launcher (claude-vm.sh) does: it
+  # ALWAYS attaches two virtio-fs shares -- mountTag=runconfig (the run.env
+  # the guest boot launcher sources) and mountTag=repo (the working tree).
+  # Testing the real thing means reproducing that mount topology here; a
+  # bare boot (no shares) is a boot the product never actually performs, and
+  # would make the guest's `. /mnt/runconfig/run.env` fail in the test while
+  # "passing" in reality (or vice versa). We stand up throwaway shares:
+  #   - runconfig: a STUB run.env with the same KEYS the real one carries
+  #     (claude-vm.sh writes ANTHROPIC_API_KEY/HTTP(S)_PROXY/NO_PROXY/
+  #     REPO_TAG/POLICY_TAG/CLAUDE_ARGS) but DUMMY, non-secret values. Slice
+  #     3 stops at the seam BEFORE any token is used, so a placeholder token
+  #     is sufficient to exercise the real sourcing path.
+  #   - repo: an empty dir (slice 3 does not yet exec against it).
+  RUNCONFIG_SHARE="$WORK/runconfig"
+  REPO_SHARE="$WORK/repo"
+  mkdir -p "$RUNCONFIG_SHARE" "$REPO_SHARE"
+  cat > "$RUNCONFIG_SHARE/run.env" <<'RUNENV'
+ANTHROPIC_API_KEY=test-placeholder-not-a-real-token
+HTTPS_PROXY=http://192.168.127.1:8080
+HTTP_PROXY=http://192.168.127.1:8080
+NO_PROXY=localhost,127.0.0.1
+REPO_TAG=repo
+POLICY_TAG=policy
+CLAUDE_ARGS=
+RUNENV
+
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
+  # The two virtio-fs devices mirror claude-vm.sh's always-present mounts.
   vfkit \
     --cpus 2 --memory 2048 \
     --bootloader "efi,variable-store=$EFISTORE,create" \
     --device "virtio-blk,path=$IMG" \
+    --device "virtio-fs,sharedDir=$REPO_SHARE,mountTag=repo" \
+    --device "virtio-fs,sharedDir=$RUNCONFIG_SHARE,mountTag=runconfig" \
     --device "virtio-net,unixSocketPath=$GVSOCK" \
     --device "virtio-rng" \
     --device "virtio-serial,logFilePath=$BOOT_LOG" \

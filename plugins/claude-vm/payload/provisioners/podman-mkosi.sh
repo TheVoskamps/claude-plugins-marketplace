@@ -127,6 +127,7 @@ trap cleanup EXIT INT TERM
 
 mkdir -p "$STAGE/recipe/mkosi.extra/usr/local/lib/claude-vm"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system"
+mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/network"
 mkdir -p "$STAGE/out"
 
 # Install the boot launcher into the guest filesystem tree (mkosi.extra is
@@ -134,15 +135,65 @@ mkdir -p "$STAGE/out"
 install -m 0755 "$BOOT_LAUNCHER" \
   "$STAGE/recipe/mkosi.extra/usr/local/lib/claude-vm/boot-launcher.sh"
 
+# A systemd-networkd .network unit so the guest actually CONFIGURES its
+# virtio-net link via DHCP (issue #71, criterion (b)). Without it,
+# systemd-networkd has no managed link: systemd-networkd-wait-online never
+# completes, network-online.target is never reached, and the seam oneshot
+# (After=network-online.target) never runs -- the boot reaches a login
+# prompt but the acceptance test never sees the seam marker and times out.
+# vfkit's virtio-net is served by gvproxy, which provides DHCP; the guest
+# renames the link enp0s1 (from eth0), so match the en* / eth* glob rather
+# than a fixed name. wait-online needs the matched link to reach "routable"
+# (DHCP lease) to declare the network online.
+cat > "$STAGE/recipe/mkosi.extra/etc/systemd/network/10-claude-vm.network" <<'NET'
+[Match]
+Name=en* eth*
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+# Treat the DHCPv4 lease as sufficient for network-online.target so
+# wait-online does not also block on (absent) IPv6 router advertisements.
+RouteMetric=100
+NET
+
+# Mount the host-provided virtio-fs shares into the guest (issue #71). The
+# host launcher (claude-vm.sh) ALWAYS attaches two virtio-fs devices:
+# mountTag=runconfig (the run.env the boot launcher sources -- proxy, scoped
+# token, CLAUDE_ARGS) and mountTag=repo (the working tree). vfkit only
+# *shares* the dir under a tag; the GUEST must still mount the tag to a path.
+# Nothing did, so /mnt/runconfig/run.env never existed and the boot
+# launcher's `. /mnt/runconfig/run.env` aborted under `set -e` -- on a real
+# run as well as under the acceptance test. fstab + systemd's
+# fstab-generator does the mount; RequiresMountsFor on the boot unit (below)
+# orders the seam launcher after it.
+#
+# nofail: a share that is absent on a given boot must not wedge the boot in
+# emergency mode; the consumer (boot launcher / future claude exec) decides
+# whether its absence is fatal. runconfig is mounted ro (it is secret-bearing
+# and the guest never writes it); repo is rw (the guest works in it).
+mkdir -p "$STAGE/recipe/mkosi.extra/mnt/runconfig" \
+         "$STAGE/recipe/mkosi.extra/mnt/repo"
+cat > "$STAGE/recipe/mkosi.extra/etc/fstab" <<'FSTAB'
+# <tag>     <mountpoint>     <type>     <options>     <dump> <pass>
+runconfig   /mnt/runconfig   virtiofs   ro,nofail     0 0
+repo        /mnt/repo        virtiofs   rw,nofail     0 0
+FSTAB
+
 # The Type=oneshot unit that runs the boot launcher on guest boot. Wanted
 # by multi-user.target so it runs on a normal boot; runs after the network
 # is up so the egress-allowlisted fetch the launcher performs can reach the
-# proxy.
+# proxy. RequiresMountsFor pulls in and orders after the runconfig mount so
+# the launcher's `. /mnt/runconfig/run.env` sees the share.
 cat > "$STAGE/recipe/mkosi.extra/etc/systemd/system/claude-vm-boot.service" <<'UNIT'
 [Unit]
 Description=claude-vm one-shot boot launcher
 After=network-online.target
 Wants=network-online.target
+# Pull in and order after the runconfig virtio-fs mount so the launcher's
+# `. /mnt/runconfig/run.env` reads a mounted share, not a bare directory.
+RequiresMountsFor=/mnt/runconfig
 
 [Service]
 Type=oneshot
@@ -185,6 +236,23 @@ Output=guest
 [Content]
 Bootable=yes
 Bootloader=systemd-boot
+# Direct the kernel console to the serial device vfkit captures (issue #71,
+# criterion (b)). vfkit's --device virtio-serial,logFilePath=... is a
+# virtio-console, which the guest exposes as /dev/hvc0 -- NOT the PL011 UART
+# /dev/ttyAMA0 the EFI firmware stage uses. Without an explicit console= the
+# virtio-console driver never registers as /dev/console, so the boot
+# launcher's seam message (systemd unit StandardOutput=journal+console ->
+# /dev/console) never reaches the captured log and the acceptance test sees
+# zero guest output, then times out. hvc0 is the device that actually carries
+# the message; ttyAMA0 is listed too as a harmless firmware-stage fallback so
+# early-boot output before virtio-console is up is not silently dropped.
+# systemd.firstboot=off disables the interactive First Boot Wizard (issue
+# #71, criterion (b)). Without it, systemd-firstboot.service runs on the
+# pristine image and BLOCKS the boot at "Please configure your system! --
+# Press any key to proceed --", waiting on a keypress that never arrives in
+# the headless vfkit boot, so the seam oneshot (ordered after
+# multi-user.target) never runs and the acceptance test times out.
+KernelCommandLine=console=ttyAMA0 console=hvc0 systemd.firstboot=off
 # Plain ext4 root: keeps the offline (loop-device-free) repart path.
 # No Subvolumes=, no SELinux -- neither RepartOffline=no trigger fires.
 #
