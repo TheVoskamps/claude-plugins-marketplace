@@ -38,13 +38,16 @@ func TestStaticVarPathResolvesToContainment_60(t *testing.T) {
 
 	// Trace 1 shape: assign the payload subdir, then cat two files under it via
 	// a quoted "$P/..." expansion. The path is statically resolvable and lands
-	// inside the repo → containment returns contained → DEFER (not ASK).
+	// inside the repo → containment returns contained. Since #31 made cat a
+	// read-only-utility ALLOW, the resolved-and-contained form now ALLOWs (it
+	// formerly DEFERRED); the #60 invariant under test is that resolution feeds
+	// Engine B (in-repo → not ASK, cross-repo → DENY below), not the terminal.
 	cmd1 := `P=` + payload + `; echo "header"; cat "$P/ecosystem-block.yml"; cat "$P/dependabot.yml"`
 	d1 := classifyBash(cmd1, ev())
 	if d1.Bucket == BucketAsk {
 		t.Errorf("#60 trace 1: static-var in-repo path must not ASK; got ASK (%s)", d1.Reason)
 	}
-	wantBucket(t, d1, BucketDefer, "#60 trace 1: static-var in-repo cat")
+	wantBucket(t, d1, BucketAllow, "#60 trace 1: static-var in-repo cat")
 
 	// Trace 2 shape: assign the payload dir, then cat a file under it.
 	cmd2 := `P=` + payload + `; echo "header"; cat "$P/README.md"`
@@ -52,12 +55,12 @@ func TestStaticVarPathResolvesToContainment_60(t *testing.T) {
 	if d2.Bucket == BucketAsk {
 		t.Errorf("#60 trace 2: static-var in-repo path must not ASK; got ASK (%s)", d2.Reason)
 	}
-	wantBucket(t, d2, BucketDefer, "#60 trace 2: static-var in-repo cat")
+	wantBucket(t, d2, BucketAllow, "#60 trace 2: static-var in-repo cat")
 
 	// The braced form `${P}` resolves the same way.
 	cmd3 := `P=` + payload + `; cat "${P}/README.md"`
 	d3 := classifyBash(cmd3, ev())
-	wantBucket(t, d3, BucketDefer, "#60 braced ${P} in-repo cat")
+	wantBucket(t, d3, BucketAllow, "#60 braced ${P} in-repo cat")
 
 	// Containment now actually runs on the resolved path: a static var pointing
 	// at a SIBLING repo's node_modules is denied (#148), proving resolution
@@ -244,13 +247,16 @@ func TestTopLevelVarResolvesInsideScope_60(t *testing.T) {
 	cwd := canonicalize(repo)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
 
-	// Top-level P, used inside a subshell — resolves and lands in-repo → DEFER.
+	// Top-level P, used inside a subshell — resolves and lands in-repo. The cat
+	// is a read-only-utility ALLOW (#31); the #60 invariant is that the
+	// inherited var resolves (so the path is contained, not ASK), not the
+	// terminal bucket.
 	cmd := `P=` + repo + `; ( cat "$P/README.md" )`
 	d := classifyBash(cmd, ev)
 	if d.Bucket == BucketAsk {
 		t.Errorf("#60: top-level var must resolve inside a subshell; got ASK (%s)", d.Reason)
 	}
-	wantBucket(t, d, BucketDefer, "#60 top-level var resolves inside subshell")
+	wantBucket(t, d, BucketAllow, "#60 top-level var resolves inside subshell")
 
 	// Top-level P, used inside a function body — resolves the same way.
 	cmd2 := `P=` + repo + `; f() { cat "$P/README.md"; }`
