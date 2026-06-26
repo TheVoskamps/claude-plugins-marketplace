@@ -108,8 +108,13 @@ like `2.1.172`):
 1. resolve the channel/pin to a concrete version host-side (cache key =
    resolved version);
 2. download that version's `manifest.json` + `manifest.json.sig`;
-3. **`gpg --verify`** the signature against the operator's pinned
-   claude-code signing key — **the root of trust**;
+3. **`gpg --verify`** the signature **and bind it to the pinned
+   claude-code key fingerprint** (`claude.signing_key_fingerprint`) — **the
+   root of trust**. A bare `gpg --verify` exits 0 for a valid signature
+   under *any* key in the operator's keyring, so the verify step reads
+   gpg's `--status-fd` stream and requires a `VALIDSIG` whose fingerprint
+   matches the configured pin; a valid signature by an unexpected key is
+   rejected;
 4. read the `linux-arm64` SHA256 from the signature-verified manifest;
 5. download the binary; verify its SHA256 against the manifest;
 6. cache the verified binary under
@@ -125,12 +130,30 @@ trust. `install.sh | bash` is retained only as an explicit **lower-trust
 fallback** when no cache is configured (behind the egress allowlist,
 suicide-on-fail).
 
-**Operator one-time setup** (trust-on-first-use): import and out-of-band
-verify the signing key —
+**Operator one-time setup** (trust-on-first-use): import the signing key,
+read its fingerprint, **verify that fingerprint out of band**, then **pin
+it** in your config so the verify step is bound to *that* key (not merely
+to "some key in your keyring") —
 
 ```bash
 curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
+gpg --fingerprint claude-code   # confirm this matches the published value
 ```
+
+Then set the fingerprint in `~/.config/claude-vm/config.yml` (or the
+per-repo override):
+
+```yaml
+claude:
+  version: stable
+  signing_key_fingerprint: "AAAA BBBB CCCC DDDD EEEE  FFFF 0000 1111 2222 3333"
+```
+
+The value is compared case-insensitively with spaces stripped, so the
+`gpg --fingerprint` form can be pasted verbatim. If
+`signing_key_fingerprint` is **unset**, the cache still requires a valid
+`VALIDSIG` but cannot bind it to a specific key — it prints a warning that
+the root of trust is not pinned. Pinning it is strongly recommended.
 
 **Warm boot:** when the resolved version is already cached, the binary is
 not re-downloaded and `gpg` is not re-run, and the launcher drops
@@ -168,11 +191,12 @@ guest reaches the claude-fetch seam **and execs the host-verified claude
 off the `/mnt/claudebin` mount**, (c) the bundled proxy confines egress
 to the allowlist (allowlisted host permitted, non-allowlisted refused,
 empty allowlist denies all), and (d) the host-side verified cache —
-exercised against a **locally-generated GPG key over local fixtures** (it
-does not reach `claude.ai`) — resolves+fetches+verifies+caches a binary,
-aborts on a tampered manifest, aborts on a checksum mismatch, and serves
-a warm boot with no network. Criterion (d) skips cleanly when `gpg` is
-absent. It is host-gated,
+exercised against **two locally-generated GPG keys over local fixtures**
+(it does not reach `claude.ai`) — resolves+fetches+verifies+caches a
+binary against the **pinned** key fingerprint, aborts on a tampered
+manifest, aborts on a checksum mismatch, **rejects a valid signature made
+by an unexpected (unpinned) key**, and serves a warm boot with no network.
+Criterion (d) skips cleanly when `gpg` is absent. It is host-gated,
 split by cause: it skips cleanly (exit 0) when a required *binary* is
 absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `jq`) — the test
 cannot install software for you — mirroring how `config-test.sh` skips

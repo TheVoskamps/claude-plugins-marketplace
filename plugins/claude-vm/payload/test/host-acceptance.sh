@@ -640,10 +640,28 @@ else
   export CLAUDE_VM_CACHE_DIR="$WORK/cache-d"
   export CLAUDE_VM_CACHE_STATE_FILE="$WORK/cache-d-state"
 
-  # Generate a throwaway signing key non-interactively.
+  # Generate a throwaway signing key non-interactively. This is the key we
+  # PIN the verify path to (issue #49 review): a bare gpg --verify trusts
+  # ANY key in the keyring, so we bind "valid signature" to "this key" by
+  # setting CLAUDE_VM_SIGNING_KEY_FINGERPRINT to its fingerprint.
+  # `... default sign never` -> an explicitly sign-capable primary key, so
+  # d5 below can actually sign with the SECOND key (a `default default` key's
+  # primary may be encryption-only -> "Unusable secret key" when signed with).
   gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
     --quick-generate-key 'claude-vm acceptance <accept@example.invalid>' \
-    default default never >>"$LOG_DIR/gpg.log" 2>&1
+    default sign never >>"$LOG_DIR/gpg.log" 2>&1
+  # The pinned (expected) fingerprint: the FIRST fpr line is the primary key.
+  export CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(gpg --with-colons --fingerprint 2>/dev/null \
+    | awk -F: '/^fpr:/{print $10; exit}')"
+
+  # A SECOND, unrelated sign-capable key also in the keyring. d5 signs a valid
+  # manifest with THIS key; the pin must reject it even though gpg --verify
+  # alone would exit 0 (the signature is valid -- just by the wrong key).
+  gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+    --quick-generate-key 'claude-vm rogue <rogue@example.invalid>' \
+    default sign never >>"$LOG_DIR/gpg.log" 2>&1
+  ROGUE_FPR="$(gpg --with-colons --fingerprint 2>/dev/null \
+    | awk -F: '/^fpr:/{print $10}' | grep -v "^$CLAUDE_VM_SIGNING_KEY_FINGERPRINT$" | head -n1)"
 
   # Fixtures: a fake binary + a manifest carrying its real sha256, signed
   # with the throwaway key.
@@ -716,6 +734,28 @@ JSON
     pass "(d) checksum mismatch (good signature, wrong digest) aborts and caches nothing"
   fi
 
+  # d5: KEY PINNING -- a manifest validly signed by an UNEXPECTED key must
+  # be rejected (issue #49 review). We sign the good manifest with the rogue
+  # key (also in the keyring, so a bare gpg --verify would exit 0) and serve
+  # that signature; the pin (CLAUDE_VM_SIGNING_KEY_FINGERPRINT = the FIRST
+  # key) must abort. Skips if the rogue key did not generate.
+  if [ -n "${ROGUE_FPR:-}" ]; then
+    gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+      --default-key "$ROGUE_FPR" \
+      --detach-sign -o "$D_FIX/manifest.rogue.json.sig" "$D_FIX/manifest.good.json" \
+      >>"$LOG_DIR/gpg.log" 2>&1
+    D_RESOLVED="3.2.4"; D_MANIFEST="$D_FIX/manifest.good.json"; D_SIG="$D_FIX/manifest.rogue.json.sig"
+    if claude_cache_ensure stable >>"$LOG_DIR/cache-d.log" 2>&1; then
+      fail "(d) signature by an UNEXPECTED key did NOT abort (key pin not enforced)"
+    elif [ -e "$CLAUDE_VM_CACHE_DIR/3.2.4/linux-arm64/claude" ]; then
+      fail "(d) unexpected-key signature aborted but LEFT a cached binary"
+    else
+      pass "(d) valid signature by an unexpected key is rejected by the fingerprint pin"
+    fi
+  else
+    echo "ok   - (d) key-pin (unexpected-key) sub-test SKIPPED (rogue key did not generate)"
+  fi
+
   # d4: warm boot -- a PINNED, already-cached version uses NO network. Prove
   # it by making the fetch primitive fail loudly; a warm hit must not call it.
   # Reuse the version cached in d1 by re-resolving stable to it first... but
@@ -729,7 +769,7 @@ JSON
     fail "(d) warm boot did not use the cache without network" "see $LOG_DIR/cache-d.log"
   fi
 
-  unset GNUPGHOME
+  unset GNUPGHOME CLAUDE_VM_SIGNING_KEY_FINGERPRINT
 fi
 
 # ---------------------------------------------------------------------

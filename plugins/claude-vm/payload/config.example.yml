@@ -42,11 +42,20 @@ repo:
 # WARM BOOT: when the resolved version is already cached, the binary is not
 # re-downloaded and the launcher drops claude.ai / downloads.claude.ai from
 # the guest's egress allowlist (the guest never needs them -- the binary
-# came from the host-side cache). Operator one-time setup: import and out-
-# of-band-verify the signing key --
+# came from the host-side cache). Operator one-time setup: import the signing
+# key, verify its fingerprint out of band, then PIN it below --
 #   curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
+#   gpg --fingerprint claude-code   # confirm against the published value
+#
+# signing_key_fingerprint PINS the GPG root of trust to a specific key. A
+# bare `gpg --verify` exits 0 for a valid signature under ANY key in your
+# keyring, so without this pin the check is not bound to the claude-code key.
+# Set it to the fingerprint you verified out of band (spaces/case ignored,
+# so the `gpg --fingerprint` form pastes verbatim). When unset, the cache
+# still requires a valid signature but WARNS that the key is not pinned.
 claude:
   version: stable
+  signing_key_fingerprint: ""   # e.g. "AAAA BBBB ... 2222 3333"
 
 proxy:
   # A launcher command for your forward proxy. When UNSET, the launcher

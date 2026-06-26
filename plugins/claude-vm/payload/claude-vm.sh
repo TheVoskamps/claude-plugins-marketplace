@@ -89,6 +89,16 @@ GUEST_IMAGE="$(claude_vm_scalar "$MERGED" '.guest_image' "$DEFAULT_IMAGE_DIR/gue
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
 CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
 
+# claude.signing_key_fingerprint: the claude-code signing key fingerprint
+# the operator out-of-band-verified at import time. This PINS the GPG
+# verification's root of trust to a specific key -- a bare `gpg --verify`
+# trusts ANY key in the keyring, so without this the "valid signature"
+# check is not bound to "the claude-code key" (issue #49 review). Exported
+# so lib/claude-cache.sh's verify step can enforce it. Empty when unset:
+# the cache still requires a VALIDSIG but warns the key is not pinned.
+CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(claude_vm_scalar "$MERGED" '.claude.signing_key_fingerprint' "")"
+export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
+
 # ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
 # build/boot work -- with one actionable remediation per missing piece,

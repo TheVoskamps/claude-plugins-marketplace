@@ -124,6 +124,53 @@ claude_cache_checksum_matches "$BIN_SHA" "deadbeef"
 assert_rc "checksum mismatch -> rc 1" "1" "$?"
 
 # ---------------------------------------------------------------------
+# 3b. Hardened jq-free manifest parse. The fallback parser must scope to
+#     the target platform's object and take the checksum-keyed hex -- not a
+#     fixed N-line window that a layout change could make grab the wrong
+#     token. We force the fallback by hiding jq behind a minimal PATH, and
+#     feed adversarial layouts: a hex-bearing `url` field BEFORE the
+#     checksum, and a DIFFERENT platform's digest preceding ours.
+# ---------------------------------------------------------------------
+# Build a PATH that has the parse tools (awk/grep/tr/head/sed/cat) but NOT
+# jq, so claude_cache_manifest_sha256 exercises its jq-free branch.
+NOJQ_BIN="$WORK/nojq-bin"; mkdir -p "$NOJQ_BIN"
+for _t in awk grep tr head sed cat shasum sha256sum; do
+  _src="$(command -v "$_t" 2>/dev/null)" && ln -sf "$_src" "$NOJQ_BIN/$_t" 2>/dev/null
+done
+parse_nojq() { PATH="$NOJQ_BIN" claude_cache_manifest_sha256 "$1" 2>/dev/null; }
+
+# Adversarial layout A: a url carrying its own 64-hex run BEFORE the checksum.
+cat > "$FIXTURE/manifest.urlhex.json" <<JSON
+{ "version": "9.9.9",
+  "platforms": {
+    "linux-arm64": {
+      "url": "https://x/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/claude",
+      "size": 12345,
+      "checksum": "$BIN_SHA"
+    } } }
+JSON
+assert_eq "fallback parse ignores a hex-bearing url before checksum" \
+  "$BIN_SHA" "$(parse_nojq "$FIXTURE/manifest.urlhex.json")"
+
+# Adversarial layout B: another platform's digest precedes ours.
+cat > "$FIXTURE/manifest.multiplat.json" <<JSON
+{ "platforms": {
+    "darwin-arm64": { "checksum": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    "linux-arm64":  { "checksum": "$BIN_SHA" }
+  } }
+JSON
+assert_eq "fallback parse picks OUR platform, not a preceding one" \
+  "$BIN_SHA" "$(parse_nojq "$FIXTURE/manifest.multiplat.json")"
+
+# ---------------------------------------------------------------------
+# 3c. Fingerprint normalization: spaced + lowercased vs compact + upper
+#     must compare equal (operators paste the gpg --fingerprint form).
+# ---------------------------------------------------------------------
+assert_eq "normalize_fpr strips spaces + uppercases" \
+  "C8D7E3123F312A2DC66F4F009C01EB1720C49782" \
+  "$(claude_cache_normalize_fpr 'c8d7 e312 3f31 2a2d c66f 4f00 9c01 eb17 20c4 9782')"
+
+# ---------------------------------------------------------------------
 # 4. HAPPY PATH: cold fetch caches a verified binary
 # ---------------------------------------------------------------------
 GPG_VERIFY_RESULT=0

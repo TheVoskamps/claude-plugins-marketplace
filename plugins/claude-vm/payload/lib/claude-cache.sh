@@ -48,6 +48,20 @@ CLAUDE_VM_GUEST_PLATFORM="linux-arm64"
 CLAUDE_VM_RELEASES_BASE="https://downloads.claude.ai/claude-code-releases"
 CLAUDE_VM_SIGNING_KEY_URL="https://downloads.claude.ai/keys/claude-code.asc"
 
+# Expected signing-key fingerprint -- the PIN that binds "valid signature"
+# to "the claude-code key" (issue #49 review: a bare `gpg --verify` trusts
+# ANY key in the operator's keyring, so the exit code alone does not
+# constrain WHICH key signed). The operator sets this to the claude-code
+# key's fingerprint they out-of-band-verified at import time, via the
+# `claude.signing_key_fingerprint` config scalar (plumbed in as this env
+# var by claude-vm.sh). Compared case-insensitively with spaces stripped,
+# so the human-readable `gpg --fingerprint` form (groups of four hex with
+# spaces) can be pasted verbatim. When EMPTY the verify path still upgrades
+# to a status-fd VALIDSIG check (a bad/absent signature aborts) but cannot
+# bind to a specific key -- it warns loudly that the root of trust is not
+# pinned. See claude_cache_gpg_verify.
+: "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT:=}"
+
 # Default channel when `claude.version` is unset in both config layers.
 # `stable` is the conservative channel (latest binary tracking stable).
 CLAUDE_VM_DEFAULT_CLAUDE_VERSION="stable"
@@ -147,12 +161,40 @@ claude_cache_manifest_sha256() {
     ' "$manifest_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   fi
   if [ -z "$digest" ]; then
-    # jq-free fallback: find the platform key, then the first 64-hex token
-    # after it. Constrained to a 64-char hex run so it cannot match a
-    # version or URL. This is best-effort for hosts without jq; jq is the
-    # supported path.
-    digest="$(grep -A4 "\"$platform\"" "$manifest_file" 2>/dev/null \
-      | grep -oiE '[0-9a-f]{64}' | head -n1 | tr '[:upper:]' '[:lower:]')"
+    # jq-free fallback (hosts without jq; jq is the supported path). Rather
+    # than assume a fixed N-line window around the platform key -- which a
+    # manifest layout change (reordered keys, a hex-bearing `url`/`size`
+    # field, the platform object spread across more or fewer lines) could
+    # make grab the WRONG token -- we scope to the platform's own JSON
+    # object by brace depth and take the hex value that follows a
+    # "checksum"/"sha256" KEY inside it, not merely the first 64-hex run
+    # near the key.
+    #
+    # The manifest is first normalized to one structural token per line
+    # (braces, commas, and `"key": value` pairs separated) so the awk pass
+    # can track brace depth and key/value adjacency regardless of the
+    # source whitespace/formatting.
+    digest="$(tr '{},' '\n\n\n' < "$manifest_file" 2>/dev/null \
+      | awk -v p="\"$platform\"" '
+          # State: not yet inside the platform object until we see its key.
+          # depth counts braces from that point; we leave when it returns
+          # below zero (the platform object closed). armed is set by a
+          # checksum/sha256 key so we only accept the hex that follows it.
+          !inside && index($0, p) { inside = 1; next }
+          inside {
+            depth += gsub(/{/, "{") - gsub(/}/, "}")
+            # A checksum/sha256 key arms capture; the hex may be on the same
+            # line ("checksum": "<hex>") or, if the source split them, the
+            # next line. Only a hex token while armed counts -- a stray hex
+            # elsewhere in the object (a url, an unrelated field) does not.
+            if ($0 ~ /"(checksum|sha256)"/) armed = 1
+            if (armed && match($0, /[0-9a-fA-F]{64}/)) {
+              print substr($0, RSTART, RLENGTH); exit
+            }
+            if (depth < 0) exit
+          }
+        ' \
+      | head -n1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
   fi
   if ! printf '%s\n' "$digest" | grep -qiE '^[0-9a-f]{64}$'; then
     echo "claude-cache: could not read a sha256 for platform '$platform' from the manifest." >&2
@@ -186,11 +228,32 @@ claude_cache_checksum_matches() {
   [ -n "$expected" ] && [ "$expected" = "$actual" ]
 }
 
-# GPG-verify a detached signature against a file, using the operator's
-# pre-imported claude-code signing key. This is the ROOT OF TRUST step.
-# Returns gpg's exit status: 0 only when the signature validates against an
-# imported, trusted-enough key. A thin wrapper so offline tests can stub
-# it; the real verification is gpg's.
+# Normalize a fingerprint for comparison: strip whitespace, uppercase. So
+# the spaced `gpg --fingerprint` form (`AAAA BBBB ...`) and the compact
+# 40-hex form compare equal, and case never matters.
+claude_cache_normalize_fpr() {
+  printf '%s' "$1" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]'
+}
+
+# GPG-verify a detached signature against a file AND bind the result to the
+# expected claude-code signing key. This is the ROOT OF TRUST step.
+#
+# A bare `gpg --verify` exits 0 for a valid signature under ANY key in the
+# operator's keyring -- it does not constrain WHICH key signed (issue #49
+# review). So we do not trust the exit code alone: we read gpg's
+# machine-readable --status-fd stream and require a VALIDSIG line, then pin
+# the key by comparing VALIDSIG's fingerprints against
+# CLAUDE_VM_SIGNING_KEY_FINGERPRINT. VALIDSIG is emitted only for a good
+# signature from a non-revoked key and carries both the signing-key
+# fingerprint (field 2) and the primary-key fingerprint (field 11); we
+# accept a match against EITHER so a subkey-signed manifest still pins to
+# the operator's configured primary fingerprint.
+#
+# Returns 0 only when: gpg reports VALIDSIG AND (the pin is set AND matches)
+# -- or the pin is unset, in which case it still requires VALIDSIG but warns
+# that the key is not pinned. Returns non-zero on a bad/absent signature, a
+# missing VALIDSIG, or a fingerprint that does not match the pin. A thin
+# wrapper so offline tests can stub it; the real verification is gpg's.
 #
 #   $1 -- signature file (manifest.json.sig)
 #   $2 -- signed file     (manifest.json)
@@ -203,11 +266,65 @@ claude_cache_gpg_verify() {
     echo "claude-cache: then verify its fingerprint out of band (one-time, trust-on-first-use)." >&2
     return 1
   }
-  # --status-fd lets us assert a GOODSIG rather than relying solely on the
-  # exit code, but gpg's exit status is already non-zero on a bad/absent
-  # signature, which is the fatal condition we need. Keep stderr visible so
-  # a verification failure is diagnosable.
-  gpg --verify "$sig" "$signed"
+
+  # Capture gpg's machine-readable status stream. --status-fd 1 routes the
+  # GOODSIG/VALIDSIG/BADSIG records to stdout (human noise stays on stderr,
+  # still visible for diagnosis). We branch on the records, not on $?,
+  # because $? does not tell us WHICH key signed.
+  local status
+  status="$(gpg --status-fd 1 --verify "$sig" "$signed" 2>/dev/null)"
+  local gpg_rc=$?
+
+  # No VALIDSIG => bad, absent, or untrusted signature. Abort regardless of
+  # exit code. (gpg_rc is also non-zero here; we surface it for diagnosis.)
+  local validsig_line
+  validsig_line="$(printf '%s\n' "$status" | grep '\[GNUPG:\] VALIDSIG ' | head -n1)"
+  if [ -z "$validsig_line" ]; then
+    echo "claude-cache: gpg did not report a VALIDSIG for the manifest signature (gpg rc=$gpg_rc)." >&2
+    echo "claude-cache: the signature is missing, malformed, or made by an unknown/untrusted key." >&2
+    # Show gpg's own diagnosis (re-run to stderr) to aid debugging.
+    gpg --verify "$sig" "$signed" >&2 2>&1 || true
+    return 1
+  fi
+
+  # VALIDSIG record layout (status-fd protocol), after the "[GNUPG:] " prefix:
+  #   VALIDSIG <signing-fpr> <sig-date> <sig-ts> <expire-ts> <version> \
+  #            <reserved> <pubkey-algo> <hash-algo> <sig-class> <primary-fpr>
+  # The signing-key fingerprint is the FIRST token after VALIDSIG and the
+  # primary-key fingerprint is the LAST token. We read positionally from the
+  # ends rather than by a fixed index so a future gpg that inserts a field
+  # in the middle does not silently shift the primary-fpr we compare. We
+  # accept a pin match against EITHER (a subkey-signed manifest still pins
+  # to the configured primary fingerprint).
+  local payload sig_fpr primary_fpr
+  payload="${validsig_line#*VALIDSIG }"   # drop "[GNUPG:] VALIDSIG "
+  sig_fpr="${payload%% *}"                 # first token
+  primary_fpr="${payload##* }"             # last token
+
+  local want
+  want="$(claude_cache_normalize_fpr "$CLAUDE_VM_SIGNING_KEY_FINGERPRINT")"
+  if [ -z "$want" ]; then
+    echo "claude-cache: WARNING -- CLAUDE_VM_SIGNING_KEY_FINGERPRINT is not set." >&2
+    echo "claude-cache: the manifest signature is valid, but the root of trust is NOT pinned to a" >&2
+    echo "claude-cache: specific key -- ANY key in your gpg keyring would satisfy this check. Set" >&2
+    echo "claude-cache: 'claude.signing_key_fingerprint' in your claude-vm config to the claude-code" >&2
+    echo "claude-cache: key fingerprint you verified out of band (one-time, trust-on-first-use)." >&2
+    return 0
+  fi
+
+  local got_sig got_primary
+  got_sig="$(claude_cache_normalize_fpr "$sig_fpr")"
+  got_primary="$(claude_cache_normalize_fpr "$primary_fpr")"
+  if [ "$want" = "$got_sig" ] || [ "$want" = "$got_primary" ]; then
+    return 0
+  fi
+
+  echo "claude-cache: manifest signature is valid but was made by an UNEXPECTED key -- aborting." >&2
+  echo "claude-cache:   expected fingerprint (pinned): $want" >&2
+  echo "claude-cache:   signing-key fingerprint:       ${got_sig:-<none>}" >&2
+  echo "claude-cache:   primary-key fingerprint:       ${got_primary:-<none>}" >&2
+  echo "claude-cache: refusing to trust a signature that does not chain to the pinned claude-code key." >&2
+  return 1
 }
 
 # The full TRUSTED fetch+verify+cache flow for a resolved version. On
@@ -240,20 +357,24 @@ claude_cache_fetch_verified() {
     echo "claude-cache: could not create a temp work dir for the verified fetch." >&2
     return 1
   }
-  # Clean the scratch on every return path; the cache install is atomic via
-  # a rename out of this dir's sibling, so a failure leaves no half-binary
-  # in the cache.
-  local rc=0
-  _cache_cleanup() { rm -rf "$work"; }
+  # The cache-dir temp sibling we rename from in step 5. Declared up front so
+  # the RETURN trap can sweep it on any early exit too.
+  local tmp_dest="$dest_dir/.claude.tmp.$$"
+  # A RETURN trap cleans the scratch dir AND any leftover cache-dir temp on
+  # EVERY exit path -- normal return, early abort, or an unexpected error --
+  # so no half-fetched manifest/binary survives a failed verify. The cache
+  # install is atomic (rename of tmp_dest -> dest), so a failure never leaves
+  # a half-binary at the real cache path. Scoped to this function's return.
+  trap 'rm -rf "$work"; rm -f "$tmp_dest"' RETURN
 
   # Step 1: download manifest + signature.
   if ! claude_cache_fetch_url "$manifest_url" > "$work/manifest.json" 2>/dev/null; then
     echo "claude-cache: failed to download the manifest for version $version ($manifest_url)." >&2
-    _cache_cleanup; return 1
+    return 1
   fi
   if ! claude_cache_fetch_url "$sig_url" > "$work/manifest.json.sig" 2>/dev/null; then
     echo "claude-cache: failed to download the manifest signature for version $version ($sig_url)." >&2
-    _cache_cleanup; return 1
+    return 1
   fi
 
   # Step 2: ROOT OF TRUST -- gpg --verify. A failure here ABORTS; we never
@@ -262,32 +383,32 @@ claude_cache_fetch_verified() {
     echo "claude-cache: GPG verification of the manifest FAILED for version $version -- aborting." >&2
     echo "claude-cache: refusing to install an unverified claude binary. Ensure the claude-code" >&2
     echo "claude-cache: signing key is imported and trusted (see $CLAUDE_VM_SIGNING_KEY_URL)." >&2
-    _cache_cleanup; return 1
+    return 1
   fi
 
   # Step 3: read the platform sha256 from the signature-verified manifest.
   local want_sha
   if ! want_sha="$(claude_cache_manifest_sha256 "$work/manifest.json")"; then
     echo "claude-cache: could not extract the $CLAUDE_VM_GUEST_PLATFORM checksum from the verified manifest -- aborting." >&2
-    _cache_cleanup; return 1
+    return 1
   fi
 
   # Step 4: download the binary and verify its checksum against the
   # verified manifest. A mismatch ABORTS.
   if ! claude_cache_fetch_url "$binary_url" > "$work/claude" 2>/dev/null; then
     echo "claude-cache: failed to download the claude binary for version $version ($binary_url)." >&2
-    _cache_cleanup; return 1
+    return 1
   fi
   local have_sha
   if ! have_sha="$(claude_cache_file_sha256 "$work/claude")"; then
-    _cache_cleanup; return 1
+    return 1
   fi
   if ! claude_cache_checksum_matches "$want_sha" "$have_sha"; then
     echo "claude-cache: checksum MISMATCH for the claude binary version $version -- aborting." >&2
     echo "claude-cache:   expected (verified manifest): $want_sha" >&2
     echo "claude-cache:   actual   (downloaded binary): $have_sha" >&2
     echo "claude-cache: refusing to cache or run a binary that does not match the signed manifest." >&2
-    _cache_cleanup; return 1
+    return 1
   fi
 
   # Step 5: install into the version-keyed cache. Make the binary
@@ -296,16 +417,13 @@ claude_cache_fetch_verified() {
   # sees a half-written file.
   chmod 0755 "$work/claude"
   mkdir -p "$dest_dir"
-  local tmp_dest="$dest_dir/.claude.tmp.$$"
   if ! cp "$work/claude" "$tmp_dest" || ! mv -f "$tmp_dest" "$dest"; then
     echo "claude-cache: failed to install the verified binary into the cache at $dest." >&2
-    rm -f "$tmp_dest"
-    _cache_cleanup; return 1
+    return 1
   fi
 
-  _cache_cleanup
   printf '%s\n' "$dest"
-  return "$rc"
+  return 0
 }
 
 # Top-level: ensure a verified, cached binary exists for the requested
