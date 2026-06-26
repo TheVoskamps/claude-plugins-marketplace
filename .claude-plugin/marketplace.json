@@ -14,6 +14,7 @@
     { "name": "cc-tools", "source": "./plugins/cc-tools" },
     { "name": "github-claude-identity", "source": "./plugins/github-claude-identity" },
     { "name": "guardrails", "source": "./plugins/guardrails" },
+    { "name": "block-background-agents", "source": "./plugins/block-background-agents" },
     { "name": "claude-vm", "source": "./plugins/claude-vm" }
   ]
 }

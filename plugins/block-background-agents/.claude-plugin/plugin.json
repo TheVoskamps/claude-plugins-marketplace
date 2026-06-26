@@ -1,0 +1,6 @@
+{
+  "name": "block-background-agents",
+  "description": "PreToolUse policy hook that denies background agent spawns (run_in_background: true) so permission prompts can bubble up to the user.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
