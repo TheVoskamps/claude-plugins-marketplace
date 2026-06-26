@@ -25,6 +25,29 @@ repo:
   mount: clone          # clone (default) | live
   copy_back: local      # local (default) | none -- post-exit copy-back target
 
+# Which `claude` binary to run in the guest. The HOST resolves this to a
+# concrete version, downloads that version's GPG-signed manifest, verifies
+# the signature against the operator's pinned claude-code key, checksum-
+# verifies the downloaded binary against the verified manifest, and caches
+# it under ~/.config/claude-vm/cache/<version>/linux-arm64/claude. The
+# launcher then mounts the verified binary RO into the guest (mountTag=
+# claudebin); the guest runs it off the mount and never fetches-and-runs
+# install.sh on this trusted path. A failed gpg --verify or a checksum
+# mismatch ABORTS the launch -- unverified code is never run.
+#
+#   stable          -- (default) the latest binary tracking the stable channel
+#   latest          -- the latest binary tracking the latest channel
+#   2.1.172         -- a concrete pinned version (no channel resolution)
+#
+# WARM BOOT: when the resolved version is already cached, the binary is not
+# re-downloaded and the launcher drops claude.ai / downloads.claude.ai from
+# the guest's egress allowlist (the guest never needs them -- the binary
+# came from the host-side cache). Operator one-time setup: import and out-
+# of-band-verify the signing key --
+#   curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
+claude:
+  version: stable
+
 proxy:
   # A launcher command for your forward proxy. When UNSET, the launcher
   # defaults to the bundled tinyproxy launcher

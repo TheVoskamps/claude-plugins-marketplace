@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 #
 # host-acceptance.sh -- self-contained on-host acceptance test for the
-# claude-vm bootable runtime (issue #75's acceptance criteria, made
-# runnable by issue #100).
+# claude-vm bootable runtime (issue #75's criteria, made runnable by issue
+# #100; extended with the verified-cache criterion by issue #49).
 #
-# Runs the three issue-#75 acceptance criteria end-to-end with NO manual
-# choreography:
+# Runs the acceptance criteria end-to-end with NO manual choreography:
 #
 #   (a) the DEFAULT provisioner (podman-mkosi, no CLAUDE_VM_IMAGE_PROVISIONER
 #       override) builds a raw EFI guest image with no hand-run
 #       build-guest-image.sh and no loop-device step;
-#   (b) vfkit boots that image and the guest reaches the claude-fetch SEAM
-#       (the observable boot message the seam emits);
+#   (b) vfkit boots that image, the guest reaches the claude-fetch SEAM (the
+#       observable boot message), and execs the host-verified claude off the
+#       /mnt/claudebin RO mount (a STUB claude, asserted by its marker);
 #   (c) egress is confined to the allowlist by the bundled tinyproxy proxy:
 #       an allowlisted host is permitted, a non-allowlisted host is refused,
-#       and an EMPTY allowlist denies all.
+#       and an EMPTY allowlist denies all;
+#   (d) the host-side GPG-verified claude cache (issue #49), exercised with a
+#       LOCALLY-generated key over local fixtures (does NOT reach claude.ai):
+#       resolve+fetch+verify+cache works, a tampered manifest aborts, a
+#       checksum mismatch aborts, and a warm boot uses the cache with no
+#       network. Skips when gpg is absent.
 #
 # LIVE-NETWORK CAVEAT (criterion (c) only): unlike (a) and (b), criterion
 # (c) is NOT fully self-contained -- it probes REAL external hosts
@@ -374,6 +379,13 @@ fi
 # emit_boot_launcher). We boot with a console captured to a file and
 # assert the message appears, then stop the VM.
 # ---------------------------------------------------------------------
+# The seam message the boot launcher emits when it reaches the claude-fetch
+# seam. Both branches of the (now-filled) seam print this prefix -- the
+# "running host-verified claude" branch when the claudebin mount carries an
+# executable, and the "no verified claude binary" branch when it does not --
+# so asserting the prefix confirms the guest reached the seam regardless of
+# which branch ran. (issue #49 filled the seam; this marker is the boundary,
+# not the old stop-here message.)
 SEAM_MARKER="guest booted to the claude-fetch seam"
 if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   BOOT_LOG="$LOG_DIR/boot.log"     # retained diagnostic (issue #115)
@@ -387,21 +399,33 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   for _ in $(seq 1 50); do [ -S "$GVSOCK" ] && break; sleep 0.1; done
 
   # Boot the image the SAME WAY the real launcher (claude-vm.sh) does: it
-  # ALWAYS attaches two virtio-fs shares -- mountTag=runconfig (the run.env
-  # the guest boot launcher sources) and mountTag=repo (the working tree).
+  # ALWAYS attaches three virtio-fs shares -- mountTag=runconfig (the run.env
+  # the guest boot launcher sources), mountTag=repo (the working tree), and
+  # mountTag=claudebin (the host-verified claude binary, issue #49).
   # Testing the real thing means reproducing that mount topology here; a
   # bare boot (no shares) is a boot the product never actually performs, and
   # would make the guest's `. /mnt/runconfig/run.env` fail in the test while
   # "passing" in reality (or vice versa). We stand up throwaway shares:
   #   - runconfig: a STUB run.env with the same KEYS the real one carries
   #     (claude-vm.sh writes ANTHROPIC_API_KEY/HTTP(S)_PROXY/NO_PROXY/
-  #     REPO_TAG/POLICY_TAG/CLAUDE_ARGS) but DUMMY, non-secret values. Slice
-  #     3 stops at the seam BEFORE any token is used, so a placeholder token
-  #     is sufficient to exercise the real sourcing path.
-  #   - repo: an empty dir (slice 3 does not yet exec against it).
+  #     REPO_TAG/POLICY_TAG/CLAUDEBIN_TAG/CLAUDE_ARGS) but DUMMY, non-secret
+  #     values. A placeholder token is sufficient -- the seam exec'd here is a
+  #     STUB claude that never uses the token, so the real sourcing path is
+  #     exercised without a real credential.
+  #   - repo: an empty dir the seam cd's into (the stub claude does not
+  #     require repo contents).
+  #   - claudebin: the dir holding the (host-verified) claude binary, shared
+  #     RO under mountTag=claudebin (issue #49). The real launcher caches a
+  #     GPG-verified binary here; for THIS boot test we stand up a STUB
+  #     `claude` that prints a recognizable marker and exits, so the seam's
+  #     `exec "$CLAUDE_BIN" $CLAUDE_ARGS` actually runs and we can confirm
+  #     the guest ran the mounted binary (not just reached the seam). The
+  #     stub is shell, run by the guest's /bin/sh -- adequate to prove the
+  #     mount+exec path without a real linux-arm64 claude artifact.
   RUNCONFIG_SHARE="$WORK/runconfig"
   REPO_SHARE="$WORK/repo"
-  mkdir -p "$RUNCONFIG_SHARE" "$REPO_SHARE"
+  CLAUDEBIN_SHARE="$WORK/claudebin"
+  mkdir -p "$RUNCONFIG_SHARE" "$REPO_SHARE" "$CLAUDEBIN_SHARE"
   cat > "$RUNCONFIG_SHARE/run.env" <<'RUNENV'
 ANTHROPIC_API_KEY=test-placeholder-not-a-real-token
 HTTPS_PROXY=http://192.168.127.1:8080
@@ -409,8 +433,16 @@ HTTP_PROXY=http://192.168.127.1:8080
 NO_PROXY=localhost,127.0.0.1
 REPO_TAG=repo
 POLICY_TAG=policy
-CLAUDE_ARGS=
+CLAUDEBIN_TAG=claudebin
+CLAUDE_ARGS=--version
 RUNENV
+  # Stub claude: prints a marker the boot test asserts, proving the guest
+  # exec'd the mounted binary off /mnt/claudebin.
+  cat > "$CLAUDEBIN_SHARE/claude" <<'STUBCLAUDE'
+#!/bin/sh
+echo "claude-vm-stub: ran host-verified claude off the mount, args=[$*]"
+STUBCLAUDE
+  chmod 0755 "$CLAUDEBIN_SHARE/claude"
 
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
@@ -421,6 +453,7 @@ RUNENV
     --device "virtio-blk,path=$IMG" \
     --device "virtio-fs,sharedDir=$REPO_SHARE,mountTag=repo" \
     --device "virtio-fs,sharedDir=$RUNCONFIG_SHARE,mountTag=runconfig" \
+    --device "virtio-fs,sharedDir=$CLAUDEBIN_SHARE,mountTag=claudebin" \
     --device "virtio-net,unixSocketPath=$GVSOCK" \
     --device "virtio-rng" \
     --device "virtio-serial,logFilePath=$BOOT_LOG" \
@@ -443,6 +476,15 @@ RUNENV
     pass "(b) vfkit booted the guest and it reached the claude-fetch seam"
   else
     fail "(b) guest did not reach the claude-fetch seam within timeout" "see $BOOT_LOG"
+  fi
+
+  # (b2) The seam is FILLED (issue #49): the guest should have exec'd the
+  # claude binary off the /mnt/claudebin RO mount. Our stub prints a marker;
+  # asserting it confirms the mount+exec path, not merely reaching the seam.
+  if grep -q "claude-vm-stub: ran host-verified claude off the mount" "$BOOT_LOG"; then
+    pass "(b) guest exec'd the host-verified claude off the /mnt/claudebin mount"
+  else
+    fail "(b) guest did not run the mounted claude binary at the seam" "see $BOOT_LOG"
   fi
 else
   fail "(b) skipped: no bootable image from criterion (a)"
@@ -564,6 +606,131 @@ else
   fail "(c) empty allowlist did NOT deny all" "see $PROXY_LOG"
 fi
 stop_proxy
+
+# ---------------------------------------------------------------------
+# Criterion (d): host-side GPG-verified claude cache (issue #49).
+#
+#   d1: a channel/pin resolves to a concrete version, the binary is fetched,
+#       its GPG-signed manifest is verified, its checksum is verified, and
+#       the binary is cached keyed on the resolved version.
+#   d2: a TAMPERED manifest (gpg --verify fails) ABORTS -- nothing cached.
+#   d3: a checksum MISMATCH ABORTS -- nothing cached.
+#   d4: a WARM boot (already cached) returns the binary with NO network.
+#
+# This exercises the REAL gpg verification path with a REAL, locally-
+# generated signing key over REAL local fixtures -- it does NOT reach
+# claude.ai (the live download host needs the operator's out-of-band-
+# trusted key, which a CI host does not have). The fetch primitive is
+# pointed at local fixture files so the whole pipeline runs self-contained.
+# Gated on gpg + a sha256 tool; SKIPs (not fails) when gpg is absent, like
+# the binary gates above -- the test will not install gpg for the user.
+# ---------------------------------------------------------------------
+. "$PAYLOAD_DIR/lib/claude-cache.sh"
+
+if ! command -v gpg >/dev/null 2>&1; then
+  echo "ok   - (d) host-side verified-cache test SKIPPED (gpg not available)"
+elif ! command -v shasum >/dev/null 2>&1 && ! command -v sha256sum >/dev/null 2>&1; then
+  echo "ok   - (d) host-side verified-cache test SKIPPED (no sha256 tool)"
+else
+  # Isolated GNUPGHOME + cache dir so we never touch the operator's real
+  # keyring or ~/.config/claude-vm/cache.
+  D_HOME="$WORK/gpg-d"
+  mkdir -p "$D_HOME"; chmod 700 "$D_HOME"
+  export GNUPGHOME="$D_HOME"
+  export CLAUDE_VM_CACHE_DIR="$WORK/cache-d"
+  export CLAUDE_VM_CACHE_STATE_FILE="$WORK/cache-d-state"
+
+  # Generate a throwaway signing key non-interactively.
+  gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+    --quick-generate-key 'claude-vm acceptance <accept@example.invalid>' \
+    default default never >>"$LOG_DIR/gpg.log" 2>&1
+
+  # Fixtures: a fake binary + a manifest carrying its real sha256, signed
+  # with the throwaway key.
+  D_FIX="$WORK/fix-d"; mkdir -p "$D_FIX"
+  printf 'fake-claude-acceptance-binary\n' > "$D_FIX/claude"
+  D_SHA="$(claude_cache_file_sha256 "$D_FIX/claude")"
+  cat > "$D_FIX/manifest.good.json" <<JSON
+{ "platforms": { "linux-arm64": { "checksum": "$D_SHA" } } }
+JSON
+  cat > "$D_FIX/manifest.bad.json" <<JSON
+{ "platforms": { "linux-arm64": { "checksum": "0000000000000000000000000000000000000000000000000000000000000000" } } }
+JSON
+  # Sign the GOOD manifest only. (A tampered manifest's signature would not
+  # validate -- which is exactly d2.)
+  gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+    --detach-sign -o "$D_FIX/manifest.good.json.sig" "$D_FIX/manifest.good.json" \
+    >>"$LOG_DIR/gpg.log" 2>&1
+
+  # Point the cache's fetch primitive at the local fixtures. d_serve_manifest
+  # selects which manifest (good/bad) the manifest URL returns.
+  D_RESOLVED="3.2.1"
+  D_MANIFEST="$D_FIX/manifest.good.json"
+  D_SIG="$D_FIX/manifest.good.json.sig"
+  claude_cache_fetch_url() {
+    case "$1" in
+      */claude-code-releases/stable|*/claude-code-releases/latest)
+        printf '%s\n' "$D_RESOLVED" ;;
+      */manifest.json)      cat "$D_MANIFEST" ;;
+      */manifest.json.sig)  cat "$D_SIG" ;;
+      */linux-arm64/claude) cat "$D_FIX/claude" ;;
+      *) return 1 ;;
+    esac
+  }
+  # claude_cache_gpg_verify is NOT stubbed -- the REAL gpg runs against the
+  # throwaway key, so d1's "verified" and d2's "tamper aborts" are genuine.
+
+  # d1: happy path caches a verified binary.
+  if d_out="$(claude_cache_ensure stable 2>>"$LOG_DIR/cache-d.log")" \
+     && [ -s "$d_out" ] \
+     && [ "$(cat "$CLAUDE_VM_CACHE_STATE_FILE" 2>/dev/null)" = "cold" ]; then
+    pass "(d) resolve+fetch+gpg-verify+checksum caches the binary"
+  else
+    fail "(d) verified-cache happy path did not cache the binary" "see $LOG_DIR/cache-d.log"
+  fi
+
+  # d2: a tampered manifest -- serve the BAD manifest but the GOOD sig, so
+  # gpg --verify fails (signature does not match the swapped content). Use a
+  # fresh version so a prior cache entry cannot mask the abort.
+  D_RESOLVED="3.2.2"; D_MANIFEST="$D_FIX/manifest.bad.json"; D_SIG="$D_FIX/manifest.good.json.sig"
+  if claude_cache_ensure stable >>"$LOG_DIR/cache-d.log" 2>&1; then
+    fail "(d) tampered manifest did NOT abort (verified-cache returned success)"
+  elif [ -e "$CLAUDE_VM_CACHE_DIR/3.2.2/linux-arm64/claude" ]; then
+    fail "(d) tampered manifest aborted but LEFT a cached binary"
+  else
+    pass "(d) tampered manifest (gpg --verify fails) aborts and caches nothing"
+  fi
+
+  # d3: checksum mismatch -- a CORRECTLY-SIGNED bad-checksum manifest. Sign
+  # the bad manifest so gpg --verify passes; the checksum step must then
+  # catch the mismatch and abort.
+  gpg --batch --quiet --pinentry-mode loopback --passphrase '' \
+    --detach-sign -o "$D_FIX/manifest.bad.json.sig" "$D_FIX/manifest.bad.json" \
+    >>"$LOG_DIR/gpg.log" 2>&1
+  D_RESOLVED="3.2.3"; D_MANIFEST="$D_FIX/manifest.bad.json"; D_SIG="$D_FIX/manifest.bad.json.sig"
+  if claude_cache_ensure stable >>"$LOG_DIR/cache-d.log" 2>&1; then
+    fail "(d) checksum mismatch did NOT abort"
+  elif [ -e "$CLAUDE_VM_CACHE_DIR/3.2.3/linux-arm64/claude" ]; then
+    fail "(d) checksum mismatch aborted but LEFT a cached binary"
+  else
+    pass "(d) checksum mismatch (good signature, wrong digest) aborts and caches nothing"
+  fi
+
+  # d4: warm boot -- a PINNED, already-cached version uses NO network. Prove
+  # it by making the fetch primitive fail loudly; a warm hit must not call it.
+  # Reuse the version cached in d1 by re-resolving stable to it first... but
+  # d1 cached 3.2.1, so request it as a pin.
+  claude_cache_fetch_url() { echo "(d) WARM boot must not touch the network: $1" >>"$LOG_DIR/cache-d.log"; return 1; }
+  if d_out="$(claude_cache_ensure 3.2.1 2>>"$LOG_DIR/cache-d.log")" \
+     && [ -s "$d_out" ] \
+     && [ "$(cat "$CLAUDE_VM_CACHE_STATE_FILE" 2>/dev/null)" = "warm" ]; then
+    pass "(d) warm boot uses the cached binary with no network fetch"
+  else
+    fail "(d) warm boot did not use the cache without network" "see $LOG_DIR/cache-d.log"
+  fi
+
+  unset GNUPGHOME
+fi
 
 # ---------------------------------------------------------------------
 # Summary

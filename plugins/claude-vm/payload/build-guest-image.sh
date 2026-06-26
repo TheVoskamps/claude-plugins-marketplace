@@ -42,7 +42,10 @@ DEFAULT_PROVISIONER="$SCRIPT_DIR/provisioners/podman-mkosi.sh"
 # the launcher. It intentionally does NOT include the claude version.
 # ---------------------------------------------------------------------
 BASE_OS_REV="debian-12-20250601"
-LAUNCHER_LOGIC_REV="1"
+# Bumped 1 -> 2: the boot launcher now fills the claude-fetch seam, mounting
+# the host-verified binary (mountTag=claudebin) and exec'ing claude against
+# /mnt/repo (issue #49). Old images stamped 'launcher1' rebuild on next run.
+LAUNCHER_LOGIC_REV="2"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -54,64 +57,78 @@ EOF
 }
 
 # The one-shot boot launcher baked into the guest. It runs on guest boot,
-# loads the run environment, and stops at the claude-fetch SEAM (this
-# slice / issue #75 does not fetch claude; slice 4 / issue #76 fills the
-# seam with a pre-verified binary). Emitted here (not committed as a
-# separate file) so the launcher logic version is owned by this build
-# recipe. Kept as a heredoc that the build step installs into the image
-# as the Type=oneshot systemd unit's ExecStart.
+# loads the run environment, then -- as of issue #49 -- execs the
+# host-verified `claude` binary (mounted RO at /mnt/claudebin by the guest
+# fstab) against the mounted repo at /mnt/repo. The binary is fetched,
+# GPG-manifest-verified, and cached HOST-SIDE by the launcher
+# (lib/claude-cache.sh); the guest only runs the already-verified binary
+# off the RO mount -- it never runs `install.sh | bash` on this trusted
+# path. Emitted here (not committed as a separate file) so the launcher
+# logic version is owned by this build recipe. Kept as a heredoc that the
+# build step installs into the image as the Type=oneshot systemd unit's
+# ExecStart.
 emit_boot_launcher() {
   cat <<'BOOT'
 #!/usr/bin/env bash
 # claude-vm guest one-shot boot launcher (version-pinned with the base).
-# Runs on guest boot. Loads the run environment (proxy + args) and stops
-# at the claude-fetch seam. claude is NEVER baked in; slice 4 fills the
-# seam below with a host-side GPG-verified binary mounted into the guest.
+# Runs on guest boot. Loads the run environment (proxy + args), then execs
+# the host-verified `claude` binary mounted RO at /mnt/claudebin against the
+# repo at /mnt/repo. claude is NEVER baked into the image and is NEVER
+# fetched-and-run inside the guest: the host fetches, GPG-manifest-verifies,
+# and caches the binary, and shares it in RO. The guest only runs the
+# already-verified binary off the mount.
 set -euo pipefail
 
 # Mount points provided by vfkit virtio-fs tags.
 REPO_MNT=/mnt/repo
 RUNCONFIG_MNT=/mnt/runconfig
+# The host-verified claude binary's containing dir, shared under tag
+# 'claudebin' and mounted here by the guest fstab.
+CLAUDEBIN_MNT=/mnt/claudebin
 
-# Load run environment (proxy, scoped token, CLAUDE_ARGS) written by the
-# host launcher into the runconfig share.
+# Load run environment (proxy, scoped token, CLAUDEBIN_TAG, CLAUDE_ARGS)
+# written by the host launcher into the runconfig share.
 set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
 set +a
 
 # ---------------------------------------------------------------------
-# claude-fetch SEAM (slice 3 / issue #75 stops HERE).
+# claude-fetch SEAM -- FILLED (issue #49).
 #
-# This is the explicit boundary where the guest would obtain `claude`.
-# Slice 4 (issue #76) fills this seam with the GPG-signed-manifest
-# host-side cache: a pre-verified `claude` binary mounted into the guest,
-# NOT a `curl https://claude.ai/install.sh | bash` fetched-and-run path.
+# This is the boundary where the guest obtains `claude`. The trusted path
+# is: the HOST resolves the requested channel/pin to a concrete version,
+# downloads that version's GPG-signed manifest, verifies the signature
+# against the operator's pinned key, checksum-verifies the binary against
+# the verified manifest, caches it keyed on the version, and shares it RO
+# into the guest under mountTag=claudebin. So by the time the guest boots,
+# the binary at $CLAUDEBIN_MNT/claude is ALREADY verified -- the guest runs
+# it directly and never executes `curl https://claude.ai/install.sh | bash`
+# (which is unsigned, unchecksummed, and re-fetched on every boot; see
+# issue #57's "root of trust" analysis). The install.sh|bash path remains
+# only as an explicit LOWER-TRUST fallback when no cache is configured,
+# behind the egress allowlist and suicide-on-fail -- it is NOT this path.
 #
-# Shipping the install.sh path here would build a claude-fetch that slice
-# 4 immediately rewrites -- and would run unverified, freshly-fetched
-# code on every boot (the install.sh script is itself unsigned and
-# unchecksummed; see issue #57's "root of trust" analysis). So this slice
-# deliberately STOPS at the seam: the guest boots to the point of needing
-# claude and no further. The boot is observable (the message below) so the
-# acceptance test can confirm the guest reaches the seam.
-#
-# Until slice 4 wires the verified binary, the unit reaching this point IS
-# the success condition for this slice's boot test.
+# The seam message is retained (now reporting that the verified binary was
+# found) so the acceptance test can still observe the guest reaching this
+# point.
 # ---------------------------------------------------------------------
-echo "claude-vm: guest booted to the claude-fetch seam (slice 4 / #76 fills this)." >&2
-echo "claude-vm: no claude binary is provisioned yet; stopping at the seam." >&2
+CLAUDE_BIN="$CLAUDEBIN_MNT/claude"
+if [ ! -x "$CLAUDE_BIN" ]; then
+  echo "claude-vm: guest booted to the claude-fetch seam, but no verified claude binary" >&2
+  echo "claude-vm: was found at $CLAUDE_BIN. The host-side verified cache mount" >&2
+  echo "claude-vm: (mountTag=claudebin) is missing; refusing to fetch-and-run unverified code." >&2
+  # Fatal: the trusted path requires the host-verified binary. We do NOT
+  # fall back to install.sh|bash here (that lower-trust fallback is a
+  # host-launcher decision for the no-cache case, not a guest-side one).
+  exit 1
+fi
 
-# Exit 0: reaching the seam IS this slice's success condition, so the
-# oneshot unit records a clean stop at the seam (claude not yet run).
-# Slice 4 replaces the seam above with the pre-verified binary and the
-# exec below.
-exit 0
+echo "claude-vm: guest booted to the claude-fetch seam; running host-verified claude from $CLAUDE_BIN." >&2
 
-# --- slice 4 fills the seam above; the exec lands here once claude exists ---
-# cd "$REPO_MNT"
-# # shellcheck disable=SC2086
-# exec claude $CLAUDE_ARGS
+cd "$REPO_MNT"
+# shellcheck disable=SC2086
+exec "$CLAUDE_BIN" $CLAUDE_ARGS
 BOOT
 }
 

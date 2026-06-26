@@ -17,6 +17,8 @@ payload/
   lib/
     config.sh           # two-tier YAML loader + layering (sourced by
                         # claude-vm.sh; directly testable)
+    claude-cache.sh     # host-side, GPG-manifest-verified `claude` binary
+                        # cache (sourced by claude-vm.sh; directly testable)
   provisioners/
     podman-mkosi.sh     # bundled DEFAULT provisioner: mkosi in a throwaway
                         # rootless podman container -> raw EFI guest image
@@ -25,6 +27,10 @@ payload/
                         # conf from $CLAUDE_VM_EGRESS_ALLOWLIST, execs it
   test/
     config-test.sh      # unit tests for the config layering
+    claude-cache-test.sh
+                        # unit tests for the verified claude cache
+                        # (resolve/verify/checksum/abort/warm-boot; stubbed
+                        # network+gpg, fully offline)
     host-acceptance.sh  # self-contained on-host acceptance test (build +
                         # boot + egress confinement); host-gated, skips
                         # when a required binary is absent, but starts a
@@ -63,11 +69,12 @@ build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
 The image is a version-pinned stable base (OS + a one-shot boot
-launcher). `claude` is never baked in; the boot launcher boots to an
-explicit **claude-fetch seam** and stops there (a later slice mounts a
-host-verified `claude` binary into the guest). The launcher builds the
-image on demand when the configured image is missing or
-version-mismatched. No image artifact is committed.
+launcher). `claude` is never baked in; the boot launcher boots to the
+**claude-fetch seam** and there execs the **host-verified `claude`
+binary** mounted RO at `/mnt/claudebin` (see "Verified claude cache"
+below) against the repo at `/mnt/repo`. The launcher builds the image on
+demand when the configured image is missing or version-mismatched. No
+image artifact is committed.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -90,10 +97,53 @@ nothing), binds `$CLAUDE_VM_PROXY_PORT`, and execs `tinyproxy`. Requires
 `tinyproxy`. Override by setting `proxy.cmd` to your own forward-proxy
 command (which must still read `$CLAUDE_VM_EGRESS_ALLOWLIST`).
 
+## Verified claude cache (`lib/claude-cache.sh`)
+
+The `claude` binary the guest runs is fetched, verified, and cached
+**host-side**, then mounted RO into the guest — the guest never runs
+`curl https://claude.ai/install.sh | bash` on the trusted path. Driven
+by the `claude.version` scalar (`stable` | `latest` | a pinned version
+like `2.1.172`):
+
+1. resolve the channel/pin to a concrete version host-side (cache key =
+   resolved version);
+2. download that version's `manifest.json` + `manifest.json.sig`;
+3. **`gpg --verify`** the signature against the operator's pinned
+   claude-code signing key — **the root of trust**;
+4. read the `linux-arm64` SHA256 from the signature-verified manifest;
+5. download the binary; verify its SHA256 against the manifest;
+6. cache the verified binary under
+   `~/.config/claude-vm/cache/<version>/linux-arm64/claude` and mount it
+   RO into the guest (`mountTag=claudebin`).
+
+**Security invariant:** a failed `gpg --verify` **or** a checksum
+mismatch **aborts the launch** before any unverified binary is cached or
+run — there is no "verify failed, proceed anyway" branch. Trusting
+`install.sh`'s own checksum would be circular (the script is itself
+unsigned and re-fetched each boot), so the signed manifest is the root of
+trust. `install.sh | bash` is retained only as an explicit **lower-trust
+fallback** when no cache is configured (behind the egress allowlist,
+suicide-on-fail).
+
+**Operator one-time setup** (trust-on-first-use): import and out-of-band
+verify the signing key —
+
+```bash
+curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
+```
+
+**Warm boot:** when the resolved version is already cached, the binary is
+not re-downloaded and `gpg` is not re-run, and the launcher drops
+`claude.ai` / `downloads.claude.ai` from the guest's egress allowlist
+(the guest never needs them — the binary came from the host-side cache).
+Requires `gpg` (`brew install gnupg`) and a sha256 tool (`shasum` /
+`sha256sum`, both stock on macOS/Linux).
+
 ## Tests
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
 ```
 
@@ -101,13 +151,28 @@ command (which must still read `$CLAUDE_VM_EGRESS_ALLOWLIST`).
 union, single-layer and no-layer fallbacks, de-duplication) with no VM
 and no network. Requires `yq` (mikefarah v4+); skips cleanly when absent.
 
+`claude-cache-test.sh` exercises the verified claude cache
+(`lib/claude-cache.sh`): channel/pin validation, version-keyed cache-path
+derivation, manifest-checksum extraction and comparison, the cold-fetch
+happy path, the warm-boot no-network path, and — the security-critical
+assertions — that a failed `gpg --verify` **and** a checksum mismatch
+each abort and cache nothing. The network and gpg primitives are stubbed
+with local fixtures, so it is fully offline and deterministic; requires
+only `bash` + a sha256 tool.
+
 `host-acceptance.sh` is the self-contained on-host acceptance test for
-the bootable runtime. It runs the three acceptance criteria end-to-end
-with no manual choreography: (a) the default provisioner builds a raw
-EFI image with no override and no loop-device step, (b) vfkit boots it
-and the guest reaches the claude-fetch seam, and (c) the bundled proxy
-confines egress to the allowlist (allowlisted host permitted,
-non-allowlisted refused, empty allowlist denies all). It is host-gated,
+the bootable runtime. It runs the acceptance criteria end-to-end with no
+manual choreography: (a) the default provisioner builds a raw EFI image
+with no override and no loop-device step, (b) vfkit boots it and the
+guest reaches the claude-fetch seam **and execs the host-verified claude
+off the `/mnt/claudebin` mount**, (c) the bundled proxy confines egress
+to the allowlist (allowlisted host permitted, non-allowlisted refused,
+empty allowlist denies all), and (d) the host-side verified cache —
+exercised against a **locally-generated GPG key over local fixtures** (it
+does not reach `claude.ai`) — resolves+fetches+verifies+caches a binary,
+aborts on a tampered manifest, aborts on a checksum mismatch, and serves
+a warm boot with no network. Criterion (d) skips cleanly when `gpg` is
+absent. It is host-gated,
 split by cause: it skips cleanly (exit 0) when a required *binary* is
 absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `jq`) — the test
 cannot install software for you — mirroring how `config-test.sh` skips

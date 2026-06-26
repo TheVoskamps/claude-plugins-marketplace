@@ -40,6 +40,10 @@ CLAUDE_VM_DEFAULT_REPO_MOUNT=clone
 CLAUDE_VM_DEFAULT_REPO_COPY_BACK=local
 CLAUDE_VM_DEFAULT_PROXY_PORT=3128
 CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS=192.168.127.254
+# claude.version: which claude binary the host-side verified cache fetches
+# (stable|latest|<pinned>). `stable` is the conservative default. Consumed
+# by lib/claude-cache.sh; defined here so all scalar defaults live together.
+CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
 # Homebrew formula at <prefix>/libexec/podman/gvproxy and is NOT placed
