@@ -89,8 +89,11 @@ func classifyFileTool(ev *Event) Decision {
 }
 
 // classifyPathReader runs containment on the path arguments of a read-class
-// Bash program (cat/head/tail/...). Flags and option values are skipped; the
-// remaining tokens are treated as path operands and tested with Engine B.
+// Bash program (less/more/od/xxd/hexdump). Flags and option values are skipped;
+// the remaining tokens are treated as path operands and tested with Engine B.
+// A contained read DEFERS (the normal pipeline governs it); only an escape
+// denies/asks. The read-only-utility classifier (classifyReadOnlyUtility) uses
+// the same containment via containPathOperands but ALLOWs the contained form.
 //
 // #148: a bash-read targeting a sibling repo's node_modules is blocked.
 func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event) Decision {
@@ -102,16 +105,34 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 				"escalating to a human decision (fail-closed).", prog))
 	}
 
-	operands := pathOperands(args)
+	if d, ok := containPathOperands(prog, pathOperands(args), ev); !ok {
+		return d
+	}
+	return deferToPipeline()
+}
+
+// containPathOperands runs Engine B containment on a read-class command's path
+// operands. It returns ok=true when every operand is contained inside the
+// current worktree (or is the carved-out ~/.claude tree, #247), so the caller
+// may proceed to its contained-path terminal (ALLOW for the read-only-utility
+// classifier, DEFER for classifyPathReader). When an operand escapes, ok is
+// false and the returned Decision is the appropriate deny (#148 cross-repo) or
+// ask (#127 worktree-escape / no-repo-context fail-closed) to return verbatim.
+//
+// With no operands there is nothing to contain, so ok=true and the caller's
+// own terminal applies. The caller is responsible for the hasUnknownExpansion
+// fail-closed check before calling this (the dynamic-path message differs by
+// caller posture).
+func containPathOperands(prog string, operands []string, ev *Event) (Decision, bool) {
 	if len(operands) == 0 {
-		return deferToPipeline()
+		return Decision{}, true
 	}
 
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
 		return ask("bash-read:no-repo-context", fmt.Sprintf(
 			"Blocked: could not resolve the repository boundary for '%s' (%v); escalating to a human (fail-closed).",
-			prog, err))
+			prog, err)), false
 	}
 
 	for _, p := range operands {
@@ -123,21 +144,21 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 					"Do not read another repo's files (e.g. a sibling project's node_modules) to verify third-party "+
 					"APIs — use the dependency's published docs. Do not work around this by reading or writing under "+
 					".git/.",
-				prog, p, real, rc.topLevel))
+				prog, p, real, rc.topLevel)), false
 		case escapeWorktree:
 			// Reading the primary clone from a worktree is suspect but not as
 			// clearly forbidden as a write; escalate to a human.
 			return ask("bash-read:worktree-escape", fmt.Sprintf(
 				"'%s' would read '%s' in the primary clone / shared git dir rather than this worktree (%s). "+
 					"Confirm this is intended. Do not work around this by reading or writing under .git/.",
-				prog, real, rc.topLevel))
+				prog, real, rc.topLevel)), false
 		case claudeConfig:
 			// The agent's own ~/.claude global config tree (#247) — required
-			// startup reading, allow-listed in settings.json. Defer.
+			// startup reading, allow-listed in settings.json. Treat as contained.
 		case contained:
 		}
 	}
-	return deferToPipeline()
+	return Decision{}, true
 }
 
 // pathOperands returns the non-flag tokens of a read-class command, treating

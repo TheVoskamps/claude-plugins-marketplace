@@ -40,11 +40,25 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		return classifyAws(args, sc)
 	case "acli":
 		return classifyAcli(args, sc)
-	case "cat", "head", "tail", "less", "more", "od", "xxd", "hexdump":
-		// Read-class programs whose path arguments must stay inside the repo
-		// (#148: do not read a sibling repo's node_modules to verify APIs).
+	case "less", "more", "od", "xxd", "hexdump":
+		// Read-class pagers / binary dumpers whose path arguments must stay
+		// inside the repo (#148: do not read a sibling repo's node_modules to
+		// verify APIs). Contained reads DEFER; only an escape denies/asks. These
+		// are deliberately NOT in the read-only-utility ALLOW set (#31) — they
+		// are interactive / binary-dump tools out of that issue's scope.
 		return classifyPathReader(prog, args, sc, ev)
 	}
+
+	// #31: curated read-only-utility ALLOW track (cat/head/sed -n/awk/printf/…).
+	// The proven read-only form of these high-frequency text/data utilities
+	// ALLOWs (no real-file redirect, no unknown expansion, no mutating flag,
+	// path operands contained); everything else defers. cat/head/tail used to
+	// route to classifyPathReader above (DEFER on contained); they now ALLOW the
+	// read-only form here.
+	if _, ok := readOnlyUtilities[prog]; ok {
+		return classifyReadOnlyUtility(prog, args, sc, ev)
+	}
+
 	// No specific rule. The gate has no opinion; hand back to the pipeline.
 	return deferToPipeline()
 }

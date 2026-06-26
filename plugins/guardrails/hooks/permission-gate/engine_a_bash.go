@@ -395,7 +395,18 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		if r.Word == nil {
 			continue
 		}
-		target, _ := literalWord(r.Word, knownVars)
+		target, exact := literalWord(r.Word, knownVars)
+		// A redirect target built from a command substitution, process
+		// substitution, or unresolved expansion (e.g. `wc < <(grep x f)`,
+		// `cmd > "$DYNAMIC"`) cannot be statically proven safe — an input
+		// process substitution even spawns an unproven command. Such a command
+		// must not ride the allow track (#1), so mark it as unknown-expansion.
+		// This keeps the allow-aware classifiers (read-only utilities, git, gh,
+		// …) from auto-allowing a command whose redirect introduces unprovable
+		// behavior, even when its own arg words are all literal.
+		if !exact {
+			sc.hasUnknownExpansion = true
+		}
 		switch r.Op {
 		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
 			if target != "/dev/null" {
