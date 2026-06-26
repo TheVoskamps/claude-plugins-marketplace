@@ -29,6 +29,9 @@ payload/
                         # boot + egress confinement); host-gated, skips
                         # when a required binary is absent, but starts a
                         # stopped/absent podman machine itself
+    machine-name-resolution-test.sh
+                        # regression test for the podman machine-name
+                        # probe (issue #57); host-gated on jq
 ```
 
 ## Launcher (`claude-vm.sh`)
@@ -106,7 +109,7 @@ and the guest reaches the claude-fetch seam, and (c) the bundled proxy
 confines egress to the allowlist (allowlisted host permitted,
 non-allowlisted refused, empty allowlist denies all). It is host-gated,
 split by cause: it skips cleanly (exit 0) when a required *binary* is
-absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`) — the test
+absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `jq`) — the test
 cannot install software for you — mirroring how `config-test.sh` skips
 when `yq` is absent. A podman binary present with only its *machine*
 stopped or absent is **not** a skip: the test brings the machine up
@@ -116,7 +119,10 @@ the test attempted (`podman machine init`/`start`) **fails**, that is a
 real failure, not a skip — the runtime it chose to provision did not
 come up, so the test exits **non-zero** rather than green-exiting with
 nothing proven. Requires `gvproxy` (resolved from podman's libexec),
-`vfkit`, `podman`, `tinyproxy`, and `curl` to actually run; a podman
+`vfkit`, `podman`, `tinyproxy`, `curl`, and `jq` to actually run; `jq`
+parses `podman machine list --format json` to resolve the target
+machine's name structurally (the `{{.Name}}` Go template appends a `*`
+default-marker that would corrupt the name — issue #57). A podman
 machine is started by the test when needed rather than required up
 front.
 

@@ -131,6 +131,17 @@ for bin in vfkit podman tinyproxy; do
   command -v "$bin" >/dev/null 2>&1 || gate_skip "$bin not available;"
 done
 
+# jq parses 'podman machine list --format json' below. The JSON form is
+# the ONLY reliable source for the machine name: podman renders the
+# DEFAULT machine's '{{.Name}}' Go-template field with a trailing '*'
+# default-marker (e.g. 'podman-machine-default*'), and that marker would
+# be captured into MACHINE_NAME and break every subsequent 'podman
+# machine start/stop/rm "$MACHINE_NAME"' (issue #57). The JSON 'Name' is
+# unmarked and 'Running'/'Default' are real booleans. jq is missing
+# software the test will not install, so -- like the binaries above -- an
+# absent jq is a SKIP, not a FAIL.
+command -v jq >/dev/null 2>&1 || gate_skip "jq not available;"
+
 # MACHINE_ACTION records what (if anything) this test did to the podman
 # machine, so cleanup can undo EXACTLY that and nothing more:
 #   ""      -> machine was already running; leave it completely untouched.
@@ -218,20 +229,32 @@ if ! podman info >/dev/null 2>&1; then
   # Resolve a SPECIFIC target machine (its name + running state) from a
   # single probe so the bring-up and teardown operate on exactly that
   # machine, not on whatever the implicit "default machine" of a bare
-  # 'podman machine start' happens to be. Prefer the default machine; if
-  # none is flagged default, fall back to the first/sole machine. The
-  # format emits "<name>\t<running>\t<default>" lines (tab-separated),
-  # empty when no machine exists.
-  machine_probe="$(podman machine list \
-    --format '{{.Name}}\t{{.Running}}\t{{.Default}}' 2>/dev/null)"
+  # 'podman machine start' happens to be.
+  #
+  # We read from '--format json', NOT the '{{.Name}}'-based Go template,
+  # because podman renders the DEFAULT machine's '{{.Name}}' with a
+  # trailing '*' default-marker (e.g. 'podman-machine-default*'). That
+  # marker is emitted UNCONDITIONALLY by a bare '{{.Name}}' -- it is not
+  # contingent on '{{.Default}}' being in the template -- so the old
+  # template+cut probe captured 'podman-machine-default*' into
+  # MACHINE_NAME, and every later 'podman machine start/stop/rm
+  # "$MACHINE_NAME"' then targeted a machine that does not exist by that
+  # literal name. On a host whose default machine is stopped, the test
+  # could never start it (issue #57). The JSON 'Name' is unmarked and
+  # 'Running'/'Default' are real booleans, so selecting the default is a
+  # STRUCTURAL read ('.Default==true') rather than a brittle tab-column
+  # match. jq emits "<name>\t<running>\t<default>" for the chosen
+  # machine: the default-flagged machine if one exists, else the
+  # first/sole machine; empty when no machine exists.
+  machine_probe="$(podman machine list --format json 2>/dev/null \
+    | jq -r '(map(select(.Default==true)) + .)[0]
+             | select(. != null)
+             | "\(.Name)\t\(.Running)\t\(.Default)"' 2>/dev/null)"
 
   TARGET_RUNNING=""
   if [ -n "$machine_probe" ]; then
-    # Pick the default-flagged machine; fall back to the first line.
-    target_line="$(printf '%s\n' "$machine_probe" | awk -F '\t' '$3=="true"{print; found=1} END{exit !found}')" \
-      || target_line="$(printf '%s\n' "$machine_probe" | head -n1)"
-    MACHINE_NAME="$(printf '%s' "$target_line" | cut -f1)"
-    TARGET_RUNNING="$(printf '%s' "$target_line" | cut -f2)"
+    MACHINE_NAME="$(printf '%s' "$machine_probe" | cut -f1)"
+    TARGET_RUNNING="$(printf '%s' "$machine_probe" | cut -f2)"
   fi
 
   if [ -z "$machine_probe" ]; then
@@ -253,7 +276,16 @@ if ! podman info >/dev/null 2>&1; then
       gate_fail "'podman machine init' failed (see $MACHINE_LOG);"
     fi
     MACHINE_ACTION="init"
-    MACHINE_NAME="$(podman machine list --format '{{.Name}}' 2>/dev/null | head -n1)"
+    # Capture the freshly-initialized machine's name from JSON, NOT from
+    # the '{{.Name}}' Go template: a bare '{{.Name}}' appends a '*'
+    # default-marker to the default machine's name (issue #57), and the
+    # machine 'init' just created IS the default, so the template would
+    # hand back 'podman-machine-default*' -- a name no later 'podman
+    # machine start/stop/rm' can resolve. The JSON 'Name' is unmarked.
+    # Prefer the default-flagged machine, falling back to the first.
+    MACHINE_NAME="$(podman machine list --format json 2>/dev/null \
+      | jq -r '(map(select(.Default==true)) + .)[0]
+               | select(. != null) | .Name' 2>/dev/null)"
     echo "host-acceptance: starting the freshly-initialized podman machine ($MACHINE_NAME)." >&2
     if ! podman machine start "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1; then
       # init succeeded but start failed: the runtime is unusable. Tear down
