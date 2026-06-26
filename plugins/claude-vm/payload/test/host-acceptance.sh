@@ -493,46 +493,42 @@ stop_proxy() {
   sleep 0.3
 }
 
-# probe_https <host> <expect> -> prints "ALLOW" if the proxy permitted the
-# CONNECT, "DENY" if it refused (tinyproxy 403 / connection refused). We do
-# not require the upstream TLS handshake to fully succeed -- only that the
-# proxy did not refuse the host. <expect> is "allow" or "deny" and makes
-# the timeout (curl exit 28) verdict DIRECTION-AWARE:
+# probe_https <host> -> prints "ALLOW" if the proxy OPENED the CONNECT
+# tunnel, "DENY" if the proxy REFUSED it, "INDETERMINATE" if neither signal
+# was observed.
 #
-#   - allow probe: exit 0/35/56 (proxy let the CONNECT through, upstream
-#     reached or stalled at the TLS stage) AND exit 28 (upstream timeout --
-#     the proxy let the CONNECT through, the upstream just didn't answer in
-#     time) both count as ALLOW. A stalled CONNECT thus fails loud here.
-#   - deny probe: ONLY a clean upstream success (exit 0/35/56 -- the proxy
-#     demonstrably let it through) counts as ALLOW. Everything else --
-#     proxy 403, connection-refused, AND a timeout (exit 28) -- counts as
-#     DENY. A timeout is INDETERMINATE evidence of confinement, so on a
-#     deny assertion it must be treated conservatively as "not demonstrably
-#     permitted" and never silently pass the assertion.
+# The verdict reads the PROXY'S OWN CONNECT RESPONSE, not curl's transport
+# exit code. tinyproxy answers the CONNECT with one of two unambiguous
+# status lines:
+#
+#   HTTP/1.1 200 Connection established   -> proxy opened the tunnel  (ALLOW)
+#   HTTP/1.1 403 ...                      -> proxy refused the host    (DENY)
+#
+# This is the only signal that actually means "egress confinement". The
+# earlier implementation inferred from curl's exit code, but a proxy
+# CONNECT refusal and a real upstream RECV error BOTH surface as curl exit
+# 56 (CURLE_RECV_ERROR) with %{http_code}=000 -- the proxy's 403 is on the
+# TUNNEL, never in the body code -- so exit 56 was misread as ALLOW and a
+# correctly-refused host falsely reported as "not refused". Reading the
+# proxy's status line is unambiguous AND independent of whether the live
+# upstream answers, so it does not flake on a slow/unreachable upstream.
 probe_https() {
-  local host="$1" expect="$2" out rc
-  out="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
+  local host="$1" v
+  # -sv: silent body, verbose protocol trace (the CONNECT exchange) to
+  # stderr, which we capture. -o /dev/null discards any body. The transport
+  # exit code is deliberately ignored; the proxy's status line is the truth.
+  v="$(curl -sv -o /dev/null --max-time 8 \
     --proxy "http://127.0.0.1:$PROXY_PORT_C" \
-    "https://$host/" 2>/dev/null)"
-  rc="$?"
-  # tinyproxy returns 403 via the proxy when the host is filtered out.
-  if [ "$out" = "403" ]; then
+    "https://$host/" 2>&1)"
+  if printf '%s\n' "$v" | grep -qiE '^< HTTP/[0-9.]+ 403'; then
     echo "DENY"
-  elif [ "$rc" -eq 0 ] || [ "$rc" -eq 35 ] || [ "$rc" -eq 56 ]; then
-    # 0 ok; 35/56 TLS-stage -- the proxy demonstrably let the CONNECT
-    # through to the upstream (not refused by the proxy). Counts as ALLOW
-    # for both directions.
-    echo "ALLOW"
-  elif [ "$rc" -eq 28 ] && [ "$expect" = "allow" ]; then
-    # Upstream timeout: the proxy let the CONNECT through, the upstream
-    # just stalled. On an allow probe this is ALLOW; on a deny probe it
-    # is INDETERMINATE and falls through to DENY (conservative) below.
+  elif printf '%s\n' "$v" | grep -qiE '^< HTTP/[0-9.]+ 200'; then
     echo "ALLOW"
   else
-    # Any other failure (proxy 403 handled above, exit 7 connection
-    # refused at CONNECT, or an indeterminate timeout on a deny probe) is
-    # treated as a proxy-level refusal.
-    echo "DENY"
+    # Neither status line seen (e.g. the proxy never answered the CONNECT).
+    # Report it distinctly rather than guessing; the caller treats anything
+    # that is not the asserted outcome as a failure.
+    echo "INDETERMINATE"
   fi
 }
 
@@ -542,25 +538,27 @@ ALLOWLIST_C="$WORK/egress.allow"
 printf 'example.com\n' > "$ALLOWLIST_C"
 start_proxy "$ALLOWLIST_C"
 
-if [ "$(probe_https example.com allow)" = "ALLOW" ]; then
+if [ "$(probe_https example.com)" = "ALLOW" ]; then
   pass "(c) allowlisted host (example.com) is permitted"
 else
   fail "(c) allowlisted host was refused" "see $PROXY_LOG"
 fi
 
-if [ "$(probe_https neverssl.com deny)" = "DENY" ]; then
+if [ "$(probe_https neverssl.com)" = "DENY" ]; then
   pass "(c) non-allowlisted host (neverssl.com) is refused"
 else
   fail "(c) non-allowlisted host was NOT refused" "see $PROXY_LOG"
 fi
 stop_proxy
 
-# Sub-test c3: an EMPTY allowlist denies all (fail-closed).
+# Sub-test c3: an EMPTY allowlist denies all (fail-closed). Even the host
+# that WOULD be allowed under a populated allowlist (example.com) must be
+# refused when the allowlist is empty.
 EMPTY_ALLOWLIST_C="$WORK/egress.empty"
 : > "$EMPTY_ALLOWLIST_C"
 start_proxy "$EMPTY_ALLOWLIST_C"
 
-if [ "$(probe_https example.com deny)" = "DENY" ]; then
+if [ "$(probe_https example.com)" = "DENY" ]; then
   pass "(c) empty allowlist denies all (fail-closed)"
 else
   fail "(c) empty allowlist did NOT deny all" "see $PROXY_LOG"
