@@ -24,6 +24,9 @@ The marketplace currently ships these plugins (one entry each in
 - **`guardrails`** — compiled PreToolUse permission-gate hook: command
   classification and worktree/cross-repo path containment,
   ask-defaulting and fail-closed.
+- **`block-background-agents`** — PreToolUse policy hook that denies
+  background agent spawns (`run_in_background: true`) so a detached
+  subagent's permission prompts can still bubble up to the user.
 - **`claude-vm`** — run Claude Code inside an isolated macOS VM with
   config-driven egress, mounts, and repo isolation. Ships the
   `claude-vm` launcher skill, the `claude-vm-config-global` and
