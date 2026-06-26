@@ -171,6 +171,60 @@ assert_eq "normalize_fpr strips spaces + uppercases" \
   "$(claude_cache_normalize_fpr 'c8d7 e312 3f31 2a2d c66f 4f00 9c01 eb17 20c4 9782')"
 
 # ---------------------------------------------------------------------
+# 3d. REAL claude_cache_gpg_verify: pin-binding behavior.
+#     The pipeline tests below stub claude_cache_gpg_verify wholesale, so
+#     they never exercise its internal pin logic. Here we exercise the REAL
+#     function against a stubbed `gpg` that emits a VALIDSIG status line, to
+#     assert the security-critical rule: an UNSET pin HARD-ABORTS (a valid
+#     signature by an unpinned key is NOT accepted), while a MATCHING pin
+#     returns 0. We stub only `gpg` (a fake on PATH), not the function.
+# ---------------------------------------------------------------------
+# A fake `gpg` whose --verify run emits a VALIDSIG status line carrying a
+# known fingerprint as BOTH the signing-key (field 1) and primary-key (last)
+# token. command -v gpg must succeed, so the fake also answers --version.
+GPG_BIN="$WORK/gpg-bin"; mkdir -p "$GPG_BIN"
+FAKE_FPR="C8D7E3123F312A2DC66F4F009C01EB1720C49782"
+cat > "$GPG_BIN/gpg" <<GPGSTUB
+#!/usr/bin/env bash
+for a in "\$@"; do
+  case "\$a" in
+    --version) echo "gpg (fake) 0.0"; exit 0 ;;
+  esac
+done
+# --status-fd 1 --verify <sig> <signed>: emit a VALIDSIG with FAKE_FPR as
+# the first AND last fingerprint token (sig-fpr == primary-fpr).
+echo "[GNUPG:] VALIDSIG $FAKE_FPR 2026-01-01 0 0 4 0 1 8 00 $FAKE_FPR"
+exit 0
+GPGSTUB
+chmod +x "$GPG_BIN/gpg"
+
+# The top of this file replaced claude_cache_gpg_verify with a stub, so we
+# cannot call the REAL function in this shell. Instead each check runs in a
+# subshell that re-sources the lib fresh (restoring the real function) with
+# the fake gpg on PATH and the pin set/unset.
+verify_with_pin() {
+  # $1 = pin value (may be empty). Runs the REAL gpg_verify with the fake
+  # gpg on PATH, against throwaway sig/signed files. Prints nothing; returns
+  # the function's rc.
+  local pin="$1"
+  ( PATH="$GPG_BIN:$PATH"
+    CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$pin"
+    export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
+    . "$LIB"   # fresh lib => REAL claude_cache_gpg_verify, not the stub
+    : > "$WORK/sig"; : > "$WORK/signed"
+    claude_cache_gpg_verify "$WORK/sig" "$WORK/signed" >/dev/null 2>&1 )
+}
+
+verify_with_pin ""
+assert_rc "gpg_verify: UNSET pin hard-aborts even with VALIDSIG -> rc 1" "1" "$?"
+verify_with_pin "$FAKE_FPR"
+assert_rc "gpg_verify: matching pin accepts VALIDSIG -> rc 0" "0" "$?"
+verify_with_pin "c8d7 e312 3f31 2a2d c66f 4f00 9c01 eb17 20c4 9782"
+assert_rc "gpg_verify: matching pin (spaced/lowercased) accepts -> rc 0" "0" "$?"
+verify_with_pin "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"
+assert_rc "gpg_verify: non-matching pin rejects VALIDSIG -> rc 1" "1" "$?"
+
+# ---------------------------------------------------------------------
 # 4. HAPPY PATH: cold fetch caches a verified binary
 # ---------------------------------------------------------------------
 GPG_VERIFY_RESULT=0
@@ -233,6 +287,40 @@ out="$(claude_cache_ensure stable 2>/dev/null)"; rc=$?
 assert_rc "ensure aborts on checksum mismatch -> rc 1" "1" "$rc"
 [ -e "$WORK/cache/7.7.7/linux-arm64/claude" ] && leaked=yes || leaked=no
 assert_eq "checksum mismatch caches NOTHING" "no" "$leaked"
+
+# ---------------------------------------------------------------------
+# 8. ABORT: an UNSET signing-key pin must HARD-ABORT the whole ensure flow
+#    and cache NOTHING -- even when the signature is otherwise valid. This
+#    is the end-to-end counterpart of section 3d: it drives the FULL
+#    resolve->fetch->verify->cache pipeline with the REAL gpg_verify (via
+#    the fake gpg from 3d) and an empty pin, proving the launch never
+#    proceeds to download/cache a binary under an unpinned key.
+# ---------------------------------------------------------------------
+ensure_unset_pin_caches_nothing() {
+  # Run in a subshell so the real lib (with real gpg_verify) and the empty
+  # pin do not leak into the rest of this file's stubbed pipeline.
+  ( PATH="$GPG_BIN:$PATH"
+    CLAUDE_VM_SIGNING_KEY_FINGERPRINT=""        # unpinned => must hard-abort
+    export CLAUDE_VM_SIGNING_KEY_FINGERPRINT CLAUDE_VM_CACHE_DIR
+    . "$LIB"   # fresh lib => REAL claude_cache_gpg_verify
+    # Re-install the fetch stub inside this subshell (sourcing the lib reset
+    # it to the real curl wrapper). Serve a fresh version so no prior cache
+    # entry can mask the abort.
+    claude_cache_fetch_url() {
+      case "$1" in
+        */claude-code-releases/stable) printf '%s\n' "6.6.6" ;;
+        */manifest.json)      cat "$FIXTURE/manifest.good.json" ;;
+        */manifest.json.sig)  printf 'FAKE-SIGNATURE\n' ;;
+        */linux-arm64/claude) cat "$FIXTURE/claude" ;;
+        *) return 1 ;;
+      esac
+    }
+    claude_cache_ensure stable >/dev/null 2>&1 )
+}
+ensure_unset_pin_caches_nothing
+assert_rc "ensure(unset pin) hard-aborts -> rc 1" "1" "$?"
+[ -e "$WORK/cache/6.6.6/linux-arm64/claude" ] && leaked=yes || leaked=no
+assert_eq "unset pin caches NOTHING" "no" "$leaked"
 
 # ---------------------------------------------------------------------
 # Summary

@@ -56,10 +56,13 @@ CLAUDE_VM_SIGNING_KEY_URL="https://downloads.claude.ai/keys/claude-code.asc"
 # `claude.signing_key_fingerprint` config scalar (plumbed in as this env
 # var by claude-vm.sh). Compared case-insensitively with spaces stripped,
 # so the human-readable `gpg --fingerprint` form (groups of four hex with
-# spaces) can be pasted verbatim. When EMPTY the verify path still upgrades
-# to a status-fd VALIDSIG check (a bad/absent signature aborts) but cannot
-# bind to a specific key -- it warns loudly that the root of trust is not
-# pinned. See claude_cache_gpg_verify.
+# spaces) can be pasted verbatim. When EMPTY the verify path HARD ABORTS:
+# pinning the fingerprint is REQUIRED for the verified cache to function.
+# A valid signature by an unpinned/unverified key is NOT accepted -- the
+# whole point of a GPG-verified root of trust is that "some key signed it"
+# is not good enough; it must be the claude-code key the operator verified
+# out of band. Operators who have not pinned use the install.sh|bash
+# lower-trust fallback instead. See claude_cache_gpg_verify.
 : "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT:=}"
 
 # Default channel when `claude.version` is unset in both config layers.
@@ -249,11 +252,13 @@ claude_cache_normalize_fpr() {
 # accept a match against EITHER so a subkey-signed manifest still pins to
 # the operator's configured primary fingerprint.
 #
-# Returns 0 only when: gpg reports VALIDSIG AND (the pin is set AND matches)
-# -- or the pin is unset, in which case it still requires VALIDSIG but warns
-# that the key is not pinned. Returns non-zero on a bad/absent signature, a
-# missing VALIDSIG, or a fingerprint that does not match the pin. A thin
-# wrapper so offline tests can stub it; the real verification is gpg's.
+# Returns 0 only when: gpg reports VALIDSIG AND the pin is set AND matches.
+# Returns non-zero on a bad/absent signature, a missing VALIDSIG, a
+# fingerprint that does not match the pin, OR an UNSET pin -- an unset pin is
+# a hard abort (not a warn-and-proceed), because a valid signature by an
+# unpinned/unverified key is exactly what a GPG-verified root of trust must
+# refuse. A thin wrapper so offline tests can stub it; the real verification
+# is gpg's.
 #
 #   $1 -- signature file (manifest.json.sig)
 #   $2 -- signed file     (manifest.json)
@@ -304,12 +309,24 @@ claude_cache_gpg_verify() {
   local want
   want="$(claude_cache_normalize_fpr "$CLAUDE_VM_SIGNING_KEY_FINGERPRINT")"
   if [ -z "$want" ]; then
-    echo "claude-cache: WARNING -- CLAUDE_VM_SIGNING_KEY_FINGERPRINT is not set." >&2
-    echo "claude-cache: the manifest signature is valid, but the root of trust is NOT pinned to a" >&2
-    echo "claude-cache: specific key -- ANY key in your gpg keyring would satisfy this check. Set" >&2
-    echo "claude-cache: 'claude.signing_key_fingerprint' in your claude-vm config to the claude-code" >&2
-    echo "claude-cache: key fingerprint you verified out of band (one-time, trust-on-first-use)." >&2
-    return 0
+    # No pin configured => HARD ABORT. A valid signature by ANY key in the
+    # keyring is NOT good enough for a GPG-verified root of trust; the
+    # verified cache only functions once the operator has pinned the
+    # claude-code key fingerprint they verified out of band. (Operators who
+    # have not pinned fall back to the lower-trust install.sh|bash path.)
+    echo "claude-cache: the manifest signature is valid, but no signing-key fingerprint is pinned" >&2
+    echo "claude-cache: ('claude.signing_key_fingerprint' is unset) -- aborting. A bare valid" >&2
+    echo "claude-cache: signature is not enough: ANY key in your gpg keyring would satisfy it, so" >&2
+    echo "claude-cache: the verified cache refuses to trust a signature that is not bound to the" >&2
+    echo "claude-cache: claude-code key. Pin it (one-time, trust-on-first-use):" >&2
+    echo "claude-cache:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+    echo "claude-cache:   gpg --fingerprint claude-code   # verify against the published value" >&2
+    echo "claude-cache: then set it in your claude-vm config:" >&2
+    echo "claude-cache:   claude:" >&2
+    echo "claude-cache:     signing_key_fingerprint: \"<the fingerprint you just verified>\"" >&2
+    echo "claude-cache: See the 'Verified claude cache' section of payload/README.md for the full" >&2
+    echo "claude-cache: operator setup. (Unpinned operators can use the install.sh|bash fallback.)" >&2
+    return 1
   fi
 
   local got_sig got_primary

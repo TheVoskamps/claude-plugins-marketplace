@@ -121,19 +121,22 @@ like `2.1.172`):
    `~/.config/claude-vm/cache/<version>/linux-arm64/claude` and mount it
    RO into the guest (`mountTag=claudebin`).
 
-**Security invariant:** a failed `gpg --verify` **or** a checksum
-mismatch **aborts the launch** before any unverified binary is cached or
-run — there is no "verify failed, proceed anyway" branch. Trusting
+**Security invariant:** a failed `gpg --verify`, a checksum mismatch, **or
+an unpinned signing key** (`claude.signing_key_fingerprint` unset) each
+**aborts the launch** before any unverified binary is cached or run — there
+is no "verify failed, proceed anyway" branch and no "no pin, trust any key"
+branch. Trusting
 `install.sh`'s own checksum would be circular (the script is itself
 unsigned and re-fetched each boot), so the signed manifest is the root of
 trust. `install.sh | bash` is retained only as an explicit **lower-trust
 fallback** when no cache is configured (behind the egress allowlist,
 suicide-on-fail).
 
-**Operator one-time setup** (trust-on-first-use): import the signing key,
-read its fingerprint, **verify that fingerprint out of band**, then **pin
-it** in your config so the verify step is bound to *that* key (not merely
-to "some key in your keyring") —
+**Operator one-time setup** (trust-on-first-use, **required**): import the
+signing key, read its fingerprint, **verify that fingerprint out of band**,
+then **pin it** in your config so the verify step is bound to *that* key
+(not merely to "some key in your keyring"). This is a **mandatory** step —
+the verified cache hard-aborts when no fingerprint is pinned (see below) —
 
 ```bash
 curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
@@ -151,9 +154,13 @@ claude:
 
 The value is compared case-insensitively with spaces stripped, so the
 `gpg --fingerprint` form can be pasted verbatim. If
-`signing_key_fingerprint` is **unset**, the cache still requires a valid
-`VALIDSIG` but cannot bind it to a specific key — it prints a warning that
-the root of trust is not pinned. Pinning it is strongly recommended.
+`signing_key_fingerprint` is **unset**, the verified cache **hard-aborts**
+the launch before fetching, caching, or running anything — a valid
+signature by an unpinned key is *not* accepted, because the whole point of
+a GPG-verified root of trust is that "some key signed it" is not good
+enough. Pinning the fingerprint is therefore a **required** one-time step
+for the verified cache to function. Operators who have not pinned it use
+the `install.sh | bash` **lower-trust fallback** path instead (see below).
 
 **Warm boot:** when the resolved version is already cached, the binary is
 not re-downloaded and `gpg` is not re-run, and the launcher drops
@@ -178,8 +185,13 @@ and no network. Requires `yq` (mikefarah v4+); skips cleanly when absent.
 (`lib/claude-cache.sh`): channel/pin validation, version-keyed cache-path
 derivation, manifest-checksum extraction and comparison, the cold-fetch
 happy path, the warm-boot no-network path, and — the security-critical
-assertions — that a failed `gpg --verify` **and** a checksum mismatch
-each abort and cache nothing. The network and gpg primitives are stubbed
+assertions — that a failed `gpg --verify`, a checksum mismatch, **and an
+unset signing-key pin** each abort and cache nothing. The unset-pin abort
+is asserted both at the function level (the real `claude_cache_gpg_verify`
+against a fake `gpg` that emits `VALIDSIG`: an unset pin hard-aborts, a
+matching pin is accepted, a non-matching pin is rejected) and end-to-end
+(the full `ensure` flow hard-aborts and caches nothing under an unpinned
+key). The network primitive and (for the pipeline tests) gpg are stubbed
 with local fixtures, so it is fully offline and deterministic; requires
 only `bash` + a sha256 tool.
 
