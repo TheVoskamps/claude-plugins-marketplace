@@ -124,10 +124,77 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 	var out []simpleCommand
 	var walkErr error
 
+	// knownVars accumulates variables assigned to a STATIC literal value
+	// (#60) earlier in the same parsed program, in walk order (which is
+	// left-to-right / top-to-bottom for &&/||/;/newline-separated
+	// statements). A later `cat "$P/x"` whose path is built only from such
+	// variables can be resolved to a concrete literal and run through normal
+	// containment, instead of failing closed on hasUnknownExpansion. A
+	// variable assigned from a command substitution or any other unresolved
+	// expansion is deliberately NOT recorded, so genuinely dynamic paths keep
+	// escalating (fail-closed). Environment variables not assigned in the
+	// program are absent from this map and so also remain unknown.
+	knownVars := map[string]string{}
+
+	// scopeDepth tracks how many nested SCOPED constructs the walk is currently
+	// inside (#60 follow-up). In real bash an assignment made inside a `( … )`
+	// subshell, a function body, or a backgrounded group/subshell runs in a
+	// child shell and does NOT persist to the enclosing/program-global scope.
+	// While scopeDepth > 0 we therefore DO NOT record assignments into
+	// knownVars, so a scoped `P=/abs` cannot resolve a later top-level `$P`.
+	// (Uses of an already-known top-level var inside a scope still resolve —
+	// that direction is correct shell semantics.) The map is shared across the
+	// whole walk, so the depth gate lives on the write side (recordAssign), not
+	// the read side (literalWord).
+	scopeDepth := 0
+
 	var walkStmt func(stmt *syntax.Stmt)
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
 	var walkDeclClause func(c *syntax.DeclClause)
 	var descendCmdSubsts func(w *syntax.Word)
+	var recordAssign func(a *syntax.Assign)
+
+	// recordAssign captures a single assignment into knownVars when its RHS is
+	// a static literal. A plain `VAR=` (empty RHS) records the empty string. An
+	// append (`VAR+=x`), an array assignment, an indexed assignment, or a
+	// dynamic RHS (command substitution / unresolved parameter expansion) is
+	// NOT recorded; to be safe we also DELETE any previously-known value for
+	// the name, since after such an assignment the variable is no longer
+	// statically known.
+	recordAssign = func(a *syntax.Assign) {
+		if a == nil || a.Name == nil {
+			return
+		}
+		// Inside a subshell / function body / backgrounded group the assignment
+		// is scoped to a child shell and must not leak into the program-global
+		// knownVars (#60 follow-up). Skip recording entirely; we do NOT delete
+		// an existing top-level value either, because the scoped assignment does
+		// not actually overwrite the parent's variable in real bash.
+		if scopeDepth > 0 {
+			return
+		}
+		name := a.Name.Value
+		// Forms we cannot statically resolve: append, array, or indexed
+		// assignment. After any of these the prior known value is stale.
+		if a.Append || a.Array != nil || a.Index != nil {
+			delete(knownVars, name)
+			return
+		}
+		if a.Value == nil {
+			// `VAR=` — empty literal value.
+			knownVars[name] = ""
+			return
+		}
+		val, exact := literalWord(a.Value, knownVars)
+		if !exact {
+			// RHS is dynamic (e.g. `D=$(date)`, or built from an
+			// unresolved variable). The variable is no longer statically
+			// known — drop any stale value so a later use stays fail-closed.
+			delete(knownVars, name)
+			return
+		}
+		knownVars[name] = val
+	}
 
 	// descendCmdSubsts finds every command substitution inside a word —
 	// including a `$(cmd)` nested inside a double-quoted string
@@ -164,6 +231,11 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 	walkDeclClause = func(c *syntax.DeclClause) {
 		for _, a := range c.Args {
 			if a != nil {
+				// Record a static `export VAR=literal` / `local VAR=literal`
+				// so later uses can resolve it (#60), then descend into any
+				// command substitution in the RHS so the inner command is
+				// still classified.
+				recordAssign(a)
 				descendCmdSubsts(a.Value)
 			}
 		}
@@ -175,7 +247,18 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 		}
 		switch c := cmd.(type) {
 		case *syntax.CallExpr:
-			sc, err := reduceCallExpr(c, redirs)
+			// A bare assignment-only CallExpr (`VAR=x` with no program)
+			// mutates shell state and persists to later commands in the same
+			// program, so record any static assignment for later resolution
+			// (#60). A `VAR=x cmd` prefix (with a program) sets env for THAT
+			// command only and does NOT persist, so its assigns are not
+			// recorded here.
+			if len(c.Args) == 0 {
+				for _, a := range c.Assigns {
+					recordAssign(a)
+				}
+			}
+			sc, err := reduceCallExpr(c, redirs, knownVars)
 			if err != nil {
 				walkErr = err
 				return
@@ -194,9 +277,14 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 				walkStmt(s)
 			}
 		case *syntax.Subshell:
+			// A `( … )` subshell runs in a child shell; assignments inside it
+			// do not persist to the enclosing scope (#60 follow-up). Bump the
+			// scope depth so recordAssign skips them.
+			scopeDepth++
 			for _, s := range c.Stmts {
 				walkStmt(s)
 			}
+			scopeDepth--
 		case *syntax.IfClause:
 			for _, s := range c.Cond {
 				walkStmt(s)
@@ -225,7 +313,13 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 				}
 			}
 		case *syntax.FuncDecl:
+			// A function body is a separate scope: `local`/scoped vars and even
+			// plain assignments inside it do not persist to the program-global
+			// scope merely by the function being declared (#60 follow-up). Bump
+			// the scope depth so recordAssign skips its assignments.
+			scopeDepth++
 			walkStmt(c.Body)
+			scopeDepth--
 		case *syntax.ArithmCmd:
 			// Pure arithmetic; no external command. Ignore.
 		case *syntax.LetClause:
@@ -261,6 +355,19 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 			return
 		}
 		if stmt.Cmd != nil {
+			// A backgrounded statement (`cmd &`, `{ … ; } &`, `( … ) &`) runs in
+			// a child shell, so any assignment it makes does not persist to the
+			// enclosing scope (#60 follow-up). Bump the scope depth around the
+			// descent so recordAssign skips those assignments. (A `( … )`
+			// Subshell already bumps depth in walkCmd; the extra bump here for a
+			// backgrounded subshell is harmless — depth is only ever tested for
+			// > 0.)
+			if stmt.Background {
+				scopeDepth++
+				walkCmd(stmt.Cmd, stmt.Redirs)
+				scopeDepth--
+				return
+			}
 			walkCmd(stmt.Cmd, stmt.Redirs)
 		}
 	}
@@ -279,7 +386,7 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 // substitution or unresolved parameter expansion mark hasUnknownExpansion.
 // Leading `env VAR=val` wrappers and assignment prefixes are stripped so the
 // real program lands at args[0] (§10: `env VAR=x <cmd>`).
-func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect) (simpleCommand, error) {
+func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string) (simpleCommand, error) {
 	sc := simpleCommand{}
 
 	// Detect redirections to real files (anything other than /dev/null).
@@ -288,7 +395,7 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect) (simpleComman
 		if r.Word == nil {
 			continue
 		}
-		target, _ := literalWord(r.Word)
+		target, _ := literalWord(r.Word, knownVars)
 		switch r.Op {
 		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
 			if target != "/dev/null" {
@@ -298,7 +405,7 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect) (simpleComman
 	}
 
 	for _, w := range c.Args {
-		lit, exact := literalWord(w)
+		lit, exact := literalWord(w, knownVars)
 		if !exact {
 			sc.hasUnknownExpansion = true
 		}
@@ -373,36 +480,60 @@ func isAssignment(tok string) bool {
 
 // literalWord returns the static literal value of a word and whether it is
 // EXACT (no command substitution, no unresolved parameter expansion). A word
-// like `"foo"` or `'bar'` or `foo` is exact; `$(date)` or `$VAR` is not.
+// like `"foo"` or `'bar'` or `foo` is exact; `$(date)` is not. A simple
+// parameter expansion (`$VAR` / `${VAR}`) is exact ONLY when VAR is present in
+// knownVars — i.e. it was assigned to a static literal earlier in the same
+// parsed program (#60); otherwise it is inexact (fail-closed for env vars and
+// dynamically-assigned vars).
 //
-// expand.Literal with a no-op environment resolves quoting and tilde but
-// returns an error / partial result for command substitutions, which we treat
-// as inexact (#1: quoted strings with expansions are first-class, classified,
-// not heuristically matched).
-func literalWord(w *syntax.Word) (string, bool) {
+// expand.Literal with the knownVars-backed environment resolves quoting,
+// tilde, and resolvable parameter expansions but returns an error / partial
+// result for command substitutions, which we treat as inexact (#1: quoted
+// strings with expansions are first-class, classified, not heuristically
+// matched).
+func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
 	// Fast path: detect any part that is a command substitution or an
-	// expansion we cannot statically resolve.
+	// expansion we cannot statically resolve. A simple `$VAR`/`${VAR}` whose
+	// name is in knownVars is resolvable and does NOT make the word inexact.
 	exact := true
 	for _, part := range w.Parts {
 		switch p := part.(type) {
 		case *syntax.Lit, *syntax.SglQuoted:
 			// fully static
+		case *syntax.ParamExp:
+			if !isResolvableParamExp(p, knownVars) {
+				exact = false
+			}
 		case *syntax.DblQuoted:
 			for _, dp := range p.Parts {
-				switch dp.(type) {
+				switch dq := dp.(type) {
 				case *syntax.Lit:
+				case *syntax.ParamExp:
+					if !isResolvableParamExp(dq, knownVars) {
+						exact = false
+					}
 				default:
 					exact = false
 				}
 			}
 		default:
-			// ParamExp, CmdSubst, ArithmExp, ProcSubst, ExtGlob, etc.
+			// CmdSubst, ArithmExp, ProcSubst, ExtGlob, etc.
 			exact = false
 		}
 	}
 
 	cfg := &expand.Config{
-		Env: expand.FuncEnviron(func(string) string { return "" }),
+		// Resolve a variable to its statically-known literal value when we
+		// recorded one earlier in the program (#60); unknown names expand to
+		// "" (as before) and the fast-path loop above has already marked the
+		// word inexact, so such a command cannot ride the allow track and is
+		// not run through containment as if resolved.
+		Env: expand.FuncEnviron(func(name string) string {
+			if v, ok := knownVars[name]; ok {
+				return v
+			}
+			return ""
+		}),
 		// No command substitution: leave the literal as-is and mark inexact.
 		CmdSubst: func(io.Writer, *syntax.CmdSubst) error { return nil },
 		// Process substitution (`<(cmd)` / `>(cmd)`): expand.Literal calls
@@ -421,6 +552,28 @@ func literalWord(w *syntax.Word) (string, bool) {
 		return printWord(w), false
 	}
 	return lit, exact
+}
+
+// isResolvableParamExp reports whether a parameter expansion is a plain
+// `$VAR` / `${VAR}` whose name was statically assigned earlier in the same
+// program (present in knownVars). Anything with extra logic — default
+// (`${VAR:-x}`), length (`${#VAR}`), indirection (`${!VAR}`), array index,
+// slice, replacement, modifiers, or special parameters ($1, $@, $?) — is NOT
+// resolvable here and keeps the word inexact (fail-closed). A name absent from
+// knownVars (an env var, or a var assigned dynamically) is also not resolvable.
+func isResolvableParamExp(p *syntax.ParamExp, knownVars map[string]string) bool {
+	if p == nil || p.Param == nil {
+		return false
+	}
+	// Reject every non-plain form. This mirrors the upstream (unexported)
+	// ParamExp.simple() predicate; we replicate it because it is not exported.
+	if p.Flags != nil || p.Excl || p.Length || p.Width || p.IsSet ||
+		p.NestedParam != nil || p.Index != nil || len(p.Modifiers) > 0 ||
+		p.Slice != nil || p.Repl != nil || p.Names != 0 || p.Exp != nil {
+		return false
+	}
+	_, ok := knownVars[p.Param.Value]
+	return ok
 }
 
 // printWord prints a word back to source text (used only as the inexact
