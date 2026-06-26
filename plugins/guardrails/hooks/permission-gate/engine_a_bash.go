@@ -136,6 +136,18 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 	// program are absent from this map and so also remain unknown.
 	knownVars := map[string]string{}
 
+	// scopeDepth tracks how many nested SCOPED constructs the walk is currently
+	// inside (#60 follow-up). In real bash an assignment made inside a `( … )`
+	// subshell, a function body, or a backgrounded group/subshell runs in a
+	// child shell and does NOT persist to the enclosing/program-global scope.
+	// While scopeDepth > 0 we therefore DO NOT record assignments into
+	// knownVars, so a scoped `P=/abs` cannot resolve a later top-level `$P`.
+	// (Uses of an already-known top-level var inside a scope still resolve —
+	// that direction is correct shell semantics.) The map is shared across the
+	// whole walk, so the depth gate lives on the write side (recordAssign), not
+	// the read side (literalWord).
+	scopeDepth := 0
+
 	var walkStmt func(stmt *syntax.Stmt)
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
 	var walkDeclClause func(c *syntax.DeclClause)
@@ -151,6 +163,14 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 	// statically known.
 	recordAssign = func(a *syntax.Assign) {
 		if a == nil || a.Name == nil {
+			return
+		}
+		// Inside a subshell / function body / backgrounded group the assignment
+		// is scoped to a child shell and must not leak into the program-global
+		// knownVars (#60 follow-up). Skip recording entirely; we do NOT delete
+		// an existing top-level value either, because the scoped assignment does
+		// not actually overwrite the parent's variable in real bash.
+		if scopeDepth > 0 {
 			return
 		}
 		name := a.Name.Value
@@ -257,9 +277,14 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 				walkStmt(s)
 			}
 		case *syntax.Subshell:
+			// A `( … )` subshell runs in a child shell; assignments inside it
+			// do not persist to the enclosing scope (#60 follow-up). Bump the
+			// scope depth so recordAssign skips them.
+			scopeDepth++
 			for _, s := range c.Stmts {
 				walkStmt(s)
 			}
+			scopeDepth--
 		case *syntax.IfClause:
 			for _, s := range c.Cond {
 				walkStmt(s)
@@ -288,7 +313,13 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 				}
 			}
 		case *syntax.FuncDecl:
+			// A function body is a separate scope: `local`/scoped vars and even
+			// plain assignments inside it do not persist to the program-global
+			// scope merely by the function being declared (#60 follow-up). Bump
+			// the scope depth so recordAssign skips its assignments.
+			scopeDepth++
 			walkStmt(c.Body)
+			scopeDepth--
 		case *syntax.ArithmCmd:
 			// Pure arithmetic; no external command. Ignore.
 		case *syntax.LetClause:
@@ -324,6 +355,19 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 			return
 		}
 		if stmt.Cmd != nil {
+			// A backgrounded statement (`cmd &`, `{ … ; } &`, `( … ) &`) runs in
+			// a child shell, so any assignment it makes does not persist to the
+			// enclosing scope (#60 follow-up). Bump the scope depth around the
+			// descent so recordAssign skips those assignments. (A `( … )`
+			// Subshell already bumps depth in walkCmd; the extra bump here for a
+			// backgrounded subshell is harmless — depth is only ever tested for
+			// > 0.)
+			if stmt.Background {
+				scopeDepth++
+				walkCmd(stmt.Cmd, stmt.Redirs)
+				scopeDepth--
+				return
+			}
 			walkCmd(stmt.Cmd, stmt.Redirs)
 		}
 	}

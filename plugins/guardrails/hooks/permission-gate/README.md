@@ -29,7 +29,14 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   an undefined / environment variable, or a non-plain expansion
   (`${P:-x}`, `${#P}`, …) stays inexact and keeps escalating
   (fail-closed); a `VAR=x cmd` prefix sets env for that one command only
-  and does not persist to later commands.
+  and does not persist to later commands. Static-variable resolution is
+  also **scope-aware**: an assignment made inside a `( … )` subshell, a
+  function body, or a backgrounded group/subshell (`{ … ; } &`,
+  `( … ) &`) runs in a child shell and does NOT leak into the
+  program-global scope, so it cannot resolve a later top-level `$VAR`
+  (matching real bash). The inherit-IN direction still holds: a
+  top-level static assignment IS visible to a use nested inside such a
+  scope.
 - **Engine B — path containment** (`engine_b_containment.go`,
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on

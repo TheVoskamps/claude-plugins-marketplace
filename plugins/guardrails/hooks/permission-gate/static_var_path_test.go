@@ -141,3 +141,141 @@ func TestEnvPrefixVarDoesNotPersist_60(t *testing.T) {
 	d := classifyBash(cmd, ev)
 	wantBucket(t, d, BucketAsk, "#60 env-prefix var must not persist")
 }
+
+// #60 follow-up: an assignment made inside a SCOPED construct — a `( … )`
+// subshell, a function body, or a backgrounded group — runs in a child shell
+// and does NOT persist to the program-global scope in real bash. Such a scoped
+// assignment must NOT populate knownVars, so a later top-level `$VAR` use stays
+// unknown and escalates (fail-closed). The cases below pin that the scope gate
+// is honored, that the top-level #60 fix is not regressed, and that #5's
+// process-substitution crash-safety still holds.
+
+// TestSubshellAssignmentDoesNotLeak_60 covers scope case (a): a static
+// assignment inside a `( … )` subshell does not resolve a later TOP-LEVEL use.
+// The later `cat "$P/..."` must escalate as an unknown expansion, exactly as if
+// P had never been assigned.
+func TestSubshellAssignmentDoesNotLeak_60(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	// `( P=/repo ); cat "$P/README.md"` — P is assigned only in the subshell, so
+	// the top-level use is unresolved and escalates.
+	cmd := `( P=` + repo + ` ); cat "$P/README.md"`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#60 subshell assignment must not leak to top-level use")
+	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
+		t.Errorf("#60: subshell-scoped var should hit the dynamic-path ask; got %q", d.Reason)
+	}
+
+	// A subshell assignment must also not SHADOW a later genuinely-unknown use:
+	// `( P=/repo; cat "$P/x" ); cat "$P/y"` — the inner cat resolves inside the
+	// subshell (correct), but the outer cat must still escalate. The aggregate
+	// verdict therefore stays ASK.
+	cmd2 := `( P=` + repo + `; cat "$P/README.md" ); cat "$P/README.md"`
+	d2 := classifyBash(cmd2, ev)
+	wantBucket(t, d2, BucketAsk, "#60 subshell assignment must not leak past the subshell")
+}
+
+// TestFuncBodyAssignmentDoesNotLeak_60 covers scope case (b): a static
+// assignment inside a function body does not leak to a call outside the
+// function. Declaring a function does not run its body, and even when run the
+// body's assignments are scoped; a later top-level `$P` use must escalate.
+func TestFuncBodyAssignmentDoesNotLeak_60(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	// `f() { P=/repo; }; cat "$P/README.md"` — P is assigned only inside f's
+	// body, so the top-level use is unresolved and escalates.
+	cmd := `f() { P=` + repo + `; }; cat "$P/README.md"`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#60 function-body assignment must not leak to outside call")
+	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
+		t.Errorf("#60: function-scoped var should hit the dynamic-path ask; got %q", d.Reason)
+	}
+
+	// A `local` assignment inside a function body is likewise scoped and must
+	// not leak: `f() { local P=/repo; }; cat "$P/README.md"` escalates.
+	cmd2 := `f() { local P=` + repo + `; }; cat "$P/README.md"`
+	d2 := classifyBash(cmd2, ev)
+	wantBucket(t, d2, BucketAsk, "#60 function-body local assignment must not leak")
+}
+
+// TestBackgroundedGroupAssignmentDoesNotLeak_60 covers the backgrounded-scope
+// case: a `{ … ; } &` group (or a `( … ) &` subshell) runs in a child shell, so
+// an assignment inside it must not leak to a later top-level use.
+func TestBackgroundedGroupAssignmentDoesNotLeak_60(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	// `{ P=/repo; } & cat "$P/README.md"` — the assignment runs in the
+	// backgrounded child shell and must not leak; the foreground cat escalates.
+	cmd := `{ P=` + repo + `; } & cat "$P/README.md"`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#60 backgrounded-group assignment must not leak")
+
+	// `( P=/repo ) & cat "$P/README.md"` — backgrounded subshell, same outcome.
+	cmd2 := `( P=` + repo + ` ) & cat "$P/README.md"`
+	d2 := classifyBash(cmd2, ev)
+	wantBucket(t, d2, BucketAsk, "#60 backgrounded-subshell assignment must not leak")
+}
+
+// TestTopLevelVarResolvesInsideScope_60 pins the CORRECT direction of shell
+// scope semantics: a TOP-LEVEL static assignment IS visible inside a nested
+// scope (a subshell inherits the parent's variables). So a top-level `P=/repo`
+// followed by a `( cat "$P/x" )` inside a subshell resolves and runs
+// containment — the scope gate only blocks the leak-OUT direction, not the
+// inherit-IN direction.
+func TestTopLevelVarResolvesInsideScope_60(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	// Top-level P, used inside a subshell — resolves and lands in-repo → DEFER.
+	cmd := `P=` + repo + `; ( cat "$P/README.md" )`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#60: top-level var must resolve inside a subshell; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketDefer, "#60 top-level var resolves inside subshell")
+
+	// Top-level P, used inside a function body — resolves the same way.
+	cmd2 := `P=` + repo + `; f() { cat "$P/README.md"; }`
+	d2 := classifyBash(cmd2, ev)
+	if d2.Bucket == BucketAsk {
+		t.Errorf("#60: top-level var must resolve inside a function body; got ASK (%s)", d2.Reason)
+	}
+}
+
+// TestProcSubstInScopeStillSafe_60 guards that #5's process-substitution
+// crash-safety is not regressed by the scope-tracking change: a `<(…)` inside a
+// subshell must still classify (inexact → escalate) rather than panic.
+func TestProcSubstInScopeStillSafe_60(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	// Must not panic, and a process substitution is inexact so it must never ride
+	// the ALLOW track (it defers to the normal pipeline, matching the #5 fast
+	// path). The crash-safety guarantee is "classifies instead of panicking".
+	cmd := `( diff <(echo a) <(echo b) )`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAllow {
+		t.Errorf("#5 process substitution inside a subshell must not ALLOW; got %q", d.Bucket)
+	}
+}
