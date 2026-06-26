@@ -190,11 +190,14 @@ launcher fails fast if it is unset.
 
 ## Requirements
 
-`yq` (mikefarah v4+), `git`, and — for an actual VM boot — `vfkit`,
-`podman` (with a started podman machine, for the bundled podman-mkosi
-provisioner that builds the guest image), and `tinyproxy` (for the
-bundled default `proxy.cmd`). On a clean host:
-`brew install yq git vfkit podman tinyproxy`.
+`yq` (mikefarah v4+), `git`, `gpg` (`brew install gnupg`, for the
+host-side verified claude cache — see "Verified claude cache" in the
+payload README), a sha256 tool (`shasum` / `sha256sum`, both stock on
+macOS/Linux), and — for an actual VM boot — `vfkit`, `podman` (with a
+started podman machine, for the bundled podman-mkosi provisioner that
+builds the guest image), and `tinyproxy` (for the bundled default
+`proxy.cmd`). On a clean host:
+`brew install yq git gnupg vfkit podman tinyproxy`.
 
 `gvproxy` is **not** a separate install and need not be on PATH: it
 ships inside the podman Homebrew formula at
