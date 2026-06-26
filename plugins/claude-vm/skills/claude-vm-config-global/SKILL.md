@@ -1,6 +1,6 @@
 ---
 name: claude-vm-config-global
-description: Interactively create the global claude-vm config at ~/.config/claude-vm/config.yml from the resolved defaults (cpus 2, mem 4096, bundled-tinyproxy proxy default, podman-mkosi provisioner, egress.allow incl. api.anthropic.com, claude channel). Idempotent — detects an existing file and offers to merge or leave rather than clobber.
+description: Interactively create the global claude-vm config at ~/.config/claude-vm/config.yml from the resolved defaults (cpus 2, mem 4096, bundled-tinyproxy proxy default, podman-mkosi provisioner, egress.allow incl. api.anthropic.com, claude.version). Idempotent — detects an existing file and offers to merge or leave rather than clobber.
 ---
 
 # claude-vm-config-global
@@ -58,7 +58,7 @@ values in `payload/config.example.yml`.
 | `proxy.host_alias` | `192.168.127.254` | the gvproxy host alias the guest reaches the proxy on |
 | `provisioner` | `podman-mkosi` | the bundled provisioner: mkosi in a throwaway rootless podman container |
 | `egress.allow` | `api.anthropic.com`, `github.com`, `claude.ai`, `downloads.claude.ai` | `api.anthropic.com` is required for Remote Control; the rest cover git + claude install/fetch |
-| `claude.channel` | `stable` | the default update channel for the in-guest claude binary |
+| `claude.version` | `stable` | which `claude` binary the host-side verified cache fetches |
 
 Notes on the forward-looking keys:
 
@@ -76,12 +76,15 @@ Notes on the forward-looking keys:
   already defaults to it (`payload/provisioners/podman-mkosi.sh`) when
   `CLAUDE_VM_IMAGE_PROVISIONER` is unset; writing the key documents the
   intent. The env var still overrides the bundled default.
-- **`claude.channel: stable`** records the default update channel for
-  the in-guest claude binary. It is consumed by the
-  channel/version-resolver slice; writing it now keeps the global config
-  forward-complete. `stable` means "track the stable channel" (the
-  installer always fetches the latest binary and pins its update channel
-  to this value).
+- **`claude.version: stable`** selects which `claude` binary the
+  host-side GPG-verified cache fetches. It is consumed by
+  `payload/lib/claude-cache.sh`: the host resolves the channel/pin to a
+  concrete version, downloads that version's GPG-signed manifest,
+  verifies the signature against the operator's pinned key,
+  checksum-verifies the binary, caches it keyed on the version, and
+  mounts it RO into the guest. `stable` (default) tracks the conservative
+  stable channel; `latest` tracks the latest channel; a dotted version
+  like `2.1.172` pins one concrete release with no channel resolution.
 - **`api.anthropic.com` must stay in `egress.allow`.** Remote Control is
   outbound-HTTPS-only and connects to the Anthropic API on 443; dropping
   this host breaks every in-guest Remote Control session. Treat it as
@@ -163,7 +166,8 @@ egress:
     - downloads.claude.ai
 
 claude:
-  channel: stable       # update channel the in-guest claude binary tracks
+  version: stable       # which claude binary the host-side GPG-verified
+                        # cache fetches: stable (default) | latest | <pinned>
 ```
 
 > On `proxy.cmd`: the bundled tinyproxy launcher
@@ -208,7 +212,7 @@ call. The parent directory is created if needed.
 After the `Write`, re-read the file and confirm it parses as YAML and
 contains the expected keys (`cpus: 2`, `mem: 4096`, `proxy.port`,
 `provisioner: podman-mkosi`, `egress.allow` including `api.anthropic.com`,
-`claude.channel`). `proxy.cmd` is intentionally absent — the launcher
+`claude.version`). `proxy.cmd` is intentionally absent — the launcher
 defaults to the bundled tinyproxy launcher when it is unset. This is
 content verification — `Write` already errors if the bytes did not land;
 the re-read confirms the *intended content*.

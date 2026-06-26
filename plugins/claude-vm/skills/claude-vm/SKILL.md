@@ -53,9 +53,9 @@ Two layers, both optional:
 ### Layering semantics
 
 - **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
-  `repo.copy_back`, `proxy.*`): repo overrides global; global fills
-  gaps; a hardcoded default applies only when neither layer sets the
-  key.
+  `repo.copy_back`, `proxy.*`, `claude.version`): repo overrides global;
+  global fills gaps; a hardcoded default applies only when neither layer
+  sets the key.
 - **Lists** (`egress.allow`, `mounts`): **merged** — the union of
   global + repo entries, de-duplicated.
 
@@ -71,6 +71,10 @@ guest_image: /path/to/guest.raw   # repo may override; default cache
 repo:
   mount: clone                    # clone (default) | live
   copy_back: local                # local (default) | none
+
+claude:
+  version: stable                 # stable (default) | latest | <pinned>
+                                  # host-side GPG-verified cache key
 
 proxy:
   cmd: "<forward-proxy launch command>"   # must read
@@ -101,6 +105,17 @@ mounts:                           # extra mounts beyond the repo auto-mount
   file instead of a hand-maintained allowlist baked into the command.
 - `mounts` generates the extra `virtio-fs` device flags. A leading `~`
   in `source` expands to `$HOME`.
+- `claude.version` selects which `claude` binary the host-side verified
+  cache fetches: `stable` (default), `latest`, or a pinned version
+  (`2.1.172`). The host resolves a channel to a concrete version,
+  downloads that version's GPG-signed manifest, verifies the signature
+  against the operator's pinned key, checksum-verifies the binary, caches
+  it keyed on the version, and mounts it RO into the guest. A failed
+  `gpg --verify` or a checksum mismatch **aborts the launch**. On a warm
+  boot (already cached), the launcher drops `claude.ai` /
+  `downloads.claude.ai` from the guest egress allowlist. See the payload
+  README's "Verified claude cache" section for the operator's one-time
+  key-import step.
 
 ## Repo mount strategy (`repo.mount`)
 
@@ -130,18 +145,20 @@ companion skills handle extraction explicitly:
 - `/claude-vm-apply-remote` — push the VM worktree's changes to the
   remote.
 
-## Guest image — built on demand, version-pinned, claude fetched at boot
+## Guest image — built on demand, version-pinned, claude verified host-side
 
 Claude Code updates daily, so the guest image does **not** bake in
 `claude`:
 
 - The baked image is a **stable base**: a pinned OS plus a one-shot
-  boot launcher that, on boot, loads the run environment and stops at an
-  explicit **claude-fetch seam**. `claude` is never baked in; a later
-  slice fills the seam by mounting a host-side GPG-verified `claude`
-  binary into the guest (rather than a `curl install.sh | bash` path).
-  The base only changes when the base OS pin or the launcher logic
-  changes — not when claude does.
+  boot launcher that, on boot, loads the run environment and then execs
+  the **host-side GPG-verified `claude` binary** mounted RO at
+  `/mnt/claudebin` against the repo at `/mnt/repo`. `claude` is never
+  baked in and never fetched-and-run inside the guest (no
+  `curl install.sh | bash` on the trusted path); the host fetches,
+  verifies, and caches it (see "Verified claude cache" in the payload
+  README). The base only changes when the base OS pin or the launcher
+  logic changes — not when claude does.
 - The base is **version-pinned** in `payload/build-guest-image.sh`
   (`BASE_OS_REV` + `LAUNCHER_LOGIC_REV`; never the claude version).
 - On startup, the launcher **ensures the image exists and matches the
@@ -173,11 +190,14 @@ launcher fails fast if it is unset.
 
 ## Requirements
 
-`yq` (mikefarah v4+), `git`, and — for an actual VM boot — `vfkit`,
-`podman` (with a started podman machine, for the bundled podman-mkosi
-provisioner that builds the guest image), and `tinyproxy` (for the
-bundled default `proxy.cmd`). On a clean host:
-`brew install yq git vfkit podman tinyproxy`.
+`yq` (mikefarah v4+), `git`, `gpg` (`brew install gnupg`, for the
+host-side verified claude cache — see "Verified claude cache" in the
+payload README), a sha256 tool (`shasum` / `sha256sum`, both stock on
+macOS/Linux), and — for an actual VM boot — `vfkit`, `podman` (with a
+started podman machine, for the bundled podman-mkosi provisioner that
+builds the guest image), and `tinyproxy` (for the bundled default
+`proxy.cmd`). On a clean host:
+`brew install yq git gnupg vfkit podman tinyproxy`.
 
 `gvproxy` is **not** a separate install and need not be on PATH: it
 ships inside the podman Homebrew formula at
@@ -196,9 +216,12 @@ dependencies, so the `tinyproxy` check is skipped then.
 
 The config-resolution half (layering, scalar/list resolution) is
 exercisable without the virtualization stack; see
-`payload/test/config-test.sh`. The end-to-end acceptance test —
-default-provisioner build, vfkit boot to the claude-fetch seam, and
-egress confinement — is `payload/test/host-acceptance.sh`; it is
+`payload/test/config-test.sh`, and the verified-cache logic (resolve /
+verify / checksum / abort / warm-boot) in
+`payload/test/claude-cache-test.sh`. The end-to-end acceptance test —
+default-provisioner build, vfkit boot to the claude-fetch seam (exec'ing
+the host-verified claude off the mount), egress confinement, and the
+host-side GPG-verified cache — is `payload/test/host-acceptance.sh`; it is
 host-gated by cause: it skips cleanly when a required binary is absent,
 but a stopped or absent podman machine is not a skip — the test starts
 the machine itself and tears down exactly what it changed on exit. A

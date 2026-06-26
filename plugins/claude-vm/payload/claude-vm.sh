@@ -32,6 +32,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/config.sh
 . "$SCRIPT_DIR/lib/config.sh"
+# shellcheck source=lib/claude-cache.sh
+. "$SCRIPT_DIR/lib/claude-cache.sh"
 
 # ---------------------------------------------------------------------
 # Inputs
@@ -82,6 +84,21 @@ PROXY_CMD="$(claude_vm_scalar "$MERGED" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 DEFAULT_IMAGE_DIR="$(dirname "$GLOBAL_CONFIG")/images"
 GUEST_IMAGE="$(claude_vm_scalar "$MERGED" '.guest_image' "$DEFAULT_IMAGE_DIR/guest.raw")"
 
+# claude.version: the channel/pin the host-side verified cache fetches
+# (stable|latest|<pinned>). The cache resolves a channel to a concrete
+# version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
+CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
+
+# claude.signing_key_fingerprint: the claude-code signing key fingerprint
+# the operator out-of-band-verified at import time. This PINS the GPG
+# verification's root of trust to a specific key -- a bare `gpg --verify`
+# trusts ANY key in the keyring, so without this the "valid signature"
+# check is not bound to "the claude-code key" (issue #49 review). Exported
+# so lib/claude-cache.sh's verify step can enforce it. Empty when unset:
+# the cache still requires a VALIDSIG but warns the key is not pinned.
+CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(claude_vm_scalar "$MERGED" '.claude.signing_key_fingerprint' "")"
+export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
+
 # ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
 # build/boot work -- with one actionable remediation per missing piece,
@@ -123,6 +140,48 @@ ensure_guest_image() {
   "$SCRIPT_DIR/build-guest-image.sh" --output "$img"
 }
 ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
+
+# ---------------------------------------------------------------------
+# Resolve `claude` via the host-side, GPG-verified cache (issue #49).
+#
+# The host resolves the requested channel/pin to a concrete version,
+# downloads that version's GPG-signed manifest, verifies the signature
+# against the operator's pinned key, checksum-verifies the downloaded
+# binary against the verified manifest, and caches it keyed on the
+# resolved version. The verified binary is then mounted RO into the guest
+# (mountTag=claudebin) and exec'd at the boot-launcher seam.
+#
+# SECURITY: a failed gpg --verify or a checksum mismatch ABORTS here --
+# the launcher never boots the guest with an unverified binary, and there
+# is no install.sh fallback on this (cache-configured) path. The
+# lower-trust install.sh|bash fallback applies only when no cache is
+# configured (see lib/claude-cache.sh and the README).
+#
+# Warm boot: when the resolved version is already cached, no binary is
+# re-downloaded and gpg is not re-run (verification happened when it was
+# first cached), so the heavy network fetch is skipped. The launcher reads
+# CLAUDE_VM_CACHE_NETWORK to drop claude.ai/downloads.claude.ai from the
+# egress allowlist when the binary did not need fetching this run.
+# ---------------------------------------------------------------------
+# claude_cache_ensure runs in a command substitution below, so it cannot
+# hand back its network-state via an exported var (a subshell export does
+# not propagate to this parent). It writes the state to this file instead,
+# which we read after the substitution to drive the warm-boot allowlist
+# tightening. A unique per-process path keeps concurrent launches from
+# racing on a shared default.
+CACHE_STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/claude-vm-cachestate.XXXXXX")"
+export CLAUDE_VM_CACHE_STATE_FILE="$CACHE_STATE_FILE"
+CLAUDE_VM_CACHE_NETWORK=""
+CLAUDE_BIN_HOST=""
+CLAUDE_BIN_HOST="$(claude_cache_ensure "$CLAUDE_VERSION")" || {
+  echo "claude-vm: could not obtain a verified 'claude' binary for claude.version='$CLAUDE_VERSION'." >&2
+  echo "claude-vm: see the messages above. The trusted path aborts rather than running unverified code." >&2
+  rm -f "$CACHE_STATE_FILE"
+  exit 1
+}
+CLAUDE_VM_CACHE_NETWORK="$(cat "$CACHE_STATE_FILE" 2>/dev/null || true)"
+rm -f "$CACHE_STATE_FILE"
+echo "claude-vm: using verified claude binary: $CLAUDE_BIN_HOST (fetch=${CLAUDE_VM_CACHE_NETWORK:-unknown})" >&2
 
 # ---------------------------------------------------------------------
 # Run directory + repo mount strategy
@@ -208,6 +267,10 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
     printf 'REPO_TAG=repo\n'
     printf 'POLICY_TAG=policy\n'
+    # The host-verified claude binary is shared into the guest under this
+    # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
+    # boot launcher execs /mnt/claudebin/claude against /mnt/repo.
+    printf 'CLAUDEBIN_TAG=claudebin\n'
     printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
   } > "$RUN_ENV"
 )
@@ -220,6 +283,34 @@ chmod 600 "$RUN_ENV"
 # ---------------------------------------------------------------------
 EGRESS_ALLOWLIST="$CONFIG_DIR/egress.allow"
 claude_vm_egress_hosts "$MERGED" > "$EGRESS_ALLOWLIST"
+
+# Warm-boot allowlist tightening (issue #49): the claude binary is fetched
+# and verified HOST-SIDE, so the GUEST never reaches claude.ai /
+# downloads.claude.ai for it. When the verified binary did NOT need
+# fetching this run (warm boot -- already cached), drop those two
+# binary-download hosts from the guest's egress allowlist so the guest's
+# attack surface shrinks to exactly what the in-VM claude needs at runtime
+# (e.g. api.anthropic.com). On a cold boot the binary was already fetched
+# by the HOST before this point too, so the guest still does not need them
+# -- but we keep them present on cold boots to avoid surprising an operator
+# who lists them expecting the first-run fetch to use the guest path. The
+# drop is keyed on CLAUDE_VM_CACHE_NETWORK being a warm/cached state.
+case "${CLAUDE_VM_CACHE_NETWORK:-}" in
+  warm|channel-resolve)
+    # Remove claude.ai and downloads.claude.ai (and nothing else) from the
+    # effective allowlist for this run. grep -v with anchored, dot-escaped
+    # patterns so we do not also strip an unrelated host that contains the
+    # substring.
+    if [ -s "$EGRESS_ALLOWLIST" ]; then
+      TIGHTENED="$CONFIG_DIR/egress.allow.tightened"
+      grep -ivE '^[[:space:]]*(claude\.ai|downloads\.claude\.ai)[[:space:]]*$' \
+        "$EGRESS_ALLOWLIST" > "$TIGHTENED" || true
+      mv -f "$TIGHTENED" "$EGRESS_ALLOWLIST"
+      echo "claude-vm: warm boot -- dropped claude.ai/downloads.claude.ai from the guest egress allowlist (binary already cached host-side)." >&2
+    fi
+    ;;
+esac
+
 export CLAUDE_VM_EGRESS_ALLOWLIST="$EGRESS_ALLOWLIST"
 # The proxy.cmd must bind the port the guest's HTTPS_PROXY points at (set
 # in run.env above). Export it so the bundled tinyproxy launcher -- and any
@@ -386,12 +477,19 @@ for _ in $(seq 1 50); do
 done
 [ -S "$GVPROXY_SOCK" ] || { echo "claude-vm: gvproxy socket never appeared" >&2; exit 1; }
 
+# The verified claude binary is shared into the guest by its CONTAINING
+# DIRECTORY (virtio-fs shares a dir, not a single file) under tag
+# 'claudebin', mounted RO at /mnt/claudebin in the guest. The guest boot
+# launcher execs /mnt/claudebin/claude against /mnt/repo.
+CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
+
 vfkit \
   --cpus "$VM_CPUS" --memory "$VM_MEM" \
   --bootloader "efi,variable-store=$EFISTORE,create" \
   --device "virtio-blk,path=$GUEST_IMAGE" \
   --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
   --device "virtio-fs,sharedDir=$CONFIG_DIR,mountTag=runconfig" \
+  --device "virtio-fs,sharedDir=$CLAUDE_BIN_DIR,mountTag=claudebin" \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-rng"

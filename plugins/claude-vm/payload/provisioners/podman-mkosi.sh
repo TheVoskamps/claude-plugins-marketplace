@@ -159,26 +159,30 @@ RouteMetric=100
 NET
 
 # Mount the host-provided virtio-fs shares into the guest (issue #71). The
-# host launcher (claude-vm.sh) ALWAYS attaches two virtio-fs devices:
+# host launcher (claude-vm.sh) ALWAYS attaches three virtio-fs devices:
 # mountTag=runconfig (the run.env the boot launcher sources -- proxy, scoped
-# token, CLAUDE_ARGS) and mountTag=repo (the working tree). vfkit only
-# *shares* the dir under a tag; the GUEST must still mount the tag to a path.
-# Nothing did, so /mnt/runconfig/run.env never existed and the boot
-# launcher's `. /mnt/runconfig/run.env` aborted under `set -e` -- on a real
-# run as well as under the acceptance test. fstab + systemd's
-# fstab-generator does the mount; RequiresMountsFor on the boot unit (below)
-# orders the seam launcher after it.
+# token, CLAUDEBIN_TAG, CLAUDE_ARGS), mountTag=repo (the working tree), and
+# mountTag=claudebin (issue #49 -- the dir holding the host-verified claude
+# binary). vfkit only *shares* the dir under a tag; the GUEST must still
+# mount the tag to a path. Nothing did, so /mnt/runconfig/run.env never
+# existed and the boot launcher's `. /mnt/runconfig/run.env` aborted under
+# `set -e` -- on a real run as well as under the acceptance test. fstab +
+# systemd's fstab-generator does the mount; RequiresMountsFor on the boot
+# unit (below) orders the seam launcher after it.
 #
 # nofail: a share that is absent on a given boot must not wedge the boot in
-# emergency mode; the consumer (boot launcher / future claude exec) decides
-# whether its absence is fatal. runconfig is mounted ro (it is secret-bearing
-# and the guest never writes it); repo is rw (the guest works in it).
+# emergency mode; the consumer (boot launcher / claude exec) decides whether
+# its absence is fatal. runconfig and claudebin are mounted ro (runconfig is
+# secret-bearing; claudebin is a verified binary the guest must not mutate);
+# repo is rw (the guest works in it).
 mkdir -p "$STAGE/recipe/mkosi.extra/mnt/runconfig" \
-         "$STAGE/recipe/mkosi.extra/mnt/repo"
+         "$STAGE/recipe/mkosi.extra/mnt/repo" \
+         "$STAGE/recipe/mkosi.extra/mnt/claudebin"
 cat > "$STAGE/recipe/mkosi.extra/etc/fstab" <<'FSTAB'
 # <tag>     <mountpoint>     <type>     <options>     <dump> <pass>
 runconfig   /mnt/runconfig   virtiofs   ro,nofail     0 0
 repo        /mnt/repo        virtiofs   rw,nofail     0 0
+claudebin   /mnt/claudebin   virtiofs   ro,nofail     0 0
 FSTAB
 
 # The Type=oneshot unit that runs the boot launcher on guest boot. Wanted
@@ -191,9 +195,11 @@ cat > "$STAGE/recipe/mkosi.extra/etc/systemd/system/claude-vm-boot.service" <<'U
 Description=claude-vm one-shot boot launcher
 After=network-online.target
 Wants=network-online.target
-# Pull in and order after the runconfig virtio-fs mount so the launcher's
-# `. /mnt/runconfig/run.env` reads a mounted share, not a bare directory.
-RequiresMountsFor=/mnt/runconfig
+# Pull in and order after the virtio-fs mounts the launcher needs: runconfig
+# (sourced run.env), claudebin (the host-verified binary it execs), and repo
+# (the working tree it cd's into). Ordering after them means the launcher
+# never sees a bare mountpoint dir where it expects a mounted share.
+RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/repo
 
 [Service]
 Type=oneshot

@@ -25,6 +25,43 @@ repo:
   mount: clone          # clone (default) | live
   copy_back: local      # local (default) | none -- post-exit copy-back target
 
+# Which `claude` binary to run in the guest. The HOST resolves this to a
+# concrete version, downloads that version's GPG-signed manifest, verifies
+# the signature against the operator's pinned claude-code key, checksum-
+# verifies the downloaded binary against the verified manifest, and caches
+# it under ~/.config/claude-vm/cache/<version>/linux-arm64/claude. The
+# launcher then mounts the verified binary RO into the guest (mountTag=
+# claudebin); the guest runs it off the mount and never fetches-and-runs
+# install.sh on this trusted path. A failed gpg --verify or a checksum
+# mismatch ABORTS the launch -- unverified code is never run.
+#
+#   stable          -- (default) the latest binary tracking the stable channel
+#   latest          -- the latest binary tracking the latest channel
+#   2.1.172         -- a concrete pinned version (no channel resolution)
+#
+# WARM BOOT: when the resolved version is already cached, the binary is not
+# re-downloaded and the launcher drops claude.ai / downloads.claude.ai from
+# the guest's egress allowlist (the guest never needs them -- the binary
+# came from the host-side cache). Operator one-time setup: import the signing
+# key, verify its fingerprint out of band, then PIN it below --
+#   curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
+#   gpg --fingerprint claude-code   # confirm against the published value
+#
+# signing_key_fingerprint PINS the GPG root of trust to a specific key. A
+# bare `gpg --verify` exits 0 for a valid signature under ANY key in your
+# keyring, so without this pin the check is not bound to the claude-code key.
+# Set it to the fingerprint you verified out of band (spaces/case ignored,
+# so the `gpg --fingerprint` form pastes verbatim). PINNING IS REQUIRED for
+# the verified cache to function: when this is unset (empty), the verified
+# cache HARD-ABORTS the launch -- it does NOT silently trust any key. A valid
+# signature by an unpinned key is refused, because the point of a verified
+# root of trust is that "some key signed it" is not good enough. Operators
+# who have not pinned a fingerprint use the install.sh | bash lower-trust
+# fallback path instead. (See payload/README.md "Verified claude cache".)
+claude:
+  version: stable
+  signing_key_fingerprint: ""   # e.g. "AAAA BBBB ... 2222 3333" -- unset = verified cache disabled (hard abort)
+
 proxy:
   # A launcher command for your forward proxy. When UNSET, the launcher
   # defaults to the bundled tinyproxy launcher
