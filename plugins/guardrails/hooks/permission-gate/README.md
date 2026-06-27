@@ -12,8 +12,8 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
 (uncertainty escalates to a human, never to allow):
 
 - **Engine A — command classifier** (`engine_a_bash.go`,
-  `classify_command.go`, `rules.go`, `forbidden_forms.go`,
-  `engine_a_mcp.go`): parses the Bash command to an AST
+  `classify_command.go`, `rules.go`, `readonly_util.go`,
+  `forbidden_forms.go`, `engine_a_mcp.go`): parses the Bash command to an AST
   (`mvdan.cc/sh/v3`) and classifies each simple command; branches on
   MCP tool names. Constructs whose inner command is not statically
   resolvable — process substitution `<(…)` / `>(…)`, command
@@ -36,7 +36,36 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   program-global scope, so it cannot resolve a later top-level `$VAR`
   (matching real bash). The inherit-IN direction still holds: a
   top-level static assignment IS visible to a use nested inside such a
-  scope.
+  scope. Engine A also carries a **read-only-utility classifier**
+  (`readonly_util.go`, #31): a curated set of high-frequency text/data
+  utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
+  `comm`, `paste`, `nl`, `fold`, `fmt`, `column`, `rev`, `realpath`,
+  `grep`, `printf`, `echo`, `basename`, `dirname`, `true`, `false`,
+  `seq`, `yes`, plus the conditionally-read-only `sed`, `awk`, `jq`,
+  `find`, and `tee` — **ALLOWs** the provably non-mutating form instead
+  of deferring (a defer then matches no `settings.json` allow entry and
+  prompts the user, the single largest prompt source). The ALLOW is
+  withheld — the line **defers** — when a real-file redirect or a
+  command substitution / unresolved expansion is present (#1); when a
+  utility is invoked in a **file-writing form** — a write-capable flag
+  (`sed -i`, gawk `-i inplace`/`-p`/`-o`/`-d`, `sort -o`/`--output`,
+  `jq -i`) or a write-destination operand (`uniq INPUT OUTPUT`,
+  `find -delete`/`-exec`, `tee` to a real file); **or when it carries
+  any unrecognized flag** — so a future or unmodeled mutating mode fails
+  safe. This fail-safe and write-form inspection covers the
+  **always-read-only path-bearing utilities too** (not just the
+  conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
+  utility enumerates its read-only flag grammar, and anything outside it
+  defers. The read still **denies/asks** when a path operand escapes
+  containment (#148 cross-repo, #127 worktree). Pure-
+  output utilities (`printf`, `echo`, `seq`, `true`/`false`, `yes`,
+  `basename`, `dirname`) take no path operand and so ALLOW without a
+  `git rev-parse` fork. Pagers / binary dumpers (`less`, `more`, `od`,
+  `xxd`, `hexdump`) are deliberately out of this ALLOW set: they keep
+  the prior path-reader posture (contained → defer, escape →
+  deny/ask). A redirect target built from a process substitution or
+  unresolved expansion (`wc < <(grep x f)`, `cmd > "$DYNAMIC"`) marks
+  the command unprovable so it cannot ride the allow track.
 - **Engine B — path containment** (`engine_b_containment.go`,
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
