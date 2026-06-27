@@ -62,10 +62,13 @@ command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 
 GLOBAL_CONFIG="$CLAUDE_VM_GLOBAL_CONFIG"
 REPO_CONFIG="${CLAUDE_VM_REPO_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
 
-# NOTE: the merged-config temp file is removed by cleanup() (the single
-# consolidated EXIT/INT/TERM trap installed below). Do NOT add a second
-# `trap ... EXIT` here -- the later `trap cleanup EXIT INT TERM` would
-# replace it, leaking this file on every run.
+# NOTE: the merged-config temp file is removed by cleanup() (the
+# consolidated EXIT/INT/TERM trap installed below). A narrow interim trap is
+# armed earlier (right after the OAuth credential is written) to cover the
+# clone window; it also removes this file, and the consolidated
+# `trap cleanup EXIT INT TERM` REPLACES it once the full run state exists. Do
+# NOT add yet another `trap ... EXIT` here -- a later trap installation would
+# replace whatever was set, leaking this file on every run.
 MERGED="$(mktemp "${TMPDIR:-/tmp}/claude-vm-merged.XXXXXX.yml")"
 claude_vm_merge_config "$GLOBAL_CONFIG" "$REPO_CONFIG" > "$MERGED" \
   || { echo "claude-vm: could not resolve effective config" >&2; exit 1; }
@@ -243,14 +246,61 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # NEVER persisted to config, to run.env, or to the verified-binary cache.
 #
 # macOS-only: `security` is a macOS binary. Fail fast with an actionable
-# message when the lookup returns empty/non-zero (operator not logged into
-# claude.ai, or the service name differs).
+# message, but DISTINGUISH the two failure modes so an operator can diagnose:
+#
+#   - The COMMON case -- no such credential (errSecItemNotFound, exit 44) or an
+#     empty blob -- means the operator simply is not logged in to claude.ai.
+#     Show the friendly "log in" guidance. `security`'s own stderr here is just
+#     "could not be found in the keychain", which adds nothing, so it is hidden.
+#   - Any OTHER failure (exit non-zero AND not 44) -- a LOCKED keychain, a
+#     `security` tool error, a permissions denial -- is NOT a "log in" problem.
+#     Hiding it behind the friendly message sent operators chasing the wrong
+#     fix. Surface `security`'s real stderr so the actual error is visible.
 # ---------------------------------------------------------------------
 KEYCHAIN_SERVICE="Claude Code-credentials"
 HOST_CREDENTIAL="$CREDS_DIR/.credentials.json"
-if ! security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$HOST_CREDENTIAL" 2>/dev/null \
-   || [ ! -s "$HOST_CREDENTIAL" ]; then
-  rm -f "$HOST_CREDENTIAL"
+SEC_STDERR="$RUN/.security.stderr"
+# Arm the NARROW interim trap BEFORE the `security` write below, so a Ctrl-C (or
+# other signal) anywhere from the credential write through the potentially-slow
+# `git clone` does NOT leak the full-scope OAuth credential at
+# $CREDS_DIR/.credentials.json. This is deliberately minimal (remove the
+# credential dir + the merged-config temp file) rather than the full cleanup():
+# cleanup() runs copy_back, which expects $WORKTREE to exist -- but the worktree
+# is not created until the clone below, so installing the full trap here would
+# fire copy-back against a missing worktree. It still removes MERGED so the
+# merged-config-cleanup guarantee holds even if a signal fires in this window.
+# The full `trap cleanup EXIT INT TERM` REPLACES this interim trap at its
+# existing site once the worktree, proxy, and gvproxy state all exist. Guarded
+# with ${CREDS_DIR:-}/${MERGED:-} so each rm is a no-op under `set -u` even if
+# the trap fires before they are set.
+trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${MERGED:-}"' EXIT INT TERM
+# Run with `set +e` around just this call so a non-zero exit does not trip
+# `set -e` before we have inspected the code. Capture stderr to a file (not
+# /dev/null) so an unexpected error can be surfaced verbatim below.
+set +e
+security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$HOST_CREDENTIAL" 2>"$SEC_STDERR"
+SEC_RC=$?
+set -e
+if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
+  # Unexpected failure (locked keychain, tool error, ...). Surface the real
+  # error so the operator does not chase a non-existent "not logged in" cause.
+  rm -f "$HOST_CREDENTIAL" "$SEC_STDERR"
+  umask "$OLD_UMASK"
+  echo "claude-vm: reading the claude.ai OAuth credential from the macOS Keychain failed" >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE') with an unexpected error (security exit $SEC_RC)." >&2
+  echo "claude-vm: this is NOT a 'not logged in' case -- a locked keychain or a 'security' tool" >&2
+  echo "claude-vm: error is likely. The underlying error from 'security' was:" >&2
+  if [ -s "$SEC_STDERR" ]; then
+    sed 's/^/claude-vm:   /' "$SEC_STDERR" >&2
+  else
+    echo "claude-vm:   (security produced no error output)" >&2
+  fi
+  exit 1
+fi
+if [ "$SEC_RC" -eq 44 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
+  # Common case: no such credential (or an empty blob) -- operator is not
+  # logged in to claude.ai. Show the friendly guidance.
+  rm -f "$HOST_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
   echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with the host's" >&2
@@ -259,6 +309,7 @@ if ! security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$HOST_CREDENTIA
   echo "claude-vm: this uses 'security find-generic-password', a macOS Keychain tool.)" >&2
   exit 1
 fi
+rm -f "$SEC_STDERR"
 chmod 600 "$HOST_CREDENTIAL"
 
 # Restore the caller's umask before the clone so cloned worktree files
@@ -517,6 +568,9 @@ cleanup() {
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
+# Replace the narrow interim trap (armed right after the OAuth credential was
+# written, to cover the clone window) with the full cleanup() now that the
+# worktree, proxy, and gvproxy state all exist for copy_back to act on.
 trap cleanup EXIT INT TERM
 
 # Start the forward proxy. It reads the allowlist from
