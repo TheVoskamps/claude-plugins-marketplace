@@ -244,6 +244,202 @@ func TestPagersStillDefer_31(t *testing.T) {
 	}
 }
 
+// TestAlwaysReadOnlyWriteFormsNotAllowed_31 covers the #31 review HIGH finding:
+// always-read-only path-bearing utilities that have a write-capable flag or a
+// write-destination operand must NOT ride the ALLOW track. Each form here writes
+// a file in the repo (the common case containment does NOT catch), so it must
+// defer to the in-repo-write classifier rather than auto-allow.
+func TestAlwaysReadOnlyWriteFormsNotAllowed_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file", "README.md", "out.txt", "clobber.txt")
+	for _, cmd := range []string{
+		// sort -o / --output writes a file (sort -o f f clobbers in place).
+		`sort -o out.txt README.md`,
+		`sort --output=out.txt README.md`,
+		`sort -o README.md README.md`,
+		// uniq INPUT OUTPUT: the second path operand is a WRITE destination.
+		`uniq README.md clobber.txt`,
+		`uniq -c README.md clobber.txt`,
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("write-capable always-read-only form must not ALLOW: %q got %q", cmd, d.Bucket)
+		}
+		wantBucket(t, d, BucketDefer, "write form defers: "+cmd)
+	}
+}
+
+// TestAlwaysReadOnlyUnknownFlagDefers_31 covers the #31 review HIGH finding's
+// criterion-4 generalization: an unrecognized flag on an ALWAYS-read-only
+// utility must fail safe (defer), not allow — previously these utilities carried
+// no flag inspection at all, so `sort --frobnicate file` rode the ALLOW track.
+func TestAlwaysReadOnlyUnknownFlagDefers_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file")
+	for _, cmd := range []string{
+		`sort --frobnicate file`,
+		`uniq --frobnicate file`,
+		`cat --frobnicate file`,
+		`head --frobnicate file`,
+		`wc --frobnicate file`,
+		`cut --frobnicate file`,
+		`comm --frobnicate file`,
+		`paste --frobnicate file`,
+		`nl --frobnicate file`,
+		`fold --frobnicate file`,
+		`fmt --frobnicate file`,
+		`column --frobnicate file`,
+		`rev --frobnicate file`,
+		`realpath --frobnicate file`,
+		`grep --frobnicate x file`,
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("unknown flag on always-read-only utility must not ALLOW (fail-safe): %q got %q", cmd, d.Bucket)
+		}
+		wantBucket(t, d, BucketDefer, "unknown flag defers: "+cmd)
+	}
+}
+
+// TestAlwaysReadOnlyReadFormsStillAllow_31 guards against over-correction: the
+// genuinely read-only forms of every always-read-only utility — including the
+// common flag forms — must STILL ALLOW after the write-form/fail-safe tightening.
+func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file", "a", "b", "README.md")
+	for _, cmd := range []string{
+		`sort -r file`,
+		`sort -k2,3 -t: file`,
+		`sort -u file`,
+		`uniq file`,    // single (input-only) operand is read-only
+		`uniq -c file`, // count flag, single operand
+		`uniq -D file`, // -D is a bool flag, not a value flag swallowing the path
+		`cat -n file`,
+		`head -n 5 file`,
+		`head -n5 file`, // attached value
+		`tail -c 10 file`,
+		`wc -lwc file`, // clustered bool flags
+		`cut -d: -f1 file`,
+		`cut -f1 file`,
+		`comm -12 a b`,
+		`paste -d, a b`,
+		`nl -ba file`,
+		`fold -w 80 file`,
+		`fmt -w 72 file`,
+		`column -t -s, file`,
+		`rev file`,
+		`realpath -e file`,
+		`grep -i -n needle file`,
+		`grep -e needle -e other file`,
+	} {
+		d := classifyBash(cmd, ev)
+		wantBucket(t, d, BucketAllow, "read-only form still allows: "+cmd)
+	}
+}
+
+// TestAwkProfileOutputDumpNotAllowed_31 covers the #31 review MEDIUM finding:
+// gawk's profile/pretty-print/dump-variables flags write a file (awkprof.out /
+// awkvars.out) and must NOT ALLOW. They were previously listed as read-only
+// boolFlags. Bare, attached, and long-with-value forms all defer.
+func TestAwkProfileOutputDumpNotAllowed_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file", "prof")
+	for _, cmd := range []string{
+		`awk -p prof '{print}' file`, // bare -p writes awkprof.out; "prof" is program text
+		`awk -p '{print}' file`,
+		`awk -o '{print}' file`,
+		`awk -d '{print}' file`,
+		`awk --profile '{print}' file`,
+		`awk --pretty-print '{print}' file`,
+		`awk --dump-variables '{print}' file`,
+		`awk -pprof.out '{print}' file`,         // attached short form
+		`awk --profile=prof.out '{print}' file`, // long-with-value form
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("awk file-writing flag must not ALLOW: %q got %q", cmd, d.Bucket)
+		}
+		wantBucket(t, d, BucketDefer, "awk write flag defers: "+cmd)
+	}
+}
+
+// TestAwkNonWritingFlagsStillAllow_31 guards the MEDIUM fix against
+// over-correction: gawk flags that do NOT write a file (-O/--optimize,
+// -P/--posix, -D/--debug) must STILL ALLOW.
+func TestAwkNonWritingFlagsStillAllow_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file")
+	for _, cmd := range []string{
+		`awk -O '{print}' file`,
+		`awk --optimize '{print}' file`,
+		`awk -P '{print}' file`,
+		`awk --posix '{print}' file`,
+		`awk '{print $1}' file`,
+		`awk -F: '{print $1}' file`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "awk non-writing flag allows: "+cmd)
+	}
+}
+
+// TestAwkDefersHelper_31 exercises awkDefers directly for the write/non-write
+// flag distinction (MEDIUM finding).
+func TestAwkDefersHelper_31(t *testing.T) {
+	for _, a := range [][]string{
+		{"-p", "{print}", "file"},
+		{"-o", "{print}", "file"},
+		{"-d", "{print}", "file"},
+		{"--profile", "{print}", "file"},
+		{"--pretty-print", "{print}", "file"},
+		{"--dump-variables", "{print}", "file"},
+		{"-pprof.out", "{print}", "file"},
+		{"--profile=prof.out", "{print}", "file"},
+	} {
+		if !awkDefers(a) {
+			t.Errorf("awk write flag must defer: %v", a)
+		}
+	}
+	for _, a := range [][]string{
+		{"-O", "{print}", "file"},
+		{"--optimize", "{print}", "file"},
+		{"-P", "{print}", "file"},
+		{"--posix", "{print}", "file"},
+		{"-F", ":", "{print}", "file"},
+	} {
+		if awkDefers(a) {
+			t.Errorf("awk non-writing flag must not defer: %v", a)
+		}
+	}
+}
+
+// TestSortUniqDefersHelpers_31 exercises sortDefers/uniqDefers directly for the
+// write-flag and write-operand detection (HIGH finding).
+func TestSortUniqDefersHelpers_31(t *testing.T) {
+	// sort: -o / --output write a file → defer; read-only flags do not.
+	if !sortDefers([]string{"-o", "out.txt", "file"}) {
+		t.Error("sort -o must defer")
+	}
+	if !sortDefers([]string{"--output=out.txt", "file"}) {
+		t.Error("sort --output= must defer")
+	}
+	if !sortDefers([]string{"--frobnicate", "file"}) {
+		t.Error("sort unknown flag must defer (fail-safe)")
+	}
+	if sortDefers([]string{"-r", "-k2,3", "-t:", "file"}) {
+		t.Error("sort read-only flags must not defer")
+	}
+	// uniq: a second (OUTPUT) operand defers; one operand does not.
+	if !uniqDefers([]string{"in.txt", "out.txt"}) {
+		t.Error("uniq IN OUT must defer (OUT is a write destination)")
+	}
+	if !uniqDefers([]string{"-c", "in.txt", "out.txt"}) {
+		t.Error("uniq -c IN OUT must defer")
+	}
+	if uniqDefers([]string{"in.txt"}) {
+		t.Error("uniq IN (input only) must not defer")
+	}
+	if uniqDefers([]string{"-D", "in.txt"}) {
+		t.Error("uniq -D IN must not defer (-D is a bool flag, not a value flag)")
+	}
+	if !uniqDefers([]string{"--frobnicate", "file"}) {
+		t.Error("uniq unknown flag must defer (fail-safe)")
+	}
+}
+
 // TestReadOnlyUtilitySpecHelpers_31 exercises the per-program defersForm
 // predicates directly, covering the flag-parsing edges (value flags, attached
 // long-flag values, the `--` operand boundary).
