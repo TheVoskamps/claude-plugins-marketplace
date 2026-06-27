@@ -43,7 +43,10 @@ payload/
 ## Launcher (`claude-vm.sh`)
 
 ```bash
-export ANTHROPIC_VM_TOKEN=<scoped-key>        # the only secret; env-only
+# No token env var. The guest authenticates with the host's live claude.ai
+# OAuth credential, which the launcher extracts from the macOS Keychain at
+# launch and shares RO into the guest (be logged in to Claude Code on the
+# host first). See "Authentication" below.
 "${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
 ```
 
@@ -53,6 +56,42 @@ Reads `cpus`, `mem`, `guest_image`, proxy config, `egress.allow`,
 layering repo-over-global for scalars and unioning lists. See the
 `claude-vm` skill (`skills/claude-vm/SKILL.md`) for the full schema and
 semantics.
+
+## Authentication
+
+The guest authenticates with the **host operator's live claude.ai OAuth
+credential** — the full-scope login credential, not a scoped inference
+token. This is what lets the in-guest Claude Code run an interactive
+**Remote Control** session attributed to the host's claude.ai login.
+
+At launch the launcher extracts that credential from the macOS login
+Keychain by service name alone:
+
+```bash
+security find-generic-password -s "Claude Code-credentials" -w
+```
+
+The raw blob is copied **byte-for-byte verbatim** (no parse/reserialize)
+into a transient, owner-only (`0600`) tmpfile and shared **read-only**
+into the guest under `mountTag=claudecreds`. The guest boot launcher
+copies it into `$HOME/.claude/.credentials.json` (mode `0600`) before
+exec'ing `claude`, so `claude` finds it at the path it expects.
+
+The credential is a **secret** and is handled like one:
+
+- It is **never** written to config, to `run.env`, or to the
+  verified-binary cache.
+- Its host-side tmpfile is created under a tightened `umask 077` and
+  removed by the launcher's `cleanup()`/`trap` on every exit (including
+  Ctrl-C) — it does not linger past the live VM.
+
+**Requirements:** macOS only (`security find-generic-password` is a macOS
+Keychain tool), and you must be **logged in to Claude Code on the host**
+first (run `claude` once and complete the claude.ai login). If the
+Keychain lookup returns empty or non-zero, the launcher fails fast with
+an actionable message rather than booting an unauthenticated guest.
+`egress.allow` must include the Anthropic API host (`api.anthropic.com`,
+present in the example config) so the in-guest `claude` can reach it.
 
 ## Config loader (`lib/config.sh`)
 
