@@ -46,12 +46,18 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   of deferring (a defer then matches no `settings.json` allow entry and
   prompts the user, the single largest prompt source). The ALLOW is
   withheld — the line **defers** — when a real-file redirect or a
-  command substitution / unresolved expansion is present (#1), when a
-  conditionally-read-only utility is in a mutating form (`sed -i`,
-  gawk `-i inplace`, `find -delete`/`-exec`, `tee` to a real file,
-  `jq -i`) **or carries any unrecognized flag** (so a future mutating
-  mode fails safe), and the read still **denies/asks** when a path
-  operand escapes containment (#148 cross-repo, #127 worktree). Pure-
+  command substitution / unresolved expansion is present (#1); when a
+  utility is invoked in a **file-writing form** — a write-capable flag
+  (`sed -i`, gawk `-i inplace`/`-p`/`-o`/`-d`, `sort -o`/`--output`,
+  `jq -i`) or a write-destination operand (`uniq INPUT OUTPUT`,
+  `find -delete`/`-exec`, `tee` to a real file); **or when it carries
+  any unrecognized flag** — so a future or unmodeled mutating mode fails
+  safe. This fail-safe and write-form inspection covers the
+  **always-read-only path-bearing utilities too** (not just the
+  conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
+  utility enumerates its read-only flag grammar, and anything outside it
+  defers. The read still **denies/asks** when a path operand escapes
+  containment (#148 cross-repo, #127 worktree). Pure-
   output utilities (`printf`, `echo`, `seq`, `true`/`false`, `yes`,
   `basename`, `dirname`) take no path operand and so ALLOW without a
   `git rev-parse` fork. Pagers / binary dumpers (`less`, `more`, `od`,
