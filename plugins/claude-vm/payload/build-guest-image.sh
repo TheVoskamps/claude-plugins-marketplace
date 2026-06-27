@@ -109,13 +109,15 @@ set +a
 # ---------------------------------------------------------------------
 # Auth: install the host's claude.ai OAuth credential (issue #50).
 #
-# The host extracted its live claude.ai login credential from the macOS
-# Keychain and shared it RO into the guest under mountTag=claudecreds. claude
-# reads its credential from $HOME/.claude/.credentials.json, so copy the
-# mounted blob there (mode 0600). The RO virtio-fs mount cannot itself BE
+# The host read its live claude.ai login from the macOS Keychain, SELECTED
+# only the `claudeAiOauth` key from it (dropping any unrelated mcpOAuth and
+# other siblings -- see claude-vm.sh), and shared the resulting
+# `{"claudeAiOauth": {...}}` file RO into the guest under mountTag=claudecreds.
+# claude reads its credential from $HOME/.claude/.credentials.json, so copy
+# the mounted file there (mode 0600). The RO virtio-fs mount cannot itself BE
 # that writable per-user file, so we copy it into place rather than symlink:
 # claude expects a real, owner-only file at that path. This gives the guest
-# the host operator's full-scope login, which Remote Control requires.
+# the host operator's full-scope claude.ai login, which Remote Control requires.
 #
 # claude runs as this unit's user (root in the Type=oneshot boot unit), so
 # $HOME is that user's home. Derive the credential dir from $HOME so the
@@ -131,7 +133,8 @@ fi
 CLAUDE_HOME="${HOME:-/root}"
 CRED_DIR="$CLAUDE_HOME/.claude"
 mkdir -p "$CRED_DIR"
-# Copy byte-for-byte (no parse/reserialize), then tighten to owner-only.
+# The mounted file is the host-selected claudeAiOauth-only credential; copy it
+# verbatim into place (the host already did the selection), then tighten perms.
 cp "$MOUNTED_CREDENTIAL" "$CRED_DIR/.credentials.json"
 chmod 600 "$CRED_DIR/.credentials.json"
 echo "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json" >&2

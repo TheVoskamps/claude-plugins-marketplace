@@ -71,11 +71,23 @@ Keychain by service name alone:
 security find-generic-password -s "Claude Code-credentials" -w
 ```
 
-The raw blob is copied **byte-for-byte verbatim** (no parse/reserialize)
-into a transient, owner-only (`0600`) tmpfile and shared **read-only**
-into the guest under `mountTag=claudecreds`. The guest boot launcher
-copies it into `$HOME/.claude/.credentials.json` (mode `0600`) before
-exec'ing `claude`, so `claude` finds it at the path it expects.
+That Keychain item is **not** only the claude.ai login — on a real host
+its JSON carries sibling top-level keys, at minimum `claudeAiOauth` (the
+intended full-scope login) and `mcpOAuth` (per-MCP-server OAuth, e.g. a
+Sentry MCP token). To avoid pushing unrelated MCP credentials into the
+guest, the launcher **selects only the `claudeAiOauth` key** from the raw
+blob and writes a file in the shape `claude` expects,
+`{"claudeAiOauth": { ... }}`, dropping `mcpOAuth` and any other siblings.
+The selection runs via `lib/credential.sh` (using `python3`, stock on
+macOS) and is unit-tested in `test/credential-test.sh`. The full raw blob
+is held only in a transient tmpfile outside the share and removed
+immediately after selection.
+
+The selected `{"claudeAiOauth": {...}}` is written to a transient,
+owner-only (`0600`) tmpfile and shared **read-only** into the guest under
+`mountTag=claudecreds`. The guest boot launcher copies it into
+`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing `claude`,
+so `claude` finds it at the path it expects.
 
 The credential is a **secret** and is handled like one:
 
@@ -84,12 +96,18 @@ The credential is a **secret** and is handled like one:
 - Its host-side tmpfile is created under a tightened `umask 077` and
   removed by the launcher's `cleanup()`/`trap` on every exit (including
   Ctrl-C) — it does not linger past the live VM.
+- The full raw Keychain blob (before `claudeAiOauth` selection) lives
+  only in a transient tmpfile **outside** the guest share and is removed
+  immediately after the selection step, so the unselected form is never
+  mounted into the guest.
 
 **Requirements:** macOS only (`security find-generic-password` is a macOS
-Keychain tool), and you must be **logged in to Claude Code on the host**
-first (run `claude` once and complete the claude.ai login). If the
-Keychain lookup returns empty or non-zero, the launcher fails fast with
-an actionable message rather than booting an unauthenticated guest.
+Keychain tool; `python3`, used for the credential selection, ships with
+macOS), and you must be **logged in to Claude Code on the host** first
+(run `claude` once and complete the claude.ai login). If the Keychain
+lookup returns empty or non-zero, or the blob has no usable
+`claudeAiOauth` key, the launcher fails fast with an actionable message
+rather than booting an unauthenticated guest.
 `egress.allow` must include the Anthropic API host (`api.anthropic.com`,
 present in the example config) so the in-guest `claude` can reach it.
 

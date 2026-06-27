@@ -14,14 +14,17 @@
 # skills/claude-vm/SKILL.md for the full config schema.
 #
 # AUTH: the guest authenticates with the HOST's live claude.ai OAuth
-# credential, not a scoped API token. At launch the credential is
-# extracted byte-for-byte from the macOS login Keychain
-# (`security find-generic-password -s "Claude Code-credentials" -w`)
-# into a transient, owner-only tmpfile and shared RO into the guest so
-# it lands at the guest user's ~/.claude/.credentials.json. This gives
-# the guest the host operator's full-scope login, which Remote Control
-# requires. The credential is NEVER written to config, to the verified-
-# binary cache, or into run.env, and the tmpfile is removed on exit.
+# credential, not a scoped API token. At launch the launcher reads the
+# raw blob from the macOS login Keychain
+# (`security find-generic-password -s "Claude Code-credentials" -w`) and
+# selects ONLY the `claudeAiOauth` key from it (the blob can also carry
+# unrelated `mcpOAuth` MCP-server credentials, which are dropped -- see
+# the selection block below). The selected `{"claudeAiOauth": {...}}` is
+# written to a transient, owner-only tmpfile and shared RO into the guest
+# so it lands at the guest user's ~/.claude/.credentials.json. This gives
+# the guest the host operator's full-scope claude.ai login, which Remote
+# Control requires. The credential is NEVER written to config, to the
+# verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
@@ -41,6 +44,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/config.sh"
 # shellcheck source=lib/claude-cache.sh
 . "$SCRIPT_DIR/lib/claude-cache.sh"
+# shellcheck source=lib/credential.sh
+. "$SCRIPT_DIR/lib/credential.sh"
 
 # ---------------------------------------------------------------------
 # Inputs
@@ -237,20 +242,37 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 #
 # The guest authenticates with the HOST operator's live claude.ai login
 # (full-scope OAuth), which Remote Control requires. Extract that
-# credential from the macOS login Keychain by SERVICE NAME ALONE and copy
-# the blob BYTE-FOR-BYTE VERBATIM into a tmpfile -- do NOT parse and
-# reserialize the JSON. `security ... -w` emits the raw blob; it is
-# written straight through. Still under umask 077, so the file is created
-# -rw------- with no world-readable window; the chmod 600 afterward is
-# belt-and-suspenders. The tmpfile is removed by cleanup() on exit and is
-# NEVER persisted to config, to run.env, or to the verified-binary cache.
+# credential from the macOS login Keychain by SERVICE NAME ALONE.
+#
+# SELECTION (issue #50 review): the Keychain item named "Claude Code-
+# credentials" is NOT only the claude.ai login. On a real host its JSON has
+# sibling top-level keys -- `claudeAiOauth` (the intended login) AND
+# `mcpOAuth` (per-MCP-server OAuth, e.g. a Sentry MCP token). A verbatim copy
+# would mount those unrelated MCP credentials into the guest -- a scope leak.
+# So we extract ONLY `claudeAiOauth` and write the file in the shape claude
+# expects, `{"claudeAiOauth": { ... }}`, dropping mcpOAuth and any other
+# siblings. The selection runs via claude_vm_select_claude_credential (see
+# lib/credential.sh) and is unit-tested in payload/test/credential-test.sh.
+# This means the credential is parsed and reserialized -- it is NOT a byte-
+# for-byte copy. The subset is the point.
+#
+# Window discipline: `security ... -w` emits the FULL raw blob. We capture it
+# into a transient RAW tmpfile ($RAW_CREDENTIAL, OUTSIDE the claudecreds
+# share dir so the full blob is never mounted), select claudeAiOauth from it
+# into the mounted file ($HOST_CREDENTIAL), then remove the raw tmpfile
+# immediately -- the full blob does not survive past the selection. All under
+# umask 077, so both files are created -rw------- with no world-readable
+# window; the chmod 600 afterward is belt-and-suspenders. The credential dir
+# is removed by cleanup() on exit and is NEVER persisted to config, to
+# run.env, or to the verified-binary cache.
 #
 # macOS-only: `security` is a macOS binary. Fail fast with an actionable
 # message, but DISTINGUISH the two failure modes so an operator can diagnose:
 #
-#   - The COMMON case -- no such credential (errSecItemNotFound, exit 44) or an
-#     empty blob -- means the operator simply is not logged in to claude.ai.
-#     Show the friendly "log in" guidance. `security`'s own stderr here is just
+#   - The COMMON case -- no such credential (errSecItemNotFound, exit 44), an
+#     empty blob, OR a blob with no usable `claudeAiOauth` key -- means the
+#     operator simply is not (usably) logged in to claude.ai. Show the
+#     friendly "log in" guidance. `security`'s own stderr here is just
 #     "could not be found in the keychain", which adds nothing, so it is hidden.
 #   - Any OTHER failure (exit non-zero AND not 44) -- a LOCKED keychain, a
 #     `security` tool error, a permissions denial -- is NOT a "log in" problem.
@@ -259,6 +281,10 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # ---------------------------------------------------------------------
 KEYCHAIN_SERVICE="Claude Code-credentials"
 HOST_CREDENTIAL="$CREDS_DIR/.credentials.json"
+# The FULL raw blob lands here -- OUTSIDE $CREDS_DIR (the claudecreds share)
+# so the unselected blob is never exposed to the guest -- and is removed
+# immediately after selection. The narrow interim trap below also rm's it.
+RAW_CREDENTIAL="$RUN/.keychain-blob.raw.json"
 SEC_STDERR="$RUN/.security.stderr"
 # Arm the NARROW interim trap BEFORE the `security` write below, so a Ctrl-C (or
 # other signal) anywhere from the credential write through the potentially-slow
@@ -271,20 +297,23 @@ SEC_STDERR="$RUN/.security.stderr"
 # merged-config-cleanup guarantee holds even if a signal fires in this window.
 # The full `trap cleanup EXIT INT TERM` REPLACES this interim trap at its
 # existing site once the worktree, proxy, and gvproxy state all exist. Guarded
-# with ${CREDS_DIR:-}/${MERGED:-} so each rm is a no-op under `set -u` even if
-# the trap fires before they are set.
-trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${MERGED:-}"' EXIT INT TERM
+# with ${CREDS_DIR:-}/${RAW_CREDENTIAL:-}/${MERGED:-} so each rm is a no-op
+# under `set -u` even if the trap fires before they are set. RAW_CREDENTIAL is
+# included so a signal during the selection window does not leak the FULL blob.
+trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED:-}"' EXIT INT TERM
 # Run with `set +e` around just this call so a non-zero exit does not trip
 # `set -e` before we have inspected the code. Capture stderr to a file (not
-# /dev/null) so an unexpected error can be surfaced verbatim below.
+# /dev/null) so an unexpected error can be surfaced verbatim below. The FULL
+# raw blob lands in RAW_CREDENTIAL (outside the share); selection below writes
+# only claudeAiOauth into the mounted HOST_CREDENTIAL.
 set +e
-security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$HOST_CREDENTIAL" 2>"$SEC_STDERR"
+security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$RAW_CREDENTIAL" 2>"$SEC_STDERR"
 SEC_RC=$?
 set -e
 if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
   # Unexpected failure (locked keychain, tool error, ...). Surface the real
   # error so the operator does not chase a non-existent "not logged in" cause.
-  rm -f "$HOST_CREDENTIAL" "$SEC_STDERR"
+  rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: reading the claude.ai OAuth credential from the macOS Keychain failed" >&2
   echo "claude-vm: (service '$KEYCHAIN_SERVICE') with an unexpected error (security exit $SEC_RC)." >&2
@@ -297,10 +326,10 @@ if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
   fi
   exit 1
 fi
-if [ "$SEC_RC" -eq 44 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
+if [ "$SEC_RC" -eq 44 ] || [ ! -s "$RAW_CREDENTIAL" ]; then
   # Common case: no such credential (or an empty blob) -- operator is not
   # logged in to claude.ai. Show the friendly guidance.
-  rm -f "$HOST_CREDENTIAL" "$SEC_STDERR"
+  rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
   umask "$OLD_UMASK"
   echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
   echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with the host's" >&2
@@ -310,6 +339,47 @@ if [ "$SEC_RC" -eq 44 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
   exit 1
 fi
 rm -f "$SEC_STDERR"
+
+# ---------------------------------------------------------------------
+# SELECT only `claudeAiOauth` from the full raw blob (issue #50 review).
+#
+# Read RAW_CREDENTIAL (the full Keychain blob, possibly carrying mcpOAuth and
+# other siblings) and write ONLY {"claudeAiOauth": {...}} to the mounted
+# HOST_CREDENTIAL. Then remove the raw blob IMMEDIATELY so the full form does
+# not survive on disk past the selection. Still under umask 077, so the
+# mounted file is created -rw-------; chmod 600 afterward is belt-and-braces.
+#
+# Fail-closed: a blob with no usable `claudeAiOauth` key (or invalid JSON)
+# means the operator is not usably logged in -- route to the SAME friendly
+# "log in" path as the empty-blob case rather than mounting an empty or
+# mcpOAuth-only file. A missing python3 (return 2) is surfaced distinctly.
+# ---------------------------------------------------------------------
+set +e
+claude_vm_select_claude_credential < "$RAW_CREDENTIAL" > "$HOST_CREDENTIAL"
+SELECT_RC=$?
+set -e
+# The full raw blob has served its purpose -- remove it now, do not wait for
+# cleanup(), so the unselected form's on-disk window is as narrow as possible.
+rm -f "$RAW_CREDENTIAL"
+if [ "$SELECT_RC" -eq 2 ]; then
+  # python3 missing -- an environment problem, not a "log in" problem.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: cannot select the claude.ai OAuth credential: python3 is required but not" >&2
+  echo "claude-vm: found on PATH. python3 ships with macOS; ensure it is available, then retry." >&2
+  exit 1
+fi
+if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
+  # The blob had no usable claudeAiOauth key (only mcpOAuth, malformed, etc.).
+  # Treat exactly like the not-logged-in case: friendly "log in" guidance.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has no usable" >&2
+  echo "claude-vm: claude.ai OAuth credential ('claudeAiOauth'). The guest authenticates with" >&2
+  echo "claude-vm: the host's live claude.ai login, so you must be logged in to Claude Code on" >&2
+  echo "claude-vm: this host. Run 'claude' once and complete the claude.ai login, then retry." >&2
+  exit 1
+fi
 chmod 600 "$HOST_CREDENTIAL"
 
 # Restore the caller's umask before the clone so cloned worktree files
@@ -564,6 +634,12 @@ cleanup() {
   # like MERGED above so an early trap (before CREDS_DIR is set) is harmless.
   if [ -n "${CREDS_DIR:-}" ]; then
     rm -rf "$CREDS_DIR"
+  fi
+  # The full raw Keychain blob is normally removed immediately after selection
+  # (before this trap is installed), but guard here too: if a signal somehow
+  # interleaved, do not let the unselected full blob outlive the run.
+  if [ -n "${RAW_CREDENTIAL:-}" ]; then
+    rm -f "$RAW_CREDENTIAL"
   fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   echo "claude-vm: run dir (persistent): $RUN" >&2

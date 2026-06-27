@@ -191,11 +191,17 @@ credential** — the full-scope login credential, not a scoped inference
 token. This is what lets the in-guest Claude Code run an interactive
 **Remote Control** session attributed to the host's claude.ai login.
 
-At launch the launcher extracts that credential from the macOS login
+At launch the launcher reads that credential from the macOS login
 Keychain by service name alone
-(`security find-generic-password -s "Claude Code-credentials" -w`),
-copies the blob **byte-for-byte verbatim** into a transient, owner-only
-(`0600`) tmpfile, and shares it **read-only** into the guest under
+(`security find-generic-password -s "Claude Code-credentials" -w`).
+That Keychain item is **not** only the claude.ai login — its JSON also
+carries sibling keys such as `mcpOAuth` (per-MCP-server OAuth). To avoid
+mounting unrelated MCP credentials into the guest, the launcher **selects
+only the `claudeAiOauth` key** and writes a file in the shape `claude`
+expects, `{"claudeAiOauth": { ... }}` (selection via `lib/credential.sh`,
+using `python3`; unit-tested in `payload/test/credential-test.sh`). The
+selected credential is written to a transient, owner-only (`0600`)
+tmpfile and shared **read-only** into the guest under
 `mountTag=claudecreds`. The guest boot launcher copies it into
 `$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing
 `claude`.
@@ -203,23 +209,29 @@ copies the blob **byte-for-byte verbatim** into a transient, owner-only
 The credential is a secret and is handled like one: it is **never**
 written to config, to `run.env`, or to the verified-binary cache; its
 host-side tmpfile is created under a tightened `umask 077` and removed
-by the launcher's `cleanup()`/`trap` on every exit. There is no token
-env var.
+by the launcher's `cleanup()`/`trap` on every exit. The full raw
+Keychain blob (before selection) lives only in a transient tmpfile
+outside the guest share and is removed immediately after selection.
+There is no token env var.
 
 **Requirements:** macOS only (`security find-generic-password` is a
-macOS Keychain tool), and you must be logged in to Claude Code on the
-host first. The launcher fails fast with an actionable message if the
-Keychain lookup returns empty or non-zero. `egress.allow` must include
+macOS Keychain tool; `python3`, used for credential selection, ships
+with macOS), and you must be logged in to Claude Code on the host
+first. The launcher fails fast with an actionable message if the
+Keychain lookup returns empty or non-zero, or the blob has no usable
+`claudeAiOauth` key. `egress.allow` must include
 the Anthropic API host (`api.anthropic.com`) so the in-guest `claude`
 can reach it. See the payload README's "Authentication" section for the
 full mechanic.
 
 ## Requirements
 
-`yq` (mikefarah v4+), `git`, `gpg` (`brew install gnupg`, for the
-host-side verified claude cache — see "Verified claude cache" in the
-payload README), a sha256 tool (`shasum` / `sha256sum`, both stock on
-macOS/Linux), and — for an actual VM boot — `vfkit`, `podman` (with a
+`yq` (mikefarah v4+), `git`, `python3` (stock on macOS; used to select
+the `claudeAiOauth` key from the Keychain blob — see "Authentication"
+above), `gpg` (`brew install gnupg`, for the host-side verified claude
+cache — see "Verified claude cache" in the payload README), a sha256
+tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
+actual VM boot — `vfkit`, `podman` (with a
 started podman machine, for the bundled podman-mkosi provisioner that
 builds the guest image), and `tinyproxy` (for the bundled default
 `proxy.cmd`). On a clean host:
