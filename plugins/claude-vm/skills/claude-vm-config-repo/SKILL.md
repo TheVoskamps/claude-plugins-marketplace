@@ -239,7 +239,7 @@ Report back:
   and offer leave (default) or gap-fill merge. A merge fills gaps and
   unions list entries only — it never overwrites or deletes a key the
   user set.
-- **No secrets in this file.** The host OAuth credential / token is
+- **No secrets in this file.** The host claude.ai OAuth credential is
   supplied at runtime, never written to config.
 - **Never write without explicit approval** in Step 5.
 - **Lists union, they do not subtract.** A per-repo file cannot remove a
