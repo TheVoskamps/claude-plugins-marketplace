@@ -334,6 +334,90 @@ func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
 	}
 }
 
+// TestClusteredReadOnlyShortFlagsAllow_31 covers the round-2 review MEDIUM
+// regression: the round-1 binary (09bd8e7) ALLOWed clustered read-only short
+// flags on every always-read-only utility, but the round-1 fix (e24a135) added
+// per-utility flagScan predicates that only set clusterable on cat/wc/tr/comm —
+// so very high-frequency forms the issue targets (grep -rn, sort -rn, uniq -cd,
+// cut -sf1) began to DEFER. Enabling clusterable on the read-only-only-flag
+// specs restores them. Each form below is an all-bool cluster (or a bool cluster
+// with a trailing value flag) with NO write flag, so it must ALLOW.
+func TestClusteredReadOnlyShortFlagsAllow_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file", "a", "b")
+	for _, cmd := range []string{
+		// grep: the headline form. -rn = -r -n, -in = -i -n, -rin = -r -i -n.
+		`grep -rn needle file`,
+		`grep -in needle file`,
+		`grep -rin needle file`,
+		`grep -lc needle file`,
+		// sort: -rn = -r -n, -ru = -r -u, -bn = -b -n (all bool, no -o).
+		`sort -rn file`,
+		`sort -ru file`,
+		`sort -bn file`,
+		// uniq: -cd = -c -d, -ci = -c -i (all bool; single read operand).
+		`uniq -cd file`,
+		`uniq -ci file`,
+		// cut: -sf1 = -s (bool) + -f1 (value flag with attached value).
+		`cut -sf1 file`,
+		`cut -sn file`,
+		// nl/fold/fmt/paste/column/realpath clustered bool forms.
+		`fmt -cs file`,
+		`fold -bs file`,
+		`realpath -em file`,
+		`comm -123 a b`,
+	} {
+		d := classifyBash(cmd, ev)
+		wantBucket(t, d, BucketAllow, "clustered read-only short flags allow: "+cmd)
+	}
+}
+
+// TestClusteredWriteFlagStillDefers_31 is the load-bearing safety guard for the
+// round-2 fix: enabling clusterable on sort (whose -o writes a file) must NOT
+// let a write-capable flag ride through a cluster. `sort -ro file` (where -o
+// would consume `file` as a write target) and every other cluster containing a
+// write flag MUST still defer. This guards against the regression's fix opening
+// a write hole.
+func TestClusteredWriteFlagStillDefers_31(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file")
+	for _, cmd := range []string{
+		`sort -ro file`, // -o inside the cluster writes file → must defer
+		`sort -or file`, // -o leading the cluster → must defer
+		`sort -uo file`, // -u (bool) + -o (write) → must defer
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("cluster containing a write flag must not ALLOW: %q got %q", cmd, d.Bucket)
+		}
+		wantBucket(t, d, BucketDefer, "clustered write flag defers: "+cmd)
+	}
+}
+
+// TestClusterIsReadOnlyHelper_31 exercises clusterIsReadOnly directly: all-bool
+// clusters and a trailing value flag are read-only; a write flag anywhere in the
+// cluster (or an unknown char) is not.
+func TestClusterIsReadOnlyHelper_31(t *testing.T) {
+	bools := map[string]bool{"-r": true, "-n": true, "-i": true, "-s": true, "-u": true}
+	values := map[string]bool{"-f": true, "-k": true}
+	writes := map[string]bool{"-o": true}
+
+	for _, a := range []string{"-rn", "-rin", "-sf1", "-f1", "-u"} {
+		if !clusterIsReadOnly(a, bools, values, writes) {
+			t.Errorf("cluster %q must be read-only", a)
+		}
+	}
+	for _, a := range []string{
+		"-ro", // -o writes
+		"-or", // -o leads
+		"-uo", // -u bool then -o write
+		"-rx", // -x unknown
+		"-x",  // unknown
+	} {
+		if clusterIsReadOnly(a, bools, values, writes) {
+			t.Errorf("cluster %q must NOT be read-only (write flag or unknown char)", a)
+		}
+	}
+}
+
 // TestAwkProfileOutputDumpNotAllowed_31 covers the #31 review MEDIUM finding:
 // gawk's profile/pretty-print/dump-variables flags write a file (awkprof.out /
 // awkvars.out) and must NOT ALLOW. They were previously listed as read-only
