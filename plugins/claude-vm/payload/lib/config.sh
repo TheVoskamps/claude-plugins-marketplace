@@ -19,8 +19,9 @@
 # document), so any combination of {neither, global-only, repo-only,
 # both} resolves cleanly.
 #
-# Secrets are never read from or written to these files. ANTHROPIC_VM_TOKEN
-# is supplied as an env var by the launcher; see SKILL.md.
+# Secrets are never read from or written to these files. The guest
+# authenticates with the host's claude.ai OAuth credential, which the
+# launcher extracts from the macOS Keychain at launch; see SKILL.md.
 #
 # Requires: yq (v4+, the Go/mikefarah implementation). Detected at
 # source time so callers fail fast with an actionable message.
