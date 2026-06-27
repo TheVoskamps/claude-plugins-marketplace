@@ -13,8 +13,15 @@
 # See payload/lib/config.sh for the layering implementation and
 # skills/claude-vm/SKILL.md for the full config schema.
 #
-# The ONLY secret is ANTHROPIC_VM_TOKEN, supplied as an env var (never
-# in YAML) and passed to the guest at runtime.
+# AUTH: the guest authenticates with the HOST's live claude.ai OAuth
+# credential, not a scoped API token. At launch the credential is
+# extracted byte-for-byte from the macOS login Keychain
+# (`security find-generic-password -s "Claude Code-credentials" -w`)
+# into a transient, owner-only tmpfile and shared RO into the guest so
+# it lands at the guest user's ~/.claude/.credentials.json. This gives
+# the guest the host operator's full-scope login, which Remote Control
+# requires. The credential is NEVER written to config, to the verified-
+# binary cache, or into run.env, and the tmpfile is removed on exit.
 #
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
@@ -45,9 +52,6 @@ CLAUDE_ARGS=("$@")
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
 REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
-
-# Secret: env var only, never config. Fail fast if unset.
-SCOPED_TOKEN="${ANTHROPIC_VM_TOKEN:?set ANTHROPIC_VM_TOKEN to the scoped key for the guest (never store it in config.yml)}"
 
 claude_vm_require_yq || exit 1
 command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 1; }
@@ -216,7 +220,47 @@ PCAP="$RUN/egress.pcap"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
 EFISTORE="$RUN/efistore"
-mkdir -p "$CONFIG_DIR"
+# The credential lives in its OWN dir, NOT in CONFIG_DIR: CONFIG_DIR is
+# shared into the guest under mountTag=runconfig, and the secret-bearing
+# OAuth credential must never travel in the run.env share. Its own dir is
+# shared under a separate tag (claudecreds) so only the credential file is
+# exposed. Both dirs are created under the tightened umask (077) so they
+# are drwx------ from creation -- the credential is not world-traversable.
+CREDS_DIR="$RUN/creds"
+mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
+
+# ---------------------------------------------------------------------
+# Host claude.ai OAuth credential -> transient, owner-only tmpfile.
+#
+# The guest authenticates with the HOST operator's live claude.ai login
+# (full-scope OAuth), which Remote Control requires. Extract that
+# credential from the macOS login Keychain by SERVICE NAME ALONE and copy
+# the blob BYTE-FOR-BYTE VERBATIM into a tmpfile -- do NOT parse and
+# reserialize the JSON. `security ... -w` emits the raw blob; it is
+# written straight through. Still under umask 077, so the file is created
+# -rw------- with no world-readable window; the chmod 600 afterward is
+# belt-and-suspenders. The tmpfile is removed by cleanup() on exit and is
+# NEVER persisted to config, to run.env, or to the verified-binary cache.
+#
+# macOS-only: `security` is a macOS binary. Fail fast with an actionable
+# message when the lookup returns empty/non-zero (operator not logged into
+# claude.ai, or the service name differs).
+# ---------------------------------------------------------------------
+KEYCHAIN_SERVICE="Claude Code-credentials"
+HOST_CREDENTIAL="$CREDS_DIR/.credentials.json"
+if ! security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$HOST_CREDENTIAL" 2>/dev/null \
+   || [ ! -s "$HOST_CREDENTIAL" ]; then
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with the host's" >&2
+  echo "claude-vm: live claude.ai login, so you must be logged in to Claude Code on this host." >&2
+  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry. (macOS only:" >&2
+  echo "claude-vm: this uses 'security find-generic-password', a macOS Keychain tool.)" >&2
+  exit 1
+fi
+chmod 600 "$HOST_CREDENTIAL"
+
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
 umask "$OLD_UMASK"
@@ -248,20 +292,19 @@ esac
 } > "$RUN/run.meta"
 
 # ---------------------------------------------------------------------
-# Guest run.env -- includes the scoped token (secret). Written inside a
-# subshell with umask 077 so the file is created -rw------- with no
-# world-readable window (the default umask 022 would create it
-# -rw-r--r-- until the chmod). The redirection's target file is created
-# by the subshell, so the tightened umask applies to its creation. The
-# chmod 600 afterward is belt-and-suspenders. CONFIG_DIR itself is
-# already drwx------ (created under the tightened umask above), so the
-# secret is not world-traversable either.
+# Guest run.env -- proxy config + mount tags + claude args. It NO LONGER
+# carries any secret: the guest authenticates with the host's claude.ai
+# OAuth credential, shared in via its own RO mount (mountTag=claudecreds)
+# rather than an ANTHROPIC_API_KEY in this file. run.env is still written
+# inside a subshell under umask 077 (created -rw------- with no world-
+# readable window) and chmod 600'd afterward -- harmless belt-and-braces
+# now that it holds no secret, and it keeps the discipline if a secret is
+# ever reintroduced here.
 # ---------------------------------------------------------------------
 RUN_ENV="$CONFIG_DIR/run.env"
 (
   umask 077
   {
-    printf 'ANTHROPIC_API_KEY=%s\n' "$SCOPED_TOKEN"
     printf 'HTTPS_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'HTTP_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
@@ -271,6 +314,11 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
     # boot launcher execs /mnt/claudebin/claude against /mnt/repo.
     printf 'CLAUDEBIN_TAG=claudebin\n'
+    # The host's claude.ai OAuth credential's containing dir is shared
+    # under this virtio-fs tag (mounted RO at /mnt/claudecreds by the guest
+    # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
+    # (mode 0600) so claude authenticates as the host operator.
+    printf 'CLAUDECREDS_TAG=claudecreds\n'
     printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
   } > "$RUN_ENV"
 )
@@ -458,6 +506,14 @@ cleanup() {
   if [ -n "${MERGED:-}" ]; then
     rm -f "$MERGED"
   fi
+  # The host claude.ai OAuth credential is a transient secret: remove it on
+  # every exit (including Ctrl-C) so it never lingers after the run. The run
+  # dir itself is retained for the companion diff/apply skills, but the
+  # credential must NOT be -- it is never persisted past the live VM. Guarded
+  # like MERGED above so an early trap (before CREDS_DIR is set) is harmless.
+  if [ -n "${CREDS_DIR:-}" ]; then
+    rm -rf "$CREDS_DIR"
+  fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
@@ -490,6 +546,7 @@ vfkit \
   --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
   --device "virtio-fs,sharedDir=$CONFIG_DIR,mountTag=runconfig" \
   --device "virtio-fs,sharedDir=$CLAUDE_BIN_DIR,mountTag=claudebin" \
+  --device "virtio-fs,sharedDir=$CREDS_DIR,mountTag=claudecreds" \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-rng"

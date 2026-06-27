@@ -1,6 +1,6 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); only ANTHROPIC_VM_TOKEN stays an env var.
+description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch.
 ---
 
 # claude-vm
@@ -8,9 +8,11 @@ description: Launch Claude Code inside an isolated macOS VM with config-driven e
 Run Claude Code inside an isolated macOS VM. Every non-secret
 operational knob — VM resources, the egress allowlist, extra mounts,
 the proxy, and how the repo is made available to the guest — comes from
-layered **YAML config** rather than environment variables. Only the
-scoped access token (`ANTHROPIC_VM_TOKEN`) stays an env var and is
-never written to config.
+layered **YAML config** rather than environment variables. The guest
+authenticates with the **host's live claude.ai OAuth credential**,
+which the launcher extracts from the macOS Keychain at launch and
+shares RO into the guest; there is no token env var and no secret in
+config.
 
 The launcher and image-build scripts ship as payloads under
 `${CLAUDE_PLUGIN_ROOT}/payload/`. This skill is the entry point that
@@ -19,8 +21,10 @@ explains the config surface and drives the launcher.
 ## Quick start
 
 ```bash
-# 1. Provide the scoped token as an env var (never in config).
-export ANTHROPIC_VM_TOKEN=<scoped-key-for-the-guest>
+# 1. Be logged in to Claude Code on this host. The guest authenticates
+#    with the host's live claude.ai OAuth credential, which the launcher
+#    extracts from the macOS Keychain at launch (no token env var). Run
+#    `claude` once and complete the claude.ai login if you have not.
 
 # 2. (Optional) drop a global config at ~/.config/claude-vm/config.yml
 #    and/or a per-repo config at <repo>/.claude-vm/config.yml.
@@ -180,13 +184,35 @@ hands `<boot-launcher-path> <output-image-path>` to the provisioner. The
 `CLAUDE_VM_IMAGE_PROVISIONER` env var overrides the bundled default with
 your own script honoring the same two-argument contract.
 
-## Secrets
+## Authentication (secrets)
 
-`ANTHROPIC_VM_TOKEN` is the only secret. Supply it as an env var (or a
-secret reference your shell resolves to an env var) before launching.
-The launcher passes it to the guest at runtime via the run-config
-mount. It is **never** read from or written to any config file. The
-launcher fails fast if it is unset.
+The guest authenticates with the **host operator's live claude.ai OAuth
+credential** — the full-scope login credential, not a scoped inference
+token. This is what lets the in-guest Claude Code run an interactive
+**Remote Control** session attributed to the host's claude.ai login.
+
+At launch the launcher extracts that credential from the macOS login
+Keychain by service name alone
+(`security find-generic-password -s "Claude Code-credentials" -w`),
+copies the blob **byte-for-byte verbatim** into a transient, owner-only
+(`0600`) tmpfile, and shares it **read-only** into the guest under
+`mountTag=claudecreds`. The guest boot launcher copies it into
+`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing
+`claude`.
+
+The credential is a secret and is handled like one: it is **never**
+written to config, to `run.env`, or to the verified-binary cache; its
+host-side tmpfile is created under a tightened `umask 077` and removed
+by the launcher's `cleanup()`/`trap` on every exit. There is no token
+env var.
+
+**Requirements:** macOS only (`security find-generic-password` is a
+macOS Keychain tool), and you must be logged in to Claude Code on the
+host first. The launcher fails fast with an actionable message if the
+Keychain lookup returns empty or non-zero. `egress.allow` must include
+the Anthropic API host (`api.anthropic.com`) so the in-guest `claude`
+can reach it. See the payload README's "Authentication" section for the
+full mechanic.
 
 ## Requirements
 

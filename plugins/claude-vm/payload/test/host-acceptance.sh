@@ -399,19 +399,18 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   for _ in $(seq 1 50); do [ -S "$GVSOCK" ] && break; sleep 0.1; done
 
   # Boot the image the SAME WAY the real launcher (claude-vm.sh) does: it
-  # ALWAYS attaches three virtio-fs shares -- mountTag=runconfig (the run.env
-  # the guest boot launcher sources), mountTag=repo (the working tree), and
-  # mountTag=claudebin (the host-verified claude binary, issue #49).
+  # ALWAYS attaches these virtio-fs shares -- mountTag=runconfig (the run.env
+  # the guest boot launcher sources), mountTag=repo (the working tree),
+  # mountTag=claudebin (the host-verified claude binary, issue #49), and
+  # mountTag=claudecreds (the host's claude.ai OAuth credential, issue #50).
   # Testing the real thing means reproducing that mount topology here; a
   # bare boot (no shares) is a boot the product never actually performs, and
   # would make the guest's `. /mnt/runconfig/run.env` fail in the test while
   # "passing" in reality (or vice versa). We stand up throwaway shares:
   #   - runconfig: a STUB run.env with the same KEYS the real one carries
-  #     (claude-vm.sh writes ANTHROPIC_API_KEY/HTTP(S)_PROXY/NO_PROXY/
-  #     REPO_TAG/POLICY_TAG/CLAUDEBIN_TAG/CLAUDE_ARGS) but DUMMY, non-secret
-  #     values. A placeholder token is sufficient -- the seam exec'd here is a
-  #     STUB claude that never uses the token, so the real sourcing path is
-  #     exercised without a real credential.
+  #     (claude-vm.sh writes HTTP(S)_PROXY/NO_PROXY/REPO_TAG/POLICY_TAG/
+  #     CLAUDEBIN_TAG/CLAUDECREDS_TAG/CLAUDE_ARGS) but DUMMY values. run.env
+  #     no longer carries any secret -- auth is the claudecreds mount below.
   #   - repo: an empty dir the seam cd's into (the stub claude does not
   #     require repo contents).
   #   - claudebin: the dir holding the (host-verified) claude binary, shared
@@ -422,18 +421,26 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     the guest ran the mounted binary (not just reached the seam). The
   #     stub is shell, run by the guest's /bin/sh -- adequate to prove the
   #     mount+exec path without a real linux-arm64 claude artifact.
+  #   - claudecreds: the dir holding the host's claude.ai OAuth credential,
+  #     shared RO under mountTag=claudecreds (issue #50). The real launcher
+  #     extracts it from the macOS Keychain; for THIS boot test we stand up a
+  #     STUB .credentials.json so the boot launcher's credential-install step
+  #     (copy to $HOME/.claude/.credentials.json) runs without aborting under
+  #     `set -e`. Its content is a non-secret placeholder; the stub claude
+  #     never reads it.
   RUNCONFIG_SHARE="$WORK/runconfig"
   REPO_SHARE="$WORK/repo"
   CLAUDEBIN_SHARE="$WORK/claudebin"
-  mkdir -p "$RUNCONFIG_SHARE" "$REPO_SHARE" "$CLAUDEBIN_SHARE"
+  CLAUDECREDS_SHARE="$WORK/claudecreds"
+  mkdir -p "$RUNCONFIG_SHARE" "$REPO_SHARE" "$CLAUDEBIN_SHARE" "$CLAUDECREDS_SHARE"
   cat > "$RUNCONFIG_SHARE/run.env" <<'RUNENV'
-ANTHROPIC_API_KEY=test-placeholder-not-a-real-token
 HTTPS_PROXY=http://192.168.127.1:8080
 HTTP_PROXY=http://192.168.127.1:8080
 NO_PROXY=localhost,127.0.0.1
 REPO_TAG=repo
 POLICY_TAG=policy
 CLAUDEBIN_TAG=claudebin
+CLAUDECREDS_TAG=claudecreds
 CLAUDE_ARGS=--version
 RUNENV
   # Stub claude: prints a marker the boot test asserts, proving the guest
@@ -443,10 +450,15 @@ RUNENV
 echo "claude-vm-stub: ran host-verified claude off the mount, args=[$*]"
 STUBCLAUDE
   chmod 0755 "$CLAUDEBIN_SHARE/claude"
+  # Stub OAuth credential: a non-secret placeholder so the boot launcher's
+  # credential-install step has a file to copy into $HOME/.claude/. The stub
+  # claude never reads it.
+  printf '{"placeholder":"not-a-real-credential"}\n' > "$CLAUDECREDS_SHARE/.credentials.json"
+  chmod 0600 "$CLAUDECREDS_SHARE/.credentials.json"
 
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
-  # The two virtio-fs devices mirror claude-vm.sh's always-present mounts.
+  # The virtio-fs devices mirror claude-vm.sh's always-present mounts.
   vfkit \
     --cpus 2 --memory 2048 \
     --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -454,6 +466,7 @@ STUBCLAUDE
     --device "virtio-fs,sharedDir=$REPO_SHARE,mountTag=repo" \
     --device "virtio-fs,sharedDir=$RUNCONFIG_SHARE,mountTag=runconfig" \
     --device "virtio-fs,sharedDir=$CLAUDEBIN_SHARE,mountTag=claudebin" \
+    --device "virtio-fs,sharedDir=$CLAUDECREDS_SHARE,mountTag=claudecreds" \
     --device "virtio-net,unixSocketPath=$GVSOCK" \
     --device "virtio-rng" \
     --device "virtio-serial,logFilePath=$BOOT_LOG" \

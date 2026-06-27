@@ -45,7 +45,13 @@ BASE_OS_REV="debian-12-20250601"
 # Bumped 1 -> 2: the boot launcher now fills the claude-fetch seam, mounting
 # the host-verified binary (mountTag=claudebin) and exec'ing claude against
 # /mnt/repo (issue #49). Old images stamped 'launcher1' rebuild on next run.
-LAUNCHER_LOGIC_REV="2"
+# Bumped 2 -> 3: the boot launcher now installs the host's claude.ai OAuth
+# credential (mounted RO under mountTag=claudecreds) into
+# $HOME/.claude/.credentials.json (mode 0600) before exec'ing claude, so the
+# guest authenticates as the host operator (issue #50). Replaces the dropped
+# ANTHROPIC_API_KEY/ANTHROPIC_VM_TOKEN model. Old images stamped 'launcher2'
+# rebuild on next run.
+LAUNCHER_LOGIC_REV="3"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -71,12 +77,14 @@ emit_boot_launcher() {
   cat <<'BOOT'
 #!/usr/bin/env bash
 # claude-vm guest one-shot boot launcher (version-pinned with the base).
-# Runs on guest boot. Loads the run environment (proxy + args), then execs
-# the host-verified `claude` binary mounted RO at /mnt/claudebin against the
-# repo at /mnt/repo. claude is NEVER baked into the image and is NEVER
-# fetched-and-run inside the guest: the host fetches, GPG-manifest-verifies,
-# and caches the binary, and shares it in RO. The guest only runs the
-# already-verified binary off the mount.
+# Runs on guest boot. Loads the run environment (proxy + args), installs the
+# host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds) into
+# $HOME/.claude/.credentials.json so claude authenticates as the host
+# operator (issue #50), then execs the host-verified `claude` binary mounted
+# RO at /mnt/claudebin against the repo at /mnt/repo. claude is NEVER baked
+# into the image and is NEVER fetched-and-run inside the guest: the host
+# fetches, GPG-manifest-verifies, and caches the binary, and shares it in RO.
+# The guest only runs the already-verified binary off the mount.
 set -euo pipefail
 
 # Mount points provided by vfkit virtio-fs tags.
@@ -85,13 +93,48 @@ RUNCONFIG_MNT=/mnt/runconfig
 # The host-verified claude binary's containing dir, shared under tag
 # 'claudebin' and mounted here by the guest fstab.
 CLAUDEBIN_MNT=/mnt/claudebin
+# The host's claude.ai OAuth credential dir, shared RO under tag
+# 'claudecreds' and mounted here by the guest fstab.
+CLAUDECREDS_MNT=/mnt/claudecreds
 
-# Load run environment (proxy, scoped token, CLAUDEBIN_TAG, CLAUDE_ARGS)
-# written by the host launcher into the runconfig share.
+# Load run environment (proxy, mount tags, CLAUDE_ARGS) written by the host
+# launcher into the runconfig share. NOTE: run.env no longer carries any
+# secret -- auth is the host's claude.ai OAuth credential, installed below
+# from the RO claudecreds mount, not an ANTHROPIC_API_KEY here.
 set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
 set +a
+
+# ---------------------------------------------------------------------
+# Auth: install the host's claude.ai OAuth credential (issue #50).
+#
+# The host extracted its live claude.ai login credential from the macOS
+# Keychain and shared it RO into the guest under mountTag=claudecreds. claude
+# reads its credential from $HOME/.claude/.credentials.json, so copy the
+# mounted blob there (mode 0600). The RO virtio-fs mount cannot itself BE
+# that writable per-user file, so we copy it into place rather than symlink:
+# claude expects a real, owner-only file at that path. This gives the guest
+# the host operator's full-scope login, which Remote Control requires.
+#
+# claude runs as this unit's user (root in the Type=oneshot boot unit), so
+# $HOME is that user's home. Derive the credential dir from $HOME so the
+# path tracks whatever user claude runs as.
+# ---------------------------------------------------------------------
+MOUNTED_CREDENTIAL="$CLAUDECREDS_MNT/.credentials.json"
+if [ ! -s "$MOUNTED_CREDENTIAL" ]; then
+  echo "claude-vm: no claude.ai OAuth credential found at $MOUNTED_CREDENTIAL" >&2
+  echo "claude-vm: (mountTag=claudecreds). The host did not share a credential; claude" >&2
+  echo "claude-vm: cannot authenticate. Ensure you are logged in to Claude Code on the host." >&2
+  exit 1
+fi
+CLAUDE_HOME="${HOME:-/root}"
+CRED_DIR="$CLAUDE_HOME/.claude"
+mkdir -p "$CRED_DIR"
+# Copy byte-for-byte (no parse/reserialize), then tighten to owner-only.
+cp "$MOUNTED_CREDENTIAL" "$CRED_DIR/.credentials.json"
+chmod 600 "$CRED_DIR/.credentials.json"
+echo "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json" >&2
 
 # ---------------------------------------------------------------------
 # claude-fetch SEAM -- FILLED (issue #49).
