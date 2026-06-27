@@ -247,9 +247,11 @@ func (fs flagScan) defers(args []string) bool {
 			if fs.valueFlags[short] {
 				continue // `-d,` style attached value
 			}
-			if fs.clusterable && allClusterBools(a, fs.boolFlags, fs.writeFlags) {
-				// A bundle like `-cl`; if any member is a write flag, allClusterBools
-				// returns false and we fall through to the defer below.
+			if fs.clusterable && clusterIsReadOnly(a, fs.boolFlags, fs.valueFlags, fs.writeFlags) {
+				// A bundle like `-cl` (all bool) or `-sf1` (bool + trailing value
+				// flag with attached value). A write flag anywhere makes the whole
+				// cluster defer (clusterIsReadOnly returns false) and we fall through
+				// to the defer below.
 				continue
 			}
 		}
@@ -258,15 +260,33 @@ func (fs flagScan) defers(args []string) bool {
 	return false
 }
 
-// allClusterBools reports whether every single-char flag in a combined short
-// cluster (`-cl`) is a known bool flag and none is a write flag. A write flag
-// anywhere in the cluster (`-co` where `-o` writes) makes the whole cluster
-// defer, so it returns false.
-func allClusterBools(a string, boolFlags, writeFlags map[string]bool) bool {
+// clusterIsReadOnly reports whether a combined short-flag cluster (`-cl`,
+// `-rn`, `-sf1`) is a provably read-only bundle. The rules, walking the cluster
+// left to right:
+//
+//   - A write flag (`-o` on sort) anywhere → not read-only (return false). This
+//     is the load-bearing safety guard: `sort -ro file` must NOT ride the ALLOW
+//     just because `-r` is a bool and the cluster "looks" short. The write flag
+//     is caught here regardless of its position in the cluster.
+//   - A bool flag → keep scanning the rest of the cluster.
+//   - A value flag → it consumes the REMAINDER of the cluster as its attached
+//     value (getopt semantics: in `-sf1`, `-f`'s value is `1`; in `-f1`, `1`).
+//     Whatever follows is the value, not independent flags, so we stop scanning
+//     and accept. A value flag therefore does not open a write hole — its value
+//     is data, and any genuine write flag would have been a distinct cluster
+//     char (already rejected above) or a value-taking write flag (rejected by
+//     the writeFlags check, which covers value-taking write flags like `-o`).
+//   - Anything else (unknown char) → not read-only (return false), fail-safe.
+func clusterIsReadOnly(a string, boolFlags, valueFlags, writeFlags map[string]bool) bool {
 	for _, c := range a[1:] {
 		f := "-" + string(c)
 		if writeFlags[f] {
 			return false
+		}
+		if valueFlags[f] {
+			// Remaining cluster chars are this flag's attached value. Stop here;
+			// the value is data, not flags.
+			return true
 		}
 		if !boolFlags[f] {
 			return false
@@ -344,6 +364,11 @@ func cutDefers(args []string) bool {
 			"--complement": true, "-z": true, "--zero-terminated": true,
 		},
 		maxPathOperands: -1,
+		// clusterable: cut's value flags (-b/-c/-f/-d) are not bool flags, so a
+		// cluster containing one defers; an all-bool cluster (`cut -sn`) ALLOWs.
+		// `cut -sf1` is `-s` (bool) + attached `-f1` value, handled before the
+		// cluster path. No write flag exists for cut.
+		clusterable: true,
 	}.defers(args)
 }
 
@@ -385,6 +410,7 @@ func pasteDefers(args []string) bool {
 			"-s": true, "--serial": true, "-z": true, "--zero-terminated": true,
 		},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -401,6 +427,7 @@ func nlDefers(args []string) bool {
 		},
 		boolFlags:       map[string]bool{"-p": true, "--no-renumber": true},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -412,6 +439,7 @@ func foldDefers(args []string) bool {
 			"-b": true, "--bytes": true, "-s": true, "--spaces": true,
 		},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -428,6 +456,7 @@ func fmtDefers(args []string) bool {
 			"-t": true, "--tagged-paragraph": true, "-u": true, "--uniform-spacing": true,
 		},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -448,6 +477,7 @@ func columnDefers(args []string) bool {
 			"-e": true, "--table-empty-lines": true, "-n": true,
 		},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -470,6 +500,7 @@ func realpathDefers(args []string) bool {
 			"-z": true, "--zero": true,
 		},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -503,6 +534,7 @@ func grepDefers(args []string) bool {
 			"-U": true, "--binary": true, "--line-buffered": true, "-u": true, "--unix-byte-offsets": true,
 		},
 		maxPathOperands: -1,
+		clusterable:     true,
 	}.defers(args)
 }
 
@@ -530,6 +562,11 @@ func sortDefers(args []string) bool {
 			"-z": true, "--zero-terminated": true, "--debug": true,
 		},
 		maxPathOperands: -1,
+		// clusterable: sort's only write flag is -o, which allClusterBools rejects
+		// (`sort -ro` → cluster contains a write flag → defers). Value flags
+		// (-k/-t/-S/-T) are likewise not bool flags, so a cluster containing one
+		// defers. Only all-bool clusters (`sort -rn`, `sort -ru`) ALLOW.
+		clusterable: true,
 	}.defers(args)
 }
 
@@ -554,6 +591,12 @@ func uniqDefers(args []string) bool {
 			"-D": true, "--all-repeated": true, "--group": true,
 		},
 		maxPathOperands: 1, // a second operand is the OUTPUT file → defer
+		// clusterable: uniq has no write flag; clustering bundles only bool flags
+		// (`uniq -cd` == `-c -d`). The OUTPUT-operand guard (maxPathOperands: 1) is
+		// independent of flag clustering, so `uniq -cd IN OUT` still defers on the
+		// second operand. Value flags (-f/-s/-w) are not bool flags, so a cluster
+		// containing one defers.
+		clusterable: true,
 	}.defers(args)
 }
 
