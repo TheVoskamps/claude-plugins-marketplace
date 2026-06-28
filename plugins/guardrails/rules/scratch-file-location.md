@@ -54,6 +54,13 @@ so it slips past containment. The deny induced the bad write.
 As of issue #30, the write/edit containment-escape denies name this
 canonical destination and explicitly warn against `.git/`, so the
 feedback prescribes the correct alternative instead of leaving it to
-the model's discretion. The policy itself is compiled into the
-permission-gate binary (see `hooks/permission-gate/classify_files.go`);
-this document records the convention the deny messages prescribe.
+the model's discretion. The same prescriptive remediation is emitted
+by the in-repo-write classifier (issue #32) when a file-mutating shell
+command (`cp`, `mv`, `mkdir`, `touch`, `sed -i`, `tee FILE`) targets a
+path that escapes the worktree (#127) or the repo (#148): the bash
+deny steers scratch writes here too. The policy itself is compiled
+into the permission-gate binary (see
+`hooks/permission-gate/classify_files.go` for the write/edit denies and
+`hooks/permission-gate/classify_inrepo_write.go` for the bash
+in-repo-write denies); this document records the convention the deny
+messages prescribe.
