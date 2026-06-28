@@ -61,8 +61,9 @@ CLAUDE_VM_SIGNING_KEY_URL="https://downloads.claude.ai/keys/claude-code.asc"
 # A valid signature by an unpinned/unverified key is NOT accepted -- the
 # whole point of a GPG-verified root of trust is that "some key signed it"
 # is not good enough; it must be the claude-code key the operator verified
-# out of band. Operators who have not pinned use the install.sh|bash
-# lower-trust fallback instead. See claude_cache_gpg_verify.
+# out of band. There is ONE trusted path: an unset or unimported signing
+# key is a HARD ERROR that aborts the run, NOT a downgrade to a lower-trust
+# install. See claude_cache_gpg_verify.
 : "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT:=}"
 
 # Default channel when `claude.version` is unset in both config layers.
@@ -312,8 +313,8 @@ claude_cache_gpg_verify() {
     # No pin configured => HARD ABORT. A valid signature by ANY key in the
     # keyring is NOT good enough for a GPG-verified root of trust; the
     # verified cache only functions once the operator has pinned the
-    # claude-code key fingerprint they verified out of band. (Operators who
-    # have not pinned fall back to the lower-trust install.sh|bash path.)
+    # claude-code key fingerprint they verified out of band. There is no
+    # lower-trust fallback -- an unpinned key aborts the run, full stop.
     echo "claude-cache: the manifest signature is valid, but no signing-key fingerprint is pinned" >&2
     echo "claude-cache: ('claude.signing_key_fingerprint' is unset) -- aborting. A bare valid" >&2
     echo "claude-cache: signature is not enough: ANY key in your gpg keyring would satisfy it, so" >&2
@@ -325,7 +326,7 @@ claude_cache_gpg_verify() {
     echo "claude-cache:   claude:" >&2
     echo "claude-cache:     signing_key_fingerprint: \"<the fingerprint you just verified>\"" >&2
     echo "claude-cache: See the 'Verified claude cache' section of payload/README.md for the full" >&2
-    echo "claude-cache: operator setup. (Unpinned operators can use the install.sh|bash fallback.)" >&2
+    echo "claude-cache: operator setup. There is no lower-trust fallback: pinning is required." >&2
     return 1
   fi
 

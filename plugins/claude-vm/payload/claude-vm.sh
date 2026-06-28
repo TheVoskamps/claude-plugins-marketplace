@@ -112,6 +112,73 @@ CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(claude_vm_scalar "$MERGED" '.claude.signing
 export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
 
 # ---------------------------------------------------------------------
+# Trusted-cache + credential PREFLIGHT. Fail FAST on local, instant
+# preconditions BEFORE the guest-image build and ANY network/cache/Keychain
+# call below. Without this, a cold boot pays for a guest-image build and
+# three network fetches (channel pointer + manifest + signature) before
+# aborting on a condition that was knowable at startup -- a missing `gpg`,
+# an unpinned fingerprint, a pinned-but-unimported key, or a missing
+# `python3`. The deep checks in lib/claude-cache.sh (gpg-on-PATH at the
+# verify step; unset-pin hard-abort) and lib/credential.sh (python3 at the
+# selection step) STAY as defense-in-depth -- this is an ADDITIVE early
+# gate, not a replacement. Each failed check prints the EXACT command(s) to
+# fix it, not a bare error.
+# ---------------------------------------------------------------------
+claude_vm_preflight_trust_path() {
+  local ok=1
+
+  # (a) gpg must be on PATH to verify the release-manifest signature.
+  if ! command -v gpg >/dev/null 2>&1; then
+    ok=0
+    echo "claude-vm: 'gpg' is required to verify the claude release signature but was not found on PATH." >&2
+    echo "claude-vm: install it, then import and pin the claude-code signing key:" >&2
+    echo "claude-vm:   brew install gnupg" >&2
+    echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+    echo "claude-vm:   gpg --fingerprint claude-code   # verify against the published value, then pin it (see below)" >&2
+  fi
+
+  # (b) the signing-key fingerprint MUST be pinned. A valid signature by
+  # ANY key in the keyring is not enough -- the trusted cache requires the
+  # claude-code key's fingerprint, verified out of band.
+  if [ -z "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT// /}" ]; then
+    ok=0
+    echo "claude-vm: no claude-code signing-key fingerprint is pinned ('claude.signing_key_fingerprint' is unset)." >&2
+    echo "claude-vm: a valid signature by ANY key in your keyring is not enough -- the trusted cache requires" >&2
+    echo "claude-vm: the fingerprint of the claude-code key you verified out of band. Import and pin it:" >&2
+    echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+    echo "claude-vm:   gpg --fingerprint claude-code   # copy the 40-hex fingerprint after verifying it" >&2
+    echo "claude-vm: then add to ~/.config/claude-vm/config.yml (or <repo>/.claude-vm/config.yml):" >&2
+    echo "claude-vm:   claude:" >&2
+    echo "claude-vm:     signing_key_fingerprint: \"<the fingerprint you just verified>\"" >&2
+  elif command -v gpg >/dev/null 2>&1; then
+    # (c) the pinned fingerprint MUST be present in the keyring. Only checkable
+    # when gpg is present AND a fingerprint is pinned; a pinned-but-unimported
+    # key otherwise fails late as a generic no-VALIDSIG abort after all
+    # downloads. Pass the compact (space-stripped) fingerprint to gpg.
+    local fpr="${CLAUDE_VM_SIGNING_KEY_FINGERPRINT// /}"
+    if ! gpg --list-keys "$fpr" >/dev/null 2>&1; then
+      ok=0
+      echo "claude-vm: the pinned signing-key fingerprint $fpr is not present in your gpg keyring." >&2
+      echo "claude-vm: import the claude-code signing key (one-time, trust-on-first-use):" >&2
+      echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+      echo "claude-vm:   gpg --fingerprint claude-code   # confirm it matches the pinned value $fpr" >&2
+    fi
+  fi
+
+  # (d) python3 must be on PATH to select the claudeAiOauth credential.
+  if ! command -v python3 >/dev/null 2>&1; then
+    ok=0
+    echo "claude-vm: python3 is required to select the claude.ai OAuth credential but was not found on PATH." >&2
+    echo "claude-vm: python3 ships with macOS; if missing, install it, then retry:" >&2
+    echo "claude-vm:   xcode-select --install        # provides /usr/bin/python3 on macOS" >&2
+  fi
+
+  [ "$ok" -eq 1 ]
+}
+claude_vm_preflight_trust_path \
+  || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
+
+# ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
 # build/boot work -- with one actionable remediation per missing piece,
 # rather than dying deep in the boot sequence with an opaque error (e.g.
@@ -164,10 +231,10 @@ ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
 # (mountTag=claudebin) and exec'd at the boot-launcher seam.
 #
 # SECURITY: a failed gpg --verify or a checksum mismatch ABORTS here --
-# the launcher never boots the guest with an unverified binary, and there
-# is no install.sh fallback on this (cache-configured) path. The
-# lower-trust install.sh|bash fallback applies only when no cache is
-# configured (see lib/claude-cache.sh and the README).
+# the launcher never boots the guest with an unverified binary. There is
+# ONE trusted path and no install.sh fallback: an unpinned/unimported
+# signing key or a verification failure aborts the run, it does NOT
+# downgrade to a lower-trust install (see lib/claude-cache.sh and the README).
 #
 # Warm boot: when the resolved version is already cached, no binary is
 # re-downloaded and gpg is not re-run (verification happened when it was

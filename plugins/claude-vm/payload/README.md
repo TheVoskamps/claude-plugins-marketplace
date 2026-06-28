@@ -182,12 +182,12 @@ like `2.1.172`):
 an unpinned signing key** (`claude.signing_key_fingerprint` unset) each
 **aborts the launch** before any unverified binary is cached or run — there
 is no "verify failed, proceed anyway" branch and no "no pin, trust any key"
-branch. Trusting
+branch, and **no `install.sh | bash` fallback anywhere**. Trusting
 `install.sh`'s own checksum would be circular (the script is itself
 unsigned and re-fetched each boot), so the signed manifest is the root of
-trust. `install.sh | bash` is retained only as an explicit **lower-trust
-fallback** when no cache is configured (behind the egress allowlist,
-suicide-on-fail).
+trust — and it is the *only* trust path. There is no lower-trust escape
+hatch: an unpinned/unimported signing key or any verification failure
+aborts the launch, it does not downgrade to an unverified install.
 
 **Operator one-time setup** (trust-on-first-use, **required**): import the
 signing key, read its fingerprint, **verify that fingerprint out of band**,
@@ -216,8 +216,8 @@ the launch before fetching, caching, or running anything — a valid
 signature by an unpinned key is *not* accepted, because the whole point of
 a GPG-verified root of trust is that "some key signed it" is not good
 enough. Pinning the fingerprint is therefore a **required** one-time step
-for the verified cache to function. Operators who have not pinned it use
-the `install.sh | bash` **lower-trust fallback** path instead (see below).
+for the verified cache to function — there is no lower-trust fallback to
+fall back to; an unpinned key aborts the launch.
 
 **Warm boot:** when the resolved version is already cached, the binary is
 not re-downloaded and `gpg` is not re-run, and the launcher drops

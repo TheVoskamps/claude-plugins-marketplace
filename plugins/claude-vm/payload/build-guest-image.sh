@@ -151,9 +151,9 @@ echo "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credent
 # the binary at $CLAUDEBIN_MNT/claude is ALREADY verified -- the guest runs
 # it directly and never executes `curl https://claude.ai/install.sh | bash`
 # (which is unsigned, unchecksummed, and re-fetched on every boot; see
-# issue #57's "root of trust" analysis). The install.sh|bash path remains
-# only as an explicit LOWER-TRUST fallback when no cache is configured,
-# behind the egress allowlist and suicide-on-fail -- it is NOT this path.
+# issue #57's "root of trust" analysis). There is no install.sh|bash
+# fallback: the host-verified binary is the ONLY path, and a missing
+# verified binary aborts the boot rather than fetching unverified code.
 #
 # The seam message is retained (now reporting that the verified binary was
 # found) so the acceptance test can still observe the guest reaching this
@@ -164,9 +164,9 @@ if [ ! -x "$CLAUDE_BIN" ]; then
   echo "claude-vm: guest booted to the claude-fetch seam, but no verified claude binary" >&2
   echo "claude-vm: was found at $CLAUDE_BIN. The host-side verified cache mount" >&2
   echo "claude-vm: (mountTag=claudebin) is missing; refusing to fetch-and-run unverified code." >&2
-  # Fatal: the trusted path requires the host-verified binary. We do NOT
-  # fall back to install.sh|bash here (that lower-trust fallback is a
-  # host-launcher decision for the no-cache case, not a guest-side one).
+  # Fatal: the trusted path requires the host-verified binary. There is no
+  # install.sh|bash fallback anywhere -- a missing verified binary aborts
+  # the boot rather than fetching unverified code.
   exit 1
 fi
 

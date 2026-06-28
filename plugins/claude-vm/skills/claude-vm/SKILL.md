@@ -159,10 +159,10 @@ Claude Code updates daily, so the guest image does **not** bake in
   the **host-side GPG-verified `claude` binary** mounted RO at
   `/mnt/claudebin` against the repo at `/mnt/repo`. `claude` is never
   baked in and never fetched-and-run inside the guest (no
-  `curl install.sh | bash` on the trusted path); the host fetches,
-  verifies, and caches it (see "Verified claude cache" in the payload
-  README). The base only changes when the base OS pin or the launcher
-  logic changes — not when claude does.
+  `curl install.sh | bash` anywhere — there is no such fallback); the
+  host fetches, verifies, and caches it (see "Verified claude cache" in
+  the payload README). The base only changes when the base OS pin or the
+  launcher logic changes — not when claude does.
 - The base is **version-pinned** in `payload/build-guest-image.sh`
   (`BASE_OS_REV` + `LAUNCHER_LOGIC_REV`; never the claude version).
 - On startup, the launcher **ensures the image exists and matches the
