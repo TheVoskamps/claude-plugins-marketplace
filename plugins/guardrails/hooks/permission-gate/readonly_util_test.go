@@ -99,21 +99,28 @@ func TestReadOnlyUtilityPipeline_31(t *testing.T) {
 	wantBucket(t, classifyBash(`cat file | grep x | wc -l`, ev), BucketAllow, "cat | grep | wc pipeline")
 }
 
-// TestSedInPlaceNotAllowed_31: `sed -i ...` must NOT ALLOW (it mutates the
-// file); it defers to the in-repo-write classifier / pipeline.
-func TestSedInPlaceNotAllowed_31(t *testing.T) {
+// TestSedInPlaceNotReadOnlyAllowed_31_32: `sed -i ...` is NOT a read-only-utility
+// ALLOW — the read-only classifier must never bless an in-place edit as
+// non-mutating. As of #32 it is instead handled by the in-repo-write classifier,
+// which ALLOWs the contained form (the file is in the repo) and denies an
+// escaping target. This test pins both: a contained in-place edit ALLOWs (as a
+// write, #32), while the read-only-utility track itself does not classify it.
+func TestSedInPlaceNotReadOnlyAllowed_31_32(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
+	// Contained in-place edit → ALLOW via the in-repo-write classifier (#32).
 	for _, cmd := range []string{
 		`sed -i 's/a/b/' file`,
 		`sed --in-place 's/a/b/' file`,
 		`sed -i.bak 's/a/b/' file`,
 		`sed --in-place=.bak 's/a/b/' file`,
 	} {
-		d := classifyBash(cmd, ev)
-		if d.Bucket == BucketAllow {
-			t.Errorf("sed in-place must not ALLOW: %q got %q", cmd, d.Bucket)
-		}
-		wantBucket(t, d, BucketDefer, "sed in-place defers: "+cmd)
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "contained sed in-place allows (#32): "+cmd)
+	}
+	// The read-only-utility classifier MUST NOT itself classify the in-place form
+	// as a read-only ALLOW — its defersForm predicate withholds it (the #31
+	// safety property the in-repo-write classifier builds on).
+	if !sedDefers([]string{"-i", "s/a/b/", "file"}) {
+		t.Errorf("sedDefers must withhold the in-place form from the read-only-utility track")
 	}
 }
 
@@ -152,13 +159,17 @@ func TestFindMutatingNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestTeeToRealFileNotAllowed_31: tee to anything other than /dev/null is a
-// real-file write and must NOT ALLOW.
-func TestTeeToRealFileNotAllowed_31(t *testing.T) {
+// TestTeeToRealFileNotReadOnlyAllowed_31_32: `tee FILE` (a real-file write) is
+// NOT a read-only-utility ALLOW. As of #32 it is handled by the in-repo-write
+// classifier: a contained destination ALLOWs (as a write), an escaping one
+// denies. The read-only-utility track itself still withholds it (teeDefers).
+func TestTeeToRealFileNotReadOnlyAllowed_31_32(t *testing.T) {
 	ev, _ := inRepoEvent(t)
-	d := classifyBash(`echo x | tee out.txt`, ev)
-	if d.Bucket == BucketAllow {
-		t.Errorf("tee to a real file must not ALLOW; got %q", d.Bucket)
+	// Contained real-file tee → ALLOW via the in-repo-write classifier (#32).
+	wantBucket(t, classifyBash(`echo x | tee out.txt`, ev), BucketAllow, "contained tee FILE allows (#32)")
+	// The read-only-utility classifier must withhold a real-file tee from its track.
+	if !teeDefers([]string{"out.txt"}) {
+		t.Errorf("teeDefers must withhold a real-file destination from the read-only-utility track")
 	}
 }
 

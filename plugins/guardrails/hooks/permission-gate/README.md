@@ -66,6 +66,25 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   deny/ask). A redirect target built from a process substitution or
   unresolved expansion (`wc < <(grep x f)`, `cmd > "$DYNAMIC"`) marks
   the command unprovable so it cannot ride the allow track.
+- **In-repo-write classifier** (`classify_inrepo_write.go`, #32): the
+  write-side counterpart to the read-only-utility classifier. The agent
+  can already mutate any in-repo file via the Write/Edit tools (Engine B
+  lets those through when contained), so an equivalent in-repo write via
+  a shell utility should not prompt every time. A curated set of
+  file-mutating programs — `cp`, `mv`, `mkdir`, `touch`, `sed -i`, and
+  `tee FILE` — **ALLOWs** when every path operand it writes is provably
+  contained in the current worktree via Engine B containment. Each
+  program's operands are parsed against its own flag grammar so a flag
+  value or a `sed` script (`s/a/b/`) is never tested as a path. An
+  operand that escapes the repo (#148) or the worktree into the primary
+  clone (#127) **denies** with the worktree-anchored remediation; a
+  target under `.git/` **denies** (#125); an operand built from an
+  unresolved expansion **asks** (#1); a real-file redirect **defers**.
+  `rm` is deliberately **excluded** (the conservative #32 posture): the
+  highest-blast-radius mutating program stays on the ask/defer track so a
+  human sees each one. `sed` and `tee` are dual-mode — their read-only
+  forms (`sed -n`, `tee /dev/null`) stay on the read-only-utility track;
+  only the mutating form routes here.
 - **Engine B — path containment** (`engine_b_containment.go`,
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
