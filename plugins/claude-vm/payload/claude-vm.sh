@@ -13,8 +13,18 @@
 # See payload/lib/config.sh for the layering implementation and
 # skills/claude-vm/SKILL.md for the full config schema.
 #
-# The ONLY secret is ANTHROPIC_VM_TOKEN, supplied as an env var (never
-# in YAML) and passed to the guest at runtime.
+# AUTH: the guest authenticates with the HOST's live claude.ai OAuth
+# credential, not a scoped API token. At launch the launcher reads the
+# raw blob from the macOS login Keychain
+# (`security find-generic-password -s "Claude Code-credentials" -w`) and
+# selects ONLY the `claudeAiOauth` key from it (the blob can also carry
+# unrelated `mcpOAuth` MCP-server credentials, which are dropped -- see
+# the selection block below). The selected `{"claudeAiOauth": {...}}` is
+# written to a transient, owner-only tmpfile and shared RO into the guest
+# so it lands at the guest user's ~/.claude/.credentials.json. This gives
+# the guest the host operator's full-scope claude.ai login, which Remote
+# Control requires. The credential is NEVER written to config, to the
+# verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
@@ -34,6 +44,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/config.sh"
 # shellcheck source=lib/claude-cache.sh
 . "$SCRIPT_DIR/lib/claude-cache.sh"
+# shellcheck source=lib/credential.sh
+. "$SCRIPT_DIR/lib/credential.sh"
 
 # ---------------------------------------------------------------------
 # Inputs
@@ -46,9 +58,6 @@ CLAUDE_ARGS=("$@")
 # regardless of the caller's cwd.
 REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
 
-# Secret: env var only, never config. Fail fast if unset.
-SCOPED_TOKEN="${ANTHROPIC_VM_TOKEN:?set ANTHROPIC_VM_TOKEN to the scoped key for the guest (never store it in config.yml)}"
-
 claude_vm_require_yq || exit 1
 command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 1; }
 
@@ -58,11 +67,14 @@ command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 
 GLOBAL_CONFIG="$CLAUDE_VM_GLOBAL_CONFIG"
 REPO_CONFIG="${CLAUDE_VM_REPO_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
 
-# NOTE: the merged-config temp file is removed by cleanup() (the single
-# consolidated EXIT/INT/TERM trap installed below). Do NOT add a second
-# `trap ... EXIT` here -- the later `trap cleanup EXIT INT TERM` would
-# replace it, leaking this file on every run.
-MERGED="$(mktemp "${TMPDIR:-/tmp}/claude-vm-merged.XXXXXX.yml")"
+# NOTE: the merged-config temp file is removed by cleanup() (the
+# consolidated EXIT/INT/TERM trap installed below). A narrow interim trap is
+# armed earlier (right after the OAuth credential is written) to cover the
+# clone window; it also removes this file, and the consolidated
+# `trap cleanup EXIT INT TERM` REPLACES it once the full run state exists. Do
+# NOT add yet another `trap ... EXIT` here -- a later trap installation would
+# replace whatever was set, leaking this file on every run.
+MERGED="$(claude_vm_mktemp claude-vm-merged)"
 claude_vm_merge_config "$GLOBAL_CONFIG" "$REPO_CONFIG" > "$MERGED" \
   || { echo "claude-vm: could not resolve effective config" >&2; exit 1; }
 
@@ -98,6 +110,73 @@ CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAU
 # the cache still requires a VALIDSIG but warns the key is not pinned.
 CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(claude_vm_scalar "$MERGED" '.claude.signing_key_fingerprint' "")"
 export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
+
+# ---------------------------------------------------------------------
+# Trusted-cache + credential PREFLIGHT. Fail FAST on local, instant
+# preconditions BEFORE the guest-image build and ANY network/cache/Keychain
+# call below. Without this, a cold boot pays for a guest-image build and
+# three network fetches (channel pointer + manifest + signature) before
+# aborting on a condition that was knowable at startup -- a missing `gpg`,
+# an unpinned fingerprint, a pinned-but-unimported key, or a missing
+# `python3`. The deep checks in lib/claude-cache.sh (gpg-on-PATH at the
+# verify step; unset-pin hard-abort) and lib/credential.sh (python3 at the
+# selection step) STAY as defense-in-depth -- this is an ADDITIVE early
+# gate, not a replacement. Each failed check prints the EXACT command(s) to
+# fix it, not a bare error.
+# ---------------------------------------------------------------------
+claude_vm_preflight_trust_path() {
+  local ok=1
+
+  # (a) gpg must be on PATH to verify the release-manifest signature.
+  if ! command -v gpg >/dev/null 2>&1; then
+    ok=0
+    echo "claude-vm: 'gpg' is required to verify the claude release signature but was not found on PATH." >&2
+    echo "claude-vm: install it, then import and pin the claude-code signing key:" >&2
+    echo "claude-vm:   brew install gnupg" >&2
+    echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+    echo "claude-vm:   gpg --fingerprint claude-code   # verify against the published value, then pin it (see below)" >&2
+  fi
+
+  # (b) the signing-key fingerprint MUST be pinned. A valid signature by
+  # ANY key in the keyring is not enough -- the trusted cache requires the
+  # claude-code key's fingerprint, verified out of band.
+  if [ -z "${CLAUDE_VM_SIGNING_KEY_FINGERPRINT// /}" ]; then
+    ok=0
+    echo "claude-vm: no claude-code signing-key fingerprint is pinned ('claude.signing_key_fingerprint' is unset)." >&2
+    echo "claude-vm: a valid signature by ANY key in your keyring is not enough -- the trusted cache requires" >&2
+    echo "claude-vm: the fingerprint of the claude-code key you verified out of band. Import and pin it:" >&2
+    echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+    echo "claude-vm:   gpg --fingerprint claude-code   # copy the 40-hex fingerprint after verifying it" >&2
+    echo "claude-vm: then add to ~/.config/claude-vm/config.yml (or <repo>/.claude-vm/config.yml):" >&2
+    echo "claude-vm:   claude:" >&2
+    echo "claude-vm:     signing_key_fingerprint: \"<the fingerprint you just verified>\"" >&2
+  elif command -v gpg >/dev/null 2>&1; then
+    # (c) the pinned fingerprint MUST be present in the keyring. Only checkable
+    # when gpg is present AND a fingerprint is pinned; a pinned-but-unimported
+    # key otherwise fails late as a generic no-VALIDSIG abort after all
+    # downloads. Pass the compact (space-stripped) fingerprint to gpg.
+    local fpr="${CLAUDE_VM_SIGNING_KEY_FINGERPRINT// /}"
+    if ! gpg --list-keys "$fpr" >/dev/null 2>&1; then
+      ok=0
+      echo "claude-vm: the pinned signing-key fingerprint $fpr is not present in your gpg keyring." >&2
+      echo "claude-vm: import the claude-code signing key (one-time, trust-on-first-use):" >&2
+      echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
+      echo "claude-vm:   gpg --fingerprint claude-code   # confirm it matches the pinned value $fpr" >&2
+    fi
+  fi
+
+  # (d) python3 must be on PATH to select the claudeAiOauth credential.
+  if ! command -v python3 >/dev/null 2>&1; then
+    ok=0
+    echo "claude-vm: python3 is required to select the claude.ai OAuth credential but was not found on PATH." >&2
+    echo "claude-vm: python3 ships with macOS; if missing, install it, then retry:" >&2
+    echo "claude-vm:   xcode-select --install        # provides /usr/bin/python3 on macOS" >&2
+  fi
+
+  [ "$ok" -eq 1 ]
+}
+claude_vm_preflight_trust_path \
+  || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
 
 # ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
@@ -152,10 +231,10 @@ ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
 # (mountTag=claudebin) and exec'd at the boot-launcher seam.
 #
 # SECURITY: a failed gpg --verify or a checksum mismatch ABORTS here --
-# the launcher never boots the guest with an unverified binary, and there
-# is no install.sh fallback on this (cache-configured) path. The
-# lower-trust install.sh|bash fallback applies only when no cache is
-# configured (see lib/claude-cache.sh and the README).
+# the launcher never boots the guest with an unverified binary. There is
+# ONE trusted path and no install.sh fallback: an unpinned/unimported
+# signing key or a verification failure aborts the run, it does NOT
+# downgrade to a lower-trust install (see lib/claude-cache.sh and the README).
 #
 # Warm boot: when the resolved version is already cached, no binary is
 # re-downloaded and gpg is not re-run (verification happened when it was
@@ -169,7 +248,7 @@ ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
 # which we read after the substitution to drive the warm-boot allowlist
 # tightening. A unique per-process path keeps concurrent launches from
 # racing on a shared default.
-CACHE_STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/claude-vm-cachestate.XXXXXX")"
+CACHE_STATE_FILE="$(claude_vm_mktemp claude-vm-cachestate)"
 export CLAUDE_VM_CACHE_STATE_FILE="$CACHE_STATE_FILE"
 CLAUDE_VM_CACHE_NETWORK=""
 CLAUDE_BIN_HOST=""
@@ -208,7 +287,7 @@ if git -C "$REPO_SRC" rev-parse --show-toplevel >/dev/null 2>&1; then
   RUN="$REPO_SRC/.claude/tmp/$RUN_ID"
   mkdir -p "$RUN"
 else
-  RUN="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm.XXXXXX")"
+  RUN="$(claude_vm_mktemp -d claude-vm)"
 fi
 
 GVPROXY_SOCK="$RUN/vfkit-net.sock"
@@ -216,7 +295,160 @@ PCAP="$RUN/egress.pcap"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
 EFISTORE="$RUN/efistore"
-mkdir -p "$CONFIG_DIR"
+# The credential lives in its OWN dir, NOT in CONFIG_DIR: CONFIG_DIR is
+# shared into the guest under mountTag=runconfig, and the secret-bearing
+# OAuth credential must never travel in the run.env share. Its own dir is
+# shared under a separate tag (claudecreds) so only the credential file is
+# exposed. Both dirs are created under the tightened umask (077) so they
+# are drwx------ from creation -- the credential is not world-traversable.
+CREDS_DIR="$RUN/creds"
+mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
+
+# ---------------------------------------------------------------------
+# Host claude.ai OAuth credential -> transient, owner-only tmpfile.
+#
+# The guest authenticates with the HOST operator's live claude.ai login
+# (full-scope OAuth), which Remote Control requires. Extract that
+# credential from the macOS login Keychain by SERVICE NAME ALONE.
+#
+# SELECTION (issue #50 review): the Keychain item named "Claude Code-
+# credentials" is NOT only the claude.ai login. On a real host its JSON has
+# sibling top-level keys -- `claudeAiOauth` (the intended login) AND
+# `mcpOAuth` (per-MCP-server OAuth, e.g. a Sentry MCP token). A verbatim copy
+# would mount those unrelated MCP credentials into the guest -- a scope leak.
+# So we extract ONLY `claudeAiOauth` and write the file in the shape claude
+# expects, `{"claudeAiOauth": { ... }}`, dropping mcpOAuth and any other
+# siblings. The selection runs via claude_vm_select_claude_credential (see
+# lib/credential.sh) and is unit-tested in payload/test/credential-test.sh.
+# This means the credential is parsed and reserialized -- it is NOT a byte-
+# for-byte copy. The subset is the point.
+#
+# Window discipline: `security ... -w` emits the FULL raw blob. We capture it
+# into a transient RAW tmpfile ($RAW_CREDENTIAL, OUTSIDE the claudecreds
+# share dir so the full blob is never mounted), select claudeAiOauth from it
+# into the mounted file ($HOST_CREDENTIAL), then remove the raw tmpfile
+# immediately -- the full blob does not survive past the selection. All under
+# umask 077, so both files are created -rw------- with no world-readable
+# window; the chmod 600 afterward is belt-and-suspenders. The credential dir
+# is removed by cleanup() on exit and is NEVER persisted to config, to
+# run.env, or to the verified-binary cache.
+#
+# macOS-only: `security` is a macOS binary. Fail fast with an actionable
+# message, but DISTINGUISH the two failure modes so an operator can diagnose:
+#
+#   - The COMMON case -- no such credential (errSecItemNotFound, exit 44), an
+#     empty blob, OR a blob with no usable `claudeAiOauth` key -- means the
+#     operator simply is not (usably) logged in to claude.ai. Show the
+#     friendly "log in" guidance. `security`'s own stderr here is just
+#     "could not be found in the keychain", which adds nothing, so it is hidden.
+#   - Any OTHER failure (exit non-zero AND not 44) -- a LOCKED keychain, a
+#     `security` tool error, a permissions denial -- is NOT a "log in" problem.
+#     Hiding it behind the friendly message sent operators chasing the wrong
+#     fix. Surface `security`'s real stderr so the actual error is visible.
+# ---------------------------------------------------------------------
+KEYCHAIN_SERVICE="Claude Code-credentials"
+HOST_CREDENTIAL="$CREDS_DIR/.credentials.json"
+# The FULL raw blob lands here -- OUTSIDE $CREDS_DIR (the claudecreds share)
+# so the unselected blob is never exposed to the guest -- and is removed
+# immediately after selection. The narrow interim trap below also rm's it.
+RAW_CREDENTIAL="$RUN/.keychain-blob.raw.json"
+SEC_STDERR="$RUN/.security.stderr"
+# Arm the NARROW interim trap BEFORE the `security` write below, so a Ctrl-C (or
+# other signal) anywhere from the credential write through the potentially-slow
+# `git clone` does NOT leak the full-scope OAuth credential at
+# $CREDS_DIR/.credentials.json. This is deliberately minimal (remove the
+# credential dir + the merged-config temp file) rather than the full cleanup():
+# cleanup() runs copy_back, which expects $WORKTREE to exist -- but the worktree
+# is not created until the clone below, so installing the full trap here would
+# fire copy-back against a missing worktree. It still removes MERGED so the
+# merged-config-cleanup guarantee holds even if a signal fires in this window.
+# The full `trap cleanup EXIT INT TERM` REPLACES this interim trap at its
+# existing site once the worktree, proxy, and gvproxy state all exist. Guarded
+# with ${CREDS_DIR:-}/${RAW_CREDENTIAL:-}/${MERGED:-} so each rm is a no-op
+# under `set -u` even if the trap fires before they are set. RAW_CREDENTIAL is
+# included so a signal during the selection window does not leak the FULL blob.
+trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED:-}"' EXIT INT TERM
+# Run with `set +e` around just this call so a non-zero exit does not trip
+# `set -e` before we have inspected the code. Capture stderr to a file (not
+# /dev/null) so an unexpected error can be surfaced verbatim below. The FULL
+# raw blob lands in RAW_CREDENTIAL (outside the share); selection below writes
+# only claudeAiOauth into the mounted HOST_CREDENTIAL.
+set +e
+security find-generic-password -s "$KEYCHAIN_SERVICE" -w > "$RAW_CREDENTIAL" 2>"$SEC_STDERR"
+SEC_RC=$?
+set -e
+if [ "$SEC_RC" -ne 0 ] && [ "$SEC_RC" -ne 44 ]; then
+  # Unexpected failure (locked keychain, tool error, ...). Surface the real
+  # error so the operator does not chase a non-existent "not logged in" cause.
+  rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
+  umask "$OLD_UMASK"
+  echo "claude-vm: reading the claude.ai OAuth credential from the macOS Keychain failed" >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE') with an unexpected error (security exit $SEC_RC)." >&2
+  echo "claude-vm: this is NOT a 'not logged in' case -- a locked keychain or a 'security' tool" >&2
+  echo "claude-vm: error is likely. The underlying error from 'security' was:" >&2
+  if [ -s "$SEC_STDERR" ]; then
+    sed 's/^/claude-vm:   /' "$SEC_STDERR" >&2
+  else
+    echo "claude-vm:   (security produced no error output)" >&2
+  fi
+  exit 1
+fi
+if [ "$SEC_RC" -eq 44 ] || [ ! -s "$RAW_CREDENTIAL" ]; then
+  # Common case: no such credential (or an empty blob) -- operator is not
+  # logged in to claude.ai. Show the friendly guidance.
+  rm -f "$RAW_CREDENTIAL" "$SEC_STDERR"
+  umask "$OLD_UMASK"
+  echo "claude-vm: could not read the claude.ai OAuth credential from the macOS Keychain" >&2
+  echo "claude-vm: (service '$KEYCHAIN_SERVICE'). The guest authenticates with the host's" >&2
+  echo "claude-vm: live claude.ai login, so you must be logged in to Claude Code on this host." >&2
+  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry. (macOS only:" >&2
+  echo "claude-vm: this uses 'security find-generic-password', a macOS Keychain tool.)" >&2
+  exit 1
+fi
+rm -f "$SEC_STDERR"
+
+# ---------------------------------------------------------------------
+# SELECT only `claudeAiOauth` from the full raw blob (issue #50 review).
+#
+# Read RAW_CREDENTIAL (the full Keychain blob, possibly carrying mcpOAuth and
+# other siblings) and write ONLY {"claudeAiOauth": {...}} to the mounted
+# HOST_CREDENTIAL. Then remove the raw blob IMMEDIATELY so the full form does
+# not survive on disk past the selection. Still under umask 077, so the
+# mounted file is created -rw-------; chmod 600 afterward is belt-and-braces.
+#
+# Fail-closed: a blob with no usable `claudeAiOauth` key (or invalid JSON)
+# means the operator is not usably logged in -- route to the SAME friendly
+# "log in" path as the empty-blob case rather than mounting an empty or
+# mcpOAuth-only file. A missing python3 (return 2) is surfaced distinctly.
+# ---------------------------------------------------------------------
+set +e
+claude_vm_select_claude_credential < "$RAW_CREDENTIAL" > "$HOST_CREDENTIAL"
+SELECT_RC=$?
+set -e
+# The full raw blob has served its purpose -- remove it now, do not wait for
+# cleanup(), so the unselected form's on-disk window is as narrow as possible.
+rm -f "$RAW_CREDENTIAL"
+if [ "$SELECT_RC" -eq 2 ]; then
+  # python3 missing -- an environment problem, not a "log in" problem.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: cannot select the claude.ai OAuth credential: python3 is required but not" >&2
+  echo "claude-vm: found on PATH. python3 ships with macOS; ensure it is available, then retry." >&2
+  exit 1
+fi
+if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
+  # The blob had no usable claudeAiOauth key (only mcpOAuth, malformed, etc.).
+  # Treat exactly like the not-logged-in case: friendly "log in" guidance.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has no usable" >&2
+  echo "claude-vm: claude.ai OAuth credential ('claudeAiOauth'). The guest authenticates with" >&2
+  echo "claude-vm: the host's live claude.ai login, so you must be logged in to Claude Code on" >&2
+  echo "claude-vm: this host. Run 'claude' once and complete the claude.ai login, then retry." >&2
+  exit 1
+fi
+chmod 600 "$HOST_CREDENTIAL"
+
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
 umask "$OLD_UMASK"
@@ -248,20 +480,19 @@ esac
 } > "$RUN/run.meta"
 
 # ---------------------------------------------------------------------
-# Guest run.env -- includes the scoped token (secret). Written inside a
-# subshell with umask 077 so the file is created -rw------- with no
-# world-readable window (the default umask 022 would create it
-# -rw-r--r-- until the chmod). The redirection's target file is created
-# by the subshell, so the tightened umask applies to its creation. The
-# chmod 600 afterward is belt-and-suspenders. CONFIG_DIR itself is
-# already drwx------ (created under the tightened umask above), so the
-# secret is not world-traversable either.
+# Guest run.env -- proxy config + mount tags + claude args. It NO LONGER
+# carries any secret: the guest authenticates with the host's claude.ai
+# OAuth credential, shared in via its own RO mount (mountTag=claudecreds)
+# rather than an ANTHROPIC_API_KEY in this file. run.env is still written
+# inside a subshell under umask 077 (created -rw------- with no world-
+# readable window) and chmod 600'd afterward -- harmless belt-and-braces
+# now that it holds no secret, and it keeps the discipline if a secret is
+# ever reintroduced here.
 # ---------------------------------------------------------------------
 RUN_ENV="$CONFIG_DIR/run.env"
 (
   umask 077
   {
-    printf 'ANTHROPIC_API_KEY=%s\n' "$SCOPED_TOKEN"
     printf 'HTTPS_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'HTTP_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
@@ -271,6 +502,11 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
     # boot launcher execs /mnt/claudebin/claude against /mnt/repo.
     printf 'CLAUDEBIN_TAG=claudebin\n'
+    # The host's claude.ai OAuth credential's containing dir is shared
+    # under this virtio-fs tag (mounted RO at /mnt/claudecreds by the guest
+    # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
+    # (mode 0600) so claude authenticates as the host operator.
+    printf 'CLAUDECREDS_TAG=claudecreds\n'
     printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
   } > "$RUN_ENV"
 )
@@ -458,9 +694,26 @@ cleanup() {
   if [ -n "${MERGED:-}" ]; then
     rm -f "$MERGED"
   fi
+  # The host claude.ai OAuth credential is a transient secret: remove it on
+  # every exit (including Ctrl-C) so it never lingers after the run. The run
+  # dir itself is retained for the companion diff/apply skills, but the
+  # credential must NOT be -- it is never persisted past the live VM. Guarded
+  # like MERGED above so an early trap (before CREDS_DIR is set) is harmless.
+  if [ -n "${CREDS_DIR:-}" ]; then
+    rm -rf "$CREDS_DIR"
+  fi
+  # The full raw Keychain blob is normally removed immediately after selection
+  # (before this trap is installed), but guard here too: if a signal somehow
+  # interleaved, do not let the unselected full blob outlive the run.
+  if [ -n "${RAW_CREDENTIAL:-}" ]; then
+    rm -f "$RAW_CREDENTIAL"
+  fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
+# Replace the narrow interim trap (armed right after the OAuth credential was
+# written, to cover the clone window) with the full cleanup() now that the
+# worktree, proxy, and gvproxy state all exist for copy_back to act on.
 trap cleanup EXIT INT TERM
 
 # Start the forward proxy. It reads the allowlist from
@@ -490,6 +743,7 @@ vfkit \
   --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
   --device "virtio-fs,sharedDir=$CONFIG_DIR,mountTag=runconfig" \
   --device "virtio-fs,sharedDir=$CLAUDE_BIN_DIR,mountTag=claudebin" \
+  --device "virtio-fs,sharedDir=$CREDS_DIR,mountTag=claudecreds" \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-rng"

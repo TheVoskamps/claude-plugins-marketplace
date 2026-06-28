@@ -159,30 +159,36 @@ RouteMetric=100
 NET
 
 # Mount the host-provided virtio-fs shares into the guest (issue #71). The
-# host launcher (claude-vm.sh) ALWAYS attaches three virtio-fs devices:
-# mountTag=runconfig (the run.env the boot launcher sources -- proxy, scoped
-# token, CLAUDEBIN_TAG, CLAUDE_ARGS), mountTag=repo (the working tree), and
+# host launcher (claude-vm.sh) ALWAYS attaches these virtio-fs devices:
+# mountTag=runconfig (the run.env the boot launcher sources -- proxy,
+# mount tags, CLAUDE_ARGS), mountTag=repo (the working tree),
 # mountTag=claudebin (issue #49 -- the dir holding the host-verified claude
-# binary). vfkit only *shares* the dir under a tag; the GUEST must still
-# mount the tag to a path. Nothing did, so /mnt/runconfig/run.env never
-# existed and the boot launcher's `. /mnt/runconfig/run.env` aborted under
-# `set -e` -- on a real run as well as under the acceptance test. fstab +
-# systemd's fstab-generator does the mount; RequiresMountsFor on the boot
-# unit (below) orders the seam launcher after it.
+# binary), and mountTag=claudecreds (issue #50 -- the dir holding the host's
+# claude.ai OAuth credential the boot launcher installs into
+# $HOME/.claude/.credentials.json). vfkit only *shares* the dir under a tag;
+# the GUEST must still mount the tag to a path. Nothing did, so
+# /mnt/runconfig/run.env never existed and the boot launcher's
+# `. /mnt/runconfig/run.env` aborted under `set -e` -- on a real run as well
+# as under the acceptance test. fstab + systemd's fstab-generator does the
+# mount; RequiresMountsFor on the boot unit (below) orders the seam launcher
+# after it.
 #
 # nofail: a share that is absent on a given boot must not wedge the boot in
 # emergency mode; the consumer (boot launcher / claude exec) decides whether
-# its absence is fatal. runconfig and claudebin are mounted ro (runconfig is
-# secret-bearing; claudebin is a verified binary the guest must not mutate);
-# repo is rw (the guest works in it).
+# its absence is fatal. runconfig, claudebin, and claudecreds are mounted ro
+# (claudebin is a verified binary the guest must not mutate; claudecreds is
+# the secret-bearing OAuth credential -- the boot launcher copies it out to a
+# per-user file); repo is rw (the guest works in it).
 mkdir -p "$STAGE/recipe/mkosi.extra/mnt/runconfig" \
          "$STAGE/recipe/mkosi.extra/mnt/repo" \
-         "$STAGE/recipe/mkosi.extra/mnt/claudebin"
+         "$STAGE/recipe/mkosi.extra/mnt/claudebin" \
+         "$STAGE/recipe/mkosi.extra/mnt/claudecreds"
 cat > "$STAGE/recipe/mkosi.extra/etc/fstab" <<'FSTAB'
-# <tag>     <mountpoint>     <type>     <options>     <dump> <pass>
-runconfig   /mnt/runconfig   virtiofs   ro,nofail     0 0
-repo        /mnt/repo        virtiofs   rw,nofail     0 0
-claudebin   /mnt/claudebin   virtiofs   ro,nofail     0 0
+# <tag>       <mountpoint>       <type>     <options>     <dump> <pass>
+runconfig     /mnt/runconfig     virtiofs   ro,nofail     0 0
+repo          /mnt/repo          virtiofs   rw,nofail     0 0
+claudebin     /mnt/claudebin     virtiofs   ro,nofail     0 0
+claudecreds   /mnt/claudecreds   virtiofs   ro,nofail     0 0
 FSTAB
 
 # The Type=oneshot unit that runs the boot launcher on guest boot. Wanted
@@ -196,10 +202,11 @@ Description=claude-vm one-shot boot launcher
 After=network-online.target
 Wants=network-online.target
 # Pull in and order after the virtio-fs mounts the launcher needs: runconfig
-# (sourced run.env), claudebin (the host-verified binary it execs), and repo
+# (sourced run.env), claudebin (the host-verified binary it execs),
+# claudecreds (the host OAuth credential it installs -- issue #50), and repo
 # (the working tree it cd's into). Ordering after them means the launcher
 # never sees a bare mountpoint dir where it expects a mounted share.
-RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/repo
+RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 
 [Service]
 Type=oneshot

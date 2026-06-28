@@ -9,9 +9,11 @@
 #     global; global fills gaps.
 #   - Lists (egress.allow, mounts): merged -- union of global + repo.
 #
-# NO SECRETS HERE. ANTHROPIC_VM_TOKEN is supplied as an env var and
-# passed to the guest at runtime; it is never read from or written to
-# this file.
+# NO SECRETS HERE. The guest authenticates with the HOST's live claude.ai
+# OAuth credential, which the launcher extracts from the macOS Keychain at
+# launch and shares RO into the guest; it is never read from or written to
+# this file. (egress.allow must include the Anthropic API host below so the
+# in-guest claude can reach it.)
 
 cpus: 4
 mem: 8192
@@ -55,9 +57,9 @@ repo:
 # the verified cache to function: when this is unset (empty), the verified
 # cache HARD-ABORTS the launch -- it does NOT silently trust any key. A valid
 # signature by an unpinned key is refused, because the point of a verified
-# root of trust is that "some key signed it" is not good enough. Operators
-# who have not pinned a fingerprint use the install.sh | bash lower-trust
-# fallback path instead. (See payload/README.md "Verified claude cache".)
+# root of trust is that "some key signed it" is not good enough. There is no
+# lower-trust fallback: an unset or unimported signing key aborts the launch.
+# (See payload/README.md "Verified claude cache".)
 claude:
   version: stable
   signing_key_fingerprint: ""   # e.g. "AAAA BBBB ... 2222 3333" -- unset = verified cache disabled (hard abort)

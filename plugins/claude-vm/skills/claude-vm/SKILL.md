@@ -1,6 +1,6 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); only ANTHROPIC_VM_TOKEN stays an env var.
+description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch.
 ---
 
 # claude-vm
@@ -8,9 +8,11 @@ description: Launch Claude Code inside an isolated macOS VM with config-driven e
 Run Claude Code inside an isolated macOS VM. Every non-secret
 operational knob — VM resources, the egress allowlist, extra mounts,
 the proxy, and how the repo is made available to the guest — comes from
-layered **YAML config** rather than environment variables. Only the
-scoped access token (`ANTHROPIC_VM_TOKEN`) stays an env var and is
-never written to config.
+layered **YAML config** rather than environment variables. The guest
+authenticates with the **host's live claude.ai OAuth credential**,
+which the launcher extracts from the macOS Keychain at launch and
+shares RO into the guest; there is no token env var and no secret in
+config.
 
 The launcher and image-build scripts ship as payloads under
 `${CLAUDE_PLUGIN_ROOT}/payload/`. This skill is the entry point that
@@ -19,8 +21,10 @@ explains the config surface and drives the launcher.
 ## Quick start
 
 ```bash
-# 1. Provide the scoped token as an env var (never in config).
-export ANTHROPIC_VM_TOKEN=<scoped-key-for-the-guest>
+# 1. Be logged in to Claude Code on this host. The guest authenticates
+#    with the host's live claude.ai OAuth credential, which the launcher
+#    extracts from the macOS Keychain at launch (no token env var). Run
+#    `claude` once and complete the claude.ai login if you have not.
 
 # 2. (Optional) drop a global config at ~/.config/claude-vm/config.yml
 #    and/or a per-repo config at <repo>/.claude-vm/config.yml.
@@ -155,10 +159,10 @@ Claude Code updates daily, so the guest image does **not** bake in
   the **host-side GPG-verified `claude` binary** mounted RO at
   `/mnt/claudebin` against the repo at `/mnt/repo`. `claude` is never
   baked in and never fetched-and-run inside the guest (no
-  `curl install.sh | bash` on the trusted path); the host fetches,
-  verifies, and caches it (see "Verified claude cache" in the payload
-  README). The base only changes when the base OS pin or the launcher
-  logic changes — not when claude does.
+  `curl install.sh | bash` anywhere — there is no such fallback); the
+  host fetches, verifies, and caches it (see "Verified claude cache" in
+  the payload README). The base only changes when the base OS pin or the
+  launcher logic changes — not when claude does.
 - The base is **version-pinned** in `payload/build-guest-image.sh`
   (`BASE_OS_REV` + `LAUNCHER_LOGIC_REV`; never the claude version).
 - On startup, the launcher **ensures the image exists and matches the
@@ -180,20 +184,54 @@ hands `<boot-launcher-path> <output-image-path>` to the provisioner. The
 `CLAUDE_VM_IMAGE_PROVISIONER` env var overrides the bundled default with
 your own script honoring the same two-argument contract.
 
-## Secrets
+## Authentication (secrets)
 
-`ANTHROPIC_VM_TOKEN` is the only secret. Supply it as an env var (or a
-secret reference your shell resolves to an env var) before launching.
-The launcher passes it to the guest at runtime via the run-config
-mount. It is **never** read from or written to any config file. The
-launcher fails fast if it is unset.
+The guest authenticates with the **host operator's live claude.ai OAuth
+credential** — the full-scope login credential, not a scoped inference
+token. This is what lets the in-guest Claude Code run an interactive
+**Remote Control** session attributed to the host's claude.ai login.
+
+At launch the launcher reads that credential from the macOS login
+Keychain by service name alone
+(`security find-generic-password -s "Claude Code-credentials" -w`).
+That Keychain item is **not** only the claude.ai login — its JSON also
+carries sibling keys such as `mcpOAuth` (per-MCP-server OAuth). To avoid
+mounting unrelated MCP credentials into the guest, the launcher **selects
+only the `claudeAiOauth` key** and writes a file in the shape `claude`
+expects, `{"claudeAiOauth": { ... }}` (selection via `lib/credential.sh`,
+using `python3`; unit-tested in `payload/test/credential-test.sh`). The
+selected credential is written to a transient, owner-only (`0600`)
+tmpfile and shared **read-only** into the guest under
+`mountTag=claudecreds`. The guest boot launcher copies it into
+`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing
+`claude`.
+
+The credential is a secret and is handled like one: it is **never**
+written to config, to `run.env`, or to the verified-binary cache; its
+host-side tmpfile is created under a tightened `umask 077` and removed
+by the launcher's `cleanup()`/`trap` on every exit. The full raw
+Keychain blob (before selection) lives only in a transient tmpfile
+outside the guest share and is removed immediately after selection.
+There is no token env var.
+
+**Requirements:** macOS only (`security find-generic-password` is a
+macOS Keychain tool; `python3`, used for credential selection, ships
+with macOS), and you must be logged in to Claude Code on the host
+first. The launcher fails fast with an actionable message if the
+Keychain lookup returns empty or non-zero, or the blob has no usable
+`claudeAiOauth` key. `egress.allow` must include
+the Anthropic API host (`api.anthropic.com`) so the in-guest `claude`
+can reach it. See the payload README's "Authentication" section for the
+full mechanic.
 
 ## Requirements
 
-`yq` (mikefarah v4+), `git`, `gpg` (`brew install gnupg`, for the
-host-side verified claude cache — see "Verified claude cache" in the
-payload README), a sha256 tool (`shasum` / `sha256sum`, both stock on
-macOS/Linux), and — for an actual VM boot — `vfkit`, `podman` (with a
+`yq` (mikefarah v4+), `git`, `python3` (stock on macOS; used to select
+the `claudeAiOauth` key from the Keychain blob — see "Authentication"
+above), `gpg` (`brew install gnupg`, for the host-side verified claude
+cache — see "Verified claude cache" in the payload README), a sha256
+tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
+actual VM boot — `vfkit`, `podman` (with a
 started podman machine, for the bundled podman-mkosi provisioner that
 builds the guest image), and `tinyproxy` (for the bundled default
 `proxy.cmd`). On a clean host:
@@ -206,13 +244,28 @@ does not symlink it onto PATH. The launcher resolves it automatically
 (an explicit on-PATH `gvproxy` first, then podman's libexec), so
 installing podman is enough.
 
-Before any build/boot work, the launcher runs a **dependency
-preflight** that checks the whole toolchain up front (gvproxy
-resolvable, `vfkit`/`podman` on PATH, podman machine running, and —
-only when the bundled default proxy is in use — `tinyproxy`). It fails
-fast with one actionable remediation line per missing piece rather than
-dying deep in the boot sequence. A custom `proxy.cmd` owns its own
-dependencies, so the `tinyproxy` check is skipped then.
+Before any image build, network call, or Keychain read, the launcher
+runs a **trust-path preflight** that checks the local, instant
+preconditions for the verified cache and credential selection up front:
+`gpg` on PATH, the `claude.signing_key_fingerprint` pinned in config,
+that pinned fingerprint actually present in the gpg keyring, and
+`python3` on PATH. Each failed check prints the exact remediation
+command(s) (e.g. `brew install gnupg`, the
+`curl … | gpg --import` + `gpg --fingerprint` pin steps). Without this
+gate, a cold boot would otherwise pay for a guest-image build and three
+network fetches before aborting on a condition that was knowable at
+startup. These are an additive early gate; the deep checks in the
+verified cache (gpg-on-PATH and unset-pin hard-abort) and credential
+selection (`python3`) remain as defense-in-depth.
+
+After the trust-path preflight, and still before any build/boot work,
+the launcher runs a **dependency preflight** that checks the VM
+toolchain up front (gvproxy resolvable, `vfkit`/`podman` on PATH,
+podman machine running, and — only when the bundled default proxy is in
+use — `tinyproxy`). It fails fast with one actionable remediation line
+per missing piece rather than dying deep in the boot sequence. A custom
+`proxy.cmd` owns its own dependencies, so the `tinyproxy` check is
+skipped then.
 
 The config-resolution half (layering, scalar/list resolution) is
 exercisable without the virtualization stack; see

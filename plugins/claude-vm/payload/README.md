@@ -43,7 +43,10 @@ payload/
 ## Launcher (`claude-vm.sh`)
 
 ```bash
-export ANTHROPIC_VM_TOKEN=<scoped-key>        # the only secret; env-only
+# No token env var. The guest authenticates with the host's live claude.ai
+# OAuth credential, which the launcher extracts from the macOS Keychain at
+# launch and shares RO into the guest (be logged in to Claude Code on the
+# host first). See "Authentication" below.
 "${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
 ```
 
@@ -53,6 +56,60 @@ Reads `cpus`, `mem`, `guest_image`, proxy config, `egress.allow`,
 layering repo-over-global for scalars and unioning lists. See the
 `claude-vm` skill (`skills/claude-vm/SKILL.md`) for the full schema and
 semantics.
+
+## Authentication
+
+The guest authenticates with the **host operator's live claude.ai OAuth
+credential** — the full-scope login credential, not a scoped inference
+token. This is what lets the in-guest Claude Code run an interactive
+**Remote Control** session attributed to the host's claude.ai login.
+
+At launch the launcher extracts that credential from the macOS login
+Keychain by service name alone:
+
+```bash
+security find-generic-password -s "Claude Code-credentials" -w
+```
+
+That Keychain item is **not** only the claude.ai login — on a real host
+its JSON carries sibling top-level keys, at minimum `claudeAiOauth` (the
+intended full-scope login) and `mcpOAuth` (per-MCP-server OAuth, e.g. a
+Sentry MCP token). To avoid pushing unrelated MCP credentials into the
+guest, the launcher **selects only the `claudeAiOauth` key** from the raw
+blob and writes a file in the shape `claude` expects,
+`{"claudeAiOauth": { ... }}`, dropping `mcpOAuth` and any other siblings.
+The selection runs via `lib/credential.sh` (using `python3`, stock on
+macOS) and is unit-tested in `test/credential-test.sh`. The full raw blob
+is held only in a transient tmpfile outside the share and removed
+immediately after selection.
+
+The selected `{"claudeAiOauth": {...}}` is written to a transient,
+owner-only (`0600`) tmpfile and shared **read-only** into the guest under
+`mountTag=claudecreds`. The guest boot launcher copies it into
+`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing `claude`,
+so `claude` finds it at the path it expects.
+
+The credential is a **secret** and is handled like one:
+
+- It is **never** written to config, to `run.env`, or to the
+  verified-binary cache.
+- Its host-side tmpfile is created under a tightened `umask 077` and
+  removed by the launcher's `cleanup()`/`trap` on every exit (including
+  Ctrl-C) — it does not linger past the live VM.
+- The full raw Keychain blob (before `claudeAiOauth` selection) lives
+  only in a transient tmpfile **outside** the guest share and is removed
+  immediately after the selection step, so the unselected form is never
+  mounted into the guest.
+
+**Requirements:** macOS only (`security find-generic-password` is a macOS
+Keychain tool; `python3`, used for the credential selection, ships with
+macOS), and you must be **logged in to Claude Code on the host** first
+(run `claude` once and complete the claude.ai login). If the Keychain
+lookup returns empty or non-zero, or the blob has no usable
+`claudeAiOauth` key, the launcher fails fast with an actionable message
+rather than booting an unauthenticated guest.
+`egress.allow` must include the Anthropic API host (`api.anthropic.com`,
+present in the example config) so the in-guest `claude` can reach it.
 
 ## Config loader (`lib/config.sh`)
 
@@ -125,12 +182,12 @@ like `2.1.172`):
 an unpinned signing key** (`claude.signing_key_fingerprint` unset) each
 **aborts the launch** before any unverified binary is cached or run — there
 is no "verify failed, proceed anyway" branch and no "no pin, trust any key"
-branch. Trusting
+branch, and **no `install.sh | bash` fallback anywhere**. Trusting
 `install.sh`'s own checksum would be circular (the script is itself
 unsigned and re-fetched each boot), so the signed manifest is the root of
-trust. `install.sh | bash` is retained only as an explicit **lower-trust
-fallback** when no cache is configured (behind the egress allowlist,
-suicide-on-fail).
+trust — and it is the *only* trust path. There is no lower-trust escape
+hatch: an unpinned/unimported signing key or any verification failure
+aborts the launch, it does not downgrade to an unverified install.
 
 **Operator one-time setup** (trust-on-first-use, **required**): import the
 signing key, read its fingerprint, **verify that fingerprint out of band**,
@@ -159,8 +216,8 @@ the launch before fetching, caching, or running anything — a valid
 signature by an unpinned key is *not* accepted, because the whole point of
 a GPG-verified root of trust is that "some key signed it" is not good
 enough. Pinning the fingerprint is therefore a **required** one-time step
-for the verified cache to function. Operators who have not pinned it use
-the `install.sh | bash` **lower-trust fallback** path instead (see below).
+for the verified cache to function — there is no lower-trust fallback to
+fall back to; an unpinned key aborts the launch.
 
 **Warm boot:** when the resolved version is already cached, the binary is
 not re-downloaded and `gpg` is not re-run, and the launcher drops
@@ -168,6 +225,27 @@ not re-downloaded and `gpg` is not re-run, and the launcher drops
 (the guest never needs them — the binary came from the host-side cache).
 Requires `gpg` (`brew install gnupg`) and a sha256 tool (`shasum` /
 `sha256sum`, both stock on macOS/Linux).
+
+**Trust-path preflight (fail fast):** before any image build, network
+call, or Keychain read, the launcher checks the local, instant
+preconditions for the verified cache and credential selection up front:
+
+- `gpg` is on PATH;
+- a `claude.signing_key_fingerprint` is pinned in config;
+- that pinned fingerprint is actually present in the gpg keyring;
+- `python3` is on PATH (used to select the `claudeAiOauth` credential —
+  see "Authentication" above).
+
+Each failed check prints the exact remediation command(s) (`brew install
+gnupg`, the `curl … | gpg --import` + `gpg --fingerprint` pin steps,
+`xcode-select --install` for `python3`) rather than a bare error.
+Without this gate, a cold boot would otherwise pay for a guest-image
+build and three network fetches (channel pointer + manifest + signature)
+before aborting on a condition knowable at startup. The deep checks in
+this library (gpg-on-PATH at the verify step, the unset-pin hard-abort)
+and in `lib/credential.sh` (`python3` at the selection step) remain as
+defense-in-depth — the preflight is an additive early gate, not a
+replacement.
 
 ## Tests
 
