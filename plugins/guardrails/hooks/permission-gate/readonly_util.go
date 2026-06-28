@@ -562,7 +562,7 @@ func sortDefers(args []string) bool {
 			"-z": true, "--zero-terminated": true, "--debug": true,
 		},
 		maxPathOperands: -1,
-		// clusterable: sort's only write flag is -o, which allClusterBools rejects
+		// clusterable: sort's only write flag is -o, which clusterIsReadOnly rejects
 		// (`sort -ro` → cluster contains a write flag → defers). Value flags
 		// (-k/-t/-S/-T) are likewise not bool flags, so a cluster containing one
 		// defers. Only all-bool clusters (`sort -rn`, `sort -ru`) ALLOW.
