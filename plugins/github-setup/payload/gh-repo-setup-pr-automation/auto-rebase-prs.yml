@@ -17,6 +17,17 @@
 #                        /gh-repo-setup-pr-automation skill drops this
 #                        workflow_run trigger when rendering.
 #   __DO_NOT_MERGE_LABEL__  label that opts a PR out of automation
+#   __INSTALL_GATE_WORKFLOW__  name of the dependency-install-gate
+#                        workflow whose npm check failing signals a
+#                        lockfile desync (e.g. dependency-install-gate).
+#                        Drives the #1218 lockfile-regen pass below. If
+#                        the repo has no such workflow, the
+#                        /gh-repo-setup-pr-automation skill drops the
+#                        lockfile-regen step (and the auto-rebase-lockfile-
+#                        regen.sh script) when rendering.
+#   __INSTALL_GATE_NPM_CHECK__  name of the npm CheckRun within
+#                        __INSTALL_GATE_WORKFLOW__ that fails on a lockfile
+#                        desync (e.g. npm).
 name: auto-rebase-prs
 on:
   push:
@@ -75,21 +86,61 @@ on:
 # does not carry it), so it cannot live in the job-level `if:`. For all
 # other triggers the job sweeps every eligible PR.
 #
-# Per-PR rules:
+# Per-PR rules (sweep path):
 #   1. Skip if PR is in draft state.
 #   2. Skip if PR carries the `__DO_NOT_MERGE_LABEL__` label (escape
 #      hatch).
-#   3. Only act on PRs whose mergeStateStatus is BEHIND or BLOCKED --
+#   3. Skip Dependabot-authored PRs (author.login == "dependabot") that
+#      Dependabot still manages, UNLESS a non-Dependabot actor has
+#      already pushed to the branch. "Still managed" is read from the
+#      HEAD commit author login: it equals `dependabot[bot]` while
+#      Dependabot owns the PR and changes once a human pushes. Rebasing a
+#      managed Dependabot PR breaks Dependabot's management (it will no
+#      longer recreate/supersede/auto-update it) and re-triggers every
+#      required check for nothing; once a human has pushed, Dependabot has
+#      already stopped managing it, so the exclusion lifts and the PR is
+#      rebased like any human PR. This exclusion is scoped to ROUTINE
+#      behind-main rebasing; the lockfile-regen pass below is EXEMPT and
+#      acts on Dependabot PRs too. The explicit `/rebase` slash command
+#      (issue_comment path) also bypasses this exclusion -- it is a
+#      deliberate human override.
+#   4. Only act on PRs whose mergeStateStatus is BEHIND or BLOCKED --
 #      the two states that can mean "behind the base branch". BLOCKED is
 #      overloaded (it can also mean missing review or failing checks),
 #      so we additionally short-circuit with `git merge-base
 #      --is-ancestor origin/__DEFAULT_BRANCH__ <head>` to skip BLOCKED
 #      PRs that aren't actually behind.
-#   4. Attempt a rebase onto origin/__DEFAULT_BRANCH__. If clean,
+#   5. Attempt a rebase onto origin/__DEFAULT_BRANCH__. If clean,
 #      force-push with --force-with-lease so concurrent author pushes
 #      are not clobbered.
-#   5. If the rebase produces conflicts, abort and leave the PR alone.
+#   6. If the rebase produces conflicts, abort and leave the PR alone.
 #      No comment, no failure; the PR author handles it.
+#
+# Lockfile-regen pass, a SEPARATE pass after the rebase sweep:
+#   The dominant Dependabot failure is not a real conflict -- it is a
+#   manifest bumped but its npm lockfile not regenerated to match, which
+#   fails the dependency-install-gate (its `__INSTALL_GATE_NPM_CHECK__`
+#   check). This pass detects a PR whose
+#   `__INSTALL_GATE_WORKFLOW__ / __INSTALL_GATE_NPM_CHECK__` check is
+#   FAILING, checks out its head, and runs
+#   `.github/scripts/auto-rebase-lockfile-regen.sh`, which acts ONLY when
+#   the desync is lockfile-only: it regenerates each desynced lockfile
+#   with `npm install --package-lock-only --ignore-scripts` and verifies
+#   the result replays under `npm ci --ignore-scripts`. If a regen
+#   succeeds, this workflow commits the lockfile(s) and force-pushes with
+#   --force-with-lease; the push re-runs the install gate (and any build
+#   gate) on the corrected commit, and THAT re-run is the verification --
+#   a bad regen stays red rather than merging. If the gate-red is
+#   anything other than a fixable lockfile-only desync (an unsatisfiable
+#   manifest, a pip pin conflict), the script leaves the PR for a human.
+#
+#   This pass is EXEMPT from the Dependabot-author exclusion above: it
+#   acts on ANY author INCLUDING Dependabot, because Dependabot caused
+#   the desync and cannot regenerate the lockfile itself. The two paths
+#   are deliberately distinct: routine behind-main rebase skips
+#   Dependabot; gate-red-from-lockfile-desync regen acts on every author.
+#   pip is out of scope (a pip gate failure is an unresolvable pin set,
+#   not a lockfile-only desync -- see the script header).
 #
 # Auth: this workflow MUST run as the GitHub App "__APP_NAME__", not as
 # the default GITHUB_TOKEN. A push made with GITHUB_TOKEN does NOT
@@ -188,7 +239,7 @@ jobs:
           esac
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ steps.app-token.outputs.token }}
@@ -198,6 +249,15 @@ jobs:
           set -euo pipefail
           git config user.name "__BOT_SLUG__"
           git config user.email "__BOT_SLUG__@users.noreply.github.com"
+
+      # Needed by the lockfile-regen pass below (`npm ci` / `npm install
+      # --package-lock-only`). Pinned to node 22 to match a typical
+      # dependency-install-gate npm job, so the regen replays the lockfile
+      # the same way the gate will after the force-push.
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
 
       - name: Rebase eligible PRs
         env:
@@ -244,6 +304,10 @@ jobs:
                     headRefName
                     headRepositoryOwner { login }
                     baseRefName
+                    author { login }
+                    commits(last: 1) {
+                      nodes { commit { author { user { login } } } }
+                    }
                     labels(first: 50) { nodes { name } }
                   }
                 }
@@ -256,6 +320,13 @@ jobs:
             # NOT applied here: an explicit `/rebase` should rebase even a
             # CLEAN PR if it is behind the base, and the `is-ancestor`
             # short-circuit in the loop already skips PRs not behind base.
+            #
+            # The Dependabot-author exclusion (applied in the sweep jq
+            # filter below) is deliberately NOT applied here: `/rebase` is
+            # an explicit human override and MUST act on a Dependabot PR
+            # too. The `author` / `commits` fields are fetched so the field
+            # set stays parallel with the sweep query, but this jq filter
+            # omits the author `select(...)`.
             mapfile -t CANDIDATES < <(echo "$PRS_JSON" | jq -r --arg base "$BASE_BRANCH" '
               .data.repository.pullRequest
               | select(. != null)
@@ -287,17 +358,54 @@ jobs:
                       mergeStateStatus
                       headRefName
                       headRepositoryOwner { login }
+                      author { login }
+                      commits(last: 1) {
+                        nodes { commit { author { user { login } } } }
+                      }
                       labels(first: 50) { nodes { name } }
                     }
                   }
                 }
               }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
 
+            # Exclude Dependabot-authored PRs from routine behind-main
+            # rebasing UNLESS a non-Dependabot actor has already pushed to
+            # the branch. Rationale: while Dependabot still owns the PR,
+            # force-pushing a rebase (a) makes Dependabot stop managing the
+            # PR (it will no longer recreate/supersede/auto-update it) and
+            # (b) re-triggers every required check for no benefit. Once a
+            # human has pushed, Dependabot has ALREADY stopped managing the
+            # PR, so the PR now needs rebasing like any human PR and the
+            # exclusion lifts.
+            #
+            # Detection: a Dependabot PR has `author.login == "dependabot"`.
+            # "Has a non-Dependabot actor pushed" is read from the HEAD
+            # commit author login: Dependabot authors its commits as
+            # `dependabot[bot]` (note the differing form -- the PR author is
+            # `dependabot`, the commit author is `dependabot[bot]`), and that
+            # author login survives our own auto-rebase force-push (which
+            # only rewrites the committer, not the author). So the PR is
+            # still Dependabot-managed iff the head commit author is
+            # `dependabot[bot]`; any other value (a human login, or a null
+            # `user` for an unmapped email) means a non-Dependabot push and
+            # the PR is no longer excluded.
+            #
+            # IMPORTANT: this exclusion is scoped to routine behind-main
+            # rebasing. The lockfile-regen pass below is EXEMPT and must act
+            # regardless of author, including on Dependabot PRs --
+            # Dependabot caused the lockfile desync and cannot get us out of
+            # it. That pass layers on top of this filter with the exemption
+            # made explicit; do not fold it into this select.
             mapfile -t CANDIDATES < <(echo "$PRS_JSON" | jq -r '
               .data.repository.pullRequests.nodes[]
               | select(.isDraft == false)
               | select(.mergeStateStatus == "BEHIND" or .mergeStateStatus == "BLOCKED")
               | select([.labels.nodes[].name] | index("__DO_NOT_MERGE_LABEL__") | not)
+              | select(
+                  (.author.login != "dependabot")
+                  or
+                  ((.commits.nodes[0].commit.author.user.login // "") != "dependabot[bot]")
+                )
               | "\(.number)\t\(.headRefName)\t\(.headRepositoryOwner.login)"
             ')
           fi
@@ -361,4 +469,193 @@ jobs:
             # does not collide on the branch name.
             git checkout --detach
             git branch -D "auto-rebase-$PR_NUMBER" || true
+          done
+
+      # ---------------------------------------------------------------
+      # Lockfile-regen pass. Separate from the rebase sweep above: it acts
+      # on a DIFFERENT trigger (the dependency-install-gate's
+      # `__INSTALL_GATE_NPM_CHECK__` check failing) and on a DIFFERENT
+      # candidate set (any author, including Dependabot). See the header
+      # comment. The /gh-repo-setup-pr-automation skill drops this whole
+      # step (and the auto-rebase-lockfile-regen.sh script) when the repo
+      # has no dependency-install-gate workflow to key off.
+      # ---------------------------------------------------------------
+      - name: Regenerate desynced lockfiles on gate-red PRs
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_PR_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          BASE_BRANCH: __DEFAULT_BRANCH__
+          INSTALL_GATE_WORKFLOW: __INSTALL_GATE_WORKFLOW__
+          INSTALL_GATE_NPM_CHECK: __INSTALL_GATE_NPM_CHECK__
+        run: |
+          set -euo pipefail
+
+          OWNER="${REPO%/*}"
+          NAME="${REPO#*/}"
+          REGEN="$GITHUB_WORKSPACE/.github/scripts/auto-rebase-lockfile-regen.sh"
+
+          git fetch origin "$BASE_BRANCH"
+
+          # For the `/rebase` slash command, scope the regen pass to the
+          # single commenting PR (same scoping as the rebase pass); every
+          # other trigger sweeps all open PRs. We enumerate the candidate
+          # PR(s) with the conclusion of their dependency-install-gate npm
+          # check run (the gate the lockfile desync fails). The regen pass
+          # runs ONLY on PRs whose npm check is FAILURE -- that is the
+          # "gate-red-from-lockfile-desync" trigger. The script itself
+          # re-confirms the desync (and that it is lockfile-ONLY) before
+          # changing anything, so the check-run filter is just a cheap
+          # pre-gate to avoid running `npm ci` on every PR every sweep.
+          #
+          # NOTE: NO Dependabot-author exclusion and NO BEHIND/BLOCKED
+          # filter here -- this path is exempt from both (a green-branch
+          # gate failure is not behind base, and Dependabot PRs are exactly
+          # the ones that need this). The only skips are draft and the
+          # `__DO_NOT_MERGE_LABEL__` human escape hatch.
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            if ! printf '%s' "$COMMENT_BODY" | grep -qE '^[[:space:]]*/rebase[[:space:]]*$'; then
+              echo "No standalone /rebase command; skipping lockfile-regen pass."
+              exit 0
+            fi
+            REGEN_JSON=$(gh api graphql -f query='
+              query($owner: String!, $name: String!, $number: Int!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequest(number: $number) {
+                    number
+                    isDraft
+                    headRefName
+                    headRepositoryOwner { login }
+                    baseRefName
+                    labels(first: 50) { nodes { name } }
+                    commits(last: 1) {
+                      nodes { commit { statusCheckRollup { contexts(first: 100) {
+                        nodes { __typename
+                          ... on CheckRun { name conclusion checkSuite { workflowRun { workflow { name } } } }
+                        } } } } }
+                    }
+                  }
+                }
+              }' -f owner="$OWNER" -f name="$NAME" -F number="$COMMENT_PR_NUMBER")
+            CANDIDATES_RAW=$(echo "$REGEN_JSON" | jq -c --arg base "$BASE_BRANCH" '
+              .data.repository.pullRequest
+              | select(. != null)
+              | select(.baseRefName == $base)
+              | [.]')
+          else
+            REGEN_JSON=$(gh api graphql -f query='
+              query($owner: String!, $name: String!, $base: String!) {
+                repository(owner: $owner, name: $name) {
+                  pullRequests(states: OPEN, first: 100, baseRefName: $base) {
+                    nodes {
+                      number
+                      isDraft
+                      headRefName
+                      headRepositoryOwner { login }
+                      labels(first: 50) { nodes { name } }
+                      commits(last: 1) {
+                        nodes { commit { statusCheckRollup { contexts(first: 100) {
+                          nodes { __typename
+                            ... on CheckRun { name conclusion checkSuite { workflowRun { workflow { name } } } }
+                          } } } } }
+                      }
+                    }
+                  }
+                }
+              }' -f owner="$OWNER" -f name="$NAME" -f base="$BASE_BRANCH")
+            CANDIDATES_RAW=$(echo "$REGEN_JSON" | jq -c '
+              .data.repository.pullRequests.nodes')
+          fi
+
+          # Keep PRs that are not draft, not do-not-merge, and whose
+          # dependency-install-gate npm CheckRun concluded FAILURE. The
+          # install-gate workflow name and the npm check name come from the
+          # rendered placeholders so the filter tracks the repo's actual
+          # gate.
+          mapfile -t CANDIDATES < <(echo "$CANDIDATES_RAW" | jq -r \
+            --arg gate "$INSTALL_GATE_WORKFLOW" --arg npm "$INSTALL_GATE_NPM_CHECK" '
+            .[]
+            | select(.isDraft == false)
+            | select([.labels.nodes[].name] | index("__DO_NOT_MERGE_LABEL__") | not)
+            | select(
+                [ .commits.nodes[0].commit.statusCheckRollup.contexts.nodes[]?
+                  | select(.__typename == "CheckRun")
+                  | select(.name == $npm)
+                  | select((.checkSuite.workflowRun.workflow.name // "") == $gate)
+                  | .conclusion ]
+                | index("FAILURE")
+              )
+            | "\(.number)\t\(.headRefName)\t\(.headRepositoryOwner.login)"
+          ')
+
+          if [ "${#CANDIDATES[@]}" -eq 0 ]; then
+            echo "No PRs with a failing $INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK check; nothing to regenerate."
+            exit 0
+          fi
+
+          for line in "${CANDIDATES[@]}"; do
+            PR_NUMBER=$(echo "$line" | cut -f1)
+            HEAD_REF=$(echo "$line" | cut -f2)
+            HEAD_OWNER=$(echo "$line" | cut -f3)
+
+            if [ "$HEAD_OWNER" != "$OWNER" ]; then
+              echo "PR #$PR_NUMBER: skipping lockfile-regen (head is a fork: $HEAD_OWNER)"
+              continue
+            fi
+
+            echo "PR #$PR_NUMBER: $INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK is red; checking for a lockfile-only desync on $HEAD_REF"
+
+            git fetch origin "refs/heads/$HEAD_REF:refs/remotes/origin/$HEAD_REF"
+            EXPECTED_SHA=$(git rev-parse "origin/$HEAD_REF")
+
+            # Detach onto the PR head so we operate without claiming the
+            # branch ref locally (same pattern as the rebase loop).
+            git checkout -B "auto-regen-$PR_NUMBER" --no-track "origin/$HEAD_REF"
+
+            # The regen script mutates only the lockfiles in the working
+            # tree and signals via exit code:
+            #   0 -- one or more lockfiles regenerated and replay cleanly;
+            #        commit + force-push.
+            #   1 -- gate-red for a reason that is NOT a fixable
+            #        lockfile-only desync (unsatisfiable manifest, etc.);
+            #        leave for a human.
+            #   3 -- nothing to do (no desync); leave alone.
+            set +e
+            bash "$REGEN"
+            REGEN_RC=$?
+            set -e
+
+            if [ "$REGEN_RC" -eq 0 ]; then
+              # `npm install --package-lock-only` only rewrites the
+              # lockfile, but stage package.json too so the pair is
+              # committed together (a no-op if the manifest is unchanged,
+              # which it always is here).
+              git add -A '*package-lock.json' '*package.json'
+              # Guard the commit like the push below (and the rebase loop's
+              # git ops): the per-PR loop runs under `set -e`, so an
+              # unguarded commit failure would abort the whole sweep and
+              # silently skip every remaining PR. An if/else contains the
+              # fault to this one PR; control then falls through to the
+              # unconditional cleanup below (same shape as the rebase loop's
+              # else-branch), so the auto-regen branch is still cleaned up.
+              if git commit -m "Regenerate npm lockfile to match manifest (auto)" \
+                -m "$INSTALL_GATE_WORKFLOW $INSTALL_GATE_NPM_CHECK check was failing on a lockfile desynced from its manifest. Regenerated with npm install --package-lock-only --ignore-scripts. The re-run of the gate on this push is the verification."; then
+                if git push --force-with-lease="$HEAD_REF:$EXPECTED_SHA" origin "HEAD:refs/heads/$HEAD_REF"; then
+                  echo "PR #$PR_NUMBER: regenerated lockfile(s) committed and force-pushed"
+                else
+                  echo "PR #$PR_NUMBER: push rejected (lease lost or auth); skipping"
+                fi
+              else
+                echo "PR #$PR_NUMBER: commit failed; skipping"
+              fi
+            elif [ "$REGEN_RC" -eq 3 ]; then
+              echo "PR #$PR_NUMBER: no lockfile desync to fix; leaving alone"
+            else
+              echo "PR #$PR_NUMBER: gate-red is not a fixable lockfile-only desync; leaving for a human"
+            fi
+
+            git checkout --detach
+            git branch -D "auto-regen-$PR_NUMBER" || true
           done

@@ -1,6 +1,6 @@
 {
   "name": "github-setup",
   "description": "Provision GitHub repos: App identity, PR automation, branch protection / security, read-only public mirrors, history scrubbing, and private-to-public promotion.",
-  "version": "0.8.5",
+  "version": "0.9.1",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }
