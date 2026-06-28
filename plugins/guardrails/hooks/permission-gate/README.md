@@ -124,6 +124,36 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
   go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-amd64/permission-gate .
 ```
 
+### Binary reproducibility (don't expect a byte-identical rebuild)
+
+Go automatically stamps VCS info into every binary — `vcs.revision`
+(the git commit) and `vcs.modified` — embedded in the build metadata,
+and the build-ID's content-hash segment incorporates it too. So a fresh
+`-trimpath` rebuild of the **same source** at a **different** git HEAD
+(or with uncommitted changes) is **not** byte-identical to the committed
+binary, even though the compiled code is identical. The committed binary
+was stamped with whatever revision was HEAD when it was built (often a
+parent of a later comment-only commit); a rebuild stamps a different
+revision. The differing bytes cluster only in the buildinfo / build-ID
+regions — typically a few hundred bytes — never in code. This is benign
+and expected, **not** a source/binary mismatch.
+
+To correctly verify that a committed binary matches its source:
+
+1. Compare against the **immutable git object**
+   (`git show <commit>:<path>`), never the mutable working-tree file —
+   a concurrent session can rewrite the working-tree blob mid-check.
+2. Inspect build metadata with `go version -m <binary>`: confirm the Go
+   version, module path, dependency hashes (e.g. the `mvdan.cc/sh/v3`
+   version and its `h1:` hash), and build flags (`-trimpath=true`,
+   `CGO_ENABLED=0`) all match. Expect **only** `vcs.revision` /
+   `vcs.modified` to differ.
+3. Confirm the compiled code is identical despite the byte delta: the
+   build-ID content-hash segment matches, and `go tool nm` symbol tables
+   are byte-identical. A raw `cmp` / `shasum` byte-diff against a rebuild
+   is **not** a valid mismatch signal on its own, because of the VCS
+   stamp.
+
 Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`
 (`darwin-arm64` for this machine, `linux-amd64` for WSL2). The
 `settings.json` registration selects the correct one per platform via
