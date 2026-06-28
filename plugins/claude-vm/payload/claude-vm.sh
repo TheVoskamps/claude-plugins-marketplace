@@ -74,7 +74,7 @@ REPO_CONFIG="${CLAUDE_VM_REPO_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
 # `trap cleanup EXIT INT TERM` REPLACES it once the full run state exists. Do
 # NOT add yet another `trap ... EXIT` here -- a later trap installation would
 # replace whatever was set, leaking this file on every run.
-MERGED="$(mktemp "${TMPDIR:-/tmp}/claude-vm-merged.XXXXXX.yml")"
+MERGED="$(claude_vm_mktemp claude-vm-merged)"
 claude_vm_merge_config "$GLOBAL_CONFIG" "$REPO_CONFIG" > "$MERGED" \
   || { echo "claude-vm: could not resolve effective config" >&2; exit 1; }
 
@@ -248,7 +248,7 @@ ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
 # which we read after the substitution to drive the warm-boot allowlist
 # tightening. A unique per-process path keeps concurrent launches from
 # racing on a shared default.
-CACHE_STATE_FILE="$(mktemp "${TMPDIR:-/tmp}/claude-vm-cachestate.XXXXXX")"
+CACHE_STATE_FILE="$(claude_vm_mktemp claude-vm-cachestate)"
 export CLAUDE_VM_CACHE_STATE_FILE="$CACHE_STATE_FILE"
 CLAUDE_VM_CACHE_NETWORK=""
 CLAUDE_BIN_HOST=""
@@ -287,7 +287,7 @@ if git -C "$REPO_SRC" rev-parse --show-toplevel >/dev/null 2>&1; then
   RUN="$REPO_SRC/.claude/tmp/$RUN_ID"
   mkdir -p "$RUN"
 else
-  RUN="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm.XXXXXX")"
+  RUN="$(claude_vm_mktemp -d claude-vm)"
 fi
 
 GVPROXY_SOCK="$RUN/vfkit-net.sock"

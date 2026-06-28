@@ -113,6 +113,48 @@ claude_vm_require_yq() {
   return 0
 }
 
+# Portable mktemp wrapper used by every claude-vm tmpfile/tmpdir site.
+#
+#   claude_vm_mktemp [-d] <name-prefix>
+#
+# Builds the template <tmpdir>/<name-prefix>.XXXXXX, where <tmpdir> is
+# $TMPDIR with any trailing slash stripped (default /tmp). The `-d` flag
+# makes a directory instead of a file. The created path is printed on
+# stdout; the exit status is mktemp's.
+#
+# Two portability hazards this centralises so no callsite re-introduces
+# them:
+#
+#   1. NO suffix after the XXXXXX run. BSD/macOS mktemp (the only
+#      supported host) substitutes the X-run ONLY when it is the final
+#      component of the template. A template like `foo.XXXXXX.yml`
+#      leaves the X's LITERAL, so the first run creates a fixed file
+#      `foo.XXXXXX.yml` and every later run dies with "File exists".
+#      GNU mktemp tolerates a trailing suffix; BSD does not. Callers
+#      pass only a name-prefix and never an extension -- nothing here
+#      dispatches on a filename extension (the merge/scalar helpers
+#      parse contents), so the suffix was always cosmetic.
+#
+#   2. Trailing-slash normalisation. A $TMPDIR ending in `/` (macOS sets
+#      e.g. /var/folders/.../T/) otherwise yields a doubled slash
+#      (.../T//foo.XXXXXX). Harmless to mktemp but ugly in diagnostics;
+#      `${tmpdir%/}` strips exactly one trailing slash for uniform paths.
+claude_vm_mktemp() {
+  local make_dir=0
+  if [ "${1:-}" = "-d" ]; then
+    make_dir=1
+    shift
+  fi
+  local prefix="$1"
+  local tmpdir="${TMPDIR:-/tmp}"
+  tmpdir="${tmpdir%/}"
+  if [ "$make_dir" -eq 1 ]; then
+    mktemp -d "$tmpdir/$prefix.XXXXXX"
+  else
+    mktemp "$tmpdir/$prefix.XXXXXX"
+  fi
+}
+
 # Preflight the external VM toolchain. Fails FAST with one actionable
 # remediation line per missing piece, BEFORE any build/boot work starts,
 # rather than dying deep in the boot sequence with an opaque error.
@@ -189,7 +231,7 @@ claude_vm_merge_config() {
   # repo second). A bare /dev/null yields NO document, which makes
   # `select(fileIndex == N)` empty and collapses the whole merge -- so
   # we point missing layers at a real `{}` document instead.
-  empty="$(mktemp "${TMPDIR:-/tmp}/claude-vm-empty.XXXXXX.yml")"
+  empty="$(claude_vm_mktemp claude-vm-empty)"
   printf '{}\n' > "$empty"
   if [ -n "$global" ] && [ -f "$global" ]; then g="$global"; else g="$empty"; fi
   if [ -n "$repo" ] && [ -f "$repo" ]; then r="$repo"; else r="$empty"; fi
