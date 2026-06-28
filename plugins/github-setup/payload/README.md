@@ -25,7 +25,8 @@ Each `<skill-name>/` subdirectory mirrors the skill's name under
 dependency-install-gate (workflow + drift-check script), and
 no-back-merging-guard (workflow + guard script + self-test) payloads,
 `gh-repo-setup-pr-automation` with its auto-merge/auto-rebase workflow
-payloads, `gh-create-app` with its App-auth workflow snippet and
+payloads plus the npm lockfile-regen script and its self-test,
+`gh-create-app` with its App-auth workflow snippet and
 App-metadata document payloads).
 
 ## Placeholder syntax

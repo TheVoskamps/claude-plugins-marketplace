@@ -1,6 +1,6 @@
 ---
 name: gh-repo-setup-pr-automation
-description: "Install PR-automation workflows (auto-merge, auto-rebase, scheduled rebase sweep, /rebase responder) into the current repo, rendered from templates and backed by a GitHub App identity stored as repo or org secrets, committing + PR-ing its own rendered files on a single approval and skipping the secret set when both App-identity secrets already exist."
+description: "Install PR-automation workflows (auto-merge, auto-rebase, scheduled rebase sweep, /rebase responder, plus unattended Dependabot rebase-and-merge) into the current repo, rendered from templates and backed by a GitHub App identity stored as repo or org secrets, committing + PR-ing its own rendered files on a single approval and skipping the secret set when both App-identity secrets already exist."
 ---
 
 You are running the `/gh-repo-setup-pr-automation` skill. Your job is to
@@ -16,6 +16,27 @@ install PR-automation GitHub Actions workflows into the **current repo**
   event-driven path missed (GitHub's lazy `mergeStateStatus` race).
 - **`/rebase` responder** — a write/admin collaborator comments
   `/rebase` on a PR to rebase just that PR on demand.
+- **unattended Dependabot rebase-and-merge** — a green Dependabot PR is
+  REST-merged with no human action (the bypass-actor merge waives review
+  for the bot only), rebasing the PR in-workflow when it is behind the
+  base so the queue self-drains. This is split across both workflows:
+  - `auto-rebase-prs.yml` **excludes** Dependabot-authored PRs from the
+    routine behind-base rebase sweep (rebasing a bot-managed PR breaks
+    Dependabot's management and burns Actions minutes) — **unless** a
+    non-Dependabot actor has already pushed to the branch. A separate
+    **lockfile-regen pass** in the same workflow does act on Dependabot
+    PRs: it regenerates an npm lockfile desynced from its manifest (the
+    dominant Dependabot failure) and force-pushes so the gate re-runs.
+  - `auto-enable-automerge.yml` adds a `dependabot-rest-merge` job that,
+    for an authoritative-Dependabot PR whose required checks are all
+    green, REST-merges it (engaging the App's branch-protection bypass to
+    waive review), rebasing it onto the base in-workflow first when behind.
+
+The unattended-merge path is **gated on an opt-in**: it only renders when
+the repo has a required-check workflow to key the triggers off (see Step 4
+and the conditional-drop rules in Step 6). Without it the skill installs
+exactly the human-facing auto-merge + auto-rebase + `/rebase` surface it
+always has, and the Dependabot job/step are dropped cleanly.
 
 The workflows are rendered from templates in
 `${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/` using the placeholder
@@ -43,11 +64,22 @@ contents:      write    # force-push rebased PR branches
 pull_requests: write    # enable auto-merge, read PR state
 ```
 
-`contents: write` covers the auto-rebase force-push;
-`pull_requests: write` covers `enablePullRequestAutoMerge` and reading
-PR / merge state. No `workflows` scope is needed — the skill installs
+`contents: write` covers the auto-rebase force-push (and the
+in-workflow Dependabot rebase); `pull_requests: write` covers
+`enablePullRequestAutoMerge`, the REST merge endpoint, and reading PR /
+merge state. No `workflows` scope is needed — the skill installs
 workflow files via a normal commit, it does not write them through the
 App at runtime.
+
+The **unattended Dependabot REST-merge** path additionally requires the
+App to be a `pull_request` **bypass actor** in the repo's
+branch-protection ruleset — that is what lets its direct REST merge waive
+the review/code-owner rule for a code-owned Dependabot PR. Adding the
+bypass actor is a **branch-protection concern owned by
+`/gh-repo-setup-protection`**, not this skill (see "Out of scope").
+Without the bypass, a green Dependabot PR on an un-code-owned path still
+merges (no review required); one on a code-owned path is left for a human
+— the job degrades safely.
 
 ---
 
@@ -144,10 +176,13 @@ each before rendering:
 | --- | --- | --- |
 | `__APP_ID_SECRET__` | `AUTOMERGE_APP_ID` | Repo secret name holding the App ID. Derived as `<secret_prefix>_APP_ID` from the secret prefix (default `AUTOMERGE`, override with `--secret-prefix`). |
 | `__APP_PRIVATE_KEY_SECRET__` | `AUTOMERGE_APP_PRIVATE_KEY` | Repo secret name holding the App private key. Derived as `<secret_prefix>_APP_PRIVATE_KEY` from the secret prefix. |
-| `__MERGE_METHOD__` | `MERGE` | GraphQL merge method: `MERGE`, `SQUASH`, or `REBASE`. Must be an enabled merge method on the repo. |
+| `__MERGE_METHOD__` | `MERGE` | GraphQL merge method (uppercase enum): `MERGE`, `SQUASH`, or `REBASE`. Used by the human `enablePullRequestAutoMerge` path. Must be an enabled merge method on the repo. |
+| `__REST_MERGE_METHOD__` | `merge` | REST merge method (lowercase): `merge`, `squash`, or `rebase`. The lowercase form of `__MERGE_METHOD__` used by the Dependabot REST-merge endpoint. Resolve it as `__MERGE_METHOD__` lowercased — do not prompt separately. |
 | `__DO_NOT_MERGE_LABEL__` | `do-not-merge` | Label that opts a PR out of auto-merge and auto-rebase. |
-| `__BOT_SLUG__` | `<gh_repo>-auto-rebase[bot]` | Git identity used for rebase commits. |
-| `__REQUIRED_CHECK_WORKFLOW__` | (none) | Name of the repo's required-check workflow whose completion should trigger a rebase pass. |
+| `__BOT_SLUG__` | `<gh_repo>-auto-rebase[bot]` | Git identity used for rebase commits (routine and in-workflow Dependabot rebase). |
+| `__REQUIRED_CHECK_WORKFLOW__` | (none) | Name of the repo's required-check workflow whose completion should trigger a rebase pass **and** the Dependabot REST-merge re-evaluation. If none is found, the `workflow_run` trigger is dropped from `auto-rebase-prs.yml` AND the whole `dependabot-rest-merge` job (with its `workflow_run` / `schedule` triggers) is dropped from `auto-enable-automerge.yml`. |
+| `__INSTALL_GATE_WORKFLOW__` | `dependency-install-gate` | Name of the dependency-install-gate workflow whose npm check failing signals a lockfile desync. Drives the lockfile-regen pass in `auto-rebase-prs.yml`. If the repo has no such workflow, the lockfile-regen step (and the two shipped scripts) are dropped. |
+| `__INSTALL_GATE_NPM_CHECK__` | `npm` | Name of the npm `CheckRun` within `__INSTALL_GATE_WORKFLOW__` that fails on a lockfile desync. |
 
 Discover the exact placeholder set each template needs with the scan
 from `${CLAUDE_PLUGIN_ROOT}/payload/README.md`:
@@ -161,6 +196,28 @@ grep -ohE '__[A-Z][A-Z0-9_]*__' \
 `__MERGE_METHOD__`, `__DO_NOT_MERGE_LABEL__`, and `__BOT_SLUG__` take
 the defaults above unless the user passed an override flag
 (`--merge-method`, `--do-not-merge-label`, `--bot-slug`).
+`__REST_MERGE_METHOD__` is **not** an independent input — derive it by
+lowercasing the resolved `__MERGE_METHOD__` (`MERGE` → `merge`, `SQUASH`
+→ `squash`, `REBASE` → `rebase`) so the human and Dependabot paths use
+the same merge strategy.
+
+`__INSTALL_GATE_WORKFLOW__` and `__INSTALL_GATE_NPM_CHECK__` take the
+defaults above (`dependency-install-gate` / `npm`, matching the workflow
+`/gh-repo-setup-protection` installs) unless the user passed
+`--install-gate-workflow` / `--install-gate-npm-check`. Resolve the
+install-gate workflow's **presence** as follows (it gates the
+lockfile-regen pass):
+
+1. If the user passed `--install-gate-workflow <name>`, use it (and
+   assume present).
+2. Otherwise, list the repo's workflows (`gh workflow list` / inspect
+   `.github/workflows/`). If a workflow named `dependency-install-gate`
+   (or the passed name) exists, treat the lockfile-regen pass as **on**.
+3. If no such workflow is found, **drop the lockfile-regen step** from
+   `auto-rebase-prs.yml` and **do not render** the two regen scripts
+   (Step 6). The routine rebase sweep, the Dependabot author-exclusion,
+   and the `/rebase` responder are unaffected — only the npm
+   lockfile-regen self-heal is omitted.
 
 `__APP_ID_SECRET__` and `__APP_PRIVATE_KEY_SECRET__` are the App-identity
 secret names, derived from a single secret prefix (default `AUTOMERGE`,
@@ -178,12 +235,28 @@ the render recipe in Step 6), so the templates carry no bare
    (`gh workflow list` / inspect `.github/workflows/`) and, if exactly
    one looks like a required PR check (e.g. a `no-back-merging-guard` or
    similar PR-gate workflow), propose it and ask the user to confirm.
-3. If none is found or the user declines, **drop the `workflow_run`
-   trigger entirely** when rendering `auto-rebase-prs.yml` (remove the
-   two `workflow_run:` lines and the `workflows:`/`types:` sub-lines).
-   The remaining triggers (push, schedule, dispatch, `/rebase`) still
-   give full coverage; `workflow_run` is an optimisation that fires a
-   rebase pass the instant a required check completes.
+3. If none is found or the user declines, the workflow has **no
+   required-check workflow to key triggers off**, which drives two
+   conditional drops at render time (Step 6):
+   - **`auto-rebase-prs.yml`**: drop the `workflow_run` trigger entirely
+     (remove the two `workflow_run:` lines and the `workflows:` /
+     `types:` sub-lines). The remaining triggers (push, schedule,
+     dispatch, `/rebase`) still give full coverage; `workflow_run` is an
+     optimisation that fires a rebase pass the instant a required check
+     completes.
+   - **`auto-enable-automerge.yml`**: drop the whole
+     `dependabot-rest-merge` job and its `workflow_run` / `schedule`
+     triggers (leaving only the `pull_request` trigger and the human
+     `enable-automerge` job). The unattended Dependabot REST-merge
+     fundamentally needs a required-check completion to react to and a
+     resolved required-check set to gate on; with neither, it cannot run
+     safely, so it is omitted rather than rendered inert.
+
+   When `__REQUIRED_CHECK_WORKFLOW__` resolves to a list of more than one
+   workflow (the merge job's `workflow_run.workflows:` may name several so
+   the LAST completion fires after the rollup goes green), expand the
+   placeholder into a comma-separated YAML list. A single value renders as
+   a one-element list, which is valid.
 
 A template must never render with an unresolved placeholder. If any
 remain after this step, abort per `${CLAUDE_PLUGIN_ROOT}/payload/README.md`:
@@ -205,16 +278,20 @@ About to install PR-automation workflows with:
   GitHub App:         <app_slug> (ID <app_id>, install <installation_id>)
   Secret prefix:      <secret_prefix>   (sets <prefix>_APP_ID + <prefix>_APP_PRIVATE_KEY)
   Secret scope:       <repository | organization (--visibility all)>
-  Merge method:       <merge_method>
+  Merge method:       <merge_method>  (REST: <rest_merge_method>)
   do-not-merge label: <do_not_merge_label>
   Rebase bot identity:<bot_slug>
-  Required-check wf:   <required_check_workflow | (none — workflow_run dropped)>
+  Required-check wf:   <required_check_workflow | (none — workflow_run + Dependabot REST-merge dropped)>
+  Dependabot auto-merge: <ON (REST-merge job rendered) | OFF (no required-check wf)>
+  Install-gate wf:     <install_gate_workflow / npm check <install_gate_npm_check> | (none — lockfile-regen dropped)>
 
 Will RENDER into the repo, then COMMIT + PUSH + PR on a single
 approval (Step 6b — branch gh-repo-setup-pr-automation, targeting
 <default_branch>):
   .github/workflows/auto-enable-automerge.yml
   .github/workflows/auto-rebase-prs.yml
+  .github/scripts/auto-rebase-lockfile-regen.sh        (if install-gate present)
+  .github/scripts/test-auto-rebase-lockfile-regen.sh   (if install-gate present)
 
 Will SET (at the <repository | organization> scope; org requires admin:org):
   secret <prefix>_APP_ID            (set by the skill)
@@ -240,15 +317,21 @@ asks to change a value, update it and re-display this halt.
 For each template in
 `${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation/`, perform
 the string substitution from `${CLAUDE_PLUGIN_ROOT}/payload/README.md`
-("Rendering a template") and write the result into the repo under
-`.github/workflows/`.
+("Rendering a template") and write the result into the repo. The two
+`.yml` workflow templates render under `.github/workflows/`; the two
+`.sh` scripts render under `.github/scripts/` **verbatim** (they carry no
+placeholders, exactly like `gh-repo-setup-protection`'s
+`dependency-install-gate.sh` / `no-back-merging-guard.sh`), and only when
+the install-gate is present (Step 4).
 
 Reference render recipe (one substitution per discovered placeholder):
 
 ```bash
 src=${CLAUDE_PLUGIN_ROOT}/payload/gh-repo-setup-pr-automation
-dst="$(git rev-parse --show-toplevel)/.github/workflows"
-mkdir -p "$dst"
+root="$(git rev-parse --show-toplevel)"
+dst="$root/.github/workflows"
+scriptdst="$root/.github/scripts"
+mkdir -p "$dst" "$scriptdst"
 # Compute the two App-identity secret names from the single prefix, then
 # substitute the fully-formed names. The templates carry distinct
 # __APP_ID_SECRET__ / __APP_PRIVATE_KEY_SECRET__ placeholders rather than
@@ -256,6 +339,8 @@ mkdir -p "$dst"
 # reports a spurious __SECRET_PREFIX___ token.
 app_id_secret="${secret_prefix}_APP_ID"
 app_private_key_secret="${secret_prefix}_APP_PRIVATE_KEY"
+# __REST_MERGE_METHOD__ is __MERGE_METHOD__ lowercased (Step 4).
+rest_merge_method="$(printf '%s' "$merge_method" | tr '[:upper:]' '[:lower:]')"
 for f in auto-enable-automerge.yml auto-rebase-prs.yml; do
   rendered="$(cat "$src/$f")"
   rendered="${rendered//__GH_ORG__/$gh_org}"
@@ -266,17 +351,41 @@ for f in auto-enable-automerge.yml auto-rebase-prs.yml; do
   rendered="${rendered//__APP_ID_SECRET__/$app_id_secret}"
   rendered="${rendered//__APP_PRIVATE_KEY_SECRET__/$app_private_key_secret}"
   rendered="${rendered//__MERGE_METHOD__/$merge_method}"
+  rendered="${rendered//__REST_MERGE_METHOD__/$rest_merge_method}"
   rendered="${rendered//__DO_NOT_MERGE_LABEL__/$do_not_merge_label}"
   rendered="${rendered//__BOT_SLUG__/$bot_slug}"
   rendered="${rendered//__REQUIRED_CHECK_WORKFLOW__/$required_check_workflow}"
+  rendered="${rendered//__INSTALL_GATE_WORKFLOW__/$install_gate_workflow}"
+  rendered="${rendered//__INSTALL_GATE_NPM_CHECK__/$install_gate_npm_check}"
   printf '%s\n' "$rendered" > "$dst/$f"
 done
+
+# Lockfile-regen scripts: ship verbatim, executable, ONLY when the
+# install-gate is present (Step 4). Same convention as
+# gh-repo-setup-protection's .sh payloads.
+if [ "$install_gate_present" = "yes" ]; then
+  for s in auto-rebase-lockfile-regen.sh test-auto-rebase-lockfile-regen.sh; do
+    cp "$src/$s" "$scriptdst/$s"
+    chmod +x "$scriptdst/$s"
+  done
+fi
 ```
 
-If `__REQUIRED_CHECK_WORKFLOW__` was dropped (Step 4 case 3), strip the
-`workflow_run:` trigger block from `auto-rebase-prs.yml` after rendering
-rather than substituting a value — leaving an empty `workflows: []`
-would make the workflow file invalid.
+### Conditional drops after rendering
+
+- **No required-check workflow** (Step 4 case 3): strip the
+  `workflow_run:` trigger block from `auto-rebase-prs.yml` (leaving an
+  empty `workflows: []` would make the file invalid), AND remove the whole
+  `dependabot-rest-merge` job plus the `workflow_run:` / `schedule:`
+  triggers from `auto-enable-automerge.yml` (leaving only the
+  `pull_request` trigger and the `enable-automerge` job). After this
+  surgery re-validate both files parse as YAML.
+- **No install-gate workflow** (Step 4 install-gate path 3): do **not**
+  render the two `.sh` scripts, and remove the
+  `Regenerate desynced lockfiles on gate-red PRs` step (and the
+  preceding `Set up Node` step, which only the regen pass needs) from
+  `auto-rebase-prs.yml`. The routine rebase, the Dependabot
+  author-exclusion, and the `/rebase` responder all remain.
 
 The leading `__APP_ID__` substitution is harmless even though neither
 template currently references `__APP_ID__` (the App ID lives only in the
@@ -306,15 +415,17 @@ as they do now.
 
 ### Skip cleanly when there is nothing to commit
 
-If neither rendered file changed (a re-run against a repo whose workflow
-files are already byte-for-byte identical), there is **nothing to
-commit**: skip this step entirely, report "no file changes to commit; no
-PR opened", and proceed to Step 7. A no-op re-run must not produce an
-empty PR. Check with:
+If none of the rendered files changed (a re-run against a repo whose
+workflow and script files are already byte-for-byte identical), there is
+**nothing to commit**: skip this step entirely, report "no file changes
+to commit; no PR opened", and proceed to Step 7. A no-op re-run must not
+produce an empty PR. Check with:
 
 ```bash
 git status --short -- .github/workflows/auto-enable-automerge.yml \
-                      .github/workflows/auto-rebase-prs.yml
+                      .github/workflows/auto-rebase-prs.yml \
+                      .github/scripts/auto-rebase-lockfile-regen.sh \
+                      .github/scripts/test-auto-rebase-lockfile-regen.sh
 ```
 
 If that prints nothing, the working tree already matches; skip to Step 7.
@@ -326,15 +437,19 @@ single approval that covers commit + push + PR together — **not** three
 separate prompts:
 
 ```bash
-git status --short -- .github/workflows/
+git status --short -- .github/workflows/ .github/scripts/
 git diff -- .github/workflows/auto-enable-automerge.yml \
-            .github/workflows/auto-rebase-prs.yml
+            .github/workflows/auto-rebase-prs.yml \
+            .github/scripts/auto-rebase-lockfile-regen.sh \
+            .github/scripts/test-auto-rebase-lockfile-regen.sh
 ```
 
 ```text
 gh-repo-setup-pr-automation rendered these files:
   .github/workflows/auto-enable-automerge.yml
   .github/workflows/auto-rebase-prs.yml
+  .github/scripts/auto-rebase-lockfile-regen.sh        (if install-gate present)
+  .github/scripts/test-auto-rebase-lockfile-regen.sh   (if install-gate present)
 
 On approval I will, in one go:
   1. Commit them on a branch named after this skill
@@ -359,14 +474,25 @@ commit / push.
 
 On approval, do all three with no further prompts:
 
+The two `.github/scripts/*.sh` paths are only staged when the install-gate
+is present (Step 4) — they do not exist otherwise, so `git add -- <path>`
+on a missing path would error. Stage the directories instead so the add is
+correct whether or not the scripts were rendered:
+
 ```bash
 # Branch named after the skill. Create it from the current default-branch
 # tip if it does not exist; reuse it if a prior run left it.
 git switch -c gh-repo-setup-pr-automation \
   || git switch gh-repo-setup-pr-automation
 
+# Stage the two rendered dirs; this covers the two workflows always and
+# the two scripts when the install-gate path rendered them. Restrict the
+# add to the files this skill owns rather than a bare `git add -A` so an
+# unrelated working-tree change is not swept into this skill's PR.
 git add -- .github/workflows/auto-enable-automerge.yml \
            .github/workflows/auto-rebase-prs.yml
+git add -- .github/scripts/auto-rebase-lockfile-regen.sh \
+           .github/scripts/test-auto-rebase-lockfile-regen.sh 2>/dev/null || true
 git commit -m "Install PR-automation workflows (gh-repo-setup-pr-automation)"
 
 git push -u origin gh-repo-setup-pr-automation
@@ -375,8 +501,10 @@ gh pr create --base "$default_branch" \
   --head gh-repo-setup-pr-automation \
   --title "Install PR-automation workflows" \
   --body "Rendered by /gh-repo-setup-pr-automation: the auto-merge
-enablement and auto-rebase workflows. The App-identity secrets are
-applied directly to the repo/org and are not part of this PR."
+enablement and auto-rebase workflows (including the unattended Dependabot
+rebase-and-merge path and, when the install-gate is present, the npm
+lockfile-regen scripts). The App-identity secrets are applied directly to
+the repo/org and are not part of this PR."
 ```
 
 Capture and report the PR URL. If a PR already exists for the branch
@@ -628,11 +756,21 @@ Rendered-files PR (branch gh-repo-setup-pr-automation, Step 6b):
   <PR URL | no file changes to commit | left uncommitted at operator's request>
   - .github/workflows/auto-enable-automerge.yml
   - .github/workflows/auto-rebase-prs.yml
+  - .github/scripts/auto-rebase-lockfile-regen.sh        <rendered | skipped: no install-gate>
+  - .github/scripts/test-auto-rebase-lockfile-regen.sh   <rendered | skipped: no install-gate>
+
+Unattended Dependabot rebase-and-merge: <ON | OFF: no required-check workflow>
+  - When ON, also add the App "<app_slug>" as a `pull_request` bypass
+    actor in the branch-protection ruleset (owned by
+    /gh-repo-setup-protection) so a code-owned Dependabot PR can merge
+    unattended. Without the bypass it still merges un-code-owned PRs.
 
 Next steps:
   1. Review and merge the rendered-files PR above (if one was opened);
      the workflows take effect once on the default branch.
-  2. Verify end-to-end (operational, see "Live verification" below).
+  2. If unattended Dependabot merge is ON, run /gh-repo-setup-protection
+     to add the App as a bypass actor (if not already done).
+  3. Verify end-to-end (operational, see "Live verification" below).
 ```
 
 ## Live verification (operational — the human runs this)
@@ -660,6 +798,29 @@ the default branch, the human:
    tick (or trigger manually with
    `gh workflow run auto-rebase-prs.yml`). Confirm the behind PR is
    rebased.
+
+4. **Unattended Dependabot merge** (only when the REST-merge job was
+   rendered): wait for a real Dependabot PR to go green, or trigger
+   `gh workflow run auto-enable-automerge.yml`. Confirm the
+   `dependabot-rest-merge` job resolves the required-check set, finds the
+   PR green, rebases it in-workflow if behind, and merges it. A
+   code-owned Dependabot PR merges unattended **only** if the App is a
+   `pull_request` bypass actor in the branch-protection ruleset (see
+   `/gh-repo-setup-protection`); otherwise it is left for a human, which
+   is the safe default.
+
+5. **Lockfile-regen** (only when the install-gate scripts were rendered):
+   the shipped self-test runs offline with a fake `npm` and needs no live
+   repo — run it from the rendered repo to confirm the script behaves:
+
+   ```bash
+   bash .github/scripts/test-auto-rebase-lockfile-regen.sh
+   ```
+
+   Live: a Dependabot PR whose npm lockfile is desynced from its manifest
+   (the `<install_gate_workflow>` `<install_gate_npm_check>` check red)
+   should get its lockfile regenerated and force-pushed by the
+   `Regenerate desynced lockfiles on gate-red PRs` step.
 
 If the first run fails at "Mint App installation token", the secrets
 are missing or the App is not installed on this repo — re-check Step 7
@@ -719,14 +880,27 @@ All optional except where the skill prompts:
   resolution and the set entirely, so this flag has no effect on that
   run.
 - `--merge-method <MERGE|SQUASH|REBASE>` — override `__MERGE_METHOD__`
-  (default `MERGE`).
+  (default `MERGE`). The Dependabot REST-merge path uses the lowercased
+  form (`__REST_MERGE_METHOD__`) automatically; there is no separate
+  flag for it.
 - `--do-not-merge-label <label>` — override `__DO_NOT_MERGE_LABEL__`
   (default `do-not-merge`).
 - `--bot-slug <name>` — override `__BOT_SLUG__` (default
   `<repo>-auto-rebase[bot]`).
 - `--required-check-workflow <name>` — name of the required-check
-  workflow whose completion triggers a rebase pass. Omit to have the
-  skill propose one or drop the `workflow_run` trigger.
+  workflow whose completion triggers a rebase pass **and** the Dependabot
+  REST-merge re-evaluation. Omit to have the skill propose one. If none is
+  found or you decline, the `workflow_run` trigger is dropped from the
+  rebase workflow AND the whole `dependabot-rest-merge` job is dropped
+  from the auto-merge workflow (the human auto-merge path still renders).
+- `--install-gate-workflow <name>` — override `__INSTALL_GATE_WORKFLOW__`
+  (default `dependency-install-gate`), the workflow whose npm check red
+  signals a lockfile desync for the regen pass. If the named workflow is
+  absent from the repo, the lockfile-regen step and the two regen scripts
+  are dropped (Step 4).
+- `--install-gate-npm-check <name>` — override `__INSTALL_GATE_NPM_CHECK__`
+  (default `npm`), the npm `CheckRun` name within the install-gate
+  workflow.
 
 ---
 
@@ -776,13 +950,19 @@ All optional except where the skill prompts:
   do not re-trigger required checks. This is by design and reflected in
   the template comments.
 - **Never edit anything outside the current repo.** The skill writes
-  under `<repo-root>/.github/workflows/`; the remote changes are the
-  rendered-files PR on the `gh-repo-setup-pr-automation` branch (Step 6b
-  — a normal push of files under `.github/workflows/` to this repo) and
-  the two App-identity secrets, set either on the current repo
-  (repository scope, default) or on the current repo's owning org
-  (organization scope) per Step 7's `--secret-scope`. Org scope writes
-  org-level secrets for `<gh_org>` and touches no other repo's files.
+  under `<repo-root>/.github/workflows/` and `<repo-root>/.github/scripts/`;
+  the remote changes are the rendered-files PR on the
+  `gh-repo-setup-pr-automation` branch (Step 6b — a normal push of files
+  under `.github/workflows/` and `.github/scripts/` to this repo) and the
+  two App-identity secrets, set either on the current repo (repository
+  scope, default) or on the current repo's owning org (organization
+  scope) per Step 7's `--secret-scope`. Org scope writes org-level
+  secrets for `<gh_org>` and touches no other repo's files.
+- **Never add the bypass actor.** The unattended Dependabot REST-merge
+  needs the App to be a `pull_request` bypass actor in the
+  branch-protection ruleset, but adding it is owned by
+  `/gh-repo-setup-protection`. This skill only renders the job and tells
+  the operator (Step 8) to run that skill; it never edits a ruleset.
 
 ---
 
@@ -798,7 +978,13 @@ All optional except where the skill prompts:
   `workflow_run` trigger.
 - **Branch-protection rulesets.** Auto-merge only merges once required
   checks pass, but configuring which checks are required is out of
-  scope.
+  scope. The Dependabot REST-merge job **reads** the live required-check
+  set from the rulesets at runtime, but it never writes a ruleset. Adding
+  the App as a `pull_request` **bypass actor** (what lets the REST merge
+  waive review on a code-owned Dependabot PR) is owned by
+  `/gh-repo-setup-protection`; this skill renders the job and hands the
+  operator off (Step 8). Without the bypass the job still merges
+  un-code-owned green Dependabot PRs.
 - **The live end-to-end verification.** The skill installs everything so
   the human can verify; performing the live PR test requires real
   secrets and a real PR and is the human's operational step (see "Live
