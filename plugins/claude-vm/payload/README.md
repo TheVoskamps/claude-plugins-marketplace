@@ -226,6 +226,27 @@ not re-downloaded and `gpg` is not re-run, and the launcher drops
 Requires `gpg` (`brew install gnupg`) and a sha256 tool (`shasum` /
 `sha256sum`, both stock on macOS/Linux).
 
+**Trust-path preflight (fail fast):** before any image build, network
+call, or Keychain read, the launcher checks the local, instant
+preconditions for the verified cache and credential selection up front:
+
+- `gpg` is on PATH;
+- a `claude.signing_key_fingerprint` is pinned in config;
+- that pinned fingerprint is actually present in the gpg keyring;
+- `python3` is on PATH (used to select the `claudeAiOauth` credential —
+  see "Authentication" above).
+
+Each failed check prints the exact remediation command(s) (`brew install
+gnupg`, the `curl … | gpg --import` + `gpg --fingerprint` pin steps,
+`xcode-select --install` for `python3`) rather than a bare error.
+Without this gate, a cold boot would otherwise pay for a guest-image
+build and three network fetches (channel pointer + manifest + signature)
+before aborting on a condition knowable at startup. The deep checks in
+this library (gpg-on-PATH at the verify step, the unset-pin hard-abort)
+and in `lib/credential.sh` (`python3` at the selection step) remain as
+defense-in-depth — the preflight is an additive early gate, not a
+replacement.
+
 ## Tests
 
 ```bash

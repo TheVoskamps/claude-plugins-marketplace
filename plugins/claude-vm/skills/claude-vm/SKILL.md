@@ -244,13 +244,28 @@ does not symlink it onto PATH. The launcher resolves it automatically
 (an explicit on-PATH `gvproxy` first, then podman's libexec), so
 installing podman is enough.
 
-Before any build/boot work, the launcher runs a **dependency
-preflight** that checks the whole toolchain up front (gvproxy
-resolvable, `vfkit`/`podman` on PATH, podman machine running, and —
-only when the bundled default proxy is in use — `tinyproxy`). It fails
-fast with one actionable remediation line per missing piece rather than
-dying deep in the boot sequence. A custom `proxy.cmd` owns its own
-dependencies, so the `tinyproxy` check is skipped then.
+Before any image build, network call, or Keychain read, the launcher
+runs a **trust-path preflight** that checks the local, instant
+preconditions for the verified cache and credential selection up front:
+`gpg` on PATH, the `claude.signing_key_fingerprint` pinned in config,
+that pinned fingerprint actually present in the gpg keyring, and
+`python3` on PATH. Each failed check prints the exact remediation
+command(s) (e.g. `brew install gnupg`, the
+`curl … | gpg --import` + `gpg --fingerprint` pin steps). Without this
+gate, a cold boot would otherwise pay for a guest-image build and three
+network fetches before aborting on a condition that was knowable at
+startup. These are an additive early gate; the deep checks in the
+verified cache (gpg-on-PATH and unset-pin hard-abort) and credential
+selection (`python3`) remain as defense-in-depth.
+
+After the trust-path preflight, and still before any build/boot work,
+the launcher runs a **dependency preflight** that checks the VM
+toolchain up front (gvproxy resolvable, `vfkit`/`podman` on PATH,
+podman machine running, and — only when the bundled default proxy is in
+use — `tinyproxy`). It fails fast with one actionable remediation line
+per missing piece rather than dying deep in the boot sequence. A custom
+`proxy.cmd` owns its own dependencies, so the `tinyproxy` check is
+skipped then.
 
 The config-resolution half (layering, scalar/list resolution) is
 exercisable without the virtualization stack; see
