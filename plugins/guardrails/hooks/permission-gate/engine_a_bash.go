@@ -105,6 +105,14 @@ type simpleCommand struct {
 	// real file (not /dev/null). Such a command can exfiltrate/clobber and
 	// must not ride an allow-listed prefix.
 	hasRedirectToFile bool
+	// hasInlineAssignment is true when the command carried an inline
+	// environment-assignment prefix (`AWS_ENDPOINT_URL=… aws …`,
+	// `GIT_SSH_COMMAND=… git …`, `GH_HOST=… gh …`). Such a prefix can redirect
+	// egress, swap identity, or inject a pager without ever touching argv, so
+	// the git/gh/aws classifiers DENY on it (issue #64 precondition). The
+	// prefix is stripped from args[] by stripEnvWrapper so the real program is
+	// at args[0]; this flag preserves the fact that it was present.
+	hasInlineAssignment bool
 }
 
 // allowEligible reports whether a command is eligible for the high-confidence
@@ -415,6 +423,18 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		}
 	}
 
+	// An inline environment-assignment prefix on the CallExpr itself
+	// (`AWS_ENDPOINT_URL=… aws …`, `GIT_SSH_COMMAND=… git …`) sets env for THIS
+	// command only. The parser parks these on c.Assigns (separate from c.Args)
+	// when a program token follows. Such a prefix can redirect egress, swap
+	// identity, or inject a pager without ever touching argv, so the git/gh/aws
+	// classifiers DENY on it (#64). Record its presence; a bare assignment-only
+	// CallExpr (no program) has no Args and is handled as a shell-state mutation
+	// elsewhere, so the program-bearing guard below is what matters here.
+	if len(c.Assigns) > 0 && len(c.Args) > 0 {
+		sc.hasInlineAssignment = true
+	}
+
 	for _, w := range c.Args {
 		lit, exact := literalWord(w, knownVars)
 		if !exact {
@@ -424,16 +444,27 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 	}
 
 	// Strip leading `env` wrapper and its VAR=val args (§10). Repeat in case
-	// of `env A=1 env B=2 cmd` (unusual but harmless to handle).
-	sc.args = stripEnvWrapper(sc.args)
+	// of `env A=1 env B=2 cmd` (unusual but harmless to handle). The
+	// `env VAR=val cmd` form parks the assignment in args (not c.Assigns), so
+	// stripEnvWrapper reports whether it removed any assignment so the inline
+	// flag is set for that form too.
+	var strippedAssign bool
+	sc.args, strippedAssign = stripEnvWrapper(sc.args)
+	if strippedAssign {
+		sc.hasInlineAssignment = true
+	}
 
 	return sc, nil
 }
 
 // stripEnvWrapper removes a leading `env` and any leading VAR=val tokens so
 // the actual program is at args[0]. `env -i`, `env -u VAR`, and `env --` are
-// handled by skipping their option args.
-func stripEnvWrapper(args []string) []string {
+// handled by skipping their option args. It also reports whether any VAR=val
+// assignment token was stripped, so the caller can flag the command as
+// carrying an inline environment-assignment prefix (#64): the `env VAR=val cmd`
+// form parks the assignment in args (not on the CallExpr's Assigns), so this is
+// the only place that form is observed.
+func stripEnvWrapper(args []string) (out []string, strippedAssign bool) {
 	for len(args) > 0 && args[0] == "env" {
 		args = args[1:]
 		// Skip env's own options and var assignments until the program token.
@@ -454,6 +485,7 @@ func stripEnvWrapper(args []string) []string {
 			case strings.HasPrefix(a, "-"):
 				args = args[1:]
 			case isAssignment(a):
+				strippedAssign = true
 				args = args[1:]
 			default:
 				goto doneEnvOpts
@@ -464,9 +496,10 @@ func stripEnvWrapper(args []string) []string {
 	// Strip any remaining leading VAR=val assignment prefixes (e.g.
 	// `FOO=bar cmd`); these set env for the command, not the program.
 	for len(args) > 0 && isAssignment(args[0]) {
+		strippedAssign = true
 		args = args[1:]
 	}
-	return args
+	return args, strippedAssign
 }
 
 // isAssignment reports whether a token looks like NAME=value (a shell

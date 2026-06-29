@@ -85,6 +85,49 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   human sees each one. `sed` and `tee` are dual-mode — their read-only
   forms (`sed -n`, `tee /dev/null`) stay on the read-only-utility track;
   only the mutating form routes here.
+- **Dangerous git / gh / aws classifier** (`classify_command.go`,
+  `rules.go`, #64): the deny/ask half of the command classifier for the
+  three tools whose remote operations can damage or expose a remote
+  GitHub repo (`git`/`gh`) or exfil credentials/data (`aws`). The
+  classifiers **never defer** — every path resolves to allow/ask/deny —
+  and the **default for a recognized tool is ALLOW** (containment lives
+  in the microVM), with deny/ask tiers carving out the dangerous shapes.
+  Four bypass gates fire BEFORE per-command logic, since each reaches a
+  dangerous outcome without the flag a naive policy keys on:
+  (1) a **non-static argv** (command substitution, unresolved variable,
+  glob) on any of the three tools **denies** — the dynamic token can
+  hide a dangerous op; (2) an **inline environment-assignment prefix**
+  (`AWS_ENDPOINT_URL=…`, `GIT_SSH_COMMAND=…`, `GH_HOST=…`, `AWS_PAGER=…`,
+  in both the bare `VAR=x cmd` and `env VAR=x cmd` forms) **denies** —
+  it can redirect egress, swap identity, or inject a pager without
+  touching argv; (3) **`git -c <key>=<value>` / `--config-env` /
+  `--exec-path=<dir>`** config-injection RCE (`core.pager`,
+  `core.sshCommand`, `diff.external`, `alias.*`, `*.textconv`, …)
+  **denies** — these execute arbitrary commands and defeat any read
+  classification (an inert display knob like `-c color.ui=always` still
+  allows); (4) **`git push` is classified on its refspec**, not just its
+  flags — a `source:dest` refspec **asks** (it overwrites a remote ref
+  without `--force`), `--mirror`/`--prune` **deny** (bulk remote
+  delete), plain `--force`/`-f` **ask**, while `--force-with-lease`, a
+  clean named-branch delete (`--delete <branch>`, `origin :branch`), and
+  an ordinary fast-forward push **allow**. For `gh`: `gh api` is routed
+  through a method/body/graphql gate (a non-GET method, an
+  implicit-POST-flipping body flag, the `graphql` endpoint, or an
+  `x-http-method-override` header **deny**; a plain GET **asks** — the
+  microVM's no-egress posture is the real exfil control); irreparable
+  verbs (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
+  writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
+  `repo edit --visibility`, `release create`, and `gist create --public`
+  **ask**. For `aws`: `--endpoint-url` **denies** (redirects the signed
+  request, with credentials, to an arbitrary host); credential/secret
+  reads (`sts get-session-token`, `ecr get-login-password`,
+  `secretsmanager get-secret-value`, `ssm get-parameter
+  --with-decryption`, …) **ask**; read-only ops (`describe-`/`list-`/
+  `get-` hyphen-anchored, token-matched not substring-matched) and
+  ordinary writes the spec does not name **allow**. The existing
+  identity rules (#117 `gh auth switch`, #125 `git config user.*`, #120
+  subagent `git reset --hard`, the App-repo naked-`gh` deny) are
+  preserved and fire alongside these tiers.
 - **Engine B — path containment** (`engine_b_containment.go`,
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
