@@ -112,13 +112,20 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   clean named-branch delete (`--delete <branch>`, `origin :branch`), and
   an ordinary fast-forward push **allow**. For `gh`: `gh api` is routed
   through a method/body/graphql gate (a non-GET method, an
-  implicit-POST-flipping body flag, the `graphql` endpoint, or an
-  `x-http-method-override` header **deny**; a plain GET **asks** — the
-  microVM's no-egress posture is the real exfil control); irreparable
-  verbs (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
+  implicit-POST-flipping body flag, the `graphql` endpoint, an
+  `x-http-method-override` header, or `--hostname` (which aims the
+  signed request at a non-default host — the gh analog of
+  `--endpoint-url`) **deny**; a plain GET **asks** — the microVM's
+  no-egress posture is the real exfil control); irreparable verbs
+  (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
   `repo edit --visibility`, `release create`, and `gist create --public`
-  **ask**. For `aws`: `--endpoint-url` **denies** (redirects the signed
+  **ask**. The leading global-flag screen is parsed before the
+  noun/verb so a value-taking global (`-R owner/repo`) has its value
+  token consumed (otherwise `gh -R owner/repo issue delete` would read
+  the slug as the noun and slip the delete past the deny tier), and an
+  unrecognized leading global fails closed (**deny**) rather than
+  desyncing detection. For `aws`: `--endpoint-url` **denies** (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret
   reads (`sts get-session-token`, `ecr get-login-password`,
   `secretsmanager get-secret-value`, `ssm get-parameter
