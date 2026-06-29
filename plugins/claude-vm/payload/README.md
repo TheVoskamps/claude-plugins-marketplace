@@ -143,6 +143,15 @@ EFI-bootable Debian guest with the boot launcher installed as a
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`.
 
+The launcher captures the guest's serial console to
+`$RUN/guest-console.log` (vfkit `--device virtio-serial,logFilePath=…`),
+making an otherwise black-box boot observable from the host. The guest
+exposes that virtio-console as `/dev/hvc0`; the recipe's
+`KernelCommandLine` sets `console=hvc0` and the boot unit writes
+`StandardOutput=journal+console`, so the boot launcher's `claude-vm:`
+seam lines and any boot error land in this log. The path is reported on
+exit and retained in the run dir alongside `egress.pcap`.
+
 ## Forward proxy (`proxy/tinyproxy-launch.sh`)
 
 The default `proxy.cmd`. When `proxy.cmd` is unset in both config layers,
