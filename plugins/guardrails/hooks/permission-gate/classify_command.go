@@ -49,6 +49,19 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		return classifyPathReader(prog, args, sc, ev)
 	}
 
+	// #32: curated in-repo-write ALLOW track (cp/mv/mkdir/touch/sed -i/tee FILE).
+	// A file-mutating program ALLOWs when every path operand it writes is
+	// contained in the current worktree; an escaping operand denies (#127/#148).
+	// Dual-mode programs (sed/tee) are ALSO in readOnlyUtilities: route to this
+	// classifier only for the genuinely-mutating form (mutatesFn), and let the
+	// read-only form fall through to the read-only-utility classifier below.
+	// Pure writers (cp/mv/mkdir/touch — no mutatesFn) always route here.
+	if spec, ok := inRepoWriters[prog]; ok {
+		if spec.mutatesFn == nil || spec.mutatesFn(args, sc) {
+			return classifyInRepoWrite(prog, args, sc, ev)
+		}
+	}
+
 	// #31: curated read-only-utility ALLOW track (cat/head/sed -n/awk/printf/…).
 	// The proven read-only form of these high-frequency text/data utilities
 	// ALLOWs (no real-file redirect, no unknown expansion, no mutating flag,
