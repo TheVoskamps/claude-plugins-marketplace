@@ -57,8 +57,18 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return d
 	}
 
-	// Strip gh's own global flags to find the command path.
-	cmd := stripLeadingFlags(args)
+	// Parse gh's leading global-flag screen to find the command path. Unlike a
+	// naive strip, parseGhGlobals consumes the VALUE of space-separated
+	// value-taking globals (e.g. `-R owner/repo`) so the value token is never
+	// mistaken for the noun/verb — that desync is a deny-tier BYPASS (issue #64
+	// decision 3: a missed deny is a silent auto-allow). It also fails closed
+	// (DENY) on an UNKNOWN leading global, since an unrecognized global can
+	// desync detection the same way and the cost of a false deny is one human
+	// click while a false allow is an irreparable operation.
+	cmd, early := parseGhGlobals(args)
+	if early != nil {
+		return *early
+	}
 	if len(cmd) == 0 {
 		// Bare `gh` (no subcommand) — nothing to run; ALLOW. (The App-repo
 		// naked-gh deny below still fires when relevant.)
@@ -299,6 +309,19 @@ func classifyGhAPI(args []string) Decision {
 			strings.HasPrefix(a, "--raw-field="),
 			strings.HasPrefix(a, "--input="):
 			bodyBearing = true
+		case a == "--hostname":
+			// --hostname redirects the request to a non-default GitHub host —
+			// the gh analog of `aws --endpoint-url`. The signed request (carrying
+			// the credential) can be aimed at an attacker-controlled host
+			// (credential/data exfil, SSRF). DENY unconditionally, symmetric with
+			// the aws --endpoint-url deny (issue #64 appendix step 6).
+			return classifyghAPIDeny(
+				"Blocked: 'gh api --hostname' redirects the SIGNED request — carrying your credential — to a " +
+					"non-default host (credential/data exfil and SSRF), the gh analog of 'aws --endpoint-url'. Denied.")
+		case strings.HasPrefix(a, "--hostname="):
+			return classifyghAPIDeny(
+				"Blocked: 'gh api --hostname' redirects the SIGNED request — carrying your credential — to a " +
+					"non-default host (credential/data exfil and SSRF), the gh analog of 'aws --endpoint-url'. Denied.")
 		case a == "-H" || a == "--header":
 			if i+1 < len(args) {
 				if headerIsMethodOverride(args[i+1]) {
@@ -559,6 +582,85 @@ func classifyAcli(args []string, sc simpleCommand) Decision {
 		}
 	}
 	return deferToPipeline()
+}
+
+// ghGlobalValueFlags are gh's leading global flags that consume a following
+// VALUE token (in the space-separated form). `-R`/`--repo` selects the target
+// repository and is accepted before the noun (`gh -R owner/repo issue delete`).
+// If the value token is not consumed it is mistaken for the noun and the
+// command slips past the deny tier to the ALLOW floor (issue #64 decision 3).
+var ghGlobalValueFlags = map[string]bool{
+	"-R":     true,
+	"--repo": true,
+}
+
+// ghGlobalBoolFlags are gh's leading global flags that take no value. These
+// produce no dangerous operation on their own; they are recognized only so the
+// fail-closed unknown-flag DENY below does not fire on them.
+var ghGlobalBoolFlags = map[string]bool{
+	"--help":    true,
+	"-h":        true,
+	"--version": true,
+}
+
+// parseGhGlobals walks the leading global-flag screen of a `gh` invocation and
+// returns the command-path tokens (noun verb …) with all leading globals — and
+// the values of value-taking globals — consumed. It stops at the first
+// non-flag token (the noun).
+//
+// Two desync defenses, both motivated by issue #64 decision 3 (with the ALLOW
+// floor in place, a missed deny is a silent auto-allow, so the deny tier must
+// be un-bypassable):
+//
+//   - A known value-taking global (`-R owner/repo`) consumes its value token so
+//     the value (e.g. a repo slug) is never read as the noun. The glued forms
+//     (`-Rowner/repo`, `--repo=owner/repo`) carry their own value and need no
+//     extra consumption.
+//   - An UNKNOWN leading global fails closed: parseGhGlobals returns a DENY
+//     rather than skipping the flag, because an unrecognized global could take a
+//     value (desyncing detection) or otherwise change behavior the gate cannot
+//     reason about. Default-deny within the gate mirrors the gh-api unknown-flag
+//     handling; the cost of a false deny is one human click.
+//
+// On the fail-closed path the second return is a non-nil DENY Decision and the
+// caller returns it immediately. On the normal path the second return is nil.
+func parseGhGlobals(args []string) ([]string, *Decision) {
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			break // the noun — end of the global screen.
+		}
+		switch {
+		case ghGlobalValueFlags[a]:
+			i += 2 // consume the flag AND its value token.
+		case ghGlobalBoolFlags[a]:
+			i++
+		case isGhKnownGluedGlobal(a):
+			i++ // `-Rfoo` / `--repo=foo` carry their value inline.
+		default:
+			d := deny("gh unknown-global (#64)",
+				"Blocked: an unrecognized leading 'gh' global flag ("+a+") cannot be classified safely — it may "+
+					"consume the following token as its value, desyncing the gate's noun/verb detection and letting an "+
+					"irreparable operation slip past the deny tier. Fail-closed (issue #64 decision 3). Run gh without "+
+					"the unrecognized global; if it is genuinely needed, surface it to the human.")
+			return nil, &d
+		}
+	}
+	return args[i:], nil
+}
+
+// isGhKnownGluedGlobal reports whether a leading flag token is a recognized gh
+// global in its glued / `=`-joined form, which carries its own value and so
+// needs no separate value-token consumption: `-Rowner/repo` and `--repo=…`.
+func isGhKnownGluedGlobal(a string) bool {
+	if strings.HasPrefix(a, "-R") && len(a) > 2 {
+		return true
+	}
+	if strings.HasPrefix(a, "--repo=") {
+		return true
+	}
+	return false
 }
 
 // stripLeadingFlags drops leading -/-- flags so the command-path tokens are at
