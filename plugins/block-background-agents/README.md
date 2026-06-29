@@ -1,14 +1,23 @@
 # block-background-agents
 
-A single-purpose policy guardrail: a `PreToolUse` hook that **denies
-background agent spawns**.
+A single-purpose policy guardrail: a `PreToolUse` hook that **denies any
+agent spawn that does not explicitly request the foreground**.
 
 ## What it does
 
-When the main session spawns a subagent with `run_in_background: true`,
-the hook denies the call and returns a reason telling the model to spawn
-the agent in the foreground instead. Foreground spawns
-(`run_in_background` absent or `false`) pass through untouched.
+The hook allows a subagent spawn **only** when `run_in_background` is
+explicitly `false`. Every other input state — `run_in_background` absent,
+`null`, `true`, any other value, or malformed/empty stdin — is denied,
+and the deny reason tells the model to re-spawn with an explicit
+`run_in_background: false`.
+
+This is a deliberate inversion of the older "deny only when `true`"
+predicate. That version defaulted to *allow* whenever the field was
+absent, which could not distinguish "the caller deliberately asked for
+the foreground" from "the caller said nothing and the call backgrounded
+anyway." Explicit `false` is the one input state with no observed
+background counterexample, so requiring it is the strongest guard the
+hook's single field (`tool_input.run_in_background`) can support.
 
 ## Why
 
@@ -48,17 +57,32 @@ agent-spawning tool:
 ```
 
 `hooks/block-background-agent.sh` (POSIX `sh` + `jq`) reads the hook
-stdin JSON, extracts `tool_input.run_in_background`, and — when it is
-`true` — emits a structured `permissionDecision: deny` with an
-explanatory reason. Otherwise it exits 0 with no output (allow).
+stdin JSON and extracts `tool_input.run_in_background`. When that value
+is exactly `false` it exits 0 with no output (allow); for every other
+value it emits a structured `permissionDecision: deny` with an
+explanatory reason.
 
 A hook `matcher` filters by **tool name only**, not by arguments, so the
-matcher catches *every* agent spawn and the hook body distinguishes
-foreground from background by reading the background flag from stdin.
+matcher catches *every* agent spawn and the hook body distinguishes the
+explicit-foreground case from everything else by reading the background
+flag from stdin.
 
-The hook fails open: malformed or empty stdin yields
-`run_in_background = false` → allow. This is an advisory policy guard,
-not a security boundary.
+### Malformed / empty stdin: the hook fails CLOSED
+
+This is the deliberate counterpart to the require-explicit-`false`
+predicate. Earlier versions of this hook failed *open* — malformed or
+empty stdin was coerced to `run_in_background = false` and allowed. Under
+the inverted predicate that would defeat the point: an unparseable or
+silent input is exactly the "caller said nothing" case the inversion is
+meant to deny.
+
+So when stdin is empty or not valid JSON, `jq` produces no `false` value
+and the spawn is **denied**. The cost of a false deny is cheap — the
+model re-spawns with an explicit `run_in_background: false` — whereas a
+false *allow* reintroduces the silent-stall failure this plugin exists to
+prevent.
+
+This remains an advisory policy guard, not a security boundary.
 
 ## Tool-name caveat
 
