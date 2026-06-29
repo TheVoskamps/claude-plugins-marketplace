@@ -184,6 +184,14 @@ hands `<boot-launcher-path> <output-image-path>` to the provisioner. The
 `CLAUDE_VM_IMAGE_PROVISIONER` env var overrides the bundled default with
 your own script honoring the same two-argument contract.
 
+The launcher captures the booting guest's serial console to
+`$RUN/guest-console.log` via vfkit `--device
+virtio-serial,logFilePath=…`. The guest exposes that virtio-console as
+`/dev/hvc0` (recipe `KernelCommandLine` sets `console=hvc0`, boot unit
+writes `StandardOutput=journal+console`), so the boot launcher's seam
+output and any boot error are observable from the host instead of being
+discarded. The path is reported on exit and retained in the run dir.
+
 ## Authentication (secrets)
 
 The guest authenticates with the **host operator's live claude.ai OAuth
