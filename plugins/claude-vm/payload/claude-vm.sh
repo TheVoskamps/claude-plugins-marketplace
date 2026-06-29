@@ -292,6 +292,15 @@ fi
 
 GVPROXY_SOCK="$RUN/vfkit-net.sock"
 PCAP="$RUN/egress.pcap"
+# Host-side capture of the guest's virtio-console (/dev/hvc0 in the guest).
+# The boot unit writes StandardOutput=journal+console and the recipe's
+# KernelCommandLine sets console=hvc0 (provisioners/podman-mkosi.sh, issue
+# #71), so the boot launcher's claude-vm: seam lines and any claude/boot
+# error land on this stream. Capturing it here (issue #87) makes an
+# otherwise-black-box boot observable from the host: without the matching
+# vfkit --device virtio-serial,logFilePath=... below, the guest writes to
+# its console and the host throws it away.
+GUEST_CONSOLE_LOG="$RUN/guest-console.log"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
 EFISTORE="$RUN/efistore"
@@ -709,6 +718,9 @@ cleanup() {
     rm -f "$RAW_CREDENTIAL"
   fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
+  if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then
+    echo "claude-vm: guest console log retained at: $GUEST_CONSOLE_LOG" >&2
+  fi
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
 # Replace the narrow interim trap (armed right after the OAuth credential was
@@ -746,4 +758,5 @@ vfkit \
   --device "virtio-fs,sharedDir=$CREDS_DIR,mountTag=claudecreds" \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
+  --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
   --device "virtio-rng"
