@@ -135,7 +135,13 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   load-bearing, so a bare verb like `configure get` is NOT read-anchored
   and a secret-key `configure get` lands in the ask tier above —
   token-matched not substring-matched) and ordinary writes the spec does
-  not name **allow**. The existing
+  not name **allow**. The leading global-flag screen is parsed before
+  the service/operation split, and an **unrecognized leading global flag
+  of unknown arity fails closed to ask** — a value-taking flag the gate
+  doesn't know (`--cli-pager less`) would otherwise leave its value as a
+  stray positional, shifting the operation token and slipping a
+  credential read (`--cli-pager less configure get aws_secret_access_key`)
+  past the ask tier to the allow floor. The existing
   identity rules (#117 `gh auth switch`, #125 `git config user.*`, #120
   subagent `git reset --hard`, the App-repo naked-`gh` deny) are
   preserved and fire alongside these tiers.

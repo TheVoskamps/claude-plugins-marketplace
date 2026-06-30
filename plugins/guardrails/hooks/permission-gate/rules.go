@@ -445,7 +445,17 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 				"AWS endpoints are the only sanctioned targets.")
 	}
 
-	svc, op := awsServiceAndOp(args)
+	svc, op, ok := awsServiceAndOp(args)
+	if !ok {
+		// An unrecognized leading global flag of unknown arity desynced the
+		// service/operation split. We cannot trust which token is the operation,
+		// so a credential read could be hiding behind the shift. Fail closed to
+		// ASK rather than guess (#64 decision #3).
+		return ask("aws unknown-global (#64)",
+			"'aws' has an unrecognized leading global flag whose argument shape the permission gate cannot "+
+				"determine; this can hide a credential read behind a shifted operation token. Confirm the command "+
+				"is intended, or remove the unrecognized global flag.")
+	}
 	if svc == "" || op == "" {
 		// Not a recognizable `aws <service> <operation>` shape; nothing to
 		// classify and nothing dangerous detected — ALLOW (#64 decision 1).
@@ -532,11 +542,11 @@ func awsConfigureReadsSecret(args []string) bool {
 	seenConfigure, seenGet := false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		// Skip aws/configure global value-taking flags so their values are not
-		// read as the key positional.
-		switch a {
-		case "--region", "--profile", "--output", "--color", "--ca-bundle",
-			"--cli-read-timeout", "--cli-connect-timeout", "--query":
+		// Skip leading global value-taking flags (shared map) so their values
+		// are not read as the key positional. Reaching here means
+		// awsServiceAndOp already cleanly recognized `configure get`, so the
+		// global screen parsed; this scan stays consistent with that map.
+		if awsGlobalValueFlags[a] {
 			i++
 			continue
 		}
@@ -571,23 +581,57 @@ func awsConfigureReadsSecret(args []string) bool {
 	return false
 }
 
+// awsGlobalValueFlags are aws's leading global options that consume a following
+// VALUE token in the space-separated form. The `=`-joined form
+// (`--profile=prod`) carries its own value and is handled separately.
+var awsGlobalValueFlags = map[string]bool{
+	"--region": true, "--profile": true, "--output": true,
+	"--endpoint-url": true, "--color": true, "--ca-bundle": true,
+	"--cli-read-timeout": true, "--cli-connect-timeout": true, "--query": true,
+	"--cli-pager": true, "--cli-binary-format": true,
+}
+
+// awsGlobalBoolFlags are aws's leading global options that take no value.
+var awsGlobalBoolFlags = map[string]bool{
+	"--debug": true, "--no-sign-request": true, "--no-paginate": true,
+	"--no-cli-pager": true, "--no-verify-ssl": true, "--no-cli-auto-prompt": true,
+	"--cli-auto-prompt": true,
+}
+
 // awsServiceAndOp extracts the service and operation tokens, skipping aws's
-// global options (--region, --profile, --output, etc.).
-func awsServiceAndOp(args []string) (svc, op string) {
+// leading global options. It returns ok=false when it cannot trust the
+// positional split — specifically when it meets an UNRECOGNIZED leading flag
+// whose arity (value-taking vs. boolean) is unknown. Guessing the arity is the
+// exact desync #64 decision #3 warns about: a value-taking flag the gate does
+// not know (`--cli-pager less`) would leave its value (`less`) as a stray
+// positional, shifting svc/op by one and slipping a credential read past the
+// ASK tier to the ALLOW floor. So an unknown leading flag fails closed:
+// awsServiceAndOp returns ok=false and classifyAws routes that to ASK.
+//
+// Only flags BEFORE the service token are scrutinized; once the service token
+// (the first positional) is seen, the remaining args are the operation and its
+// own flags, which the per-operation classifiers handle and which cannot move
+// svc/op.
+func awsServiceAndOp(args []string) (svc, op string, ok bool) {
 	var positionals []string
 	i := 0
 	for i < len(args) {
 		a := args[i]
 		switch {
-		case a == "--region" || a == "--profile" || a == "--output" ||
-			a == "--endpoint-url" || a == "--color" || a == "--ca-bundle" ||
-			a == "--cli-read-timeout" || a == "--cli-connect-timeout" || a == "--query":
-			i += 2
+		case awsGlobalValueFlags[a]:
+			i += 2 // consume the flag AND its value token
+		case awsGlobalBoolFlags[a]:
+			i++
 		case strings.HasPrefix(a, "--") && strings.Contains(a, "="):
-			i++
-		case a == "--debug" || a == "--no-sign-request" || a == "--no-paginate" || a == "--no-cli-pager":
-			i++
+			i++ // `--flag=value` carries its own value
 		case strings.HasPrefix(a, "-"):
+			// Unrecognized leading flag of unknown arity. If we have not yet
+			// found the service token, we cannot trust the positional split —
+			// fail closed (#64 decision #3). Once past the service token, an
+			// unknown flag is an operation flag and is harmless to the split.
+			if len(positionals) == 0 {
+				return "", "", false
+			}
 			i++
 		default:
 			positionals = append(positionals, a)
@@ -595,9 +639,9 @@ func awsServiceAndOp(args []string) (svc, op string) {
 		}
 	}
 	if len(positionals) >= 2 {
-		return positionals[0], positionals[1]
+		return positionals[0], positionals[1], true
 	}
-	return "", ""
+	return "", "", true
 }
 
 // awsReadOnlyOp reports whether an aws operation token is read-only. The token
