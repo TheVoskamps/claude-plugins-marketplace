@@ -129,9 +129,13 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   request, with credentials, to an arbitrary host); credential/secret
   reads (`sts get-session-token`, `ecr get-login-password`,
   `secretsmanager get-secret-value`, `ssm get-parameter
-  --with-decryption`, …) **ask**; read-only ops (`describe-`/`list-`/
-  `get-` hyphen-anchored, token-matched not substring-matched) and
-  ordinary writes the spec does not name **allow**. The existing
+  --with-decryption`, `configure get aws_secret_access_key` and the
+  other local-credential-store secret keys, …) **ask**; read-only ops
+  (`describe-`/`list-`/`get-` **hyphen-anchored** — the hyphen is
+  load-bearing, so a bare verb like `configure get` is NOT read-anchored
+  and a secret-key `configure get` lands in the ask tier above —
+  token-matched not substring-matched) and ordinary writes the spec does
+  not name **allow**. The existing
   identity rules (#117 `gh auth switch`, #125 `git config user.*`, #120
   subagent `git reset --hard`, the App-repo naked-`gh` deny) are
   preserved and fire alongside these tiers.

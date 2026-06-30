@@ -508,6 +508,65 @@ func awsCredentialRead(svc, op string, args []string) bool {
 		case "get-parameter", "get-parameters", "get-parameters-by-path":
 			return containsToken(args, "--with-decryption")
 		}
+	case "configure":
+		// `aws configure get <key>` reads the LOCAL credential store. It is a
+		// bare-verb command (no hyphen) so it is excluded from awsReadOnlyOp;
+		// when the key it reads is secret-bearing it is a credential read → ASK
+		// (#64 exposure harm). The key is the next positional after `get`.
+		if op == "get" {
+			return awsConfigureReadsSecret(args)
+		}
+	}
+	return false
+}
+
+// awsConfigureReadsSecret reports whether an `aws configure get …` invocation
+// names a secret-bearing key. The key may be a bare positional
+// (`aws configure get aws_secret_access_key`) or profile-qualified via
+// `--profile`; either way it appears as a positional token after `configure`
+// and `get`. A profile-dotted form (`profile.aws_secret_access_key`) is matched
+// on its trailing segment. Conservative: an unrecognized key is treated as a
+// secret read too (fail-closed toward ASK), since `aws configure get` of a
+// custom key can still surface a secret and the cost is one prompt.
+func awsConfigureReadsSecret(args []string) bool {
+	seenConfigure, seenGet := false, false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		// Skip aws/configure global value-taking flags so their values are not
+		// read as the key positional.
+		switch a {
+		case "--region", "--profile", "--output", "--color", "--ca-bundle",
+			"--cli-read-timeout", "--cli-connect-timeout", "--query":
+			i++
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if !seenConfigure {
+			if a == "configure" {
+				seenConfigure = true
+			}
+			continue
+		}
+		if !seenGet {
+			if a == "get" {
+				seenGet = true
+			}
+			continue
+		}
+		// First positional after `configure get` is the key.
+		key := strings.ToLower(a)
+		if j := strings.LastIndexByte(key, '.'); j >= 0 {
+			key = key[j+1:] // strip `profile.` qualifier
+		}
+		// Recognized non-secret keys read-allow; recognized + unrecognized
+		// secret-shaped keys ASK (fail-closed toward ASK).
+		switch key {
+		case "region", "output", "aws_access_key_id", "cli_pager":
+			return false
+		}
+		return true
 	}
 	return false
 }
@@ -542,13 +601,20 @@ func awsServiceAndOp(args []string) (svc, op string) {
 }
 
 // awsReadOnlyOp reports whether an aws operation token is read-only. The token
-// is matched as a whole hyphen-segmented verb prefix (list-*, describe-*,
-// get-*) plus a small explicit set, NOT a substring (so "delete-list-xyz"
+// must be a HYPHENATED operation (list-*, describe-*, get-*) — the hyphen anchor
+// is load-bearing (#64): it admits the convention-named API reads
+// (`get-object`, `list-buckets`, `describe-instances`) while EXCLUDING the
+// bare-verb high-level commands that don't follow the convention and are not
+// safe (`aws configure get/set/list`, `aws s3 ls/cp`, `aws lambda invoke`). A
+// bare `get`/`list`/`describe` (no hyphen) must NOT match — e.g.
+// `aws configure get aws_secret_access_key` reads the local credential store
+// and is routed to the credential-read ASK tier, not allowed here. The match is
+// on the whole hyphen-segmented prefix, NOT a substring (so "delete-list-xyz"
 // would not match list).
 func awsReadOnlyOp(op string) bool {
 	op = strings.ToLower(op)
 	for _, prefix := range []string{"list", "describe", "get"} {
-		if op == prefix || strings.HasPrefix(op, prefix+"-") {
+		if strings.HasPrefix(op, prefix+"-") {
 			return true
 		}
 	}
