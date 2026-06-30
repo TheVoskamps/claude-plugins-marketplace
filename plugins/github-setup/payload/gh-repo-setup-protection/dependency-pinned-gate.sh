@@ -34,6 +34,10 @@
 #   - npm `peerDependencies` carets (peer deps are ranges by design)
 #   - npm `file:` / `workspace:` / `link:` / `git+` / `http(s):` specs
 #     (local-path / protocol deps have no registry version to pin)
+#   - npm `owner/repo#<40-hex-sha>` git-shorthand commit pins (the SHA
+#     is immutable -- exact). A BARE `owner/repo` or a `#branch` / `#tag`
+#     ref floats to the default-branch HEAD and is NOT exempt; same for
+#     the `github:`-prefixed forms.
 #   - npm `engines` (node/npm toolchain floors, not deps)
 #   - npm `overrides` / `resolutions` -- classified on the override
 #     VALUE (exact), never the selector KEY (whose caret is a match
@@ -41,6 +45,8 @@
 #   - pip `requires-python` / `python_requires` (a runtime floor)
 #   - Docker `tag@sha256:` digests (the tag floats but the digest is
 #     immutable, so the resolved image is exact -- the digest is read)
+#   - Docker `FROM scratch` (the reserved empty base image -- no digest
+#     exists to pin)
 #   - the `# vX.Y.Z` trailing comment on a SHA-pinned action (display)
 #
 # Depth (npm): DIRECT deps + lockfile-present. The human-authored specs
@@ -135,8 +141,32 @@ violations = []
 # whitespace comparator is non-exact.
 EXACT = re.compile(r'^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.\-]+)?$')
 
+# A 40-hex commit SHA -- the only git-ish ref that is immutable.
+COMMIT_SHA = re.compile(r'^[0-9a-fA-F]{40}$')
+
+# A bare GitHub `owner/repo` git-shorthand (optionally `github:`-prefixed)
+# floats to the repo's default-branch HEAD, so it is NOT exempt -- UNLESS
+# it carries an immutable commit pin `owner/repo#<40-hex-sha>`, which is
+# exact and stays exempt. A `#branch` / `#tag` ref (anything that is not a
+# 40-hex SHA) still floats. Returns True only for the commit-pinned form.
+def is_pinned_git_shorthand(spec):
+    s = spec.strip()
+    if s.startswith("github:"):
+        s = s[len("github:"):]
+    # `owner/repo` with exactly one slash and no registry `@version`.
+    before_hash = s.split("#", 1)[0]
+    if before_hash.count("/") != 1 or "@" in before_hash:
+        return False
+    if "#" not in s:
+        return False  # bare owner/repo -- floats to HEAD
+    ref = s.split("#", 1)[1]
+    return bool(COMMIT_SHA.match(ref))
+
 # Specs that have no registry version to pin -- local-path / protocol
-# deps. These are exempt by category.
+# deps. These are exempt by category. A bare `owner/repo` (or
+# `github:owner/repo`) git-shorthand is NOT exempt here: it floats to the
+# default-branch HEAD unless commit-pinned, and is_exact() handles the
+# commit-pinned exemption separately.
 def is_protocol_spec(spec):
     s = spec.strip()
     return (
@@ -147,9 +177,10 @@ def is_protocol_spec(spec):
         or s.startswith("git:")
         or s.startswith("http:")
         or s.startswith("https:")
-        or s.startswith("github:")
-        or "/" in s.split("#")[0] and s.count("/") == 1 and "@" not in s
-        # owner/repo shorthand (a git dep) -- no registry version
+        # A commit-pinned `owner/repo#<40-hex>` (or `github:`-prefixed)
+        # is immutable -- exempt. A bare or branch/tag-ref shorthand
+        # floats and is intentionally NOT exempt here.
+        or is_pinned_git_shorthand(spec)
     )
 
 def is_exact(spec):
@@ -434,14 +465,22 @@ stages = set()
 with open(manifest) as f:
     lines = f.readlines()
 
-# First pass: collect stage names.
+# First pass: collect stage names. Skip any leading `--flag` tokens
+# (e.g. `FROM --platform=$BUILDPLATFORM img AS name`) before reading the
+# image token and the `AS <name>` clause, mirroring the second pass's
+# flag-skipping logic so the two passes agree on token positions.
 for raw in lines:
     m = FROM_RE.match(raw)
     if not m:
         continue
     parts = m.group(1).split()
-    if len(parts) >= 3 and parts[1].lower() == "as":
-        stages.add(parts[2])
+    idx = 0
+    while idx < len(parts) and parts[idx].startswith("--"):
+        idx += 1
+    # parts[idx] is the image; parts[idx+1] is the `AS` keyword; parts
+    # [idx+2] is the stage name.
+    if len(parts) >= idx + 3 and parts[idx + 1].lower() == "as":
+        stages.add(parts[idx + 2])
 
 # Second pass: classify each FROM image reference.
 lineno = 0
@@ -451,7 +490,6 @@ for raw in lines:
     if not m:
         continue
     parts = m.group(1).split()
-    image = parts[0]
     # `FROM --platform=... image` -- skip a leading --flag.
     idx = 0
     while idx < len(parts) and parts[idx].startswith("--"):
@@ -459,6 +497,11 @@ for raw in lines:
     if idx >= len(parts):
         continue
     image = parts[idx]
+    # `FROM scratch` -- Docker's reserved empty base image. It has no
+    # digest and cannot be pinned; it is a special-cased reserved name,
+    # neither a violation nor a stage reference. Exempt it.
+    if image.lower() == "scratch":
+        continue
     # Build-stage reference -- not an image.
     if image in stages:
         continue

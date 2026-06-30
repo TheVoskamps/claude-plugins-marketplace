@@ -12,7 +12,11 @@
 #       `replace`.
 #   - The categorical-exempt cases stay GREEN: npm peerDependencies
 #     caret, pip `requires-python` range, docker `tag@sha256:` digest,
-#     npm override-VALUE-exact-with-caret-KEY.
+#     npm override-VALUE-exact-with-caret-KEY, docker `FROM scratch`,
+#     docker `--platform`-flagged stage reference, npm
+#     `owner/repo#<40-hex>` commit pin.
+#   - The git-shorthand FLOATS go RED: a bare npm `owner/repo` and a
+#     `owner/repo#<branch>` ref (neither is an immutable commit pin).
 #   - The lockfile-present check goes RED: a deps-declaring package.json
 #     with no lockfile beside it.
 #
@@ -154,6 +158,51 @@ JSON
 commit_all "$R"
 run_case "npm: file:/workspace: protocol specs (exempt)" 0 "$R" npm
 
+# Red: a bare `owner/repo` git-shorthand floats to the default-branch
+# HEAD -- it has no immutable pin, so it must be flagged.
+R="$TMP/npm-shorthand-bare"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "shorthand-bare",
+  "dependencies": { "left-pad": "user/repo" }
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "shorthand-bare", "lockfileVersion": 3 }
+JSON
+commit_all "$R"
+run_case "npm: bare owner/repo shorthand floats (red)" 1 "$R" npm
+
+# Exempt: a `owner/repo#<40-hex-sha>` git-shorthand is commit-pinned and
+# therefore immutable -- it stays green.
+R="$TMP/npm-shorthand-sha"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "shorthand-sha",
+  "dependencies": { "left-pad": "user/repo#0123456789abcdef0123456789abcdef01234567" }
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "shorthand-sha", "lockfileVersion": 3 }
+JSON
+commit_all "$R"
+run_case "npm: owner/repo#<40-hex> commit pin (exempt)" 0 "$R" npm
+
+# Red: a `owner/repo#<branch>` ref still floats (a branch/tag is not an
+# immutable commit SHA).
+R="$TMP/npm-shorthand-branch"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "shorthand-branch",
+  "dependencies": { "left-pad": "user/repo#main" }
+}
+JSON
+writef "$R/package-lock.json" <<'JSON'
+{ "name": "shorthand-branch", "lockfileVersion": 3 }
+JSON
+commit_all "$R"
+run_case "npm: owner/repo#main branch ref floats (red)" 1 "$R" npm
+
 # Red: deps declared but NO lockfile beside the manifest.
 R="$TMP/npm-nolock"; git_init_repo "$R"
 writef "$R/package.json" <<'JSON'
@@ -256,6 +305,30 @@ RUN echo bye
 DOCKER
 commit_all "$R"
 run_case "docker: tag@sha256 digest + stage ref (clean)" 0 "$R" docker
+
+# Exempt: `FROM scratch` -- the reserved empty base image cannot be
+# digest-pinned and is special-cased green.
+R="$TMP/docker-scratch"; git_init_repo "$R"
+writef "$R/Dockerfile" <<'DOCKER'
+FROM scratch
+COPY hello /hello
+DOCKER
+commit_all "$R"
+run_case "docker: FROM scratch reserved base (exempt)" 0 "$R" docker
+
+# Exempt: a `--platform`-flagged FROM names a stage, so a later
+# `FROM <stage>` is a stage reference, not a floating image. Regression
+# guard: the first (stage-collection) pass must skip the leading --flag
+# to record the `AS builder` stage name.
+R="$TMP/docker-platform-stage"; git_init_repo "$R"
+writef "$R/Dockerfile" <<'DOCKER'
+FROM --platform=$BUILDPLATFORM node:22@sha256:0000000000000000000000000000000000000000000000000000000000000000 AS builder
+RUN echo build
+FROM builder
+RUN echo final
+DOCKER
+commit_all "$R"
+run_case "docker: --platform stage + later FROM stage (clean)" 0 "$R" docker
 
 # Poisoned: a :latest tag with no digest.
 R="$TMP/docker-latest"; git_init_repo "$R"
