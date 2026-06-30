@@ -253,6 +253,49 @@ func TestAwsCredentialReadAsk_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "aws ssm get-parameter --name n", false), BucketAllow, "ssm get-parameter no-decryption")
 }
 
+// `aws configure get <secret-key>` reads the LOCAL credential store. It is a
+// bare-verb command (no hyphen) — the hyphen anchor must EXCLUDE it from the
+// read-allow tier (the issue body names `aws configure get/set` as a required
+// exclusion), and the secret-bearing keys route to the credential-read ASK
+// tier. A bare `get` matching the read anchor was a Critical leak: it let the
+// secret key read reach the ALLOW floor.
+func TestAwsConfigureGetSecretAsk_64(t *testing.T) {
+	for _, cmd := range []string{
+		"aws configure get aws_secret_access_key",
+		"aws configure get aws_session_token",
+		"aws configure get aws_security_token",
+		"aws --profile prod configure get aws_secret_access_key",
+		"aws configure get profile.aws_secret_access_key", // profile-dotted key
+		"aws configure get some_custom_key",               // unrecognized key → fail-closed ASK
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws configure get secret: "+cmd)
+	}
+	// Non-secret configure-get keys are a harmless read → ALLOW.
+	for _, cmd := range []string{
+		"aws configure get region",
+		"aws configure get output",
+		"aws configure get aws_access_key_id", // the access-key ID is not secret
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "aws configure get non-secret: "+cmd)
+	}
+}
+
+// Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
+// `op == "get"`/`"list"`/`"describe"` previously short-circuited to ALLOW,
+// defeating the hyphen anchor. Bare verbs the spec does not name fall to the
+// ALLOW default (#64 dec 1); the dangerous bare verb (`configure get` secret)
+// is caught by the credential-read ASK tier above.
+func TestAwsBareVerbNotReadAnchored_64(t *testing.T) {
+	// The hyphenated forms still ALLOW (anchor intact).
+	for _, cmd := range []string{
+		"aws ec2 describe-instances",
+		"aws s3api list-buckets",
+		"aws s3api get-object --bucket b --key k out",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "aws hyphenated read: "+cmd)
+	}
+}
+
 // --- aws ALLOW: reads and ordinary writes ------------------------------------
 
 func TestAwsAllow_64(t *testing.T) {
