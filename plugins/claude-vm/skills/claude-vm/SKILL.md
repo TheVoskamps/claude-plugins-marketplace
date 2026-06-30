@@ -57,9 +57,9 @@ Two layers, both optional:
 ### Layering semantics
 
 - **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
-  `repo.copy_back`, `proxy.*`, `claude.version`): repo overrides global;
-  global fills gaps; a hardcoded default applies only when neither layer
-  sets the key.
+  `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`):
+  repo overrides global; global fills gaps; a hardcoded default applies
+  only when neither layer sets the key.
 - **Lists** (`egress.allow`, `mounts`): **merged** — the union of
   global + repo entries, de-duplicated.
 
@@ -79,6 +79,9 @@ repo:
 claude:
   version: stable                 # stable (default) | latest | <pinned>
                                   # host-side GPG-verified cache key
+  renderer: classic               # classic | fullscreen | (unset)
+                                  # terminal renderer on the interactive
+                                  # console; unset uses claude's own default
 
 proxy:
   cmd: "<forward-proxy launch command>"   # must read
@@ -120,6 +123,41 @@ mounts:                           # extra mounts beyond the repo auto-mount
   `downloads.claude.ai` from the guest egress allowlist. See the payload
   README's "Verified claude cache" section for the operator's one-time
   key-import step.
+- `claude.renderer` selects the in-guest claude's terminal renderer on
+  the interactive console (the vfkit `stdio` byte pipe). Both renderers
+  work over the console — this is a preference, not a workaround:
+  `classic` disables the alternate-screen buffer
+  (`CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`), `fullscreen` forces the
+  flicker-free fullscreen renderer (`CLAUDE_CODE_NO_FLICKER=1`), and
+  leaving it unset passes nothing so claude uses its own default. The
+  launcher writes the matching `CLAUDE_CODE_*` var into `run.env`. An
+  unrecognized value aborts the launch.
+
+## Interactive session (the launching terminal IS the in-VM claude)
+
+`claude-vm <repo>` opens an **interactive** Claude Code session on the
+launching terminal — the terminal becomes the guest's `hvc1` console and
+you drive the full REPL inside the micro-VM (detached clone + egress
+proxy). This is the product goal; headless one-shot is not. Pass
+`--remote-control --name <n>` straight through (`claude-vm <repo>
+--remote-control --name foo`) and the same session is *also*
+Remote-Control-attached for AFK observation/replies — those flags reach
+the in-guest claude via the existing `CLAUDE_ARGS` plumbing; no extra
+transport is involved.
+
+Topology: vfkit attaches **two** virtio-serial consoles. The first
+(`logFilePath`, guest `hvc0`) captures all kernel/systemd boot output to
+`$RUN/guest-console.log` (preserving the observability from the
+guest-console capture); the second (`stdio`, guest `hvc1`) bridges the
+launching terminal. The guest runs claude as the login program of an
+autologin `serial-getty@hvc1`, so claude *is* the session with no shell
+in between. Boot diagnostics stay on `hvc0` (off your terminal).
+
+Because the `stdio` console is a byte pipe that needs a real controlling
+TTY on the host, **launch `claude-vm` from a real terminal**, not from a
+pipe. The console carries no live window-resize channel, so the launcher
+seeds the guest tty geometry once from the host's `stty size` at launch;
+there is no live resize.
 
 ## Repo mount strategy (`repo.mount`)
 
@@ -154,10 +192,11 @@ companion skills handle extraction explicitly:
 Claude Code updates daily, so the guest image does **not** bake in
 `claude`:
 
-- The baked image is a **stable base**: a pinned OS plus a one-shot
-  boot launcher that, on boot, loads the run environment and then execs
-  the **host-side GPG-verified `claude` binary** mounted RO at
-  `/mnt/claudebin` against the repo at `/mnt/repo`. `claude` is never
+- The baked image is a **stable base**: a pinned OS plus a boot launcher
+  that, on boot, loads the run environment and then execs the
+  **host-side GPG-verified `claude` binary** mounted RO at
+  `/mnt/claudebin` against the repo at `/mnt/repo`, as an interactive
+  session on the `hvc1` console (issue #88). `claude` is never
   baked in and never fetched-and-run inside the guest (no
   `curl install.sh | bash` anywhere — there is no such fallback); the
   host fetches, verifies, and caches it (see "Verified claude cache" in
@@ -178,19 +217,23 @@ the bundled `payload/provisioners/podman-mkosi.sh`: mkosi run inside a
 throwaway rootless podman container (Debian Trixie build container,
 systemd ≥ 254 for the offline, loop-device-free `RepartOffline=yes`
 path), emitting a raw EFI-bootable Debian guest with the boot launcher
-installed as a `Type=oneshot` unit. vfkit boots it `--bootloader efi`.
-`build-guest-image.sh` pins the version and emits the boot launcher, then
-hands `<boot-launcher-path> <output-image-path>` to the provisioner. The
-`CLAUDE_VM_IMAGE_PROVISIONER` env var overrides the bundled default with
-your own script honoring the same two-argument contract.
+wired as the autologin `serial-getty@hvc1` login program (so claude
+becomes the interactive `hvc1` console session — issue #88), plus an
+unlocked passwordless root (`RootPassword=hashed:`). vfkit boots it
+`--bootloader efi`. `build-guest-image.sh` pins the version and emits the
+boot launcher, then hands `<boot-launcher-path> <output-image-path>` to
+the provisioner. The `CLAUDE_VM_IMAGE_PROVISIONER` env var overrides the
+bundled default with your own script honoring the same two-argument
+contract.
 
-The launcher captures the booting guest's serial console to
-`$RUN/guest-console.log` via vfkit `--device
-virtio-serial,logFilePath=…`. The guest exposes that virtio-console as
-`/dev/hvc0` (recipe `KernelCommandLine` sets `console=hvc0`, boot unit
-writes `StandardOutput=journal+console`), so the boot launcher's seam
-output and any boot error are observable from the host instead of being
-discarded. The path is reported on exit and retained in the run dir.
+The launcher captures the booting guest's **boot** serial console
+(`hvc0`) to `$RUN/guest-console.log` via the first vfkit `--device
+virtio-serial,logFilePath=…`. The recipe `KernelCommandLine` sets
+`console=hvc0`, so all kernel/systemd boot output — and the boot
+launcher's diagnostic/seam lines, which it writes explicitly to
+`/dev/console` — are observable from the host instead of being
+discarded, while staying off the interactive `hvc1` terminal. The path
+is reported on exit and retained in the run dir.
 
 ## Authentication (secrets)
 

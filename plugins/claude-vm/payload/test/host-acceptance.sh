@@ -433,6 +433,12 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   CLAUDEBIN_SHARE="$WORK/claudebin"
   CLAUDECREDS_SHARE="$WORK/claudecreds"
   mkdir -p "$RUNCONFIG_SHARE" "$REPO_SHARE" "$CLAUDEBIN_SHARE" "$CLAUDECREDS_SHARE"
+  # CLAUDE_VM_COLUMNS/LINES (issue #88): the real launcher writes the host
+  # `stty size` here; this headless boot test has no controlling terminal, so
+  # they are EMPTY -- the boot launcher then skips the `stty` geometry seed and
+  # the guest keeps its 80x24 default. (Empty mirrors what the real launcher
+  # writes when claude-vm is invoked from a non-tty.) The renderer CLAUDE_CODE_*
+  # vars are intentionally absent here (claude.renderer unset).
   cat > "$RUNCONFIG_SHARE/run.env" <<'RUNENV'
 HTTPS_PROXY=http://192.168.127.1:8080
 HTTP_PROXY=http://192.168.127.1:8080
@@ -441,6 +447,8 @@ REPO_TAG=repo
 POLICY_TAG=policy
 CLAUDEBIN_TAG=claudebin
 CLAUDECREDS_TAG=claudecreds
+CLAUDE_VM_COLUMNS=
+CLAUDE_VM_LINES=
 CLAUDE_ARGS=--version
 RUNENV
   # Stub claude: prints a marker the boot test asserts, proving the guest
@@ -459,6 +467,19 @@ STUBCLAUDE
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
   # The virtio-fs devices mirror claude-vm.sh's always-present mounts.
+  #
+  # Dual virtio-serial topology (issue #88): the real launcher attaches a
+  # FIRST virtio-serial (logFilePath -> guest hvc0, the boot capture) and a
+  # SECOND (stdio -> guest hvc1, the interactive console claude runs on via the
+  # autologin serial-getty@hvc1). This HEADLESS test has no controlling tty, so
+  # it cannot use `stdio` for hvc1; instead it attaches the second console as a
+  # SECOND logFilePath capture (HVC1_LOG) so the device EXISTS -- otherwise
+  # serial-getty@hvc1 has no tty to bind and the boot launcher (the getty's
+  # login program) never runs, so the seam marker never appears. The boot
+  # launcher routes its diagnostics to /dev/console (hvc0 = BOOT_LOG), so the
+  # seam marker still lands in BOOT_LOG regardless of which console claude's own
+  # stdio is on. Device ORDER is load-bearing: 1st -> hvc0, 2nd -> hvc1.
+  HVC1_LOG="$LOG_DIR/hvc1.log"     # retained diagnostic (issue #115)
   vfkit \
     --cpus 2 --memory 2048 \
     --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -470,6 +491,7 @@ STUBCLAUDE
     --device "virtio-net,unixSocketPath=$GVSOCK" \
     --device "virtio-rng" \
     --device "virtio-serial,logFilePath=$BOOT_LOG" \
+    --device "virtio-serial,logFilePath=$HVC1_LOG" \
     >>"$BOOT_LOG" 2>&1 &
   VFKIT_PID="$!"
   PIDS_TO_KILL+=("$VFKIT_PID")
@@ -494,10 +516,19 @@ STUBCLAUDE
   # (b2) The seam is FILLED (issue #49): the guest should have exec'd the
   # claude binary off the /mnt/claudebin RO mount. Our stub prints a marker;
   # asserting it confirms the mount+exec path, not merely reaching the seam.
-  if grep -q "claude-vm-stub: ran host-verified claude off the mount" "$BOOT_LOG"; then
+  #
+  # Where the marker lands (issue #88): the boot launcher now runs as the
+  # autologin serial-getty@hvc1 login program and `exec`s claude with hvc1 as
+  # its controlling tty -- so the stub claude's STDOUT marker goes to hvc1
+  # (HVC1_LOG), NOT to the hvc0 boot console (BOOT_LOG, where the launcher's own
+  # /dev/console diagnostics go). Search BOTH logs so the assertion is robust to
+  # exactly which console carries the stub's stdout.
+  STUB_MARKER="claude-vm-stub: ran host-verified claude off the mount"
+  if grep -q "$STUB_MARKER" "$BOOT_LOG" 2>/dev/null \
+     || grep -q "$STUB_MARKER" "$HVC1_LOG" 2>/dev/null; then
     pass "(b) guest exec'd the host-verified claude off the /mnt/claudebin mount"
   else
-    fail "(b) guest did not run the mounted claude binary at the seam" "see $BOOT_LOG"
+    fail "(b) guest did not run the mounted claude binary at the seam" "see $BOOT_LOG and $HVC1_LOG"
   fi
 else
   fail "(b) skipped: no bootable image from criterion (a)"
