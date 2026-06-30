@@ -280,6 +280,31 @@ func TestAwsConfigureGetSecretAsk_64(t *testing.T) {
 	}
 }
 
+// An unrecognized leading global flag of UNKNOWN arity must fail closed: if a
+// value-taking global the gate doesn't know (`--cli-pager less`) is not
+// consumed, its value becomes a stray positional and shifts svc/op by one,
+// slipping a credential read past the ASK tier to the ALLOW floor (#64 dec 3).
+// awsServiceAndOp returns ok=false on an unknown leading flag → classifyAws ASKs.
+func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
+	// The exploit strings: a value-taking global flag prefix in front of a
+	// credential read. Each MUST ask, never allow.
+	for _, cmd := range []string{
+		"aws --cli-pager less configure get aws_secret_access_key",
+		"aws --cli-binary-format raw-in-base64-out sts get-session-token",
+		"aws --cli-pager less secretsmanager get-secret-value --secret-id s",
+		// A genuinely-unknown flag (not even in the new value-flag map) must
+		// also fail closed rather than be guessed as a boolean.
+		"aws --totally-unknown-flag xyz sts get-session-token",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws unknown-global desync: "+cmd)
+	}
+	// The now-known value flags, when consumed correctly, must NOT over-block a
+	// benign read: the credential read behind them still ASKs (caught), and a
+	// plain read still resolves (not a spurious unknown-global ASK).
+	wantBucket(t, classifyCmd(t, "aws --cli-pager less ec2 describe-instances", false), BucketAllow, "known value-flag + benign read")
+	wantBucket(t, classifyCmd(t, "aws --cli-binary-format raw-in-base64-out s3api list-buckets", false), BucketAllow, "cli-binary-format + benign read")
+}
+
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
 // `op == "get"`/`"list"`/`"describe"` previously short-circuited to ALLOW,
 // defeating the hyphen anchor. Bare verbs the spec does not name fall to the
