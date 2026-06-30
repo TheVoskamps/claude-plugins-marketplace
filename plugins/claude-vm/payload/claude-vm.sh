@@ -101,6 +101,24 @@ GUEST_IMAGE="$(claude_vm_scalar "$MERGED" '.guest_image' "$DEFAULT_IMAGE_DIR/gue
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
 CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
 
+# claude.renderer: which renderer the in-guest claude uses on the byte-pipe
+# console (issue #88). The vfkit stdio console is a plain bidirectional byte
+# pipe, but the guest's alternate-screen (fullscreen) renderer survives it
+# (verified on a real host), so this is a preference, not a workaround:
+#   classic    -> CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (no alt-screen)
+#   fullscreen -> CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
+#   unset/""   -> pass nothing; claude uses its own default
+# Mapped to the matching env var(s) in run.env below. An unrecognized value
+# is rejected up front rather than silently ignored.
+CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED" '.claude.renderer' "")"
+case "$CLAUDE_RENDERER" in
+  ""|classic|fullscreen) : ;;
+  *)
+    echo "claude-vm: unknown claude.renderer '$CLAUDE_RENDERER' (expected classic|fullscreen, or leave unset)" >&2
+    exit 1
+    ;;
+esac
+
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
 # verification's root of trust to a specific key -- a bare `gpg --verify`
@@ -290,16 +308,45 @@ else
   RUN="$(claude_vm_mktemp -d claude-vm)"
 fi
 
-GVPROXY_SOCK="$RUN/vfkit-net.sock"
+# gvproxy unix socket -- sited under a SHORT $TMPDIR path, NOT under $RUN
+# (issue #88, Finding 7). The AF_UNIX sun_path limit is ~104 bytes, and
+# vfkit derives a child socket name (e.g. vfkit-<hex>-<num>.sock, ~20 bytes)
+# in the SAME directory as the socket we pass it. With $RUN under
+# <repo>/.claude/tmp/<runid>/ the base socket path is already ~118 bytes on a
+# normally-nested repo -- and the derived child path ~124 -- so BOTH overflow
+# and `claude-vm <repo>` cannot boot. The run dir must stay under the repo
+# (the diff/apply skills depend on its location), but the socket location is
+# independent of it: site it under a short mktemp dir under $TMPDIR (resulting
+# child path ~79 bytes, well under the limit). $TMPDIR is used BARE: it is
+# always set on macOS (the only platform claude-vm targets), is a per-user
+# owner-only dir (matches the launcher's credential posture, unlike
+# world-writable /tmp), and a user can override with TMPDIR=... claude-vm ...
+# If it is somehow unset, fail with a clear claude-vm message rather than a
+# raw `set -u` error or a silent downgrade to /tmp. The socket dir is removed
+# by cleanup() on exit.
+if [ -z "${TMPDIR:-}" ]; then
+  echo "claude-vm: \$TMPDIR is not set. claude-vm sites the gvproxy unix socket under a short" >&2
+  echo "claude-vm: \$TMPDIR path to stay under the ~104-byte AF_UNIX limit. macOS always sets" >&2
+  echo "claude-vm: \$TMPDIR; if it is unset, set it (e.g. TMPDIR=/tmp claude-vm ...) and retry." >&2
+  exit 1
+fi
+SOCK_DIR="$(claude_vm_mktemp -d claude-vm-sock)"
+GVPROXY_SOCK="$SOCK_DIR/net.sock"
 PCAP="$RUN/egress.pcap"
-# Host-side capture of the guest's virtio-console (/dev/hvc0 in the guest).
-# The boot unit writes StandardOutput=journal+console and the recipe's
-# KernelCommandLine sets console=hvc0 (provisioners/podman-mkosi.sh, issue
-# #71), so the boot launcher's claude-vm: seam lines and any claude/boot
-# error land on this stream. Capturing it here (issue #87) makes an
-# otherwise-black-box boot observable from the host: without the matching
-# vfkit --device virtio-serial,logFilePath=... below, the guest writes to
-# its console and the host throws it away.
+# Host-side capture of the guest's BOOT virtio-console (/dev/hvc0 in the
+# guest). The recipe's KernelCommandLine sets console=hvc0
+# (provisioners/podman-mkosi.sh, issue #71), so all kernel + systemd boot
+# output -- and the boot launcher's claude-vm: diagnostic/seam lines, which it
+# writes explicitly to /dev/console -- land on this stream. Capturing it here
+# (issue #87) makes an otherwise-black-box boot observable from the host.
+#
+# Dual-console topology (issue #88): hvc0 is the FIRST virtio-serial device
+# (boot capture, logFilePath below); a SECOND virtio-serial device is attached
+# in `stdio` mode -> guest hvc1, the INTERACTIVE console the launching terminal
+# bridges to. Device order is deterministic (1st -> hvc0, 2nd -> hvc1). claude
+# runs on hvc1 via an autologin getty (see build-guest-image.sh /
+# provisioners/podman-mkosi.sh), so boot diagnostics (hvc0 capture) stay off
+# the interactive terminal (hvc1).
 GUEST_CONSOLE_LOG="$RUN/guest-console.log"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
@@ -498,6 +545,27 @@ esac
 # now that it holds no secret, and it keeps the discipline if a secret is
 # ever reintroduced here.
 # ---------------------------------------------------------------------
+# Capture the host terminal geometry (issue #88). The vfkit stdio console is
+# a plain byte pipe with NO out-of-band window-size channel, so the guest
+# hvc1 tty defaults to a fixed 80x24 regardless of the host window. Seed the
+# guest's tty size from the host's `stty size` so claude renders at the host
+# terminal's dimensions. The hvc1 getty runs `stty cols/rows` from these env
+# values BEFORE exec'ing claude (env alone is insufficient -- programs that
+# query the tty via TIOCGWINSZ need the kernel tty geometry set). This is
+# one-time: the transport carries no live resize, so this seeds the initial
+# size only. `stty size` prints "<rows> <cols>" on the controlling tty; it
+# fails when stdin is not a tty (e.g. invoked from a pipe/tool), so guard it
+# and leave COLUMNS/LINES empty when unavailable -- the guest then keeps its
+# 80x24 default rather than getting a bogus size.
+HOST_COLUMNS=""
+HOST_LINES=""
+if [ -t 0 ]; then
+  if _stty_size="$(stty size 2>/dev/null)"; then
+    HOST_LINES="${_stty_size%% *}"
+    HOST_COLUMNS="${_stty_size##* }"
+  fi
+fi
+
 RUN_ENV="$CONFIG_DIR/run.env"
 (
   umask 077
@@ -516,6 +584,17 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
     # (mode 0600) so claude authenticates as the host operator.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
+    # Host terminal geometry (issue #88). Empty when not launched from a real
+    # terminal; the boot launcher only runs `stty` when both are non-empty.
+    printf 'CLAUDE_VM_COLUMNS=%s\n' "$HOST_COLUMNS"
+    printf 'CLAUDE_VM_LINES=%s\n' "$HOST_LINES"
+    # Renderer selection (issue #88) mapped from claude.renderer. The boot
+    # launcher exports the matching CLAUDE_CODE_* var when this is set; an
+    # empty value leaves claude on its own default.
+    case "$CLAUDE_RENDERER" in
+      classic)    printf 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1\n' ;;
+      fullscreen) printf 'CLAUDE_CODE_NO_FLICKER=1\n' ;;
+    esac
     printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
   } > "$RUN_ENV"
 )
@@ -717,6 +796,13 @@ cleanup() {
   if [ -n "${RAW_CREDENTIAL:-}" ]; then
     rm -f "$RAW_CREDENTIAL"
   fi
+  # Remove the short-path gvproxy socket dir (issue #88). It lives under
+  # $TMPDIR (not under $RUN), so it is NOT covered by the run-dir retention --
+  # remove it here so the socket + vfkit's derived child socket do not linger.
+  # Guarded for an early-trap fire (before SOCK_DIR is set).
+  if [ -n "${SOCK_DIR:-}" ]; then
+    rm -rf "$SOCK_DIR"
+  fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then
     echo "claude-vm: guest console log retained at: $GUEST_CONSOLE_LOG" >&2
@@ -748,6 +834,25 @@ done
 # launcher execs /mnt/claudebin/claude against /mnt/repo.
 CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 
+# Dual virtio-serial console topology (issue #88). Device ORDER is
+# deterministic: the 1st virtio-serial device becomes guest hvc0, the 2nd
+# becomes hvc1.
+#
+#   1st: virtio-serial,logFilePath=$GUEST_CONSOLE_LOG -> hvc0. The kernel
+#        cmdline keeps console=hvc0, so all kernel + systemd boot output (and
+#        the boot launcher's diagnostics, written to /dev/console) flow to this
+#        capture file -- preserving #87's observability and keeping boot noise
+#        off the interactive terminal.
+#   2nd: virtio-serial,stdio -> hvc1. The launching terminal IS bridged here;
+#        the guest runs claude on an autologin getty@hvc1 (so the terminal
+#        becomes the interactive claude session). vfkit's stdio attachment is a
+#        bidirectional byte pipe that requires a real controlling tty on the
+#        host -- so claude-vm must be launched from a terminal, not a pipe.
+#
+# vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
+# EXIT/INT/TERM) runs the VM-stop + copy-back + socket-dir removal when the
+# session exits or is Ctrl-C'd. Do NOT switch this to `exec vfkit` -- that
+# would replace the shell and the trap would never fire.
 vfkit \
   --cpus "$VM_CPUS" --memory "$VM_MEM" \
   --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -759,4 +864,5 @@ vfkit \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
+  --device "virtio-serial,stdio" \
   --device "virtio-rng"

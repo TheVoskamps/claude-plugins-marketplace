@@ -125,32 +125,42 @@ build-guest-image.sh --print-version          # pinned base version
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
-The image is a version-pinned stable base (OS + a one-shot boot
-launcher). `claude` is never baked in; the boot launcher boots to the
+The image is a version-pinned stable base (OS + a boot launcher).
+`claude` is never baked in; the boot launcher boots to the
 **claude-fetch seam** and there execs the **host-verified `claude`
 binary** mounted RO at `/mnt/claudebin` (see "Verified claude cache"
-below) against the repo at `/mnt/repo`. The launcher builds the image on
-demand when the configured image is missing or version-mismatched. No
-image artifact is committed.
+below) against the repo at `/mnt/repo` — as an interactive session on
+the `hvc1` console (issue #88). The launcher builds the image on demand
+when the configured image is missing or version-mismatched. No image
+artifact is committed.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
 podman container (Debian Trixie build container, systemd ≥ 254 for the
 offline, loop-device-free `RepartOffline=yes` path), emitting a raw
-EFI-bootable Debian guest with the boot launcher installed as a
-`Type=oneshot` unit. vfkit boots it with `--bootloader efi`. Requires
-`podman` with a started podman machine. Override with
+EFI-bootable Debian guest with the boot launcher wired as the autologin
+`serial-getty@hvc1` login program (so claude becomes the interactive
+`hvc1` console session — issue #88) and an unlocked passwordless root
+(`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
+Requires `podman` with a started podman machine. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`.
 
-The launcher captures the guest's serial console to
-`$RUN/guest-console.log` (vfkit `--device virtio-serial,logFilePath=…`),
-making an otherwise black-box boot observable from the host. The guest
-exposes that virtio-console as `/dev/hvc0`; the recipe's
-`KernelCommandLine` sets `console=hvc0` and the boot unit writes
-`StandardOutput=journal+console`, so the boot launcher's `claude-vm:`
-seam lines and any boot error land in this log. The path is reported on
-exit and retained in the run dir alongside `egress.pcap`.
+The launcher attaches **two** virtio-serial consoles (issue #88). The
+first (`logFilePath`, guest `hvc0`) captures the booting guest's
+kernel/systemd output to `$RUN/guest-console.log`, making an otherwise
+black-box boot observable from the host: the recipe's `KernelCommandLine`
+sets `console=hvc0`, and the boot launcher writes its `claude-vm:`
+diagnostic/seam lines explicitly to `/dev/console`, so they land in this
+log. The second (`stdio`, guest `hvc1`) bridges the launching terminal —
+the interactive claude session. Boot diagnostics stay on `hvc0`, off the
+interactive terminal. The capture path is reported on exit and retained
+in the run dir alongside `egress.pcap`.
+
+Because the `hvc1` console is a byte pipe that needs a real controlling
+TTY on the host, launch `claude-vm` from a real terminal (not a pipe).
+The console carries no live window-resize channel, so the launcher seeds
+the guest tty geometry once from the host's `stty size` at launch.
 
 ## Forward proxy (`proxy/tinyproxy-launch.sh`)
 
