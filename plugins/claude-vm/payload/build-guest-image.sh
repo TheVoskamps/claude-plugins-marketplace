@@ -62,7 +62,14 @@ BASE_OS_REV="debian-12-20250601"
 # through run.env. The recipe also sets RootPassword=hashed: (unlocked root)
 # and enables the autologin getty. The boot-logic change requires old images
 # (stamped 'launcher3') to rebuild on next run.
-LAUNCHER_LOGIC_REV="4"
+# Bumped 4 -> 5: OAuth setup-token auth (issue #88). Current Claude Code does
+# not treat the mounted ~/.claude/.credentials.json as pre-authenticated -- it
+# runs its interactive login flow, unusable on the byte-pipe console. The boot
+# launcher now reads the host's CLAUDE_CODE_OAUTH_TOKEN (from `claude
+# setup-token`) out of the shred-on-exit claudecreds mount and exports it
+# before exec'ing claude, so the guest authenticates headlessly. The
+# boot-logic change requires old images (stamped 'launcher4') to rebuild.
+LAUNCHER_LOGIC_REV="5"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -175,6 +182,30 @@ mkdir -p "$CRED_DIR"
 cp "$MOUNTED_CREDENTIAL" "$CRED_DIR/.credentials.json"
 chmod 600 "$CRED_DIR/.credentials.json"
 log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json"
+
+# ---------------------------------------------------------------------
+# Auth: export the OAuth setup-token (issue #88).
+#
+# Current Claude Code does NOT treat the mounted ~/.claude/.credentials.json
+# above as pre-authenticated -- it runs its interactive login flow, which is
+# unusable on this byte-pipe console. The documented headless-auth path is
+# CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`). The host wrote that
+# token into the SAME shred-on-exit claudecreds mount (mountTag=claudecreds)
+# as the credential above -- NOT into run.env, honoring the launcher's
+# "secrets never ride in run.env" invariant. Read it here and EXPORT it so it
+# is in claude's environment before the `exec` below. The host launcher gates
+# on the token being present (preflight), so its absence at boot is an
+# unexpected state -- abort rather than fall through to the unusable login flow.
+MOUNTED_OAUTH_TOKEN="$CLAUDECREDS_MNT/oauth-token"
+if [ ! -s "$MOUNTED_OAUTH_TOKEN" ]; then
+  log "claude-vm: no OAuth setup-token found at $MOUNTED_OAUTH_TOKEN (mountTag=claudecreds)."
+  log "claude-vm: the host did not share a CLAUDE_CODE_OAUTH_TOKEN; claude would fall back to"
+  log "claude-vm: its interactive login flow, which is unusable on this console. Aborting."
+  exit 1
+fi
+CLAUDE_CODE_OAUTH_TOKEN="$(cat "$MOUNTED_OAUTH_TOKEN")"
+export CLAUDE_CODE_OAUTH_TOKEN
+log "claude-vm: exported CLAUDE_CODE_OAUTH_TOKEN from the host (setup-token auth)."
 
 # ---------------------------------------------------------------------
 # claude-fetch SEAM -- FILLED (issue #49).

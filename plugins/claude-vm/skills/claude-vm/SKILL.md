@@ -1,6 +1,6 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch.
+description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with an OAuth setup-token (CLAUDE_CODE_OAUTH_TOKEN) supplied in the host environment, plus the host's claude.ai OAuth credential extracted from the macOS Keychain at launch.
 ---
 
 # claude-vm
@@ -9,10 +9,14 @@ Run Claude Code inside an isolated macOS VM. Every non-secret
 operational knob — VM resources, the egress allowlist, extra mounts,
 the proxy, and how the repo is made available to the guest — comes from
 layered **YAML config** rather than environment variables. The guest
-authenticates with the **host's live claude.ai OAuth credential**,
+authenticates with an **OAuth setup-token** supplied via the
+`CLAUDE_CODE_OAUTH_TOKEN` environment variable (from `claude
+setup-token`), plus the **host's live claude.ai OAuth credential**,
 which the launcher extracts from the macOS Keychain at launch and
-shares RO into the guest; there is no token env var and no secret in
-config.
+shares RO into the guest. Both are secrets and neither is written to
+config; the token is read from the launcher's own environment (no
+`.env`/`.envrc` parsing in the launcher — populate it via `direnv` or a
+plain `export`).
 
 The launcher and image-build scripts ship as payloads under
 `${CLAUDE_PLUGIN_ROOT}/payload/`. This skill is the entry point that
@@ -21,10 +25,19 @@ explains the config surface and drives the launcher.
 ## Quick start
 
 ```bash
-# 1. Be logged in to Claude Code on this host. The guest authenticates
-#    with the host's live claude.ai OAuth credential, which the launcher
-#    extracts from the macOS Keychain at launch (no token env var). Run
-#    `claude` once and complete the claude.ai login if you have not.
+# 1a. Generate an OAuth setup-token and put it in the environment. The
+#     guest authenticates claude with CLAUDE_CODE_OAUTH_TOKEN (the
+#     documented headless-auth path); the launcher reads it from its OWN
+#     environment and aborts at a preflight if it is unset/empty.
+#       claude setup-token                       # prints a ~1-year token
+#       export CLAUDE_CODE_OAUTH_TOKEN='<token>'  # or via direnv/.env
+#     (The launcher does NOT parse .env/.envrc itself; use direnv with an
+#     .envrc containing `dotenv_if_exists`, or a plain export.)
+#
+# 1b. Be logged in to Claude Code on this host. The guest ALSO installs
+#     the host's live claude.ai OAuth credential, which the launcher
+#     extracts from the macOS Keychain at launch. Run `claude` once and
+#     complete the claude.ai login if you have not.
 
 # 2. (Optional) drop a global config at ~/.config/claude-vm/config.yml
 #    and/or a per-repo config at <repo>/.claude-vm/config.yml.
@@ -237,10 +250,30 @@ is reported on exit and retained in the run dir.
 
 ## Authentication (secrets)
 
-The guest authenticates with the **host operator's live claude.ai OAuth
+The guest authenticates claude with an **OAuth setup-token** from
+`claude setup-token`, supplied via the `CLAUDE_CODE_OAUTH_TOKEN`
+environment variable. Current Claude Code does **not** treat a mounted
+`~/.claude/.credentials.json` as pre-authenticated — it runs its normal
+interactive login flow, which is unusable on the guest's byte-pipe
+console — so the token is the documented headless-auth path and the
+mechanism that makes the in-guest session usable.
+
+The launcher reads `CLAUDE_CODE_OAUTH_TOKEN` from its **own
+environment**; it does **not** parse `.env`/`.envrc`. Populate it via
+`direnv` (an `.envrc` in the repo root containing `dotenv_if_exists`,
+with `CLAUDE_CODE_OAUTH_TOKEN=…` in `.env`) or a plain `export` before
+launching. A **preflight** aborts the run with an actionable message if
+the variable is unset or empty. The token is a ~1-year secret: it is
+**never** written to config or to `run.env`; instead it is written into
+the same transient, owner-only (`0600`), shred-on-exit `claudecreds`
+mount as the credential below, and the guest boot launcher exports it
+before exec'ing `claude`.
+
+The guest **also** installs the **host operator's live claude.ai OAuth
 credential** — the full-scope login credential, not a scoped inference
-token. This is what lets the in-guest Claude Code run an interactive
-**Remote Control** session attributed to the host's claude.ai login.
+token — at `$HOME/.claude/.credentials.json`. (This mount is layered
+alongside the token path; a follow-up pass will reconcile the two once
+the token path is proven on real hardware.)
 
 At launch the launcher reads that credential from the macOS login
 Keychain by service name alone
@@ -263,14 +296,14 @@ host-side tmpfile is created under a tightened `umask 077` and removed
 by the launcher's `cleanup()`/`trap` on every exit. The full raw
 Keychain blob (before selection) lives only in a transient tmpfile
 outside the guest share and is removed immediately after selection.
-There is no token env var.
 
-**Requirements:** macOS only (`security find-generic-password` is a
-macOS Keychain tool; `python3`, used for credential selection, ships
-with macOS), and you must be logged in to Claude Code on the host
-first. The launcher fails fast with an actionable message if the
-Keychain lookup returns empty or non-zero, or the blob has no usable
-`claudeAiOauth` key. `egress.allow` must include
+**Requirements:** `CLAUDE_CODE_OAUTH_TOKEN` set in the launcher's
+environment (see above); macOS only (`security find-generic-password`
+is a macOS Keychain tool; `python3`, used for credential selection,
+ships with macOS), and you must be logged in to Claude Code on the host
+first. The launcher fails fast with an actionable message if the token
+is unset/empty, or if the Keychain lookup returns empty or non-zero, or
+the blob has no usable `claudeAiOauth` key. `egress.allow` must include
 the Anthropic API host (`api.anthropic.com`) so the in-guest `claude`
 can reach it. See the payload README's "Authentication" section for the
 full mechanic.
@@ -300,7 +333,9 @@ runs a **trust-path preflight** that checks the local, instant
 preconditions for the verified cache and credential selection up front:
 `gpg` on PATH, the `claude.signing_key_fingerprint` pinned in config,
 that pinned fingerprint actually present in the gpg keyring, and
-`python3` on PATH. Each failed check prints the exact remediation
+`python3` on PATH. Immediately after, a separate **OAuth setup-token
+preflight** aborts if `CLAUDE_CODE_OAUTH_TOKEN` is unset or empty. Each
+failed check prints the exact remediation
 command(s) (e.g. `brew install gnupg`, the
 `curl … | gpg --import` + `gpg --fingerprint` pin steps). Without this
 gate, a cold boot would otherwise pay for a guest-image build and three
