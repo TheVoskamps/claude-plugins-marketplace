@@ -26,6 +26,19 @@
 # Control requires. The credential is NEVER written to config, to the
 # verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
+# OAUTH SETUP-TOKEN (issue #88): current Claude Code does NOT treat that
+# mounted ~/.claude/.credentials.json as pre-authenticated -- it runs its
+# interactive login flow, which is unusable on the guest's byte-pipe console.
+# So the guest ALSO authenticates via CLAUDE_CODE_OAUTH_TOKEN, the documented
+# headless-auth path from `claude setup-token`. The launcher reads that token
+# from its OWN ENVIRONMENT (it does NOT parse .env/.envrc -- the operator
+# populates it via direnv or a plain export), gates on it at a preflight, and
+# delivers it to the guest the SAME transient RO shred-on-exit way as the
+# keychain credential (via the claudecreds mount, NEVER via run.env). The
+# guest boot launcher exports it before exec'ing claude. This token path is
+# ADDITIVE and layered alongside the keychain credential mount above; a
+# follow-up pass will reconcile the two once the token path is verified.
+#
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
 #
@@ -197,6 +210,35 @@ claude_vm_preflight_trust_path \
   || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
 
 # ---------------------------------------------------------------------
+# OAuth setup-token PREFLIGHT (issue #88). The guest authenticates claude
+# via CLAUDE_CODE_OAUTH_TOKEN -- the documented headless-auth path from
+# `claude setup-token`. Current Claude Code does NOT treat a mounted
+# ~/.claude/.credentials.json as pre-authenticated: it runs its normal
+# interactive login flow instead, which is unusable on the guest's byte-pipe
+# console. The token is the fix.
+#
+# The launcher reads the token from its OWN ENVIRONMENT -- it does NOT parse
+# .env/.envrc. The operator populates it via direnv (an .envrc with
+# `dotenv_if_exists` in the repo root) or a plain `export` before launching.
+# Gate here, FAST, before any build/boot work: if it is unset or empty, abort
+# with an actionable, claude-vm-branded message. Guarded ${...:-} so an unset
+# var does not trip `set -u` before this check runs.
+# ---------------------------------------------------------------------
+if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  echo "claude-vm: CLAUDE_CODE_OAUTH_TOKEN is not set (or is empty)." >&2
+  echo "claude-vm: the guest authenticates claude with an OAuth setup-token, not an" >&2
+  echo "claude-vm: interactive login (the guest console is a byte pipe, unusable for" >&2
+  echo "claude-vm: the login flow). Generate one on this host and put it in the env:" >&2
+  echo "claude-vm:   claude setup-token        # prints a ~1-year OAuth token" >&2
+  echo "claude-vm: then EITHER export it before launching:" >&2
+  echo "claude-vm:   export CLAUDE_CODE_OAUTH_TOKEN='<the token>'" >&2
+  echo "claude-vm: OR add it to a .env/.envrc in the repo root loaded via direnv, e.g." >&2
+  echo "claude-vm: an .envrc containing:  dotenv_if_exists   (with CLAUDE_CODE_OAUTH_TOKEN=... in .env)" >&2
+  echo "claude-vm: then retry." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
 # build/boot work -- with one actionable remediation per missing piece,
 # rather than dying deep in the boot sequence with an opaque error (e.g.
@@ -333,6 +375,13 @@ fi
 SOCK_DIR="$(claude_vm_mktemp -d claude-vm-sock)"
 GVPROXY_SOCK="$SOCK_DIR/net.sock"
 PCAP="$RUN/egress.pcap"
+# Retained log files for the two host-side background processes (issue #88).
+# Both are sited under $RUN (the persistent run dir) and their stdout+stderr
+# are redirected here at launch so their chatty diagnostics do NOT flood the
+# interactive hvc1 terminal. Retained (not /dev/null) so failures stay
+# diagnosable, matching $GUEST_CONSOLE_LOG.
+GVPROXY_LOG="$RUN/gvproxy.log"
+PROXY_LOG="$RUN/proxy.log"
 # Host-side capture of the guest's BOOT virtio-console (/dev/hvc0 in the
 # guest). The recipe's KernelCommandLine sets console=hvc0
 # (provisioners/podman-mkosi.sh, issue #71), so all kernel + systemd boot
@@ -355,8 +404,11 @@ EFISTORE="$RUN/efistore"
 # shared into the guest under mountTag=runconfig, and the secret-bearing
 # OAuth credential must never travel in the run.env share. Its own dir is
 # shared under a separate tag (claudecreds) so only the credential file is
-# exposed. Both dirs are created under the tightened umask (077) so they
-# are drwx------ from creation -- the credential is not world-traversable.
+# exposed. The OAuth setup-token (issue #88) is written into this SAME dir
+# (oauth-token) for the same reason -- it is a ~1-year secret and must not
+# ride in run.env either. Both dirs are created under the tightened umask
+# (077) so they are drwx------ from creation -- the secrets are not
+# world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 
@@ -504,6 +556,23 @@ if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
   exit 1
 fi
 chmod 600 "$HOST_CREDENTIAL"
+
+# ---------------------------------------------------------------------
+# OAuth setup-token -> the SAME shred-on-exit claudecreds mount (issue #88).
+#
+# The token (from `claude setup-token`, gated at the preflight above) is a
+# ~1-year secret. This script has a DELIBERATE invariant that such secrets
+# must NEVER travel in the run.env share (see the run.env comment below) --
+# so the token is delivered EXACTLY like the keychain credential: written into
+# $CREDS_DIR, the transient owner-only dir shared RO into the guest under
+# mountTag=claudecreds and shredded by cleanup() on every exit (EXIT/INT/TERM).
+# We are still inside the umask-077 window here, so the file is created
+# -rw------- with no world-readable moment; the chmod 600 is belt-and-braces.
+# The guest boot launcher reads it from the claudecreds mount and EXPORTs
+# CLAUDE_CODE_OAUTH_TOKEN before exec'ing claude (see build-guest-image.sh).
+HOST_OAUTH_TOKEN_FILE="$CREDS_DIR/oauth-token"
+printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" > "$HOST_OAUTH_TOKEN_FILE"
+chmod 600 "$HOST_OAUTH_TOKEN_FILE"
 
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
@@ -782,11 +851,12 @@ cleanup() {
   if [ -n "${MERGED:-}" ]; then
     rm -f "$MERGED"
   fi
-  # The host claude.ai OAuth credential is a transient secret: remove it on
-  # every exit (including Ctrl-C) so it never lingers after the run. The run
-  # dir itself is retained for the companion diff/apply skills, but the
-  # credential must NOT be -- it is never persisted past the live VM. Guarded
-  # like MERGED above so an early trap (before CREDS_DIR is set) is harmless.
+  # The host claude.ai OAuth credential AND the OAuth setup-token (issue #88)
+  # are transient secrets sharing this dir: remove it on every exit (including
+  # Ctrl-C) so neither lingers after the run. The run dir itself is retained
+  # for the companion diff/apply skills, but these secrets must NOT be -- they
+  # are never persisted past the live VM. Guarded like MERGED above so an early
+  # trap (before CREDS_DIR is set) is harmless.
   if [ -n "${CREDS_DIR:-}" ]; then
     rm -rf "$CREDS_DIR"
   fi
@@ -807,6 +877,15 @@ cleanup() {
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then
     echo "claude-vm: guest console log retained at: $GUEST_CONSOLE_LOG" >&2
   fi
+  # The proxy + gvproxy logs (issue #88) are retained off-terminal so their
+  # diagnostics do not flood the interactive session but stay diagnosable.
+  # Guarded like the others for an early-trap fire (before they are set).
+  if [ -n "${GVPROXY_LOG:-}" ]; then
+    echo "claude-vm: gvproxy log retained at: $GVPROXY_LOG" >&2
+  fi
+  if [ -n "${PROXY_LOG:-}" ]; then
+    echo "claude-vm: proxy log retained at: $PROXY_LOG" >&2
+  fi
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
 # Replace the narrow interim trap (armed right after the OAuth credential was
@@ -816,10 +895,21 @@ trap cleanup EXIT INT TERM
 
 # Start the forward proxy. It reads the allowlist from
 # $CLAUDE_VM_EGRESS_ALLOWLIST (exported above).
-eval "$PROXY_CMD" &
+#
+# REDIRECT both host-side background processes' stdout AND stderr to RETAINED
+# log files under $RUN (issue #88). Without this they inherit the interactive
+# terminal's fd 1/2 (the hvc1 claude session), and their per-request/per-packet
+# diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
+# continuous stream of `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and
+# tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
+# RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
+# matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
+# paths are echoed in cleanup() alongside the other retained-artifact lines.
+eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 &
 PROXY_PID=$!
 
-"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" &
+"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" \
+  >"$GVPROXY_LOG" 2>&1 &
 GV_PID=$!
 
 for _ in $(seq 1 50); do
