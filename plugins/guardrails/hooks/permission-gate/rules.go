@@ -485,11 +485,14 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 }
 
 // awsHasEndpointURL reports whether the args carry an --endpoint-url flag in
-// either the spaced (`--endpoint-url <url>`) or glued (`--endpoint-url=<url>`)
-// form.
+// any form aws accepts: the exact spaced (`--endpoint-url <url>`) or glued
+// (`--endpoint-url=<url>`) form, OR an unambiguous prefix abbreviation
+// (`--endp http://evil`, `--endpoint=…`). Resolving abbreviations here is
+// security-critical: --endpoint-url redirects the signed request to an
+// attacker host, and an exact-only check would let `--endp` evade the deny.
 func awsHasEndpointURL(args []string) bool {
 	for _, a := range args {
-		if a == "--endpoint-url" || strings.HasPrefix(a, "--endpoint-url=") {
+		if canonical, _, _, known := resolveAwsGlobal(a); known && canonical == "--endpoint-url" {
 			return true
 		}
 	}
@@ -542,13 +545,17 @@ func awsConfigureReadsSecret(args []string) bool {
 	seenConfigure, seenGet := false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		// Skip leading global value-taking flags (shared map) so their values
-		// are not read as the key positional. Reaching here means
-		// awsServiceAndOp already cleanly recognized `configure get`, so the
-		// global screen parsed; this scan stays consistent with that map.
-		if awsGlobalValueFlags[a] {
-			i++
-			continue
+		// Skip global flags (resolved prefix-aware, same as awsServiceAndOp) so
+		// a value-taking global's value is not read as the key positional.
+		// Reaching here means awsServiceAndOp already cleanly recognized
+		// `configure get`, so the global screen parsed.
+		if strings.HasPrefix(a, "--") {
+			if _, takesValue, glued, known := resolveAwsGlobal(a); known {
+				if takesValue && !glued {
+					i++ // consume its separate value token
+				}
+				continue
+			}
 		}
 		if strings.HasPrefix(a, "-") {
 			continue
@@ -581,21 +588,77 @@ func awsConfigureReadsSecret(args []string) bool {
 	return false
 }
 
-// awsGlobalValueFlags are aws's leading global options that consume a following
-// VALUE token in the space-separated form. The `=`-joined form
-// (`--profile=prod`) carries its own value and is handled separately.
-var awsGlobalValueFlags = map[string]bool{
-	"--region": true, "--profile": true, "--output": true,
-	"--endpoint-url": true, "--color": true, "--ca-bundle": true,
-	"--cli-read-timeout": true, "--cli-connect-timeout": true, "--query": true,
-	"--cli-pager": true, "--cli-binary-format": true, "--cli-error-format": true,
+// awsGlobalFlags is the COMPLETE, authoritative set of AWS CLI v2 global
+// options (verified against the AWS CLI User Guide "Command line options" and
+// the `aws` command reference, 2026-07 / CLI 2.35.x), each mapped to whether it
+// consumes a following VALUE token. It is deliberately exhaustive: the whole
+// point of the aws classifier is to ALLOW the many safe commands without
+// interrupting the human, so an incomplete map (which would push benign
+// commands to a spurious ASK) is a defect, not a safe default. Global flags are
+// a closed, slow-moving set — unlike the open-ended per-operation flags, which
+// appear AFTER the operation and never move the service/operation split.
+//
+// true  = takes a value in the space-separated form (`--region us-east-1`).
+// false = boolean switch (`--debug`).
+var awsGlobalFlags = map[string]bool{
+	// value-taking
+	"--ca-bundle": true, "--cli-binary-format": true, "--cli-connect-timeout": true,
+	"--cli-error-format": true, "--cli-pager": true, "--cli-read-timeout": true,
+	"--color": true, "--endpoint-url": true, "--output": true, "--profile": true,
+	"--query": true, "--region": true,
+	// boolean
+	"--cli-auto-prompt": false, "--debug": false, "--no-cli-auto-prompt": false,
+	"--no-cli-pager": false, "--no-paginate": false, "--no-sign-request": false,
+	"--no-verify-ssl": false, "--version": false,
 }
 
-// awsGlobalBoolFlags are aws's leading global options that take no value.
-var awsGlobalBoolFlags = map[string]bool{
-	"--debug": true, "--no-sign-request": true, "--no-paginate": true,
-	"--no-cli-pager": true, "--no-verify-ssl": true, "--no-cli-auto-prompt": true,
-	"--cli-auto-prompt": true,
+// resolveAwsGlobal resolves a single `--token` to a canonical AWS global flag,
+// mirroring aws's own argparse behavior: an exact name matches, and an
+// UNAMBIGUOUS prefix abbreviation matches (aws accepts `--reg` for `--region`;
+// AWS documents this for global options). An AMBIGUOUS prefix (matching ≥2
+// globals, e.g. `--c`) is rejected by aws itself, so we report it as not a
+// known global. The token may be `=`-joined (`--region=us-east-1`,
+// `--reg=us-east-1`); the name is taken as the part before `=`.
+//
+// Returns:
+//   - canonical: the resolved canonical flag name ("" if not a known global).
+//   - takesValue: whether the canonical flag consumes a value token.
+//   - glued: whether the token carried its value inline via `=` (so no separate
+//     value token is consumed).
+//   - known: whether the token resolved to exactly one known global.
+//
+// Handling abbreviations here is load-bearing: without it, `--endp http://evil`
+// (an abbreviation of --endpoint-url) would evade the endpoint-url deny AND
+// desync the operation, and `--reg us-east-1 ec2 describe-instances` (benign)
+// would spuriously ASK — both failures the exhaustive-allow goal forbids.
+func resolveAwsGlobal(token string) (canonical string, takesValue, glued, known bool) {
+	if !strings.HasPrefix(token, "--") {
+		return "", false, false, false
+	}
+	name := token
+	if i := strings.IndexByte(token, '='); i >= 0 {
+		name = token[:i]
+		glued = true
+	}
+	// Exact match first.
+	if tv, ok := awsGlobalFlags[name]; ok {
+		return name, tv, glued, true
+	}
+	// Unambiguous prefix abbreviation: match iff exactly one global has `name`
+	// as a prefix. aws rejects ambiguous abbreviations, so we do too.
+	match := ""
+	for flag := range awsGlobalFlags {
+		if strings.HasPrefix(flag, name) {
+			if match != "" {
+				return "", false, glued, false // ambiguous → not a known global
+			}
+			match = flag
+		}
+	}
+	if match != "" {
+		return match, awsGlobalFlags[match], glued, true
+	}
+	return "", false, glued, false
 }
 
 // awsServiceAndOp extracts the service and operation tokens, skipping aws's
@@ -623,17 +686,31 @@ func awsServiceAndOp(args []string) (svc, op string, ok bool) {
 	for i < len(args) {
 		a := args[i]
 		switch {
-		case awsGlobalValueFlags[a]:
-			i += 2 // consume the flag AND its value token
-		case awsGlobalBoolFlags[a]:
-			i++
-		case strings.HasPrefix(a, "--") && strings.Contains(a, "="):
-			i++ // `--flag=value` carries its own value
+		case strings.HasPrefix(a, "--"):
+			_, takesValue, glued, known := resolveAwsGlobal(a)
+			if !known {
+				// An unrecognized long flag of unknown arity. Until BOTH the
+				// service and operation tokens are captured we cannot trust the
+				// positional split — a value-taking unknown would leave its
+				// value as a stray positional and shift svc/op — so fail closed
+				// (#64 decision #3). Once both are captured, an unknown flag is
+				// an operation flag and is harmless to the split.
+				if len(positionals) < 2 {
+					return "", "", false
+				}
+				i++
+				continue
+			}
+			if takesValue && !glued {
+				i += 2 // consume the flag AND its separate value token
+			} else {
+				i++ // boolean, or `--flag=value` carrying its own value
+			}
 		case strings.HasPrefix(a, "-"):
-			// Unrecognized flag of unknown arity. Until BOTH the service and
-			// operation tokens are captured, we cannot trust the positional
-			// split — fail closed (#64 decision #3). Once both are captured, an
-			// unknown flag is an operation flag and is harmless to the split.
+			// A single-dash token. aws has no single-dash global aliases (every
+			// documented global is `--long`), so before the service/op are
+			// captured this is an unknown of unknown arity → fail closed;
+			// after, it is an operation flag and harmless.
 			if len(positionals) < 2 {
 				return "", "", false
 			}

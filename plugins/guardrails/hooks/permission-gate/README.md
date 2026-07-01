@@ -135,19 +135,25 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   load-bearing, so a bare verb like `configure get` is NOT read-anchored
   and a secret-key `configure get` lands in the ask tier above —
   token-matched not substring-matched) and ordinary writes the spec does
-  not name **allow**. The global-flag screen is parsed to find the
-  service/operation split, and an **unrecognized flag of unknown arity
-  fails closed to ask** whenever it appears before BOTH the service and
-  operation tokens are captured — a value-taking flag the gate doesn't
-  know would otherwise leave its value as a stray positional and shift
-  the operation token, slipping a credential read past the ask tier to
-  the allow floor. This covers both the leading position
-  (`--cli-pager less configure get aws_secret_access_key`) and the
-  wedged-between-service-and-op position (`sts --cli-error-format json
-  get-session-token`), since aws places the real operation after global
-  flags for `configure get` / `sts get-session-token` / etc.; an unknown
-  flag after both tokens are captured is a harmless operation flag. The
-  existing
+  not name **allow**. To find the service/operation split the classifier
+  parses aws's **complete, closed set of global flags** the way aws
+  itself does — including **unambiguous prefix abbreviations** (`--reg`
+  for `--region`, `--endp` for `--endpoint-url`) and both spaced and
+  `=`-joined values — so benign commands carrying a global flag (in the
+  leading OR the wedged-between-service-and-op position, e.g. `--reg
+  us-east-1 ec2 describe-instances`) recover their true operation and
+  **allow** without interrupting the human. Resolving abbreviations is
+  load-bearing on both sides: it keeps `--endp http://evil` inside the
+  `--endpoint-url` **deny** (an exact-only check would let the
+  signed-request redirect through), and it keeps `--reg us-east-1 sts
+  get-session-token` in the credential-read **ask** tier rather than
+  desyncing the operation. Only a **genuinely unrecognized** flag of
+  unknown arity, appearing before both the service and operation tokens
+  are captured, **fails closed to ask** (a value-taking unknown would
+  otherwise leave its value as a stray positional and shift the
+  operation token) — a rare last resort, since the global set is
+  complete; an unknown flag after both tokens are captured is a harmless
+  operation flag. The existing
   identity rules (#117 `gh auth switch`, #125 `git config user.*`, #120
   subagent `git reset --hard`, the App-repo naked-`gh` deny) are
   preserved and fire alongside these tiers.
