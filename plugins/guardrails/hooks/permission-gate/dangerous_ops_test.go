@@ -295,6 +295,15 @@ func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
 		// A genuinely-unknown flag (not even in the new value-flag map) must
 		// also fail closed rather than be guessed as a boolean.
 		"aws --totally-unknown-flag xyz sts get-session-token",
+		// Same desync CLASS, WEDGED between the service and operation tokens:
+		// aws places the real op after global flags for `configure get`,
+		// `sts get-session-token`, etc., so an unknown value-flag there shifts
+		// the OP token, not the service token. The fail-closed window must
+		// extend until BOTH positionals are captured, not just the service.
+		"aws configure --cli-error-format json get aws_secret_access_key",
+		"aws sts --cli-error-format json get-session-token",
+		"aws secretsmanager --cli-error-format json get-secret-value --secret-id foo",
+		"aws ecr --totally-unknown-flag x get-login-password",
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws unknown-global desync: "+cmd)
 	}
@@ -303,6 +312,14 @@ func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
 	// plain read still resolves (not a spurious unknown-global ASK).
 	wantBucket(t, classifyCmd(t, "aws --cli-pager less ec2 describe-instances", false), BucketAllow, "known value-flag + benign read")
 	wantBucket(t, classifyCmd(t, "aws --cli-binary-format raw-in-base64-out s3api list-buckets", false), BucketAllow, "cli-binary-format + benign read")
+	// --cli-error-format is now a known value flag: consumed cleanly in every
+	// position, so it neither over-blocks a benign read nor lets a credential
+	// read slip (the wedged-secret forms are in the ASK loop above).
+	wantBucket(t, classifyCmd(t, "aws --cli-error-format json ec2 describe-instances", false), BucketAllow, "cli-error-format leading + benign read")
+	wantBucket(t, classifyCmd(t, "aws ec2 --cli-error-format json describe-instances", false), BucketAllow, "cli-error-format wedged + benign read")
+	// An unknown flag AFTER both service and op are captured is a genuine
+	// operation flag — it cannot move svc/op, so it must NOT trip the guard.
+	wantBucket(t, classifyCmd(t, "aws ec2 describe-instances --some-op-flag x", false), BucketAllow, "unknown op-flag after both tokens")
 }
 
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.

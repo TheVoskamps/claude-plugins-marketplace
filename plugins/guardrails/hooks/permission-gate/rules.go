@@ -588,7 +588,7 @@ var awsGlobalValueFlags = map[string]bool{
 	"--region": true, "--profile": true, "--output": true,
 	"--endpoint-url": true, "--color": true, "--ca-bundle": true,
 	"--cli-read-timeout": true, "--cli-connect-timeout": true, "--query": true,
-	"--cli-pager": true, "--cli-binary-format": true,
+	"--cli-pager": true, "--cli-binary-format": true, "--cli-error-format": true,
 }
 
 // awsGlobalBoolFlags are aws's leading global options that take no value.
@@ -599,19 +599,24 @@ var awsGlobalBoolFlags = map[string]bool{
 }
 
 // awsServiceAndOp extracts the service and operation tokens, skipping aws's
-// leading global options. It returns ok=false when it cannot trust the
-// positional split — specifically when it meets an UNRECOGNIZED leading flag
-// whose arity (value-taking vs. boolean) is unknown. Guessing the arity is the
-// exact desync #64 decision #3 warns about: a value-taking flag the gate does
-// not know (`--cli-pager less`) would leave its value (`less`) as a stray
-// positional, shifting svc/op by one and slipping a credential read past the
-// ASK tier to the ALLOW floor. So an unknown leading flag fails closed:
+// global options. It returns ok=false when it cannot trust the positional
+// split — specifically when it meets an UNRECOGNIZED flag whose arity
+// (value-taking vs. boolean) is unknown BEFORE both the service and operation
+// tokens have been captured. Guessing the arity is the exact desync #64
+// decision #3 warns about: a value-taking flag the gate does not know
+// (`--cli-pager less`) would leave its value (`less`) as a stray positional,
+// shifting svc/op by one and slipping a credential read past the ASK tier to
+// the ALLOW floor. So an unknown flag in that window fails closed:
 // awsServiceAndOp returns ok=false and classifyAws routes that to ASK.
 //
-// Only flags BEFORE the service token are scrutinized; once the service token
-// (the first positional) is seen, the remaining args are the operation and its
-// own flags, which the per-operation classifiers handle and which cannot move
-// svc/op.
+// The fail-closed window extends until BOTH positionals are captured, not just
+// the service token. aws places the real operation AFTER global flags for
+// `aws configure get`, `aws sts get-session-token`, etc., so an unknown
+// value-flag WEDGED between service and operation
+// (`aws sts --cli-error-format json get-session-token`) desyncs the op token
+// exactly as a leading one desyncs the service token. An unknown flag AFTER
+// both tokens are captured is a genuine operation flag and cannot move svc/op,
+// so it is harmless and does not trip the guard.
 func awsServiceAndOp(args []string) (svc, op string, ok bool) {
 	var positionals []string
 	i := 0
@@ -625,11 +630,11 @@ func awsServiceAndOp(args []string) (svc, op string, ok bool) {
 		case strings.HasPrefix(a, "--") && strings.Contains(a, "="):
 			i++ // `--flag=value` carries its own value
 		case strings.HasPrefix(a, "-"):
-			// Unrecognized leading flag of unknown arity. If we have not yet
-			// found the service token, we cannot trust the positional split —
-			// fail closed (#64 decision #3). Once past the service token, an
+			// Unrecognized flag of unknown arity. Until BOTH the service and
+			// operation tokens are captured, we cannot trust the positional
+			// split — fail closed (#64 decision #3). Once both are captured, an
 			// unknown flag is an operation flag and is harmless to the split.
-			if len(positionals) == 0 {
+			if len(positionals) < 2 {
 				return "", "", false
 			}
 			i++
