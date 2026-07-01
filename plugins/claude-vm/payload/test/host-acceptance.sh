@@ -427,12 +427,13 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     STUB .credentials.json so the boot launcher's credential-install step
   #     (copy to $HOME/.claude/.credentials.json) runs without aborting under
   #     `set -e`. Its content is a non-secret placeholder; the stub claude
-  #     never reads it. The SAME dir also carries a STUB oauth-token (issue
-  #     #88): the real launcher writes the host's CLAUDE_CODE_OAUTH_TOKEN here,
-  #     and the boot launcher reads+exports it before exec'ing claude and
-  #     ABORTS under `set -e` if it is absent -- so the boot test must provide
-  #     a placeholder token or the guest would never reach the seam. Its value
-  #     is a non-secret placeholder; the stub claude never reads it.
+  #     never reads it. The SAME dir also carries a STUB claude-json-seed.json
+  #     (issue #88): the real launcher writes the host's selected identity seed
+  #     (userID + oauthAccount) here, and the boot launcher installs it at
+  #     $HOME/.claude.json before exec'ing claude. Unlike the credential, a
+  #     MISSING seed is tolerated (logged, not fatal) -- but we still stand up a
+  #     placeholder so the install path is exercised. Its content is a
+  #     non-secret placeholder; the stub claude never reads it.
   RUNCONFIG_SHARE="$WORK/runconfig"
   REPO_SHARE="$WORK/repo"
   CLAUDEBIN_SHARE="$WORK/claudebin"
@@ -468,11 +469,14 @@ STUBCLAUDE
   # claude never reads it.
   printf '{"placeholder":"not-a-real-credential"}\n' > "$CLAUDECREDS_SHARE/.credentials.json"
   chmod 0600 "$CLAUDECREDS_SHARE/.credentials.json"
-  # Stub OAuth setup-token (issue #88): a non-secret placeholder so the boot
-  # launcher's token-export step has a file to read and does not abort under
-  # `set -e`. The real launcher writes the host's CLAUDE_CODE_OAUTH_TOKEN here.
-  printf 'not-a-real-oauth-token\n' > "$CLAUDECREDS_SHARE/oauth-token"
-  chmod 0600 "$CLAUDECREDS_SHARE/oauth-token"
+  # Stub identity seed (issue #88): a non-secret placeholder so the boot
+  # launcher's seed-install step (copy to $HOME/.claude.json) is exercised. The
+  # real launcher writes the host's selected {userID, oauthAccount} here; a
+  # missing seed is tolerated by the boot launcher, but we provide one so the
+  # install path runs. The stub claude never reads it.
+  printf '{"userID":"stub-user-id","oauthAccount":{"emailAddress":"stub@example.invalid"}}\n' \
+    > "$CLAUDECREDS_SHARE/claude-json-seed.json"
+  chmod 0600 "$CLAUDECREDS_SHARE/claude-json-seed.json"
 
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.

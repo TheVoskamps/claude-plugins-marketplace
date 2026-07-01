@@ -69,7 +69,18 @@ BASE_OS_REV="debian-12-20250601"
 # setup-token`) out of the shred-on-exit claudecreds mount and exports it
 # before exec'ing claude, so the guest authenticates headlessly. The
 # boot-logic change requires old images (stamped 'launcher4') to rebuild.
-LAUNCHER_LOGIC_REV="5"
+# Bumped 5 -> 6: identity seed auth (issue #88, pass 1). Real-hardware testing
+# established that the interactive TUI does NOT read CLAUDE_CODE_OAUTH_TOKEN
+# (that var is scoped to headless `claude -p`), so the setup-token path from
+# rev 5 could not deliver zero-touch login and was ripped out. The TUI decides
+# "logged in" from on-disk state: the token in ~/.claude/.credentials.json
+# (already installed) PLUS identity in ~/.claude.json (`userID` +
+# `oauthAccount`). The boot launcher now installs a minimal identity seed
+# (claude-json-seed.json from the shred-on-exit claudecreds mount) at
+# /root/.claude.json before exec'ing claude, so a fresh guest comes up already
+# logged in. The boot-logic change requires old images (stamped 'launcher5')
+# to rebuild.
+LAUNCHER_LOGIC_REV="6"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -103,7 +114,9 @@ emit_boot_launcher() {
 # bridged to. It loads the run environment (proxy + args + geometry + renderer),
 # installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
 # into $HOME/.claude/.credentials.json so claude authenticates as the host
-# operator (issue #50), seeds the tty geometry from the host (issue #88), then
+# operator (issue #50) AND the host's identity seed (userID + oauthAccount) into
+# $HOME/.claude.json so the interactive TUI comes up already logged in (issue
+# #88), seeds the tty geometry from the host (issue #88), then
 # `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
 # in between. claude is NEVER baked into the image and is NEVER fetched-and-run
@@ -184,28 +197,33 @@ chmod 600 "$CRED_DIR/.credentials.json"
 log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json"
 
 # ---------------------------------------------------------------------
-# Auth: export the OAuth setup-token (issue #88).
+# Auth: install the host's identity seed (issue #88, pass 1).
 #
-# Current Claude Code does NOT treat the mounted ~/.claude/.credentials.json
-# above as pre-authenticated -- it runs its interactive login flow, which is
-# unusable on this byte-pipe console. The documented headless-auth path is
-# CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`). The host wrote that
-# token into the SAME shred-on-exit claudecreds mount (mountTag=claudecreds)
-# as the credential above -- NOT into run.env, honoring the launcher's
-# "secrets never ride in run.env" invariant. Read it here and EXPORT it so it
-# is in claude's environment before the `exec` below. The host launcher gates
-# on the token being present (preflight), so its absence at boot is an
-# unexpected state -- abort rather than fall through to the unusable login flow.
-MOUNTED_OAUTH_TOKEN="$CLAUDECREDS_MNT/oauth-token"
-if [ ! -s "$MOUNTED_OAUTH_TOKEN" ]; then
-  log "claude-vm: no OAuth setup-token found at $MOUNTED_OAUTH_TOKEN (mountTag=claudecreds)."
-  log "claude-vm: the host did not share a CLAUDE_CODE_OAUTH_TOKEN; claude would fall back to"
-  log "claude-vm: its interactive login flow, which is unusable on this console. Aborting."
-  exit 1
+# The mounted ~/.claude/.credentials.json above is only the BEARER TOKEN. The
+# interactive guest TUI also decides "am I logged in" from identity state in
+# ~/.claude.json (`userID` + `oauthAccount`). A fresh throwaway guest lacks it,
+# so without this seed every launch shows the login menu despite the credential.
+# The host selected ONLY those two keys from its own ~/.claude.json and shared
+# the minimal {"userID": ..., "oauthAccount": {...}} into the SAME shred-on-exit
+# claudecreds mount (mountTag=claudecreds) as the credential above -- NOT via
+# run.env, honoring the launcher's "secrets never ride in run.env" invariant.
+# Install it at $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
+# /root/.claude.json does not exist on a fresh guest, so this is a plain create
+# of the minimal object (no merge -- later passes seed more keys).
+#
+# ADDITIVE: unlike the credential above (a hard requirement), a missing seed is
+# logged and tolerated -- the guest still boots (it just shows the login menu).
+# The host launcher gates on the seed being present (preflight), so its absence
+# here is unexpected but not worth aborting an otherwise-bootable guest.
+MOUNTED_CLAUDE_JSON_SEED="$CLAUDECREDS_MNT/claude-json-seed.json"
+if [ -s "$MOUNTED_CLAUDE_JSON_SEED" ]; then
+  cp "$MOUNTED_CLAUDE_JSON_SEED" "$CLAUDE_HOME/.claude.json"
+  chmod 600 "$CLAUDE_HOME/.claude.json"
+  log "claude-vm: installed host identity seed at $CLAUDE_HOME/.claude.json (userID + oauthAccount)."
+else
+  log "claude-vm: no identity seed found at $MOUNTED_CLAUDE_JSON_SEED (mountTag=claudecreds);"
+  log "claude-vm: continuing without it -- claude may show its login menu on this console."
 fi
-CLAUDE_CODE_OAUTH_TOKEN="$(cat "$MOUNTED_OAUTH_TOKEN")"
-export CLAUDE_CODE_OAUTH_TOKEN
-log "claude-vm: exported CLAUDE_CODE_OAUTH_TOKEN from the host (setup-token auth)."
 
 # ---------------------------------------------------------------------
 # claude-fetch SEAM -- FILLED (issue #49).
