@@ -26,18 +26,18 @@
 # Control requires. The credential is NEVER written to config, to the
 # verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
-# OAUTH SETUP-TOKEN (issue #88): current Claude Code does NOT treat that
-# mounted ~/.claude/.credentials.json as pre-authenticated -- it runs its
-# interactive login flow, which is unusable on the guest's byte-pipe console.
-# So the guest ALSO authenticates via CLAUDE_CODE_OAUTH_TOKEN, the documented
-# headless-auth path from `claude setup-token`. The launcher reads that token
-# from its OWN ENVIRONMENT (it does NOT parse .env/.envrc -- the operator
-# populates it via direnv or a plain export), gates on it at a preflight, and
-# delivers it to the guest the SAME transient RO shred-on-exit way as the
-# keychain credential (via the claudecreds mount, NEVER via run.env). The
-# guest boot launcher exports it before exec'ing claude. This token path is
-# ADDITIVE and layered alongside the keychain credential mount above; a
-# follow-up pass will reconcile the two once the token path is verified.
+# IDENTITY SEED (issue #88): the mounted ~/.claude/.credentials.json bearer
+# token alone does NOT make the interactive guest TUI treat itself as logged
+# in -- it also needs the host's identity state (~/.claude.json `userID` +
+# `oauthAccount`), which a fresh throwaway guest lacks, so every launch shows
+# the login menu. So the launcher ALSO reads the host's ~/.claude.json, selects
+# ONLY those two top-level keys, and delivers a minimal
+# {"userID": ..., "oauthAccount": {...}} to the guest the SAME transient RO
+# shred-on-exit way as the keychain credential (via the claudecreds mount,
+# NEVER via run.env). The guest boot launcher installs it at /root/.claude.json
+# before exec'ing claude. This seed is ADDITIVE and layered alongside the
+# keychain credential mount above. (Pass 1 of issue #88 seeds identity only;
+# later passes add onboarding/self-management and per-project trust state.)
 #
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
@@ -210,31 +210,38 @@ claude_vm_preflight_trust_path \
   || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
 
 # ---------------------------------------------------------------------
-# OAuth setup-token PREFLIGHT (issue #88). The guest authenticates claude
-# via CLAUDE_CODE_OAUTH_TOKEN -- the documented headless-auth path from
-# `claude setup-token`. Current Claude Code does NOT treat a mounted
-# ~/.claude/.credentials.json as pre-authenticated: it runs its normal
-# interactive login flow instead, which is unusable on the guest's byte-pipe
-# console. The token is the fix.
+# Identity-seed PREFLIGHT (issue #88, pass 1). The interactive Claude Code
+# TUI in the guest decides "am I logged in" from ON-DISK state: the bearer
+# token in ~/.claude/.credentials.json (installed below from the Keychain,
+# via the claudecreds mount) PLUS identity state in ~/.claude.json (`userID`
+# + `oauthAccount`). A fresh throwaway guest lacks that identity state, so
+# every launch shows the login menu regardless of the mounted credential.
+# The launcher seeds a MINIMAL /root/.claude.json into the guest from the
+# host's own ~/.claude.json (see the "identity seed" block below).
 #
-# The launcher reads the token from its OWN ENVIRONMENT -- it does NOT parse
-# .env/.envrc. The operator populates it via direnv (an .envrc with
-# `dotenv_if_exists` in the repo root) or a plain `export` before launching.
-# Gate here, FAST, before any build/boot work: if it is unset or empty, abort
-# with an actionable, claude-vm-branded message. Guarded ${...:-} so an unset
-# var does not trip `set -u` before this check runs.
+# Gate here, FAST, before any build/boot work: if the host ~/.claude.json is
+# missing, or lacks a usable `userID` or `oauthAccount`, abort with an
+# actionable, claude-vm-branded message. Guarded ${...:-} so an unset $HOME
+# does not trip `set -u`. The full selection (which validates and reserializes
+# the two keys) runs later against $CREDS_DIR; this is the cheap early gate on
+# the same preconditions.
 # ---------------------------------------------------------------------
-if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
-  echo "claude-vm: CLAUDE_CODE_OAUTH_TOKEN is not set (or is empty)." >&2
-  echo "claude-vm: the guest authenticates claude with an OAuth setup-token, not an" >&2
-  echo "claude-vm: interactive login (the guest console is a byte pipe, unusable for" >&2
-  echo "claude-vm: the login flow). Generate one on this host and put it in the env:" >&2
-  echo "claude-vm:   claude setup-token        # prints a ~1-year OAuth token" >&2
-  echo "claude-vm: then EITHER export it before launching:" >&2
-  echo "claude-vm:   export CLAUDE_CODE_OAUTH_TOKEN='<the token>'" >&2
-  echo "claude-vm: OR add it to a .env/.envrc in the repo root loaded via direnv, e.g." >&2
-  echo "claude-vm: an .envrc containing:  dotenv_if_exists   (with CLAUDE_CODE_OAUTH_TOKEN=... in .env)" >&2
-  echo "claude-vm: then retry." >&2
+HOST_CLAUDE_JSON="${HOME:-}/.claude.json"
+if [ ! -s "$HOST_CLAUDE_JSON" ]; then
+  echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
+  echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
+  echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
+  echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
+  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  exit 1
+fi
+if ! claude_vm_select_claude_json_seed < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
+  echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
+  echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
+  echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
+  echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
+  echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
+  echo "claude-vm: macOS, is required to select the seed.)" >&2
   exit 1
 fi
 
@@ -404,10 +411,10 @@ EFISTORE="$RUN/efistore"
 # shared into the guest under mountTag=runconfig, and the secret-bearing
 # OAuth credential must never travel in the run.env share. Its own dir is
 # shared under a separate tag (claudecreds) so only the credential file is
-# exposed. The OAuth setup-token (issue #88) is written into this SAME dir
-# (oauth-token) for the same reason -- it is a ~1-year secret and must not
-# ride in run.env either. Both dirs are created under the tightened umask
-# (077) so they are drwx------ from creation -- the secrets are not
+# exposed. The identity seed (issue #88, claude-json-seed.json) is written
+# into this SAME dir for the same reason -- it carries account identity and
+# must not ride in run.env either. Both dirs are created under the tightened
+# umask (077) so they are drwx------ from creation -- the secrets are not
 # world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
@@ -558,21 +565,36 @@ fi
 chmod 600 "$HOST_CREDENTIAL"
 
 # ---------------------------------------------------------------------
-# OAuth setup-token -> the SAME shred-on-exit claudecreds mount (issue #88).
+# Identity seed -> the SAME shred-on-exit claudecreds mount (issue #88, pass 1).
 #
-# The token (from `claude setup-token`, gated at the preflight above) is a
-# ~1-year secret. This script has a DELIBERATE invariant that such secrets
-# must NEVER travel in the run.env share (see the run.env comment below) --
-# so the token is delivered EXACTLY like the keychain credential: written into
-# $CREDS_DIR, the transient owner-only dir shared RO into the guest under
-# mountTag=claudecreds and shredded by cleanup() on every exit (EXIT/INT/TERM).
-# We are still inside the umask-077 window here, so the file is created
-# -rw------- with no world-readable moment; the chmod 600 is belt-and-braces.
-# The guest boot launcher reads it from the claudecreds mount and EXPORTs
-# CLAUDE_CODE_OAUTH_TOKEN before exec'ing claude (see build-guest-image.sh).
-HOST_OAUTH_TOKEN_FILE="$CREDS_DIR/oauth-token"
-printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" > "$HOST_OAUTH_TOKEN_FILE"
-chmod 600 "$HOST_OAUTH_TOKEN_FILE"
+# The interactive guest TUI treats itself as logged in only when BOTH the
+# bearer token (installed above at ~/.claude/.credentials.json) AND the host's
+# identity state (~/.claude.json `userID` + `oauthAccount`) are present. Select
+# ONLY those two keys from the host ~/.claude.json (preflighted above) and write
+# a minimal {"userID": ..., "oauthAccount": {...}} into $CREDS_DIR -- the SAME
+# transient owner-only dir shared RO into the guest under mountTag=claudecreds
+# and shredded by cleanup() on every exit (EXIT/INT/TERM). It is NOT named
+# .credentials.json (that name is the bearer token's) -- the guest boot launcher
+# reads claude-json-seed.json and installs it at /root/.claude.json before
+# exec'ing claude (see build-guest-image.sh). The seed carries account identity,
+# so it rides the SAME secret posture as the credential (never in run.env, never
+# in the verified-binary cache). We are still inside the umask-077 window, so
+# the file is created -rw------- with no world-readable moment; the chmod 600 is
+# belt-and-braces. Selection is fail-closed and was already validated at the
+# preflight; a failure here is unexpected -- abort rather than seed a partial or
+# empty file that would drop the guest back to the login menu.
+# ---------------------------------------------------------------------
+HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
+if ! claude_vm_select_claude_json_seed < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
+  rm -f "$HOST_CLAUDE_JSON_SEED"
+  umask "$OLD_UMASK"
+  echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2
+  echo "claude-vm: '$HOST_CLAUDE_JSON'. It passed the earlier preflight, so this is unexpected" >&2
+  echo "claude-vm: (the file may have changed under us). Re-run 'claude' to confirm you are" >&2
+  echo "claude-vm: logged in on the host, then retry." >&2
+  exit 1
+fi
+chmod 600 "$HOST_CLAUDE_JSON_SEED"
 
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
@@ -851,7 +873,7 @@ cleanup() {
   if [ -n "${MERGED:-}" ]; then
     rm -f "$MERGED"
   fi
-  # The host claude.ai OAuth credential AND the OAuth setup-token (issue #88)
+  # The host claude.ai OAuth credential AND the identity seed (issue #88)
   # are transient secrets sharing this dir: remove it on every exit (including
   # Ctrl-C) so neither lingers after the run. The run dir itself is retained
   # for the companion diff/apply skills, but these secrets must NOT be -- they

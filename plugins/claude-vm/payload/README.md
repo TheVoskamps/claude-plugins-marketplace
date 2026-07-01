@@ -43,12 +43,11 @@ payload/
 ## Launcher (`claude-vm.sh`)
 
 ```bash
-# Set CLAUDE_CODE_OAUTH_TOKEN in the environment first (from `claude
-# setup-token`); the launcher reads it from its own env and aborts at a
-# preflight if unset/empty. The guest ALSO installs the host's live
-# claude.ai OAuth credential from the macOS Keychain (be logged in to Claude
-# Code on the host first). See "Authentication" below.
-export CLAUDE_CODE_OAUTH_TOKEN="$(claude setup-token)"   # or via direnv/.env
+# No token env var. Be logged in to Claude Code on the host first: the
+# launcher installs the host's live claude.ai OAuth credential (from the
+# macOS Keychain) AND seeds the guest's identity (userID + oauthAccount from
+# your ~/.claude.json) so the in-guest claude comes up already logged in.
+# See "Authentication" below.
 "${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
 ```
 
@@ -61,31 +60,31 @@ semantics.
 
 ## Authentication
 
-The guest authenticates claude with an **OAuth setup-token** from
-`claude setup-token`, supplied via the `CLAUDE_CODE_OAUTH_TOKEN`
-environment variable. Current Claude Code does **not** treat a mounted
-`~/.claude/.credentials.json` as pre-authenticated — it runs its normal
-interactive login flow, which is unusable on the guest's byte-pipe
-console — so this token is the documented headless-auth path that makes
-the session usable.
+The guest authenticates claude with the **host operator's live claude.ai
+OAuth credential** — the full-scope login credential, not a scoped
+inference token — installed at `$HOME/.claude/.credentials.json`. That
+bearer token alone is **not** sufficient for the interactive TUI to treat
+itself as logged in: current Claude Code also decides "am I logged in"
+from identity state in `~/.claude.json` (`userID` + `oauthAccount`). A
+fresh throwaway guest lacks that state, so without it every launch shows
+the login menu despite the mounted credential.
 
-The launcher reads `CLAUDE_CODE_OAUTH_TOKEN` from its **own
-environment** and does **not** parse `.env`/`.envrc`. Populate it via
-`direnv` (an `.envrc` with `dotenv_if_exists`, `CLAUDE_CODE_OAUTH_TOKEN=…`
-in `.env`) or a plain `export`. A **preflight** aborts with an
-actionable message if it is unset or empty. The token is a ~1-year
-secret: it is **never** written to config or `run.env`; instead it is
-written into the same transient, owner-only (`0600`), shred-on-exit
-`claudecreds` mount as the credential below, and the guest boot launcher
-exports it before exec'ing `claude`.
+So the launcher **also seeds the guest's identity** (issue #88): it reads
+your host `~/.claude.json`, selects **only** the `userID` and
+`oauthAccount` keys, and shares a minimal
+`{"userID": …, "oauthAccount": {…}}` into the guest. Nothing else from
+`~/.claude.json` (no `projects{}`, no telemetry, no onboarding flags) is
+copied. The guest boot launcher installs it at `$HOME/.claude.json` (mode
+`0600`) before exec'ing `claude`, so the in-guest session comes up already
+logged in — no login menu, no browser paste. A **preflight** aborts with
+an actionable message if the host `~/.claude.json` is missing or lacks a
+usable `userID`/`oauthAccount` (i.e. you are not logged in on the host).
+The seed carries account identity, so it rides the same secret posture as
+the credential: written under `umask 077` into the transient, owner-only
+(`0600`), shred-on-exit `claudecreds` mount, **never** into `run.env` or
+the verified-binary cache.
 
-The guest **also** installs the **host operator's live claude.ai OAuth
-credential** — the full-scope login credential, not a scoped inference
-token — at `$HOME/.claude/.credentials.json`. (This mount is layered
-alongside the token path; a follow-up pass will reconcile the two once
-the token path is proven on real hardware.)
-
-At launch the launcher extracts that credential from the macOS login
+At launch the launcher extracts the credential from the macOS login
 Keychain by service name alone:
 
 ```bash
@@ -122,12 +121,12 @@ The credential is a **secret** and is handled like one:
   immediately after the selection step, so the unselected form is never
   mounted into the guest.
 
-**Requirements:** `CLAUDE_CODE_OAUTH_TOKEN` set in the launcher's
-environment (see above); macOS only (`security find-generic-password` is
-a macOS Keychain tool; `python3`, used for the credential selection,
-ships with macOS), and you must be **logged in to Claude Code on the
-host** first (run `claude` once and complete the claude.ai login). If
-the token is unset/empty, or the Keychain lookup returns empty or
+**Requirements:** macOS only (`security find-generic-password` is a macOS
+Keychain tool; `python3`, used for the credential and identity-seed
+selection, ships with macOS), and you must be **logged in to Claude Code
+on the host** first (run `claude` once and complete the claude.ai login).
+If the host `~/.claude.json` is missing or lacks a usable
+`userID`/`oauthAccount`, or the Keychain lookup returns empty or
 non-zero, or the blob has no usable `claudeAiOauth` key, the launcher
 fails fast with an actionable message rather than booting an
 unauthenticated guest.
