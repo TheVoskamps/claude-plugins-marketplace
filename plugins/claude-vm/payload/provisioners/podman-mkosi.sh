@@ -6,14 +6,16 @@
 #
 #   podman-mkosi.sh <boot-launcher-path> <output-image-path>
 #
-#   $1  boot-launcher-path  -- the one-shot boot launcher script
-#                             build-guest-image.sh emitted. Installed into
-#                             the guest as a Type=oneshot systemd unit.
+#   $1  boot-launcher-path  -- the boot launcher script build-guest-image.sh
+#                             emitted. Wired into the guest as the autologin
+#                             serial-getty@hvc1 login program (issue #88).
 #   $2  output-image-path    -- where to write the raw, EFI-bootable guest
 #                             image. vfkit boots this with --bootloader efi.
 #
-# It produces a raw, EFI-bootable Debian guest with the boot launcher wired
-# as a Type=oneshot unit, by running mkosi inside a THROWAWAY rootless
+# It produces a raw, EFI-bootable Debian guest with the boot launcher wired as
+# the autologin serial-getty@hvc1 login program (so claude becomes the
+# interactive hvc1 console session -- issue #88), by running mkosi inside a
+# THROWAWAY rootless
 # podman container. mkosi is Linux-only, so it cannot run on the macOS host
 # directly; podman (already installed for gvproxy) provides the Linux
 # kernel via podman-machine, and a throwaway container provides the mkosi
@@ -138,9 +140,10 @@ install -m 0755 "$BOOT_LAUNCHER" \
 # A systemd-networkd .network unit so the guest actually CONFIGURES its
 # virtio-net link via DHCP (issue #71, criterion (b)). Without it,
 # systemd-networkd has no managed link: systemd-networkd-wait-online never
-# completes, network-online.target is never reached, and the seam oneshot
-# (After=network-online.target) never runs -- the boot reaches a login
-# prompt but the acceptance test never sees the seam marker and times out.
+# completes, network-online.target is never reached, and the autologin
+# serial-getty@hvc1 (After=network-online.target) never starts -- the boot
+# reaches a login prompt but the acceptance test never sees the seam marker
+# and times out.
 # vfkit's virtio-net is served by gvproxy, which provides DHCP; the guest
 # renames the link enp0s1 (from eth0), so match the en* / eth* glob rather
 # than a fixed name. wait-online needs the matched link to reach "routable"
@@ -191,38 +194,74 @@ claudebin     /mnt/claudebin     virtiofs   ro,nofail     0 0
 claudecreds   /mnt/claudecreds   virtiofs   ro,nofail     0 0
 FSTAB
 
-# The Type=oneshot unit that runs the boot launcher on guest boot. Wanted
-# by multi-user.target so it runs on a normal boot; runs after the network
-# is up so the egress-allowlisted fetch the launcher performs can reach the
-# proxy. RequiresMountsFor pulls in and orders after the runconfig mount so
-# the launcher's `. /mnt/runconfig/run.env` sees the share.
-cat > "$STAGE/recipe/mkosi.extra/etc/systemd/system/claude-vm-boot.service" <<'UNIT'
+# Interactive boot model (issue #88): claude IS the hvc1 console session.
+#
+# The OLD model ran the boot launcher as a detached Type=oneshot unit, which
+# systemd runs with NO controlling tty -- so claude (an interactive REPL) had
+# no terminal and no interactive session appeared. The NEW model binds claude
+# to /dev/hvc1 (the vfkit `virtio-serial,stdio` device the launching terminal
+# is bridged to) as a FOREGROUND process with a real controlling tty, via an
+# autologin getty:
+#
+#   - serial-getty@hvc1 is enabled explicitly. systemd only auto-spawns a
+#     getty on the console= device (hvc0); the interactive console hvc1 needs
+#     an explicit enable (the getty.target.wants symlink below).
+#   - A drop-in overrides the getty ExecStart to run `agetty --autologin root`
+#     with --login-program pointing at the boot launcher. agetty autologs in
+#     root, sets up the controlling tty + termios (which is why a fullscreen
+#     TUI renders), then execs the boot launcher AS the login program. The
+#     boot launcher in turn `exec`s claude -- so claude IS the session, with no
+#     shell in between. If claude exits, agetty respawns (a login shell on
+#     hvc1) rather than leaving a black screen.
+#
+# This replaces the hand-rolled oneshot; the getty path is the mechanism
+# verified in the #88 spike. The boot launcher still installs the host OAuth
+# credential (#50) and execs the host-verified binary (#49); only its
+# invocation context changes (detached oneshot -> hvc1 console-getty
+# foreground).
+#
+# Ordering: the getty's RequiresMountsFor pulls in and orders after the
+# virtio-fs mounts the launcher needs: runconfig (sourced run.env), claudebin
+# (the host-verified binary it execs), claudecreds (the host OAuth credential
+# it installs -- #50), and repo (the working tree it cd's into). It also runs
+# after network-online.target so the launcher's egress-allowlisted fetch can
+# reach the proxy.
+mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d"
+cat > "$STAGE/recipe/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d/10-claude-vm.conf" <<'GETTY'
 [Unit]
-Description=claude-vm one-shot boot launcher
+Description=claude-vm interactive claude session on hvc1
 After=network-online.target
 Wants=network-online.target
-# Pull in and order after the virtio-fs mounts the launcher needs: runconfig
-# (sourced run.env), claudebin (the host-verified binary it execs),
-# claudecreds (the host OAuth credential it installs -- issue #50), and repo
-# (the working tree it cd's into). Ordering after them means the launcher
-# never sees a bare mountpoint dir where it expects a mounted share.
+# Order after the virtio-fs mounts the boot launcher needs so it never sees a
+# bare mountpoint dir where it expects a mounted share.
 RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 
 [Service]
-Type=oneshot
-ExecStart=/usr/local/lib/claude-vm/boot-launcher.sh
-StandardOutput=journal+console
-StandardError=journal+console
+# Override the default agetty invocation: autologin root and run the boot
+# launcher as the login program (which execs claude). Clear ExecStart first --
+# a drop-in APPENDS ExecStart lines, and a unit with two ExecStart entries
+# under the default Type=idle would try to run both; the empty assignment
+# resets the list so only ours runs.
+#
+# agetty argument order is `agetty [options] <port> [baud] [term]` -- the PORT
+# (hvc1) is the first positional, then the optional baud list, then $TERM
+# (expanded by systemd from the serial-getty@.service template). --autologin
+# root logs root in with no prompt; --login-program runs the boot launcher
+# instead of /bin/login, so the launcher (which execs claude) becomes the
+# session with no shell in between. --keep-baud matches the stock serial-getty
+# behavior (the vfkit virtio-console has no real baud). The leading `-` makes a
+# launcher exit non-fatal so agetty respawns to a login shell rather than a
+# black screen if claude exits.
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --login-program /usr/local/lib/claude-vm/boot-launcher.sh --keep-baud 115200,57600,38400,9600 hvc1 $TERM
+GETTY
 
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-# Enable the unit at build time by creating the multi-user.target.wants
+# Enable serial-getty@hvc1 at build time by creating the getty.target.wants
 # symlink in the tree (no running system to `systemctl enable` against).
-mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system/multi-user.target.wants"
-ln -sf /etc/systemd/system/claude-vm-boot.service \
-  "$STAGE/recipe/mkosi.extra/etc/systemd/system/multi-user.target.wants/claude-vm-boot.service"
+# getty.target is pulled in by multi-user.target on a normal boot.
+mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system/getty.target.wants"
+ln -sf /usr/lib/systemd/system/serial-getty@.service \
+  "$STAGE/recipe/mkosi.extra/etc/systemd/system/getty.target.wants/serial-getty@hvc1.service"
 
 # The mkosi config. Kept as a static file so the recipe is auditable.
 cat > "$STAGE/recipe/mkosi.conf" <<CONF
@@ -249,6 +288,15 @@ Output=guest
 [Content]
 Bootable=yes
 Bootloader=systemd-boot
+# Interactive in-VM session (issue #88): give root an UNLOCKED, passwordless
+# account. The `hashed:` prefix with no hash sets an empty password hash, so
+# root can log in with no password. This is what lets the autologin getty
+# (serial-getty@hvc1 drop-in) reach a session -- the base recipe set no
+# RootPassword, so the live login prompt rejected every credential. The guest
+# is a throwaway micro-VM reachable only over the host-private vfkit
+# virtio-serial console (no SSH, no network login), so an unlocked root is not
+# an exposed-credential risk.
+RootPassword=hashed:
 # Direct the kernel console to the serial device vfkit captures (issue #71,
 # criterion (b)). vfkit's --device virtio-serial,logFilePath=... is a
 # virtio-console, which the guest exposes as /dev/hvc0 -- NOT the PL011 UART
@@ -263,8 +311,9 @@ Bootloader=systemd-boot
 # #71, criterion (b)). Without it, systemd-firstboot.service runs on the
 # pristine image and BLOCKS the boot at "Please configure your system! --
 # Press any key to proceed --", waiting on a keypress that never arrives in
-# the headless vfkit boot, so the seam oneshot (ordered after
-# multi-user.target) never runs and the acceptance test times out.
+# the headless vfkit boot, so the autologin getty (pulled in via
+# multi-user.target -> getty.target) never starts and the acceptance test
+# times out.
 KernelCommandLine=console=ttyAMA0 console=hvc0 systemd.firstboot=off
 # Plain ext4 root: keeps the offline (loop-device-free) repart path.
 # No Subvolumes=, no SELinux -- neither RepartOffline=no trigger fires.
@@ -282,6 +331,11 @@ Packages=
     curl
     bash
     iproute2
+    # util-linux provides /sbin/agetty, which the autologin serial-getty@hvc1
+    # drop-in execs to bind claude to the interactive hvc1 console (issue #88).
+    # It is Essential on Debian (so normally present), but the autologin getty
+    # depends on it directly, so pin it explicitly in the auditable recipe.
+    util-linux
 
 [Build]
 # Offline repart: build the disk without loopback devices so this runs in

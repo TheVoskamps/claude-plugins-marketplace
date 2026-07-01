@@ -26,6 +26,19 @@
 # Control requires. The credential is NEVER written to config, to the
 # verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
+# IDENTITY SEED (issue #88): the mounted ~/.claude/.credentials.json bearer
+# token alone does NOT make the interactive guest TUI treat itself as logged
+# in -- it also needs the host's identity state (~/.claude.json `userID` +
+# `oauthAccount`), which a fresh throwaway guest lacks, so every launch shows
+# the login menu. So the launcher ALSO reads the host's ~/.claude.json, selects
+# ONLY those two top-level keys, and delivers a minimal
+# {"userID": ..., "oauthAccount": {...}} to the guest the SAME transient RO
+# shred-on-exit way as the keychain credential (via the claudecreds mount,
+# NEVER via run.env). The guest boot launcher installs it at /root/.claude.json
+# before exec'ing claude. This seed is ADDITIVE and layered alongside the
+# keychain credential mount above. (Pass 1 of issue #88 seeds identity only;
+# later passes add onboarding/self-management and per-project trust state.)
+#
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
 #
@@ -100,6 +113,24 @@ GUEST_IMAGE="$(claude_vm_scalar "$MERGED" '.guest_image' "$DEFAULT_IMAGE_DIR/gue
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
 CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
+
+# claude.renderer: which renderer the in-guest claude uses on the byte-pipe
+# console (issue #88). The vfkit stdio console is a plain bidirectional byte
+# pipe, but the guest's alternate-screen (fullscreen) renderer survives it
+# (verified on a real host), so this is a preference, not a workaround:
+#   classic    -> CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (no alt-screen)
+#   fullscreen -> CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
+#   unset/""   -> pass nothing; claude uses its own default
+# Mapped to the matching env var(s) in run.env below. An unrecognized value
+# is rejected up front rather than silently ignored.
+CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED" '.claude.renderer' "")"
+case "$CLAUDE_RENDERER" in
+  ""|classic|fullscreen) : ;;
+  *)
+    echo "claude-vm: unknown claude.renderer '$CLAUDE_RENDERER' (expected classic|fullscreen, or leave unset)" >&2
+    exit 1
+    ;;
+esac
 
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
@@ -177,6 +208,42 @@ claude_vm_preflight_trust_path() {
 }
 claude_vm_preflight_trust_path \
   || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
+
+# ---------------------------------------------------------------------
+# Identity-seed PREFLIGHT (issue #88, pass 1). The interactive Claude Code
+# TUI in the guest decides "am I logged in" from ON-DISK state: the bearer
+# token in ~/.claude/.credentials.json (installed below from the Keychain,
+# via the claudecreds mount) PLUS identity state in ~/.claude.json (`userID`
+# + `oauthAccount`). A fresh throwaway guest lacks that identity state, so
+# every launch shows the login menu regardless of the mounted credential.
+# The launcher seeds a MINIMAL /root/.claude.json into the guest from the
+# host's own ~/.claude.json (see the "identity seed" block below).
+#
+# Gate here, FAST, before any build/boot work: if the host ~/.claude.json is
+# missing, or lacks a usable `userID` or `oauthAccount`, abort with an
+# actionable, claude-vm-branded message. Guarded ${...:-} so an unset $HOME
+# does not trip `set -u`. The full selection (which validates and reserializes
+# the two keys) runs later against $CREDS_DIR; this is the cheap early gate on
+# the same preconditions.
+# ---------------------------------------------------------------------
+HOST_CLAUDE_JSON="${HOME:-}/.claude.json"
+if [ ! -s "$HOST_CLAUDE_JSON" ]; then
+  echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
+  echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
+  echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
+  echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
+  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  exit 1
+fi
+if ! claude_vm_select_claude_json_seed < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
+  echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
+  echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
+  echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
+  echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
+  echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
+  echo "claude-vm: macOS, is required to select the seed.)" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
@@ -290,16 +357,52 @@ else
   RUN="$(claude_vm_mktemp -d claude-vm)"
 fi
 
-GVPROXY_SOCK="$RUN/vfkit-net.sock"
+# gvproxy unix socket -- sited under a SHORT $TMPDIR path, NOT under $RUN
+# (issue #88, Finding 7). The AF_UNIX sun_path limit is ~104 bytes, and
+# vfkit derives a child socket name (e.g. vfkit-<hex>-<num>.sock, ~20 bytes)
+# in the SAME directory as the socket we pass it. With $RUN under
+# <repo>/.claude/tmp/<runid>/ the base socket path is already ~118 bytes on a
+# normally-nested repo -- and the derived child path ~124 -- so BOTH overflow
+# and `claude-vm <repo>` cannot boot. The run dir must stay under the repo
+# (the diff/apply skills depend on its location), but the socket location is
+# independent of it: site it under a short mktemp dir under $TMPDIR (resulting
+# child path ~79 bytes, well under the limit). $TMPDIR is used BARE: it is
+# always set on macOS (the only platform claude-vm targets), is a per-user
+# owner-only dir (matches the launcher's credential posture, unlike
+# world-writable /tmp), and a user can override with TMPDIR=... claude-vm ...
+# If it is somehow unset, fail with a clear claude-vm message rather than a
+# raw `set -u` error or a silent downgrade to /tmp. The socket dir is removed
+# by cleanup() on exit.
+if [ -z "${TMPDIR:-}" ]; then
+  echo "claude-vm: \$TMPDIR is not set. claude-vm sites the gvproxy unix socket under a short" >&2
+  echo "claude-vm: \$TMPDIR path to stay under the ~104-byte AF_UNIX limit. macOS always sets" >&2
+  echo "claude-vm: \$TMPDIR; if it is unset, set it (e.g. TMPDIR=/tmp claude-vm ...) and retry." >&2
+  exit 1
+fi
+SOCK_DIR="$(claude_vm_mktemp -d claude-vm-sock)"
+GVPROXY_SOCK="$SOCK_DIR/net.sock"
 PCAP="$RUN/egress.pcap"
-# Host-side capture of the guest's virtio-console (/dev/hvc0 in the guest).
-# The boot unit writes StandardOutput=journal+console and the recipe's
-# KernelCommandLine sets console=hvc0 (provisioners/podman-mkosi.sh, issue
-# #71), so the boot launcher's claude-vm: seam lines and any claude/boot
-# error land on this stream. Capturing it here (issue #87) makes an
-# otherwise-black-box boot observable from the host: without the matching
-# vfkit --device virtio-serial,logFilePath=... below, the guest writes to
-# its console and the host throws it away.
+# Retained log files for the two host-side background processes (issue #88).
+# Both are sited under $RUN (the persistent run dir) and their stdout+stderr
+# are redirected here at launch so their chatty diagnostics do NOT flood the
+# interactive hvc1 terminal. Retained (not /dev/null) so failures stay
+# diagnosable, matching $GUEST_CONSOLE_LOG.
+GVPROXY_LOG="$RUN/gvproxy.log"
+PROXY_LOG="$RUN/proxy.log"
+# Host-side capture of the guest's BOOT virtio-console (/dev/hvc0 in the
+# guest). The recipe's KernelCommandLine sets console=hvc0
+# (provisioners/podman-mkosi.sh, issue #71), so all kernel + systemd boot
+# output -- and the boot launcher's claude-vm: diagnostic/seam lines, which it
+# writes explicitly to /dev/console -- land on this stream. Capturing it here
+# (issue #87) makes an otherwise-black-box boot observable from the host.
+#
+# Dual-console topology (issue #88): hvc0 is the FIRST virtio-serial device
+# (boot capture, logFilePath below); a SECOND virtio-serial device is attached
+# in `stdio` mode -> guest hvc1, the INTERACTIVE console the launching terminal
+# bridges to. Device order is deterministic (1st -> hvc0, 2nd -> hvc1). claude
+# runs on hvc1 via an autologin getty (see build-guest-image.sh /
+# provisioners/podman-mkosi.sh), so boot diagnostics (hvc0 capture) stay off
+# the interactive terminal (hvc1).
 GUEST_CONSOLE_LOG="$RUN/guest-console.log"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
@@ -308,8 +411,11 @@ EFISTORE="$RUN/efistore"
 # shared into the guest under mountTag=runconfig, and the secret-bearing
 # OAuth credential must never travel in the run.env share. Its own dir is
 # shared under a separate tag (claudecreds) so only the credential file is
-# exposed. Both dirs are created under the tightened umask (077) so they
-# are drwx------ from creation -- the credential is not world-traversable.
+# exposed. The identity seed (issue #88, claude-json-seed.json) is written
+# into this SAME dir for the same reason -- it carries account identity and
+# must not ride in run.env either. Both dirs are created under the tightened
+# umask (077) so they are drwx------ from creation -- the secrets are not
+# world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 
@@ -458,6 +564,38 @@ if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
 fi
 chmod 600 "$HOST_CREDENTIAL"
 
+# ---------------------------------------------------------------------
+# Identity seed -> the SAME shred-on-exit claudecreds mount (issue #88, pass 1).
+#
+# The interactive guest TUI treats itself as logged in only when BOTH the
+# bearer token (installed above at ~/.claude/.credentials.json) AND the host's
+# identity state (~/.claude.json `userID` + `oauthAccount`) are present. Select
+# ONLY those two keys from the host ~/.claude.json (preflighted above) and write
+# a minimal {"userID": ..., "oauthAccount": {...}} into $CREDS_DIR -- the SAME
+# transient owner-only dir shared RO into the guest under mountTag=claudecreds
+# and shredded by cleanup() on every exit (EXIT/INT/TERM). It is NOT named
+# .credentials.json (that name is the bearer token's) -- the guest boot launcher
+# reads claude-json-seed.json and installs it at /root/.claude.json before
+# exec'ing claude (see build-guest-image.sh). The seed carries account identity,
+# so it rides the SAME secret posture as the credential (never in run.env, never
+# in the verified-binary cache). We are still inside the umask-077 window, so
+# the file is created -rw------- with no world-readable moment; the chmod 600 is
+# belt-and-braces. Selection is fail-closed and was already validated at the
+# preflight; a failure here is unexpected -- abort rather than seed a partial or
+# empty file that would drop the guest back to the login menu.
+# ---------------------------------------------------------------------
+HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
+if ! claude_vm_select_claude_json_seed < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
+  rm -f "$HOST_CLAUDE_JSON_SEED"
+  umask "$OLD_UMASK"
+  echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2
+  echo "claude-vm: '$HOST_CLAUDE_JSON'. It passed the earlier preflight, so this is unexpected" >&2
+  echo "claude-vm: (the file may have changed under us). Re-run 'claude' to confirm you are" >&2
+  echo "claude-vm: logged in on the host, then retry." >&2
+  exit 1
+fi
+chmod 600 "$HOST_CLAUDE_JSON_SEED"
+
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
 umask "$OLD_UMASK"
@@ -498,6 +636,27 @@ esac
 # now that it holds no secret, and it keeps the discipline if a secret is
 # ever reintroduced here.
 # ---------------------------------------------------------------------
+# Capture the host terminal geometry (issue #88). The vfkit stdio console is
+# a plain byte pipe with NO out-of-band window-size channel, so the guest
+# hvc1 tty defaults to a fixed 80x24 regardless of the host window. Seed the
+# guest's tty size from the host's `stty size` so claude renders at the host
+# terminal's dimensions. The hvc1 getty runs `stty cols/rows` from these env
+# values BEFORE exec'ing claude (env alone is insufficient -- programs that
+# query the tty via TIOCGWINSZ need the kernel tty geometry set). This is
+# one-time: the transport carries no live resize, so this seeds the initial
+# size only. `stty size` prints "<rows> <cols>" on the controlling tty; it
+# fails when stdin is not a tty (e.g. invoked from a pipe/tool), so guard it
+# and leave COLUMNS/LINES empty when unavailable -- the guest then keeps its
+# 80x24 default rather than getting a bogus size.
+HOST_COLUMNS=""
+HOST_LINES=""
+if [ -t 0 ]; then
+  if _stty_size="$(stty size 2>/dev/null)"; then
+    HOST_LINES="${_stty_size%% *}"
+    HOST_COLUMNS="${_stty_size##* }"
+  fi
+fi
+
 RUN_ENV="$CONFIG_DIR/run.env"
 (
   umask 077
@@ -516,6 +675,17 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
     # (mode 0600) so claude authenticates as the host operator.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
+    # Host terminal geometry (issue #88). Empty when not launched from a real
+    # terminal; the boot launcher only runs `stty` when both are non-empty.
+    printf 'CLAUDE_VM_COLUMNS=%s\n' "$HOST_COLUMNS"
+    printf 'CLAUDE_VM_LINES=%s\n' "$HOST_LINES"
+    # Renderer selection (issue #88) mapped from claude.renderer. The boot
+    # launcher exports the matching CLAUDE_CODE_* var when this is set; an
+    # empty value leaves claude on its own default.
+    case "$CLAUDE_RENDERER" in
+      classic)    printf 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1\n' ;;
+      fullscreen) printf 'CLAUDE_CODE_NO_FLICKER=1\n' ;;
+    esac
     printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
   } > "$RUN_ENV"
 )
@@ -703,11 +873,12 @@ cleanup() {
   if [ -n "${MERGED:-}" ]; then
     rm -f "$MERGED"
   fi
-  # The host claude.ai OAuth credential is a transient secret: remove it on
-  # every exit (including Ctrl-C) so it never lingers after the run. The run
-  # dir itself is retained for the companion diff/apply skills, but the
-  # credential must NOT be -- it is never persisted past the live VM. Guarded
-  # like MERGED above so an early trap (before CREDS_DIR is set) is harmless.
+  # The host claude.ai OAuth credential AND the identity seed (issue #88)
+  # are transient secrets sharing this dir: remove it on every exit (including
+  # Ctrl-C) so neither lingers after the run. The run dir itself is retained
+  # for the companion diff/apply skills, but these secrets must NOT be -- they
+  # are never persisted past the live VM. Guarded like MERGED above so an early
+  # trap (before CREDS_DIR is set) is harmless.
   if [ -n "${CREDS_DIR:-}" ]; then
     rm -rf "$CREDS_DIR"
   fi
@@ -717,9 +888,25 @@ cleanup() {
   if [ -n "${RAW_CREDENTIAL:-}" ]; then
     rm -f "$RAW_CREDENTIAL"
   fi
+  # Remove the short-path gvproxy socket dir (issue #88). It lives under
+  # $TMPDIR (not under $RUN), so it is NOT covered by the run-dir retention --
+  # remove it here so the socket + vfkit's derived child socket do not linger.
+  # Guarded for an early-trap fire (before SOCK_DIR is set).
+  if [ -n "${SOCK_DIR:-}" ]; then
+    rm -rf "$SOCK_DIR"
+  fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then
     echo "claude-vm: guest console log retained at: $GUEST_CONSOLE_LOG" >&2
+  fi
+  # The proxy + gvproxy logs (issue #88) are retained off-terminal so their
+  # diagnostics do not flood the interactive session but stay diagnosable.
+  # Guarded like the others for an early-trap fire (before they are set).
+  if [ -n "${GVPROXY_LOG:-}" ]; then
+    echo "claude-vm: gvproxy log retained at: $GVPROXY_LOG" >&2
+  fi
+  if [ -n "${PROXY_LOG:-}" ]; then
+    echo "claude-vm: proxy log retained at: $PROXY_LOG" >&2
   fi
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
@@ -730,10 +917,21 @@ trap cleanup EXIT INT TERM
 
 # Start the forward proxy. It reads the allowlist from
 # $CLAUDE_VM_EGRESS_ALLOWLIST (exported above).
-eval "$PROXY_CMD" &
+#
+# REDIRECT both host-side background processes' stdout AND stderr to RETAINED
+# log files under $RUN (issue #88). Without this they inherit the interactive
+# terminal's fd 1/2 (the hvc1 claude session), and their per-request/per-packet
+# diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
+# continuous stream of `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and
+# tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
+# RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
+# matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
+# paths are echoed in cleanup() alongside the other retained-artifact lines.
+eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 &
 PROXY_PID=$!
 
-"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" &
+"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" \
+  >"$GVPROXY_LOG" 2>&1 &
 GV_PID=$!
 
 for _ in $(seq 1 50); do
@@ -748,6 +946,25 @@ done
 # launcher execs /mnt/claudebin/claude against /mnt/repo.
 CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 
+# Dual virtio-serial console topology (issue #88). Device ORDER is
+# deterministic: the 1st virtio-serial device becomes guest hvc0, the 2nd
+# becomes hvc1.
+#
+#   1st: virtio-serial,logFilePath=$GUEST_CONSOLE_LOG -> hvc0. The kernel
+#        cmdline keeps console=hvc0, so all kernel + systemd boot output (and
+#        the boot launcher's diagnostics, written to /dev/console) flow to this
+#        capture file -- preserving #87's observability and keeping boot noise
+#        off the interactive terminal.
+#   2nd: virtio-serial,stdio -> hvc1. The launching terminal IS bridged here;
+#        the guest runs claude on an autologin getty@hvc1 (so the terminal
+#        becomes the interactive claude session). vfkit's stdio attachment is a
+#        bidirectional byte pipe that requires a real controlling tty on the
+#        host -- so claude-vm must be launched from a terminal, not a pipe.
+#
+# vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
+# EXIT/INT/TERM) runs the VM-stop + copy-back + socket-dir removal when the
+# session exits or is Ctrl-C'd. Do NOT switch this to `exec vfkit` -- that
+# would replace the shell and the trap would never fire.
 vfkit \
   --cpus "$VM_CPUS" --memory "$VM_MEM" \
   --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -759,4 +976,5 @@ vfkit \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
+  --device "virtio-serial,stdio" \
   --device "virtio-rng"

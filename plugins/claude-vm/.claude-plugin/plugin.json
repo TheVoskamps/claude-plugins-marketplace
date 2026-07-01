@@ -1,6 +1,6 @@
 {
   "name": "claude-vm",
   "description": "Run Claude Code inside an isolated macOS VM with config-driven egress, mounts, and repo isolation (clone or live), driven by two-tier YAML config instead of env vars.",
-  "version": "0.5.16",
+  "version": "0.6.2",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }

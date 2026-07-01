@@ -162,6 +162,111 @@ TOKEN7="$(printf '%s' "$OUT7" | python3 -c 'import sys,json; print(json.load(sys
 assert_eq "single-key blob: accessToken preserved" "only-token" "$TOKEN7"
 
 # ---------------------------------------------------------------------
+# claude_vm_select_claude_json_seed (issue #88, pass 1): select ONLY
+# {userID, oauthAccount} from the host ~/.claude.json, dropping everything
+# else (projects{}, has* flags, metrics, tips history), fail-closed on a
+# missing/unusable userID or oauthAccount.
+# ---------------------------------------------------------------------
+
+# Fixture: the real ~/.claude.json shape -- the two identity keys we want,
+# plus the noise we must DROP (projects{} keyed by absolute path, has* flags,
+# telemetry, tips history). A verbatim copy would leak all of this into the
+# guest; selection must keep only userID + oauthAccount.
+FULL_CLAUDE_JSON='{
+  "userID": "abc123deadbeef",
+  "oauthAccount": {
+    "accountUuid": "uuid-1111",
+    "emailAddress": "operator@example.com",
+    "organizationUuid": "org-2222",
+    "organizationRole": "admin"
+  },
+  "hasCompletedOnboarding": true,
+  "installMethod": "native",
+  "autoUpdates": "false",
+  "numStartups": 42,
+  "projects": {
+    "/Users/operator/some/repo": {
+      "hasTrustDialogAccepted": true,
+      "lastCost": 1.23,
+      "lastSessionId": "sess-secret"
+    }
+  }
+}'
+
+SEED_OUT="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed)"
+SEED_RC=$?
+assert_rc "full ~/.claude.json: seed selection exits 0" "0" "$SEED_RC"
+
+# Output is valid JSON.
+if printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; json.load(sys.stdin)' 2>/dev/null; then
+  assert_eq "seed: output is valid JSON" "ok" "ok"
+else
+  assert_eq "seed: output is valid JSON" "ok" "INVALID-JSON"
+fi
+
+# ONLY userID + oauthAccount survive.
+SEED_KEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(sorted(json.load(sys.stdin).keys())))')"
+assert_eq "seed: output has ONLY userID + oauthAccount" "oauthAccount,userID" "$SEED_KEYS"
+
+SEED_USER="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["userID"])')"
+assert_eq "seed: userID preserved" "abc123deadbeef" "$SEED_USER"
+
+SEED_EMAIL="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["oauthAccount"]["emailAddress"])')"
+assert_eq "seed: oauthAccount.emailAddress preserved" "operator@example.com" "$SEED_EMAIL"
+
+# The dropped noise must NOT appear anywhere -- projects{}, session id, flags.
+for needle in "projects" "sess-secret" "hasCompletedOnboarding" "numStartups" "installMethod"; do
+  if printf '%s' "$SEED_OUT" | grep -q "$needle"; then
+    assert_eq "seed: '$needle' is DROPPED from output" "absent" "PRESENT-LEAKED"
+  else
+    assert_eq "seed: '$needle' is DROPPED from output" "absent" "absent"
+  fi
+done
+
+# Fail-closed: missing userID.
+NO_USER='{"oauthAccount": {"emailAddress": "x@y.z"}}'
+SO1="$(printf '%s' "$NO_USER" | claude_vm_select_claude_json_seed)"
+SR1=$?
+assert_rc "seed: missing userID exits non-zero" "1" "$SR1"
+assert_eq "seed: missing userID writes nothing" "" "$SO1"
+
+# Fail-closed: missing oauthAccount.
+NO_OAUTH='{"userID": "abc"}'
+SO2="$(printf '%s' "$NO_OAUTH" | claude_vm_select_claude_json_seed)"
+SR2=$?
+assert_rc "seed: missing oauthAccount exits non-zero" "1" "$SR2"
+assert_eq "seed: missing oauthAccount writes nothing" "" "$SO2"
+
+# Fail-closed: userID present but not a string.
+BAD_USER='{"userID": 12345, "oauthAccount": {"a": "b"}}'
+SO3="$(printf '%s' "$BAD_USER" | claude_vm_select_claude_json_seed)"
+SR3=$?
+assert_rc "seed: non-string userID exits non-zero" "1" "$SR3"
+
+# Fail-closed: oauthAccount present but not an object.
+BAD_OAUTH='{"userID": "abc", "oauthAccount": "not-an-object"}'
+SO4="$(printf '%s' "$BAD_OAUTH" | claude_vm_select_claude_json_seed)"
+SR4=$?
+assert_rc "seed: non-object oauthAccount exits non-zero" "1" "$SR4"
+
+# Fail-closed: empty oauthAccount object -> not usable.
+EMPTY_OAUTH='{"userID": "abc", "oauthAccount": {}}'
+SO5="$(printf '%s' "$EMPTY_OAUTH" | claude_vm_select_claude_json_seed)"
+SR5=$?
+assert_rc "seed: empty oauthAccount exits non-zero" "1" "$SR5"
+
+# Fail-closed: invalid JSON.
+SO6="$(printf '%s' "not json {" | claude_vm_select_claude_json_seed)"
+SR6=$?
+assert_rc "seed: invalid JSON exits non-zero" "1" "$SR6"
+assert_eq "seed: invalid JSON writes nothing" "" "$SO6"
+
+# Fail-closed: empty input.
+SO7="$(printf '%s' "" | claude_vm_select_claude_json_seed)"
+SR7=$?
+assert_rc "seed: empty input exits non-zero" "1" "$SR7"
+
+# ---------------------------------------------------------------------
 echo
 echo "credential-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
