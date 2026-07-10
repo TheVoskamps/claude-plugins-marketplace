@@ -589,9 +589,9 @@ func awsConfigureReadsSecret(args []string) bool {
 }
 
 // awsGlobalFlags is the COMPLETE, authoritative set of AWS CLI v2 global
-// options (verified against the AWS CLI User Guide "Command line options" and
-// the `aws` command reference, 2026-07 / CLI 2.35.x), each mapped to whether it
-// consumes a following VALUE token. It is deliberately exhaustive: the whole
+// options (verified against the AWS CLI User Guide "Command line options", the
+// `aws` command reference, and `aws help`, CLI 2.34.x), each mapped to whether
+// it consumes a following VALUE token. It is deliberately exhaustive: the whole
 // point of the aws classifier is to ALLOW the many safe commands without
 // interrupting the human, so an incomplete map (which would push benign
 // commands to a spurious ASK) is a defect, not a safe default. Global flags are
@@ -603,10 +603,12 @@ func awsConfigureReadsSecret(args []string) bool {
 var awsGlobalFlags = map[string]bool{
 	// value-taking
 	"--ca-bundle": true, "--cli-binary-format": true, "--cli-connect-timeout": true,
-	"--cli-error-format": true, "--cli-pager": true, "--cli-read-timeout": true,
+	"--cli-error-format": true, "--cli-read-timeout": true,
 	"--color": true, "--endpoint-url": true, "--output": true, "--profile": true,
 	"--query": true, "--region": true,
-	// boolean
+	// boolean. Note: aws exposes the pager control ONLY as the boolean
+	// `--no-cli-pager`; there is no value-taking `--cli-pager` global (aws
+	// rejects `--cli-pager <v>` as an invalid choice), so it is absent above.
 	"--cli-auto-prompt": false, "--debug": false, "--no-cli-auto-prompt": false,
 	"--no-cli-pager": false, "--no-paginate": false, "--no-sign-request": false,
 	"--no-verify-ssl": false, "--version": false,
@@ -667,7 +669,7 @@ func resolveAwsGlobal(token string) (canonical string, takesValue, glued, known 
 // (value-taking vs. boolean) is unknown BEFORE both the service and operation
 // tokens have been captured. Guessing the arity is the exact desync #64
 // decision #3 warns about: a value-taking flag the gate does not know
-// (`--cli-pager less`) would leave its value (`less`) as a stray positional,
+// (`--some-unknown-global x`) would leave its value (`x`) as a stray positional,
 // shifting svc/op by one and slipping a credential read past the ASK tier to
 // the ALLOW floor. So an unknown flag in that window fails closed:
 // awsServiceAndOp returns ok=false and classifyAws routes that to ASK.
