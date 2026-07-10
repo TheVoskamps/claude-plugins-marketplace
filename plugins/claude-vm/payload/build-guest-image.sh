@@ -129,8 +129,9 @@ emit_boot_launcher() {
 # installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
 # into $HOME/.claude/.credentials.json so claude authenticates as the host
 # operator (issue #50) AND the host's identity seed (userID + oauthAccount +
-# synthesized onboarding/auto-update/version keys) into $HOME/.claude.json so
-# the interactive TUI comes up already onboarded + logged in (issue #88), seeds
+# synthesized onboarding/auto-update/version keys, benign host UI keys, and a
+# /mnt/repo projects entry that skips the trust dialog) into $HOME/.claude.json
+# so the interactive TUI comes up already onboarded + logged in (issue #88), seeds
 # the tty geometry from the host (issue #88), then
 # `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
@@ -218,16 +219,19 @@ log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credenti
 # interactive guest TUI also decides "am I onboarded / logged in" from state in
 # ~/.claude.json. A fresh throwaway guest lacks it, so without this seed every
 # launch shows the onboarding/login wall despite the credential. The host built
-# the seed from its own ~/.claude.json -- selecting ONLY `userID` +
-# `oauthAccount` and synthesizing `hasCompletedOnboarding: true` (skip the
-# wall), `autoUpdates: false` (no self-update in the egress-confined guest
-# against the RO-mounted binary), and `lastOnboardingVersion` /
-# `lastReleaseNotesSeen` stamped with the resolved claude version -- and shared
-# that 6-key object into the SAME shred-on-exit claudecreds mount
-# (mountTag=claudecreds) as the credential above, NOT via run.env, honoring the
-# launcher's "secrets never ride in run.env" invariant. machineID is NOT in the
-# seed -- the guest mints its own on first run. Install it at
-# $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
+# the seed from its own ~/.claude.json -- selecting `userID` + `oauthAccount`,
+# synthesizing `hasCompletedOnboarding: true` (skip the wall), `autoUpdates:
+# false` (no self-update in the egress-confined guest against the RO-mounted
+# binary), and `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped with the
+# resolved claude version; additively carrying benign host UI keys when present
+# (installMethod, hasSeenTasksHint, hasUsedStash, tipsHistory); and seeding a
+# `projects` entry for /mnt/repo with hasTrustDialogAccepted /
+# hasCompletedProjectOnboarding forced true so the guest skips the "trust this
+# folder?" dialog -- and shared that object into the SAME shred-on-exit
+# claudecreds mount (mountTag=claudecreds) as the credential above, NOT via
+# run.env, honoring the launcher's "secrets never ride in run.env" invariant.
+# machineID is NOT in the seed -- the guest mints its own on first run. Install
+# it at $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
 # /root/.claude.json does not exist on a fresh guest, so this is a plain create
 # of the object (no merge). The seed's CONTENTS are the host's business; this
 # step just copies whatever the host emitted.

@@ -73,6 +73,13 @@ CLAUDE_ARGS=("$@")
 # regardless of the caller's cwd.
 REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
 
+# The fixed guest-side mount point the boot launcher cd's into (build-guest-
+# image.sh's boot launcher sets REPO_MNT=/mnt/repo and the guest fstab mounts
+# the repo share there). The identity seed keys its projects{} entry on THIS
+# path so the guest skips the "trust this folder?" dialog for /mnt/repo (issue
+# #88). Keep in lockstep with REPO_MNT in build-guest-image.sh.
+GUEST_REPO_MNT="/mnt/repo"
+
 claude_vm_require_yq || exit 1
 command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 1; }
 
@@ -245,7 +252,7 @@ fi
 # The authoritative concrete version is resolved later (after the cache-ensure
 # block) and passed to the REAL seed write below (~line 588). Resolving a
 # channel here would force a premature network fetch in the fast preflight.
-if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
   echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
   echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
   echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
@@ -590,16 +597,63 @@ fi
 chmod 600 "$HOST_CREDENTIAL"
 
 # ---------------------------------------------------------------------
+# VALIDATE the selected credential's tokens (issue #88, Gap 1).
+#
+# The structural selection above accepts a `claudeAiOauth` object that is a
+# valid non-empty dict -- but a real host was observed whose PERSISTED Keychain
+# entry had gone DEGRADED: a structurally-complete `claudeAiOauth` with EMPTY
+# accessToken/refreshToken strings (and expiresAt: 0), while the host's own
+# claude sessions kept working via the shared auth daemon's in-memory tokens.
+# Copied into the guest, that empty credential boots claude to
+# "Not logged in -- Run /login", and an in-guest /login can trip OAuth
+# reuse-detection and REVOKE the operator's other live sessions. So fail FAST
+# here, steering the operator to re-login on the HOST (which repairs the
+# Keychain entry) -- NOT into an in-guest /login.
+# ---------------------------------------------------------------------
+set +e
+claude_vm_validate_claude_credential_tokens < "$HOST_CREDENTIAL"
+VALIDATE_RC=$?
+set -e
+if [ "$VALIDATE_RC" -eq 2 ]; then
+  # python3 missing -- an environment problem, not a "log in" problem.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: cannot validate the claude.ai OAuth credential: python3 is required but not" >&2
+  echo "claude-vm: found on PATH. python3 ships with macOS; ensure it is available, then retry." >&2
+  exit 1
+fi
+if [ "$VALIDATE_RC" -ne 0 ]; then
+  # Degraded Keychain entry: the claudeAiOauth object exists but its
+  # accessToken/refreshToken are empty. Abort BEFORE booting a broken guest.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has a claude.ai OAuth" >&2
+  echo "claude-vm: credential, but its accessToken and refreshToken are EMPTY -- a degraded state" >&2
+  echo "claude-vm: that happens when your host claude sessions coast on the shared auth daemon's" >&2
+  echo "claude-vm: in-memory tokens while the persisted Keychain entry has gone stale. The guest" >&2
+  echo "claude-vm: would boot to 'Not logged in -- Run /login' with this credential. Re-login on" >&2
+  echo "claude-vm: THIS HOST to repair the Keychain entry -- run 'claude' then '/login' (or restart" >&2
+  echo "claude-vm: Claude Code) -- then retry claude-vm. Do NOT run /login inside the guest: a" >&2
+  echo "claude-vm: retried guest login can revoke your other live sessions." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------
 # Identity seed -> the SAME shred-on-exit claudecreds mount (issue #88).
 #
 # The interactive guest TUI treats itself as onboarded + logged in only when
 # the bearer token (installed above at ~/.claude/.credentials.json) AND the
 # right ~/.claude.json state are present. Build the seed from the host
-# ~/.claude.json (preflighted above): select ONLY `userID` + `oauthAccount`
-# from the host, and synthesize `hasCompletedOnboarding: true` (skip the
-# onboarding wall), `autoUpdates: false` (don't self-update in the egress-
-# confined guest), and `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped
-# with the concrete resolved claude version. Write that {6-key} object into
+# ~/.claude.json (preflighted above): select `userID` + `oauthAccount` from the
+# host, synthesize `hasCompletedOnboarding: true` (skip the onboarding wall),
+# `autoUpdates: false` (don't self-update in the egress-confined guest), and
+# `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped with the concrete
+# resolved claude version; ADDITIVELY carry benign host UI keys when present
+# (installMethod, hasSeenTasksHint, hasUsedStash, tipsHistory); and seed a
+# `projects` entry for the guest mount path ($GUEST_REPO_MNT) with
+# hasTrustDialogAccepted / hasCompletedProjectOnboarding forced true so the
+# guest skips the "trust this folder?" dialog (issue #88, Gap 2). Write that
+# object into
 # $CREDS_DIR -- the SAME transient owner-only dir shared RO into the guest under
 # mountTag=claudecreds and shredded by cleanup() on every exit (EXIT/INT/TERM).
 # machineID is NOT seeded -- the guest mints its own. It is NOT named
@@ -617,7 +671,7 @@ HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
 # Authoritative seed write: pass the CONCRETE resolved version (captured after
 # the cache-ensure block) so the emitted seed's lastOnboardingVersion /
 # lastReleaseNotesSeen carry a real dotted version, not a channel name.
-if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
   rm -f "$HOST_CLAUDE_JSON_SEED"
   umask "$OLD_UMASK"
   echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2

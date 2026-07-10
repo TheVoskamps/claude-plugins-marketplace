@@ -73,23 +73,47 @@ flow) and `autoUpdates` (unset → claude tries to self-update and fails
 against its RO-mounted binary in the egress-confined guest).
 
 So the launcher **also seeds the guest's identity + onboarding state**
-(issue #88): it reads your host `~/.claude.json` and emits a **6-key**
-seed — `userID` and `oauthAccount` selected from the host, plus four
-synthesized keys: `hasCompletedOnboarding: true` (skip the wall),
-`autoUpdates: false` (no self-update), and `lastOnboardingVersion` /
-`lastReleaseNotesSeen` stamped with the resolved claude version. Nothing
-else from `~/.claude.json` (no `projects{}`, no telemetry, no `machineID`)
-is copied — `machineID` in particular is left out so the guest mints its
-own. The guest boot launcher installs the seed at `$HOME/.claude.json`
-(mode `0600`) before exec'ing `claude`, so the in-guest session comes up
-already onboarded and logged in — no wall, no browser paste, no failed
-self-update. A **preflight** aborts with an actionable message if the host
+(issue #88): it reads your host `~/.claude.json` and emits a seed carrying
+`userID` and `oauthAccount` selected from the host, plus four synthesized
+keys: `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false`
+(no self-update), and `lastOnboardingVersion` / `lastReleaseNotesSeen`
+stamped with the resolved claude version. It **additively** carries a few
+benign host UI keys when your `~/.claude.json` has them — `installMethod`,
+`hasSeenTasksHint`, `hasUsedStash`, and `tipsHistory` — silently omitting
+each when absent. And it seeds a **`projects` entry for the guest repo
+mount** (`/mnt/repo`) with `hasTrustDialogAccepted` and
+`hasCompletedProjectOnboarding` forced `true`, so the guest skips the "Do
+you trust this folder? /mnt/repo" dialog on first boot (if your host
+already has a project entry for the launched repo, it is copied verbatim —
+so per-project settings like `allowedTools` ride along — then rekeyed to
+`/mnt/repo` with those two flags forced true). Nothing else from
+`~/.claude.json` (no other `projects{}` entries, no telemetry, no
+`machineID`) is copied — `machineID` in particular is left out so the guest
+mints its own. The guest boot launcher installs the seed at
+`$HOME/.claude.json` (mode `0600`) before exec'ing `claude`, so the
+in-guest session comes up already onboarded, logged in, and folder-trusted
+— no wall, no trust prompt, no browser paste, no failed self-update. A
+**preflight** aborts with an actionable message if the host
 `~/.claude.json` is missing or lacks a usable `userID`/`oauthAccount`
 (i.e. you are not logged in on the host). The seed carries account
 identity, so it rides the same secret posture as the credential: written
 under `umask 077` into the transient, owner-only (`0600`), shred-on-exit
 `claudecreds` mount, **never** into `run.env` or the verified-binary
 cache.
+
+**Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
+structurally-complete `claudeAiOauth` object whose `accessToken` and
+`refreshToken` are **empty strings** (with `expiresAt: 0`) — a degraded
+state that happens when your host claude sessions keep working via the
+shared auth daemon's in-memory tokens while the persisted Keychain entry
+has gone stale. Booting the guest with that empty credential lands it at
+"Not logged in · Run /login", and an in-guest `/login` can trip OAuth
+reuse-detection and **revoke your other live sessions**. So after selecting
+`claudeAiOauth`, the launcher **validates that both tokens are non-empty**
+(`claude_vm_validate_claude_credential_tokens` in `lib/credential.sh`) and
+aborts fast if they are not, steering you to re-login on the **host** (run
+`claude` then `/login`, or restart Claude Code — either repairs the
+Keychain entry) rather than into the guest.
 
 At launch the launcher extracts the credential from the macOS login
 Keychain by service name alone:

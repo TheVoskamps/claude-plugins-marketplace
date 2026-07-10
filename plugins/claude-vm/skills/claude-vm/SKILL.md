@@ -260,25 +260,47 @@ despite the mounted credential. Two keys matter beyond identity:
 RO-mounted binary in the egress-confined guest).
 
 So the launcher **also seeds the guest's identity + onboarding state**
-(issue #88): it reads your host `~/.claude.json` and emits a **6-key**
-seed — `userID` and `oauthAccount` selected from the host (nothing else
-from the host — no `projects{}`, no telemetry, no `machineID`), plus four
-synthesized keys: `hasCompletedOnboarding: true` (skip the wall),
-`autoUpdates: false` (no self-update), and `lastOnboardingVersion` /
-`lastReleaseNotesSeen` stamped with the concrete resolved claude version.
+(issue #88): it reads your host `~/.claude.json` and emits a seed carrying
+`userID` and `oauthAccount` selected from the host, plus four synthesized
+keys: `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false`
+(no self-update), and `lastOnboardingVersion` / `lastReleaseNotesSeen`
+stamped with the concrete resolved claude version. It **additively**
+carries benign host UI keys when present — `installMethod`,
+`hasSeenTasksHint`, `hasUsedStash`, `tipsHistory` (each silently omitted
+when absent) — and seeds a **`projects` entry for the guest mount**
+(`/mnt/repo`) with `hasTrustDialogAccepted` / `hasCompletedProjectOnboarding`
+forced `true` so the guest skips the "Do you trust this folder? /mnt/repo"
+dialog (if the host already has an entry for the launched repo it is copied
+verbatim — so `allowedTools` and friends survive — rekeyed to `/mnt/repo`
+with those two flags forced true). Nothing else from `~/.claude.json` (no
+other `projects{}` entries, no telemetry, no `machineID`) is copied;
 `machineID` is deliberately **not** seeded — the guest mints its own. That
 object is shared into the guest under the same `claudecreds` mount, and
 the guest boot launcher installs it at `$HOME/.claude.json` (mode `0600`)
 before exec'ing `claude`, so the in-guest session comes up already
-onboarded, logged in, and with self-update disabled. The seed is built
-via `lib/credential.sh`'s `claude_vm_select_claude_json_seed` (using
-`python3`; unit-tested in `payload/test/credential-test.sh`) and carries
-account identity, so it rides the same secret posture as the credential:
-written under `umask 077` into the transient, owner-only (`0600`),
-shred-on-exit `claudecreds` mount, **never** into `run.env` or the
+onboarded, logged in, folder-trusted, and with self-update disabled. The
+seed is built via `lib/credential.sh`'s `claude_vm_select_claude_json_seed`
+(using `python3`; unit-tested in `payload/test/credential-test.sh`) and
+carries account identity, so it rides the same secret posture as the
+credential: written under `umask 077` into the transient, owner-only
+(`0600`), shred-on-exit `claudecreds` mount, **never** into `run.env` or the
 verified-binary cache. A **preflight** aborts the run with an actionable
 message if the host `~/.claude.json` is missing or lacks a usable
 `userID`/`oauthAccount` (i.e. you are not logged in on the host).
+
+A second **credential-token preflight** guards against a degraded Keychain
+entry: the `claudeAiOauth` object can be structurally complete yet carry
+**empty** `accessToken` / `refreshToken` strings (with `expiresAt: 0`) —
+which happens when your host claude sessions coast on the shared auth
+daemon's in-memory tokens while the persisted Keychain entry has gone
+stale. Booting the guest with it lands at "Not logged in · Run /login",
+and an in-guest `/login` can trip OAuth reuse-detection and **revoke your
+other live sessions**. So after selecting the credential, the launcher
+validates both tokens are non-empty
+(`claude_vm_validate_claude_credential_tokens`) and aborts fast if not,
+telling you to re-login on the **host** (`claude` then `/login`, or restart
+Claude Code — either repairs the Keychain entry) rather than inside the
+guest.
 
 At launch the launcher reads the credential from the macOS login
 Keychain by service name alone
@@ -342,6 +364,10 @@ that pinned fingerprint actually present in the gpg keyring, and
 `python3` on PATH. Immediately after, a separate **identity-seed
 preflight** aborts if the host `~/.claude.json` is missing or lacks a
 usable `userID`/`oauthAccount` (i.e. you are not logged in on the host).
+Later, once the credential is selected, a **credential-token check**
+aborts if the selected `claudeAiOauth` carries empty `accessToken` /
+`refreshToken` (the degraded-Keychain state described under
+"Authentication"), steering you to re-login on the host.
 Each failed check prints the exact remediation
 command(s) (e.g. `brew install gnupg`, the
 `curl … | gpg --import` + `gpg --fingerprint` pin steps). Without this
