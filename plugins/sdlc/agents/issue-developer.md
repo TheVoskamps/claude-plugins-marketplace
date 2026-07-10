@@ -2,11 +2,10 @@
 name: issue-developer
 description: Implements a fix for a single issue, runs tests, commits, pushes, and creates a PR. Use this for initial implementation of each issue.
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, LS, Bash, WebFetch, WebSearch, TodoRead, TodoWrite, Skill
-model: opus
+model: sonnet
 isolation: worktree
 permissionMode: default
 memory: project
-background: false
 skills:
   - issue-view
 ---
@@ -78,9 +77,10 @@ spawn prompt does not give them, ask before proceeding.
    ```
 
    `/issue-view` itself dispatches on the `issues:` tracker value —
-   GitHub via `gh`/GraphQL, Jira via `acli` (see the `/issues:issue-view` skill
-   → "Jira backend" and the `/issues-jira:jira-lib` skill) — so you call it the same
-   way regardless of tracker and do not need a separate Jira branch
+   GitHub via `gh`/GraphQL, Jira via `acli` (see the
+   `/issues:issue-view` skill → "Jira backend" and the
+   `/issues-jira:jira-lib` skill) — so you call it the same way
+   regardless of tracker and do not need a separate Jira branch
    here.
 
 2. Determine a short slug from the issue title (lowercase, kebab-case,

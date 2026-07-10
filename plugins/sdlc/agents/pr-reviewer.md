@@ -6,7 +6,6 @@ model: opus
 isolation: worktree
 permissionMode: default
 memory: project
-background: false
 skills:
   - issue-view
 ---

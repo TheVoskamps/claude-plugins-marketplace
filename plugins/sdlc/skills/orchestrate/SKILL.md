@@ -31,11 +31,26 @@ All four teammates declare `isolation: worktree` in their frontmatter,
 so the harness creates each one's worktree under `.claude/worktrees/`
 and starts the subagent inside it. You don't manage worktree paths and
 you never pass them in spawn prompts. They also share a hardened
-frontmatter baseline — `memory: project` and `background: false` on all
-four, `permissionMode: default` on three with `doc-updater` on
+frontmatter baseline — `memory: project` on all four,
+`permissionMode: default` on three with `doc-updater` on
 `permissionMode: acceptEdits` — plus the repo-level `settings.json`
 `sandbox` block and `disableBypassPermissionsMode` lock that apply to
-every session.
+every session. On `model`, the baseline splits: the three execution
+agents (`issue-developer`, `issue-fixer`, `doc-updater`) declare
+`model: sonnet` — they execute a design the main session (Opus) already
+specified, exactly the regime where a cheaper executor loses the least —
+while `pr-reviewer` keeps `model: opus` so the verification gate is a
+strictly stronger model than the implementers it checks. For a
+genuinely gnarly issue you can escalate a single spawn to `opus` via the
+`Agent` tool's per-call `model` override without touching front matter.
+Foreground execution is not a frontmatter concern: the four agents do
+**not** declare `background: false` (it is inert — the Claude Code docs
+document only `background: true` as forcing a direction). Foreground
+spawns are enforced by the `block-background-agents` plugin's
+`PreToolUse` hook (which denies any `Agent` call lacking an explicit
+`run_in_background: false`) and, as a fallback for installs without that
+hook, by this skill's own "never run subagents in the background" hard
+constraint.
 
 Each teammate, at the start of every run, reads `~/.claude/CLAUDE.md`
 (and iteratively each `@~/` include it references — subagents don't
@@ -467,11 +482,17 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   escalations need to bubble up to the human in real time. This
   covers both `run_in_background: true` on initial spawn AND
   `SendMessage` to resume a previously-paused subagent (both have
-  the same effect of suppressing surfacing). All four teammates also
-  declare `background: false` in their frontmatter as a declarative
-  backstop, but that does not relax the constraint on the
-  orchestrator — never reach for `run_in_background: true` or
-  `SendMessage` regardless. See
+  the same effect of suppressing surfacing). This constraint is the
+  fallback backstop; the primary enforcement is the
+  `block-background-agents` plugin's `PreToolUse` hook, which denies
+  any `Agent` call that does not pass an explicit
+  `run_in_background: false`. The teammates do **not** declare
+  `background: false` in their frontmatter — that key is inert (the
+  Claude Code docs document only `background: true` as forcing a
+  direction, so `background: false` behaves like unset and the
+  spawn-time `run_in_background` governs). Regardless of which
+  mechanism catches it, the rule on you is the same: never reach for
+  `run_in_background: true` or `SendMessage`. See
   `~/.claude/rules/foreground-vs-background.md` for the canonical
   rule, including what to do instead when a foreground subagent
   stops and the human resolves the blocker (orchestrator self-does
@@ -611,10 +632,15 @@ Two carve-outs keep this rule from being over-broad:
 
 ## Token Efficiency
 
-- Use `issue-developer` and `issue-fixer` teammates with their default
-  model (opus)
-- Use `doc-updater` and `pr-reviewer` teammates with their default
-  model (opus)
+- Use `issue-developer`, `issue-fixer`, and `doc-updater` teammates
+  with their default model (`sonnet`) — they execute fully-specified
+  briefs, where a cheaper executor loses the least. For a genuinely
+  hard issue, escalate that single spawn to `opus` via the `Agent`
+  tool's per-call `model` override rather than editing front matter.
+- Use `pr-reviewer` with its default model (`opus`) — it is the
+  verification gate, and a strictly stronger reviewer than the
+  implementers gives an asymmetric check that is cheap because
+  reviewer runs are short.
 - Reserve `opus` (your own model) for planning decisions and
   synthesis only
 - If the batch is large (>8 issues), split into two separate team
