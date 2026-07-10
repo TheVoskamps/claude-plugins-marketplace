@@ -27,12 +27,15 @@ func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 
 func TestGitGlobalsBeforeSubcommand_13(t *testing.T) {
 	// --no-pager / -c k=v / -P globals must be consumed; the real subcommand
-	// (status) is read-only → ALLOW.
+	// (status) is read-only → ALLOW. NOTE: `-c core.pager=cat` was previously
+	// asserted ALLOW here, but #64's config-injection gate now DENYs any
+	// code-executing `-c` key (core.pager is one — its value is run as a shell
+	// command, so cat and `curl x|sh` are indistinguishable to the gate). The
+	// inert display knob `-c color.ui=always` still ALLOWs.
 	for _, cmd := range []string{
 		"git --no-pager status",
 		"git -c color.ui=always status",
 		"git -P log --oneline",
-		"git --no-pager -c core.pager=cat log",
 	} {
 		d := classifyCmd(t, cmd, false)
 		wantBucket(t, d, BucketAllow, "git globals: "+cmd)
@@ -51,12 +54,22 @@ func TestCompoundCommands(t *testing.T) {
 }
 
 func TestEnvWrapper(t *testing.T) {
-	// env VAR=x git status — the env wrapper and assignment must be stripped
-	// so the real program (git status, read-only) is classified → ALLOW.
-	wantBucket(t, classifyCmd(t, "env FOO=bar git status", false), BucketAllow, "env VAR=x git status")
-	wantBucket(t, classifyCmd(t, "FOO=bar git log", false), BucketAllow, "VAR=x git log (assignment prefix)")
-	// env wrapping a destructive subagent reset still classifies the inner cmd.
+	// #64 precondition: an inline environment-assignment prefix on git/gh/aws
+	// DENYs — it can redirect egress / swap identity / inject a pager without
+	// touching argv (AWS_ENDPOINT_URL=, GIT_SSH_COMMAND=, GH_HOST=, AWS_PAGER=).
+	// This SUPERSEDES the prior expectation that `env FOO=bar git status` and
+	// `FOO=bar git log` ALLOW. Both the `env VAR=x cmd` and bare `VAR=x cmd`
+	// inline-prefix forms are denied for git.
+	wantBucket(t, classifyCmd(t, "env FOO=bar git status", false), BucketDeny, "env VAR=x git status (#64 inline env)")
+	wantBucket(t, classifyCmd(t, "FOO=bar git log", false), BucketDeny, "VAR=x git log (#64 inline env)")
+	// env wrapping a destructive subagent reset still DENYs (the inline-env deny
+	// fires first, but either way it is a deny).
 	wantBucket(t, classifyCmd(t, "env GIT_PAGER=cat git reset --hard", true), BucketDeny, "env + destructive")
+	// A non-git/gh/aws program with an env wrapper still has its wrapper
+	// stripped and the inner program classified normally (the #64 inline-env
+	// deny is scoped to git/gh/aws). `printf` is a pure-output read-only
+	// utility (no path operand) → ALLOW.
+	wantBucket(t, classifyCmd(t, "env FOO=bar printf hi", false), BucketAllow, "env VAR=x printf (non-git/gh/aws)")
 }
 
 func TestQuotedAndExpandedStrings_1(t *testing.T) {
@@ -245,17 +258,34 @@ func TestReadOnlyAllowed(t *testing.T) {
 	}
 }
 
-func TestMutatingAwsNotAllowed(t *testing.T) {
-	// A mutating aws op must not ALLOW (defers to the pipeline).
-	d := classifyCmd(t, "aws s3api delete-object --bucket b --key k", false)
-	if d.Bucket == BucketAllow {
-		t.Errorf("aws delete-object must not ALLOW; got %q", d.Bucket)
+// #64 decision 1 changed the aws default from defer to ALLOW: an ordinary aws
+// write the spec does not name as dangerous (e.g. s3api delete-object) now
+// ALLOWs, because containment lives in the microVM. The deny/ask tiers
+// (--endpoint-url, credential reads) still carve out the dangerous shapes; this
+// test asserts the read-only-op classifier is still TOKEN-anchored (not a
+// substring match) by checking its operation label, which is the property the
+// old substring-trap test guarded.
+func TestAwsOpClassificationTokenAnchored(t *testing.T) {
+	// Both forms ALLOW under #64 decision 1, so assert on the per-command reason
+	// by calling classifyAws directly (the aggregate classifyBash reason masks
+	// the per-command label).
+	mk := func(prog string, rest ...string) (simpleCommand, Decision) {
+		sc := simpleCommand{args: append([]string{prog}, rest...)}
+		return sc, classifyAws(sc.args[1:], sc)
 	}
-	// Substring trap: an op token that merely contains "list" but isn't a
-	// list-* prefix must not be treated as read-only.
-	d2 := classifyCmd(t, "aws foo unlist-thing", false)
-	if d2.Bucket == BucketAllow {
-		t.Errorf("unlist-thing must not ALLOW (substring trap); got %q", d2.Bucket)
+	// A read-only op gets the read-only label (token-anchored list-/describe-/
+	// get- prefix).
+	_, d := mk("aws", "s3api", "list-buckets")
+	wantBucket(t, d, BucketAllow, "aws list-buckets")
+	if !containsSubstr(d.Reason, "read-only operation") {
+		t.Errorf("list-buckets should be labeled read-only; got %q", d.Reason)
+	}
+	// Substring trap: `unlist-thing` merely CONTAINS "list" but is not a list-*
+	// prefix, so it must NOT be labeled a read-only op (it allows via the
+	// not-guarded default instead).
+	_, d2 := mk("aws", "foo", "unlist-thing")
+	if containsSubstr(d2.Reason, "read-only operation") {
+		t.Errorf("unlist-thing must not be labeled read-only (substring trap); got %q", d2.Reason)
 	}
 }
 
