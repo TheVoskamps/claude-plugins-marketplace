@@ -111,12 +111,32 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   delete), plain `--force`/`-f` **ask**, while `--force-with-lease`, a
   clean named-branch delete (`--delete <branch>`, `origin :branch`), and
   an ordinary fast-forward push **allow**. For `gh`: `gh api` is routed
-  through a method/body/graphql gate (a non-GET method, an
-  implicit-POST-flipping body flag, the `graphql` endpoint, an
+  through a method/body/endpoint gate (#64, extended by #113). The
+  write DENY tiers are unchanged: a non-GET method, an
+  implicit-POST-flipping body flag on a REST endpoint, an
   `x-http-method-override` header, or `--hostname` (which aims the
   signed request at a non-default host — the gh analog of
-  `--endpoint-url`) **deny**; a plain GET **asks** — the microVM's
-  no-egress posture is the real exfil control); irreparable verbs
+  `--endpoint-url`) **deny**. On the `graphql` endpoint the gate now
+  **classifies the query document** instead of blanket-denying (#113):
+  a document supplied literally via `-f query=…` / `--raw-field
+  query=…` is scanned (string literals and `#` comments stripped) and,
+  if every top-level construct is provably a `query`, the anonymous
+  `{…}` shorthand, or a `fragment`, it **allows**; a mutation-bearing
+  document **asks** with the mutation field names in the reason (so the
+  human sees `addSubIssue` vs `deleteIssue`); a subscription,
+  unbalanced/garbage document, or a query supplied non-literally
+  (`-F query=…`, which does `@file` expansion / coercion, or `--input`)
+  **denies** as unclassifiable. On a REST endpoint the gate runs a
+  path-prefix GET-gate (#113): a known-flag-only GET whose endpoint is
+  on the read allowlist (exact `rate_limit`/`meta`/`user`;
+  segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a
+  leading `/` and any `?query` suffix stripped first) **allows**; a
+  `://`- or `..`-bearing endpoint **denies**; an unknown flag or a
+  non-allowlisted endpoint **asks** (the two owner-decision deviations
+  from the appendix GET-gate — a false ask costs one click, whereas a
+  hard deny would recreate the no-escape-hatch wall this gate exists to
+  remove). The microVM's no-egress posture remains the real exfil
+  control for any GET. Irreparable verbs
   (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
   `repo edit --visibility`, `release create`, and `gist create --public`

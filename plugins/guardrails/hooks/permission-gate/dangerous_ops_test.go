@@ -113,16 +113,18 @@ func TestGhAPIGate_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "gh api non-GET: "+cmd)
 	}
-	// graphql is unclassifiable from argv → DENY.
-	wantBucket(t, classifyCmd(t, "gh api graphql -f query=mutation{x}", false), BucketDeny, "gh api graphql")
+	// graphql with a mutation document → ASK naming the mutation field (#113
+	// Design A; was BucketDeny under #64's blanket graphql deny).
+	wantBucket(t, classifyCmd(t, "gh api graphql -f query='mutation{x}'", false), BucketAsk, "gh api graphql mutation")
 	// x-http-method-override header → DENY (case-insensitive).
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H X-HTTP-Method-Override:DELETE", false), BucketDeny, "method-override header")
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H x-http-method-override:delete", false), BucketDeny, "method-override header lc")
-	// A plain GET (no body, no method) → ASK (the #64 default for gh api).
-	wantBucket(t, classifyCmd(t, "gh api repos/o/r", false), BucketAsk, "gh api plain GET")
-	// -XGET -f … is a GET with params — still a read → ASK, not DENY.
-	wantBucket(t, classifyCmd(t, "gh api -XGET repos/o/r -f a=b", false), BucketAsk, "gh api -XGET -f")
-	wantBucket(t, classifyCmd(t, "gh api --method=GET repos/o/r -f a=b", false), BucketAsk, "gh api --method=GET -f")
+	// A plain GET on an allow-listed endpoint → ALLOW (#113 Design B; was ASK
+	// under #64's every-REST-GET-asks default).
+	wantBucket(t, classifyCmd(t, "gh api repos/o/r", false), BucketAllow, "gh api plain GET allow-listed")
+	// -XGET -f … is a GET with params on an allow-listed endpoint → ALLOW.
+	wantBucket(t, classifyCmd(t, "gh api -XGET repos/o/r -f a=b", false), BucketAllow, "gh api -XGET -f allow-listed")
+	wantBucket(t, classifyCmd(t, "gh api --method=GET repos/o/r -f a=b", false), BucketAllow, "gh api --method=GET -f allow-listed")
 }
 
 // --- gh DENY tier: irreparable / boundary-weakening --------------------------
