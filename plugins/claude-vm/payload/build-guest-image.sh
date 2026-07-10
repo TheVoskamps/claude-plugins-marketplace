@@ -94,7 +94,19 @@ BASE_OS_REV="debian-12-20250601"
 # /root/.claude.json) -- only the seed's CONTENTS widened, host-side. The
 # composite rev still bumps so stale guest images rebuild. The boot-logic change
 # requires old images (stamped 'launcher6') to rebuild.
-LAUNCHER_LOGIC_REV="7"
+# Bumped 7 -> 8: satisfy claude's startup install-health check (issue #88).
+# Real-hardware testing found the otherwise-clean interactive boot still printed two
+# "claude command at /root/.local/bin/claude missing or broken · run claude install
+# to repair" warnings: claude probes for a working `claude` at the native installer's
+# ~/.local/bin/claude, but the guest execs the RO-mounted binary, leaving that path
+# empty. The boot launcher now symlinks $CLAUDE_HOME/.local/bin/claude ->
+# $CLAUDE_BIN (the verified RO-mounted binary) right after the claude-fetch seam
+# validates the binary; the symlink target is the running binary itself, so the
+# health check's version comparison passes by construction, and autoUpdates: false
+# plus the RO mount prevent any write-through. Empirically confirmed to clear the
+# warnings on real hardware. The boot-logic change requires old images (stamped
+# 'launcher7') to rebuild.
+LAUNCHER_LOGIC_REV="8"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -283,6 +295,20 @@ if [ ! -x "$CLAUDE_BIN" ]; then
 fi
 
 log "claude-vm: guest booted to the claude-fetch seam; running host-verified claude from $CLAUDE_BIN."
+
+# Satisfy claude's startup install-health check (issue #88). claude probes for a
+# working `claude` at the native installer's location ~/.local/bin/claude; the
+# guest execs the RO-mounted binary instead, so that path is empty and the TUI
+# prints "claude command at /root/.local/bin/claude missing or broken · run
+# claude install to repair" warnings on startup. Point the native-install path at
+# the verified RO-mounted binary: the symlink target IS the running binary, so any
+# version comparison passes by construction, and the seeded autoUpdates: false plus
+# the RO mount prevent write-through. ln -sf (not bare -s) because this launcher
+# re-runs on every getty respawn within a VM run and the link may already exist.
+# Empirically confirmed to clear the warnings on real hardware (issue #88).
+mkdir -p "$CLAUDE_HOME/.local/bin"
+ln -sf "$CLAUDE_BIN" "$CLAUDE_HOME/.local/bin/claude"
+log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CLAUDE_BIN (install-health check)."
 
 # Seed the interactive tty geometry from the host (issue #88). The vfkit stdio
 # console is a byte pipe with no out-of-band window-size channel, so the guest

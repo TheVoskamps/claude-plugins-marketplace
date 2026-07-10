@@ -772,6 +772,14 @@ RUN_ENV="$CONFIG_DIR/run.env"
       classic)    printf 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1\n' ;;
       fullscreen) printf 'CLAUDE_CODE_NO_FLICKER=1\n' ;;
     esac
+    # Disable claude's auto-updater in the guest (issue #88). This is the
+    # documented Claude Code env knob for suppressing the self-update; the boot
+    # launcher sources run.env under `set -a`, so it exports into claude's
+    # environment for free. Belt-and-braces with the seeded autoUpdates: false
+    # config key: the guest is egress-confined and runs an RO-mounted binary, so
+    # an update attempt can only ever fail. Not a secret -- run.env is the right
+    # vehicle.
+    printf 'DISABLE_AUTOUPDATER=1\n'
     printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
   } > "$RUN_ENV"
 )

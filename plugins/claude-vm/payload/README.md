@@ -101,6 +101,25 @@ under `umask 077` into the transient, owner-only (`0600`), shred-on-exit
 `claudecreds` mount, **never** into `run.env` or the verified-binary
 cache.
 
+**Install-health check + auto-updater (issue #88).** Two more guest-side
+steps keep the interactive TUI quiet. First, claude runs a startup
+*install-health check* that probes for a working `claude` at the native
+installer's location `~/.local/bin/claude`; because the guest execs the
+RO-mounted binary from `/mnt/claudebin` instead, that path is empty and the
+TUI prints two `claude command at /root/.local/bin/claude missing or broken
+· run claude install to repair` warnings. The boot launcher therefore
+symlinks `$HOME/.local/bin/claude` → the verified RO-mounted binary right
+after the claude-fetch seam validates it. The symlink target *is* the
+running binary, so the health check's version comparison passes by
+construction, and `autoUpdates: false` plus the RO mount prevent any
+write-through. This is empirically confirmed to clear the warnings on real
+hardware. Second, the launcher writes `DISABLE_AUTOUPDATER=1` into `run.env`
+(the documented Claude Code env knob), belt-and-braces with the seeded
+`autoUpdates: false` config key — the guest is egress-confined and runs an
+RO-mounted binary, so an update attempt can only ever fail. That knob is not
+a secret, so `run.env` (sourced under `set -a` in the guest launcher) is the
+right vehicle.
+
 **Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
 structurally-complete `claudeAiOauth` object whose `accessToken` and
 `refreshToken` are **empty strings** (with `expiresAt: 0`) — a degraded

@@ -288,6 +288,19 @@ verified-binary cache. A **preflight** aborts the run with an actionable
 message if the host `~/.claude.json` is missing or lacks a usable
 `userID`/`oauthAccount` (i.e. you are not logged in on the host).
 
+The launcher also quiets claude's startup **install-health check**
+(issue #88): claude probes for a working `claude` at the native installer's
+`~/.local/bin/claude`, but the guest execs the RO-mounted binary from
+`/mnt/claudebin`, so that path is empty and the TUI prints two `claude
+command at /root/.local/bin/claude missing or broken · run claude install to
+repair` warnings. The guest boot launcher symlinks `$HOME/.local/bin/claude`
+→ the verified RO-mounted binary right after the claude-fetch seam validates
+it; the symlink target is the running binary, so the version comparison
+passes by construction and `autoUpdates: false` plus the RO mount prevent
+write-through (empirically confirmed to clear the warnings on real hardware).
+Belt-and-braces with the seeded `autoUpdates: false`, the launcher also
+writes the documented `DISABLE_AUTOUPDATER=1` env knob into `run.env`.
+
 A second **credential-token preflight** guards against a degraded Keychain
 entry: the `claudeAiOauth` object can be structurally complete yet carry
 **empty** `accessToken` / `refreshToken` strings (with `expiresAt: 0`) —
