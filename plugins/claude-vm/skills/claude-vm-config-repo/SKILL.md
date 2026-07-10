@@ -36,11 +36,16 @@ the global layer at runtime; duplicating them here would mean the repo
 file silently shadows future changes to the global default.
 
 - **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
-  `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`):
-  write a key only if the user wants this repo to use a different value
-  than the global config resolves to. (`claude.renderer` selects the
-  interactive-console terminal renderer: `classic` | `fullscreen` |
-  unset; an unrecognized value aborts the launch.)
+  `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`,
+  `claude.remote_control`): write a key only if the user wants this repo
+  to use a different value than the global config resolves to.
+  (`claude.renderer` selects the interactive-console terminal renderer:
+  `classic` | `fullscreen` | unset; an unrecognized value aborts the
+  launch. `claude.remote_control` is an opt-in boolean — `true` adds
+  `--remote-control` plus a date-stamped `--name` default to the in-guest
+  claude invocation; `false`/unset passes the CLI args through unchanged;
+  any other value aborts the launch. Setting it here lets one repo opt in
+  to Remote Control without turning it on globally.)
 - **Lists** (`egress.allow`, `mounts`): write only the **additional**
   entries this repo needs. The runtime union keeps the global entries;
   the per-repo file does not need to restate them. (The library cannot

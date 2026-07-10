@@ -72,6 +72,14 @@ claude:
   #                  (CLAUDE_CODE_NO_FLICKER=1)
   #   (unset)     -- pass nothing; claude uses its own default
   # renderer: classic
+  # remote_control: OPT-IN boolean (issue #88). When true, the launcher adds
+  # `--remote-control` to the in-guest claude invocation (unless you already
+  # passed it on the command line), and -- when Remote Control is in effect but
+  # you gave no `--name` -- appends a date-stamped `--name` (format like
+  # Jul10-14:30) so the run is named. Default false/unset: claude runs without
+  # Remote Control, and your CLI args pass through unchanged. Accepts true/false
+  # (or leave unset); any other value aborts the launch.
+  # remote_control: false
 
 proxy:
   # A launcher command for your forward proxy. When UNSET, the launcher

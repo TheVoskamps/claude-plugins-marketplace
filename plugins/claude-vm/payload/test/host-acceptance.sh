@@ -445,6 +445,14 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   # the guest keeps its 80x24 default. (Empty mirrors what the real launcher
   # writes when claude-vm is invoked from a non-tty.) The renderer CLAUDE_CODE_*
   # vars are intentionally absent here (claude.renderer unset).
+  # CLAUDE_ARGS shell-quoting round-trip (issue #88): the boot launcher now
+  # reconstructs argv with `eval "set -- $CLAUDE_ARGS"`, reversing the host's
+  # per-arg-%q + outer-%q quoting (claude_vm_quote_args). This stub CLAUDE_ARGS
+  # line is written EXACTLY as the real launcher writes it for the argv
+  # [--version, "spaced #arg"] -- a value with BOTH a space and a `#`, which a
+  # flat unquoted join would have crashed the getty on. The stub claude echoes
+  # its argv so (b3) below can assert the boundary survived (the `#arg` did NOT
+  # get comment-stripped and `spaced #arg` stayed a single arg).
   cat > "$RUNCONFIG_SHARE/run.env" <<'RUNENV'
 HTTPS_PROXY=http://192.168.127.1:8080
 HTTP_PROXY=http://192.168.127.1:8080
@@ -455,7 +463,7 @@ CLAUDEBIN_TAG=claudebin
 CLAUDECREDS_TAG=claudecreds
 CLAUDE_VM_COLUMNS=
 CLAUDE_VM_LINES=
-CLAUDE_ARGS=--version
+CLAUDE_ARGS=--version\ spaced\\\ #arg
 RUNENV
   # Stub claude: prints a marker the boot test asserts, proving the guest
   # exec'd the mounted binary off /mnt/claudebin.
@@ -543,6 +551,21 @@ STUBCLAUDE
     pass "(b) guest exec'd the host-verified claude off the /mnt/claudebin mount"
   else
     fail "(b) guest did not run the mounted claude binary at the seam" "see $BOOT_LOG and $HVC1_LOG"
+  fi
+
+  # (b3) CLAUDE_ARGS round-trip (issue #88): the stub run.env carried a
+  # spaced+`#` arg (`spaced #arg`) written exactly as the real launcher writes
+  # it. The stub claude echoes `args=[$*]`; assert the reconstructed argv
+  # preserved the boundary -- the `spaced #arg` token survived intact and the
+  # `#arg` was NOT comment-stripped. A regression to the old unqualified
+  # `$CLAUDE_ARGS` word-split would break this (and, on the getty login path,
+  # crash into an agetty respawn loop before the marker ever appeared).
+  ARGS_MARKER="args=[--version spaced #arg]"
+  if grep -qF "$ARGS_MARKER" "$BOOT_LOG" 2>/dev/null \
+     || grep -qF "$ARGS_MARKER" "$HVC1_LOG" 2>/dev/null; then
+    pass "(b) guest reconstructed spaced/#-bearing CLAUDE_ARGS argv intact"
+  else
+    fail "(b) guest did not round-trip the spaced CLAUDE_ARGS argv" "see $BOOT_LOG and $HVC1_LOG"
   fi
 else
   fail "(b) skipped: no bootable image from criterion (a)"

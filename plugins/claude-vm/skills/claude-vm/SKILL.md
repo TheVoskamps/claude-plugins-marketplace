@@ -92,6 +92,9 @@ claude:
   renderer: classic               # classic | fullscreen | (unset)
                                   # terminal renderer on the interactive
                                   # console; unset uses claude's own default
+  remote_control: false           # true | false (default) | (unset)
+                                  # opt-in Remote Control: true adds
+                                  # --remote-control + a date-stamped --name
 
 proxy:
   cmd: "<forward-proxy launch command>"   # must read
@@ -142,6 +145,16 @@ mounts:                           # extra mounts beyond the repo auto-mount
   leaving it unset passes nothing so claude uses its own default. The
   launcher writes the matching `CLAUDE_CODE_*` var into `run.env`. An
   unrecognized value aborts the launch.
+- `claude.remote_control` is an opt-in boolean (default `false`/unset).
+  When `true`, the launcher injects `--remote-control` into the in-guest
+  claude invocation (unless the CLI args already carry it) and, when
+  Remote Control is in effect but no `--name` was given, appends a
+  date-stamped `--name` (format like `Jul10-14:30`). When `false`/unset,
+  claude runs without Remote Control and the CLI args pass through
+  unchanged. Accepts `true`/`false` (or unset); any other value aborts
+  the launch. This is the config-driven equivalent of passing
+  `--remote-control` on the command line — see the interactive-session
+  section below.
 
 ## Interactive session (the launching terminal IS the in-VM claude)
 
@@ -154,6 +167,22 @@ proxy). This is the product goal; headless one-shot is not. Pass
 Remote-Control-attached for AFK observation/replies — those flags reach
 the in-guest claude via the existing `CLAUDE_ARGS` plumbing; no extra
 transport is involved.
+
+Two ways to turn on Remote Control:
+
+- **Per-launch, via CLI** — pass `--remote-control` (and optionally
+  `--name <n>`) after the repo path, as above.
+- **Opt-in by config** — set `claude.remote_control: true` in the global
+  or per-repo config. The launcher then injects `--remote-control` for
+  you (without duplicating it if you also pass it on the CLI). Either way,
+  if Remote Control is in effect but you gave no `--name`, the launcher
+  appends a date-stamped `--name` (format like `Jul10-14:30`) so the run
+  is named — matching the date-stamp default this skill documents. A
+  user-supplied `--name` (in either `--name <v>` or `--name=<v>` form) is
+  never overridden. Arbitrary CLI args survive verbatim: the launcher
+  quotes `CLAUDE_ARGS` per-argument into `run.env` and the guest boot
+  launcher reconstructs the exact argv, so a value like
+  `--name "foo #7 micro-vm"` (with spaces and a `#`) round-trips intact.
 
 Topology: vfkit attaches **two** virtio-serial consoles. The first
 (`logFilePath`, guest `hvc0`) captures all kernel/systemd boot output to

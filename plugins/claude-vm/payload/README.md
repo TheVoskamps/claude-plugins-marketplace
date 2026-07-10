@@ -190,6 +190,40 @@ are optional; a missing layer contributes an empty document. Scalars
 are repo-over-global; `egress.allow` and `mounts` are unioned and
 de-duplicated.
 
+It also carries two small pure helpers used for the guest's `claude`
+argv:
+
+- `claude_vm_quote_args` — the host half of the `CLAUDE_ARGS`
+  shell-quoting round-trip (issue #88). The user's post-repo CLI args
+  travel to the guest as a single `CLAUDE_ARGS=` line in `run.env`. A
+  flat unquoted join breaks the boot the instant an arg carries a space
+  or a shell metacharacter (`--name "foo #7 micro-vm"` sourced as a bare
+  line tries to *execute* the `--name` fragment, crashing the getty into
+  an agetty respawn loop). The launcher instead %q-quotes each arg
+  (this helper) and %q-quotes the whole `CLAUDE_ARGS=` line, so sourcing
+  `run.env` yields exactly the per-arg tokens; the guest boot launcher
+  reverses it with `eval "set -- $CLAUDE_ARGS"`. Zero args → empty
+  output (no stray `''`).
+- `claude_vm_augment_rc_args` — the Remote Control / `--name` date-stamp
+  augmentation (issue #88). Given the resolved `claude.remote_control`
+  boolean and a date stamp, it injects `--remote-control` when the knob
+  is on and it is not already present (no duplicate), and appends a
+  date-stamped `--name` when Remote Control is in effect but no `--name`
+  (`--name <v>` or `--name=<v>`) was given. With the knob off and no CLI
+  `--remote-control`, the args pass through unchanged. The date stamp is
+  computed host-side and passed in, so the helper stays pure and
+  unit-tested.
+
+### Remote Control opt-in (`claude.remote_control`)
+
+`claude.remote_control` is a layered boolean (default `false`/unset,
+repo-over-global like the other scalars). When `true`, the launcher runs
+the incoming CLI args through `claude_vm_augment_rc_args` to add
+`--remote-control` and a date-stamped `--name` default (format like
+`Jul10-14:30`). Passing `--remote-control` on the command line works
+identically and is never duplicated. Any value other than `true`/`false`
+(or unset) aborts the launch, matching `claude.renderer`'s strictness.
+
 ## Guest image (`build-guest-image.sh`)
 
 ```bash

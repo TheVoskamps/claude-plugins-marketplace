@@ -106,7 +106,18 @@ BASE_OS_REV="debian-12-20250601"
 # plus the RO mount prevent any write-through. Empirically confirmed to clear the
 # warnings on real hardware. The boot-logic change requires old images (stamped
 # 'launcher7') to rebuild.
-LAUNCHER_LOGIC_REV="8"
+# Bumped 8 -> 9: CLAUDE_ARGS shell-quoting round-trip (issue #88). Real-hardware
+# testing found that a spaced/metacharacter-bearing arg (e.g.
+# `--name "foo #7 micro-vm Claude Plugins"`) crashed the guest boot into an
+# infinite getty-respawn loop: the old boot launcher exec'd `"$CLAUDE_BIN"
+# $CLAUDE_ARGS` (unquoted word-split, SC2086-disabled), and the host wrote
+# CLAUDE_ARGS as a flat unquoted join, so sourcing run.env re-split the value
+# and tried to EXECUTE the `--name` fragment (with the `#...` comment-stripped).
+# The boot launcher now reconstructs argv with `eval "set -- $CLAUDE_ARGS"` then
+# `exec "$CLAUDE_BIN" "$@"`, exactly reversing the host's new per-arg-%q +
+# outer-%q quoting (claude_vm_quote_args in lib/config.sh). The boot-logic change
+# requires old images (stamped 'launcher8') to rebuild.
+LAUNCHER_LOGIC_REV="9"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -327,8 +338,19 @@ if [ -n "${CLAUDE_VM_COLUMNS:-}" ] && [ -n "${CLAUDE_VM_LINES:-}" ] \
 fi
 
 cd "$REPO_MNT"
-# shellcheck disable=SC2086
-exec "$CLAUDE_BIN" $CLAUDE_ARGS
+# Reconstruct claude's argv from CLAUDE_ARGS (issue #88). The host launcher
+# (claude-vm.sh) writes CLAUDE_ARGS via claude_vm_quote_args (lib/config.sh):
+# each original arg is %q-quoted and space-joined, then the whole run.env LINE
+# is %q-quoted again so `set -a; . run.env` above assigns CLAUDE_ARGS to
+# EXACTLY that per-arg-%q string (no re-splitting, no `#` comment-stripping).
+# `eval set --` re-parses those tokens back into the original argv -- exactly
+# reversing the host's quoting -- so args with spaces / shell metacharacters /
+# `#` (e.g. --name "foo #7 micro-vm Claude Plugins") round-trip intact instead
+# of crashing the getty login program into an agetty respawn loop. An empty
+# CLAUDE_ARGS ('') yields `set -- ` -> zero argv. The two halves of this
+# contract are kept in lockstep with the claude_vm_quote_args comment.
+eval "set -- ${CLAUDE_ARGS:-}"
+exec "$CLAUDE_BIN" "$@"
 BOOT
 }
 

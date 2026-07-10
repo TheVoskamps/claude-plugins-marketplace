@@ -141,6 +141,43 @@ case "$CLAUDE_RENDERER" in
     ;;
 esac
 
+# claude.remote_control: OPT-IN boolean (issue #88) enabling Claude Code's
+# Remote Control on this launch. Same layered-scalar resolution as
+# claude.renderer (global + per-repo override, repo wins), default false/unset.
+# When true, the launcher injects `--remote-control` into the guest's CLAUDE_ARGS
+# (unless the CLI args already carry it) and, if Remote Control is in effect but
+# no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
+# date-stamp default). Validate like the renderer knob: accept true/false/unset;
+# anything else aborts up front rather than being silently ignored.
+CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED" '.claude.remote_control' "")"
+case "$CLAUDE_REMOTE_CONTROL" in
+  ""|false) CLAUDE_REMOTE_CONTROL="false" ;;
+  true)     CLAUDE_REMOTE_CONTROL="true" ;;
+  *)
+    echo "claude-vm: unknown claude.remote_control '$CLAUDE_REMOTE_CONTROL' (expected true|false, or leave unset)" >&2
+    exit 1
+    ;;
+esac
+
+# Augment the user's post-repo CLI args with the Remote Control opt-in and the
+# --name date-stamp default (issue #88). The date stamp uses the '+%b%d-%H:%M'
+# format issue #51 plans for run naming (e.g. Jul10-14:30). Computed HOST-SIDE
+# here (not in the guest) so the name reflects the launch time on the operator's
+# machine. claude_vm_augment_rc_args is pure (stamp passed in) so it is
+# unit-tested with a fixed stamp; it emits one arg per line, read back into the
+# CLAUDE_ARGS array without re-splitting spaces inside an arg. When the knob is
+# false/unset AND no CLI --remote-control is present, the args pass through
+# unchanged.
+_rc_name_stamp="$(date '+%b%d-%H:%M')"
+_augmented_args=()
+while IFS= read -r _line; do
+  _augmented_args+=("$_line")
+done < <(claude_vm_augment_rc_args \
+           "$CLAUDE_REMOTE_CONTROL" "$_rc_name_stamp" \
+           ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
+CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
+unset _rc_name_stamp _augmented_args _line
+
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
 # verification's root of trust to a specific key -- a bare `gpg --verify`
@@ -736,19 +773,49 @@ esac
 # 80x24 default rather than getting a bogus size.
 HOST_COLUMNS=""
 HOST_LINES=""
+# Save the host terminal's line settings so cleanup() can RESTORE them on exit
+# (issue #88). Diagnosis (observed on real hardware): vfkit's `virtio-serial,
+# stdio` bridge puts the host tty into RAW mode for the interactive guest
+# session, and that raw mode SURVIVES vfkit's death -- the terminal is left
+# with echo off and ICANON off (Enter sends \r, not \n). The copy-back
+# confirmation prompt in copy_back() then hangs: `read -r` never sees a newline,
+# typed input is not echoed, and Ctrl-C/Ctrl-D are swallowed. Capturing the
+# pristine state here (via `stty -g`) lets cleanup() put the tty back into
+# canonical mode BEFORE it prompts. Read from /dev/tty (not stdin) so the save
+# works even when stdin is redirected -- the controlling terminal is what vfkit
+# corrupts and what the prompt reads/writes. Empty when no controlling tty is
+# available (non-interactive launch); cleanup() then skips the restore.
+HOST_TTY_STATE=""
 if [ -t 0 ]; then
   if _stty_size="$(stty size 2>/dev/null)"; then
     HOST_LINES="${_stty_size%% *}"
     HOST_COLUMNS="${_stty_size##* }"
   fi
 fi
+if [ -e /dev/tty ] && [ -r /dev/tty ]; then
+  HOST_TTY_STATE="$(stty -g < /dev/tty 2>/dev/null || true)"
+fi
 
 RUN_ENV="$CONFIG_DIR/run.env"
+# run.env value-quoting audit (issue #88). run.env is sourced under `set -a`
+# by the guest boot launcher, so EVERY value line must be a safe shell
+# assignment. Audited all values written below:
+#   - HTTPS_PROXY / HTTP_PROXY: built from $GVPROXY_HOST_ALIAS + $PROXY_PORT,
+#     both CONFIG scalars (proxy.host_alias / proxy.port) a user can set to an
+#     arbitrary string -> %q-quoted below (arbitrary-string carriers).
+#   - CLAUDE_VM_COLUMNS / CLAUDE_VM_LINES: from `stty size` (always "rows cols"
+#     numerics on a real tty; empty on a non-tty). Provably-numeric in
+#     practice, but %q-quoted defensively since they come from a subprocess.
+#   - NO_PROXY, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
+#     DISABLE_AUTOUPDATER, and the renderer CLAUDE_CODE_* vars: FIXED LITERALS
+#     (or emitted only for a validated enum value) -> provably safe, left as-is.
+#   - CLAUDE_ARGS: arbitrary user CLI args -> the per-arg-%q + outer-%q
+#     round-trip below (its own dedicated fix).
 (
   umask 077
   {
-    printf 'HTTPS_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
-    printf 'HTTP_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'HTTPS_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'HTTP_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
     printf 'REPO_TAG=repo\n'
     printf 'POLICY_TAG=policy\n'
@@ -763,8 +830,9 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'CLAUDECREDS_TAG=claudecreds\n'
     # Host terminal geometry (issue #88). Empty when not launched from a real
     # terminal; the boot launcher only runs `stty` when both are non-empty.
-    printf 'CLAUDE_VM_COLUMNS=%s\n' "$HOST_COLUMNS"
-    printf 'CLAUDE_VM_LINES=%s\n' "$HOST_LINES"
+    # %q-quoted defensively (audit above): empty -> "''", numerics unchanged.
+    printf 'CLAUDE_VM_COLUMNS=%q\n' "$HOST_COLUMNS"
+    printf 'CLAUDE_VM_LINES=%q\n' "$HOST_LINES"
     # Renderer selection (issue #88) mapped from claude.renderer. The boot
     # launcher exports the matching CLAUDE_CODE_* var when this is set; an
     # empty value leaves claude on its own default.
@@ -780,7 +848,23 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # an update attempt can only ever fail. Not a secret -- run.env is the right
     # vehicle.
     printf 'DISABLE_AUTOUPDATER=1\n'
-    printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
+    # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
+    # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
+    # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced
+    # as a bare line tries to EXECUTE `--name` (with the `#...` comment-
+    # stripped), the getty login program dies, and agetty respawns forever.
+    # Fix: inner per-arg %q (claude_vm_quote_args) preserves each arg's
+    # boundaries; outer %q makes the whole CLAUDE_ARGS=<...> LINE safe to
+    # `source` under `set -a`. The guest reverses it with
+    # `eval "set -- $CLAUDE_ARGS"` (see build-guest-image.sh boot launcher).
+    # Both halves of the contract live together in lib/config.sh's
+    # claude_vm_quote_args comment. ZERO args -> the helper prints nothing, so
+    # the line is `CLAUDE_ARGS=''` and the guest reconstructs an empty argv.
+    # The `[@]+"[@]"` guard expands an EMPTY array to nothing under `set -u`
+    # (an unguarded `"${CLAUDE_ARGS[@]}"` on an empty array is an unbound-
+    # variable error on bash < 4.4), matching EXTRA_MOUNT_FLAGS below.
+    printf 'CLAUDE_ARGS=%q\n' \
+      "$(claude_vm_quote_args ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})"
   } > "$RUN_ENV"
 )
 chmod 600 "$RUN_ENV"
