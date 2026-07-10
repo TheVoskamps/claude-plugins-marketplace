@@ -35,6 +35,14 @@ func TestGhAPIGraphQLQueryOnly_113(t *testing.T) {
 		`gh api graphql --raw-field query='query { viewer { login } }'`,
 		// A block string containing "mutation" is still a query.
 		`gh api graphql -f query='query { search(query: """mutation""", type: ISSUE, first: 1) { issueCount } }'`,
+		// A variable definition with an input-object default value (`{a: 1}`)
+		// must not be mistaken for the selection-set brace — the scanner must
+		// skip the `(...)` variable-definitions list before looking for '{'.
+		`gh api graphql -f query='query Foo($x: Input = {a: 1}) { viewer { login } }'`,
+		// Same, with a list-literal default value containing braced objects.
+		`gh api graphql -f query='query Foo($x: [Input!] = [{a: 1}, {b: 2}]) { viewer { login } }'`,
+		// A fragment definition whose directive carries a braced default value.
+		`gh api graphql -f query='query { viewer { login } } fragment F on Repository @dir(x: {a: 1}) { id }'`,
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "graphql query-only: "+cmd)
 	}
@@ -63,6 +71,17 @@ func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
 	if !strings.Contains(d3.Reason, "deleteIssue") {
 		t.Errorf("multi-op ASK reason must name deleteIssue, got: %q", d3.Reason)
 	}
+
+	// A mutation whose variable definitions carry an input-object default
+	// value (`{a: 1}`) must still ASK naming the real field — the
+	// selection-set-brace skip that allows the query-only sibling case must
+	// not accidentally let a mutation's default-value brace get mistaken for
+	// (or otherwise swallow) its actual selection set.
+	d4 := classifyCmd(t, `gh api graphql -f query='mutation Foo($x: Input = {a: 1}) { deleteIssue(input: {}) { clientMutationId } }'`, false)
+	wantBucket(t, d4, BucketAsk, "mutation with default-value brace in variable defs asks")
+	if !strings.Contains(d4.Reason, "deleteIssue") {
+		t.Errorf("mutation-with-default-value-brace ASK reason must name deleteIssue, got: %q", d4.Reason)
+	}
 }
 
 // Fail-closed graphql cases: a subscription is not a query (and names no
@@ -90,6 +109,28 @@ func TestGhAPIGraphQLFailClosed_113(t *testing.T) {
 		`gh api graphql`,
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "graphql fail-closed: "+cmd)
+	}
+}
+
+// Duplicate literal `-f query=…` fields → DENY, regardless of order. `gh`
+// itself rejects a duplicate `-f query=` outright ("unexpected override
+// existing field under \"query\""), so this is not exploitable through
+// today's gh — but the gate must not pin its security boundary to that
+// undocumented gh behavior. graphqlQueryDoc scans every token rather than
+// returning on the first match, so it must fail closed here regardless of
+// which document (benign or mutating) comes first.
+func TestGhAPIGraphQLDuplicateQueryFieldDenies_113(t *testing.T) {
+	for _, cmd := range []string{
+		// benign query first, mutation second.
+		`gh api graphql -f query='query { viewer { login } }' -f query='mutation { deleteIssue(input: {}) { clientMutationId } }'`,
+		// mutation first, benign query second.
+		`gh api graphql -f query='mutation { deleteIssue(input: {}) { clientMutationId } }' -f query='query { viewer { login } }'`,
+		// duplicate via the long-form flag.
+		`gh api graphql --raw-field query='query { viewer { login } }' --raw-field query='query { viewer { id } }'`,
+		// duplicate mixing spaced and glued forms.
+		`gh api graphql -f query='query { viewer { login } }' -fquery='query { viewer { id } }'`,
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "graphql duplicate query field: "+cmd)
 	}
 }
 

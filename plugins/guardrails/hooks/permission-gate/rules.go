@@ -450,9 +450,9 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 		doc, ok := graphqlQueryDoc(args)
 		if !ok {
 			return classifyghAPIDeny(
-				"Blocked: 'gh api graphql' with no statically-present query document (no literal -f query=… / " +
-					"--raw-field query=…) is unclassifiable from argv. Pass the query literally via " +
-					"-f query='…' so a query-only document can be allowed.")
+				"Blocked: 'gh api graphql' has no exactly-one statically-present query document (either no literal " +
+					"-f query=…/--raw-field query=… at all, or more than one such field) and is unclassifiable from " +
+					"argv. Pass exactly one literal query field via -f query='…' so a query-only document can be allowed.")
 		}
 		res := scanGraphQLDoc(doc)
 		if res.queryOnly {

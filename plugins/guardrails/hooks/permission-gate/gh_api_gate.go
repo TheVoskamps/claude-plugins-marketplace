@@ -238,10 +238,28 @@ func isGluedShortFlag(a string) bool {
 // extractable — classifyGhAPI DENYs those as genuinely unclassifiable before
 // calling here.
 //
-// Returns (doc, true) when a literal query field is present; ("", false)
-// otherwise. args is the argv after the program (still carrying `api graphql`).
+// It scans ALL tokens after `api` (not just the first `-f`/`--raw-field`
+// match) and collects every literal `query=…` value found, in any spaced or
+// glued form. Returns (doc, true) only when EXACTLY ONE such value is present;
+// ("", false) — the DENY path, same as "no query field at all" — when zero or
+// more than one is found.
+//
+// The more-than-one case is #113 review hardening, not a live `gh` exploit:
+// verified live (not observable from inside this sandbox), the installed gh
+// REJECTS a duplicate `-f query=…` outright with "unexpected override
+// existing field under \"query\"", before assembling any request — so
+// `-f query='query{…}' -f query='mutation{…}'` never reaches the GitHub API
+// today. But that rejection is gh's undocumented behavior, not a contract the
+// gate should pin its security boundary to; a future gh version could accept
+// the last (or first) occurrence and silently execute the other. Failing
+// closed on any duplicate costs legitimate callers nothing — no sanctioned
+// template passes `query=` twice — and keeps the gate's classification
+// correct regardless of which `query=` gh itself would honor.
+//
+// args is the argv after the program (still carrying `api graphql`).
 func graphqlQueryDoc(args []string) (string, bool) {
 	seenAPI := false
+	var docs []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !seenAPI {
@@ -254,7 +272,7 @@ func graphqlQueryDoc(args []string) (string, bool) {
 		if a == "-f" || a == "--raw-field" {
 			if i+1 < len(args) {
 				if v, ok := stripQueryPrefix(args[i+1]); ok {
-					return v, true
+					docs = append(docs, v)
 				}
 				i++ // consume the value even when it is not the query field
 			}
@@ -263,18 +281,21 @@ func graphqlQueryDoc(args []string) (string, bool) {
 		// Glued forms: `-fquery=…` / `--raw-field=query=…`.
 		if strings.HasPrefix(a, "-f") && len(a) > 2 {
 			if v, ok := stripQueryPrefix(strings.TrimPrefix(a, "-f")); ok {
-				return v, true
+				docs = append(docs, v)
 			}
 			continue
 		}
 		if strings.HasPrefix(a, "--raw-field=") {
 			if v, ok := stripQueryPrefix(strings.TrimPrefix(a, "--raw-field=")); ok {
-				return v, true
+				docs = append(docs, v)
 			}
 			continue
 		}
 	}
-	return "", false
+	if len(docs) != 1 {
+		return "", false
+	}
+	return docs[0], true
 }
 
 // stripQueryPrefix returns the value of a `query=<doc>` field token, or
@@ -428,8 +449,11 @@ func walkGraphQLTopLevel(doc string) graphqlDocResult {
 		}
 		switch kw {
 		case "query", "mutation", "subscription":
-			// Operation. Advance to its selection set '{'.
-			braceIdx := indexOfBraceBeforeNextBrace(doc, after)
+			// Operation. Advance past an optional name and an optional
+			// variable-definitions `(...)` list (which may itself contain `{...}`
+			// / `[...]` default values, e.g. `($x: Input = {a: 1})`) to reach the
+			// operation's own selection set '{'.
+			braceIdx := selectionSetBraceIndex(doc, after)
 			if braceIdx < 0 {
 				return graphqlDocResult{} // operation without a body → fail closed
 			}
@@ -446,8 +470,10 @@ func walkGraphQLTopLevel(doc string) graphqlDocResult {
 			}
 			i = next
 		case "fragment":
-			// Fragment definition: `fragment Name on Type {…}`. Advance to its body.
-			braceIdx := indexOfBraceBeforeNextBrace(doc, after)
+			// Fragment definition: `fragment Name on Type Directives? {…}`.
+			// Directives can themselves carry `(...)` arguments with default-value
+			// braces (`@dir(x: {a: 1})`), so use the same paren-aware skip.
+			braceIdx := selectionSetBraceIndex(doc, after)
 			if braceIdx < 0 {
 				return graphqlDocResult{}
 			}
@@ -469,16 +495,50 @@ func walkGraphQLTopLevel(doc string) graphqlDocResult {
 	return res
 }
 
-// indexOfBraceBeforeNextBrace returns the index of the next '{' at or after
-// start, or -1 if none. It is used to find an operation's / fragment's selection
-// set after its (already string-stripped) name and variable/argument screen.
-// Because strings and comments are already removed, a stray '{' cannot appear
-// inside a literal here.
-func indexOfBraceBeforeNextBrace(doc string, start int) int {
-	for i := start; i < len(doc); i++ {
-		if doc[i] == '{' {
+// selectionSetBraceIndex returns the index of the '{' that opens an
+// operation's or fragment definition's own selection set, scanning forward
+// from start (just past the `query`/`mutation`/`subscription`/`fragment`
+// keyword). Returns -1 if no such brace is found.
+//
+// Unlike a naive "find the next '{'", this skips over any `(...)` region
+// encountered before that brace — an operation's variable-definitions list
+// (`($x: Input = {a: 1})`) or a fragment's directive arguments
+// (`@dir(x: {a: 1})`) — because GraphQL default values can themselves contain
+// `{...}` object literals and `[...]` list literals. A brace inside such a
+// region belongs to a default value, not the selection set, and must not be
+// mistaken for one (which would desync the walk: extractBracedBlock would
+// then treat the default-value object as the operation's entire body, and any
+// mutation fields after the real selection-set brace would go unscanned —
+// silently mis-classifying a mutation as a query. Skipping to the CORRECT
+// brace, not just refusing to allow, is what closes that gap).
+//
+// This is a flat scan, not a doc-wide brace-depth walk: it tracks only
+// parenthesis depth (`(`/`)`) so it can step over one or more `(...)` regions
+// (variable defs, then directives, each independently parenthesized) without
+// being confused by the `{`/`[` default-value delimiters nested inside them.
+// Strings and comments are already stripped by the caller, so a stray paren
+// cannot appear inside a literal here. GraphQL argument/variable-definition
+// lists never nest `(` within `(` at the top level scanned here (nested calls
+// are not part of the grammar), so a simple depth counter is sufficient; any
+// unbalanced parenthesis simply runs to the end of the document and the
+// function returns -1, which the caller already treats as fail-closed.
+func selectionSetBraceIndex(doc string, start int) int {
+	i := start
+	n := len(doc)
+	parenDepth := 0
+	for i < n {
+		c := doc[i]
+		switch {
+		case c == '(':
+			parenDepth++
+		case c == ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+		case c == '{' && parenDepth == 0:
 			return i
 		}
+		i++
 	}
 	return -1
 }
