@@ -970,9 +970,32 @@ src_tree_is_dirty() {
 # excluding .git so local history/branch state is untouched. rsync
 # errors are NOT suppressed -- a failure must be visible. Returns
 # rsync's exit status.
+#
+# --checksum (issue #88): decide "same or different" by CONTENT hash, not the
+# default size+mtime heuristic. A clone checkout skews file mtimes relative to
+# the source without changing content; without --checksum rsync would rewrite
+# those content-identical files (harmless but noisy, and it made the dirty-gate
+# preview below flag files the session never touched). --checksum makes the
+# real copy-back and its dry-run preview agree on exactly which files changed.
 copy_back_rsync() {
-  rsync -a --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ \
+  rsync -a --checksum --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ \
     || { echo "claude-vm: copy-back failed (rsync); worktree retained at $WORKTREE" >&2; return 1; }
+}
+
+# Print the rsync itemize lines for CONTENT/STRUCTURAL changes only (issue #88).
+# Runs the copy-back as a --checksum dry-run and filters --itemize-changes output
+# to lines whose FIRST char is `>` (a file transfer), `c` (a creation/change of
+# a non-regular entry, e.g. a dir or symlink), or `*` (a message such as
+# `*deleting`). Lines beginning with `.` are ATTRIBUTE-ONLY (mtime/perm/owner
+# differ but content does not) and are DELIBERATELY excluded -- with --checksum a
+# content-identical file whose mtime is skewed itemizes as `.f..t......`, which
+# must NOT count as a change. Prints nothing (and the caller treats that as "no
+# real changes") when only attribute-only or no differences exist. rsync's own
+# errors flow to stderr (no 2>/dev/null) so a broken preview is visible.
+copy_back_real_changes() {
+  rsync -a --checksum --dry-run --itemize-changes --exclude '.git' \
+    "$WORKTREE"/ "$REPO_SRC"/ \
+    | grep -E '^[>c*]' || true
 }
 
 copy_back() {
@@ -990,16 +1013,28 @@ copy_back() {
   case "$COPY_BACK" in
     none) return 0 ;;
     local|"")
+      # Compute the REAL (content/structural) changes ONCE, up front (issue #88).
+      # This is the --checksum-based, attribute-only-filtered set (see
+      # copy_back_real_changes). It gates BOTH the clean and dirty paths so a
+      # tree that differs only by clone-checkout mtime skew -- files the session
+      # never touched -- never triggers copy-back or its scary prompt.
+      local real_changes
+      real_changes="$(copy_back_real_changes)"
+      if [ -z "$real_changes" ]; then
+        # Nothing of substance to apply: no content added, changed, or removed.
+        # Skip BOTH the prompt and the rsync entirely, even when the source tree
+        # is otherwise dirty -- there is nothing for copy-back to overwrite.
+        echo "claude-vm: copy-back: no content changes to apply." >&2
+        return 0
+      fi
       if src_tree_is_dirty; then
         echo "claude-vm: WARNING -- local source ($REPO_SRC) has uncommitted changes." >&2
-        echo "claude-vm: copy-back would overwrite overlapping files. Preview of what it would change:" >&2
-        # Show a preview of files copy-back would change, without writing
-        # anything. --itemize-changes lists per-file actions; errors are
-        # surfaced (no 2>/dev/null). A preview failure is not fatal -- we
-        # still fall through to the confirmation prompt.
-        rsync -a --dry-run --itemize-changes --exclude '.git' \
-          "$WORKTREE"/ "$REPO_SRC"/ >&2 \
-          || echo "claude-vm: (could not compute copy-back preview)" >&2
+        echo "claude-vm: copy-back would overwrite overlapping files. Content changes it would apply:" >&2
+        # Show the FILTERED preview: content/structural changes only. Attribute-
+        # only itemize lines (leading `.`, e.g. mtime-only skew) are deliberately
+        # excluded here -- they are exactly the noise that made this prompt fire
+        # spuriously. real_changes is already that filtered set.
+        printf '%s\n' "$real_changes" >&2
         # Require explicit confirmation. Read from the controlling tty so
         # this works even when invoked from the EXIT/INT trap with stdin
         # consumed. If no usable tty is available (non-interactive, or
@@ -1013,7 +1048,9 @@ copy_back() {
         # actually swallow it, the brace group (which includes the
         # redirect) is what gets 2>/dev/null. A failed open then makes the
         # group fail quietly, the `if` takes the else branch, and reply
-        # stays empty -- which routes to SKIP.
+        # stays empty -- which routes to SKIP. cleanup() restores the host
+        # tty to canonical mode BEFORE calling copy_back (issue #88), so this
+        # read is not defeated by vfkit's leftover raw-mode terminal.
         local reply=""
         if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
           printf 'claude-vm: apply copy-back over the dirty source tree? [y/N] ' >&2
@@ -1030,6 +1067,9 @@ copy_back() {
             ;;
         esac
       else
+        # Clean tree AND real content changes exist: apply them (fast path). The
+        # copy_back_rsync uses --checksum too, so it rewrites exactly the files
+        # in real_changes, not the mtime-skewed identical ones.
         echo "claude-vm: copy-back to local source ($REPO_SRC) from worktree..." >&2
         copy_back_rsync || true
       fi
@@ -1041,6 +1081,22 @@ copy_back() {
 }
 
 cleanup() {
+  # Restore the host terminal FIRST, before any output or the copy-back prompt
+  # (issue #88). vfkit's `virtio-serial,stdio` bridge leaves the host tty in RAW
+  # mode (echo off, ICANON off -- Enter sends \r not \n), and that state SURVIVES
+  # vfkit's death. Without this restore the copy_back() confirmation `read -r`
+  # never completes (no newline arrives) and typed input is invisible -- observed
+  # hanging on real hardware. Put the tty back into canonical mode: prefer the
+  # exact saved state (stty -g captured at launch), fall back to `stty sane`, and
+  # never let a tty-restore failure abort cleanup (|| true). Operate on /dev/tty
+  # (the controlling terminal vfkit corrupted and the prompt uses), guarded on a
+  # non-empty saved state and a usable /dev/tty. Skipped entirely for a
+  # non-interactive launch (HOST_TTY_STATE empty).
+  if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
+    stty "$HOST_TTY_STATE" < /dev/tty 2>/dev/null \
+      || stty sane < /dev/tty 2>/dev/null \
+      || true
+  fi
   [ -n "$GV_PID" ] && kill "$GV_PID" 2>/dev/null || true
   [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
   copy_back
