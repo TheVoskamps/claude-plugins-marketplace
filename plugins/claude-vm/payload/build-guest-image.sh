@@ -80,7 +80,21 @@ BASE_OS_REV="debian-12-20250601"
 # /root/.claude.json before exec'ing claude, so a fresh guest comes up already
 # logged in. The boot-logic change requires old images (stamped 'launcher5')
 # to rebuild.
-LAUNCHER_LOGIC_REV="6"
+# Bumped 6 -> 7: WIDENED identity seed (issue #88). Real-hardware testing found
+# the {userID, oauthAccount} seed from rev 6 was insufficient: the guest TUI
+# still hit its onboarding/login wall on every boot because the seed dropped
+# `hasCompletedOnboarding`, and with `autoUpdates` unset the guest claude
+# immediately tried (and failed) to self-update against its RO-mounted binary in
+# the egress-confined VM. The seed now carries four MORE keys synthesized by the
+# host launcher -- `hasCompletedOnboarding: true`, `autoUpdates: false`, and
+# `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped with the concrete
+# resolved claude version -- alongside the host's `userID` / `oauthAccount`.
+# machineID is still NOT seeded (the guest mints its own). The seed-install step
+# in the boot launcher is UNCHANGED (still a plain cp of the seed to
+# /root/.claude.json) -- only the seed's CONTENTS widened, host-side. The
+# composite rev still bumps so stale guest images rebuild. The boot-logic change
+# requires old images (stamped 'launcher6') to rebuild.
+LAUNCHER_LOGIC_REV="7"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -114,9 +128,10 @@ emit_boot_launcher() {
 # bridged to. It loads the run environment (proxy + args + geometry + renderer),
 # installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
 # into $HOME/.claude/.credentials.json so claude authenticates as the host
-# operator (issue #50) AND the host's identity seed (userID + oauthAccount) into
-# $HOME/.claude.json so the interactive TUI comes up already logged in (issue
-# #88), seeds the tty geometry from the host (issue #88), then
+# operator (issue #50) AND the host's identity seed (userID + oauthAccount +
+# synthesized onboarding/auto-update/version keys) into $HOME/.claude.json so
+# the interactive TUI comes up already onboarded + logged in (issue #88), seeds
+# the tty geometry from the host (issue #88), then
 # `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
 # in between. claude is NEVER baked into the image and is NEVER fetched-and-run
@@ -197,32 +212,39 @@ chmod 600 "$CRED_DIR/.credentials.json"
 log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json"
 
 # ---------------------------------------------------------------------
-# Auth: install the host's identity seed (issue #88, pass 1).
+# Auth: install the host's identity seed (issue #88).
 #
 # The mounted ~/.claude/.credentials.json above is only the BEARER TOKEN. The
-# interactive guest TUI also decides "am I logged in" from identity state in
-# ~/.claude.json (`userID` + `oauthAccount`). A fresh throwaway guest lacks it,
-# so without this seed every launch shows the login menu despite the credential.
-# The host selected ONLY those two keys from its own ~/.claude.json and shared
-# the minimal {"userID": ..., "oauthAccount": {...}} into the SAME shred-on-exit
-# claudecreds mount (mountTag=claudecreds) as the credential above -- NOT via
-# run.env, honoring the launcher's "secrets never ride in run.env" invariant.
-# Install it at $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
+# interactive guest TUI also decides "am I onboarded / logged in" from state in
+# ~/.claude.json. A fresh throwaway guest lacks it, so without this seed every
+# launch shows the onboarding/login wall despite the credential. The host built
+# the seed from its own ~/.claude.json -- selecting ONLY `userID` +
+# `oauthAccount` and synthesizing `hasCompletedOnboarding: true` (skip the
+# wall), `autoUpdates: false` (no self-update in the egress-confined guest
+# against the RO-mounted binary), and `lastOnboardingVersion` /
+# `lastReleaseNotesSeen` stamped with the resolved claude version -- and shared
+# that 6-key object into the SAME shred-on-exit claudecreds mount
+# (mountTag=claudecreds) as the credential above, NOT via run.env, honoring the
+# launcher's "secrets never ride in run.env" invariant. machineID is NOT in the
+# seed -- the guest mints its own on first run. Install it at
+# $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
 # /root/.claude.json does not exist on a fresh guest, so this is a plain create
-# of the minimal object (no merge -- later passes seed more keys).
+# of the object (no merge). The seed's CONTENTS are the host's business; this
+# step just copies whatever the host emitted.
 #
 # ADDITIVE: unlike the credential above (a hard requirement), a missing seed is
-# logged and tolerated -- the guest still boots (it just shows the login menu).
-# The host launcher gates on the seed being present (preflight), so its absence
-# here is unexpected but not worth aborting an otherwise-bootable guest.
+# logged and tolerated -- the guest still boots (it just shows the onboarding/
+# login wall). The host launcher gates on the seed being present (preflight),
+# so its absence here is unexpected but not worth aborting an otherwise-bootable
+# guest.
 MOUNTED_CLAUDE_JSON_SEED="$CLAUDECREDS_MNT/claude-json-seed.json"
 if [ -s "$MOUNTED_CLAUDE_JSON_SEED" ]; then
   cp "$MOUNTED_CLAUDE_JSON_SEED" "$CLAUDE_HOME/.claude.json"
   chmod 600 "$CLAUDE_HOME/.claude.json"
-  log "claude-vm: installed host identity seed at $CLAUDE_HOME/.claude.json (userID + oauthAccount)."
+  log "claude-vm: installed host identity seed at $CLAUDE_HOME/.claude.json (identity + onboarding state)."
 else
   log "claude-vm: no identity seed found at $MOUNTED_CLAUDE_JSON_SEED (mountTag=claudecreds);"
-  log "claude-vm: continuing without it -- claude may show its login menu on this console."
+  log "claude-vm: continuing without it -- claude may show its onboarding/login wall on this console."
 fi
 
 # ---------------------------------------------------------------------

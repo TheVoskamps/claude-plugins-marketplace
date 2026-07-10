@@ -1,6 +1,6 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus a minimal identity seed (userID + oauthAccount) selected from the host's ~/.claude.json so the in-guest session comes up already logged in.
+description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
 ---
 
 # claude-vm
@@ -11,10 +11,12 @@ the proxy, and how the repo is made available to the guest — comes from
 layered **YAML config** rather than environment variables. The guest
 authenticates with the **host's live claude.ai OAuth credential**, which
 the launcher extracts from the macOS Keychain at launch and shares RO
-into the guest, plus a minimal **identity seed** (`userID` +
-`oauthAccount`) the launcher selects from your host `~/.claude.json` so
-the interactive in-guest session comes up already logged in (issue #88).
-Both are secrets, neither is written to config, and both ride the same
+into the guest, plus an **identity seed** the launcher builds from your
+host `~/.claude.json` — the `userID` + `oauthAccount` selected from the
+host, plus synthesized `hasCompletedOnboarding` / `autoUpdates: false` /
+version keys — so the interactive in-guest session comes up already
+onboarded, logged in, and with self-update disabled (issue #88). Both
+are secrets, neither is written to config, and both ride the same
 transient shred-on-exit mount. No token environment variable is
 required — just be logged in to Claude Code on the host.
 
@@ -28,7 +30,8 @@ explains the config surface and drives the launcher.
 # 1. Be logged in to Claude Code on this host. The launcher installs the
 #    host's live claude.ai OAuth credential (extracted from the macOS
 #    Keychain) AND seeds the guest's identity (userID + oauthAccount from
-#    your ~/.claude.json) so the in-guest claude comes up already logged
+#    your ~/.claude.json, plus synthesized onboarding/auto-update-off
+#    keys) so the in-guest claude comes up already onboarded and logged
 #    in. Run `claude` once and complete the claude.ai login if you have
 #    not; the launcher aborts at a preflight if you are not logged in.
 #    No token environment variable is required.
@@ -248,20 +251,27 @@ The guest authenticates claude with the **host operator's live claude.ai
 OAuth credential** — the full-scope login credential, not a scoped
 inference token — installed at `$HOME/.claude/.credentials.json`. That
 bearer token alone is **not** sufficient for the interactive TUI to treat
-itself as logged in: current Claude Code also reads identity state from
-`~/.claude.json` (`userID` + `oauthAccount`), which a fresh throwaway
-guest lacks — so without it every launch shows the login menu despite the
-mounted credential.
+itself as onboarded and logged in: current Claude Code also reads
+onboarding + identity state from `~/.claude.json`, which a fresh throwaway
+guest lacks — so without it every launch hits the onboarding/login wall
+despite the mounted credential. Two keys matter beyond identity:
+`hasCompletedOnboarding` (absent → claude runs its onboarding flow) and
+`autoUpdates` (unset → claude tries to self-update and fails against its
+RO-mounted binary in the egress-confined guest).
 
-So the launcher **also seeds the guest's identity** (issue #88): it reads
-your host `~/.claude.json`, selects **only** the `userID` and
-`oauthAccount` keys (nothing else — no `projects{}`, no telemetry, no
-onboarding flags), and shares a minimal
-`{"userID": …, "oauthAccount": {…}}` into the guest under the same
-`claudecreds` mount. The guest boot launcher installs it at
-`$HOME/.claude.json` (mode `0600`) before exec'ing `claude`, so the
-in-guest session comes up already logged in. The seed is selected via
-`lib/credential.sh`'s `claude_vm_select_claude_json_seed` (using
+So the launcher **also seeds the guest's identity + onboarding state**
+(issue #88): it reads your host `~/.claude.json` and emits a **6-key**
+seed — `userID` and `oauthAccount` selected from the host (nothing else
+from the host — no `projects{}`, no telemetry, no `machineID`), plus four
+synthesized keys: `hasCompletedOnboarding: true` (skip the wall),
+`autoUpdates: false` (no self-update), and `lastOnboardingVersion` /
+`lastReleaseNotesSeen` stamped with the concrete resolved claude version.
+`machineID` is deliberately **not** seeded — the guest mints its own. That
+object is shared into the guest under the same `claudecreds` mount, and
+the guest boot launcher installs it at `$HOME/.claude.json` (mode `0600`)
+before exec'ing `claude`, so the in-guest session comes up already
+onboarded, logged in, and with self-update disabled. The seed is built
+via `lib/credential.sh`'s `claude_vm_select_claude_json_seed` (using
 `python3`; unit-tested in `payload/test/credential-test.sh`) and carries
 account identity, so it rides the same secret posture as the credential:
 written under `umask 077` into the transient, owner-only (`0600`),

@@ -27,17 +27,19 @@
 # verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
 # IDENTITY SEED (issue #88): the mounted ~/.claude/.credentials.json bearer
-# token alone does NOT make the interactive guest TUI treat itself as logged
-# in -- it also needs the host's identity state (~/.claude.json `userID` +
-# `oauthAccount`), which a fresh throwaway guest lacks, so every launch shows
-# the login menu. So the launcher ALSO reads the host's ~/.claude.json, selects
-# ONLY those two top-level keys, and delivers a minimal
-# {"userID": ..., "oauthAccount": {...}} to the guest the SAME transient RO
-# shred-on-exit way as the keychain credential (via the claudecreds mount,
-# NEVER via run.env). The guest boot launcher installs it at /root/.claude.json
-# before exec'ing claude. This seed is ADDITIVE and layered alongside the
-# keychain credential mount above. (Pass 1 of issue #88 seeds identity only;
-# later passes add onboarding/self-management and per-project trust state.)
+# token alone does NOT make the interactive guest TUI treat itself as onboarded
+# + logged in -- it also needs the right ~/.claude.json state, which a fresh
+# throwaway guest lacks, so every launch shows the onboarding/login wall. So
+# the launcher ALSO builds a seed from the host's ~/.claude.json: it selects
+# ONLY `userID` + `oauthAccount` from the host and synthesizes four more keys
+# -- `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false` (no
+# self-update in the egress-confined guest), and `lastOnboardingVersion` /
+# `lastReleaseNotesSeen` stamped with the concrete resolved claude version.
+# machineID is NOT seeded -- the guest mints its own. The resulting 6-key object
+# is delivered to the guest the SAME transient RO shred-on-exit way as the
+# keychain credential (via the claudecreds mount, NEVER via run.env). The guest
+# boot launcher installs it at /root/.claude.json before exec'ing claude. This
+# seed is ADDITIVE and layered alongside the keychain credential mount above.
 #
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
@@ -210,14 +212,16 @@ claude_vm_preflight_trust_path \
   || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
 
 # ---------------------------------------------------------------------
-# Identity-seed PREFLIGHT (issue #88, pass 1). The interactive Claude Code
-# TUI in the guest decides "am I logged in" from ON-DISK state: the bearer
+# Identity-seed PREFLIGHT (issue #88). The interactive Claude Code TUI in the
+# guest decides "am I onboarded / logged in" from ON-DISK state: the bearer
 # token in ~/.claude/.credentials.json (installed below from the Keychain,
-# via the claudecreds mount) PLUS identity state in ~/.claude.json (`userID`
-# + `oauthAccount`). A fresh throwaway guest lacks that identity state, so
-# every launch shows the login menu regardless of the mounted credential.
-# The launcher seeds a MINIMAL /root/.claude.json into the guest from the
-# host's own ~/.claude.json (see the "identity seed" block below).
+# via the claudecreds mount) PLUS identity AND onboarding state in
+# ~/.claude.json. A fresh throwaway guest lacks that state, so without a seed
+# every launch shows the onboarding/login wall regardless of the mounted
+# credential. The launcher seeds a /root/.claude.json into the guest carrying
+# the host's `userID`/`oauthAccount` PLUS synthesized `hasCompletedOnboarding`/
+# `autoUpdates`/`lastOnboardingVersion`/`lastReleaseNotesSeen` (see the
+# "identity seed" block below).
 #
 # Gate here, FAST, before any build/boot work: if the host ~/.claude.json is
 # missing, or lacks a usable `userID` or `oauthAccount`, abort with an
@@ -235,7 +239,13 @@ if [ ! -s "$HOST_CLAUDE_JSON" ]; then
   echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
   exit 1
 fi
-if ! claude_vm_select_claude_json_seed < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
+# The version arg here is best-effort ($CLAUDE_VERSION, the raw channel/pin):
+# this preflight only validates that userID/oauthAccount are present and
+# discards stdout, so the version fields it would emit are not load-bearing.
+# The authoritative concrete version is resolved later (after the cache-ensure
+# block) and passed to the REAL seed write below (~line 588). Resolving a
+# channel here would force a premature network fetch in the fast preflight.
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
   echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
   echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
   echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
@@ -328,6 +338,21 @@ CLAUDE_BIN_HOST="$(claude_cache_ensure "$CLAUDE_VERSION")" || {
 CLAUDE_VM_CACHE_NETWORK="$(cat "$CACHE_STATE_FILE" 2>/dev/null || true)"
 rm -f "$CACHE_STATE_FILE"
 echo "claude-vm: using verified claude binary: $CLAUDE_BIN_HOST (fetch=${CLAUDE_VM_CACHE_NETWORK:-unknown})" >&2
+
+# Resolve the channel/pin ($CLAUDE_VERSION, e.g. stable|latest|2.1.172) to a
+# concrete dotted version for the identity seed (issue #88). The widened seed
+# stamps this into lastOnboardingVersion / lastReleaseNotesSeen so the guest
+# TUI's onboarding-version / release-notes gates read as satisfied. A pinned
+# version resolves to itself with no network; stable|latest fetch the channel
+# pointer. We resolve here -- AFTER claude_cache_ensure, which already did any
+# channel-pointer fetch a few lines up -- so this is a warm/no-op resolution
+# with no extra network round-trip, and it is captured ONCE and reused at the
+# real seed write below (~line 588). On the unexpected event that resolution
+# fails, fall back to the raw channel/pin string: the seed's version fields are
+# a best-effort onboarding hint, not a correctness gate, and must not block an
+# otherwise-bootable guest.
+CLAUDE_VERSION_RESOLVED="$(claude_cache_resolve_version "$CLAUDE_VERSION" 2>/dev/null || true)"
+[ -n "$CLAUDE_VERSION_RESOLVED" ] || CLAUDE_VERSION_RESOLVED="$CLAUDE_VERSION"
 
 # ---------------------------------------------------------------------
 # Run directory + repo mount strategy
@@ -565,15 +590,19 @@ fi
 chmod 600 "$HOST_CREDENTIAL"
 
 # ---------------------------------------------------------------------
-# Identity seed -> the SAME shred-on-exit claudecreds mount (issue #88, pass 1).
+# Identity seed -> the SAME shred-on-exit claudecreds mount (issue #88).
 #
-# The interactive guest TUI treats itself as logged in only when BOTH the
-# bearer token (installed above at ~/.claude/.credentials.json) AND the host's
-# identity state (~/.claude.json `userID` + `oauthAccount`) are present. Select
-# ONLY those two keys from the host ~/.claude.json (preflighted above) and write
-# a minimal {"userID": ..., "oauthAccount": {...}} into $CREDS_DIR -- the SAME
-# transient owner-only dir shared RO into the guest under mountTag=claudecreds
-# and shredded by cleanup() on every exit (EXIT/INT/TERM). It is NOT named
+# The interactive guest TUI treats itself as onboarded + logged in only when
+# the bearer token (installed above at ~/.claude/.credentials.json) AND the
+# right ~/.claude.json state are present. Build the seed from the host
+# ~/.claude.json (preflighted above): select ONLY `userID` + `oauthAccount`
+# from the host, and synthesize `hasCompletedOnboarding: true` (skip the
+# onboarding wall), `autoUpdates: false` (don't self-update in the egress-
+# confined guest), and `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped
+# with the concrete resolved claude version. Write that {6-key} object into
+# $CREDS_DIR -- the SAME transient owner-only dir shared RO into the guest under
+# mountTag=claudecreds and shredded by cleanup() on every exit (EXIT/INT/TERM).
+# machineID is NOT seeded -- the guest mints its own. It is NOT named
 # .credentials.json (that name is the bearer token's) -- the guest boot launcher
 # reads claude-json-seed.json and installs it at /root/.claude.json before
 # exec'ing claude (see build-guest-image.sh). The seed carries account identity,
@@ -582,10 +611,13 @@ chmod 600 "$HOST_CREDENTIAL"
 # the file is created -rw------- with no world-readable moment; the chmod 600 is
 # belt-and-braces. Selection is fail-closed and was already validated at the
 # preflight; a failure here is unexpected -- abort rather than seed a partial or
-# empty file that would drop the guest back to the login menu.
+# empty file that would drop the guest back to the onboarding/login wall.
 # ---------------------------------------------------------------------
 HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
-if ! claude_vm_select_claude_json_seed < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
+# Authoritative seed write: pass the CONCRETE resolved version (captured after
+# the cache-ensure block) so the emitted seed's lastOnboardingVersion /
+# lastReleaseNotesSeen carry a real dotted version, not a channel name.
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
   rm -f "$HOST_CLAUDE_JSON_SEED"
   umask "$OLD_UMASK"
   echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2

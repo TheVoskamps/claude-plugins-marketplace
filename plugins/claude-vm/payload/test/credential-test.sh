@@ -162,16 +162,25 @@ TOKEN7="$(printf '%s' "$OUT7" | python3 -c 'import sys,json; print(json.load(sys
 assert_eq "single-key blob: accessToken preserved" "only-token" "$TOKEN7"
 
 # ---------------------------------------------------------------------
-# claude_vm_select_claude_json_seed (issue #88, pass 1): select ONLY
-# {userID, oauthAccount} from the host ~/.claude.json, dropping everything
-# else (projects{}, has* flags, metrics, tips history), fail-closed on a
-# missing/unusable userID or oauthAccount.
+# claude_vm_select_claude_json_seed (issue #88): build the 6-key identity seed
+# from the host ~/.claude.json -- select ONLY {userID, oauthAccount} from the
+# host, SYNTHESIZE {hasCompletedOnboarding: true, autoUpdates: false}, and stamp
+# {lastOnboardingVersion, lastReleaseNotesSeen} with the resolved version passed
+# in as $1. machineID must NOT be emitted. Fail-closed on a missing/unusable
+# userID or oauthAccount.
 # ---------------------------------------------------------------------
 
-# Fixture: the real ~/.claude.json shape -- the two identity keys we want,
-# plus the noise we must DROP (projects{} keyed by absolute path, has* flags,
-# telemetry, tips history). A verbatim copy would leak all of this into the
-# guest; selection must keep only userID + oauthAccount.
+# The resolved concrete claude version the caller passes as the FIRST arg. The
+# seed stamps this into lastOnboardingVersion / lastReleaseNotesSeen.
+SEED_VERSION="2.1.172"
+
+# Fixture: the real ~/.claude.json shape -- the two identity keys we select,
+# plus the noise we must DROP (projects{} keyed by absolute path, telemetry,
+# tips history) AND a host machineID we must NOT propagate. The host's own
+# hasCompletedOnboarding/autoUpdates values are IGNORED -- the seed synthesizes
+# its own (true / false) regardless of what the host carries; the fixture sets
+# host values that DIFFER from the synthesized ones (autoUpdates "on-host-true")
+# so a passthrough bug would be caught.
 FULL_CLAUDE_JSON='{
   "userID": "abc123deadbeef",
   "oauthAccount": {
@@ -180,9 +189,10 @@ FULL_CLAUDE_JSON='{
     "organizationUuid": "org-2222",
     "organizationRole": "admin"
   },
-  "hasCompletedOnboarding": true,
+  "hasCompletedOnboarding": false,
+  "autoUpdates": "on-host-true",
+  "machineID": "host-machine-secret",
   "installMethod": "native",
-  "autoUpdates": "false",
   "numStartups": 42,
   "projects": {
     "/Users/operator/some/repo": {
@@ -193,7 +203,7 @@ FULL_CLAUDE_JSON='{
   }
 }'
 
-SEED_OUT="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed)"
+SEED_OUT="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SEED_RC=$?
 assert_rc "full ~/.claude.json: seed selection exits 0" "0" "$SEED_RC"
 
@@ -204,18 +214,46 @@ else
   assert_eq "seed: output is valid JSON" "ok" "INVALID-JSON"
 fi
 
-# ONLY userID + oauthAccount survive.
+# EXACTLY six keys, no more, no fewer.
 SEED_KEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(sorted(json.load(sys.stdin).keys())))')"
-assert_eq "seed: output has ONLY userID + oauthAccount" "oauthAccount,userID" "$SEED_KEYS"
+assert_eq "seed: output has EXACTLY the 6 keys" \
+  "autoUpdates,hasCompletedOnboarding,lastOnboardingVersion,lastReleaseNotesSeen,oauthAccount,userID" \
+  "$SEED_KEYS"
 
+# The two host-selected keys survive verbatim.
 SEED_USER="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["userID"])')"
 assert_eq "seed: userID preserved" "abc123deadbeef" "$SEED_USER"
 
 SEED_EMAIL="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["oauthAccount"]["emailAddress"])')"
 assert_eq "seed: oauthAccount.emailAddress preserved" "operator@example.com" "$SEED_EMAIL"
 
-# The dropped noise must NOT appear anywhere -- projects{}, session id, flags.
-for needle in "projects" "sess-secret" "hasCompletedOnboarding" "numStartups" "installMethod"; do
+# The two synthesized booleans are present with the RIGHT type and value,
+# regardless of the host's own (differing) values. json.dumps emits Python
+# True/False as JSON true/false; check the type is bool AND the value is right.
+SEED_ONBOARD="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["hasCompletedOnboarding"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: hasCompletedOnboarding is boolean true" "bool:True" "$SEED_ONBOARD"
+
+SEED_AUTOUPD="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["autoUpdates"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: autoUpdates is boolean false" "bool:False" "$SEED_AUTOUPD"
+
+# The two version fields equal the passed-in resolved version.
+SEED_LOV="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["lastOnboardingVersion"])')"
+assert_eq "seed: lastOnboardingVersion equals passed-in version" "$SEED_VERSION" "$SEED_LOV"
+
+SEED_LRNS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["lastReleaseNotesSeen"])')"
+assert_eq "seed: lastReleaseNotesSeen equals passed-in version" "$SEED_VERSION" "$SEED_LRNS"
+
+# machineID must be ABSENT -- the guest mints its own; the host's must not leak.
+if printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; sys.exit(0 if "machineID" in json.load(sys.stdin) else 1)'; then
+  assert_eq "seed: machineID is ABSENT from output" "absent" "PRESENT-LEAKED"
+else
+  assert_eq "seed: machineID is ABSENT from output" "absent" "absent"
+fi
+
+# The dropped noise must NOT appear anywhere -- projects{}, session id, host
+# machineID, telemetry. (hasCompletedOnboarding/autoUpdates ARE now emitted, so
+# they are no longer in this drop list -- they are checked for value above.)
+for needle in "projects" "sess-secret" "host-machine-secret" "numStartups" "installMethod"; do
   if printf '%s' "$SEED_OUT" | grep -q "$needle"; then
     assert_eq "seed: '$needle' is DROPPED from output" "absent" "PRESENT-LEAKED"
   else
@@ -223,46 +261,51 @@ for needle in "projects" "sess-secret" "hasCompletedOnboarding" "numStartups" "i
   fi
 done
 
+# Version passthrough: a DIFFERENT version arg lands in both version fields.
+SEED_OUT_V2="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed "9.9.9")"
+SEED_V2="$(printf '%s' "$SEED_OUT_V2" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["lastOnboardingVersion"]+","+d["lastReleaseNotesSeen"])')"
+assert_eq "seed: version arg passes through to both version fields" "9.9.9,9.9.9" "$SEED_V2"
+
 # Fail-closed: missing userID.
 NO_USER='{"oauthAccount": {"emailAddress": "x@y.z"}}'
-SO1="$(printf '%s' "$NO_USER" | claude_vm_select_claude_json_seed)"
+SO1="$(printf '%s' "$NO_USER" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR1=$?
 assert_rc "seed: missing userID exits non-zero" "1" "$SR1"
 assert_eq "seed: missing userID writes nothing" "" "$SO1"
 
 # Fail-closed: missing oauthAccount.
 NO_OAUTH='{"userID": "abc"}'
-SO2="$(printf '%s' "$NO_OAUTH" | claude_vm_select_claude_json_seed)"
+SO2="$(printf '%s' "$NO_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR2=$?
 assert_rc "seed: missing oauthAccount exits non-zero" "1" "$SR2"
 assert_eq "seed: missing oauthAccount writes nothing" "" "$SO2"
 
 # Fail-closed: userID present but not a string.
 BAD_USER='{"userID": 12345, "oauthAccount": {"a": "b"}}'
-SO3="$(printf '%s' "$BAD_USER" | claude_vm_select_claude_json_seed)"
+SO3="$(printf '%s' "$BAD_USER" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR3=$?
 assert_rc "seed: non-string userID exits non-zero" "1" "$SR3"
 
 # Fail-closed: oauthAccount present but not an object.
 BAD_OAUTH='{"userID": "abc", "oauthAccount": "not-an-object"}'
-SO4="$(printf '%s' "$BAD_OAUTH" | claude_vm_select_claude_json_seed)"
+SO4="$(printf '%s' "$BAD_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR4=$?
 assert_rc "seed: non-object oauthAccount exits non-zero" "1" "$SR4"
 
 # Fail-closed: empty oauthAccount object -> not usable.
 EMPTY_OAUTH='{"userID": "abc", "oauthAccount": {}}'
-SO5="$(printf '%s' "$EMPTY_OAUTH" | claude_vm_select_claude_json_seed)"
+SO5="$(printf '%s' "$EMPTY_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR5=$?
 assert_rc "seed: empty oauthAccount exits non-zero" "1" "$SR5"
 
 # Fail-closed: invalid JSON.
-SO6="$(printf '%s' "not json {" | claude_vm_select_claude_json_seed)"
+SO6="$(printf '%s' "not json {" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR6=$?
 assert_rc "seed: invalid JSON exits non-zero" "1" "$SR6"
 assert_eq "seed: invalid JSON writes nothing" "" "$SO6"
 
 # Fail-closed: empty input.
-SO7="$(printf '%s' "" | claude_vm_select_claude_json_seed)"
+SO7="$(printf '%s' "" | claude_vm_select_claude_json_seed "$SEED_VERSION")"
 SR7=$?
 assert_rc "seed: empty input exits non-zero" "1" "$SR7"
 
