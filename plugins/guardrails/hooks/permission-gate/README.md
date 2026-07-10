@@ -92,7 +92,7 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   classifiers **never defer** — every path resolves to allow/ask/deny —
   and the **default for a recognized tool is ALLOW** (containment lives
   in the microVM), with deny/ask tiers carving out the dangerous shapes.
-  Four bypass gates fire BEFORE per-command logic, since each reaches a
+  Bypass gates fire BEFORE per-command logic, since each reaches a
   dangerous outcome without the flag a naive policy keys on:
   (1) a **non-static argv** (command substitution, unresolved variable,
   glob) on any of the three tools **denies** — the dynamic token can
@@ -182,7 +182,7 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
   both the git-derived root and the target, and blocks worktree escapes
   (#127) and cross-repo access (#148). Fail-closed on any git
-  subprocess failure or timeout. Two refinements (#247): (1) a target
+  subprocess failure or timeout. Refinements (#247): (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
   not denied as a cross-repo escape, so the `settings.json` allow-list
   governs the agent's required startup reads of its own global config;
