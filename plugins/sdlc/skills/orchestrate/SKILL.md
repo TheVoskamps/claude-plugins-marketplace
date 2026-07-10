@@ -22,7 +22,8 @@ You have access to these teammate agents:
   `isolation: worktree` worktree, pushes fixes
 - `doc-updater` — inspects a PR in a fresh `isolation: worktree`
   worktree, updates CLAUDE.md, README(s), `.claude/rules/`,
-  `.claude/skills/`, and /docs, pushes a doc commit
+  `.claude/skills/`, /docs, and in-code doc comments in files the PR
+  touched, pushes a doc commit
 - `pr-reviewer` — reviews a PR diff in a fresh `isolation: worktree`
   worktree, posts a single review with verdict
 
@@ -277,7 +278,9 @@ Branch: <branch-name>
 
 Update docs per your agent definition (CLAUDE.md, READMEs, /docs,
 repo-level .claude/rules/ and .claude/skills/ that the change
-affects). Report back which files changed and what you updated.
+affects, and in-code doc comments — TSDoc or the language
+equivalent — in source files the PR touched). Report back which
+files changed and what you updated.
 ```
 
 **pr-reviewer spawn prompt** — give it PR number, issue number, branch name:
