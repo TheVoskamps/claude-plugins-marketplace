@@ -43,7 +43,14 @@ while `pr-reviewer` keeps `model: opus` so the verification gate is a
 strictly stronger model than the implementers it checks. For a
 genuinely gnarly issue you can escalate a single spawn to `opus` via the
 `Agent` tool's per-call `model` override without touching front matter.
-Foreground execution is not a frontmatter concern: the four agents do
+Each agent also pins its own `effort:` — `issue-developer`,
+`issue-fixer`, and `pr-reviewer` at `high`, `doc-updater` at `medium` —
+because a subagent frontmatter with no `effort:` key inherits the
+effort level of the interactive session that spawned it, per the
+Claude Code subagent docs. Without a pin, an orchestrator session
+running at `xhigh` silently propagates that cost to every teammate
+regardless of the teammate's actual task size. Foreground execution is
+not a frontmatter concern: the four agents do
 **not** declare `background: false` (it is inert — the Claude Code docs
 document only `background: true` as forcing a direction). Foreground
 spawns are enforced by the `block-background-agents` plugin's

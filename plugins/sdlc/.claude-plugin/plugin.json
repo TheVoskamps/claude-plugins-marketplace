@@ -1,7 +1,7 @@
 {
   "name": "sdlc",
   "description": "End-to-end issue orchestration: the /sdlc:orchestrate flow plus the issue-developer, issue-fixer, doc-updater, and pr-reviewer agents and PR review.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" },
   "dependencies": ["issues"]
 }

@@ -3,6 +3,7 @@ name: issue-developer
 description: Implements a fix for a single issue, runs tests, commits, pushes, and creates a PR. Use this for initial implementation of each issue.
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, LS, Bash, WebFetch, WebSearch, TodoRead, TodoWrite, Skill
 model: sonnet
+effort: high
 isolation: worktree
 permissionMode: default
 memory: project
