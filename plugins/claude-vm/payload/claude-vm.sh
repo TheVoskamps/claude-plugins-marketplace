@@ -1072,13 +1072,29 @@ copy_back() {
         # cleanup()-top restore) the tty ended up icanon+echo ON but ICRNL
         # OFF: Enter (\r) neither terminated the read nor translated to \n,
         # and echoed as `^M` -- only a literal newline (Shift+Enter) submitted.
-        # Mechanism NOT fully established (unverified): either a race where
-        # vfkit's own exit-time termios handling lands AFTER cleanup()'s
-        # restore, or the early restore partially failing behind its
-        # 2>/dev/null || true. Either way, by copy_back() time the VM is long
-        # dead, so re-asserting here is deterministic and correct under every
-        # candidate mechanism.
+        #
+        # Mechanism CONFIRMED (poisoned snapshot): HOST_TTY_STATE is a
+        # launch-time snapshot (`stty -g < /dev/tty` at startup) of whatever
+        # the terminal already was. If the terminal was ALREADY corrupted at
+        # launch, restoring that snapshot faithfully reproduces the corruption.
+        # This is a real, confirmed incident: a prior crashed claude-vm run
+        # left the user's terminal tab carrying -icrnl, and every subsequent
+        # run snapshotted that already-broken state and then "restored" it
+        # right here -- the restore worked perfectly, its input was poisoned.
+        # (The user's shell masks it between runs because zsh's line editor
+        # drives the terminal itself and does not need ICRNL.)
+        #
+        # So restore_host_tty() is not enough on its own: force the exact
+        # termios bits this confirmation read requires, regardless of what the
+        # snapshot contained. We need ICRNL (Enter's \r -> \n), ICANON (line
+        # discipline), and ECHO (visible typing). Force ONLY those three and
+        # leave everything else to the snapshot restore. We do NOT change
+        # restore_host_tty() itself: cleanup()'s final restore must keep
+        # putting the terminal back to exactly the launch state -- even a weird
+        # one -- as its polite contract; the force applies only where WE need
+        # specific semantics, i.e. our own prompt.
         restore_host_tty
+        stty icrnl icanon echo < /dev/tty 2>/dev/null || true
         local reply=""
         if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
           printf 'claude-vm: apply copy-back over the dirty source tree? [y/N] ' >&2
