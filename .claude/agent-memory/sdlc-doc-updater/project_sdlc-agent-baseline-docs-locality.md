@@ -1,6 +1,6 @@
 ---
 name: sdlc-agent-baseline-docs-locality
-description: sdlc agents' model tier and foreground enforcement are documented only in orchestrate/SKILL.md + the agent frontmatter; top-level README and /docs describe agents by roster, not model.
+description: sdlc agents' model tier, tools list, permissionMode/frontmatter-support, and foreground enforcement are documented only in orchestrate/SKILL.md + the agent frontmatter; top-level README and /docs describe agents by roster, not model or tool grants.
 metadata:
   type: project
 ---
@@ -9,10 +9,24 @@ metadata:
 
 The sdlc agents' shared frontmatter baseline — which model each agent
 runs (`sonnet` for issue-developer/issue-fixer/doc-updater, `opus` for
-pr-reviewer), and how foreground execution is enforced — is documented
-in exactly two places: `plugins/sdlc/skills/orchestrate/SKILL.md` (the
-"hardened baseline" paragraph near the top and the "Token Efficiency"
-section near the bottom) and the individual agent `.md` frontmatter.
+pr-reviewer), each agent's `tools:` grant list, whether a
+`permissionMode` frontmatter key is even supported, and how foreground
+execution is enforced — is documented in exactly two places:
+`plugins/sdlc/skills/orchestrate/SKILL.md` (the "hardened baseline"
+paragraph near the top and the "Token Efficiency" section near the
+bottom, model-tier only) and the individual agent `.md` frontmatter.
+
+Confirmed again on PR #121 (issue #120, 2026-07-11): removing the
+unsupported `permissionMode` key and pruning stale tool names
+(`LS`, `TodoRead`, `TodoWrite`, `MultiEdit`) from all four agents'
+`tools:` lists required no README/doc changes — the PR's own edit to
+the "hardened baseline" paragraph in orchestrate/SKILL.md was the only
+doc surface, and it was already complete in the PR diff. A `grep` for
+`MultiEdit` also hit `plugins/guardrails/hooks/permission-gate/README.md`,
+but that reference describes the Go hook's own PreToolUse tool-name
+regex (a global Claude Code tool category), not the sdlc agents'
+per-agent `tools:` grants — out of scope, different subject entirely,
+do not touch it for sdlc agent-frontmatter changes.
 
 **Why:** The top-level `README.md` describes sdlc only as a roster
 ("the developer/fixer/reviewer/doc agents"); `docs/plugin-migration-plan.md`
