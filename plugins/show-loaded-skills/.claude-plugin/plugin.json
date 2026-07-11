@@ -1,0 +1,6 @@
+{
+  "name": "show-loaded-skills",
+  "description": "UserPromptExpansion and PreToolUse(Skill) hooks that surface a one-line message every time a skill loads, whether typed as a command or invoked by the model.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
