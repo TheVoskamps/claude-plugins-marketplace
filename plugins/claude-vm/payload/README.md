@@ -84,10 +84,12 @@ each when absent. And it seeds a **`projects` entry for the guest repo
 mount** (`/mnt/repo`) with `hasTrustDialogAccepted` and
 `hasCompletedProjectOnboarding` forced `true`, so the guest skips the "Do
 you trust this folder? /mnt/repo" dialog on first boot (if your host
-already has a project entry for the launched repo, it is copied verbatim —
-so per-project settings like `allowedTools` ride along — then rekeyed to
-`/mnt/repo` with those two flags forced true). Nothing else from
-`~/.claude.json` (no other `projects{}` entries, no telemetry, no
+already has a project entry for the launched repo, a **named allowlist** of
+benign per-project settings — `allowedTools` and friends — is carried over
+and rekeyed to `/mnt/repo` with those two flags forced true; the operator's
+prompt `history`, `lastSessionId`, and `mcpServers` are deliberately
+**dropped**, and any unrecognized future key defaults to excluded). Nothing
+else from `~/.claude.json` (no other `projects{}` entries, no telemetry, no
 `machineID`) is copied — `machineID` in particular is left out so the guest
 mints its own. The guest boot launcher installs the seed at
 `$HOME/.claude.json` (mode `0600`) before exec'ing `claude`, so the

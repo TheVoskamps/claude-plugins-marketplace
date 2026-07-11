@@ -299,10 +299,13 @@ carries benign host UI keys when present — `installMethod`,
 when absent) — and seeds a **`projects` entry for the guest mount**
 (`/mnt/repo`) with `hasTrustDialogAccepted` / `hasCompletedProjectOnboarding`
 forced `true` so the guest skips the "Do you trust this folder? /mnt/repo"
-dialog (if the host already has an entry for the launched repo it is copied
-verbatim — so `allowedTools` and friends survive — rekeyed to `/mnt/repo`
-with those two flags forced true). Nothing else from `~/.claude.json` (no
-other `projects{}` entries, no telemetry, no `machineID`) is copied;
+dialog (if the host already has an entry for the launched repo, a **named
+allowlist** of benign per-project keys — `allowedTools` and friends —
+survives, rekeyed to `/mnt/repo` with those two flags forced true; the
+operator's prompt `history`, `lastSessionId`, and `mcpServers` are
+deliberately dropped, and unrecognized future keys default to excluded).
+Nothing else from `~/.claude.json` (no other `projects{}` entries, no
+telemetry, no `machineID`) is copied;
 `machineID` is deliberately **not** seeded — the guest mints its own. That
 object is shared into the guest under the same `claudecreds` mount, and
 the guest boot launcher installs it at `$HOME/.claude.json` (mode `0600`)

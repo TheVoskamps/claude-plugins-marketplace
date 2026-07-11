@@ -246,14 +246,18 @@ SEED_GUEST_REPO="/mnt/repo"
 
 # Fixture: the real ~/.claude.json shape -- the two identity keys we select,
 # the ADDITIVE pass-through keys (installMethod, hasSeenTasksHint, hasUsedStash,
-# tipsHistory), a projects entry for the host repo path (with a FALSE trust flag
-# and an extra allowedTools key that must survive verbatim), plus the noise we
-# must DROP (a projects entry for a DIFFERENT repo, telemetry) AND a host
-# machineID we must NOT propagate. The host's own hasCompletedOnboarding/
-# autoUpdates values are IGNORED -- the seed synthesizes its own (true / false)
-# regardless of what the host carries; the fixture sets host values that DIFFER
-# from the synthesized ones (autoUpdates "on-host-true") so a passthrough bug
-# would be caught.
+# tipsHistory), a projects entry for the host repo path carrying a MIX of
+# allowlisted per-project keys (allowedTools, projectOnboardingSeenCount,
+# mcpContextUris, with a FALSE trust flag) alongside keys that MUST be dropped
+# by the named allowlist (history, lastSessionId, mcpServers -- the operator's
+# prompt history, a host-session id, and MCP server configs that can embed
+# URLs/headers) and an UNKNOWN future key (someFutureKey) that must default to
+# EXCLUDED, plus the top-level noise we must DROP (a projects entry for a
+# DIFFERENT repo, telemetry) AND a host machineID we must NOT propagate. The
+# host'\''s own hasCompletedOnboarding/autoUpdates values are IGNORED -- the seed
+# synthesizes its own (true / false) regardless of what the host carries; the
+# fixture sets host values that DIFFER from the synthesized ones (autoUpdates
+# "on-host-true") so a passthrough bug would be caught.
 FULL_CLAUDE_JSON='{
   "userID": "abc123deadbeef",
   "oauthAccount": {
@@ -275,8 +279,13 @@ FULL_CLAUDE_JSON='{
       "hasTrustDialogAccepted": false,
       "hasCompletedProjectOnboarding": false,
       "allowedTools": ["Bash(git status)", "Read"],
+      "projectOnboardingSeenCount": 4,
+      "mcpContextUris": ["file:///mnt/repo/CLAUDE.md"],
       "lastCost": 1.23,
-      "lastSessionId": "sess-secret"
+      "history": ["what does this repo do?", "run the tests"],
+      "lastSessionId": "sess-secret",
+      "mcpServers": {"sentry": {"url": "https://mcp.example/sse", "headers": {"Authorization": "Bearer HOST-MCP-SECRET"}}},
+      "someFutureKey": "future-sensitive-value"
     },
     "/Users/operator/OTHER/repo": {
       "hasTrustDialogAccepted": true,
@@ -339,9 +348,10 @@ assert_eq "seed: hasUsedStash passed through verbatim" "bool:True" "$SEED_STASH"
 SEED_TIPS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; d=json.load(sys.stdin)["tipsHistory"]; print(str(d.get("tip-a"))+","+str(d.get("tip-b")))')"
 assert_eq "seed: tipsHistory object copied whole" "3,7" "$SEED_TIPS"
 
-# projects: rekeyed to the guest path, host entry copied verbatim with the two
-# trust flags FORCED true (overriding the host's false) and extras (allowedTools)
-# surviving verbatim.
+# projects: rekeyed to the guest path; the host entry is filtered through a
+# NAMED PER-KEY ALLOWLIST (allowlisted keys survive, everything else -- incl.
+# history / lastSessionId / mcpServers and any unknown future key -- is dropped)
+# with the two trust flags FORCED true (overriding the host's false).
 SEED_PROJ_KEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["projects"].keys()))')"
 assert_eq "seed: projects keyed on the GUEST mount path" "/mnt/repo" "$SEED_PROJ_KEYS"
 
@@ -351,8 +361,41 @@ assert_eq "seed: projects hasTrustDialogAccepted FORCED true" "bool:True" "$SEED
 SEED_PROJ_ONBOARD="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["projects"]["/mnt/repo"]["hasCompletedProjectOnboarding"]; print(type(v).__name__+":"+repr(v))')"
 assert_eq "seed: projects hasCompletedProjectOnboarding FORCED true" "bool:True" "$SEED_PROJ_ONBOARD"
 
+# ALLOWLISTED per-project keys survive: allowedTools, projectOnboardingSeenCount,
+# mcpContextUris (rekeyed but otherwise as-is).
 SEED_PROJ_TOOLS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["projects"]["/mnt/repo"]["allowedTools"]))')"
-assert_eq "seed: projects entry extras (allowedTools) survive verbatim" "Bash(git status),Read" "$SEED_PROJ_TOOLS"
+assert_eq "seed: allowlisted allowedTools survives" "Bash(git status),Read" "$SEED_PROJ_TOOLS"
+
+SEED_PROJ_SEEN="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["projects"]["/mnt/repo"]["projectOnboardingSeenCount"])')"
+assert_eq "seed: allowlisted projectOnboardingSeenCount survives" "4" "$SEED_PROJ_SEEN"
+
+SEED_PROJ_CTX="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["projects"]["/mnt/repo"]["mcpContextUris"]))')"
+assert_eq "seed: allowlisted mcpContextUris survives" "file:///mnt/repo/CLAUDE.md" "$SEED_PROJ_CTX"
+
+# The EXACT set of keys on the guest projects entry: only the allowlisted keys
+# the host carried plus the two forced trust flags. Nothing else.
+SEED_PROJ_ALLKEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(sorted(json.load(sys.stdin)["projects"]["/mnt/repo"].keys())))')"
+assert_eq "seed: guest projects entry has EXACTLY the allowlisted keys + trust flags" \
+  "allowedTools,hasCompletedProjectOnboarding,hasTrustDialogAccepted,mcpContextUris,projectOnboardingSeenCount" \
+  "$SEED_PROJ_ALLKEYS"
+
+# DROPPED per-project keys must be ABSENT from the guest entry: the named trio
+# (history / lastSessionId / mcpServers) plus the unknown future key and lastCost.
+for pkey in "history" "lastSessionId" "mcpServers" "someFutureKey" "lastCost"; do
+  if PKEY="$pkey" python3 -c 'import sys,json,os; sys.exit(0 if os.environ["PKEY"] in json.load(sys.stdin)["projects"]["/mnt/repo"] else 1)' <<<"$SEED_OUT"; then
+    assert_eq "seed: dropped project key '$pkey' is ABSENT" "absent" "PRESENT-LEAKED"
+  else
+    assert_eq "seed: dropped project key '$pkey' is ABSENT" "absent" "absent"
+  fi
+done
+
+# The MCP secret embedded in the dropped mcpServers must not leak anywhere in the
+# output (belt-and-braces string scan).
+if printf '%s' "$SEED_OUT" | grep -q "HOST-MCP-SECRET"; then
+  assert_eq "seed: dropped mcpServers auth header does not leak" "absent" "PRESENT-LEAKED"
+else
+  assert_eq "seed: dropped mcpServers auth header does not leak" "absent" "absent"
+fi
 
 # machineID must be ABSENT -- the guest mints its own; the host's must not leak.
 if printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; sys.exit(0 if "machineID" in json.load(sys.stdin) else 1)'; then
@@ -363,11 +406,12 @@ fi
 
 # The dropped noise must NOT appear anywhere -- the OTHER (non-launched) repo's
 # entry and its secret, top-level telemetry. NOTE: the launched repo's own entry
-# is copied VERBATIM (rekeyed to /mnt/repo), so ITS keys -- including
-# lastSessionId ("sess-secret") -- intentionally survive; only the two trust
-# flags are forced. (installMethod/tipsHistory/hasSeenTasksHint/hasUsedStash ARE
-# now passed through, so they are no longer in this drop list.)
-for needle in "other-secret" "OTHER/repo" "numStartups"; do
+# is now filtered through a NAMED ALLOWLIST, so its non-allowlisted keys --
+# including the launched-repo lastSessionId ("sess-secret") -- are DROPPED too;
+# only the allowlisted keys and the two forced trust flags survive.
+# (installMethod/tipsHistory/hasSeenTasksHint/hasUsedStash ARE passed through at
+# the TOP level, so they are not in this drop list.)
+for needle in "other-secret" "OTHER/repo" "numStartups" "sess-secret"; do
   if printf '%s' "$SEED_OUT" | grep -q "$needle"; then
     assert_eq "seed: '$needle' is DROPPED from output" "absent" "PRESENT-LEAKED"
   else

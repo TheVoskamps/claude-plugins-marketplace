@@ -971,6 +971,11 @@ src_tree_is_dirty() {
 # errors are NOT suppressed -- a failure must be visible. Returns
 # rsync's exit status.
 #
+# ADDITIVE-ONLY by design: --delete is deliberately NOT passed, so files the
+# guest added or changed are copied back but files the guest DELETED are not
+# propagated -- a deletion in the throwaway guest never removes a file from the
+# operator's source tree.
+#
 # --checksum (issue #88): decide "same or different" by CONTENT hash, not the
 # default size+mtime heuristic. A clone checkout skews file mtimes relative to
 # the source without changing content; without --checksum rsync would rewrite
@@ -984,14 +989,18 @@ copy_back_rsync() {
 
 # Print the rsync itemize lines for CONTENT/STRUCTURAL changes only (issue #88).
 # Runs the copy-back as a --checksum dry-run and filters --itemize-changes output
-# to lines whose FIRST char is `>` (a file transfer), `c` (a creation/change of
-# a non-regular entry, e.g. a dir or symlink), or `*` (a message such as
-# `*deleting`). Lines beginning with `.` are ATTRIBUTE-ONLY (mtime/perm/owner
-# differ but content does not) and are DELIBERATELY excluded -- with --checksum a
-# content-identical file whose mtime is skewed itemizes as `.f..t......`, which
-# must NOT count as a change. Prints nothing (and the caller treats that as "no
-# real changes") when only attribute-only or no differences exist. rsync's own
-# errors flow to stderr (no 2>/dev/null) so a broken preview is visible.
+# to lines whose FIRST char is `>` (a file transfer) or `c` (a creation/change of
+# a non-regular entry, e.g. a dir or symlink). The `*` in the pattern would match
+# a message line such as `*deleting`, but copy_back_rsync is ADDITIVE-ONLY by
+# design: it never passes --delete, so rsync never emits a `*deleting` line here
+# and guest-side deletions are NOT propagated back to the source. The `*` is kept
+# only for defensive completeness should the additive-only choice ever change.
+# Lines beginning with `.` are ATTRIBUTE-ONLY (mtime/perm/owner differ but content
+# does not) and are DELIBERATELY excluded -- with --checksum a content-identical
+# file whose mtime is skewed itemizes as `.f..t......`, which must NOT count as a
+# change. Prints nothing (and the caller treats that as "no real changes") when
+# only attribute-only or no differences exist. rsync's own errors flow to stderr
+# (no 2>/dev/null) so a broken preview is visible.
 copy_back_real_changes() {
   rsync -a --checksum --dry-run --itemize-changes --exclude '.git' \
     "$WORKTREE"/ "$REPO_SRC"/ \
@@ -1094,7 +1103,11 @@ copy_back() {
         # one -- as its polite contract; the force applies only where WE need
         # specific semantics, i.e. our own prompt.
         restore_host_tty
-        stty icrnl icanon echo < /dev/tty 2>/dev/null || true
+        # Guard the same way restore_host_tty() does (writable /dev/tty) rather
+        # than relying on the redirect failing -- consistent with the sibling.
+        if [ -e /dev/tty ] && [ -w /dev/tty ]; then
+          stty icrnl icanon echo < /dev/tty 2>/dev/null || true
+        fi
         local reply=""
         if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
           printf 'claude-vm: apply copy-back over the dirty source tree? [y/N] ' >&2

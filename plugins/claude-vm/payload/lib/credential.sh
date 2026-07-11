@@ -276,19 +276,42 @@ for key in ("installMethod", "hasSeenTasksHint", "hasUsedStash", "tipsHistory"):
         seed[key] = doc[key]
 # The projects entry for the guest repo mount path (skips the trust dialog).
 # Only when a guest path was supplied.
+#
+# NAMED PER-KEY ALLOWLIST for the launched-repo entry (same fail-closed
+# discipline as the top-level key selection above): carry only the benign
+# per-project settings we recognize, rekeyed to the guest path, then FORCE
+# the two trust flags true regardless of what the host entry carried.
+# Unknown/future keys default to EXCLUDED -- so a later Claude Code version
+# that adds a genuinely sensitive per-project key does not ride into the
+# guest silently. Deliberately DROPPED (not on the allowlist): "history"
+# (the operator per-repo prompt history), "lastSessionId" (a host-session
+# identifier that is meaningless in the guest), and "mcpServers" (server
+# configs that can embed URLs / auth headers).
+PROJECT_ENTRY_ALLOWLIST = (
+    "hasTrustDialogAccepted",
+    "hasCompletedProjectOnboarding",
+    "projectOnboardingSeenCount",
+    "hasClaudeMdExternalIncludesApproved",
+    "hasClaudeMdExternalIncludesWarningShown",
+    "allowedTools",
+    "enabledMcpjsonServers",
+    "disabledMcpjsonServers",
+    "mcpContextUris",
+    "lastVersionBase",
+)
 if guest_repo:
     host_projects = doc.get("projects")
-    entry = None
+    entry = {}
     if isinstance(host_projects, dict) and host_repo:
         candidate = host_projects.get(host_repo)
         if isinstance(candidate, dict):
-            # Copy the host entry verbatim (so per-project settings like
-            # allowedTools survive), rekeyed to the guest path, then FORCE the
-            # two trust flags true regardless of what the host entry carried.
-            entry = dict(candidate)
-    if entry is None:
-        # No usable host entry -> minimal synthesized entry.
-        entry = {}
+            # Select only allowlisted keys from the host entry; everything
+            # else (incl. history / lastSessionId / mcpServers) is dropped.
+            for key in PROJECT_ENTRY_ALLOWLIST:
+                if key in candidate:
+                    entry[key] = candidate[key]
+    # Absent-entry synthesis: entry stays {} -> minimal, only the two forced
+    # trust flags below.
     entry["hasTrustDialogAccepted"] = True
     entry["hasCompletedProjectOnboarding"] = True
     seed["projects"] = {guest_repo: entry}
