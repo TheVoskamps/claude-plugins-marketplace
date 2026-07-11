@@ -56,7 +56,11 @@ Rules loaded: /path/to/CLAUDE.md (session_start)
 its exit code is ignored, so the hook cannot block or alter a load. It
 also does not surface plain stdout to the user for this event; only the
 `systemMessage` JSON field does, which is why the script emits JSON
-rather than printing text directly.
+rather than printing text directly. See
+[`docs/hook-event-notes.md`](../../docs/hook-event-notes.md) for the
+full verified notes on `InstructionsLoaded` behavior (including
+`load_reason` values), and any other hook-event notes discovered
+building sibling plugins.
 
 ### Malformed / empty stdin
 
