@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/show-loaded-rule.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

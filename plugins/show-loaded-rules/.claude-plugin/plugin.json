@@ -1,0 +1,6 @@
+{
+  "name": "show-loaded-rules",
+  "description": "InstructionsLoaded hook that surfaces a one-line message for every CLAUDE.md / .claude/rules/*.md file loaded into context, so the user can see which rules files are in play.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
