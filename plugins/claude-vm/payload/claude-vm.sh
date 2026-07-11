@@ -998,6 +998,21 @@ copy_back_real_changes() {
     | grep -E '^[>c*]' || true
 }
 
+# Re-assert the host terminal's saved line settings on /dev/tty (issue #88).
+# Called from both cleanup() (once, at the top of the trap) and copy_back()
+# (again, immediately before the confirmation prompt). Same pattern and guards
+# in both places: prefer the exact saved state (stty -g captured at launch),
+# fall back to `stty sane`, and never let a tty-restore failure abort the
+# caller (|| true). Guarded on a non-empty saved state and a writable /dev/tty,
+# so it is a no-op for a non-interactive launch (HOST_TTY_STATE empty).
+restore_host_tty() {
+  if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
+    stty "$HOST_TTY_STATE" < /dev/tty 2>/dev/null \
+      || stty sane < /dev/tty 2>/dev/null \
+      || true
+  fi
+}
+
 copy_back() {
   # Default post-exit behavior: copy the worktree's changes back to the
   # local source. Only meaningful in clone mode (live mode already wrote
@@ -1051,11 +1066,27 @@ copy_back() {
         # stays empty -- which routes to SKIP. cleanup() restores the host
         # tty to canonical mode BEFORE calling copy_back (issue #88), so this
         # read is not defeated by vfkit's leftover raw-mode terminal.
+        #
+        # Re-assert the tty state HERE, immediately before the prompt, in
+        # addition to cleanup()'s early restore. On real hardware (after the
+        # cleanup()-top restore) the tty ended up icanon+echo ON but ICRNL
+        # OFF: Enter (\r) neither terminated the read nor translated to \n,
+        # and echoed as `^M` -- only a literal newline (Shift+Enter) submitted.
+        # Mechanism NOT fully established (unverified): either a race where
+        # vfkit's own exit-time termios handling lands AFTER cleanup()'s
+        # restore, or the early restore partially failing behind its
+        # 2>/dev/null || true. Either way, by copy_back() time the VM is long
+        # dead, so re-asserting here is deterministic and correct under every
+        # candidate mechanism.
+        restore_host_tty
         local reply=""
         if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
           printf 'claude-vm: apply copy-back over the dirty source tree? [y/N] ' >&2
           if { read -r reply < /dev/tty; } 2>/dev/null; then :; else reply=""; fi
         fi
+        # Belt-and-braces: strip a trailing CR so a raw `y\r` still matches if
+        # ICRNL is somehow still off at read time (issue #88).
+        reply=${reply%$'\r'}
         case "$reply" in
           y|Y|yes|YES)
             echo "claude-vm: confirmed; copying back to $REPO_SRC..." >&2
@@ -1086,17 +1117,12 @@ cleanup() {
   # mode (echo off, ICANON off -- Enter sends \r not \n), and that state SURVIVES
   # vfkit's death. Without this restore the copy_back() confirmation `read -r`
   # never completes (no newline arrives) and typed input is invisible -- observed
-  # hanging on real hardware. Put the tty back into canonical mode: prefer the
-  # exact saved state (stty -g captured at launch), fall back to `stty sane`, and
-  # never let a tty-restore failure abort cleanup (|| true). Operate on /dev/tty
-  # (the controlling terminal vfkit corrupted and the prompt uses), guarded on a
-  # non-empty saved state and a usable /dev/tty. Skipped entirely for a
-  # non-interactive launch (HOST_TTY_STATE empty).
-  if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
-    stty "$HOST_TTY_STATE" < /dev/tty 2>/dev/null \
-      || stty sane < /dev/tty 2>/dev/null \
-      || true
-  fi
+  # hanging on real hardware. restore_host_tty() puts the tty back into canonical
+  # mode (operating on /dev/tty, the controlling terminal vfkit corrupted and the
+  # prompt uses). copy_back() re-asserts it again just before the prompt, because
+  # this early restore can be undone before the prompt runs (see the comment
+  # there).
+  restore_host_tty
   [ -n "$GV_PID" ] && kill "$GV_PID" 2>/dev/null || true
   [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
   copy_back
