@@ -69,6 +69,17 @@ see [`plugin-migration-plan.md`](./plugin-migration-plan.md).
    location instead (see that plugin's `payload/README.md` for the
    ships-vs-per-machine split).
 
+8. **`InstructionsLoaded` is observe-only, and plain stdout is not
+   surfaced to the user for it.** The hook has no decision control and
+   its exit code is ignored, so it cannot block or alter a load; the
+   only way to surface a message to the user is the `systemMessage`
+   field in the hook's JSON stdout, not a bare `echo`. It also fires
+   once per file loaded, both at session start and on lazy loads during
+   the session (nested-directory traversal, glob-path match, explicit
+   `include`, compaction) — so a hook should treat `load_reason` as one
+   of several values, not just `session_start`. First demonstrated by
+   the `show-loaded-rules` plugin (see that plugin's `README.md`).
+
 ## Patterns this marketplace uses
 
 ### Sharing reference content (`lib/`)

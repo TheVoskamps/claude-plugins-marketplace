@@ -33,6 +33,10 @@ The marketplace currently ships these plugins (one entry each in
   `claude-vm-config-repo` config writers, plus the `claude-vm-diff`,
   `claude-vm-apply-local`, and `claude-vm-apply-remote` companion
   skills.
+- **`show-loaded-rules`** — `InstructionsLoaded` hook that surfaces a
+  one-line message for every CLAUDE.md / `.claude/rules/*.md` file
+  loaded into context, so you can see which rules files are in play
+  without running `--verbose`.
 
 ## Add this marketplace
 
