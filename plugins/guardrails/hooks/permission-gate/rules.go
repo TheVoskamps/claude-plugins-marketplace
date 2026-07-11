@@ -46,11 +46,15 @@ var gitReadOnlySubcommands = map[string]bool{
 //   - DENY: identity switches (#117); irreparable destructive verbs (repo/
 //     release/issue/gist delete, secret/variable writes, repo rename/transfer,
 //     ruleset delete, release/gist publish); the #64 precondition (non-static
-//     argv, inline env-assignment); the gh api method/body/graphql gate.
-//   - ASK:  gh repo edit --visibility; gh api (any non-trivially-safe form);
-//     gh auth login --hostname.
+//     argv, inline env-assignment); the gh api write/unclassifiable tiers
+//     (non-GET method, implicit-POST body, method-override header, --hostname,
+//     and an unclassifiable graphql document — see classifyGhAPI, #64/#113).
+//   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
+//     graphql mutation, an unknown gh api flag, or a non-allowlisted gh api
+//     REST endpoint (#113).
 //   - ALLOW: read-only verbs and ordinary mutations (pr create, issue comment,
-//     pr merge, …) the spec does not name as dangerous.
+//     pr merge, …) the spec does not name as dangerous; a provably query-only
+//     gh api graphql document and an allow-listed gh api REST GET (#113).
 func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("gh", sc); hit {
@@ -113,9 +117,14 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	}
 
 	// #64 bypass gate 1: `gh api` defeats subcommand-shape classification.
-	// Route it through the api gate (method/body/graphql → DENY; else ASK).
+	// Route it through the api gate. Write signals (non-GET method, implicit-POST
+	// body flag, method-override header, --hostname) still DENY; a graphql POST is
+	// now classified from its query document (query-only → ALLOW, mutation → ASK,
+	// unclassifiable → DENY) and a REST GET is run through the path-prefix GET-gate
+	// (#113). sc is threaded through so the redirect-to-file ASK carve-out the
+	// other gh paths get also applies to an otherwise-allowed gh api form.
 	if cmd[0] == "api" {
-		return classifyGhAPI(args)
+		return classifyGhAPI(args, sc)
 	}
 
 	// #64 DENY tier: irreparable / boundary-weakening gh operations.
@@ -262,23 +271,51 @@ func hasFlagPrefix(args []string, prefix string) bool {
 	return false
 }
 
-// classifyGhAPI gates `gh api` (#64 bypass gate 1). Default: ASK. DENY when the
-// request is unambiguously a write or unclassifiable: a non-GET method
-// (explicit -X/--method, or the implicit POST flip when any
-// -f/-F/--field/--raw-field/--input is present), a request body, the graphql
-// endpoint (mutating-ness lives in the query string), or an
-// x-http-method-override header. args is the full gh argv (after the program),
-// i.e. it still contains the leading `api` token and gh's globals.
+// classifyghAPIDeny wraps the shared write/unclassifiable DENY label for
+// `gh api`.
 func classifyghAPIDeny(reason string) Decision {
 	return deny("gh api write/unclassifiable (#64)", reason)
 }
 
-func classifyGhAPI(args []string) Decision {
+// classifyGhAPI gates `gh api` (#64 bypass gate 1). It walks the argv after
+// `api`, applies the unchanged write DENY tiers first, then branches on the
+// endpoint:
+//
+//   - Write DENY tiers (unchanged from #64): --hostname (any form, signed-request
+//     redirect), an x-http-method-override header, an explicit non-GET method,
+//     and a request-body flag (-f/-F/--field/--raw-field/--input) with no
+//     explicit GET method (implicit-POST flip). The `-XGET -f …` carve-out (a GET
+//     with params) is preserved.
+//   - graphql endpoint (#113 Design A): classify the query DOCUMENT instead of
+//     blanket-denying. The document is extractable only from a literal
+//     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no
+//     statically-present query → DENY (genuinely unclassifiable). A provably
+//     query-only document → ALLOW (subject to the redirect-to-file ASK); a
+//     mutation-bearing document → ASK naming the mutation fields; anything else
+//     (subscription, garbage, unbalanced) → DENY.
+//   - REST endpoint (#113 Design B): a known-flag-only GET whose endpoint is on
+//     the path-prefix allowlist → ALLOW (subject to the redirect-to-file ASK); a
+//     `://`- or `..`-bearing endpoint → DENY; an unknown flag or a non-matching
+//     endpoint → ASK.
+//
+// args is the full gh argv (after the program), i.e. it still contains the
+// leading `api` token and gh's globals. sc is threaded through only for the
+// redirect-to-file ASK carve-out on an otherwise-allowed form.
+func classifyGhAPI(args []string, sc simpleCommand) Decision {
 	// Walk the tokens after `api`. Track method, body-bearing flags, graphql,
-	// hostname redirection, and the method-override header.
+	// the endpoint positional, and whether the graphql query (if any) was
+	// supplied via a body flag that is NOT a literal string field. hostname and
+	// method-override header DENY immediately.
 	var method string
+	var endpoint string
 	bodyBearing := false
 	graphql := false
+	// graphqlQueryViaNonLiteral is set when a `query` field is supplied via a
+	// body flag that is not literal (`-F query=…` / `--field query=…` do @file
+	// expansion + coercion; `--input` reads the whole body from a file). Such a
+	// document is not in argv and so is genuinely unclassifiable → DENY on the
+	// graphql path.
+	graphqlQueryViaNonLiteral := false
 	seenAPI := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -294,20 +331,46 @@ func classifyGhAPI(args []string) Decision {
 				method = args[i+1]
 				i++
 			}
-		case strings.HasPrefix(a, "-X"):
+		case strings.HasPrefix(a, "-X") && len(a) > 2:
 			method = strings.TrimPrefix(a, "-X")
 		case strings.HasPrefix(a, "--method="):
 			method = strings.TrimPrefix(a, "--method=")
-		case a == "-f" || a == "-F" || a == "--field" || a == "--raw-field" || a == "--input":
+		case a == "-F" || a == "--field":
+			bodyBearing = true
+			if i+1 < len(args) {
+				if strings.HasPrefix(args[i+1], "query=") {
+					graphqlQueryViaNonLiteral = true // -F/--field query=… is coerced/@-expanded
+				}
+				i++ // consume the value
+			}
+		case a == "--input":
+			bodyBearing = true
+			if i+1 < len(args) {
+				graphqlQueryViaNonLiteral = true // whole body from a file → unclassifiable
+				i++
+			}
+		case a == "-f" || a == "--raw-field":
+			// Literal string field. Body-bearing, but the query (if any) IS in
+			// argv and so is classifiable on the graphql path.
 			bodyBearing = true
 			if i+1 < len(args) {
 				i++ // consume the value
 			}
+		case strings.HasPrefix(a, "-F") && len(a) > 2:
+			bodyBearing = true
+			if strings.HasPrefix(strings.TrimPrefix(a, "-F"), "query=") {
+				graphqlQueryViaNonLiteral = true
+			}
+		case strings.HasPrefix(a, "--field="):
+			bodyBearing = true
+			if strings.HasPrefix(strings.TrimPrefix(a, "--field="), "query=") {
+				graphqlQueryViaNonLiteral = true
+			}
+		case strings.HasPrefix(a, "--input="):
+			bodyBearing = true
+			graphqlQueryViaNonLiteral = true
 		case strings.HasPrefix(a, "-f") && len(a) > 2,
-			strings.HasPrefix(a, "-F") && len(a) > 2,
-			strings.HasPrefix(a, "--field="),
-			strings.HasPrefix(a, "--raw-field="),
-			strings.HasPrefix(a, "--input="):
+			strings.HasPrefix(a, "--raw-field="):
 			bodyBearing = true
 		case a == "--hostname":
 			// --hostname redirects the request to a non-default GitHub host —
@@ -340,40 +403,85 @@ func classifyGhAPI(args []string) Decision {
 				return classifyghAPIDeny(
 					"Blocked: 'gh api' with an X-HTTP-Method-Override header can perform a write disguised as a GET. Denied.")
 			}
-		case !strings.HasPrefix(a, "-"):
-			// A positional: the endpoint path. `graphql` is unclassifiable.
+		case strings.HasPrefix(a, "-") && a != "-":
+			// A flag the walker does not consume above. The REST GET-gate's
+			// unknown-flag scan (Deviation 1) surfaces it; nothing to track here.
+			// A value-taking known flag (e.g. `-q .login`) is handled there too.
+		default:
+			// A positional: the endpoint path (first one wins; gh takes a single
+			// endpoint). `graphql` is the GraphQL endpoint.
+			if endpoint == "" {
+				endpoint = a
+			}
 			if a == "graphql" {
 				graphql = true
 			}
 		}
 	}
 
-	if graphql {
-		return classifyghAPIDeny(
-			"Blocked: 'gh api graphql' is a POST whose mutating-ness lives in the query string and is " +
-				"unclassifiable from argv. Denied.")
-	}
-	// Implicit method flip: any body-bearing flag turns the default GET into a
-	// POST. An explicit non-GET method is also a write.
+	// Write DENY tiers (unchanged): an explicit non-GET method, or a body-bearing
+	// flag with no explicit GET method (implicit-POST flip). These fire BEFORE the
+	// endpoint branch so a `-X DELETE graphql` or a `-f a=b`-flipped POST to a
+	// REST endpoint denies regardless of endpoint.
 	if method != "" && !strings.EqualFold(method, "GET") {
 		return classifyghAPIDeny(
 			"Blocked: 'gh api' with a non-GET method (-X/--method " + method + ") performs a write. Denied.")
 	}
-	if bodyBearing && (method == "" || !strings.EqualFold(method, "GET")) {
-		// Body-bearing with no explicit method flips to POST; body-bearing with
-		// an explicit non-GET is a write. (-XGET -f … is a GET with params and is
-		// the one body-bearing form that stays a read — it falls to ASK below.)
+	if bodyBearing && method == "" && !graphql {
+		// Body-bearing on a REST endpoint with no explicit method flips the
+		// default GET to a POST → a write. (On the graphql endpoint the body flag
+		// is how the query is passed; the graphql path below classifies the
+		// document instead of denying on the body flag.) The `-XGET -f …`
+		// carve-out (method == "GET") stays a read and falls through.
 		return classifyghAPIDeny(
 			"Blocked: 'gh api' with a request-body flag (-f/-F/--field/--raw-field/--input) and no explicit " +
 				"GET method implicitly flips to POST and performs a write. Denied.")
 	}
 
-	// Default: ASK. A GET (explicit or implicit) reaches here. The microVM has
-	// no open egress, so a GET cannot exfiltrate; ASK is the #64-specified
-	// default for gh api.
-	return ask("gh api (#64)",
-		"'gh api' can perform reads and writes against the GitHub API. This form parses as a read (GET); "+
-			"confirm it is intended.")
+	// --- graphql endpoint (#113 Design A): classify the query document. ---
+	if graphql {
+		if graphqlQueryViaNonLiteral {
+			return classifyghAPIDeny(
+				"Blocked: 'gh api graphql' with the query supplied via -F/--field (which does @file expansion and " +
+					"type coercion) or --input (whole body from a file) carries no statically-present document — the " +
+					"gate cannot classify it. Pass the query literally via -f query='…' / --raw-field query='…' so a " +
+					"query-only document can be allowed, or run the mutation through a sanctioned skill.")
+		}
+		doc, ok := graphqlQueryDoc(args)
+		if !ok {
+			return classifyghAPIDeny(
+				"Blocked: 'gh api graphql' has no exactly-one statically-present query document (either no literal " +
+					"-f query=…/--raw-field query=… at all, or more than one such field) and is unclassifiable from " +
+					"argv. Pass exactly one literal query field via -f query='…' so a query-only document can be allowed.")
+		}
+		res := scanGraphQLDoc(doc)
+		if res.queryOnly {
+			if sc.hasRedirectToFile {
+				return ask("gh api graphql redirect-to-file",
+					"'gh api graphql' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+			}
+			return allow("gh api graphql is a provably query-only (read) document")
+		}
+		if len(res.mutationFields) > 0 {
+			return ask("gh api graphql mutation (#113)",
+				"'gh api graphql' carries a mutation operation ("+strings.Join(res.mutationFields, ", ")+"). "+
+					"Mutations write to GitHub; confirm this is intended.")
+		}
+		// Not query-only and no nameable mutation field: a subscription, an
+		// unbalanced/garbage document, or otherwise unclassifiable → DENY.
+		return classifyghAPIDeny(
+			"Blocked: 'gh api graphql' document is not provably query-only (it contains a subscription, is " +
+				"unbalanced, or is otherwise unclassifiable) and no top-level mutation field could be named. Denied. " +
+				"Pass a well-formed query-only document, or run the write through a sanctioned skill.")
+	}
+
+	// --- REST endpoint (#113 Design B): path-prefix GET-gate. ---
+	rest := classifyGhAPIREST(endpoint, args)
+	if rest.Bucket == BucketAllow && sc.hasRedirectToFile {
+		return ask("gh api redirect-to-file",
+			"'gh api' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+	}
+	return rest
 }
 
 // headerIsMethodOverride reports whether a -H header value names the
@@ -404,8 +512,11 @@ func isGhReadOnly(cmd []string) bool {
 		"project": true, "label": true, "workflow": true, "gist": true,
 		"cache": true, "browse": true, "search": true, "ruleset": true,
 	}
-	// `gh api` GET is read-ish but can POST; do not auto-allow it here (the
-	// normal pipeline allow-lists `gh api:*` deliberately). Defer.
+	// `gh api` is never classified here: classifyGh routes it to classifyGhAPI
+	// (the #64/#113 api gate) BEFORE isGhReadOnly is ever consulted, so this
+	// guard is belt-and-suspenders. The api gate — not this read-only shortcut —
+	// owns the allow/ask/deny decision for `gh api` (a graphql query-only doc or
+	// an allow-listed REST GET allows there; a write denies/asks there).
 	if noun == "api" {
 		return false
 	}
