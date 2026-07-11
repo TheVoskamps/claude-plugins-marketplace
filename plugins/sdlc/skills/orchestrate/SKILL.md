@@ -31,11 +31,12 @@ All four teammates declare `isolation: worktree` in their frontmatter,
 so the harness creates each one's worktree under `.claude/worktrees/`
 and starts the subagent inside it. You don't manage worktree paths and
 you never pass them in spawn prompts. They also share a hardened
-frontmatter baseline — `memory: project` on all four,
-`permissionMode: default` on three with `doc-updater` on
-`permissionMode: acceptEdits` — plus the repo-level `settings.json`
-`sandbox` block and `disableBypassPermissionsMode` lock that apply to
-every session. On `model`, the baseline splits: the three execution
+frontmatter baseline — `memory: project` on all four. (Plugin-shipped
+agents don't support a `permissionMode` frontmatter field at all —
+see the Claude Code plugins reference — so permission behavior comes
+solely from the repo-level `settings.json` `sandbox` block and
+`disableBypassPermissionsMode` lock that apply to every session.) On
+`model`, the baseline splits: the three execution
 agents (`issue-developer`, `issue-fixer`, `doc-updater`) declare
 `model: sonnet` — they execute a design the main session (Opus) already
 specified, exactly the regime where a cheaper executor loses the least —
@@ -440,7 +441,7 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   includes:
   - **Code/config edits, including doc edits** — owned by
     `issue-developer`, `issue-fixer`, `doc-updater`. The orchestrator
-    never uses `Edit`, `Write`, `MultiEdit`, or `NotebookEdit`. The
+    never uses `Edit`, `Write`, or `NotebookEdit`. The
     orchestrator never *originates* feature work via `git commit` or
     `git push` — those belong to the teammate that owns the change.
     The narrow exception is pushing a commit the agent already
