@@ -10,3 +10,7 @@
   — agent model tier, tools list, permissionMode support, and
   foreground enforcement documented only in orchestrate/SKILL.md +
   agent frontmatter; README/docs describe agents by roster only.
+- [plugin docs locality](project_plugin-docs-locality.md) — new plugin:
+  update root README roster; hook-EVENT facts go to
+  docs/hook-event-notes.md, packaging-system facts to
+  plugin-authoring-constraints.md; never touch plugin-migration-plan.md.
