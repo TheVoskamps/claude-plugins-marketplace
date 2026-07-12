@@ -571,8 +571,10 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 				"is intended, or remove the unrecognized global flag.")
 	}
 	if svc == "" || op == "" {
-		// Not a recognizable `aws <service> <operation>` shape; nothing to
-		// classify and nothing dangerous detected — ALLOW (#64 decision 1).
+		// Not a recognizable `aws <service> <operation>` shape, so there is no
+		// service/operation to apply policy to — ALLOW. This is unrelated to
+		// the #124 ask-by-default-for-mutations policy below: with nothing
+		// classifiable, there is simply nothing here to gate.
 		return allow("aws (no classifiable service/operation)")
 	}
 
