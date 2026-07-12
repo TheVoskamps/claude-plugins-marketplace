@@ -104,11 +104,35 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 			"Blocked: '%s' has a path argument built from an expansion the gate cannot resolve statically; "+
 				"escalating to a human decision (fail-closed).", prog))
 	}
+	if d, hit := cdInvalidAsk(prog, sc); hit {
+		return d
+	}
 
-	if d, ok := containPathOperands(prog, pathOperands(args), ev); !ok {
+	if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
 		return d
 	}
 	return deferToPipeline()
+}
+
+// cdInvalidAsk reports the fail-closed ASK for a command whose running cwd was
+// invalidated by an earlier dynamic `cd` (#129: `cd "$UNKNOWN" && cat ../x`).
+// A relative path operand cannot be safely resolved against an unknown cwd, so
+// this must be checked before containment runs — mirroring the existing
+// hasUnknownExpansion fail-closed check the same callers already perform. An
+// invocation with no relative operands at all (only absolute / no path
+// operands) would still be safe, but the gate cannot cheaply distinguish that
+// case here without duplicating the operand walk, so it fails closed for the
+// whole command; this only costs an extra human confirmation, never a wrong
+// allow.
+func cdInvalidAsk(prog string, sc simpleCommand) (Decision, bool) {
+	if !sc.cwdInvalid {
+		return Decision{}, false
+	}
+	return ask("bash-read:cd-unresolved-cwd", fmt.Sprintf(
+		"Blocked: '%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, or "+
+			"'cd -'), so any relative path argument cannot be safely resolved against the actual current directory; "+
+			"escalating to a human decision (fail-closed). Use a static 'cd <literal-path>' or an absolute path.",
+		prog)), true
 }
 
 // containPathOperands runs Engine B containment on a read-class command's path
@@ -121,9 +145,18 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 //
 // With no operands there is nothing to contain, so ok=true and the caller's
 // own terminal applies. The caller is responsible for the hasUnknownExpansion
-// fail-closed check before calling this (the dynamic-path message differs by
-// caller posture).
-func containPathOperands(prog string, operands []string, ev *Event) (Decision, bool) {
+// AND cwdInvalid fail-closed checks before calling this (the dynamic-path /
+// unresolved-cwd messages differ by caller posture).
+//
+// sc carries the running cwd this command executes in (#129), tracked through
+// any preceding `cd` in the same parsed program; a relative operand resolves
+// against sc.cwd rather than ev.CWD, so `cd <subdir> && cmd ../x` resolves
+// `../x` relative to <subdir> as bash actually would. sc.cwd falls back to
+// ev.CWD when no `cd` preceded this command (extractSimpleCommands seeds the
+// running cwd from ev.CWD), so passing the zero simpleCommand{} preserves the
+// pre-#129 behavior for any caller that has no sc to thread (there are none
+// left, but this keeps the fallback explicit).
+func containPathOperands(prog string, operands []string, sc simpleCommand, ev *Event) (Decision, bool) {
 	if len(operands) == 0 {
 		return Decision{}, true
 	}
@@ -135,8 +168,12 @@ func containPathOperands(prog string, operands []string, ev *Event) (Decision, b
 			prog, err)), false
 	}
 
+	base := sc.cwd
+	if base == "" {
+		base = ev.CWD
+	}
 	for _, p := range operands {
-		res, real := testContainment(p, rc)
+		res, real := testContainmentFrom(p, base, rc)
 		switch res {
 		case escapeRepo:
 			return deny("bash-read:cross-repo (#148)", fmt.Sprintf(

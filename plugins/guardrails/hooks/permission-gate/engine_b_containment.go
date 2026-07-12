@@ -139,12 +139,29 @@ func isAppManagedRepo(eventCWD string) bool {
 // through any symlinked ancestor (a one-sided canonicalization is defeatable
 // — #12). Returns a best-effort absolute path; never errors (the containment
 // comparison itself is the gate).
+//
+// A relative p is joined onto the HOOK PROCESS's own cwd via filepath.Abs.
+// Most callers have an explicit base directory to resolve against instead
+// (the event cwd, or — for a Bash command — the running cwd tracked through
+// any preceding `cd`, #129) and should call canonicalizeFrom instead.
 func canonicalize(p string) string {
+	return canonicalizeFrom(p, "")
+}
+
+// canonicalizeFrom is canonicalize with an explicit base directory for the
+// relative-join step (#129). A relative p is joined onto base (via
+// filepath.Join, so base need not itself be absolute — canonicalizeFrom
+// falls back to filepath.Abs's process-cwd behavior when base is empty).
+// This changes ONLY the base for the initial relative→absolute step; the
+// symlink/`..` resolution semantics below are unchanged.
+func canonicalizeFrom(p string, base string) string {
 	if p == "" {
 		return p
 	}
 	if !filepath.IsAbs(p) {
-		if abs, err := filepath.Abs(p); err == nil {
+		if base != "" {
+			p = filepath.Join(base, p)
+		} else if abs, err := filepath.Abs(p); err == nil {
 			p = abs
 		}
 	}
@@ -196,8 +213,20 @@ func claudeConfigRoot() string {
 // testContainment canonicalizes the target and tests it against the resolved
 // worktree root. The target is canonicalized BEFORE comparison (#12, both
 // sides). Returns one of the containmentResult values.
+//
+// testContainment resolves a relative target against the process/event cwd
+// (via canonicalize). Use testContainmentFrom when the caller has tracked a
+// different base cwd for this specific target (#129 — a Bash command whose
+// relative operand must resolve against a preceding `cd`, not ev.CWD).
 func testContainment(target string, rc *repoContext) (containmentResult, string) {
-	real := canonicalize(target)
+	return testContainmentFrom(target, "", rc)
+}
+
+// testContainmentFrom is testContainment with an explicit base directory for
+// the relative-join step (#129). An empty base preserves testContainment's
+// existing behavior (process/event cwd).
+func testContainmentFrom(target string, base string, rc *repoContext) (containmentResult, string) {
+	real := canonicalizeFrom(target, base)
 
 	if pathUnder(real, rc.topLevel) {
 		return contained, real

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"mvdan.cc/sh/v3/expand"
@@ -39,7 +41,7 @@ func classifyBash(command string, ev *Event) Decision {
 		return d
 	}
 
-	cmds, extractErr := extractSimpleCommands(file)
+	cmds, extractErr := extractSimpleCommands(file, ev.CWD)
 	if extractErr != nil {
 		return ask("bash:unhandled-construct", fmt.Sprintf(
 			"Blocked: the Bash command contains a construct the permission gate "+
@@ -113,6 +115,19 @@ type simpleCommand struct {
 	// prefix is stripped from args[] by stripEnvWrapper so the real program is
 	// at args[0]; this flag preserves the fact that it was present.
 	hasInlineAssignment bool
+	// cwd is the RUNNING working directory this command executes in, tracked
+	// through any `cd <arg>` that appeared earlier in the same parsed program
+	// (#129). Seeded from ev.CWD and updated left-to-right as the walk crosses a
+	// statically-resolvable `cd`. Relative path operands on this command must be
+	// resolved against cwd, not blindly against ev.CWD, so `cd <subdir> && cmd
+	// ../x` resolves `../x` relative to <subdir> as bash actually would.
+	cwd string
+	// cwdInvalid is true when a DYNAMIC `cd` (an unresolvable target, or `cd -`)
+	// appeared earlier in the program. cwd then holds only the last known-good
+	// value and must not be trusted: any relative path operand on this command
+	// cannot be safely resolved and must fail closed (treated as unknown), even
+	// though absolute operands are unaffected.
+	cwdInvalid bool
 }
 
 // allowEligible reports whether a command is eligible for the high-confidence
@@ -128,9 +143,28 @@ func (sc simpleCommand) allowEligible() bool {
 // simple command, descending through &&/||/;, pipelines, subshells, blocks,
 // and basic control flow. It returns an error for constructs that cannot be
 // statically reduced to a set of commands (the fail-closed signal).
-func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
+//
+// seedCWD is the event's cwd (ev.CWD); it seeds the RUNNING cwd tracked
+// through the walk (#129). The walk order is left-to-right / top-to-bottom for
+// &&/||/;/newline-separated statements, which is exactly the order bash
+// applies `cd` side effects, so a single running-cwd variable updated as the
+// walk encounters each `cd` is faithful for the common `cd X && cmd` /
+// `cd X; cmd` shapes. Each emitted simpleCommand is stamped with the running
+// cwd (and its validity) AT THE POINT it is walked, so containment resolves
+// relative operands against the cwd that was actually in effect for that
+// command, not the process-wide event cwd.
+func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, error) {
 	var out []simpleCommand
 	var walkErr error
+
+	// runningCWD / runningCWDInvalid track the shell's current directory as the
+	// walk crosses `cd` statements (#129). runningCWDInvalid is set by a `cd`
+	// whose target cannot be statically resolved (a command substitution, an
+	// unresolved variable, or `cd -`) — after that point relative operands
+	// cannot be safely resolved and must fail closed, so every later-emitted
+	// simpleCommand in that scope carries cwdInvalid=true.
+	runningCWD := seedCWD
+	runningCWDInvalid := false
 
 	// knownVars accumulates variables assigned to a STATIC literal value
 	// (#60) earlier in the same parsed program, in walk order (which is
@@ -161,6 +195,7 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 	var walkDeclClause func(c *syntax.DeclClause)
 	var descendCmdSubsts func(w *syntax.Word)
 	var recordAssign func(a *syntax.Assign)
+	var applyCd func(call *syntax.CallExpr)
 
 	// recordAssign captures a single assignment into knownVars when its RHS is
 	// a static literal. A plain `VAR=` (empty RHS) records the empty string. An
@@ -202,6 +237,81 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 			return
 		}
 		knownVars[name] = val
+	}
+
+	// applyCd updates the running cwd when a walked CallExpr is `cd <arg>`
+	// (#129). It reuses stmtIsCdWithArg's detection shape (basename == "cd" with
+	// at least one argument) inline, since that helper takes a *syntax.Stmt and
+	// this is called from the CallExpr level.
+	//
+	// Inside a SCOPED construct (scopeDepth > 0 — a `( … )` subshell, a function
+	// body, or a backgrounded group) the cd runs in a child shell and must not
+	// persist to the enclosing/program-global cwd, mirroring recordAssign's
+	// scope discipline exactly. We still return without touching runningCWD /
+	// runningCWDInvalid in that case.
+	//
+	// A statically-resolvable target updates runningCWD (absolute replaces it,
+	// relative joins onto it) and clears runningCWDInvalid — a later `cd` can
+	// re-anchor cwd after an earlier dynamic one, since bash itself would.
+	// `cd` with no argument goes to $HOME. `cd -` (previous directory) is not
+	// worth tracking, so it invalidates like any other unresolvable target. A
+	// target that is not statically resolvable (command substitution, unknown
+	// variable) invalidates: later relative operands in this scope must fail
+	// closed rather than resolve against a stale or guessed cwd.
+	applyCd = func(call *syntax.CallExpr) {
+		if len(call.Args) == 0 {
+			return
+		}
+		prog, _ := literalWord(call.Args[0], knownVars)
+		if basename(prog) != "cd" {
+			return
+		}
+		if scopeDepth > 0 {
+			return // scoped cd does not persist (mirrors recordAssign)
+		}
+		if len(call.Args) == 1 {
+			// Bare `cd` (no argument) goes to $HOME.
+			home, err := os.UserHomeDir()
+			if err != nil || home == "" {
+				runningCWDInvalid = true
+				return
+			}
+			runningCWD = home
+			runningCWDInvalid = false
+			return
+		}
+		lit, exact := literalWord(call.Args[1], knownVars)
+		if !exact || lit == "-" {
+			// Dynamic target, or `cd -` (previous dir, not worth tracking):
+			// invalidate so later relative operands in this scope fail closed.
+			runningCWDInvalid = true
+			return
+		}
+		if lit == "" {
+			// `cd ""` is a no-op in bash (stays in the current directory).
+			return
+		}
+		switch {
+		case filepath.IsAbs(lit):
+			runningCWD = lit
+		case lit == "~" || strings.HasPrefix(lit, "~/"):
+			home, err := os.UserHomeDir()
+			if err != nil || home == "" {
+				runningCWDInvalid = true
+				return
+			}
+			if lit == "~" {
+				runningCWD = home
+			} else {
+				runningCWD = filepath.Join(home, strings.TrimPrefix(lit, "~/"))
+			}
+		case runningCWDInvalid:
+			// Cannot safely join a relative target onto an already-invalid cwd.
+			return
+		default:
+			runningCWD = filepath.Join(runningCWD, lit)
+		}
+		runningCWDInvalid = false
 	}
 
 	// descendCmdSubsts finds every command substitution inside a word —
@@ -271,11 +381,20 @@ func extractSimpleCommands(file *syntax.File) ([]simpleCommand, error) {
 				walkErr = err
 				return
 			}
+			// Stamp the running cwd (and its validity) AT THE POINT this command
+			// is walked (#129), BEFORE applying this call's own `cd` side effect
+			// (a `cd`'s own arguments, if any, are resolved against the PRIOR
+			// cwd, not the directory it is about to change into).
+			sc.cwd = runningCWD
+			sc.cwdInvalid = runningCWDInvalid
 			// A bare assignment-only CallExpr (VAR=x with no program) yields
 			// no args; skip it (it mutates only shell state).
 			if len(sc.args) > 0 {
 				out = append(out, sc)
 			}
+			// Apply this call's `cd` side effect (if any) so LATER commands in
+			// the walk see the updated cwd.
+			applyCd(c)
 		case *syntax.BinaryCmd:
 			// && || | & — descend both sides.
 			walkStmt(c.X)
