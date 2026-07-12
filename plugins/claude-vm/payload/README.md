@@ -43,10 +43,11 @@ payload/
 ## Launcher (`claude-vm.sh`)
 
 ```bash
-# No token env var. The guest authenticates with the host's live claude.ai
-# OAuth credential, which the launcher extracts from the macOS Keychain at
-# launch and shares RO into the guest (be logged in to Claude Code on the
-# host first). See "Authentication" below.
+# No token env var. Be logged in to Claude Code on the host first: the
+# launcher installs the host's live claude.ai OAuth credential (from the
+# macOS Keychain) AND seeds the guest's identity (userID + oauthAccount from
+# your ~/.claude.json, plus synthesized onboarding/auto-update-off keys) so the
+# in-guest claude comes up already onboarded and logged in. See below.
 "${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
 ```
 
@@ -59,12 +60,83 @@ semantics.
 
 ## Authentication
 
-The guest authenticates with the **host operator's live claude.ai OAuth
-credential** — the full-scope login credential, not a scoped inference
-token. This is what lets the in-guest Claude Code run an interactive
-**Remote Control** session attributed to the host's claude.ai login.
+The guest authenticates claude with the **host operator's live claude.ai
+OAuth credential** — the full-scope login credential, not a scoped
+inference token — installed at `$HOME/.claude/.credentials.json`. That
+bearer token alone is **not** sufficient for the interactive TUI to treat
+itself as onboarded and logged in: current Claude Code also decides "am I
+onboarded / logged in" from state in `~/.claude.json`. A fresh throwaway
+guest lacks that state, so without it every launch hits the
+onboarding/login wall despite the mounted credential. Beyond identity, two
+keys matter: `hasCompletedOnboarding` (absent → claude runs its onboarding
+flow) and `autoUpdates` (unset → claude tries to self-update and fails
+against its RO-mounted binary in the egress-confined guest).
 
-At launch the launcher extracts that credential from the macOS login
+So the launcher **also seeds the guest's identity + onboarding state**
+(issue #88): it reads your host `~/.claude.json` and emits a seed carrying
+`userID` and `oauthAccount` selected from the host, plus four synthesized
+keys: `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false`
+(no self-update), and `lastOnboardingVersion` / `lastReleaseNotesSeen`
+stamped with the resolved claude version. It **additively** carries a few
+benign host UI keys when your `~/.claude.json` has them — `installMethod`,
+`hasSeenTasksHint`, `hasUsedStash`, and `tipsHistory` — silently omitting
+each when absent. And it seeds a **`projects` entry for the guest repo
+mount** (`/mnt/repo`) with `hasTrustDialogAccepted` and
+`hasCompletedProjectOnboarding` forced `true`, so the guest skips the "Do
+you trust this folder? /mnt/repo" dialog on first boot (if your host
+already has a project entry for the launched repo, a **named allowlist** of
+benign per-project settings — `allowedTools` and friends — is carried over
+and rekeyed to `/mnt/repo` with those two flags forced true; the operator's
+prompt `history`, `lastSessionId`, and `mcpServers` are deliberately
+**dropped**, and any unrecognized future key defaults to excluded). Nothing
+else from `~/.claude.json` (no other `projects{}` entries, no telemetry, no
+`machineID`) is copied — `machineID` in particular is left out so the guest
+mints its own. The guest boot launcher installs the seed at
+`$HOME/.claude.json` (mode `0600`) before exec'ing `claude`, so the
+in-guest session comes up already onboarded, logged in, and folder-trusted
+— no wall, no trust prompt, no browser paste, no failed self-update. A
+**preflight** aborts with an actionable message if the host
+`~/.claude.json` is missing or lacks a usable `userID`/`oauthAccount`
+(i.e. you are not logged in on the host). The seed carries account
+identity, so it rides the same secret posture as the credential: written
+under `umask 077` into the transient, owner-only (`0600`), shred-on-exit
+`claudecreds` mount, **never** into `run.env` or the verified-binary
+cache.
+
+**Install-health check + auto-updater (issue #88).** Two more guest-side
+steps keep the interactive TUI quiet. First, claude runs a startup
+*install-health check* that probes for a working `claude` at the native
+installer's location `~/.local/bin/claude`; because the guest execs the
+RO-mounted binary from `/mnt/claudebin` instead, that path is empty and the
+TUI prints two `claude command at /root/.local/bin/claude missing or broken
+· run claude install to repair` warnings. The boot launcher therefore
+symlinks `$HOME/.local/bin/claude` → the verified RO-mounted binary right
+after the claude-fetch seam validates it. The symlink target *is* the
+running binary, so the health check's version comparison passes by
+construction, and `autoUpdates: false` plus the RO mount prevent any
+write-through. This is empirically confirmed to clear the warnings on real
+hardware. Second, the launcher writes `DISABLE_AUTOUPDATER=1` into `run.env`
+(the documented Claude Code env knob), belt-and-braces with the seeded
+`autoUpdates: false` config key — the guest is egress-confined and runs an
+RO-mounted binary, so an update attempt can only ever fail. That knob is not
+a secret, so `run.env` (sourced under `set -a` in the guest launcher) is the
+right vehicle.
+
+**Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
+structurally-complete `claudeAiOauth` object whose `accessToken` and
+`refreshToken` are **empty strings** (with `expiresAt: 0`) — a degraded
+state that happens when your host claude sessions keep working via the
+shared auth daemon's in-memory tokens while the persisted Keychain entry
+has gone stale. Booting the guest with that empty credential lands it at
+"Not logged in · Run /login", and an in-guest `/login` can trip OAuth
+reuse-detection and **revoke your other live sessions**. So after selecting
+`claudeAiOauth`, the launcher **validates that both tokens are non-empty**
+(`claude_vm_validate_claude_credential_tokens` in `lib/credential.sh`) and
+aborts fast if they are not, steering you to re-login on the **host** (run
+`claude` then `/login`, or restart Claude Code — either repairs the
+Keychain entry) rather than into the guest.
+
+At launch the launcher extracts the credential from the macOS login
 Keychain by service name alone:
 
 ```bash
@@ -102,12 +174,14 @@ The credential is a **secret** and is handled like one:
   mounted into the guest.
 
 **Requirements:** macOS only (`security find-generic-password` is a macOS
-Keychain tool; `python3`, used for the credential selection, ships with
-macOS), and you must be **logged in to Claude Code on the host** first
-(run `claude` once and complete the claude.ai login). If the Keychain
-lookup returns empty or non-zero, or the blob has no usable
-`claudeAiOauth` key, the launcher fails fast with an actionable message
-rather than booting an unauthenticated guest.
+Keychain tool; `python3`, used for the credential and identity-seed
+selection, ships with macOS), and you must be **logged in to Claude Code
+on the host** first (run `claude` once and complete the claude.ai login).
+If the host `~/.claude.json` is missing or lacks a usable
+`userID`/`oauthAccount`, or the Keychain lookup returns empty or
+non-zero, or the blob has no usable `claudeAiOauth` key, the launcher
+fails fast with an actionable message rather than booting an
+unauthenticated guest.
 `egress.allow` must include the Anthropic API host (`api.anthropic.com`,
 present in the example config) so the in-guest `claude` can reach it.
 
@@ -118,6 +192,40 @@ are optional; a missing layer contributes an empty document. Scalars
 are repo-over-global; `egress.allow` and `mounts` are unioned and
 de-duplicated.
 
+It also carries two small pure helpers used for the guest's `claude`
+argv:
+
+- `claude_vm_quote_args` — the host half of the `CLAUDE_ARGS`
+  shell-quoting round-trip (issue #88). The user's post-repo CLI args
+  travel to the guest as a single `CLAUDE_ARGS=` line in `run.env`. A
+  flat unquoted join breaks the boot the instant an arg carries a space
+  or a shell metacharacter (`--name "foo #7 micro-vm"` sourced as a bare
+  line tries to *execute* the `--name` fragment, crashing the getty into
+  an agetty respawn loop). The launcher instead %q-quotes each arg
+  (this helper) and %q-quotes the whole `CLAUDE_ARGS=` line, so sourcing
+  `run.env` yields exactly the per-arg tokens; the guest boot launcher
+  reverses it with `eval "set -- $CLAUDE_ARGS"`. Zero args → empty
+  output (no stray `''`).
+- `claude_vm_augment_rc_args` — the Remote Control / `--name` date-stamp
+  augmentation (issue #88). Given the resolved `claude.remote_control`
+  boolean and a date stamp, it injects `--remote-control` when the knob
+  is on and it is not already present (no duplicate), and appends a
+  date-stamped `--name` when Remote Control is in effect but no `--name`
+  (`--name <v>` or `--name=<v>`) was given. With the knob off and no CLI
+  `--remote-control`, the args pass through unchanged. The date stamp is
+  computed host-side and passed in, so the helper stays pure and
+  unit-tested.
+
+### Remote Control opt-in (`claude.remote_control`)
+
+`claude.remote_control` is a layered boolean (default `false`/unset,
+repo-over-global like the other scalars). When `true`, the launcher runs
+the incoming CLI args through `claude_vm_augment_rc_args` to add
+`--remote-control` and a date-stamped `--name` default (format like
+`Jul10-14:30`). Passing `--remote-control` on the command line works
+identically and is never duplicated. Any value other than `true`/`false`
+(or unset) aborts the launch, matching `claude.renderer`'s strictness.
+
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
@@ -125,32 +233,42 @@ build-guest-image.sh --print-version          # pinned base version
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
-The image is a version-pinned stable base (OS + a one-shot boot
-launcher). `claude` is never baked in; the boot launcher boots to the
+The image is a version-pinned stable base (OS + a boot launcher).
+`claude` is never baked in; the boot launcher boots to the
 **claude-fetch seam** and there execs the **host-verified `claude`
 binary** mounted RO at `/mnt/claudebin` (see "Verified claude cache"
-below) against the repo at `/mnt/repo`. The launcher builds the image on
-demand when the configured image is missing or version-mismatched. No
-image artifact is committed.
+below) against the repo at `/mnt/repo` — as an interactive session on
+the `hvc1` console (issue #88). The launcher builds the image on demand
+when the configured image is missing or version-mismatched. No image
+artifact is committed.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
 podman container (Debian Trixie build container, systemd ≥ 254 for the
 offline, loop-device-free `RepartOffline=yes` path), emitting a raw
-EFI-bootable Debian guest with the boot launcher installed as a
-`Type=oneshot` unit. vfkit boots it with `--bootloader efi`. Requires
-`podman` with a started podman machine. Override with
+EFI-bootable Debian guest with the boot launcher wired as the autologin
+`serial-getty@hvc1` login program (so claude becomes the interactive
+`hvc1` console session — issue #88) and an unlocked passwordless root
+(`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
+Requires `podman` with a started podman machine. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`.
 
-The launcher captures the guest's serial console to
-`$RUN/guest-console.log` (vfkit `--device virtio-serial,logFilePath=…`),
-making an otherwise black-box boot observable from the host. The guest
-exposes that virtio-console as `/dev/hvc0`; the recipe's
-`KernelCommandLine` sets `console=hvc0` and the boot unit writes
-`StandardOutput=journal+console`, so the boot launcher's `claude-vm:`
-seam lines and any boot error land in this log. The path is reported on
-exit and retained in the run dir alongside `egress.pcap`.
+The launcher attaches **two** virtio-serial consoles (issue #88). The
+first (`logFilePath`, guest `hvc0`) captures the booting guest's
+kernel/systemd output to `$RUN/guest-console.log`, making an otherwise
+black-box boot observable from the host: the recipe's `KernelCommandLine`
+sets `console=hvc0`, and the boot launcher writes its `claude-vm:`
+diagnostic/seam lines explicitly to `/dev/console`, so they land in this
+log. The second (`stdio`, guest `hvc1`) bridges the launching terminal —
+the interactive claude session. Boot diagnostics stay on `hvc0`, off the
+interactive terminal. The capture path is reported on exit and retained
+in the run dir alongside `egress.pcap`.
+
+Because the `hvc1` console is a byte pipe that needs a real controlling
+TTY on the host, launch `claude-vm` from a real terminal (not a pipe).
+The console carries no live window-resize channel, so the launcher seeds
+the guest tty geometry once from the host's `stty size` at launch.
 
 ## Forward proxy (`proxy/tinyproxy-launch.sh`)
 

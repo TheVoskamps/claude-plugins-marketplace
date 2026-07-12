@@ -59,6 +59,8 @@ values in `payload/config.example.yml`.
 | `provisioner` | `podman-mkosi` | the bundled provisioner: mkosi in a throwaway rootless podman container |
 | `egress.allow` | `api.anthropic.com`, `github.com`, `claude.ai`, `downloads.claude.ai` | `api.anthropic.com` is required for Remote Control; the rest cover git + claude install/fetch |
 | `claude.version` | `stable` | which `claude` binary the host-side verified cache fetches |
+| `claude.renderer` | omitted (claude's own default) | terminal renderer on the interactive console: `classic` \| `fullscreen` \| unset |
+| `claude.remote_control` | omitted (`false`) | opt-in Remote Control: `true` adds `--remote-control` + a date-stamped `--name` default; `false`/unset passes CLI args through |
 
 Notes on the forward-looking keys:
 
@@ -89,6 +91,22 @@ Notes on the forward-looking keys:
   outbound-HTTPS-only and connects to the Anthropic API on 443; dropping
   this host breaks every in-guest Remote Control session. Treat it as
   load-bearing, not optional.
+- **`claude.renderer` is omitted by default.** It selects the in-guest
+  claude's terminal renderer on the interactive console (`classic` →
+  `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`; `fullscreen` →
+  `CLAUDE_CODE_NO_FLICKER=1`); unset passes nothing so claude uses its
+  own default. Both renderers work over the byte-pipe console, so leaving
+  it unset is a fine default — write a value only if the user asks for
+  one. An unrecognized value aborts the launch.
+- **`claude.remote_control` is omitted by default (`false`).** It is an
+  opt-in boolean: when `true`, the launcher injects `--remote-control`
+  into the in-guest claude invocation (unless the CLI args already carry
+  it) and, when Remote Control is in effect but no `--name` was given,
+  appends a date-stamped `--name` (format like `Jul10-14:30`) so the run
+  is named. When `false`/unset, claude runs without Remote Control and the
+  user's CLI args pass through unchanged. Accepts `true`/`false` (or leave
+  unset); any other value aborts the launch. Ask the user whether they
+  want Remote Control on by default; write the key only when they opt in.
 
 ## Steps
 
@@ -168,6 +186,12 @@ egress:
 claude:
   version: stable       # which claude binary the host-side GPG-verified
                         # cache fetches: stable (default) | latest | <pinned>
+  # renderer: classic   # terminal renderer on the interactive console:
+                        # classic (no alt-screen) | fullscreen | unset
+                        # (claude's own default). Omitted by default.
+  # remote_control: false  # opt-in Remote Control: true adds --remote-control
+                        # + a date-stamped --name default; false/unset passes
+                        # CLI args through. Omitted by default.
 ```
 
 > On `proxy.cmd`: the bundled tinyproxy launcher

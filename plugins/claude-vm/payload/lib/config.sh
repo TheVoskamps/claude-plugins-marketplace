@@ -310,3 +310,126 @@ claude_vm_mount_specs() {
     | [.source, .tag, (.mode // "ro")] | @tsv
   ' "$file" 2>/dev/null
 }
+
+# ---------------------------------------------------------------------
+# CLAUDE_ARGS shell-quoting round-trip (issue #88).
+#
+# The launcher passes the user's post-repo CLI args ("$@") into the guest
+# via a single CLAUDE_ARGS= line in run.env, which the guest boot launcher
+# reconstructs into argv. A flat unquoted join breaks the instant any arg
+# contains whitespace, a shell metacharacter, or a `#` (comment) -- e.g.
+# `--name "foo #7 micro-vm Claude Plugins"` sourced as an unquoted line
+# tries to EXECUTE `--name` (with the `#...` stripped as a comment), the
+# getty login program dies, and agetty respawns it forever.
+#
+# The contract, in TWO halves that must stay in lockstep:
+#
+#   HOST write (claude-vm.sh):
+#     printf 'CLAUDE_ARGS=%q\n' "$(claude_vm_quote_args "${CLAUDE_ARGS[@]}")"
+#   The inner per-arg %q (this helper) preserves each arg's boundaries; the
+#   outer %q makes the whole CLAUDE_ARGS=<...> line safe to `source` under
+#   `set -a`, so the sourced value is EXACTLY the space-separated
+#   per-arg-%q string with no re-splitting or comment-stripping.
+#
+#   GUEST read (build-guest-image.sh boot launcher):
+#     eval "set -- ${CLAUDE_ARGS:-}"
+#     exec "$CLAUDE_BIN" "$@"
+#   `eval set --` re-parses the per-arg-%q tokens back into the original
+#   argv, exactly reversing this helper.
+#
+# This function prints each argument %q-quoted, space-separated, and prints
+# a trailing newline. CRITICAL: ZERO args must print NOTHING (empty output).
+# `printf '%q ' "${arr[@]}"` on an EMPTY array under `set -u` still emits a
+# single `''` -- one bogus empty argument that would round-trip into an
+# unwanted empty argv element downstream. So the empty case is guarded
+# explicitly and returns before any printf over the array.
+claude_vm_quote_args() {
+  # No args -> empty output (NOT a stray ''). Guard the array expansion.
+  if [ "$#" -eq 0 ]; then
+    printf '\n'
+    return 0
+  fi
+  local out="" arg
+  for arg in "$@"; do
+    if [ -z "$out" ]; then
+      printf -v out '%q' "$arg"
+    else
+      printf -v out '%s %q' "$out" "$arg"
+    fi
+  done
+  printf '%s\n' "$out"
+}
+
+# ---------------------------------------------------------------------
+# Remote Control args augmentation (issue #88).
+#
+# Given the user's post-repo CLI args, apply two OPT-IN augmentations and
+# print the resulting argv, one arg per line (NUL-free, newline-delimited)
+# so the caller can read it back into an array with `mapfile`/a read loop
+# without re-splitting on spaces inside an arg.
+#
+#   $1  -- rc_enabled: "true" to enable Remote Control injection, anything
+#          else to leave RC alone (the config knob claude.remote_control,
+#          resolved by the caller; false/unset -> no injection).
+#   $2  -- name_stamp: the value to use for a defaulted `--name` (the caller
+#          passes a `date '+%b%d-%H:%M'` stamp). Passed IN (not computed here)
+#          so this function stays pure and unit-testable with a fixed stamp.
+#   $3.. -- the user's CLI args (may be empty).
+#
+# Augmentation rules:
+#   1. Remote Control injection: when rc_enabled=true AND the args do NOT
+#      already contain `--remote-control`, prepend `--remote-control`. When
+#      the user already passed it (via CLI), do NOT duplicate it.
+#   2. --name date-stamp default: AFTER (1), if the effective args contain
+#      `--remote-control` but NO `--name` (checking BOTH the `--name <v>` and
+#      `--name=<v>` forms), append `--name <name_stamp>`. This applies whether
+#      RC came from the knob or from an explicit CLI `--remote-control`, and it
+#      never overrides a user-provided `--name`.
+#
+# With rc_enabled != true AND no `--remote-control` in the args, the args are
+# passed through UNCHANGED (plain CLI pass-through still works).
+claude_vm_augment_rc_args() {
+  local rc_enabled="$1" name_stamp="$2"
+  shift 2
+
+  # Collect the incoming args into an array (may be empty).
+  local -a args=()
+  if [ "$#" -gt 0 ]; then
+    args=("$@")
+  fi
+
+  # (1) Inject --remote-control when the knob is on and it is not already
+  #     present. Prepend so it leads the argv, mirroring how a user would
+  #     type it first.
+  local a has_rc=0
+  for a in ${args[@]+"${args[@]}"}; do
+    if [ "$a" = "--remote-control" ]; then
+      has_rc=1
+      break
+    fi
+  done
+  if [ "$rc_enabled" = "true" ] && [ "$has_rc" -eq 0 ]; then
+    args=(--remote-control ${args[@]+"${args[@]}"})
+    has_rc=1
+  fi
+
+  # (2) Default --name to the date stamp when RC is in effect but the user
+  #     gave no --name (in either the `--name value` or `--name=value` form).
+  if [ "$has_rc" -eq 1 ]; then
+    local has_name=0
+    for a in ${args[@]+"${args[@]}"}; do
+      case "$a" in
+        --name|--name=*) has_name=1; break ;;
+      esac
+    done
+    if [ "$has_name" -eq 0 ]; then
+      args=(${args[@]+"${args[@]}"} --name "$name_stamp")
+    fi
+  fi
+
+  # Emit one arg per line so the caller reconstructs argv without re-splitting.
+  local out
+  for out in ${args[@]+"${args[@]}"}; do
+    printf '%s\n' "$out"
+  done
+}

@@ -2,9 +2,10 @@
 #
 # build-guest-image.sh -- build the claude-vm guest base image.
 #
-# The guest image is a STABLE BASE: a pinned OS plus a one-shot
-# boot launcher that, on every boot, fetches the CURRENT `claude`
-# through the egress allowlist and execs it against the mounted repo.
+# The guest image is a STABLE BASE: a pinned OS plus a boot launcher that,
+# on every boot, runs the host-verified `claude` (mounted RO at
+# /mnt/claudebin) against the mounted repo as an interactive session on the
+# hvc1 console (issue #88).
 # Claude Code updates daily, so `claude` is deliberately NOT baked into
 # the image -- only the base OS and the launcher logic are. The base
 # changes only when the OS pin or the launcher logic version changes,
@@ -51,7 +52,72 @@ BASE_OS_REV="debian-12-20250601"
 # guest authenticates as the host operator (issue #50). Replaces the dropped
 # ANTHROPIC_API_KEY/ANTHROPIC_VM_TOKEN model. Old images stamped 'launcher2'
 # rebuild on next run.
-LAUNCHER_LOGIC_REV="3"
+# Bumped 3 -> 4: interactive boot model (issue #88). claude now runs as the
+# login program of an autologin serial-getty@hvc1 (with a real controlling
+# tty -- the vfkit stdio console the launching terminal is bridged to) instead
+# of a detached Type=oneshot unit, so an interactive in-VM claude session
+# appears on the launching terminal. The boot launcher routes diagnostics to
+# /dev/console (hvc0 capture), seeds the hvc1 tty geometry from the host's
+# CLAUDE_VM_COLUMNS/LINES, and the renderer controls (CLAUDE_CODE_*) flow
+# through run.env. The recipe also sets RootPassword=hashed: (unlocked root)
+# and enables the autologin getty. The boot-logic change requires old images
+# (stamped 'launcher3') to rebuild on next run.
+# Bumped 4 -> 5: OAuth setup-token auth (issue #88). Current Claude Code does
+# not treat the mounted ~/.claude/.credentials.json as pre-authenticated -- it
+# runs its interactive login flow, unusable on the byte-pipe console. The boot
+# launcher now reads the host's CLAUDE_CODE_OAUTH_TOKEN (from `claude
+# setup-token`) out of the shred-on-exit claudecreds mount and exports it
+# before exec'ing claude, so the guest authenticates headlessly. The
+# boot-logic change requires old images (stamped 'launcher4') to rebuild.
+# Bumped 5 -> 6: identity seed auth (issue #88, pass 1). Real-hardware testing
+# established that the interactive TUI does NOT read CLAUDE_CODE_OAUTH_TOKEN
+# (that var is scoped to headless `claude -p`), so the setup-token path from
+# rev 5 could not deliver zero-touch login and was ripped out. The TUI decides
+# "logged in" from on-disk state: the token in ~/.claude/.credentials.json
+# (already installed) PLUS identity in ~/.claude.json (`userID` +
+# `oauthAccount`). The boot launcher now installs a minimal identity seed
+# (claude-json-seed.json from the shred-on-exit claudecreds mount) at
+# /root/.claude.json before exec'ing claude, so a fresh guest comes up already
+# logged in. The boot-logic change requires old images (stamped 'launcher5')
+# to rebuild.
+# Bumped 6 -> 7: WIDENED identity seed (issue #88). Real-hardware testing found
+# the {userID, oauthAccount} seed from rev 6 was insufficient: the guest TUI
+# still hit its onboarding/login wall on every boot because the seed dropped
+# `hasCompletedOnboarding`, and with `autoUpdates` unset the guest claude
+# immediately tried (and failed) to self-update against its RO-mounted binary in
+# the egress-confined VM. The seed now carries four MORE keys synthesized by the
+# host launcher -- `hasCompletedOnboarding: true`, `autoUpdates: false`, and
+# `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped with the concrete
+# resolved claude version -- alongside the host's `userID` / `oauthAccount`.
+# machineID is still NOT seeded (the guest mints its own). The seed-install step
+# in the boot launcher is UNCHANGED (still a plain cp of the seed to
+# /root/.claude.json) -- only the seed's CONTENTS widened, host-side. The
+# composite rev still bumps so stale guest images rebuild. The boot-logic change
+# requires old images (stamped 'launcher6') to rebuild.
+# Bumped 7 -> 8: satisfy claude's startup install-health check (issue #88).
+# Real-hardware testing found the otherwise-clean interactive boot still printed two
+# "claude command at /root/.local/bin/claude missing or broken · run claude install
+# to repair" warnings: claude probes for a working `claude` at the native installer's
+# ~/.local/bin/claude, but the guest execs the RO-mounted binary, leaving that path
+# empty. The boot launcher now symlinks $CLAUDE_HOME/.local/bin/claude ->
+# $CLAUDE_BIN (the verified RO-mounted binary) right after the claude-fetch seam
+# validates the binary; the symlink target is the running binary itself, so the
+# health check's version comparison passes by construction, and autoUpdates: false
+# plus the RO mount prevent any write-through. Empirically confirmed to clear the
+# warnings on real hardware. The boot-logic change requires old images (stamped
+# 'launcher7') to rebuild.
+# Bumped 8 -> 9: CLAUDE_ARGS shell-quoting round-trip (issue #88). Real-hardware
+# testing found that a spaced/metacharacter-bearing arg (e.g.
+# `--name "foo #7 micro-vm Claude Plugins"`) crashed the guest boot into an
+# infinite getty-respawn loop: the old boot launcher exec'd `"$CLAUDE_BIN"
+# $CLAUDE_ARGS` (unquoted word-split, SC2086-disabled), and the host wrote
+# CLAUDE_ARGS as a flat unquoted join, so sourcing run.env re-split the value
+# and tried to EXECUTE the `--name` fragment (with the `#...` comment-stripped).
+# The boot launcher now reconstructs argv with `eval "set -- $CLAUDE_ARGS"` then
+# `exec "$CLAUDE_BIN" "$@"`, exactly reversing the host's new per-arg-%q +
+# outer-%q quoting (claude_vm_quote_args in lib/config.sh). The boot-logic change
+# requires old images (stamped 'launcher8') to rebuild.
+LAUNCHER_LOGIC_REV="9"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -62,30 +128,56 @@ usage:
 EOF
 }
 
-# The one-shot boot launcher baked into the guest. It runs on guest boot,
-# loads the run environment, then -- as of issue #49 -- execs the
-# host-verified `claude` binary (mounted RO at /mnt/claudebin by the guest
-# fstab) against the mounted repo at /mnt/repo. The binary is fetched,
-# GPG-manifest-verified, and cached HOST-SIDE by the launcher
-# (lib/claude-cache.sh); the guest only runs the already-verified binary
-# off the RO mount -- it never runs `install.sh | bash` on this trusted
-# path. Emitted here (not committed as a separate file) so the launcher
-# logic version is owned by this build recipe. Kept as a heredoc that the
-# build step installs into the image as the Type=oneshot systemd unit's
-# ExecStart.
+# The boot launcher baked into the guest. As of issue #88 it runs as the
+# LOGIN PROGRAM of an autologin serial-getty@hvc1 (a real controlling tty),
+# loads the run environment, then execs the host-verified `claude` binary
+# (mounted RO at /mnt/claudebin by the guest fstab) against the mounted repo
+# at /mnt/repo -- so claude IS the interactive hvc1 session. The binary is
+# fetched, GPG-manifest-verified, and cached HOST-SIDE by the launcher
+# (lib/claude-cache.sh, issue #49); the guest only runs the already-verified
+# binary off the RO mount -- it never runs `install.sh | bash` on this trusted
+# path. Emitted here (not committed as a separate file) so the launcher logic
+# version is owned by this build recipe. Kept as a heredoc that the build step
+# installs into the image; the provisioner wires it as the getty's
+# --login-program (issue #88), replacing the old Type=oneshot unit.
 emit_boot_launcher() {
   cat <<'BOOT'
 #!/usr/bin/env bash
-# claude-vm guest one-shot boot launcher (version-pinned with the base).
-# Runs on guest boot. Loads the run environment (proxy + args), installs the
-# host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds) into
-# $HOME/.claude/.credentials.json so claude authenticates as the host
-# operator (issue #50), then execs the host-verified `claude` binary mounted
-# RO at /mnt/claudebin against the repo at /mnt/repo. claude is NEVER baked
-# into the image and is NEVER fetched-and-run inside the guest: the host
-# fetches, GPG-manifest-verifies, and caches the binary, and shares it in RO.
-# The guest only runs the already-verified binary off the mount.
+# claude-vm guest boot launcher (version-pinned with the base).
+#
+# Interactive model (issue #88): this runs as the LOGIN PROGRAM of an autologin
+# getty on /dev/hvc1 (serial-getty@hvc1 drop-in), so it has a real controlling
+# terminal -- the vfkit `virtio-serial,stdio` console the launching terminal is
+# bridged to. It loads the run environment (proxy + args + geometry + renderer),
+# installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
+# into $HOME/.claude/.credentials.json so claude authenticates as the host
+# operator (issue #50) AND the host's identity seed (userID + oauthAccount +
+# synthesized onboarding/auto-update/version keys, benign host UI keys, and a
+# /mnt/repo projects entry that skips the trust dialog) into $HOME/.claude.json
+# so the interactive TUI comes up already onboarded + logged in (issue #88), seeds
+# the tty geometry from the host (issue #88), then
+# `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
+# the repo at /mnt/repo -- so claude IS the interactive session, with no shell
+# in between. claude is NEVER baked into the image and is NEVER fetched-and-run
+# inside the guest: the host fetches, GPG-manifest-verifies, and caches the
+# binary, and shares it in RO. The guest only runs the already-verified binary.
 set -euo pipefail
+
+# Diagnostics go to /dev/console (the BOOT console, hvc0), which the host
+# captures via vfkit virtio-serial,logFilePath (issue #87). claude's own
+# stdin/stdout/stderr stay on this process's controlling tty (hvc1, the
+# interactive console). Routing diagnostics to hvc0 keeps boot/seam noise OFF
+# the interactive terminal AND keeps it observable in the host capture log
+# (and lets the headless acceptance test, which captures only hvc0, still see
+# the seam marker). Fall back to this process's stderr if /dev/console is not
+# writable for any reason.
+log() {
+  if [ -w /dev/console ]; then
+    printf '%s\n' "$*" > /dev/console
+  else
+    printf '%s\n' "$*" >&2
+  fi
+}
 
 # Mount points provided by vfkit virtio-fs tags.
 REPO_MNT=/mnt/repo
@@ -97,10 +189,14 @@ CLAUDEBIN_MNT=/mnt/claudebin
 # 'claudecreds' and mounted here by the guest fstab.
 CLAUDECREDS_MNT=/mnt/claudecreds
 
-# Load run environment (proxy, mount tags, CLAUDE_ARGS) written by the host
-# launcher into the runconfig share. NOTE: run.env no longer carries any
-# secret -- auth is the host's claude.ai OAuth credential, installed below
-# from the RO claudecreds mount, not an ANTHROPIC_API_KEY here.
+# Load run environment (proxy, mount tags, geometry, renderer, CLAUDE_ARGS)
+# written by the host launcher into the runconfig share. NOTE: run.env no
+# longer carries any secret -- auth is the host's claude.ai OAuth credential,
+# installed below from the RO claudecreds mount, not an ANTHROPIC_API_KEY here.
+# set -a exports every var it defines, so the renderer controls
+# (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN / CLAUDE_CODE_NO_FLICKER, written by
+# the host when claude.renderer is set -- issue #88) are exported into claude's
+# environment for free.
 set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
@@ -119,15 +215,15 @@ set +a
 # claude expects a real, owner-only file at that path. This gives the guest
 # the host operator's full-scope claude.ai login, which Remote Control requires.
 #
-# claude runs as this unit's user (root in the Type=oneshot boot unit), so
+# claude runs as the autologin getty's user (root, via serial-getty@hvc1), so
 # $HOME is that user's home. Derive the credential dir from $HOME so the
 # path tracks whatever user claude runs as.
 # ---------------------------------------------------------------------
 MOUNTED_CREDENTIAL="$CLAUDECREDS_MNT/.credentials.json"
 if [ ! -s "$MOUNTED_CREDENTIAL" ]; then
-  echo "claude-vm: no claude.ai OAuth credential found at $MOUNTED_CREDENTIAL" >&2
-  echo "claude-vm: (mountTag=claudecreds). The host did not share a credential; claude" >&2
-  echo "claude-vm: cannot authenticate. Ensure you are logged in to Claude Code on the host." >&2
+  log "claude-vm: no claude.ai OAuth credential found at $MOUNTED_CREDENTIAL"
+  log "claude-vm: (mountTag=claudecreds). The host did not share a credential; claude"
+  log "claude-vm: cannot authenticate. Ensure you are logged in to Claude Code on the host."
   exit 1
 fi
 CLAUDE_HOME="${HOME:-/root}"
@@ -137,7 +233,46 @@ mkdir -p "$CRED_DIR"
 # verbatim into place (the host already did the selection), then tighten perms.
 cp "$MOUNTED_CREDENTIAL" "$CRED_DIR/.credentials.json"
 chmod 600 "$CRED_DIR/.credentials.json"
-echo "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json" >&2
+log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credentials.json"
+
+# ---------------------------------------------------------------------
+# Auth: install the host's identity seed (issue #88).
+#
+# The mounted ~/.claude/.credentials.json above is only the BEARER TOKEN. The
+# interactive guest TUI also decides "am I onboarded / logged in" from state in
+# ~/.claude.json. A fresh throwaway guest lacks it, so without this seed every
+# launch shows the onboarding/login wall despite the credential. The host built
+# the seed from its own ~/.claude.json -- selecting `userID` + `oauthAccount`,
+# synthesizing `hasCompletedOnboarding: true` (skip the wall), `autoUpdates:
+# false` (no self-update in the egress-confined guest against the RO-mounted
+# binary), and `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped with the
+# resolved claude version; additively carrying benign host UI keys when present
+# (installMethod, hasSeenTasksHint, hasUsedStash, tipsHistory); and seeding a
+# `projects` entry for /mnt/repo with hasTrustDialogAccepted /
+# hasCompletedProjectOnboarding forced true so the guest skips the "trust this
+# folder?" dialog -- and shared that object into the SAME shred-on-exit
+# claudecreds mount (mountTag=claudecreds) as the credential above, NOT via
+# run.env, honoring the launcher's "secrets never ride in run.env" invariant.
+# machineID is NOT in the seed -- the guest mints its own on first run. Install
+# it at $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
+# /root/.claude.json does not exist on a fresh guest, so this is a plain create
+# of the object (no merge). The seed's CONTENTS are the host's business; this
+# step just copies whatever the host emitted.
+#
+# ADDITIVE: unlike the credential above (a hard requirement), a missing seed is
+# logged and tolerated -- the guest still boots (it just shows the onboarding/
+# login wall). The host launcher gates on the seed being present (preflight),
+# so its absence here is unexpected but not worth aborting an otherwise-bootable
+# guest.
+MOUNTED_CLAUDE_JSON_SEED="$CLAUDECREDS_MNT/claude-json-seed.json"
+if [ -s "$MOUNTED_CLAUDE_JSON_SEED" ]; then
+  cp "$MOUNTED_CLAUDE_JSON_SEED" "$CLAUDE_HOME/.claude.json"
+  chmod 600 "$CLAUDE_HOME/.claude.json"
+  log "claude-vm: installed host identity seed at $CLAUDE_HOME/.claude.json (identity + onboarding state)."
+else
+  log "claude-vm: no identity seed found at $MOUNTED_CLAUDE_JSON_SEED (mountTag=claudecreds);"
+  log "claude-vm: continuing without it -- claude may show its onboarding/login wall on this console."
+fi
 
 # ---------------------------------------------------------------------
 # claude-fetch SEAM -- FILLED (issue #49).
@@ -161,20 +296,61 @@ echo "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credent
 # ---------------------------------------------------------------------
 CLAUDE_BIN="$CLAUDEBIN_MNT/claude"
 if [ ! -x "$CLAUDE_BIN" ]; then
-  echo "claude-vm: guest booted to the claude-fetch seam, but no verified claude binary" >&2
-  echo "claude-vm: was found at $CLAUDE_BIN. The host-side verified cache mount" >&2
-  echo "claude-vm: (mountTag=claudebin) is missing; refusing to fetch-and-run unverified code." >&2
+  log "claude-vm: guest booted to the claude-fetch seam, but no verified claude binary"
+  log "claude-vm: was found at $CLAUDE_BIN. The host-side verified cache mount"
+  log "claude-vm: (mountTag=claudebin) is missing; refusing to fetch-and-run unverified code."
   # Fatal: the trusted path requires the host-verified binary. There is no
   # install.sh|bash fallback anywhere -- a missing verified binary aborts
   # the boot rather than fetching unverified code.
   exit 1
 fi
 
-echo "claude-vm: guest booted to the claude-fetch seam; running host-verified claude from $CLAUDE_BIN." >&2
+log "claude-vm: guest booted to the claude-fetch seam; running host-verified claude from $CLAUDE_BIN."
+
+# Satisfy claude's startup install-health check (issue #88). claude probes for a
+# working `claude` at the native installer's location ~/.local/bin/claude; the
+# guest execs the RO-mounted binary instead, so that path is empty and the TUI
+# prints "claude command at /root/.local/bin/claude missing or broken · run
+# claude install to repair" warnings on startup. Point the native-install path at
+# the verified RO-mounted binary: the symlink target IS the running binary, so any
+# version comparison passes by construction, and the seeded autoUpdates: false plus
+# the RO mount prevent write-through. ln -sf (not bare -s) because this launcher
+# re-runs on every getty respawn within a VM run and the link may already exist.
+# Empirically confirmed to clear the warnings on real hardware (issue #88).
+mkdir -p "$CLAUDE_HOME/.local/bin"
+ln -sf "$CLAUDE_BIN" "$CLAUDE_HOME/.local/bin/claude"
+log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CLAUDE_BIN (install-health check)."
+
+# Seed the interactive tty geometry from the host (issue #88). The vfkit stdio
+# console is a byte pipe with no out-of-band window-size channel, so the guest
+# hvc1 tty comes up at a fixed 80x24 regardless of the host window. The host
+# launcher captured its `stty size` into CLAUDE_VM_COLUMNS/CLAUDE_VM_LINES;
+# apply them to THIS process's controlling tty (hvc1) so the kernel tty reports
+# the right size to TIOCGWINSZ -- claude and any child it spawns then render at
+# the host terminal's dimensions. One-time: the transport carries no live
+# resize. Only run when both are present and numeric (empty when claude-vm was
+# not launched from a real terminal -- then the guest keeps its 80x24 default).
+if [ -n "${CLAUDE_VM_COLUMNS:-}" ] && [ -n "${CLAUDE_VM_LINES:-}" ] \
+   && [ "$CLAUDE_VM_COLUMNS" -gt 0 ] 2>/dev/null \
+   && [ "$CLAUDE_VM_LINES" -gt 0 ] 2>/dev/null; then
+  stty cols "$CLAUDE_VM_COLUMNS" rows "$CLAUDE_VM_LINES" 2>/dev/null || true
+  log "claude-vm: seeded hvc1 tty geometry to ${CLAUDE_VM_COLUMNS}x${CLAUDE_VM_LINES} from the host."
+fi
 
 cd "$REPO_MNT"
-# shellcheck disable=SC2086
-exec "$CLAUDE_BIN" $CLAUDE_ARGS
+# Reconstruct claude's argv from CLAUDE_ARGS (issue #88). The host launcher
+# (claude-vm.sh) writes CLAUDE_ARGS via claude_vm_quote_args (lib/config.sh):
+# each original arg is %q-quoted and space-joined, then the whole run.env LINE
+# is %q-quoted again so `set -a; . run.env` above assigns CLAUDE_ARGS to
+# EXACTLY that per-arg-%q string (no re-splitting, no `#` comment-stripping).
+# `eval set --` re-parses those tokens back into the original argv -- exactly
+# reversing the host's quoting -- so args with spaces / shell metacharacters /
+# `#` (e.g. --name "foo #7 micro-vm Claude Plugins") round-trip intact instead
+# of crashing the getty login program into an agetty respawn loop. An empty
+# CLAUDE_ARGS ('') yields `set -- ` -> zero argv. The two halves of this
+# contract are kept in lockstep with the claude_vm_quote_args comment.
+eval "set -- ${CLAUDE_ARGS:-}"
+exec "$CLAUDE_BIN" "$@"
 BOOT
 }
 
@@ -188,7 +364,8 @@ build_image() {
 
   # Emit the version-pinned boot launcher into a staging dir, then hand it
   # to the provisioner, which produces a bootable raw image at "$output"
-  # carrying boot-launcher.sh as its Type=oneshot boot unit.
+  # carrying boot-launcher.sh as the autologin serial-getty@hvc1 login program
+  # (issue #88).
   local stage
   stage="$(mktemp -d "${TMPDIR:-/tmp}/claude-vm-build.XXXXXX")"
   emit_boot_launcher > "$stage/boot-launcher.sh"

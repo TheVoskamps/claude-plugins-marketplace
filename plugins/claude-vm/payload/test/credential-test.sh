@@ -3,10 +3,14 @@
 # credential-test.sh -- unit tests for claude-vm's claude.ai OAuth
 # credential SELECTION logic (issue #50 review fix).
 #
-# Exercises payload/lib/credential.sh's pure selection function
-# (claude_vm_select_claude_credential): raw Keychain blob on stdin ->
-# {"claudeAiOauth": {...}} on stdout, fail-closed on missing key / bad
-# input. No Keychain, no VM, no network, no host mutation. Run directly:
+# Exercises payload/lib/credential.sh's pure functions:
+#   - claude_vm_select_claude_credential: raw Keychain blob on stdin ->
+#     {"claudeAiOauth": {...}} on stdout, fail-closed on missing key / bad input.
+#   - claude_vm_validate_claude_credential_tokens: predicate over the selected
+#     credential -- exit 0 iff both tokens non-empty (issue #88, Gap 1).
+#   - claude_vm_select_claude_json_seed: build the identity seed from the host
+#     ~/.claude.json (issue #88).
+# No Keychain, no VM, no network, no host mutation. Run directly:
 #
 #   plugins/claude-vm/payload/test/credential-test.sh
 #
@@ -160,6 +164,345 @@ RC7=$?
 assert_rc "single-key blob: selection exits 0" "0" "$RC7"
 TOKEN7="$(printf '%s' "$OUT7" | python3 -c 'import sys,json; print(json.load(sys.stdin)["claudeAiOauth"]["accessToken"])')"
 assert_eq "single-key blob: accessToken preserved" "only-token" "$TOKEN7"
+
+# ---------------------------------------------------------------------
+# claude_vm_validate_claude_credential_tokens (issue #88, Gap 1): predicate over
+# the SELECTED {"claudeAiOauth": {...}} -- exit 0 iff BOTH accessToken and
+# refreshToken are non-empty strings, exit 1 otherwise, and NEVER write to
+# stdout. Guards against the degraded-Keychain shape (structurally complete but
+# empty tokens) that would boot the guest to "Not logged in".
+# ---------------------------------------------------------------------
+
+# Healthy: both tokens non-empty -> exit 0, no stdout.
+HEALTHY_CRED='{"claudeAiOauth": {"accessToken": "acc-123", "refreshToken": "ref-456", "expiresAt": 1893456000000}}'
+VOUT="$(printf '%s' "$HEALTHY_CRED" | claude_vm_validate_claude_credential_tokens)"
+VRC=$?
+assert_rc "validate: healthy credential exits 0" "0" "$VRC"
+assert_eq "validate: healthy credential writes nothing" "" "$VOUT"
+
+# Degraded: empty accessToken -> exit 1, no stdout.
+EMPTY_ACCESS='{"claudeAiOauth": {"accessToken": "", "refreshToken": "ref-456", "expiresAt": 0}}'
+VOUT2="$(printf '%s' "$EMPTY_ACCESS" | claude_vm_validate_claude_credential_tokens)"
+VRC2=$?
+assert_rc "validate: empty accessToken exits 1" "1" "$VRC2"
+assert_eq "validate: empty accessToken writes nothing" "" "$VOUT2"
+
+# Degraded: empty refreshToken -> exit 1, no stdout.
+EMPTY_REFRESH='{"claudeAiOauth": {"accessToken": "acc-123", "refreshToken": "", "expiresAt": 0}}'
+VOUT3="$(printf '%s' "$EMPTY_REFRESH" | claude_vm_validate_claude_credential_tokens)"
+VRC3=$?
+assert_rc "validate: empty refreshToken exits 1" "1" "$VRC3"
+assert_eq "validate: empty refreshToken writes nothing" "" "$VOUT3"
+
+# Degraded: BOTH tokens empty (the real observed shape) -> exit 1, no stdout.
+BOTH_EMPTY='{"claudeAiOauth": {"accessToken": "", "refreshToken": "", "expiresAt": 0}}'
+VOUT4="$(printf '%s' "$BOTH_EMPTY" | claude_vm_validate_claude_credential_tokens)"
+VRC4=$?
+assert_rc "validate: both tokens empty exits 1" "1" "$VRC4"
+assert_eq "validate: both tokens empty writes nothing" "" "$VOUT4"
+
+# Missing keys entirely -> exit 1, no stdout.
+MISSING_KEYS='{"claudeAiOauth": {"expiresAt": 0}}'
+VOUT5="$(printf '%s' "$MISSING_KEYS" | claude_vm_validate_claude_credential_tokens)"
+VRC5=$?
+assert_rc "validate: missing token keys exits 1" "1" "$VRC5"
+assert_eq "validate: missing token keys writes nothing" "" "$VOUT5"
+
+# accessToken present but not a string -> exit 1.
+NONSTR_TOKEN='{"claudeAiOauth": {"accessToken": 12345, "refreshToken": "ref-456"}}'
+VOUT6="$(printf '%s' "$NONSTR_TOKEN" | claude_vm_validate_claude_credential_tokens)"
+VRC6=$?
+assert_rc "validate: non-string accessToken exits 1" "1" "$VRC6"
+
+# Invalid JSON -> exit 1, no stdout.
+VOUT7="$(printf '%s' "not json {" | claude_vm_validate_claude_credential_tokens)"
+VRC7=$?
+assert_rc "validate: invalid JSON exits 1" "1" "$VRC7"
+assert_eq "validate: invalid JSON writes nothing" "" "$VOUT7"
+
+# No claudeAiOauth key -> exit 1.
+NO_CRED='{"mcpOAuth": {"x": {"accessToken": "y"}}}'
+VOUT8="$(printf '%s' "$NO_CRED" | claude_vm_validate_claude_credential_tokens)"
+VRC8=$?
+assert_rc "validate: no claudeAiOauth key exits 1" "1" "$VRC8"
+
+# ---------------------------------------------------------------------
+# claude_vm_select_claude_json_seed (issue #88): build the identity seed from
+# the host ~/.claude.json -- select {userID, oauthAccount} from the host,
+# SYNTHESIZE {hasCompletedOnboarding: true, autoUpdates: false}, stamp
+# {lastOnboardingVersion, lastReleaseNotesSeen} with the resolved version passed
+# in as $1, ADDITIVELY pass through benign host UI keys when present, and (given
+# a guest-repo-path in $3) seed a projects entry keyed on the guest mount path
+# with the trust flags forced true. machineID must NOT be emitted. Fail-closed
+# on a missing/unusable userID or oauthAccount.
+# ---------------------------------------------------------------------
+
+# The resolved concrete claude version the caller passes as the FIRST arg. The
+# seed stamps this into lastOnboardingVersion / lastReleaseNotesSeen.
+SEED_VERSION="2.1.172"
+# The host repo path ($2) and guest repo mount path ($3) the launcher passes.
+SEED_HOST_REPO="/Users/operator/some/repo"
+SEED_GUEST_REPO="/mnt/repo"
+
+# Fixture: the real ~/.claude.json shape -- the two identity keys we select,
+# the ADDITIVE pass-through keys (installMethod, hasSeenTasksHint, hasUsedStash,
+# tipsHistory), a projects entry for the host repo path carrying a MIX of
+# allowlisted per-project keys (allowedTools, projectOnboardingSeenCount,
+# mcpContextUris, with a FALSE trust flag) alongside keys that MUST be dropped
+# by the named allowlist (history, lastSessionId, mcpServers -- the operator's
+# prompt history, a host-session id, and MCP server configs that can embed
+# URLs/headers) and an UNKNOWN future key (someFutureKey) that must default to
+# EXCLUDED, plus the top-level noise we must DROP (a projects entry for a
+# DIFFERENT repo, telemetry) AND a host machineID we must NOT propagate. The
+# host'\''s own hasCompletedOnboarding/autoUpdates values are IGNORED -- the seed
+# synthesizes its own (true / false) regardless of what the host carries; the
+# fixture sets host values that DIFFER from the synthesized ones (autoUpdates
+# "on-host-true") so a passthrough bug would be caught.
+FULL_CLAUDE_JSON='{
+  "userID": "abc123deadbeef",
+  "oauthAccount": {
+    "accountUuid": "uuid-1111",
+    "emailAddress": "operator@example.com",
+    "organizationUuid": "org-2222",
+    "organizationRole": "admin"
+  },
+  "hasCompletedOnboarding": false,
+  "autoUpdates": "on-host-true",
+  "machineID": "host-machine-secret",
+  "installMethod": "native",
+  "hasSeenTasksHint": true,
+  "hasUsedStash": true,
+  "tipsHistory": {"tip-a": 3, "tip-b": 7},
+  "numStartups": 42,
+  "projects": {
+    "/Users/operator/some/repo": {
+      "hasTrustDialogAccepted": false,
+      "hasCompletedProjectOnboarding": false,
+      "allowedTools": ["Bash(git status)", "Read"],
+      "projectOnboardingSeenCount": 4,
+      "mcpContextUris": ["file:///mnt/repo/CLAUDE.md"],
+      "lastCost": 1.23,
+      "history": ["what does this repo do?", "run the tests"],
+      "lastSessionId": "sess-secret",
+      "mcpServers": {"sentry": {"url": "https://mcp.example/sse", "headers": {"Authorization": "Bearer HOST-MCP-SECRET"}}},
+      "someFutureKey": "future-sensitive-value"
+    },
+    "/Users/operator/OTHER/repo": {
+      "hasTrustDialogAccepted": true,
+      "lastSessionId": "other-secret"
+    }
+  }
+}'
+
+SEED_OUT="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SEED_RC=$?
+assert_rc "full ~/.claude.json: seed selection exits 0" "0" "$SEED_RC"
+
+# Output is valid JSON.
+if printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; json.load(sys.stdin)' 2>/dev/null; then
+  assert_eq "seed: output is valid JSON" "ok" "ok"
+else
+  assert_eq "seed: output is valid JSON" "ok" "INVALID-JSON"
+fi
+
+# EXACTLY the expected keys: 6 base + 4 pass-through + projects.
+SEED_KEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(sorted(json.load(sys.stdin).keys())))')"
+assert_eq "seed: output has the base + pass-through + projects keys" \
+  "autoUpdates,hasCompletedOnboarding,hasSeenTasksHint,hasUsedStash,installMethod,lastOnboardingVersion,lastReleaseNotesSeen,oauthAccount,projects,tipsHistory,userID" \
+  "$SEED_KEYS"
+
+# The two host-selected keys survive verbatim.
+SEED_USER="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["userID"])')"
+assert_eq "seed: userID preserved" "abc123deadbeef" "$SEED_USER"
+
+SEED_EMAIL="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["oauthAccount"]["emailAddress"])')"
+assert_eq "seed: oauthAccount.emailAddress preserved" "operator@example.com" "$SEED_EMAIL"
+
+# The two synthesized booleans are present with the RIGHT type and value,
+# regardless of the host's own (differing) values. json.dumps emits Python
+# True/False as JSON true/false; check the type is bool AND the value is right.
+SEED_ONBOARD="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["hasCompletedOnboarding"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: hasCompletedOnboarding is boolean true" "bool:True" "$SEED_ONBOARD"
+
+SEED_AUTOUPD="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["autoUpdates"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: autoUpdates is boolean false" "bool:False" "$SEED_AUTOUPD"
+
+# The two version fields equal the passed-in resolved version.
+SEED_LOV="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["lastOnboardingVersion"])')"
+assert_eq "seed: lastOnboardingVersion equals passed-in version" "$SEED_VERSION" "$SEED_LOV"
+
+SEED_LRNS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["lastReleaseNotesSeen"])')"
+assert_eq "seed: lastReleaseNotesSeen equals passed-in version" "$SEED_VERSION" "$SEED_LRNS"
+
+# ADDITIVE pass-through keys copied verbatim when present.
+SEED_INSTALL="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["installMethod"])')"
+assert_eq "seed: installMethod passed through verbatim" "native" "$SEED_INSTALL"
+
+SEED_TASKS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["hasSeenTasksHint"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: hasSeenTasksHint passed through verbatim" "bool:True" "$SEED_TASKS"
+
+SEED_STASH="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["hasUsedStash"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: hasUsedStash passed through verbatim" "bool:True" "$SEED_STASH"
+
+# tipsHistory: the WHOLE object copied.
+SEED_TIPS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; d=json.load(sys.stdin)["tipsHistory"]; print(str(d.get("tip-a"))+","+str(d.get("tip-b")))')"
+assert_eq "seed: tipsHistory object copied whole" "3,7" "$SEED_TIPS"
+
+# projects: rekeyed to the guest path; the host entry is filtered through a
+# NAMED PER-KEY ALLOWLIST (allowlisted keys survive, everything else -- incl.
+# history / lastSessionId / mcpServers and any unknown future key -- is dropped)
+# with the two trust flags FORCED true (overriding the host's false).
+SEED_PROJ_KEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["projects"].keys()))')"
+assert_eq "seed: projects keyed on the GUEST mount path" "/mnt/repo" "$SEED_PROJ_KEYS"
+
+SEED_PROJ_TRUST="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["projects"]["/mnt/repo"]["hasTrustDialogAccepted"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: projects hasTrustDialogAccepted FORCED true" "bool:True" "$SEED_PROJ_TRUST"
+
+SEED_PROJ_ONBOARD="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; v=json.load(sys.stdin)["projects"]["/mnt/repo"]["hasCompletedProjectOnboarding"]; print(type(v).__name__+":"+repr(v))')"
+assert_eq "seed: projects hasCompletedProjectOnboarding FORCED true" "bool:True" "$SEED_PROJ_ONBOARD"
+
+# ALLOWLISTED per-project keys survive: allowedTools, projectOnboardingSeenCount,
+# mcpContextUris (rekeyed but otherwise as-is).
+SEED_PROJ_TOOLS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["projects"]["/mnt/repo"]["allowedTools"]))')"
+assert_eq "seed: allowlisted allowedTools survives" "Bash(git status),Read" "$SEED_PROJ_TOOLS"
+
+SEED_PROJ_SEEN="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(json.load(sys.stdin)["projects"]["/mnt/repo"]["projectOnboardingSeenCount"])')"
+assert_eq "seed: allowlisted projectOnboardingSeenCount survives" "4" "$SEED_PROJ_SEEN"
+
+SEED_PROJ_CTX="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(json.load(sys.stdin)["projects"]["/mnt/repo"]["mcpContextUris"]))')"
+assert_eq "seed: allowlisted mcpContextUris survives" "file:///mnt/repo/CLAUDE.md" "$SEED_PROJ_CTX"
+
+# The EXACT set of keys on the guest projects entry: only the allowlisted keys
+# the host carried plus the two forced trust flags. Nothing else.
+SEED_PROJ_ALLKEYS="$(printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; print(",".join(sorted(json.load(sys.stdin)["projects"]["/mnt/repo"].keys())))')"
+assert_eq "seed: guest projects entry has EXACTLY the allowlisted keys + trust flags" \
+  "allowedTools,hasCompletedProjectOnboarding,hasTrustDialogAccepted,mcpContextUris,projectOnboardingSeenCount" \
+  "$SEED_PROJ_ALLKEYS"
+
+# DROPPED per-project keys must be ABSENT from the guest entry: the named trio
+# (history / lastSessionId / mcpServers) plus the unknown future key and lastCost.
+for pkey in "history" "lastSessionId" "mcpServers" "someFutureKey" "lastCost"; do
+  if PKEY="$pkey" python3 -c 'import sys,json,os; sys.exit(0 if os.environ["PKEY"] in json.load(sys.stdin)["projects"]["/mnt/repo"] else 1)' <<<"$SEED_OUT"; then
+    assert_eq "seed: dropped project key '$pkey' is ABSENT" "absent" "PRESENT-LEAKED"
+  else
+    assert_eq "seed: dropped project key '$pkey' is ABSENT" "absent" "absent"
+  fi
+done
+
+# The MCP secret embedded in the dropped mcpServers must not leak anywhere in the
+# output (belt-and-braces string scan).
+if printf '%s' "$SEED_OUT" | grep -q "HOST-MCP-SECRET"; then
+  assert_eq "seed: dropped mcpServers auth header does not leak" "absent" "PRESENT-LEAKED"
+else
+  assert_eq "seed: dropped mcpServers auth header does not leak" "absent" "absent"
+fi
+
+# machineID must be ABSENT -- the guest mints its own; the host's must not leak.
+if printf '%s' "$SEED_OUT" | python3 -c 'import sys,json; sys.exit(0 if "machineID" in json.load(sys.stdin) else 1)'; then
+  assert_eq "seed: machineID is ABSENT from output" "absent" "PRESENT-LEAKED"
+else
+  assert_eq "seed: machineID is ABSENT from output" "absent" "absent"
+fi
+
+# The dropped noise must NOT appear anywhere -- the OTHER (non-launched) repo's
+# entry and its secret, top-level telemetry. NOTE: the launched repo's own entry
+# is now filtered through a NAMED ALLOWLIST, so its non-allowlisted keys --
+# including the launched-repo lastSessionId ("sess-secret") -- are DROPPED too;
+# only the allowlisted keys and the two forced trust flags survive.
+# (installMethod/tipsHistory/hasSeenTasksHint/hasUsedStash ARE passed through at
+# the TOP level, so they are not in this drop list.)
+for needle in "other-secret" "OTHER/repo" "numStartups" "sess-secret"; do
+  if printf '%s' "$SEED_OUT" | grep -q "$needle"; then
+    assert_eq "seed: '$needle' is DROPPED from output" "absent" "PRESENT-LEAKED"
+  else
+    assert_eq "seed: '$needle' is DROPPED from output" "absent" "absent"
+  fi
+done
+
+# The host repo path key must NOT appear -- the projects entry is rekeyed to the
+# guest path.
+if printf '%s' "$SEED_OUT" | grep -q "/Users/operator/some/repo"; then
+  assert_eq "seed: host repo path key is REKEYED away" "absent" "PRESENT-LEAKED"
+else
+  assert_eq "seed: host repo path key is REKEYED away" "absent" "absent"
+fi
+
+# Version passthrough: a DIFFERENT version arg lands in both version fields.
+SEED_OUT_V2="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed "9.9.9" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SEED_V2="$(printf '%s' "$SEED_OUT_V2" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["lastOnboardingVersion"]+","+d["lastReleaseNotesSeen"])')"
+assert_eq "seed: version arg passes through to both version fields" "9.9.9,9.9.9" "$SEED_V2"
+
+# ADDITIVE keys ABSENT on the host -> silently OMITTED (never a failure).
+MINIMAL_CLAUDE_JSON='{
+  "userID": "min-user",
+  "oauthAccount": {"emailAddress": "min@example.com"}
+}'
+SEED_MIN="$(printf '%s' "$MINIMAL_CLAUDE_JSON" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SEED_MIN_RC=$?
+assert_rc "seed (minimal host): exits 0" "0" "$SEED_MIN_RC"
+SEED_MIN_KEYS="$(printf '%s' "$SEED_MIN" | python3 -c 'import sys,json; print(",".join(sorted(json.load(sys.stdin).keys())))')"
+# No pass-through keys present on the host -> only the 6 base keys + projects.
+assert_eq "seed (minimal host): pass-through keys OMITTED when absent" \
+  "autoUpdates,hasCompletedOnboarding,lastOnboardingVersion,lastReleaseNotesSeen,oauthAccount,projects,userID" \
+  "$SEED_MIN_KEYS"
+
+# projects: host has NO entry for the launched repo -> minimal synthesized entry
+# with both trust flags true.
+SEED_MIN_TRUST="$(printf '%s' "$SEED_MIN" | python3 -c 'import sys,json; p=json.load(sys.stdin)["projects"]["/mnt/repo"]; print(str(p["hasTrustDialogAccepted"])+","+str(p["hasCompletedProjectOnboarding"])+","+str(sorted(p.keys())))')"
+assert_eq "seed (minimal host): synthesized projects entry has ONLY the two trust flags true" \
+  "True,True,['hasCompletedProjectOnboarding', 'hasTrustDialogAccepted']" \
+  "$SEED_MIN_TRUST"
+
+# projects: guest-repo-path input EMPTY -> no projects key at all.
+SEED_NO_GUEST="$(printf '%s' "$FULL_CLAUDE_JSON" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "")"
+if printf '%s' "$SEED_NO_GUEST" | python3 -c 'import sys,json; sys.exit(0 if "projects" in json.load(sys.stdin) else 1)'; then
+  assert_eq "seed: empty guest-repo-path OMITS projects entirely" "omitted" "PRESENT"
+else
+  assert_eq "seed: empty guest-repo-path OMITS projects entirely" "omitted" "omitted"
+fi
+
+# Fail-closed: missing userID.
+NO_USER='{"oauthAccount": {"emailAddress": "x@y.z"}}'
+SO1="$(printf '%s' "$NO_USER" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR1=$?
+assert_rc "seed: missing userID exits non-zero" "1" "$SR1"
+assert_eq "seed: missing userID writes nothing" "" "$SO1"
+
+# Fail-closed: missing oauthAccount.
+NO_OAUTH='{"userID": "abc"}'
+SO2="$(printf '%s' "$NO_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR2=$?
+assert_rc "seed: missing oauthAccount exits non-zero" "1" "$SR2"
+assert_eq "seed: missing oauthAccount writes nothing" "" "$SO2"
+
+# Fail-closed: userID present but not a string.
+BAD_USER='{"userID": 12345, "oauthAccount": {"a": "b"}}'
+SO3="$(printf '%s' "$BAD_USER" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR3=$?
+assert_rc "seed: non-string userID exits non-zero" "1" "$SR3"
+
+# Fail-closed: oauthAccount present but not an object.
+BAD_OAUTH='{"userID": "abc", "oauthAccount": "not-an-object"}'
+SO4="$(printf '%s' "$BAD_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR4=$?
+assert_rc "seed: non-object oauthAccount exits non-zero" "1" "$SR4"
+
+# Fail-closed: empty oauthAccount object -> not usable.
+EMPTY_OAUTH='{"userID": "abc", "oauthAccount": {}}'
+SO5="$(printf '%s' "$EMPTY_OAUTH" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR5=$?
+assert_rc "seed: empty oauthAccount exits non-zero" "1" "$SR5"
+
+# Fail-closed: invalid JSON.
+SO6="$(printf '%s' "not json {" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR6=$?
+assert_rc "seed: invalid JSON exits non-zero" "1" "$SR6"
+assert_eq "seed: invalid JSON writes nothing" "" "$SO6"
+
+# Fail-closed: empty input.
+SO7="$(printf '%s' "" | claude_vm_select_claude_json_seed "$SEED_VERSION" "$SEED_HOST_REPO" "$SEED_GUEST_REPO")"
+SR7=$?
+assert_rc "seed: empty input exits non-zero" "1" "$SR7"
 
 # ---------------------------------------------------------------------
 echo

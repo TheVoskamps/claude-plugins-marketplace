@@ -276,6 +276,187 @@ PASS="$SUB_PASS"
 FAIL="$SUB_FAIL"
 
 # ---------------------------------------------------------------------
+# Test 10: claude_vm_quote_args round-trip (issue #88).
+#
+# The host writes CLAUDE_ARGS as `printf 'CLAUDE_ARGS=%q\n'
+# "$(claude_vm_quote_args "$@")"`, and the guest reconstructs argv with
+# `eval "set -- $CLAUDE_ARGS"` after sourcing run.env under `set -a`.
+# This exercises the FULL round-trip: write a real run.env-style temp file,
+# `source` it, `eval set --`, and assert the exact reconstructed argv --
+# the reproducing example, the empty array, an explicit empty-string arg,
+# and args carrying quotes/spaces/#/$/backslash.
+# ---------------------------------------------------------------------
+
+# rt_argv <var-out> <args...> : run the args through the host quote+write,
+# guest source+eval reconstruction, and set <var-out> to a printable
+# "ARGC|<a1>|<a2>|..." string of the reconstructed argv.
+rt_argv() {
+  local __out="$1"; shift
+  local inner envline tf
+  # Host: inner per-arg %q, then outer %q for the whole line.
+  inner="$(claude_vm_quote_args "$@")"
+  inner="${inner%$'\n'}"
+  printf -v envline 'CLAUDE_ARGS=%q\n' "$inner"
+  tf="$(claude_vm_mktemp claude-vm-runenv)"
+  printf '%s' "$envline" > "$tf"
+  # Guest: source run.env under set -a, eval set --, serialize argv.
+  local serialized
+  serialized="$(
+    set -a
+    # shellcheck disable=SC1090
+    . "$tf"
+    set +a
+    eval "set -- ${CLAUDE_ARGS:-}"
+    printf 'ARGC=%s' "$#"
+    for __a in ${1+"$@"}; do printf '|<%s>' "$__a"; done
+    printf '\n'
+  )"
+  rm -f "$tf"
+  printf -v "$__out" '%s' "$serialized"
+}
+
+RT=""
+rt_argv RT --remote-control --name "foo #7 micro-vm Claude Plugins"
+assert_eq "quote-args: reproducing example round-trips to 3 args" \
+  "ARGC=3|<--remote-control>|<--name>|<foo #7 micro-vm Claude Plugins>" "$RT"
+
+rt_argv RT   # zero args
+assert_eq "quote-args: empty array -> zero argv" \
+  "ARGC=0" "$RT"
+
+rt_argv RT --flag "" tail
+assert_eq "quote-args: explicit empty-string arg survives" \
+  "ARGC=3|<--flag>|<>|<tail>" "$RT"
+
+rt_argv RT 'a b' "it's" '#c' '$HOME' 'back\slash' '"dq"'
+assert_eq "quote-args: quotes/spaces/#/\$/backslash survive verbatim" \
+  'ARGC=6|<a b>|<it'\''s>|<#c>|<$HOME>|<back\slash>|<"dq">' "$RT"
+
+# claude_vm_quote_args prints NOTHING (empty) for zero args -- a stray ''
+# would round-trip into a bogus empty argv element downstream.
+assert_eq "quote-args: zero args prints empty (no bogus '')" \
+  "" "$(claude_vm_quote_args)"
+
+# ---------------------------------------------------------------------
+# Test 11: Remote Control / --name args augmentation (issue #88).
+#
+# claude_vm_augment_rc_args emits one arg per line; join with '|' for a
+# stable comparison. The date stamp is passed IN (fixed) so the assertion
+# is deterministic.
+# ---------------------------------------------------------------------
+STAMP="Jul10-14:30"
+
+# aug_join <rc> <stamp> <args...> : pipe-joined augmented argv.
+aug_join() {
+  local rc="$1" stamp="$2"; shift 2
+  claude_vm_augment_rc_args "$rc" "$stamp" "$@" | paste -sd '|' -
+}
+# aug_join_noargs <rc> <stamp> : augment with NO user args.
+aug_join_noargs() {
+  claude_vm_augment_rc_args "$1" "$2" | paste -sd '|' -
+}
+
+assert_eq "augment: knob true + no CLI flag -> RC injected + --name appended" \
+  "--remote-control|--name|$STAMP" "$(aug_join_noargs true "$STAMP")"
+assert_eq "augment: knob true + CLI --remote-control -> no duplicate RC" \
+  "--remote-control|--name|$STAMP" "$(aug_join true "$STAMP" --remote-control)"
+assert_eq "augment: CLI --remote-control (knob false) -> --name appended" \
+  "--remote-control|--name|$STAMP" "$(aug_join false "$STAMP" --remote-control)"
+assert_eq "augment: --name <v> form not overridden" \
+  "--remote-control|--name|myrun" "$(aug_join true "$STAMP" --name myrun)"
+assert_eq "augment: --name=<v> form not overridden" \
+  "--remote-control|--name=myrun" "$(aug_join true "$STAMP" --name=myrun)"
+assert_eq "augment: knob false + no flag -> args untouched" \
+  "--resume|foo" "$(aug_join false "$STAMP" --resume foo)"
+
+# Date-stamp VALUE assertion: shape, not exact time. The launcher uses
+# `date '+%b%d-%H:%M'` (e.g. Jul10-14:30) -> ^[A-Z][a-z]{2}[0-9]{2}-[0-9]{2}:[0-9]{2}$.
+REAL_STAMP="$(date '+%b%d-%H:%M')"
+if printf '%s' "$REAL_STAMP" | grep -qE '^[A-Z][a-z]{2}[0-9]{2}-[0-9]{2}:[0-9]{2}$'; then
+  assert_eq "augment: date-stamp format shape matches +%b%d-%H:%M" "ok" "ok"
+else
+  assert_eq "augment: date-stamp format shape matches +%b%d-%H:%M" "ok" "bad: [$REAL_STAMP]"
+fi
+
+# ---------------------------------------------------------------------
+# Test 12: claude.remote_control config resolution (issue #88).
+#
+# The launcher resolves the scalar then normalizes: ""/false -> false,
+# true -> true, anything else -> abort. Reproduce that normalization here
+# (the launcher's `case` is not a sourced function, so mirror its logic)
+# and assert true/false/unset resolve and garbage would abort.
+# ---------------------------------------------------------------------
+rc_resolve() {
+  # Prints "true"/"false" on success; prints "ABORT" and returns 1 on garbage.
+  local raw="$1"
+  case "$raw" in
+    ""|false) printf 'false\n' ;;
+    true)     printf 'true\n' ;;
+    *)        printf 'ABORT\n'; return 1 ;;
+  esac
+}
+RC_TRUE_YML="$WORK/rc-true.yml";  printf 'claude:\n  remote_control: true\n'  > "$RC_TRUE_YML"
+RC_FALSE_YML="$WORK/rc-false.yml"; printf 'claude:\n  remote_control: false\n' > "$RC_FALSE_YML"
+RC_UNSET_YML="$WORK/rc-unset.yml"; printf 'claude:\n  version: stable\n'        > "$RC_UNSET_YML"
+RC_GARBAGE_YML="$WORK/rc-garbage.yml"; printf 'claude:\n  remote_control: maybe\n' > "$RC_GARBAGE_YML"
+
+assert_eq "remote_control: true resolves to true" \
+  "true"  "$(rc_resolve "$(claude_vm_scalar "$RC_TRUE_YML" '.claude.remote_control' '')")"
+# NOTE: yq's `// ""` returns "" for a boolean false, so the scalar is "" here;
+# the launcher's normalization maps both "" and "false" to false. Assert false.
+assert_eq "remote_control: false resolves to false" \
+  "false" "$(rc_resolve "$(claude_vm_scalar "$RC_FALSE_YML" '.claude.remote_control' '')")"
+assert_eq "remote_control: unset resolves to false" \
+  "false" "$(rc_resolve "$(claude_vm_scalar "$RC_UNSET_YML" '.claude.remote_control' '')")"
+GARBAGE_RESOLVE="$(rc_resolve "$(claude_vm_scalar "$RC_GARBAGE_YML" '.claude.remote_control' '')" || true)"
+assert_eq "remote_control: garbage would abort the launch" \
+  "ABORT" "$GARBAGE_RESOLVE"
+
+# ---------------------------------------------------------------------
+# Test 13: copy-back real-change gating (issue #88).
+#
+# The launcher's copy_back_real_changes runs a --checksum dry-run and
+# filters --itemize-changes to content/structural lines (leading >, c, *).
+# Attribute-only lines (leading `.`, e.g. mtime-only skew from a clone
+# checkout) are excluded -- that is the whole point. Reproduce the helper
+# here against temp trees and assert: identical content + skewed mtime ->
+# NO real changes; a genuinely differing file -> a real change. Skips
+# cleanly if rsync is unavailable.
+# ---------------------------------------------------------------------
+if command -v rsync >/dev/null 2>&1; then
+  # Mirror the launcher's copy_back_real_changes exactly.
+  cb_real_changes() {
+    local wt="$1" src="$2"
+    rsync -a --checksum --dry-run --itemize-changes --exclude '.git' \
+      "$wt"/ "$src"/ | grep -E '^[>c*]' || true
+  }
+
+  CB_SRC="$WORK/cb-src"; CB_WT="$WORK/cb-wt"
+  mkdir -p "$CB_SRC" "$CB_WT"
+  # Identical content, skewed mtime (the false-positive case).
+  printf 'hello\n' > "$CB_SRC/same.txt"
+  printf 'hello\n' > "$CB_WT/same.txt"
+  touch -t 202001010000 "$CB_SRC/same.txt"
+  touch -t 202512120000 "$CB_WT/same.txt"
+  assert_eq "copy-back gate: identical content + mtime skew -> no real changes" \
+    "" "$(cb_real_changes "$CB_WT" "$CB_SRC")"
+
+  # Genuinely differing file -> a real change (leading '>').
+  printf 'NEW content\n' > "$CB_WT/changed.txt"
+  printf 'old\n'         > "$CB_SRC/changed.txt"
+  touch -t 202001010000 "$CB_SRC/changed.txt"
+  touch -t 202512120000 "$CB_WT/changed.txt"
+  CB_CHANGED="$(cb_real_changes "$CB_WT" "$CB_SRC")"
+  case "$CB_CHANGED" in
+    *changed.txt*) assert_eq "copy-back gate: genuinely changed file -> a real change" "hit" "hit" ;;
+    *)             assert_eq "copy-back gate: genuinely changed file -> a real change" "hit" "miss: [$CB_CHANGED]" ;;
+  esac
+else
+  echo "ok   - copy-back gate: SKIP (rsync not available)"
+  PASS=$((PASS + 1))
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

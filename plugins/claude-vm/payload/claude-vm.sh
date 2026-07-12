@@ -26,6 +26,21 @@
 # Control requires. The credential is NEVER written to config, to the
 # verified-binary cache, or into run.env, and the tmpfile is removed on exit.
 #
+# IDENTITY SEED (issue #88): the mounted ~/.claude/.credentials.json bearer
+# token alone does NOT make the interactive guest TUI treat itself as onboarded
+# + logged in -- it also needs the right ~/.claude.json state, which a fresh
+# throwaway guest lacks, so every launch shows the onboarding/login wall. So
+# the launcher ALSO builds a seed from the host's ~/.claude.json: it selects
+# ONLY `userID` + `oauthAccount` from the host and synthesizes four more keys
+# -- `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false` (no
+# self-update in the egress-confined guest), and `lastOnboardingVersion` /
+# `lastReleaseNotesSeen` stamped with the concrete resolved claude version.
+# machineID is NOT seeded -- the guest mints its own. The resulting 6-key object
+# is delivered to the guest the SAME transient RO shred-on-exit way as the
+# keychain credential (via the claudecreds mount, NEVER via run.env). The guest
+# boot launcher installs it at /root/.claude.json before exec'ing claude. This
+# seed is ADDITIVE and layered alongside the keychain credential mount above.
+#
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
 #
@@ -57,6 +72,13 @@ CLAUDE_ARGS=("$@")
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
 REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
+
+# The fixed guest-side mount point the boot launcher cd's into (build-guest-
+# image.sh's boot launcher sets REPO_MNT=/mnt/repo and the guest fstab mounts
+# the repo share there). The identity seed keys its projects{} entry on THIS
+# path so the guest skips the "trust this folder?" dialog for /mnt/repo (issue
+# #88). Keep in lockstep with REPO_MNT in build-guest-image.sh.
+GUEST_REPO_MNT="/mnt/repo"
 
 claude_vm_require_yq || exit 1
 command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 1; }
@@ -100,6 +122,61 @@ GUEST_IMAGE="$(claude_vm_scalar "$MERGED" '.guest_image' "$DEFAULT_IMAGE_DIR/gue
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
 CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
+
+# claude.renderer: which renderer the in-guest claude uses on the byte-pipe
+# console (issue #88). The vfkit stdio console is a plain bidirectional byte
+# pipe, but the guest's alternate-screen (fullscreen) renderer survives it
+# (verified on a real host), so this is a preference, not a workaround:
+#   classic    -> CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 (no alt-screen)
+#   fullscreen -> CLAUDE_CODE_NO_FLICKER=1               (force alt-screen)
+#   unset/""   -> pass nothing; claude uses its own default
+# Mapped to the matching env var(s) in run.env below. An unrecognized value
+# is rejected up front rather than silently ignored.
+CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED" '.claude.renderer' "")"
+case "$CLAUDE_RENDERER" in
+  ""|classic|fullscreen) : ;;
+  *)
+    echo "claude-vm: unknown claude.renderer '$CLAUDE_RENDERER' (expected classic|fullscreen, or leave unset)" >&2
+    exit 1
+    ;;
+esac
+
+# claude.remote_control: OPT-IN boolean (issue #88) enabling Claude Code's
+# Remote Control on this launch. Same layered-scalar resolution as
+# claude.renderer (global + per-repo override, repo wins), default false/unset.
+# When true, the launcher injects `--remote-control` into the guest's CLAUDE_ARGS
+# (unless the CLI args already carry it) and, if Remote Control is in effect but
+# no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
+# date-stamp default). Validate like the renderer knob: accept true/false/unset;
+# anything else aborts up front rather than being silently ignored.
+CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED" '.claude.remote_control' "")"
+case "$CLAUDE_REMOTE_CONTROL" in
+  ""|false) CLAUDE_REMOTE_CONTROL="false" ;;
+  true)     CLAUDE_REMOTE_CONTROL="true" ;;
+  *)
+    echo "claude-vm: unknown claude.remote_control '$CLAUDE_REMOTE_CONTROL' (expected true|false, or leave unset)" >&2
+    exit 1
+    ;;
+esac
+
+# Augment the user's post-repo CLI args with the Remote Control opt-in and the
+# --name date-stamp default (issue #88). The date stamp uses the '+%b%d-%H:%M'
+# format issue #51 plans for run naming (e.g. Jul10-14:30). Computed HOST-SIDE
+# here (not in the guest) so the name reflects the launch time on the operator's
+# machine. claude_vm_augment_rc_args is pure (stamp passed in) so it is
+# unit-tested with a fixed stamp; it emits one arg per line, read back into the
+# CLAUDE_ARGS array without re-splitting spaces inside an arg. When the knob is
+# false/unset AND no CLI --remote-control is present, the args pass through
+# unchanged.
+_rc_name_stamp="$(date '+%b%d-%H:%M')"
+_augmented_args=()
+while IFS= read -r _line; do
+  _augmented_args+=("$_line")
+done < <(claude_vm_augment_rc_args \
+           "$CLAUDE_REMOTE_CONTROL" "$_rc_name_stamp" \
+           ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
+CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
+unset _rc_name_stamp _augmented_args _line
 
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
@@ -177,6 +254,50 @@ claude_vm_preflight_trust_path() {
 }
 claude_vm_preflight_trust_path \
   || { echo "claude-vm: trust-path preflight failed; see the messages above." >&2; exit 1; }
+
+# ---------------------------------------------------------------------
+# Identity-seed PREFLIGHT (issue #88). The interactive Claude Code TUI in the
+# guest decides "am I onboarded / logged in" from ON-DISK state: the bearer
+# token in ~/.claude/.credentials.json (installed below from the Keychain,
+# via the claudecreds mount) PLUS identity AND onboarding state in
+# ~/.claude.json. A fresh throwaway guest lacks that state, so without a seed
+# every launch shows the onboarding/login wall regardless of the mounted
+# credential. The launcher seeds a /root/.claude.json into the guest carrying
+# the host's `userID`/`oauthAccount` PLUS synthesized `hasCompletedOnboarding`/
+# `autoUpdates`/`lastOnboardingVersion`/`lastReleaseNotesSeen` (see the
+# "identity seed" block below).
+#
+# Gate here, FAST, before any build/boot work: if the host ~/.claude.json is
+# missing, or lacks a usable `userID` or `oauthAccount`, abort with an
+# actionable, claude-vm-branded message. Guarded ${...:-} so an unset $HOME
+# does not trip `set -u`. The full selection (which validates and reserializes
+# the two keys) runs later against $CREDS_DIR; this is the cheap early gate on
+# the same preconditions.
+# ---------------------------------------------------------------------
+HOST_CLAUDE_JSON="${HOME:-}/.claude.json"
+if [ ! -s "$HOST_CLAUDE_JSON" ]; then
+  echo "claude-vm: no ~/.claude.json found on the host (looked at '$HOST_CLAUDE_JSON')." >&2
+  echo "claude-vm: the guest seeds its identity (userID + oauthAccount) from your host's" >&2
+  echo "claude-vm: ~/.claude.json so the in-guest claude comes up already logged in. That" >&2
+  echo "claude-vm: file only exists once you have logged in to Claude Code on this host." >&2
+  echo "claude-vm: run 'claude' once and complete the claude.ai login, then retry." >&2
+  exit 1
+fi
+# The version arg here is best-effort ($CLAUDE_VERSION, the raw channel/pin):
+# this preflight only validates that userID/oauthAccount are present and
+# discards stdout, so the version fields it would emit are not load-bearing.
+# The authoritative concrete version is resolved later (after the cache-ensure
+# block) and passed to the REAL seed write below (~line 588). Resolving a
+# channel here would force a premature network fetch in the fast preflight.
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" >/dev/null 2>&1; then
+  echo "claude-vm: your host ~/.claude.json ('$HOST_CLAUDE_JSON') has no usable identity state" >&2
+  echo "claude-vm: (a 'userID' string and an 'oauthAccount' object). The guest seeds these two" >&2
+  echo "claude-vm: keys so the in-guest claude comes up already logged in. This usually means" >&2
+  echo "claude-vm: you are not (fully) logged in to Claude Code on this host: run 'claude' once" >&2
+  echo "claude-vm: and complete the claude.ai login, then retry. (python3, which ships with" >&2
+  echo "claude-vm: macOS, is required to select the seed.)" >&2
+  exit 1
+fi
 
 # ---------------------------------------------------------------------
 # Dependency preflight for the VM toolchain. Fail FAST here -- before any
@@ -262,6 +383,21 @@ CLAUDE_VM_CACHE_NETWORK="$(cat "$CACHE_STATE_FILE" 2>/dev/null || true)"
 rm -f "$CACHE_STATE_FILE"
 echo "claude-vm: using verified claude binary: $CLAUDE_BIN_HOST (fetch=${CLAUDE_VM_CACHE_NETWORK:-unknown})" >&2
 
+# Resolve the channel/pin ($CLAUDE_VERSION, e.g. stable|latest|2.1.172) to a
+# concrete dotted version for the identity seed (issue #88). The widened seed
+# stamps this into lastOnboardingVersion / lastReleaseNotesSeen so the guest
+# TUI's onboarding-version / release-notes gates read as satisfied. A pinned
+# version resolves to itself with no network; stable|latest fetch the channel
+# pointer. We resolve here -- AFTER claude_cache_ensure, which already did any
+# channel-pointer fetch a few lines up -- so this is a warm/no-op resolution
+# with no extra network round-trip, and it is captured ONCE and reused at the
+# real seed write below (~line 588). On the unexpected event that resolution
+# fails, fall back to the raw channel/pin string: the seed's version fields are
+# a best-effort onboarding hint, not a correctness gate, and must not block an
+# otherwise-bootable guest.
+CLAUDE_VERSION_RESOLVED="$(claude_cache_resolve_version "$CLAUDE_VERSION" 2>/dev/null || true)"
+[ -n "$CLAUDE_VERSION_RESOLVED" ] || CLAUDE_VERSION_RESOLVED="$CLAUDE_VERSION"
+
 # ---------------------------------------------------------------------
 # Run directory + repo mount strategy
 # ---------------------------------------------------------------------
@@ -290,16 +426,52 @@ else
   RUN="$(claude_vm_mktemp -d claude-vm)"
 fi
 
-GVPROXY_SOCK="$RUN/vfkit-net.sock"
+# gvproxy unix socket -- sited under a SHORT $TMPDIR path, NOT under $RUN
+# (issue #88, Finding 7). The AF_UNIX sun_path limit is ~104 bytes, and
+# vfkit derives a child socket name (e.g. vfkit-<hex>-<num>.sock, ~20 bytes)
+# in the SAME directory as the socket we pass it. With $RUN under
+# <repo>/.claude/tmp/<runid>/ the base socket path is already ~118 bytes on a
+# normally-nested repo -- and the derived child path ~124 -- so BOTH overflow
+# and `claude-vm <repo>` cannot boot. The run dir must stay under the repo
+# (the diff/apply skills depend on its location), but the socket location is
+# independent of it: site it under a short mktemp dir under $TMPDIR (resulting
+# child path ~79 bytes, well under the limit). $TMPDIR is used BARE: it is
+# always set on macOS (the only platform claude-vm targets), is a per-user
+# owner-only dir (matches the launcher's credential posture, unlike
+# world-writable /tmp), and a user can override with TMPDIR=... claude-vm ...
+# If it is somehow unset, fail with a clear claude-vm message rather than a
+# raw `set -u` error or a silent downgrade to /tmp. The socket dir is removed
+# by cleanup() on exit.
+if [ -z "${TMPDIR:-}" ]; then
+  echo "claude-vm: \$TMPDIR is not set. claude-vm sites the gvproxy unix socket under a short" >&2
+  echo "claude-vm: \$TMPDIR path to stay under the ~104-byte AF_UNIX limit. macOS always sets" >&2
+  echo "claude-vm: \$TMPDIR; if it is unset, set it (e.g. TMPDIR=/tmp claude-vm ...) and retry." >&2
+  exit 1
+fi
+SOCK_DIR="$(claude_vm_mktemp -d claude-vm-sock)"
+GVPROXY_SOCK="$SOCK_DIR/net.sock"
 PCAP="$RUN/egress.pcap"
-# Host-side capture of the guest's virtio-console (/dev/hvc0 in the guest).
-# The boot unit writes StandardOutput=journal+console and the recipe's
-# KernelCommandLine sets console=hvc0 (provisioners/podman-mkosi.sh, issue
-# #71), so the boot launcher's claude-vm: seam lines and any claude/boot
-# error land on this stream. Capturing it here (issue #87) makes an
-# otherwise-black-box boot observable from the host: without the matching
-# vfkit --device virtio-serial,logFilePath=... below, the guest writes to
-# its console and the host throws it away.
+# Retained log files for the two host-side background processes (issue #88).
+# Both are sited under $RUN (the persistent run dir) and their stdout+stderr
+# are redirected here at launch so their chatty diagnostics do NOT flood the
+# interactive hvc1 terminal. Retained (not /dev/null) so failures stay
+# diagnosable, matching $GUEST_CONSOLE_LOG.
+GVPROXY_LOG="$RUN/gvproxy.log"
+PROXY_LOG="$RUN/proxy.log"
+# Host-side capture of the guest's BOOT virtio-console (/dev/hvc0 in the
+# guest). The recipe's KernelCommandLine sets console=hvc0
+# (provisioners/podman-mkosi.sh, issue #71), so all kernel + systemd boot
+# output -- and the boot launcher's claude-vm: diagnostic/seam lines, which it
+# writes explicitly to /dev/console -- land on this stream. Capturing it here
+# (issue #87) makes an otherwise-black-box boot observable from the host.
+#
+# Dual-console topology (issue #88): hvc0 is the FIRST virtio-serial device
+# (boot capture, logFilePath below); a SECOND virtio-serial device is attached
+# in `stdio` mode -> guest hvc1, the INTERACTIVE console the launching terminal
+# bridges to. Device order is deterministic (1st -> hvc0, 2nd -> hvc1). claude
+# runs on hvc1 via an autologin getty (see build-guest-image.sh /
+# provisioners/podman-mkosi.sh), so boot diagnostics (hvc0 capture) stay off
+# the interactive terminal (hvc1).
 GUEST_CONSOLE_LOG="$RUN/guest-console.log"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
@@ -308,8 +480,11 @@ EFISTORE="$RUN/efistore"
 # shared into the guest under mountTag=runconfig, and the secret-bearing
 # OAuth credential must never travel in the run.env share. Its own dir is
 # shared under a separate tag (claudecreds) so only the credential file is
-# exposed. Both dirs are created under the tightened umask (077) so they
-# are drwx------ from creation -- the credential is not world-traversable.
+# exposed. The identity seed (issue #88, claude-json-seed.json) is written
+# into this SAME dir for the same reason -- it carries account identity and
+# must not ride in run.env either. Both dirs are created under the tightened
+# umask (077) so they are drwx------ from creation -- the secrets are not
+# world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 
@@ -458,6 +633,92 @@ if [ "$SELECT_RC" -ne 0 ] || [ ! -s "$HOST_CREDENTIAL" ]; then
 fi
 chmod 600 "$HOST_CREDENTIAL"
 
+# ---------------------------------------------------------------------
+# VALIDATE the selected credential's tokens (issue #88, Gap 1).
+#
+# The structural selection above accepts a `claudeAiOauth` object that is a
+# valid non-empty dict -- but a real host was observed whose PERSISTED Keychain
+# entry had gone DEGRADED: a structurally-complete `claudeAiOauth` with EMPTY
+# accessToken/refreshToken strings (and expiresAt: 0), while the host's own
+# claude sessions kept working via the shared auth daemon's in-memory tokens.
+# Copied into the guest, that empty credential boots claude to
+# "Not logged in -- Run /login", and an in-guest /login can trip OAuth
+# reuse-detection and REVOKE the operator's other live sessions. So fail FAST
+# here, steering the operator to re-login on the HOST (which repairs the
+# Keychain entry) -- NOT into an in-guest /login.
+# ---------------------------------------------------------------------
+set +e
+claude_vm_validate_claude_credential_tokens < "$HOST_CREDENTIAL"
+VALIDATE_RC=$?
+set -e
+if [ "$VALIDATE_RC" -eq 2 ]; then
+  # python3 missing -- an environment problem, not a "log in" problem.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: cannot validate the claude.ai OAuth credential: python3 is required but not" >&2
+  echo "claude-vm: found on PATH. python3 ships with macOS; ensure it is available, then retry." >&2
+  exit 1
+fi
+if [ "$VALIDATE_RC" -ne 0 ]; then
+  # Degraded Keychain entry: the claudeAiOauth object exists but its
+  # accessToken/refreshToken are empty. Abort BEFORE booting a broken guest.
+  rm -f "$HOST_CREDENTIAL"
+  umask "$OLD_UMASK"
+  echo "claude-vm: the macOS Keychain item (service '$KEYCHAIN_SERVICE') has a claude.ai OAuth" >&2
+  echo "claude-vm: credential, but its accessToken and refreshToken are EMPTY -- a degraded state" >&2
+  echo "claude-vm: that happens when your host claude sessions coast on the shared auth daemon's" >&2
+  echo "claude-vm: in-memory tokens while the persisted Keychain entry has gone stale. The guest" >&2
+  echo "claude-vm: would boot to 'Not logged in -- Run /login' with this credential. Re-login on" >&2
+  echo "claude-vm: THIS HOST to repair the Keychain entry -- run 'claude' then '/login' (or restart" >&2
+  echo "claude-vm: Claude Code) -- then retry claude-vm. Do NOT run /login inside the guest: a" >&2
+  echo "claude-vm: retried guest login can revoke your other live sessions." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------
+# Identity seed -> the SAME shred-on-exit claudecreds mount (issue #88).
+#
+# The interactive guest TUI treats itself as onboarded + logged in only when
+# the bearer token (installed above at ~/.claude/.credentials.json) AND the
+# right ~/.claude.json state are present. Build the seed from the host
+# ~/.claude.json (preflighted above): select `userID` + `oauthAccount` from the
+# host, synthesize `hasCompletedOnboarding: true` (skip the onboarding wall),
+# `autoUpdates: false` (don't self-update in the egress-confined guest), and
+# `lastOnboardingVersion` / `lastReleaseNotesSeen` stamped with the concrete
+# resolved claude version; ADDITIVELY carry benign host UI keys when present
+# (installMethod, hasSeenTasksHint, hasUsedStash, tipsHistory); and seed a
+# `projects` entry for the guest mount path ($GUEST_REPO_MNT) with
+# hasTrustDialogAccepted / hasCompletedProjectOnboarding forced true so the
+# guest skips the "trust this folder?" dialog (issue #88, Gap 2). Write that
+# object into
+# $CREDS_DIR -- the SAME transient owner-only dir shared RO into the guest under
+# mountTag=claudecreds and shredded by cleanup() on every exit (EXIT/INT/TERM).
+# machineID is NOT seeded -- the guest mints its own. It is NOT named
+# .credentials.json (that name is the bearer token's) -- the guest boot launcher
+# reads claude-json-seed.json and installs it at /root/.claude.json before
+# exec'ing claude (see build-guest-image.sh). The seed carries account identity,
+# so it rides the SAME secret posture as the credential (never in run.env, never
+# in the verified-binary cache). We are still inside the umask-077 window, so
+# the file is created -rw------- with no world-readable moment; the chmod 600 is
+# belt-and-braces. Selection is fail-closed and was already validated at the
+# preflight; a failure here is unexpected -- abort rather than seed a partial or
+# empty file that would drop the guest back to the onboarding/login wall.
+# ---------------------------------------------------------------------
+HOST_CLAUDE_JSON_SEED="$CREDS_DIR/claude-json-seed.json"
+# Authoritative seed write: pass the CONCRETE resolved version (captured after
+# the cache-ensure block) so the emitted seed's lastOnboardingVersion /
+# lastReleaseNotesSeen carry a real dotted version, not a channel name.
+if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$GUEST_REPO_MNT" < "$HOST_CLAUDE_JSON" > "$HOST_CLAUDE_JSON_SEED"; then
+  rm -f "$HOST_CLAUDE_JSON_SEED"
+  umask "$OLD_UMASK"
+  echo "claude-vm: failed to select the identity seed (userID + oauthAccount) from" >&2
+  echo "claude-vm: '$HOST_CLAUDE_JSON'. It passed the earlier preflight, so this is unexpected" >&2
+  echo "claude-vm: (the file may have changed under us). Re-run 'claude' to confirm you are" >&2
+  echo "claude-vm: logged in on the host, then retry." >&2
+  exit 1
+fi
+chmod 600 "$HOST_CLAUDE_JSON_SEED"
+
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
 umask "$OLD_UMASK"
@@ -498,12 +759,63 @@ esac
 # now that it holds no secret, and it keeps the discipline if a secret is
 # ever reintroduced here.
 # ---------------------------------------------------------------------
+# Capture the host terminal geometry (issue #88). The vfkit stdio console is
+# a plain byte pipe with NO out-of-band window-size channel, so the guest
+# hvc1 tty defaults to a fixed 80x24 regardless of the host window. Seed the
+# guest's tty size from the host's `stty size` so claude renders at the host
+# terminal's dimensions. The hvc1 getty runs `stty cols/rows` from these env
+# values BEFORE exec'ing claude (env alone is insufficient -- programs that
+# query the tty via TIOCGWINSZ need the kernel tty geometry set). This is
+# one-time: the transport carries no live resize, so this seeds the initial
+# size only. `stty size` prints "<rows> <cols>" on the controlling tty; it
+# fails when stdin is not a tty (e.g. invoked from a pipe/tool), so guard it
+# and leave COLUMNS/LINES empty when unavailable -- the guest then keeps its
+# 80x24 default rather than getting a bogus size.
+HOST_COLUMNS=""
+HOST_LINES=""
+# Save the host terminal's line settings so cleanup() can RESTORE them on exit
+# (issue #88). Diagnosis (observed on real hardware): vfkit's `virtio-serial,
+# stdio` bridge puts the host tty into RAW mode for the interactive guest
+# session, and that raw mode SURVIVES vfkit's death -- the terminal is left
+# with echo off and ICANON off (Enter sends \r, not \n). The copy-back
+# confirmation prompt in copy_back() then hangs: `read -r` never sees a newline,
+# typed input is not echoed, and Ctrl-C/Ctrl-D are swallowed. Capturing the
+# pristine state here (via `stty -g`) lets cleanup() put the tty back into
+# canonical mode BEFORE it prompts. Read from /dev/tty (not stdin) so the save
+# works even when stdin is redirected -- the controlling terminal is what vfkit
+# corrupts and what the prompt reads/writes. Empty when no controlling tty is
+# available (non-interactive launch); cleanup() then skips the restore.
+HOST_TTY_STATE=""
+if [ -t 0 ]; then
+  if _stty_size="$(stty size 2>/dev/null)"; then
+    HOST_LINES="${_stty_size%% *}"
+    HOST_COLUMNS="${_stty_size##* }"
+  fi
+fi
+if [ -e /dev/tty ] && [ -r /dev/tty ]; then
+  HOST_TTY_STATE="$(stty -g < /dev/tty 2>/dev/null || true)"
+fi
+
 RUN_ENV="$CONFIG_DIR/run.env"
+# run.env value-quoting audit (issue #88). run.env is sourced under `set -a`
+# by the guest boot launcher, so EVERY value line must be a safe shell
+# assignment. Audited all values written below:
+#   - HTTPS_PROXY / HTTP_PROXY: built from $GVPROXY_HOST_ALIAS + $PROXY_PORT,
+#     both CONFIG scalars (proxy.host_alias / proxy.port) a user can set to an
+#     arbitrary string -> %q-quoted below (arbitrary-string carriers).
+#   - CLAUDE_VM_COLUMNS / CLAUDE_VM_LINES: from `stty size` (always "rows cols"
+#     numerics on a real tty; empty on a non-tty). Provably-numeric in
+#     practice, but %q-quoted defensively since they come from a subprocess.
+#   - NO_PROXY, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
+#     DISABLE_AUTOUPDATER, and the renderer CLAUDE_CODE_* vars: FIXED LITERALS
+#     (or emitted only for a validated enum value) -> provably safe, left as-is.
+#   - CLAUDE_ARGS: arbitrary user CLI args -> the per-arg-%q + outer-%q
+#     round-trip below (its own dedicated fix).
 (
   umask 077
   {
-    printf 'HTTPS_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
-    printf 'HTTP_PROXY=http://%s:%s\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'HTTPS_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'HTTP_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
     printf 'REPO_TAG=repo\n'
     printf 'POLICY_TAG=policy\n'
@@ -516,7 +828,43 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
     # (mode 0600) so claude authenticates as the host operator.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
-    printf 'CLAUDE_ARGS=%s\n' "${CLAUDE_ARGS[*]}"
+    # Host terminal geometry (issue #88). Empty when not launched from a real
+    # terminal; the boot launcher only runs `stty` when both are non-empty.
+    # %q-quoted defensively (audit above): empty -> "''", numerics unchanged.
+    printf 'CLAUDE_VM_COLUMNS=%q\n' "$HOST_COLUMNS"
+    printf 'CLAUDE_VM_LINES=%q\n' "$HOST_LINES"
+    # Renderer selection (issue #88) mapped from claude.renderer. The boot
+    # launcher exports the matching CLAUDE_CODE_* var when this is set; an
+    # empty value leaves claude on its own default.
+    case "$CLAUDE_RENDERER" in
+      classic)    printf 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1\n' ;;
+      fullscreen) printf 'CLAUDE_CODE_NO_FLICKER=1\n' ;;
+    esac
+    # Disable claude's auto-updater in the guest (issue #88). This is the
+    # documented Claude Code env knob for suppressing the self-update; the boot
+    # launcher sources run.env under `set -a`, so it exports into claude's
+    # environment for free. Belt-and-braces with the seeded autoUpdates: false
+    # config key: the guest is egress-confined and runs an RO-mounted binary, so
+    # an update attempt can only ever fail. Not a secret -- run.env is the right
+    # vehicle.
+    printf 'DISABLE_AUTOUPDATER=1\n'
+    # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
+    # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
+    # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced
+    # as a bare line tries to EXECUTE `--name` (with the `#...` comment-
+    # stripped), the getty login program dies, and agetty respawns forever.
+    # Fix: inner per-arg %q (claude_vm_quote_args) preserves each arg's
+    # boundaries; outer %q makes the whole CLAUDE_ARGS=<...> LINE safe to
+    # `source` under `set -a`. The guest reverses it with
+    # `eval "set -- $CLAUDE_ARGS"` (see build-guest-image.sh boot launcher).
+    # Both halves of the contract live together in lib/config.sh's
+    # claude_vm_quote_args comment. ZERO args -> the helper prints nothing, so
+    # the line is `CLAUDE_ARGS=''` and the guest reconstructs an empty argv.
+    # The `[@]+"[@]"` guard expands an EMPTY array to nothing under `set -u`
+    # (an unguarded `"${CLAUDE_ARGS[@]}"` on an empty array is an unbound-
+    # variable error on bash < 4.4), matching EXTRA_MOUNT_FLAGS below.
+    printf 'CLAUDE_ARGS=%q\n' \
+      "$(claude_vm_quote_args ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})"
   } > "$RUN_ENV"
 )
 chmod 600 "$RUN_ENV"
@@ -622,9 +970,56 @@ src_tree_is_dirty() {
 # excluding .git so local history/branch state is untouched. rsync
 # errors are NOT suppressed -- a failure must be visible. Returns
 # rsync's exit status.
+#
+# ADDITIVE-ONLY by design: --delete is deliberately NOT passed, so files the
+# guest added or changed are copied back but files the guest DELETED are not
+# propagated -- a deletion in the throwaway guest never removes a file from the
+# operator's source tree.
+#
+# --checksum (issue #88): decide "same or different" by CONTENT hash, not the
+# default size+mtime heuristic. A clone checkout skews file mtimes relative to
+# the source without changing content; without --checksum rsync would rewrite
+# those content-identical files (harmless but noisy, and it made the dirty-gate
+# preview below flag files the session never touched). --checksum makes the
+# real copy-back and its dry-run preview agree on exactly which files changed.
 copy_back_rsync() {
-  rsync -a --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ \
+  rsync -a --checksum --exclude '.git' "$WORKTREE"/ "$REPO_SRC"/ \
     || { echo "claude-vm: copy-back failed (rsync); worktree retained at $WORKTREE" >&2; return 1; }
+}
+
+# Print the rsync itemize lines for CONTENT/STRUCTURAL changes only (issue #88).
+# Runs the copy-back as a --checksum dry-run and filters --itemize-changes output
+# to lines whose FIRST char is `>` (a file transfer) or `c` (a creation/change of
+# a non-regular entry, e.g. a dir or symlink). The `*` in the pattern would match
+# a message line such as `*deleting`, but copy_back_rsync is ADDITIVE-ONLY by
+# design: it never passes --delete, so rsync never emits a `*deleting` line here
+# and guest-side deletions are NOT propagated back to the source. The `*` is kept
+# only for defensive completeness should the additive-only choice ever change.
+# Lines beginning with `.` are ATTRIBUTE-ONLY (mtime/perm/owner differ but content
+# does not) and are DELIBERATELY excluded -- with --checksum a content-identical
+# file whose mtime is skewed itemizes as `.f..t......`, which must NOT count as a
+# change. Prints nothing (and the caller treats that as "no real changes") when
+# only attribute-only or no differences exist. rsync's own errors flow to stderr
+# (no 2>/dev/null) so a broken preview is visible.
+copy_back_real_changes() {
+  rsync -a --checksum --dry-run --itemize-changes --exclude '.git' \
+    "$WORKTREE"/ "$REPO_SRC"/ \
+    | grep -E '^[>c*]' || true
+}
+
+# Re-assert the host terminal's saved line settings on /dev/tty (issue #88).
+# Called from both cleanup() (once, at the top of the trap) and copy_back()
+# (again, immediately before the confirmation prompt). Same pattern and guards
+# in both places: prefer the exact saved state (stty -g captured at launch),
+# fall back to `stty sane`, and never let a tty-restore failure abort the
+# caller (|| true). Guarded on a non-empty saved state and a writable /dev/tty,
+# so it is a no-op for a non-interactive launch (HOST_TTY_STATE empty).
+restore_host_tty() {
+  if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
+    stty "$HOST_TTY_STATE" < /dev/tty 2>/dev/null \
+      || stty sane < /dev/tty 2>/dev/null \
+      || true
+  fi
 }
 
 copy_back() {
@@ -642,16 +1037,28 @@ copy_back() {
   case "$COPY_BACK" in
     none) return 0 ;;
     local|"")
+      # Compute the REAL (content/structural) changes ONCE, up front (issue #88).
+      # This is the --checksum-based, attribute-only-filtered set (see
+      # copy_back_real_changes). It gates BOTH the clean and dirty paths so a
+      # tree that differs only by clone-checkout mtime skew -- files the session
+      # never touched -- never triggers copy-back or its scary prompt.
+      local real_changes
+      real_changes="$(copy_back_real_changes)"
+      if [ -z "$real_changes" ]; then
+        # Nothing of substance to apply: no content added, changed, or removed.
+        # Skip BOTH the prompt and the rsync entirely, even when the source tree
+        # is otherwise dirty -- there is nothing for copy-back to overwrite.
+        echo "claude-vm: copy-back: no content changes to apply." >&2
+        return 0
+      fi
       if src_tree_is_dirty; then
         echo "claude-vm: WARNING -- local source ($REPO_SRC) has uncommitted changes." >&2
-        echo "claude-vm: copy-back would overwrite overlapping files. Preview of what it would change:" >&2
-        # Show a preview of files copy-back would change, without writing
-        # anything. --itemize-changes lists per-file actions; errors are
-        # surfaced (no 2>/dev/null). A preview failure is not fatal -- we
-        # still fall through to the confirmation prompt.
-        rsync -a --dry-run --itemize-changes --exclude '.git' \
-          "$WORKTREE"/ "$REPO_SRC"/ >&2 \
-          || echo "claude-vm: (could not compute copy-back preview)" >&2
+        echo "claude-vm: copy-back would overwrite overlapping files. Content changes it would apply:" >&2
+        # Show the FILTERED preview: content/structural changes only. Attribute-
+        # only itemize lines (leading `.`, e.g. mtime-only skew) are deliberately
+        # excluded here -- they are exactly the noise that made this prompt fire
+        # spuriously. real_changes is already that filtered set.
+        printf '%s\n' "$real_changes" >&2
         # Require explicit confirmation. Read from the controlling tty so
         # this works even when invoked from the EXIT/INT trap with stdin
         # consumed. If no usable tty is available (non-interactive, or
@@ -665,12 +1072,50 @@ copy_back() {
         # actually swallow it, the brace group (which includes the
         # redirect) is what gets 2>/dev/null. A failed open then makes the
         # group fail quietly, the `if` takes the else branch, and reply
-        # stays empty -- which routes to SKIP.
+        # stays empty -- which routes to SKIP. cleanup() restores the host
+        # tty to canonical mode BEFORE calling copy_back (issue #88), so this
+        # read is not defeated by vfkit's leftover raw-mode terminal.
+        #
+        # Re-assert the tty state HERE, immediately before the prompt, in
+        # addition to cleanup()'s early restore. On real hardware (after the
+        # cleanup()-top restore) the tty ended up icanon+echo ON but ICRNL
+        # OFF: Enter (\r) neither terminated the read nor translated to \n,
+        # and echoed as `^M` -- only a literal newline (Shift+Enter) submitted.
+        #
+        # Mechanism CONFIRMED (poisoned snapshot): HOST_TTY_STATE is a
+        # launch-time snapshot (`stty -g < /dev/tty` at startup) of whatever
+        # the terminal already was. If the terminal was ALREADY corrupted at
+        # launch, restoring that snapshot faithfully reproduces the corruption.
+        # This is a real, confirmed incident: a prior crashed claude-vm run
+        # left the user's terminal tab carrying -icrnl, and every subsequent
+        # run snapshotted that already-broken state and then "restored" it
+        # right here -- the restore worked perfectly, its input was poisoned.
+        # (The user's shell masks it between runs because zsh's line editor
+        # drives the terminal itself and does not need ICRNL.)
+        #
+        # So restore_host_tty() is not enough on its own: force the exact
+        # termios bits this confirmation read requires, regardless of what the
+        # snapshot contained. We need ICRNL (Enter's \r -> \n), ICANON (line
+        # discipline), and ECHO (visible typing). Force ONLY those three and
+        # leave everything else to the snapshot restore. We do NOT change
+        # restore_host_tty() itself: cleanup()'s final restore must keep
+        # putting the terminal back to exactly the launch state -- even a weird
+        # one -- as its polite contract; the force applies only where WE need
+        # specific semantics, i.e. our own prompt.
+        restore_host_tty
+        # Guard the same way restore_host_tty() does (writable /dev/tty) rather
+        # than relying on the redirect failing -- consistent with the sibling.
+        if [ -e /dev/tty ] && [ -w /dev/tty ]; then
+          stty icrnl icanon echo < /dev/tty 2>/dev/null || true
+        fi
         local reply=""
         if [ -t 0 ] || { [ -e /dev/tty ] && [ -r /dev/tty ]; }; then
           printf 'claude-vm: apply copy-back over the dirty source tree? [y/N] ' >&2
           if { read -r reply < /dev/tty; } 2>/dev/null; then :; else reply=""; fi
         fi
+        # Belt-and-braces: strip a trailing CR so a raw `y\r` still matches if
+        # ICRNL is somehow still off at read time (issue #88).
+        reply=${reply%$'\r'}
         case "$reply" in
           y|Y|yes|YES)
             echo "claude-vm: confirmed; copying back to $REPO_SRC..." >&2
@@ -682,6 +1127,9 @@ copy_back() {
             ;;
         esac
       else
+        # Clean tree AND real content changes exist: apply them (fast path). The
+        # copy_back_rsync uses --checksum too, so it rewrites exactly the files
+        # in real_changes, not the mtime-skewed identical ones.
         echo "claude-vm: copy-back to local source ($REPO_SRC) from worktree..." >&2
         copy_back_rsync || true
       fi
@@ -693,6 +1141,17 @@ copy_back() {
 }
 
 cleanup() {
+  # Restore the host terminal FIRST, before any output or the copy-back prompt
+  # (issue #88). vfkit's `virtio-serial,stdio` bridge leaves the host tty in RAW
+  # mode (echo off, ICANON off -- Enter sends \r not \n), and that state SURVIVES
+  # vfkit's death. Without this restore the copy_back() confirmation `read -r`
+  # never completes (no newline arrives) and typed input is invisible -- observed
+  # hanging on real hardware. restore_host_tty() puts the tty back into canonical
+  # mode (operating on /dev/tty, the controlling terminal vfkit corrupted and the
+  # prompt uses). copy_back() re-asserts it again just before the prompt, because
+  # this early restore can be undone before the prompt runs (see the comment
+  # there).
+  restore_host_tty
   [ -n "$GV_PID" ] && kill "$GV_PID" 2>/dev/null || true
   [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
   copy_back
@@ -703,11 +1162,12 @@ cleanup() {
   if [ -n "${MERGED:-}" ]; then
     rm -f "$MERGED"
   fi
-  # The host claude.ai OAuth credential is a transient secret: remove it on
-  # every exit (including Ctrl-C) so it never lingers after the run. The run
-  # dir itself is retained for the companion diff/apply skills, but the
-  # credential must NOT be -- it is never persisted past the live VM. Guarded
-  # like MERGED above so an early trap (before CREDS_DIR is set) is harmless.
+  # The host claude.ai OAuth credential AND the identity seed (issue #88)
+  # are transient secrets sharing this dir: remove it on every exit (including
+  # Ctrl-C) so neither lingers after the run. The run dir itself is retained
+  # for the companion diff/apply skills, but these secrets must NOT be -- they
+  # are never persisted past the live VM. Guarded like MERGED above so an early
+  # trap (before CREDS_DIR is set) is harmless.
   if [ -n "${CREDS_DIR:-}" ]; then
     rm -rf "$CREDS_DIR"
   fi
@@ -717,9 +1177,25 @@ cleanup() {
   if [ -n "${RAW_CREDENTIAL:-}" ]; then
     rm -f "$RAW_CREDENTIAL"
   fi
+  # Remove the short-path gvproxy socket dir (issue #88). It lives under
+  # $TMPDIR (not under $RUN), so it is NOT covered by the run-dir retention --
+  # remove it here so the socket + vfkit's derived child socket do not linger.
+  # Guarded for an early-trap fire (before SOCK_DIR is set).
+  if [ -n "${SOCK_DIR:-}" ]; then
+    rm -rf "$SOCK_DIR"
+  fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then
     echo "claude-vm: guest console log retained at: $GUEST_CONSOLE_LOG" >&2
+  fi
+  # The proxy + gvproxy logs (issue #88) are retained off-terminal so their
+  # diagnostics do not flood the interactive session but stay diagnosable.
+  # Guarded like the others for an early-trap fire (before they are set).
+  if [ -n "${GVPROXY_LOG:-}" ]; then
+    echo "claude-vm: gvproxy log retained at: $GVPROXY_LOG" >&2
+  fi
+  if [ -n "${PROXY_LOG:-}" ]; then
+    echo "claude-vm: proxy log retained at: $PROXY_LOG" >&2
   fi
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
@@ -730,10 +1206,21 @@ trap cleanup EXIT INT TERM
 
 # Start the forward proxy. It reads the allowlist from
 # $CLAUDE_VM_EGRESS_ALLOWLIST (exported above).
-eval "$PROXY_CMD" &
+#
+# REDIRECT both host-side background processes' stdout AND stderr to RETAINED
+# log files under $RUN (issue #88). Without this they inherit the interactive
+# terminal's fd 1/2 (the hvc1 claude session), and their per-request/per-packet
+# diagnostics flood and destroy that session: gvproxy's sniffer.go emits a
+# continuous stream of `I<ts> ... sniffer.go:NNN recv/send tcp ...` lines, and
+# tinyproxy emits `NOTICE ... Proxying refused` lines. Routed off-terminal, but
+# RETAINED (not /dev/null) so a proxy/gvproxy failure stays diagnosable --
+# matching how the guest boot console is captured to $GUEST_CONSOLE_LOG. The
+# paths are echoed in cleanup() alongside the other retained-artifact lines.
+eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 &
 PROXY_PID=$!
 
-"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" &
+"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" \
+  >"$GVPROXY_LOG" 2>&1 &
 GV_PID=$!
 
 for _ in $(seq 1 50); do
@@ -748,6 +1235,25 @@ done
 # launcher execs /mnt/claudebin/claude against /mnt/repo.
 CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 
+# Dual virtio-serial console topology (issue #88). Device ORDER is
+# deterministic: the 1st virtio-serial device becomes guest hvc0, the 2nd
+# becomes hvc1.
+#
+#   1st: virtio-serial,logFilePath=$GUEST_CONSOLE_LOG -> hvc0. The kernel
+#        cmdline keeps console=hvc0, so all kernel + systemd boot output (and
+#        the boot launcher's diagnostics, written to /dev/console) flow to this
+#        capture file -- preserving #87's observability and keeping boot noise
+#        off the interactive terminal.
+#   2nd: virtio-serial,stdio -> hvc1. The launching terminal IS bridged here;
+#        the guest runs claude on an autologin getty@hvc1 (so the terminal
+#        becomes the interactive claude session). vfkit's stdio attachment is a
+#        bidirectional byte pipe that requires a real controlling tty on the
+#        host -- so claude-vm must be launched from a terminal, not a pipe.
+#
+# vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
+# EXIT/INT/TERM) runs the VM-stop + copy-back + socket-dir removal when the
+# session exits or is Ctrl-C'd. Do NOT switch this to `exec vfkit` -- that
+# would replace the shell and the trap would never fire.
 vfkit \
   --cpus "$VM_CPUS" --memory "$VM_MEM" \
   --bootloader "efi,variable-store=$EFISTORE,create" \
@@ -759,4 +1265,5 @@ vfkit \
   ${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"} \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
+  --device "virtio-serial,stdio" \
   --device "virtio-rng"
