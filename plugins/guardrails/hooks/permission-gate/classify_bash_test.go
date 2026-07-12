@@ -258,33 +258,39 @@ func TestReadOnlyAllowed(t *testing.T) {
 	}
 }
 
-// #64 decision 1 changed the aws default from defer to ALLOW: an ordinary aws
-// write the spec does not name as dangerous (e.g. s3api delete-object) now
-// ALLOWs, because containment lives in the microVM. The deny/ask tiers
-// (--endpoint-url, credential reads) still carve out the dangerous shapes; this
+// #124 changed the aws terminal fall-through from ALLOW to ASK: an aws op the
+// gate cannot prove read-only (e.g. s3api delete-object) now ASKs, because the
+// call carries the guest's credentials to a control plane outside the
+// microVM and mutates real cloud state the VM cannot roll back — containment
+// does not live in the microVM for aws. The deny/ask tiers (--endpoint-url,
+// credential reads) still carve out the more specific dangerous shapes; this
 // test asserts the read-only-op classifier is still TOKEN-anchored (not a
 // substring match) by checking its operation label, which is the property the
 // old substring-trap test guarded.
 func TestAwsOpClassificationTokenAnchored(t *testing.T) {
-	// Both forms ALLOW under #64 decision 1, so assert on the per-command reason
-	// by calling classifyAws directly (the aggregate classifyBash reason masks
-	// the per-command label).
+	// Assert on the per-command reason by calling classifyAws directly (the
+	// aggregate classifyBash reason masks the per-command label).
 	mk := func(prog string, rest ...string) (simpleCommand, Decision) {
 		sc := simpleCommand{args: append([]string{prog}, rest...)}
 		return sc, classifyAws(sc.args[1:], sc)
 	}
 	// A read-only op gets the read-only label (token-anchored list-/describe-/
-	// get- prefix).
+	// get- prefix) and ALLOWs. Check the ALLOW-branch's exact label ("is a
+	// read-only operation"), not the bare substring "read-only operation" —
+	// the #124 ASK branch's message also contains that bare substring (as
+	// "is not a provably read-only operation"), so the bare substring check
+	// would no longer distinguish the two branches.
 	_, d := mk("aws", "s3api", "list-buckets")
 	wantBucket(t, d, BucketAllow, "aws list-buckets")
-	if !containsSubstr(d.Reason, "read-only operation") {
+	if !containsSubstr(d.Reason, "is a read-only operation") {
 		t.Errorf("list-buckets should be labeled read-only; got %q", d.Reason)
 	}
 	// Substring trap: `unlist-thing` merely CONTAINS "list" but is not a list-*
-	// prefix, so it must NOT be labeled a read-only op (it allows via the
-	// not-guarded default instead).
+	// prefix, so it must NOT be labeled a read-only op (it ASKs via the
+	// non-read-op default instead, per #124).
 	_, d2 := mk("aws", "foo", "unlist-thing")
-	if containsSubstr(d2.Reason, "read-only operation") {
+	wantBucket(t, d2, BucketAsk, "aws unlist-thing (not read-anchored)")
+	if containsSubstr(d2.Reason, "is a read-only operation") {
 		t.Errorf("unlist-thing must not be labeled read-only (substring trap); got %q", d2.Reason)
 	}
 }

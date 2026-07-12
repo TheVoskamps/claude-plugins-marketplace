@@ -185,7 +185,7 @@ func TestGhLeadingGlobalDesyncBypass_64(t *testing.T) {
 		"gh -R owner/repo issue delete 5",
 		"gh --repo owner/repo issue delete 5",
 		"gh -R owner/repo repo delete owner/repo",
-		"gh -Rowner/repo issue delete 5",     // glued -R value
+		"gh -Rowner/repo issue delete 5",      // glued -R value
 		"gh --repo=owner/repo issue delete 5", // =-joined value
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "gh -R desync delete: "+cmd)
@@ -373,8 +373,8 @@ func TestAwsGlobalAbbreviation_64(t *testing.T) {
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
 // `op == "get"`/`"list"`/`"describe"` previously short-circuited to ALLOW,
 // defeating the hyphen anchor. Bare verbs the spec does not name fall to the
-// ALLOW default (#64 dec 1); the dangerous bare verb (`configure get` secret)
-// is caught by the credential-read ASK tier above.
+// non-read-op ASK default (#124); the dangerous bare verb (`configure get`
+// secret) is caught by the credential-read ASK tier above.
 func TestAwsBareVerbNotReadAnchored_64(t *testing.T) {
 	// The hyphenated forms still ALLOW (anchor intact).
 	for _, cmd := range []string{
@@ -386,19 +386,41 @@ func TestAwsBareVerbNotReadAnchored_64(t *testing.T) {
 	}
 }
 
-// --- aws ALLOW: reads and ordinary writes ------------------------------------
+// --- aws ALLOW: reads only ----------------------------------------------------
 
 func TestAwsAllow_64(t *testing.T) {
 	for _, cmd := range []string{
 		"aws ec2 describe-instances",
 		"aws s3api list-buckets",
 		"aws lambda get-function --function-name f",
-		// Ordinary write the spec does not name → ALLOW (#64 dec 1).
-		"aws s3api delete-object --bucket b --key k",
-		"aws s3 cp a s3://b/c",
-		"aws lambda invoke --function-name f out.json",
+		"aws s3 ls",
+		"aws s3api get-object --bucket b --key k out",
+		"aws sts get-caller-identity",
+		"aws logs filter-log-events --log-group-name g",
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "aws allow: "+cmd)
+	}
+}
+
+// --- aws ASK: non-read-only ops (#124) ---------------------------------------
+
+// #124: the aws terminal fall-through inverted from ALLOW to ASK. An aws
+// mutation carries the guest's credentials to a control plane outside the
+// microVM and mutates real cloud state the VM cannot roll back, so
+// containment-lives-in-the-microVM does not backstop it the way it does for
+// guest-local operations.
+func TestAwsAskNonReadOp_124(t *testing.T) {
+	for _, cmd := range []string{
+		"aws s3 rm s3://bucket/key",
+		"aws s3 cp a s3://b/c",
+		"aws s3 sync a s3://b/c",
+		"aws cloudformation delete-stack --stack-name x",
+		"aws ec2 terminate-instances --instance-ids i-1",
+		"aws lambda invoke --function-name f out.json",
+		"aws dynamodb delete-item --table-name t --key k",
+		"aws s3api delete-object --bucket b --key k",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws non-read ask: "+cmd)
 	}
 }
 
