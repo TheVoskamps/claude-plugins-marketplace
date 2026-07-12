@@ -37,6 +37,9 @@ The marketplace currently ships these plugins (one entry each in
   one-line message for every CLAUDE.md / `.claude/rules/*.md` file
   loaded into context, so you can see which rules files are in play
   without running `--verbose`.
+- **`show-loaded-skills`** — `UserPromptExpansion` and `PreToolUse`
+  (matcher `Skill`) hooks that surface a one-line message every time a
+  skill loads, whether typed as a command or invoked by the model.
 
 ## Add this marketplace
 
