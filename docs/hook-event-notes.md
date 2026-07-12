@@ -14,8 +14,7 @@ dependencies, compaction caps, `bin/` PATH). An event's runtime
 behavior is true for any `settings.json` hook registered for that
 event, with or without a plugin involved — so it belongs here, not
 there. Append a new `##` section per event as future plugins uncover
-more notes (e.g. issue #116 will add `UserPromptExpansion` and
-`PreToolUse`-matcher-`Skill` notes).
+more notes.
 
 ## `InstructionsLoaded`
 
