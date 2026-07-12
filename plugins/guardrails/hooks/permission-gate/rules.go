@@ -534,10 +534,13 @@ func isGhReadOnly(cmd []string) bool {
 //     credential/data exfil + SSRF).
 //   - ASK:   reads that return credentials/secrets (sts get-session-token,
 //     ecr get-login-password, secretsmanager get-secret-value, ssm
-//     get-parameter --with-decryption, …).
-//   - ALLOW: read-only ops (describe-/list-/get- hyphen anchor + explicit set),
-//     and — per #64 decision 1 — ordinary writes the spec does not name
-//     (containment lives in the microVM).
+//     get-parameter --with-decryption, …); and — per #124 — every other aws
+//     op the gate cannot prove read-only. An aws mutation is not a
+//     guest-local operation: it carries the guest's credentials to a control
+//     plane OUTSIDE the VM and mutates real cloud state the VM cannot roll
+//     back, so containment-lives-in-the-microVM does not apply to it.
+//   - ALLOW: read-only ops only (describe-/list-/get- hyphen anchor + the
+//     explicit read-only whitelist).
 //
 // Classification is on the parsed operation TOKEN, never a substring match (§4).
 func classifyAws(args []string, sc simpleCommand) Decision {
@@ -580,6 +583,16 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 				"output anywhere it could be captured.", svc, op))
 	}
 
+	// #124: `aws configure get <non-secret-key>` reads the LOCAL config store
+	// only (no network call, no cloud-side effect), so it ALLOWs even though it
+	// is a bare-verb command excluded from awsReadOnlyOp's hyphen anchor.
+	// awsCredentialRead already routed secret-bearing keys to ASK above, so
+	// reaching here with svc/op == configure/get means the key was recognized
+	// as non-secret.
+	if svc == "configure" && op == "get" {
+		return allow("aws configure get <non-secret-key> reads local config only")
+	}
+
 	// A real-file redirect is the residual exfil concern that ASKs (cannot
 	// defer per #64 decision 2).
 	if sc.hasRedirectToFile {
@@ -590,9 +603,17 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 	if awsReadOnlyOp(op) {
 		return allow(fmt.Sprintf("aws %s %s is a read-only operation", svc, op))
 	}
-	// #64 ALLOW default: an ordinary aws write the spec does not name as
-	// dangerous (containment lives in the microVM).
-	return allow(fmt.Sprintf("aws %s %s is not a guarded dangerous operation", svc, op))
+	// #124 ASK default: every aws op the gate cannot prove read-only ASKs. The
+	// microVM cannot contain an authenticated AWS mutation: the call carries
+	// the guest's credentials to a control plane OUTSIDE the VM and mutates
+	// real cloud state the VM cannot roll back. The only VM-level AWS control
+	// is the egress proxy, which gates by host:port/SNI (per service per
+	// region) and cannot distinguish `s3 ls` from `s3 rm` inside one TLS
+	// stream. So a non-read aws op escalates to a human rather than
+	// auto-allowing.
+	return ask("aws non-read op",
+		fmt.Sprintf("'aws %s %s' is not a provably read-only operation and can mutate real "+
+			"cloud state that the sandbox cannot roll back. Confirm this is intended.", svc, op))
 }
 
 // awsHasEndpointURL reports whether the args carry an --endpoint-url flag in

@@ -88,10 +88,16 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
 - **Dangerous git / gh / aws classifier** (`classify_command.go`,
   `rules.go`, #64): the deny/ask half of the command classifier for the
   three tools whose remote operations can damage or expose a remote
-  GitHub repo (`git`/`gh`) or exfil credentials/data (`aws`). The
-  classifiers **never defer** — every path resolves to allow/ask/deny —
-  and the **default for a recognized tool is ALLOW** (containment lives
-  in the microVM), with deny/ask tiers carving out the dangerous shapes.
+  GitHub repo (`git`/`gh`) or exfil credentials/data or mutate remote
+  cloud state (`aws`). The classifiers **never defer** — every path
+  resolves to allow/ask/deny. For `git`/`gh` the **default for a
+  recognized tool is ALLOW** (containment lives in the microVM), with
+  deny/ask tiers carving out the dangerous shapes. For `aws` the
+  default is **ASK** (#124): an aws mutation is not a guest-local
+  operation — it carries the guest's credentials to a control plane
+  outside the microVM and mutates real cloud state the VM cannot roll
+  back, so containment-lives-in-the-microVM does not backstop it. Only
+  the read-only ops keep an ALLOW default; see below.
   Bypass gates fire BEFORE per-command logic, since each reaches a
   dangerous outcome without the flag a naive policy keys on:
   (1) a **non-static argv** (command substitution, unresolved variable,
@@ -153,9 +159,17 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   other local-credential-store secret keys, …) **ask**; read-only ops
   (`describe-`/`list-`/`get-` **hyphen-anchored** — the hyphen is
   load-bearing, so a bare verb like `configure get` is NOT read-anchored
-  and a secret-key `configure get` lands in the ask tier above —
-  token-matched not substring-matched) and ordinary writes the spec does
-  not name **allow**. To find the service/operation split the classifier
+  by this rule; instead a non-secret `configure get <key>` (`region`,
+  `output`, `aws_access_key_id`, `cli_pager`) is separately allowed as a
+  local-config-only read, while a secret-key `configure get` lands in
+  the credential-read ask tier above — token-matched not
+  substring-matched) **allow**. **Every other aws op — including
+  ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
+  `cloudformation delete-stack`, `lambda invoke`, …) — asks (#124)**:
+  the gate cannot prove the op read-only, and an aws mutation carries
+  the guest's credentials to a control plane outside the microVM and
+  mutates real cloud state the VM cannot roll back. To find the
+  service/operation split the classifier
   parses aws's **complete, closed set of global flags** the way aws
   itself does — including **unambiguous prefix abbreviations** (`--reg`
   for `--region`, `--endp` for `--endpoint-url`) and both spaced and
