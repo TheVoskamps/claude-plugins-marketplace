@@ -44,3 +44,20 @@ already contains them. Do not ripple such a change into the top-level
 README or /docs — they document agents by role, not by model. Parallels
 [[project_github-setup-docs-locality]] (behavior documented in one
 SKILL.md; other docs reference by name only).
+
+Confirmed again on PR #141 (issue #140, 2026-07-13): the new
+memory-capture→curate flow (raw `.claude/agent-memory/` commits from
+issue-developer/issue-fixer/pr-reviewer at end-of-run, curated by
+doc-updater before its own doc commit) is an internal agent mechanism
+of exactly this kind. The PR's own edits to `orchestrate/SKILL.md` and
+all four agent `.md` files were already complete and consistent;
+`plugins/sdlc/README.md` doesn't exist and `docs/plugin-migration-plan.md`
+is historical/out of scope per [[project_plugin-docs-locality]] — no
+top-level README or /docs ripple was needed. Also: each agent's
+`.claude/agent-memory/sdlc-<agent>/` directory is genuinely separate
+(each agent frontmatter has its own `memory: project` scope, and only
+reads its own directory) — a lesson learned independently by two agent
+roles (e.g. the heredoc-commit-sandbox-gate gotcha, present near-
+identically in both `sdlc-issue-developer` and `sdlc-issue-fixer`) is
+NOT a cross-directory duplicate to merge away; each agent needs its own
+copy since it never reads the other's directory.
