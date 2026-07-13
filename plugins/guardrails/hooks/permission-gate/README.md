@@ -50,7 +50,20 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   — a later re-anchoring `cd` can clear the invalid state, since bash
   itself would). A `cd` inside a `( … )` subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
-  the static-variable scope discipline above. Engine A also carries a
+  the static-variable scope discipline above. A `for x in <words>; do
+  …; done` whose header is a fully static item list (#131) — every
+  item resolves to an exact literal and none contains a glob
+  metacharacter (`*`, `?`, `[`) — fans out: the body is walked once per
+  item with the loop variable bound to that item, so a body use of
+  `"$x"` resolves and is run through normal containment instead of
+  failing closed, capped at 64 items to bound the work. Any dynamic
+  item (a command substitution, an unresolved variable, a glob), or a
+  `for x; do …` with no `in` clause (iterates `"$@"`), cannot be
+  reduced to a known value set and keeps the loop variable unbound —
+  the body still fails closed on that variable, matching pre-#131
+  behavior. The binding is saved and restored around the loop so it
+  does not clobber an outer variable of the same name, per the
+  static-variable scope discipline above. Engine A also carries a
   **read-only-utility classifier**
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
