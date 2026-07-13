@@ -19,9 +19,10 @@ import (
 //     `$(...)`-built arg can't be statically proven safe). Checked by the
 //     caller's gate before any per-program logic.
 //   - Path operands of a path-bearing utility must pass Engine B containment,
-//     so a `cat ../sibling-repo/node_modules/x` still denies (#148) and a
-//     worktree-escaping read still asks (#127). Reused from classifyPathReader
-//     via containPathOperands.
+//     so a `cat ../sibling-repo/node_modules/x` still denies (#148); a target
+//     resolving into the primary clone / shared git dir is treated as
+//     contained rather than asking (#130), except under `.git/`, which still
+//     denies (#125). Reused from classifyPathReader via containPathOperands.
 //
 // Every utility in the ALLOW set carries a defersForm predicate (#31 review
 // HIGH): it reports whether the specific invocation must DEFER rather than
@@ -159,8 +160,10 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 			return d
 		}
 		// Engine B containment on every path operand: a cross-repo read still
-		// denies (#148), a worktree-escape read still asks (#127). A
-		// non-contained operand returns that deny/ask verdict; otherwise ALLOW.
+		// denies (#148); a primary-clone/worktree-escape read is treated as
+		// contained instead of asking (#130), except a target under `.git/`,
+		// which still denies (#125). A non-contained operand returns that
+		// deny verdict; otherwise ALLOW.
 		if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
 			return d
 		}

@@ -11,10 +11,16 @@ import (
 // tested; the worst result wins (escape → deny, contained → defer to the
 // normal pipeline).
 //
-// Writes and reads are treated identically for the CONTAINMENT decision:
-// both #127 (write into the primary clone) and #148 (read a sibling repo)
-// are escapes. The hook only DENIES on a proven escape; an in-worktree path
-// defers (the normal pipeline / settings.json denyRead etc. still apply).
+// Writes and reads diverge on a primary-clone-escape target (#130): a
+// mutating tool DENIES a target that resolves into the primary clone /
+// shared git dir (#127 — a write there corrupts state another worktree
+// depends on), while a non-mutating (read) tool is CONTAINED there instead —
+// a linked worktree shares tracked content with the primary clone, so a read
+// discloses nothing new — except a target under `.git/`, which stays denied
+// for reads too (#125). Cross-repo escapes (#148, a genuine sibling repo)
+// are still denied for both reads and writes. The hook only DENIES on a
+// proven escape; an in-worktree (or now, primary-clone-read) path defers
+// (the normal pipeline / settings.json denyRead etc. still apply).
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
