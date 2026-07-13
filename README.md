@@ -27,12 +27,12 @@ The marketplace currently ships these plugins (one entry each in
 - **`block-background-agents`** — PreToolUse policy hook that denies
   background agent spawns (`run_in_background: true`) so a detached
   subagent's permission prompts can still bubble up to the user.
-- **`claude-vm`** — run Claude Code inside an isolated macOS VM with
-  config-driven egress, mounts, and repo isolation. Ships the
-  `claude-vm` launcher skill, the `claude-vm-config-global` and
-  `claude-vm-config-repo` config writers, plus the `claude-vm-diff`,
-  `claude-vm-apply-local`, and `claude-vm-apply-remote` companion
-  skills.
+- **`claude-vm`** — run Claude Code inside an isolated Linux micro-VM
+  on macOS with config-driven egress, mounts, and repo isolation.
+  Ships the `bin/claude-vm` preflight launcher, the `claude-vm` skill,
+  the `claude-vm-config-global` and `claude-vm-config-repo` config
+  writers, plus the `claude-vm-diff`, `claude-vm-apply-local`, and
+  `claude-vm-apply-remote` companion skills.
 - **`show-loaded-rules`** — `InstructionsLoaded` hook that surfaces a
   one-line message for every CLAUDE.md / `.claude/rules/*.md` file
   loaded into context, so you can see which rules files are in play
