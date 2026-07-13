@@ -75,7 +75,10 @@ REPO_NAME="${REPO_NAME%.git}"
 #    "parallel VMs are individually named" guarantee), inject
 #    `--name "$RUN_NAME"` into the forwarded args -- unless the caller
 #    already passed their own --name (either `--name <v>` or `--name=<v>`),
-#    in which case respect theirs and do not override.
+#    in which case respect theirs and do not override. When the caller
+#    supplied their own --name, also capture its value (CALLER_NAME) so
+#    the "launching" echo below can report the name that will actually be
+#    used instead of the computed-but-unused RUN_NAME.
 # ---------------------------------------------------------------------
 CLAUDE_ARGS=("$@")
 if [ "$#" -gt 0 ]; then
@@ -86,13 +89,30 @@ fi
 RUN_NAME="$SUFFIX $REPO_NAME"
 
 HAS_NAME=0
+CALLER_NAME=""
+NEXT_IS_NAME_VALUE=0
 for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
+  if [ "$NEXT_IS_NAME_VALUE" -eq 1 ]; then
+    CALLER_NAME="$arg"
+    NEXT_IS_NAME_VALUE=0
+    continue
+  fi
   case "$arg" in
-    --name|--name=*) HAS_NAME=1; break ;;
+    --name=*) HAS_NAME=1; CALLER_NAME="${arg#--name=}" ;;
+    --name) HAS_NAME=1; NEXT_IS_NAME_VALUE=1 ;;
   esac
 done
 if [ "$HAS_NAME" -eq 0 ]; then
   CLAUDE_ARGS=(${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} --name "$RUN_NAME")
+fi
+
+# The name actually used for this launch: the caller's own --name value
+# when they supplied one, else the computed RUN_NAME. Used only for the
+# "launching" echo below -- CLAUDE_ARGS above already carries the right
+# value forward regardless.
+DISPLAY_NAME="$RUN_NAME"
+if [ "$HAS_NAME" -eq 1 ]; then
+  DISPLAY_NAME="$CALLER_NAME"
 fi
 
 # ---------------------------------------------------------------------
@@ -147,5 +167,5 @@ fi
 #    actually proceeding -- not on an early exit (missing repo/origin,
 #    missing Keychain credential, etc).
 # ---------------------------------------------------------------------
-echo "claude-vm: launching '$RUN_NAME'" >&2
+echo "claude-vm: launching '$DISPLAY_NAME'" >&2
 exec "$LAUNCHER" "$TOPLEVEL" ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}
