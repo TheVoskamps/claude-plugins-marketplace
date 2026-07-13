@@ -1,28 +1,31 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated macOS VM with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
+description: Launch Claude Code inside an isolated Linux micro-VM on macOS with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from two-tier YAML (global + per-repo); the guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
 ---
 
 # claude-vm
 
-Run Claude Code inside an isolated macOS VM. Every non-secret
-operational knob — VM resources, the egress allowlist, extra mounts,
-the proxy, and how the repo is made available to the guest — comes from
-layered **YAML config** rather than environment variables. The guest
-authenticates with the **host's live claude.ai OAuth credential**, which
-the launcher extracts from the macOS Keychain at launch and shares RO
-into the guest, plus an **identity seed** the launcher builds from your
-host `~/.claude.json` — the `userID` + `oauthAccount` selected from the
-host, plus synthesized `hasCompletedOnboarding` / `autoUpdates: false` /
-version keys — so the interactive in-guest session comes up already
-onboarded, logged in, and with self-update disabled (issue #88). Both
-are secrets, neither is written to config, and both ride the same
-transient shred-on-exit mount. No token environment variable is
-required — just be logged in to Claude Code on the host.
+Run Claude Code inside an isolated Linux micro-VM on macOS. Every
+non-secret operational knob — VM resources, the egress allowlist, extra
+mounts, the proxy, and how the repo is made available to the guest —
+comes from layered **YAML config** rather than environment variables.
+The guest authenticates with the **host's live claude.ai OAuth
+credential**, which the launcher extracts from the macOS Keychain at
+launch and shares RO into the guest, plus an **identity seed** the
+launcher builds from your host `~/.claude.json` — the `userID` +
+`oauthAccount` selected from the host, plus synthesized
+`hasCompletedOnboarding` / `autoUpdates: false` / version keys — so the
+interactive in-guest session comes up already onboarded, logged in, and
+with self-update disabled (issue #88). Both are secrets, neither is
+written to config, and both ride the same transient shred-on-exit
+mount. No token environment variable is required — just be logged in to
+Claude Code on the host.
 
-The launcher and image-build scripts ship as payloads under
-`${CLAUDE_PLUGIN_ROOT}/payload/`. This skill is the entry point that
-explains the config surface and drives the launcher.
+The entry point is `bin/claude-vm` (issue #51), a preflight wrapper
+that ships on PATH for the Bash tool; it forwards to the launcher and
+image-build scripts, which ship as payloads under
+`${CLAUDE_PLUGIN_ROOT}/payload/`. This skill explains the config
+surface and drives the launcher.
 
 ## Quick start
 
@@ -42,9 +45,13 @@ explains the config surface and drives the launcher.
 #    resolved defaults, and /claude-vm-config-repo (from inside a repo)
 #    to write per-repo overrides (both idempotent), or see
 #    payload/config.example.yml for a starting point.
+#    bin/claude-vm below also offers to create the global config for you
+#    if it is missing.
 
-# 3. Launch against a repo. The repo is made available RW to the guest.
-"${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
+# 3. Launch from inside the repo you want to run a VM for. bin/claude-vm
+#    derives the repo name and root, names the run, and forwards to the
+#    launcher, which makes the repo available RW to the guest.
+claude-vm [claude args...]
 ```
 
 On exit, the launcher copies the guest's changes back to the local
