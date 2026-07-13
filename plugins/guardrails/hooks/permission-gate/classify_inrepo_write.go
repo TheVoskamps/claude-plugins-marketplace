@@ -87,6 +87,15 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 			"Blocked: '%s' has an argument built from an expansion the gate cannot resolve statically, so its "+
 				"write target cannot be proven in-repo; escalating to a human decision (fail-closed).", prog))
 	}
+	// A preceding dynamic `cd` invalidated the running cwd (#129): a relative
+	// write target cannot be safely resolved. Fail closed ASK.
+	if sc.cwdInvalid {
+		return ask("bash-write:cd-unresolved-cwd", fmt.Sprintf(
+			"Blocked: '%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, "+
+				"or 'cd -'), so its write target cannot be safely resolved against the actual current directory; "+
+				"escalating to a human decision (fail-closed). Use a static 'cd <literal-path>' or an absolute path.",
+			prog))
+	}
 
 	operands := spec.operandsFn(args)
 	if len(operands) == 0 {
@@ -96,7 +105,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 		return deferToPipeline()
 	}
 
-	if d, ok := containWriteOperands(prog, operands, ev); !ok {
+	if d, ok := containWriteOperands(prog, operands, sc.cwd, ev); !ok {
 		return d
 	}
 	return allow(fmt.Sprintf("%s writes only paths contained in the current worktree (in-repo write)", prog))
@@ -115,7 +124,12 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // subagent writing inside its own worktree is contained and fine; a subagent
 // writing into the primary clone still denies, because rc.topLevel is the
 // subagent's worktree root.
-func containWriteOperands(prog string, operands []string, ev *Event) (Decision, bool) {
+//
+// baseCWD is the running cwd this command executes in (#129), tracked through
+// any preceding `cd` in the same parsed program (sc.cwd); a relative operand
+// resolves against baseCWD rather than ev.CWD, mirroring the read side. An
+// empty baseCWD falls back to ev.CWD.
+func containWriteOperands(prog string, operands []string, baseCWD string, ev *Event) (Decision, bool) {
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
 		return ask("bash-write:no-repo-context", fmt.Sprintf(
@@ -123,13 +137,17 @@ func containWriteOperands(prog string, operands []string, ev *Event) (Decision, 
 			prog, err)), false
 	}
 
+	base := baseCWD
+	if base == "" {
+		base = ev.CWD
+	}
 	for _, p := range operands {
 		// A write whose canonicalized target lands under a .git/ directory is a
 		// direct write to git internals (#125, broadened by #35 Fix 3) — denied
 		// independently of containment, exactly as classifyFileTool denies it for
 		// the Write/Edit tools. An in-worktree `.git/` target would otherwise be
 		// `contained` and ride the ALLOW.
-		if isUnderGitDir(canonicalize(p), rc) {
+		if isUnderGitDir(canonicalizeFrom(p, base), rc) {
 			return deny("bash-write:.git tree (#125)", fmt.Sprintf(
 				"Blocked: '%s' target '%s' is inside a .git/ directory. Directly writing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
@@ -138,7 +156,7 @@ func containWriteOperands(prog string, operands []string, ev *Event) (Decision, 
 				prog, p)), false
 		}
 
-		res, real := testContainment(p, rc)
+		res, real := testContainmentFrom(p, base, rc)
 		switch res {
 		case escapeWorktree:
 			correct := correctWorktreePath(real, rc)

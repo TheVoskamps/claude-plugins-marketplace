@@ -152,10 +152,16 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 				"Blocked: '%s' has a path argument built from an expansion the gate cannot resolve statically; "+
 					"escalating to a human decision (fail-closed).", prog))
 		}
+		// A preceding dynamic `cd` invalidated the running cwd (#129): a
+		// relative operand cannot be safely resolved. Fail closed ASK, the same
+		// posture classifyPathReader holds via cdInvalidAsk.
+		if d, hit := cdInvalidAsk(prog, sc); hit {
+			return d
+		}
 		// Engine B containment on every path operand: a cross-repo read still
 		// denies (#148), a worktree-escape read still asks (#127). A
 		// non-contained operand returns that deny/ask verdict; otherwise ALLOW.
-		if d, ok := containPathOperands(prog, pathOperands(args), ev); !ok {
+		if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
 			return d
 		}
 	} else if !sc.allowEligible() {

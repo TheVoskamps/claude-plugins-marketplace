@@ -8,7 +8,7 @@ provide (issue #247). It replaces the shell hooks
 
 ## What it does
 
-Two engines feed a three-bucket (plus defer) decision, ask-defaulting
+Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
 (uncertainty escalates to a human, never to allow):
 
 - **Engine A — command classifier** (`engine_a_bash.go`,
@@ -36,7 +36,22 @@ Two engines feed a three-bucket (plus defer) decision, ask-defaulting
   program-global scope, so it cannot resolve a later top-level `$VAR`
   (matching real bash). The inherit-IN direction still holds: a
   top-level static assignment IS visible to a use nested inside such a
-  scope. Engine A also carries a **read-only-utility classifier**
+  scope. Engine A also tracks the **running working directory across an
+  in-command `cd`** (#129): a relative path operand on a command that
+  follows a `cd` in the same parsed program — `cd <subdir> && cat
+  ../x`, `cd <subdir>; touch y` — resolves against the `cd` target, not
+  the event's `cwd`, matching what bash actually runs. A
+  statically-resolvable `cd` (an absolute path, a `~`-prefixed path, a
+  relative path, or bare `cd` to `$HOME`) updates the running cwd for
+  every later command in the walk; a `cd` whose target cannot be
+  resolved statically (a command substitution, an unresolved variable,
+  or `cd -`) invalidates it, and every later command with a relative
+  path operand in that scope **asks** rather than guessing (fail-closed
+  — a later re-anchoring `cd` can clear the invalid state, since bash
+  itself would). A `cd` inside a `( … )` subshell, a function body, or a
+  backgrounded group does not persist to the enclosing scope, mirroring
+  the static-variable scope discipline above. Engine A also carries a
+  **read-only-utility classifier**
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
   `comm`, `paste`, `nl`, `fold`, `fmt`, `column`, `rev`, `realpath`,
