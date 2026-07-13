@@ -285,3 +285,125 @@ func TestProcSubstInScopeStillSafe_60(t *testing.T) {
 		t.Errorf("#5 process substitution inside a subshell must not ALLOW; got %q", d.Bucket)
 	}
 }
+
+// #131: a `for x in <words>; do …; done` whose header is a fully static item
+// list makes the loop variable's complete value set visible at parse time.
+// The loop-var binding must resolve body path operands (or correctly report
+// an escaping item), while dynamic lists / globs / in-less loops must keep
+// failing closed exactly as before.
+
+// TestForLoopStaticInListResolves_131 is the #126 shape-A repro: a for loop
+// over four static in-worktree paths. Each iteration's "$f" resolves and
+// contains, so the whole line must not ASK (regression test for the fan-out).
+func TestForLoopStaticInListResolves_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, f := range []string{"a.md", "b.md", "c.md", "d.md"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in a.md b.md c.md d.md; do sed -n '1,12p' "$f"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131: static for-in list must not ASK; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 static for-in list resolves and contains")
+}
+
+// TestForLoopStaticInListEscapingItemDenied_131 pins that EVERY item is
+// checked, not just the first: a static list whose second item escapes the
+// repo must still be reported (denied), not masked by the first safe item.
+func TestForLoopStaticInListEscapingItemDenied_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in a.md ../../../etc/passwd; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 escaping item in an otherwise-static for-in list must be denied")
+}
+
+// TestForLoopDynamicInListStillEscalates_131 covers a dynamic `in` list
+// (`for f in $LIST`): the item is not statically resolvable, so the loop
+// variable must NOT be bound and body uses of "$f" must still fail closed.
+func TestForLoopDynamicInListStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in $LIST; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 dynamic for-in list must still escalate")
+}
+
+// TestForLoopGlobInListStillEscalates_131 covers a glob item (`*.md`): word
+// splitting / globbing is not statically knowable, so the loop must not bind.
+func TestForLoopGlobInListStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in *.md; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 glob for-in list must still escalate")
+}
+
+// TestForLoopNoInListStillEscalates_131 covers a `for x; do …` with no `in`
+// clause (iterates "$@"): there is no static item set, so it must still fail
+// closed exactly as before.
+func TestForLoopNoInListStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `f() { for f; do cat "$f"; done; }`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 in-less for loop must still escalate")
+}
+
+// TestForLoopNestedSaveRestoresOuterBinding_131 covers the save/restore
+// discipline: an outer loop binds "f", and a nested inner loop binds "g" from
+// a static list built off "$f". After the inner loop finishes, the outer "f"
+// binding must be exactly what it was for that outer iteration — the inner
+// loop's own save/restore of "g" (and the outer loop's own re-binding of "f"
+// per outer iteration) must not corrupt it. Both bodies resolve statically
+// across every outer x inner pairing, so the whole line must not ASK.
+func TestForLoopNestedSaveRestoresOuterBinding_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, dir := range []string{"a", "b"} {
+		sub := filepath.Join(repo, dir, "sub")
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "x.md"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in a b; do for g in "$f/sub/x.md"; do cat "$g"; done; cat "$f/sub/x.md"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131 nested for loop save/restore: outer var must resolve after inner loop; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 nested for loop save/restore of loop variable")
+}

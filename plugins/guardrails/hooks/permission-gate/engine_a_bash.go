@@ -423,6 +423,45 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 				walkCmd(c.Else, nil)
 			}
 		case *syntax.ForClause:
+			// A `for x in <words>; do …; done` whose header is a fully static
+			// item list (#131) makes the loop variable's entire value set
+			// visible at parse time. When every item resolves to an exact
+			// literal via literalWord, fan out: walk c.Do once per item with
+			// the loop variable bound to that item's value, so body uses of
+			// "$x" resolve instead of staying inexact / fail-closed. Every
+			// item is walked — an escaping item later in the list is still
+			// reported even if earlier items were safe.
+			//
+			// Anything else — no `in` clause (`for x; do …`, iterates "$@"),
+			// or any dynamic item (`for f in $LIST`, a command substitution,
+			// a glob like `*.md`) — cannot be reduced to a known value set, so
+			// leave the existing conservative behavior: walk the body once
+			// with the loop variable NOT bound, so "$x" stays inexact and
+			// fails closed as before.
+			if wi, ok := c.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() && wi.Name != nil {
+				items, allStatic := staticForItems(wi, knownVars)
+				if allStatic && len(items) <= maxForFanOut {
+					loopVar := wi.Name.Value
+					prevVal, hadPrev := knownVars[loopVar]
+					for _, item := range items {
+						knownVars[loopVar] = item
+						for _, s := range c.Do {
+							walkStmt(s)
+						}
+					}
+					// Restore/remove the binding so it does not leak past the
+					// loop or clobber an outer variable of the same name
+					// (#131 scopeDepth discipline).
+					if hadPrev {
+						knownVars[loopVar] = prevVal
+					} else {
+						delete(knownVars, loopVar)
+					}
+					break
+				}
+				// Dynamic item(s), or the fan-out cap was exceeded: fall
+				// through to the conservative unbound walk below.
+			}
 			for _, s := range c.Do {
 				walkStmt(s)
 			}
@@ -715,6 +754,51 @@ func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
 		return printWord(w), false
 	}
 	return lit, exact
+}
+
+// maxForFanOut bounds how many items a static `for x in <words>` fan-out
+// (#131) will expand. A pathologically long static item list would otherwise
+// walk the loop body once per item; above this cap we fall back to the
+// conservative unbound walk (fail-closed on body uses of the loop variable)
+// rather than doing unbounded work.
+const maxForFanOut = 64
+
+// staticForItems reports the resolved literal value of every item word in a
+// `for x in <words>` header, and whether ALL of them are exact (#131). A
+// single dynamic item (command substitution, unresolved parameter expansion,
+// a glob that requires runtime word-splitting/expansion) makes the whole
+// list non-static, since the loop variable's value set is no longer fully
+// known at parse time.
+func staticForItems(wi *syntax.WordIter, knownVars map[string]string) ([]string, bool) {
+	items := make([]string, 0, len(wi.Items))
+	for _, w := range wi.Items {
+		val, exact := literalWord(w, knownVars)
+		if !exact {
+			return nil, false
+		}
+		// A literal item containing a glob metacharacter (`*.md`, `file?.txt`,
+		// `[abc]`) is exact as an AST literal — the shell parser does not
+		// distinguish "looks like a glob" from a plain string, since matching
+		// happens at runtime, not parse time — but its actual expansion
+		// (zero, one, or many paths, entirely dependent on the CWD's
+		// directory contents at the time bash runs it) is not statically
+		// knowable here (#131). Treat it as non-static so the loop var is not
+		// bound and the body keeps failing closed.
+		if hasGlobMeta(val) {
+			return nil, false
+		}
+		items = append(items, val)
+	}
+	return items, true
+}
+
+// hasGlobMeta reports whether s contains a shell glob metacharacter
+// (`*`, `?`, `[`) that bash would expand via pathname expansion. Used only to
+// keep a static `for x in <words>` fan-out (#131) conservative about items
+// that merely LOOK like literals but actually depend on runtime directory
+// contents; it is not a general-purpose literalWord change.
+func hasGlobMeta(s string) bool {
+	return strings.ContainsAny(s, "*?[")
 }
 
 // isResolvableParamExp reports whether a parameter expansion is a plain
