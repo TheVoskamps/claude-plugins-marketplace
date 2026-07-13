@@ -67,7 +67,10 @@ see [`plugin-migration-plan.md`](./plugin-migration-plan.md).
    secret-free — they travel with the plugin (and any public mirror),
    so anything secret-bearing must stay in an un-mirrored per-machine
    location instead (see that plugin's `payload/README.md` for the
-   ships-vs-per-machine split).
+   ships-vs-per-machine split). The `claude-vm` plugin's `bin/claude-vm`
+   preflight launcher (issue #51) is a second instance of the same
+   pattern: it runs as the bare `claude-vm` command and forwards to
+   `payload/claude-vm.sh`.
 
 ## Patterns this marketplace uses
 

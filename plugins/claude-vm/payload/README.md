@@ -6,6 +6,11 @@ config loader library, an example config, and the config-layering unit
 test. They travel with the plugin and live at
 `${CLAUDE_PLUGIN_ROOT}/payload/...` once installed.
 
+The plugin's user-facing entry point, `bin/claude-vm` (issue #51), lives
+one directory up at `${CLAUDE_PLUGIN_ROOT}/bin/claude-vm` — a preflight
+wrapper that forwards to `payload/claude-vm.sh` (below). See "Entry
+point (`bin/claude-vm`)" further down.
+
 ## Directory layout
 
 ```text
@@ -40,7 +45,7 @@ payload/
                         # probe (issue #57); host-gated on jq
 ```
 
-## Launcher (`claude-vm.sh`)
+## Entry point (`bin/claude-vm`)
 
 ```bash
 # No token env var. Be logged in to Claude Code on the host first: the
@@ -48,6 +53,28 @@ payload/
 # macOS Keychain) AND seeds the guest's identity (userID + oauthAccount from
 # your ~/.claude.json, plus synthesized onboarding/auto-update-off keys) so the
 # in-guest claude comes up already onboarded and logged in. See below.
+
+# From inside the repo you want to launch a VM for:
+claude-vm [claude args...]
+```
+
+`bin/claude-vm` (issue #51) is the preflight launcher and the intended
+entry point — it ships in the plugin's `bin/` directory, which Claude
+Code adds to PATH for the Bash tool, so it runs as the bare `claude-vm`
+command with no long cache-path invocation. `cr()`-shaped: it derives
+the repo name from the `origin` remote (failing clearly if you are not
+in a repo, or the repo has no `origin`), moves to the repo root
+(`git rev-parse --show-toplevel`), names the run from any trailing args
+or a `date '+%b%d-%H:%M'` stamp so parallel VMs are individually named,
+checks that the global config exists (offering to create it via
+`/claude-vm-config-global` if not), fails fast if the macOS Keychain has
+no claude.ai OAuth credential, and forwards the repo root plus any
+trailing args to `payload/claude-vm.sh` below.
+
+## Launcher (`claude-vm.sh`)
+
+```bash
+# Invoked by bin/claude-vm above; callable directly too.
 "${CLAUDE_PLUGIN_ROOT}/payload/claude-vm.sh" /path/to/repo [claude args...]
 ```
 
