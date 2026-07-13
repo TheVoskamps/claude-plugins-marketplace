@@ -67,7 +67,15 @@ REPO_NAME="${REPO_NAME%.git}"
 # ---------------------------------------------------------------------
 # 3. Run/session name: trailing args -> suffix, else a date stamp (same
 #    `cr()` logic: suffix="$*", default to `date '+%b%d-%H:%M'`), so
-#    parallel VMs are individually named.
+#    parallel VMs are individually named. Unlike `cr()`'s bare
+#    `claude --name "$name"`, this forwards to payload/claude-vm.sh, which
+#    does its own independent --name defaulting (a bare date stamp, no repo
+#    name, and only under Remote Control). To make the guest session name
+#    match what we print here (and carry the repo name, per the issue's
+#    "parallel VMs are individually named" guarantee), inject
+#    `--name "$RUN_NAME"` into the forwarded args -- unless the caller
+#    already passed their own --name (either `--name <v>` or `--name=<v>`),
+#    in which case respect theirs and do not override.
 # ---------------------------------------------------------------------
 CLAUDE_ARGS=("$@")
 if [ "$#" -gt 0 ]; then
@@ -76,7 +84,16 @@ else
   SUFFIX="$(date '+%b%d-%H:%M')"
 fi
 RUN_NAME="$SUFFIX $REPO_NAME"
-echo "claude-vm: launching '$RUN_NAME'" >&2
+
+HAS_NAME=0
+for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
+  case "$arg" in
+    --name|--name=*) HAS_NAME=1; break ;;
+  esac
+done
+if [ "$HAS_NAME" -eq 0 ]; then
+  CLAUDE_ARGS=(${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"} --name "$RUN_NAME")
+fi
 
 # ---------------------------------------------------------------------
 # 4. Verify the global config exists; offer to create it via the
@@ -120,8 +137,15 @@ fi
 
 # ---------------------------------------------------------------------
 # 6. Forward to the full launcher (payload/claude-vm.sh) instead of bare
-#    `claude` -- the repo root plus any trailing args (unmodified; the
-#    launcher's own CLAUDE_ARGS handling, e.g. Remote Control --name
-#    defaulting, applies downstream).
+#    `claude` -- the repo root plus any trailing args, augmented with the
+#    computed --name (step 3) unless the caller already supplied one; the
+#    launcher's own CLAUDE_ARGS handling (e.g. Remote Control injection)
+#    applies downstream on top of these.
+#
+#    The "launching" message is printed here, after every fail-fast
+#    preflight check has passed, so it shows only when the launch is
+#    actually proceeding -- not on an early exit (missing repo/origin,
+#    missing Keychain credential, etc).
 # ---------------------------------------------------------------------
+echo "claude-vm: launching '$RUN_NAME'" >&2
 exec "$LAUNCHER" "$TOPLEVEL" ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}

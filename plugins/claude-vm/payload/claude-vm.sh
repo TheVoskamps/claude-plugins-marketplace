@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# claude-vm.sh -- launch Claude Code inside an isolated macOS VM.
+# claude-vm.sh -- launch Claude Code inside an isolated Linux micro-VM on macOS.
 #
 # Config-driven replacement for the original env-var launcher. Every
 # non-secret operational knob (cpus, mem, guest_image, proxy, egress
