@@ -5,9 +5,15 @@
 #   per-repo: <repo>/.claude-vm/config.yml      (project-specific)
 #
 # Layering:
-#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*): repo overrides
-#     global; global fills gaps.
-#   - Lists (egress.allow, mounts): merged -- union of global + repo.
+#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*, packages.update_at_boot,
+#     packages.add_apt_uris_to_allowlist, claude.permission_mode,
+#     claude.plugins.update_at_boot,
+#     claude.plugins.add_marketplace_uris_to_allowlist, claude.hooks.*,
+#     github.auth): repo overrides global; global fills gaps.
+#   - Lists (egress.allow, mounts, packages.bake, packages.install_at_boot,
+#     packages.apt_sources, claude.permissions.allow/ask/deny,
+#     claude.marketplaces, claude.plugins.bake,
+#     claude.plugins.install_at_boot): merged -- union of global + repo.
 #
 # NO SECRETS HERE. The guest authenticates with the HOST's live claude.ai
 # OAuth credential, which the launcher extracts from the macOS Keychain at
@@ -26,6 +32,24 @@ guest_image: /path/to/guest.raw
 repo:
   mount: clone          # clone (default) | live
   copy_back: local      # local (default) | none -- post-exit copy-back target
+
+# Guest software: apt packages baked into the image or installed at boot,
+# and third-party apt repos (issue #103; schema + merge only -- the
+# consumers that bake/install/derive egress from these live in sibling
+# slices under #39).
+packages:
+  bake: []                # apt packages baked into the guest image (list, union)
+  install_at_boot: []     # apt packages installed at boot, blocking, before
+                          # claude starts (list, union)
+  update_at_boot: true    # apt-get update && upgrade at boot (scalar, repo
+                          # wins; default true)
+  apt_sources: []         # third-party apt repos: {name, repo, key_url}
+                          # (list, union)
+  add_apt_uris_to_allowlist: auto   # auto (default) | always -- auto adds
+                          # derived egress URIs to the proxy allowlist only
+                          # when configured boot-time work needs them;
+                          # always adds them regardless, enabling in-session
+                          # installs (scalar, repo wins)
 
 # Which `claude` binary to run in the guest. The HOST resolves this to a
 # concrete version, downloads that version's GPG-signed manifest, verifies
@@ -81,6 +105,37 @@ claude:
   # (or leave unset); any other value aborts the launch.
   # remote_control: false
 
+  # Guest Claude permission mode + permission rules (issue #103; schema +
+  # merge only -- the settings-rendering consumer lands in a sibling slice
+  # under #39).
+  permission_mode: bypassPermissions   # bypassPermissions (default) | default
+  permissions:
+    allow: []             # list, union
+    ask: []               # list, union
+    deny: []              # list, union
+
+  # Marketplaces + plugins available to the guest (issue #103; schema +
+  # merge only).
+  marketplaces: []        # {name, url} entries (list, union)
+  plugins:
+    bake: []              # plugin@marketplace refs baked into the image
+                          # (list, union)
+    install_at_boot: []   # plugin@marketplace refs installed at boot
+                          # (list, union)
+    update_at_boot: true  # refresh marketplaces + reinstall changed plugins
+                          # at boot (scalar; default true)
+    add_marketplace_uris_to_allowlist: auto   # auto (default) | always --
+                          # same auto/always semantics as
+                          # packages.add_apt_uris_to_allowlist, applied to
+                          # marketplace URIs (scalar)
+
+  # Guardrails hook toggles (issue #103; schema + merge only).
+  hooks:
+    parser: "on"                # guardrails permission-gate hook: on
+                                # (default) | off (scalar, repo wins)
+    no_background_agents: "on"  # block-background-agents hook: on (default)
+                                # | off (scalar, repo wins)
+
 proxy:
   # A launcher command for your forward proxy. When UNSET, the launcher
   # defaults to the bundled tinyproxy launcher
@@ -114,3 +169,8 @@ mounts:                 # extra mounts beyond the repo auto-mount
   - source: ~/datasets/foo
     tag: data
     mode: ro
+
+# Guest GitHub auth (issue #103; schema + merge only -- the consumer that
+# seeds a host token into the guest lands in a sibling slice under #39).
+github:
+  auth: none              # none (default) | host-token (scalar, repo wins)

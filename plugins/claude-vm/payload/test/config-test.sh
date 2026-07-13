@@ -67,6 +67,42 @@ mounts:
   - source: ~/.claude/policy
     tag: policy
     mode: ro
+packages:
+  bake:
+    - jq
+    - ripgrep
+  install_at_boot:
+    - htop
+  update_at_boot: false
+  apt_sources:
+    - name: global-repo
+      repo: "deb https://example.com/global stable main"
+      key_url: https://example.com/global/key.asc
+  add_apt_uris_to_allowlist: auto
+claude:
+  permission_mode: bypassPermissions
+  permissions:
+    allow:
+      - "Bash(git:*)"
+    ask:
+      - "Bash(rm:*)"
+    deny:
+      - "Bash(sudo:*)"
+  marketplaces:
+    - name: global-mp
+      url: https://example.com/global-mp
+  plugins:
+    bake:
+      - foo@global-mp
+    install_at_boot:
+      - bar@global-mp
+    update_at_boot: false
+    add_marketplace_uris_to_allowlist: auto
+  hooks:
+    parser: "on"
+    no_background_agents: "on"
+github:
+  auth: none
 YML
 
 cat > "$REPO" <<'YML'
@@ -82,6 +118,42 @@ mounts:
   - source: ~/datasets/foo
     tag: data
     mode: ro
+packages:
+  bake:
+    - ripgrep
+    - fd-find
+  install_at_boot:
+    - build-essential
+  update_at_boot: true
+  apt_sources:
+    - name: repo-registry
+      repo: "deb https://example.com/repo stable main"
+      key_url: https://example.com/repo/key.asc
+  add_apt_uris_to_allowlist: always
+claude:
+  permission_mode: default
+  permissions:
+    allow:
+      - "Bash(npm:*)"
+    ask:
+      - "Bash(rm:*)"
+    deny:
+      - "Bash(curl:*)"
+  marketplaces:
+    - name: repo-mp
+      url: https://example.com/repo-mp
+  plugins:
+    bake:
+      - baz@repo-mp
+    install_at_boot:
+      - bar@global-mp
+    update_at_boot: true
+    add_marketplace_uris_to_allowlist: always
+  hooks:
+    parser: "off"
+    no_background_agents: "off"
+github:
+  auth: host-token
 YML
 
 # ---------------------------------------------------------------------
@@ -122,6 +194,78 @@ MOUNT_COUNT="$(claude_vm_mount_specs "$MERGED" | grep -c . )"
 assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 
 # ---------------------------------------------------------------------
+# Test 3b: guest-capability schema (issue #103) -- scalars repo-wins
+# ---------------------------------------------------------------------
+# NOTE: yq's `// ""` returns "" for a boolean `false` (same quirk the
+# existing remote_control test documents below). Fixtures set the
+# *_update_at_boot booleans global=false / repo=true so "repo wins"
+# resolves to a non-empty "true" here; the false/fallback case is
+# covered separately for the global-only merge below.
+assert_eq "scalar: packages.update_at_boot repo wins (true)" \
+  "true" "$(claude_vm_scalar "$MERGED" '.packages.update_at_boot' 'X')"
+assert_eq "scalar: packages.add_apt_uris_to_allowlist repo wins (always)" \
+  "always" "$(claude_vm_scalar "$MERGED" '.packages.add_apt_uris_to_allowlist' 'X')"
+assert_eq "scalar: claude.permission_mode repo wins (default)" \
+  "default" "$(claude_vm_scalar "$MERGED" '.claude.permission_mode' 'X')"
+assert_eq "scalar: claude.plugins.update_at_boot repo wins (true)" \
+  "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.update_at_boot' 'X')"
+assert_eq "scalar: claude.plugins.add_marketplace_uris_to_allowlist repo wins (always)" \
+  "always" "$(claude_vm_scalar "$MERGED" '.claude.plugins.add_marketplace_uris_to_allowlist' 'X')"
+assert_eq "scalar: claude.hooks.parser repo wins (off)" \
+  "off" "$(claude_vm_scalar "$MERGED" '.claude.hooks.parser' 'X')"
+assert_eq "scalar: claude.hooks.no_background_agents repo wins (off)" \
+  "off" "$(claude_vm_scalar "$MERGED" '.claude.hooks.no_background_agents' 'X')"
+assert_eq "scalar: github.auth repo wins (host-token)" \
+  "host-token" "$(claude_vm_scalar "$MERGED" '.github.auth' 'X')"
+
+# ---------------------------------------------------------------------
+# Test 3c: guest-capability schema (issue #103) -- nested list unions
+# ---------------------------------------------------------------------
+# packages.bake: global(jq, ripgrep) + repo(ripgrep, fd-find) -> 3 unique
+PKG_BAKE="$(claude_vm_list_items "$MERGED" '.packages.bake' | sort | tr '\n' ',')"
+assert_eq "list: packages.bake unioned + de-duped" \
+  "fd-find,jq,ripgrep," "$PKG_BAKE"
+
+# packages.install_at_boot: global(htop) + repo(build-essential) -> 2
+PKG_INSTALL="$(claude_vm_list_items "$MERGED" '.packages.install_at_boot' | sort | tr '\n' ',')"
+assert_eq "list: packages.install_at_boot unioned" \
+  "build-essential,htop," "$PKG_INSTALL"
+
+# packages.apt_sources: global(global-repo) + repo(repo-registry) -> 2
+APT_SOURCE_NAMES="$(claude_vm_apt_sources "$MERGED" | cut -f1 | sort | tr '\n' ',')"
+assert_eq "list: packages.apt_sources unioned" \
+  "global-repo,repo-registry," "$APT_SOURCE_NAMES"
+
+# claude.permissions.allow: global(Bash(git:*)) + repo(Bash(npm:*)) -> 2
+PERM_ALLOW="$(claude_vm_list_items "$MERGED" '.claude.permissions.allow' | sort | tr '\n' ',')"
+assert_eq "list: claude.permissions.allow unioned" \
+  "Bash(git:*),Bash(npm:*)," "$PERM_ALLOW"
+
+# claude.permissions.ask: identical entry in both layers -> de-dupes to 1
+PERM_ASK_COUNT="$(claude_vm_list_items "$MERGED" '.claude.permissions.ask' | grep -c .)"
+assert_eq "list: claude.permissions.ask de-dupes identical entry" "1" "$PERM_ASK_COUNT"
+
+# claude.permissions.deny: global(Bash(sudo:*)) + repo(Bash(curl:*)) -> 2
+PERM_DENY="$(claude_vm_list_items "$MERGED" '.claude.permissions.deny' | sort | tr '\n' ',')"
+assert_eq "list: claude.permissions.deny unioned" \
+  "Bash(curl:*),Bash(sudo:*)," "$PERM_DENY"
+
+# claude.marketplaces: global(global-mp) + repo(repo-mp) -> 2
+MP_NAMES="$(claude_vm_marketplaces "$MERGED" | cut -f1 | sort | tr '\n' ',')"
+assert_eq "list: claude.marketplaces unioned" \
+  "global-mp,repo-mp," "$MP_NAMES"
+
+# claude.plugins.bake: global(foo@global-mp) + repo(baz@repo-mp) -> 2
+PLUGIN_BAKE="$(claude_vm_list_items "$MERGED" '.claude.plugins.bake' | sort | tr '\n' ',')"
+assert_eq "list: claude.plugins.bake unioned" \
+  "baz@repo-mp,foo@global-mp," "$PLUGIN_BAKE"
+
+# claude.plugins.install_at_boot: identical entry (bar@global-mp) in both -> 1
+PLUGIN_INSTALL_COUNT="$(claude_vm_list_items "$MERGED" '.claude.plugins.install_at_boot' | grep -c .)"
+assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
+  "1" "$PLUGIN_INSTALL_COUNT"
+
+# ---------------------------------------------------------------------
 # Test 4: global-only (repo config absent) resolves cleanly
 # ---------------------------------------------------------------------
 MERGED_G="$WORK/merged-global.yml"
@@ -130,6 +274,16 @@ assert_eq "global-only: cpus from global" \
   "2" "$(claude_vm_scalar "$MERGED_G" '.cpus' 'X')"
 assert_eq "global-only: egress count is 2" \
   "2" "$(claude_vm_egress_hosts "$MERGED_G" | grep -c .)"
+# global's packages.update_at_boot is false; the yq `// ""` quirk for
+# boolean false means claude_vm_scalar falls back to the caller default.
+assert_eq "global-only: packages.update_at_boot from global (false, falls back)" \
+  "X" "$(claude_vm_scalar "$MERGED_G" '.packages.update_at_boot' 'X')"
+assert_eq "global-only: claude.permission_mode from global" \
+  "bypassPermissions" "$(claude_vm_scalar "$MERGED_G" '.claude.permission_mode' 'X')"
+assert_eq "global-only: github.auth from global" \
+  "none" "$(claude_vm_scalar "$MERGED_G" '.github.auth' 'X')"
+assert_eq "global-only: packages.bake count is 2" \
+  "2" "$(claude_vm_list_items "$MERGED_G" '.packages.bake' | grep -c .)"
 
 # ---------------------------------------------------------------------
 # Test 5: repo-only (global config absent) resolves cleanly
@@ -140,6 +294,12 @@ assert_eq "repo-only: cpus from repo" \
   "8" "$(claude_vm_scalar "$MERGED_R" '.cpus' 'X')"
 assert_eq "repo-only: mem falls back to hardcoded default" \
   "$CLAUDE_VM_DEFAULT_MEM" "$(claude_vm_scalar "$MERGED_R" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
+assert_eq "repo-only: claude.permission_mode from repo (default)" \
+  "default" "$(claude_vm_scalar "$MERGED_R" '.claude.permission_mode' 'X')"
+assert_eq "repo-only: github.auth from repo (host-token)" \
+  "host-token" "$(claude_vm_scalar "$MERGED_R" '.github.auth' 'X')"
+assert_eq "repo-only: packages.update_at_boot from repo (true)" \
+  "true" "$(claude_vm_scalar "$MERGED_R" '.packages.update_at_boot' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 6: neither layer present -- all scalars hit hardcoded fallbacks
@@ -152,6 +312,36 @@ assert_eq "neither: repo.mount fallback is clone" \
   "$CLAUDE_VM_DEFAULT_REPO_MOUNT" "$(claude_vm_scalar "$MERGED_N" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
 assert_eq "neither: egress allow is empty" \
   "0" "$(claude_vm_egress_hosts "$MERGED_N" | grep -c .)"
+assert_eq "neither: packages.update_at_boot fallback (true)" \
+  "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT" \
+  "$(claude_vm_scalar "$MERGED_N" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+assert_eq "neither: packages.add_apt_uris_to_allowlist fallback (auto)" \
+  "$CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST" \
+  "$(claude_vm_scalar "$MERGED_N" '.packages.add_apt_uris_to_allowlist' "$CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST")"
+assert_eq "neither: claude.permission_mode fallback (bypassPermissions)" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE" \
+  "$(claude_vm_scalar "$MERGED_N" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+assert_eq "neither: claude.plugins.update_at_boot fallback (true)" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT" \
+  "$(claude_vm_scalar "$MERGED_N" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
+assert_eq "neither: claude.plugins.add_marketplace_uris_to_allowlist fallback (auto)" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST" \
+  "$(claude_vm_scalar "$MERGED_N" '.claude.plugins.add_marketplace_uris_to_allowlist' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
+assert_eq "neither: claude.hooks.parser fallback (on)" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER" \
+  "$(claude_vm_scalar "$MERGED_N" '.claude.hooks.parser' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER")"
+assert_eq "neither: claude.hooks.no_background_agents fallback (on)" \
+  "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS" \
+  "$(claude_vm_scalar "$MERGED_N" '.claude.hooks.no_background_agents' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS")"
+assert_eq "neither: github.auth fallback (none)" \
+  "$CLAUDE_VM_DEFAULT_GITHUB_AUTH" \
+  "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$CLAUDE_VM_DEFAULT_GITHUB_AUTH")"
+assert_eq "neither: packages.bake is empty" \
+  "0" "$(claude_vm_list_items "$MERGED_N" '.packages.bake' | grep -c .)"
+assert_eq "neither: claude.permissions.allow is empty" \
+  "0" "$(claude_vm_list_items "$MERGED_N" '.claude.permissions.allow' | grep -c .)"
+assert_eq "neither: claude.marketplaces is empty" \
+  "0" "$(claude_vm_marketplaces "$MERGED_N" | grep -c .)"
 
 # ---------------------------------------------------------------------
 # Test 7: identical mount in both layers de-dupes to one entry
