@@ -60,6 +60,26 @@ func classifyFileTool(ev *Event) Decision {
 		res, real := testContainment(p, rc)
 		switch res {
 		case escapeWorktree:
+			if !isMutatingFileTool(ev.ToolName) {
+				// #130: a Read of the primary clone / shared git dir is a read of
+				// content the worktree already shares — not the #127 hazard (that
+				// is a WRITE into the shared clone). The .git/ tree deny still
+				// applies independently (checked above via isUnderGitDir, though
+				// that check is gated to mutating tools — so re-check it here for
+				// the read case, since .git/ reads must stay gated too, per the
+				// issue's explicit requirement).
+				if isUnderGitDir(real, rc) {
+					return deny("read:.git tree (#125)", fmt.Sprintf(
+						"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
+							"hooks, etc.) stay gated even though primary-clone reads are otherwise allowed. Do not "+
+							"work around this by reading or writing under .git/.",
+						ev.ToolName, p))
+				}
+				// Not under .git/: treat as contained and keep checking remaining
+				// paths — defer to the normal pipeline, the same as an in-worktree
+				// read.
+				continue
+			}
 			correct := correctWorktreePath(real, rc)
 			return deny("containment:worktree-escape (#127)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
@@ -137,11 +157,14 @@ func cdInvalidAsk(prog string, sc simpleCommand) (Decision, bool) {
 
 // containPathOperands runs Engine B containment on a read-class command's path
 // operands. It returns ok=true when every operand is contained inside the
-// current worktree (or is the carved-out ~/.claude tree, #247), so the caller
-// may proceed to its contained-path terminal (ALLOW for the read-only-utility
-// classifier, DEFER for classifyPathReader). When an operand escapes, ok is
-// false and the returned Decision is the appropriate deny (#148 cross-repo) or
-// ask (#127 worktree-escape / no-repo-context fail-closed) to return verbatim.
+// current worktree, is a non-.git/ read of the primary clone / shared git dir
+// (#130 — a linked worktree shares tracked content with the primary clone, so
+// this is not a disclosure), or is the carved-out ~/.claude tree (#247), so
+// the caller may proceed to its contained-path terminal (ALLOW for the
+// read-only-utility classifier, DEFER for classifyPathReader). When an
+// operand escapes, ok is false and the returned Decision is the appropriate
+// deny (#148 cross-repo, or #125 a .git/-tree read) / ask (no-repo-context
+// fail-closed) to return verbatim.
 //
 // With no operands there is nothing to contain, so ok=true and the caller's
 // own terminal applies. The caller is responsible for the hasUnknownExpansion
@@ -183,12 +206,20 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 					".git/.",
 				prog, p, real, rc.topLevel)), false
 		case escapeWorktree:
-			// Reading the primary clone from a worktree is suspect but not as
-			// clearly forbidden as a write; escalate to a human.
-			return ask("bash-read:worktree-escape", fmt.Sprintf(
-				"'%s' would read '%s' in the primary clone / shared git dir rather than this worktree (%s). "+
-					"Confirm this is intended. Do not work around this by reading or writing under .git/.",
-				prog, real, rc.topLevel)), false
+			// #130: a linked worktree SHARES tracked content with the primary
+			// clone / common dir, so reading a non-.git/ file there discloses
+			// nothing the worktree's own history doesn't already have. Relax to
+			// contained for reads — but the .git/ tree deny (#125/#35 Fix 3) MUST
+			// survive independently of this relaxation: check it BEFORE relaxing.
+			if isUnderGitDir(real, rc) {
+				return deny("bash-read:.git tree (#125)", fmt.Sprintf(
+					"Blocked: '%s' would read '%s' which is inside a .git/ directory. Reads of .git/ internals "+
+						"(config, hooks, etc.) stay gated even though primary-clone reads are otherwise allowed. "+
+						"Do not work around this by reading or writing under .git/.",
+					prog, real)), false
+			}
+			// Not under .git/: a legitimate shared-content read (#125's stated
+			// intent). Treat as contained rather than escalating.
 		case claudeConfig:
 			// The agent's own ~/.claude global config tree (#247) — required
 			// startup reading, allow-listed in settings.json. Treat as contained.

@@ -80,6 +80,88 @@ func TestContainmentWorktreeEscape_127(t *testing.T) {
 	}
 }
 
+// #130: reading a tracked, non-.git/ file in the primary clone / shared git
+// dir from a linked worktree is a legitimate, safe read (the worktree shares
+// tracked content with the primary clone) and must no longer ASK. The
+// write-side #127 deny and the .git/-tree deny (both reads and writes) must
+// survive unchanged, and #148 cross-repo reads must still deny.
+func TestPrimaryCloneReadRelaxed_130(t *testing.T) {
+	primary, wt := setupWorktree(t)
+
+	pluginJSON := filepath.Join(primary, "plugins", "guardrails", ".claude-plugin", "plugin.json")
+	if err := os.MkdirAll(filepath.Dir(pluginJSON), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pluginJSON, []byte(`{"version":"0.9.2"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// bash-read (cat) of a primary-clone tracked file from a worktree →
+	// contained/defer, NOT ask (regression for #125's stated intent).
+	bev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
+	bd := classifyBash("cat "+pluginJSON, bev)
+	if bd.Bucket == BucketAsk || bd.Bucket == BucketDeny {
+		t.Errorf("#130: bash-read of primary-clone tracked file must not ask/deny; got %q (%s)", bd.Bucket, bd.Reason)
+	}
+
+	// Read tool on a primary-clone tracked file → allow/defer.
+	rev := &Event{
+		ToolName:  "Read",
+		CWD:       wt,
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + pluginJSON + `"}`),
+	}
+	rd := classifyFileTool(rev)
+	if rd.Bucket == BucketAsk || rd.Bucket == BucketDeny {
+		t.Errorf("#130: Read tool on primary-clone tracked file must not ask/deny; got %q (%s)", rd.Bucket, rd.Reason)
+	}
+
+	// Write / Edit on a primary-clone path still DENY (cross-worktree-write,
+	// #127) — the read relaxation must not touch the write side.
+	for _, tool := range []string{"Write", "Edit"} {
+		wev := &Event{
+			ToolName:  tool,
+			CWD:       wt,
+			AgentType: "issue-developer",
+			ToolInput: []byte(`{"file_path":"` + pluginJSON + `"}`),
+		}
+		wd := classifyFileTool(wev)
+		wantBucket(t, wd, BucketDeny, tool+" to primary-clone path must still deny (#127)")
+	}
+
+	// cat <primary-clone>/.git/config still gated (.git/ deny survives the
+	// read relaxation).
+	gitCfg := filepath.Join(primary, ".git", "config")
+	gcBev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
+	gcBd := classifyBash("cat "+gitCfg, gcBev)
+	wantBucket(t, gcBd, BucketDeny, "cat primary-clone .git/config must still be gated")
+
+	gcRev := &Event{
+		ToolName:  "Read",
+		CWD:       wt,
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + gitCfg + `"}`),
+	}
+	gcRd := classifyFileTool(gcRev)
+	wantBucket(t, gcRd, BucketDeny, "Read of primary-clone .git/config must still be gated")
+
+	// cat <sibling-repo>/node_modules/x still cross-repo deny (#148) —
+	// unaffected by the primary-clone relaxation.
+	base := t.TempDir()
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	nm := filepath.Join(sibling, "node_modules", "x")
+	if err := os.MkdirAll(filepath.Dir(nm), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nm, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	siblingBev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
+	siblingBd := classifyBash("cat "+nm, siblingBev)
+	wantBucket(t, siblingBd, BucketDeny, "cat sibling-repo node_modules must still cross-repo deny (#148)")
+}
+
 // §10: a Read/bash-read targeting a sibling repo is blocked (#148).
 func TestContainmentCrossRepo_148(t *testing.T) {
 	base := t.TempDir()
@@ -339,21 +421,23 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 		t.Errorf("#30: #148 bash-read deny must forbid .git/ as a workaround; got %q", bd.Reason)
 	}
 
-	// #127 bash-read worktree-escape ask explicitly forbids the .git/ workaround.
-	siblingFile := filepath.Join(primary, "secret.txt")
-	if err := os.WriteFile(siblingFile, []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// #130: a bash-read of a non-.git/ file in the primary clone is now
+	// contained/defer, not an ask — the #127 worktree-escape ask no longer
+	// applies to reads. The .git/-tree deny is what still forbids the .git/
+	// workaround for bash-reads of the primary clone.
+	gitCfg := filepath.Join(primary, ".git", "config")
 	bwev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
-	bwd := classifyBash("cat "+siblingFile, bwev)
-	wantBucket(t, bwd, BucketAsk, "#127 bash-read worktree escape")
+	bwd := classifyBash("cat "+gitCfg, bwev)
+	wantBucket(t, bwd, BucketDeny, "#125 bash-read of .git/ under primary clone")
 	if !containsSubstr(bwd.Reason, ".git/") {
-		t.Errorf("#30: #127 bash-read ask must forbid .git/ as a workaround; got %q", bwd.Reason)
+		t.Errorf("#30: .git/-tree bash-read deny must forbid .git/ as a workaround; got %q", bwd.Reason)
 	}
 }
 
 // §10: a symlinked target that points outside the worktree is blocked (#12 —
-// both sides canonicalized).
+// both sides canonicalized). Uses a mutating tool (Write): #130 relaxed the
+// primary-clone-read case to contained/defer, but a WRITE resolving through a
+// symlink into the primary clone must still be caught and denied.
 func TestContainmentSymlinkEscape_12(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
@@ -371,7 +455,7 @@ func TestContainmentSymlinkEscape_12(t *testing.T) {
 	}
 
 	ev := &Event{
-		ToolName:  "Read",
+		ToolName:  "Write",
 		CWD:       wt,
 		AgentType: "issue-developer",
 		ToolInput: []byte(`{"file_path":"` + link + `"}`),
@@ -379,6 +463,34 @@ func TestContainmentSymlinkEscape_12(t *testing.T) {
 	d := classifyFileTool(ev)
 	// The link resolves into the primary clone → worktree escape (DENY).
 	wantBucket(t, d, BucketDeny, "#12 symlink escaping worktree")
+}
+
+// #130: a Read through a symlink that resolves into the primary clone (a
+// non-.git/ path) is now contained/defer, not denied — the relaxation must
+// apply after symlink canonicalization too, not just to literal paths.
+func TestContainmentSymlinkPrimaryCloneRead_130(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on windows")
+	}
+	primary, wt := setupWorktree(t)
+
+	outsideTarget := filepath.Join(primary, "plugin.json")
+	_ = os.WriteFile(outsideTarget, []byte("{}"), 0o644)
+	link := filepath.Join(wt, "link-to-plugin-json")
+	if err := os.Symlink(outsideTarget, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	ev := &Event{
+		ToolName:  "Read",
+		CWD:       wt,
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + link + `"}`),
+	}
+	d := classifyFileTool(ev)
+	if d.Bucket == BucketDeny || d.Bucket == BucketAsk {
+		t.Errorf("#130: Read through a symlink into the primary clone (non-.git/) must not deny/ask; got %q (%s)", d.Bucket, d.Reason)
+	}
 }
 
 // §10: fail-closed when git rev-parse cannot resolve the context.

@@ -231,7 +231,21 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   against `.git/`, so an open-ended denial does not induce the model to
   improvise a bad landing spot. See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
-  for the convention.
+  for the convention. (3) **reading** a non-`.git/` file that resolves
+  into the primary clone / shared git dir is **contained/defer** (ALLOW
+  on the read-only-utility track), not an ASK (#130): a linked worktree
+  shares tracked content with the primary clone, so reading a file like
+  `plugin.json` there discloses nothing the worktree's own history
+  doesn't already have. This applies to the `Read` tool and to
+  bash-read commands (`cat`, the read-only-utility set, `less`/`more`/
+  pagers via `classifyPathReader`) alike. The `.git/`-tree deny is
+  checked BEFORE this relaxation and survives independently for reads
+  too — `cat <primary-clone>/.git/config` still denies. The **write**
+  side is unaffected: Write/Edit/MultiEdit/NotebookEdit and the
+  in-repo-write shell classifier still DENY a target that resolves to
+  the primary clone (#127), and #148 cross-repo reads/writes are
+  unaffected by this carve-out (it only relaxes the primary-clone /
+  common-dir case, not a genuine sibling repo).
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the
