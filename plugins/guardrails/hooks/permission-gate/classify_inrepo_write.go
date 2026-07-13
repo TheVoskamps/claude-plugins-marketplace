@@ -118,9 +118,11 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // deny: cross-repo (#148) or worktree-escape (#127), each carrying the
 // worktree-anchored remediation (mirroring the file-tool deny wording).
 //
-// Unlike the read side (containPathOperands), a worktree-escape here DENIES
-// rather than ASKS: writing into the primary clone from a subagent worktree is
-// the #127 escape, exactly the case classifyFileTool denies for Write/Edit. A
+// Unlike the read side (containPathOperands), a worktree-escape here always
+// DENIES: writing into the primary clone from a subagent worktree is the
+// #127 escape, exactly the case classifyFileTool denies for Write/Edit. The
+// read side treats a non-.git/ primary-clone target as contained instead
+// (#130), but that relaxation is read-only and does not extend to writes. A
 // subagent writing inside its own worktree is contained and fine; a subagent
 // writing into the primary clone still denies, because rc.topLevel is the
 // subagent's worktree root.

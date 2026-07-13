@@ -14,3 +14,7 @@
   update root README roster; hook-EVENT facts go to
   docs/hook-event-notes.md, packaging-system facts to
   plugin-authoring-constraints.md; never touch plugin-migration-plan.md.
+- [guardrails package comment sweep](project_guardrails-package-comment-sweep.md)
+  — permission-gate duplicates containment-behavior doc comments per
+  entry point; grep the whole directory after a containment-rule
+  change, don't trust the developer's call-site edit alone.
