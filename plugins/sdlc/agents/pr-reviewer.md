@@ -20,9 +20,12 @@ The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
 Bash call onward. The worktree is throwaway: you may freely check out
 the PR branch, run scripts, build, run tests, or set up `.claude/tmp/`
-sandboxes to verify a function in isolation. Do not commit or push —
-your job is review, not edits. No end-of-run branch cleanup is needed
-because you didn't create a feature branch.
+sandboxes to verify a function in isolation. Do not commit or push code
+changes — your job is review, not edits. The one exception is your own
+`.claude/agent-memory/` capture (see "Capture agent memory" below),
+which is a memory commit, not a code edit. Branch cleanup after that
+capture is still required even though you didn't create the feature
+branch — see "End-of-run cleanup" below.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context. See `git-workflow.md` → "Subagent
@@ -128,8 +131,60 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    - If `source-control == CodeCommit`: TODO — CodeCommit review-post
      path not implemented. Abort with: "CodeCommit source-control
      selected, but the review-post path is not implemented. See #104."
-7. Report back your verdict: APPROVED, NEEDS_CHANGES, or BLOCKED, plus
+7. Capture agent memory onto the branch. `memory: project` resolves
+   `.claude/agent-memory/` relative to your cwd, which is this
+   throwaway worktree — anything you wrote there during this run is
+   lost when the worktree is torn down unless you commit it onto the
+   branch yourself. If `git status --porcelain .claude/agent-memory/`
+   shows any changes:
+
+   - If you did not already check out the PR branch in step 4, do so
+     now: `git fetch origin && git checkout <branch>`.
+   - Stage and commit **only** `.claude/agent-memory/` — never
+     `git add -A` or any broader directory-wide add:
+
+     ```bash
+     git add .claude/agent-memory/
+     git commit -m "Add agent memory from pr-reviewer"
+     git push
+     ```
+
+   - This is a raw, append-only capture: do not prune or curate your
+     own memory here. The commit message must obey the closing-keyword
+     rule — never a closing keyword immediately before an issue
+     reference.
+   - Note: you run after `doc-updater`, so this memory commit lands
+     on the branch too late for this PR's curation pass. It survives
+     and gets curated on the next PR that touches the repo — a known,
+     accepted one-PR lag (see the "orchestrate" skill's memory-baseline
+     paragraph).
+   - If `.claude/agent-memory/` has no changes, skip this step.
+
+   After this step, release the branch claim per "End-of-run cleanup"
+   below — even though you didn't create the feature branch, checking
+   it out in step 4 or this step claims it in this worktree, and a
+   subsequent subagent needs it back.
+
+8. Report back your verdict: APPROVED, NEEDS_CHANGES, or BLOCKED, plus
    severity counts (Critical, High, Medium, Low).
+
+## End-of-run cleanup
+
+If you checked out the PR branch at any point (step 4's optional
+exercise, or step 7's memory capture), release the branch claim so
+subsequent subagents can check it out in their own worktrees:
+
+```bash
+git checkout --detach
+git branch -D <branch>
+```
+
+Use `--detach` (not `git checkout <source-branch>`) because the
+orchestrator's primary clone is already holding `<source-branch>`, so a
+subagent worktree can't switch to it. Detaching HEAD releases the
+feature-branch claim equivalently. See `git-workflow.md` → "End-of-run
+cleanup pattern". If you never checked out the PR branch, there is no
+claim to release — skip this.
 
 ## Review criteria
 

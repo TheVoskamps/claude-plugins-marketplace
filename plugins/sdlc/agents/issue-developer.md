@@ -149,7 +149,29 @@ spawn prompt does not give them, ask before proceeding.
     path not yet implemented. Abort with: "CodeCommit source-control
     selected, but the PR-create path is not implemented. See #104."
 
-11. End-of-run cleanup — release the branch claim so subsequent
+11. Capture agent memory onto the branch, before worktree cleanup.
+    `memory: project` resolves `.claude/agent-memory/` relative to
+    your cwd, which is this throwaway worktree — anything you wrote
+    there during this run is invisible to the PR and to every other
+    agent unless you commit it onto the branch yourself. If
+    `git status --porcelain .claude/agent-memory/` shows any changes:
+
+    ```bash
+    git add .claude/agent-memory/
+    git commit -m "Add agent memory from issue-developer"
+    git push
+    ```
+
+    Stage **only** `.claude/agent-memory/` — never `git add -A` or any
+    broader directory-wide add for this commit. This is a raw,
+    append-only capture: do not prune or curate your own memory here;
+    `doc-updater` reviews and curates every agent's memory later in the
+    PR lifecycle. The commit message must obey the same closing-keyword
+    rule as step 8 — never a closing keyword immediately before an
+    issue reference. If `.claude/agent-memory/` has no changes, skip
+    this step; there is nothing to commit.
+
+12. End-of-run cleanup — release the branch claim so subsequent
     subagents (`doc-updater`, `issue-fixer`) can check out the same
     branch in their own worktrees:
 
@@ -165,7 +187,7 @@ spawn prompt does not give them, ask before proceeding.
     Detaching HEAD releases the feature-branch claim equivalently.
     See `git-workflow.md` → "End-of-run cleanup pattern".
 
-12. Report back: PR URL (or equivalent), issue number, branch name.
+13. Report back: PR URL (or equivalent), issue number, branch name.
     (The orchestrator handles the worktree directory itself; the
     worktree path isn't something you need to surface.)
 

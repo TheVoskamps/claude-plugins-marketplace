@@ -31,7 +31,23 @@ All four teammates declare `isolation: worktree` in their frontmatter,
 so the harness creates each one's worktree under `.claude/worktrees/`
 and starts the subagent inside it. You don't manage worktree paths and
 you never pass them in spawn prompts. They also share a hardened
-frontmatter baseline — `memory: project` on all four. (Plugin-shipped
+frontmatter baseline — `memory: project` on all four. Because
+`memory: project` resolves `.claude/agent-memory/` relative to each
+agent's own cwd — its throwaway worktree, not the primary clone —
+memory written mid-run would otherwise vanish when the worktree is torn
+down, never having reached the PR. The four agents close this gap with
+a capture-then-curate flow: `issue-developer`, `issue-fixer`, and
+`pr-reviewer` each commit their own raw, uncurated `.claude/agent-
+memory/` deltas onto the branch at end-of-run, before their worktree
+cleanup, staging only that path; `doc-updater` is the curation gate —
+after checking out the branch and before its doc commit, it judges
+every memory entry against this repo's rules/skills/agents, the global
+`~/.claude/` rules/skills/agents, and the other memories present, keeps
+durable lore, prunes or merges the rest, fixes each `MEMORY.md` index,
+and reports what it cut. `pr-reviewer` runs after `doc-updater`, so its
+own memory capture lands on the branch too late for that PR's curation
+pass — it survives and is curated on the next PR that touches the
+repo, a known, accepted one-PR lag. (Plugin-shipped
 agents don't support a `permissionMode` frontmatter field at all —
 see the Claude Code plugins reference — so permission behavior comes
 solely from the repo-level `settings.json` `sandbox` block and

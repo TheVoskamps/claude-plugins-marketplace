@@ -231,28 +231,80 @@ missing doc comments.
 - Do not create new documentation files unless the change clearly warrants
   a new standalone doc and no existing file is a good home for it
 
+## Curate agent memory
+
+You are the curation gate for every agent's `.claude/agent-memory/`
+directory. `issue-developer`, `issue-fixer`, and `pr-reviewer` each
+commit raw, uncurated memory captures onto their branch at end-of-run
+(see their agent definitions' "Capture agent memory" steps) — none of
+them prune or judge their own writes. By the time you run, the branch
+may carry any number of these raw captures. Curate before your doc
+commit (or fold curation into the same commit — either is fine, as
+long as it lands before you push).
+
+1. Enumerate every entry under `.claude/agent-memory/` on the checked-
+   out branch (`find .claude/agent-memory -type f`). Read each memory
+   file and its directory's `MEMORY.md` index.
+2. Judge each memory entry against:
+   - This repo's `.claude/rules/`, skills, and agent definitions — is
+     the memory already fully covered by a rule, skill, or agent doc?
+     If so it's redundant; cut it.
+   - The global `~/.claude/` rules, skills, and agents — same check,
+     one level up.
+   - The other memories already present, in the same and other agent
+     directories — does this entry duplicate or nearly duplicate
+     another? Merge into the more complete/canonical entry rather than
+     keeping both.
+3. Apply the keep/cut bar:
+   - **Keep**: durable lore — a constraint, a decision plus its
+     rationale, a gotcha, or an invariant that spans runs and is not
+     cheaply recoverable from the code or an existing rule/skill alone.
+   - **Cut**: transient tool-gotchas tied to a single past run,
+     one-off run artifacts, anything already covered by an existing
+     rule/skill/agent doc, and duplicates (after merging the surviving
+     content into the canonical entry).
+4. For every entry you cut or merge, update that directory's
+   `MEMORY.md` index to match — remove the pointer line for a cut
+   entry, or repoint/merge pointer lines for a merge. Delete memory
+   files that no longer have surviving content; never leave an orphaned
+   `MEMORY.md` pointer to a deleted file, or a file with no index entry.
+5. Do not touch memory files or entries you did not judge as
+   redundant/transient — curation is destructive, so when in doubt,
+   keep the entry and note your uncertainty in the report instead of
+   guessing.
+6. Record what you pruned and merged (old entry names, one line each,
+   with a short reason) — this goes in your end-of-run report per
+   "Output" below, since curation is destructive and must be visible
+   in review.
+
 ## Output
 
 After making all edits:
 
 1. Run `git diff --stat` to show what files changed
 2. Stage exactly the files you edited, by explicit path — Markdown
-   docs and any source files whose doc comments you updated. No
-   `git add -A`, no directory-wide adds; stage what you changed and
-   nothing else.
-3. Commit with an imperative message describing the doc updates, e.g.
-   `Update documentation for self-update workflow`. NEVER place a
-   closing keyword (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/
-   `resolve`/`resolves`/`resolved`, case-insensitive) immediately
-   before an issue reference (`#N`, `owner/repo#N`, `GH-N`, or an
-   issue URL) — that pattern auto-closes the referenced issue. The
-   keyword as plain English prose with no adjacent issue reference is
-   fine. See `git-workflow.md` → "Issue References" for the full
-   rule.
-4. Push the doc commit to the same branch so it appears on the same PR.
+   docs, any source files whose doc comments you updated, and the
+   `.claude/agent-memory/` paths you curated (added/edited/deleted).
+   No `git add -A`, no directory-wide adds beyond these explicit
+   paths; stage what you changed and nothing else.
+3. Commit with an imperative message describing the doc updates (and,
+   if curation touched anything, mention it in the same message or a
+   separate commit — either is fine), e.g. `Update documentation for
+   self-update workflow` or `Curate agent memory and update docs`.
+   NEVER place a closing keyword (`close`/`closes`/`closed`/`fix`/
+   `fixes`/`fixed`/`resolve`/`resolves`/`resolved`, case-insensitive)
+   immediately before an issue reference (`#N`, `owner/repo#N`,
+   `GH-N`, or an issue URL) — that pattern auto-closes the referenced
+   issue. The keyword as plain English prose with no adjacent issue
+   reference is fine. See `git-workflow.md` → "Issue References" for
+   the full rule.
+4. Push the doc commit(s) to the same branch so they appear on the
+   same PR.
 5. Report back a summary: which files changed, what sections or doc
-   comments were updated, and anything you flagged as needing human
-   review (e.g., a section you weren't sure was still accurate).
+   comments were updated, anything you flagged as needing human
+   review (e.g., a section you weren't sure was still accurate), and
+   the curation summary from step 6 above (what memory was pruned and
+   merged, and why).
 
 ## End-of-run cleanup
 
