@@ -282,7 +282,21 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   in-repo-write shell classifier still DENY a target that resolves to
   the primary clone (#127), and #148 cross-repo reads/writes are
   unaffected by this carve-out (it only relaxes the primary-clone /
-  common-dir case, not a genuine sibling repo).
+  common-dir case, not a genuine sibling repo). (4) a leading `~` or
+  `~/...` in any operand is expanded against the real home directory
+  BEFORE the relative-join/canonicalize step (#131 follow-up review),
+  mirroring the tilde handling Engine A's `applyCd` already does for
+  `cd ~`. Without this, `~/.ssh/id_rsa` is not `filepath.IsAbs` and
+  would silently fall through to the relative-join branch, resolving
+  as `<base>/~/.ssh/id_rsa` — a literal, in-repo-looking child path
+  that masked an escape to the user's real home directory as
+  `contained`. This was a genuine fail-open (found via a for-loop
+  brace-list escaping member, `{a.md,~/.ssh/id_rsa}`, but pre-existing
+  and reachable through any single-operand path too, e.g. plain
+  `cat ~/.ssh/id_rsa`) — now it earns the escape verdict its real
+  location deserves. If the home directory cannot be resolved, `~` is
+  left as a literal relative segment, matching `applyCd`'s own
+  fail-safe posture (invalidate rather than guess).
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the

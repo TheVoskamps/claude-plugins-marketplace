@@ -154,9 +154,28 @@ func canonicalize(p string) string {
 // falls back to filepath.Abs's process-cwd behavior when base is empty).
 // This changes ONLY the base for the initial relative→absolute step; the
 // symlink/`..` resolution semantics below are unchanged.
+//
+// A leading `~` or `~/...` is expanded against the real home directory
+// BEFORE the relative-join step (mirroring the tilde handling applyCd
+// already does for `cd ~`, engine_a_bash.go). Without this, `~/.ssh/id_rsa`
+// is not absolute (filepath.IsAbs("~...") is false), so it would silently
+// fall through to the relative-join branch and resolve as `<base>/~/.ssh/
+// id_rsa` — a literal, in-repo-looking child path — masking a genuine
+// escape to the user's home directory as `contained`. Expanding first makes
+// the path absolute, so it takes the correct branch below and earns
+// whatever verdict its real location deserves (contained if home happens to
+// be inside the repo, escapeRepo/escapeWorktree/claudeConfig otherwise). If
+// the home directory cannot be determined, `~` is left as a literal
+// relative segment, matching applyCd's own fail-safe posture (cd invalidates
+// rather than guesses).
 func canonicalizeFrom(p string, base string) string {
 	if p == "" {
 		return p
+	}
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil && home != "" {
+			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
 	}
 	if !filepath.IsAbs(p) {
 		if base != "" {

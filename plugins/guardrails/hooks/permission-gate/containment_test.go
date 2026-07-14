@@ -517,3 +517,51 @@ func TestContainmentFailClosed_NoCWD(t *testing.T) {
 		t.Errorf("empty cwd must fail closed; got %q", d.Bucket)
 	}
 }
+
+// TestCanonicalizeFromExpandsTilde pins the containment-level fix (PR #139
+// follow-up review) directly at canonicalizeFrom, independent of any Bash
+// classification path. Before this fix, `~/.ssh/id_rsa` was not
+// filepath.IsAbs, so it silently fell through to the relative-join branch
+// and resolved as `<base>/~/.ssh/id_rsa` — a literal, in-repo-looking child
+// path that masked an escape to the real home directory as `contained`.
+func TestCanonicalizeFromExpandsTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no resolvable home directory in this environment")
+	}
+	wantHomeFile := canonicalize(filepath.Join(home, ".ssh", "id_rsa"))
+
+	base := t.TempDir()
+
+	got := canonicalizeFrom("~/.ssh/id_rsa", base)
+	if got != wantHomeFile {
+		t.Errorf("canonicalizeFrom(%q, base) = %q, want %q (must resolve against the real home directory, not <base>/~/...)",
+			"~/.ssh/id_rsa", got, wantHomeFile)
+	}
+	if pathUnder(got, canonicalize(base)) {
+		t.Errorf("canonicalizeFrom(%q, base) = %q must NOT resolve under base %q", "~/.ssh/id_rsa", got, base)
+	}
+
+	wantHome := canonicalize(home)
+	if gotBare := canonicalizeFrom("~", base); gotBare != wantHome {
+		t.Errorf("canonicalizeFrom(\"~\", base) = %q, want %q", gotBare, wantHome)
+	}
+}
+
+// TestContainmentTildeEscapeDenied covers the same fix one layer up, through
+// testContainmentFrom: a tilde-prefixed target must earn the escape verdict
+// its real (home-directory) location deserves, not `contained`.
+func TestContainmentTildeEscapeDenied(t *testing.T) {
+	if _, err := os.UserHomeDir(); err != nil {
+		t.Skip("no resolvable home directory in this environment")
+	}
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	rc := &repoContext{insideWorkTree: true, topLevel: canonicalize(repo)}
+
+	result, _ := testContainmentFrom("~/.ssh/id_rsa", canonicalize(repo), rc)
+	if result == contained {
+		t.Errorf("tilde-prefixed target must not resolve as contained; got %v", result)
+	}
+}

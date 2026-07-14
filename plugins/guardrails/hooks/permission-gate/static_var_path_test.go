@@ -729,3 +729,155 @@ func TestForLoopNestedSaveRestoresOuterBinding_131(t *testing.T) {
 	}
 	wantBucket(t, d, BucketAllow, "#131 nested for loop save/restore of loop variable")
 }
+
+// TestForLoopBraceInListTildeEscapingMemberDenied_131 pins a real fail-open
+// found in PR #139 review: a for-loop brace member expressed as a
+// tilde-prefixed path (`~/.ssh/id_rsa`) is NOT dropped by upstream
+// expand.Braces (only ".."-bearing members are, per hasDotDotBraceMember) and
+// is NOT absolute per filepath.IsAbs, so before the containment fix in this
+// commit it fell through canonicalizeFrom's relative-join branch and
+// resolved to a literal in-repo-looking child path (`<repo>/~/.ssh/id_rsa`)
+// — an ALLOW, not a DENY. canonicalizeFrom now expands a leading `~`/`~/`
+// against the real home directory before the relative-join step (mirroring
+// applyCd's existing `cd ~` handling), so the member resolves to the user's
+// real home directory and earns the escapeRepo verdict its true location
+// deserves, joining worst-wins with the rest of the brace list.
+func TestForLoopBraceInListTildeEscapingMemberDenied_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a.md,~/.ssh/id_rsa}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: tilde-expanded escaping brace member must DENY via worst-wins, not ALLOW")
+}
+
+// TestForLoopBraceInListAbsoluteEscapingMemberDenied_131 pins the absolute-
+// path escaping-member shape named in the PR #139 High finding. Upstream
+// expand.Braces preserves an absolute member unchanged (verified: `{a,
+// /etc/passwd}` => `[a /etc/passwd]`, no silent drop), so it reaches
+// literalWord/containment on the normal (non-fallback) path and denies via
+// ordinary worst-wins — same machinery as any other absolute operand.
+func TestForLoopBraceInListAbsoluteEscapingMemberDenied_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a.md,/etc/passwd}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: absolute escaping brace member must DENY")
+}
+
+// TestForLoopBraceInListHomeVarEscapingMemberStillEscalates_131 pins the
+// $HOME-based escaping-member shape named in the PR #139 High finding. $HOME
+// is an ordinary environment variable, not a shell built-in the gate
+// pre-populates into knownVars, so `$HOME/.ssh/id_rsa` is an unresolvable
+// parameter expansion (isResolvableParamExp requires the name to be in
+// knownVars). staticExpandItem's literalWord call marks the sub-word inexact
+// and the whole for-in list fails closed — matching every other unresolved-
+// variable case in this file (e.g.
+// TestForLoopBraceWithUnresolvableVarStillEscalates_131). This is the
+// correct verdict, not a defect: an unresolvable value set cannot be proven
+// safe OR proven escaping, so ASK (not a guessed DENY or ALLOW) is right.
+func TestForLoopBraceInListHomeVarEscapingMemberStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a.md,$HOME/.ssh/id_rsa}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: unresolvable $HOME-based brace member must escalate (ASK), not guess ALLOW or DENY")
+}
+
+// TestForLoopBraceInListTildeEscapingMemberFirstPosition_131 and
+// TestForLoopBraceInListTildeEscapingMemberMiddlePosition_131 sweep the
+// tilde-escape shape across member position, since worst-wins must catch the
+// escaping member regardless of where it sits in the list (not just last).
+func TestForLoopBraceInListTildeEscapingMemberFirstPosition_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {~/.ssh/id_rsa,a.md}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: tilde-escaping brace member in FIRST position must still DENY")
+}
+
+func TestForLoopBraceInListTildeEscapingMemberMiddlePosition_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a.md,~/.ssh/id_rsa,b.md}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: tilde-escaping brace member in MIDDLE position must still DENY")
+}
+
+// TestForLoopBraceInListMixedDotDotAndAbsoluteEscapeDenied_131 covers a
+// three-member list combining a safe literal, a ".."-bearing escaping
+// member (the silent-drop shape from the round-2 review), and an absolute
+// escaping member (the preserved-by-upstream shape) in the SAME brace list.
+// Worst-wins must deny on this combination regardless of which detection
+// path (hasDotDotBraceMember fallback vs. normal literalWord path) catches
+// which member.
+func TestForLoopBraceInListMixedDotDotAndAbsoluteEscapeDenied_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,../../x,/etc/y}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: mixed '..'-escape + absolute-escape brace members must DENY")
+}
+
+// TestForLoopBraceInListBareTildeMemberDenied_131 covers the bare `~` member
+// (no trailing slash) — the same tilde-expansion branch in canonicalizeFrom
+// handles `~` alone (expands to exactly the home directory) as well as
+// `~/...`.
+func TestForLoopBraceInListBareTildeMemberDenied_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {~,a.md}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: bare '~' brace member must DENY (resolves to the real home directory, outside the repo)")
+}
