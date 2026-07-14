@@ -287,14 +287,13 @@ Before spawning the follow-up agents, call `/github-workflow:pr-link-issue
 idempotent safety-net: the `issue-developer` already writes
 `Closes #<issue>` into the PR body at create time, so this call
 normally no-ops ("already linked") — but running it unconditionally
-guarantees
-the PR carries the closing keyword (and thus the Development-sidebar
-link and the auto-close-on-merge) even if a developer variant, a human
-hand-edit, or a CodeCommit fallback skipped it. The orchestrate flow
-always has the issue number in hand, so this always runs. `<issue>` is
-the branch's own issue (the one the developer fixed); the skill
-prefers the `issue-<N>-<slug>` branch name as the source of truth when
-they disagree.
+guarantees the PR carries the closing keyword (and thus the
+Development-sidebar link and the auto-close-on-merge) even if a
+developer variant or a human hand-edit skipped it. The orchestrate
+flow always has the issue number in hand, so this always runs.
+`<issue>` is the branch's own issue (the one the developer fixed); the
+skill prefers the `issue-<N>-<slug>` branch name as the source of
+truth when they disagree.
 
 The PR stays a **draft** at this point and through the entire
 review/fix loop — see "PR draft/ready lifecycle" below.
