@@ -258,12 +258,18 @@ CLAUDE_VM_LIST_KEYS=(
 #
 # A missing file contributes an empty document. Scalars: repo wins.
 # Lists (CLAUDE_VM_LIST_KEYS, e.g. egress.allow, mounts,
-# claude.permissions.allow): union, global-first, de-duplicated.
+# claude.permissions.allow): union, global-first, de-duplicated. A list
+# key set in NEITHER layer, and any parent map left empty as a result
+# (e.g. `packages`, `claude.permissions`), is pruned from the output
+# entirely -- see claude_vm_prune_empty_skeleton below -- so the merged
+# document never conflates "user configured this as empty" with "user
+# didn't touch this at all".
 #
 # Implementation note: yq's `*` deep-merge clobbers arrays (repo array
 # replaces global array), which is the WRONG semantics for our lists.
-# So we deep-merge for scalars, then explicitly recompute each list
-# key as a union and splice it back in.
+# So we deep-merge for scalars (step 1), explicitly recompute each list
+# key as a union (step 2) and splice it back in (step 3), then prune
+# the resulting empty skeleton (step 4).
 claude_vm_merge_config() {
   local global="$1" repo="$2"
   local g r empty
@@ -324,8 +330,52 @@ claude_vm_merge_config() {
     )" || { echo "claude-vm: failed to splice merged list $key" >&2; rc=1; break; }
     i=$((i + 2))
   done
+
+  # Step 4: prune the empty skeleton (see claude_vm_prune_empty_skeleton).
+  if [ "$rc" -eq 0 ]; then
+    current="$(claude_vm_prune_empty_skeleton "$current")" \
+      || { echo "claude-vm: failed to prune empty config skeleton" >&2; rc=1; }
+  fi
+
   printf '%s\n' "$current"
   return "$rc"
+}
+
+# Prune the "empty skeleton" that Step 2/3 above otherwise leaves behind:
+# a list key the user set in NEITHER layer still round-trips through the
+# union-then-splice as an empty list (`[]`), and its parent map(s) (e.g.
+# `packages`, `claude.permissions`) survive purely to hold that empty
+# list. Left in place, this invites a consumer to test "did the user
+# configure this?" by key PRESENCE (`has("packages")` -- wrong, always
+# true) instead of entry COUNT (right) -- conflating "absent" with
+# "configured empty".
+#
+#   $1 -- the merged YAML document (as a string, on stdin via a herestring
+#         below), AFTER the list-union splice in Step 3.
+#
+# Two passes:
+#   1. For every key in CLAUDE_VM_LIST_KEYS, delete it from the document
+#      IFF its merged value is an empty list. A key with entries is left
+#      untouched, so egress.allow/mounts and every populated new list
+#      key round-trip exactly as before -- this only removes lists that
+#      resolved to nothing.
+#   2. Recursively delete any map that is now empty as a RESULT of pass 1
+#      (e.g. `packages: {}` once every packages.* list was pruned and no
+#      packages.* scalar was set). Applied twice: pass 1 can empty a
+#      leaf map (e.g. `claude.plugins`) whose own parent (`claude`) only
+#      becomes empty once that leaf is gone, so one application of the
+#      empty-map delete is not enough to reach a fixpoint at this
+#      schema's max nesting depth (two levels below the document root).
+#      A scalar-bearing map (e.g. `packages: {update_at_boot: false}`)
+#      is never empty and is therefore never touched.
+claude_vm_prune_empty_skeleton() {
+  local doc="$1" expr key
+  expr=""
+  for key in "${CLAUDE_VM_LIST_KEYS[@]}"; do
+    expr="${expr}del(${key} | select(length == 0)) | "
+  done
+  expr="${expr}del(.. | select(tag == \"!!map\" and length == 0)) | del(.. | select(tag == \"!!map\" and length == 0))"
+  yq eval "$expr" <(printf '%s\n' "$doc") 2>/dev/null
 }
 
 # Read a scalar from a merged-config document (on stdin or in a file),
@@ -333,6 +383,14 @@ claude_vm_merge_config() {
 #   $1 -- merged config file path
 #   $2 -- yq path expression (e.g. '.cpus', '.repo.mount')
 #   $3 -- fallback value if the key is null/absent
+#
+# NOT boolean-safe: the `// ""` idiom below treats an explicit YAML
+# `false` the same as an absent key (both stringify to empty via `// ""`,
+# so this falls through to $fallback). That is correct for the existing
+# string/number scalars (cpus, mem, repo.mount, proxy.*, etc. -- none of
+# which are booleans), but WRONG for a boolean key where `false` is a
+# meaningful, distinct-from-absent value. Use claude_vm_bool_scalar for
+# those (packages.update_at_boot, claude.plugins.update_at_boot).
 claude_vm_scalar() {
   local file="$1" path="$2" fallback="$3" val
   val="$(yq eval "$path // \"\"" "$file" 2>/dev/null)"
@@ -340,6 +398,30 @@ claude_vm_scalar() {
     printf '%s\n' "$fallback"
   else
     printf '%s\n' "$val"
+  fi
+}
+
+# Read a BOOLEAN scalar from a merged-config document, applying a
+# hardcoded fallback ONLY when the key is genuinely absent/null --
+# unlike claude_vm_scalar, an explicit `false` is preserved and
+# returned as "false", not silently replaced by $fallback.
+#   $1 -- merged config file path
+#   $2 -- yq path expression (e.g. '.packages.update_at_boot')
+#   $3 -- fallback value if the key is null/absent (e.g. "true"/"false")
+#
+# Presence check: `(<path> == null)` is true both when the key is absent
+# AND when it is explicitly set to YAML `null`; either way there is no
+# value to preserve, so the fallback applies. We branch explicitly on
+# that presence check rather than yq's `//` operator, because `//`
+# treats the boolean `false` itself as falsy and would substitute
+# $fallback for it too -- exactly the bug this accessor exists to avoid.
+claude_vm_bool_scalar() {
+  local file="$1" path="$2" fallback="$3" is_null
+  is_null="$(yq eval "(${path} == null)" "$file" 2>/dev/null)"
+  if [ "$is_null" != "false" ]; then
+    printf '%s\n' "$fallback"
+  else
+    yq eval "${path}" "$file" 2>/dev/null
   fi
 }
 
@@ -374,22 +456,27 @@ claude_vm_list_items() {
 }
 
 # Emit apt_sources as tab-separated "name<TAB>repo<TAB>key_url" lines from
-# a merged-config file.
+# a merged-config file. key_url is optional per-entry; `(.key_url // "")`
+# emits an empty field for a missing/null key_url rather than the LITERAL
+# string "null" that a bare `.key_url | @tsv` would render for a null yq
+# value.
 claude_vm_apt_sources() {
   local file="$1"
   yq eval '
     .packages.apt_sources // [] | .[]
-    | [.name, .repo, .key_url] | @tsv
+    | [(.name // ""), (.repo // ""), (.key_url // "")] | @tsv
   ' "$file" 2>/dev/null
 }
 
 # Emit marketplaces as tab-separated "name<TAB>url" lines from a
-# merged-config file.
+# merged-config file. url is optional per-entry; `(.url // "")` emits an
+# empty field for a missing/null url rather than the literal string
+# "null" (same rationale as claude_vm_apt_sources above).
 claude_vm_marketplaces() {
   local file="$1"
   yq eval '
     .claude.marketplaces // [] | .[]
-    | [.name, .url] | @tsv
+    | [(.name // ""), (.url // "")] | @tsv
   ' "$file" 2>/dev/null
 }
 

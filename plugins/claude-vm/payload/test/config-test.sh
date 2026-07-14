@@ -196,11 +196,15 @@ assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 # ---------------------------------------------------------------------
 # Test 3b: guest-capability schema (issue #103) -- scalars repo-wins
 # ---------------------------------------------------------------------
-# NOTE: yq's `// ""` returns "" for a boolean `false` (same quirk the
-# existing remote_control test documents below). Fixtures set the
+# NOTE: yq's `// ""` returns "" for a boolean `false`, so claude_vm_scalar
+# (the plain string/number accessor) cannot distinguish an explicit
+# `false` from an absent key -- see claude_vm_bool_scalar's dedicated
+# round-trip coverage in Test 3d below, which proves explicit `false`
+# survives via the boolean-aware accessor. Fixtures set the
 # *_update_at_boot booleans global=false / repo=true so "repo wins"
-# resolves to a non-empty "true" here; the false/fallback case is
-# covered separately for the global-only merge below.
+# resolves to a non-empty "true" here via claude_vm_scalar; the
+# false/fallback case for claude_vm_scalar specifically is covered
+# separately for the global-only merge below.
 assert_eq "scalar: packages.update_at_boot repo wins (true)" \
   "true" "$(claude_vm_scalar "$MERGED" '.packages.update_at_boot' 'X')"
 assert_eq "scalar: packages.add_apt_uris_to_allowlist repo wins (always)" \
@@ -266,6 +270,74 @@ assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
   "1" "$PLUGIN_INSTALL_COUNT"
 
 # ---------------------------------------------------------------------
+# Test 3d: claude_vm_bool_scalar -- explicit `false` survives (issue #103
+# review finding). Unlike claude_vm_scalar's `// ""` idiom, an explicit
+# YAML `false` must round-trip as "false", not be replaced by the
+# caller's fallback. Cover all four presence states: explicit false,
+# explicit true, genuinely absent, and explicit null.
+# ---------------------------------------------------------------------
+BOOL_YML="$WORK/bool-scalar.yml"
+cat > "$BOOL_YML" <<'YML'
+knob_false: false
+knob_true: true
+knob_null: null
+other:
+  x: 1
+YML
+
+assert_eq "bool_scalar: explicit false is preserved (not replaced by fallback)" \
+  "false" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_false' 'FALLBACK')"
+assert_eq "bool_scalar: explicit true is preserved" \
+  "true" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_true' 'FALLBACK')"
+assert_eq "bool_scalar: genuinely absent key falls back" \
+  "FALLBACK" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_absent' 'FALLBACK')"
+assert_eq "bool_scalar: explicit null falls back (same as absent)" \
+  "FALLBACK" "$(claude_vm_bool_scalar "$BOOL_YML" '.knob_null' 'FALLBACK')"
+
+# Same check against the real merged fixture's two guest-capability
+# booleans, with fixtures inverted (global=true / repo=false) so "repo
+# wins" resolving to "false" is a genuine round-trip proof, not an
+# artifact of the fallback also being "false".
+BOOL_G="$WORK/bool-g.yml"; printf 'packages:\n  update_at_boot: true\nclaude:\n  plugins:\n    update_at_boot: true\n' > "$BOOL_G"
+BOOL_R="$WORK/bool-r.yml"; printf 'packages:\n  update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' > "$BOOL_R"
+MERGED_BOOL="$WORK/merged-bool.yml"
+claude_vm_merge_config "$BOOL_G" "$BOOL_R" > "$MERGED_BOOL"
+assert_eq "bool_scalar: packages.update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.packages.update_at_boot' 'FALLBACK')"
+assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
+
+# ---------------------------------------------------------------------
+# Test 3e: claude_vm_apt_sources / claude_vm_marketplaces -- missing
+# optional field emits an EMPTY @tsv field, not the literal string
+# "null" (issue #103 review finding).
+# ---------------------------------------------------------------------
+OPTIONAL_FIELD_YML="$WORK/optional-field.yml"
+cat > "$OPTIONAL_FIELD_YML" <<'YML'
+packages:
+  apt_sources:
+    - name: no-key-repo
+      repo: "deb https://example.com/nokey stable main"
+claude:
+  marketplaces:
+    - name: no-url-mp
+YML
+
+APT_ROW="$(claude_vm_apt_sources "$OPTIONAL_FIELD_YML")"
+assert_eq "apt_sources: missing key_url is an empty field, not literal null" \
+  "no-key-repo	deb https://example.com/nokey stable main	" "$APT_ROW"
+APT_KEY_URL_FIELD="$(printf '%s' "$APT_ROW" | cut -f3)"
+assert_eq "apt_sources: missing key_url field value is empty string" \
+  "" "$APT_KEY_URL_FIELD"
+
+MP_ROW="$(claude_vm_marketplaces "$OPTIONAL_FIELD_YML")"
+assert_eq "marketplaces: missing url is an empty field, not literal null" \
+  "no-url-mp	" "$MP_ROW"
+MP_URL_FIELD="$(printf '%s' "$MP_ROW" | cut -f2)"
+assert_eq "marketplaces: missing url field value is empty string" \
+  "" "$MP_URL_FIELD"
+
+# ---------------------------------------------------------------------
 # Test 4: global-only (repo config absent) resolves cleanly
 # ---------------------------------------------------------------------
 MERGED_G="$WORK/merged-global.yml"
@@ -275,8 +347,15 @@ assert_eq "global-only: cpus from global" \
 assert_eq "global-only: egress count is 2" \
   "2" "$(claude_vm_egress_hosts "$MERGED_G" | grep -c .)"
 # global's packages.update_at_boot is false; the yq `// ""` quirk for
-# boolean false means claude_vm_scalar falls back to the caller default.
-assert_eq "global-only: packages.update_at_boot from global (false, falls back)" \
+# boolean false means the plain claude_vm_scalar accessor falls back to
+# the caller default here -- this is claude_vm_scalar's DOCUMENTED
+# limitation (see its header comment), not a bug in this accessor. The
+# boolean-aware claude_vm_bool_scalar accessor (Test 3d below) is the
+# one that must preserve explicit false; this assertion just pins
+# claude_vm_scalar's known, unchanged behavior so a future edit doesn't
+# silently "fix" it here and break the non-boolean scalar callers that
+# rely on the `// ""` idiom.
+assert_eq "global-only: packages.update_at_boot from global (false, plain scalar accessor falls back)" \
   "X" "$(claude_vm_scalar "$MERGED_G" '.packages.update_at_boot' 'X')"
 assert_eq "global-only: claude.permission_mode from global" \
   "bypassPermissions" "$(claude_vm_scalar "$MERGED_G" '.claude.permission_mode' 'X')"
@@ -342,6 +421,44 @@ assert_eq "neither: claude.permissions.allow is empty" \
   "0" "$(claude_vm_list_items "$MERGED_N" '.claude.permissions.allow' | grep -c .)"
 assert_eq "neither: claude.marketplaces is empty" \
   "0" "$(claude_vm_marketplaces "$MERGED_N" | grep -c .)"
+
+# ---------------------------------------------------------------------
+# Test 6b: empty-skeleton pruning (issue #103 review finding). A list
+# key the user set in NEITHER layer must not appear in the merged
+# document at all -- neither as an empty list nor via a surviving empty
+# parent map (e.g. `packages: {}`) -- so a consumer cannot mistake
+# "configured empty" for "not configured" by testing key presence.
+# ---------------------------------------------------------------------
+assert_eq "prune: fully-empty merge has no packages key at all" \
+  "false" "$(yq eval 'has("packages")' "$MERGED_N")"
+assert_eq "prune: fully-empty merge has no claude key at all" \
+  "false" "$(yq eval 'has("claude")' "$MERGED_N")"
+assert_eq "prune: fully-empty merge has no egress key at all" \
+  "false" "$(yq eval 'has("egress")' "$MERGED_N")"
+assert_eq "prune: fully-empty merge document is the empty map" \
+  "{}" "$(yq eval -o=json -I=0 '.' "$MERGED_N")"
+
+# A scalar-only layer must still prune ITS sibling empty lists/maps while
+# keeping the scalar (proves pruning doesn't over-delete a populated
+# parent map, only ones that become genuinely empty).
+SCALAR_ONLY_G="$WORK/scalar-only-g.yml"
+printf 'packages:\n  update_at_boot: false\n' > "$SCALAR_ONLY_G"
+MERGED_SCALAR_ONLY="$WORK/merged-scalar-only.yml"
+claude_vm_merge_config "$SCALAR_ONLY_G" "$WORK/does-not-exist.yml" > "$MERGED_SCALAR_ONLY"
+assert_eq "prune: scalar-bearing packages map survives with only its scalar" \
+  '{"packages":{"update_at_boot":false}}' \
+  "$(yq eval -o=json -I=0 '.' "$MERGED_SCALAR_ONLY")"
+assert_eq "prune: scalar-only merge has no claude key (never set)" \
+  "false" "$(yq eval 'has("claude")' "$MERGED_SCALAR_ONLY")"
+
+# The populated-both-layers fixture ($MERGED from Test 1) must be
+# UNAFFECTED by pruning -- every list key it set stays present with its
+# full unioned entry count (regression guard: pruning must not touch a
+# non-empty list).
+assert_eq "prune: populated merge still has packages.bake with entries" \
+  "3" "$(claude_vm_list_items "$MERGED" '.packages.bake' | grep -c .)"
+assert_eq "prune: populated merge still has claude.marketplaces with entries" \
+  "2" "$(claude_vm_marketplaces "$MERGED" | grep -c .)"
 
 # ---------------------------------------------------------------------
 # Test 7: identical mount in both layers de-dupes to one entry
