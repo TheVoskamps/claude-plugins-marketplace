@@ -9,6 +9,7 @@
     { "name": "issues", "source": "./plugins/issues" },
     { "name": "issues-jira", "source": "./plugins/issues-jira" },
     { "name": "sdlc", "source": "./plugins/sdlc" },
+    { "name": "github-workflow", "source": "./plugins/github-workflow" },
     { "name": "github-setup", "source": "./plugins/github-setup" },
     { "name": "git-tools", "source": "./plugins/git-tools" },
     { "name": "cc-tools", "source": "./plugins/cc-tools" },

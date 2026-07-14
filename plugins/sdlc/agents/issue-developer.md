@@ -135,15 +135,37 @@ spawn prompt does not give them, ask before proceeding.
 
 9. Push the branch.
 
-10. Create a PR (or equivalent) targeting `<target-branch>`. If
-    `source-control == GitHub`:
+10. Create a PR (or equivalent) targeting `<target-branch>`, **as a
+    draft**, with a closing keyword for the branch's OWN issue in the
+    PR body. If `source-control == GitHub`:
 
     ```bash
-    gh pr create --base <target-branch> \
+    gh pr create --draft --base <target-branch> \
       --title "<Imperative description>" \
       --body "## Summary
-    <what changed and why>"
+    <what changed and why>
+
+    Closes #<N>"
     ```
+
+    - `--draft` is required: every PR is born as a draft. A draft PR
+      cannot be auto-merged (the repo's auto-merge workflow filters
+      `isDraft == false`), so it stays inert until the orchestrator
+      flips it to ready in Phase 3 after the human blesses it. The
+      `Closes #<N>` keyword only fires on merge to the default branch,
+      so it too stays inert while the PR is draft.
+    - `Closes #<N>` in the **PR body** (where `<N>` is the branch's
+      OWN issue — the issue this branch was created for, also encoded
+      in the branch name `issue-<N>-<slug>`) is REQUIRED, not
+      forbidden. Per `git-workflow.md` → "CRITICAL — closing keyword:
+      PR body only, own issue only", the closing keyword in the PR
+      body is how the PR gets linked in the Development sidebar AND how
+      the issue auto-closes on merge. Never aim it at any other issue,
+      and never put a closing keyword in a commit message.
+    - You MAY additionally invoke `/github-workflow:pr-link-issue <PR>
+      <N>` afterward for consistency (it is an idempotent no-op when
+      the body already closes `#<N>`), but writing `Closes #<N>`
+      directly at create time is the primary path.
 
     If `source-control == CodeCommit`: TODO — CodeCommit PR-create
     path not yet implemented. Abort with: "CodeCommit source-control

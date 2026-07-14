@@ -12,6 +12,9 @@ The marketplace currently ships these plugins (one entry each in
 - **`issues-jira`** — optional Jira backend for the issue verbs.
 - **`sdlc`** — issue orchestration and the developer/fixer/reviewer/doc
   agents.
+- **`github-workflow`** — thin GitHub PR-lifecycle skills: flip a PR
+  draft/ready and link a PR to its issue via a closing keyword in the
+  PR body.
 - **`github-setup`** — GitHub repo provisioning (App identity, PR
   automation, branch protection, public mirror, history scrubbing,
   private-to-public promotion).
