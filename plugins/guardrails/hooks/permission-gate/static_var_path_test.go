@@ -430,29 +430,24 @@ func TestForLoopBraceInListBothContained_131(t *testing.T) {
 	wantBucket(t, d, BucketAllow, "#131 follow-up: brace for-in list resolves and contains")
 }
 
-// TestForLoopBraceInListDotDotAmbiguityFailsClosed_131 documents a deliberate
-// deviation from the letter of the #131 follow-up acceptance criterion for
-// `{a,../../../etc/passwd}`. Real bash DOES split this into "a" and
-// "../../../etc/passwd" (verified: `bash -c 'for f in {a,../../../etc/passwd};
-// do echo "$f"; done'` prints both), so the acceptance criterion expected a
-// DENY via worst-wins over two split members. But mvdan.cc/sh's own
-// syntax.SplitBraces declines to split ANY brace element containing "..",
-// as a guard against ambiguity with the "{x..y}" sequence form — and that
-// guard's exact trigger condition is not a clean, reproducible rule (empirically,
-// some 3+-element lists with a ".."-containing member DO split, e.g.
-// "{a,b,../c}", while others, e.g. "{../a,b,c}", do NOT — see engine_a_bash.go
-// staticExpandItem's doc comment). Reverse-engineering and replicating that
-// heuristic in this repo's own code would risk silently diverging from both
-// bash's actual grammar and from mvdan.cc/sh's own behavior in some corner
-// case, which is exactly the complexity the #131 follow-up spec says to avoid
-// ("fall back to fail-closed on forms you don't expand"). So when
-// SplitBraces declines and literal "{"/"}" survives in the resolved text, the
-// gate treats the item as irreducibly dynamic and fails closed to ASK — safe
-// (never a false ALLOW of the raw brace text as a bogus literal filename),
-// but not the literal DENY the acceptance bullet describes. See the PR
-// comment / issue #131 for the full acceptance list; this is the one bullet
-// this fix intentionally satisfies with ASK instead of DENY.
-func TestForLoopBraceInListDotDotAmbiguityFailsClosed_131(t *testing.T) {
+// TestForLoopBraceInListDotDotEscapingMemberDenied_131 pins the CORRECT
+// behavior for `{a,../../../etc/passwd}`, replacing an earlier version of
+// this test that pinned the wrong one. Real bash splits this into "a" and
+// "../../../etc/passwd" (verified live: `bash -c 'for f in
+// {a,../../../etc/passwd}; do echo "$f"; done'` prints both members
+// unchanged). mvdan.cc/sh's own syntax.SplitBraces declines to split any
+// brace element containing "..", as a guard against ambiguity with the
+// `{x..y}` sequence form — and empirically that decline is not even
+// "leave literal braces behind": for other list shapes it can silently DROP
+// members instead (see engine_a_bash.go staticExpandItem's doc comment).
+// Falling back to ASK whenever upstream declines would push an entirely
+// mechanical case onto a human for every escaping-path brace list — the
+// guardrails gate's job is to MINIMIZE unnecessary ASK, not maximize it.
+// staticExpandBraceFallback now does the comma-list split itself whenever
+// upstream's result is declined or suspect, so every member — including the
+// escaping one — flows through the existing containment pipeline and gets
+// its real verdict via worst-wins: the escaping member denies.
+func TestForLoopBraceInListDotDotEscapingMemberDenied_131(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -464,7 +459,94 @@ func TestForLoopBraceInListDotDotAmbiguityFailsClosed_131(t *testing.T) {
 
 	cmd := `for f in {a,../../../etc/passwd}; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: brace list SplitBraces declines on '..' member, so it fails closed (ASK)")
+	wantBucket(t, d, BucketDeny, "#131 follow-up: '..'-bearing brace list's escaping member must DENY via worst-wins, not ASK")
+}
+
+// TestForLoopBraceInListDotDotAllInRepoContained_131 covers the companion
+// mixed-list shape: every member of a ".."-bearing brace list resolves
+// in-repo (the ".." stays inside the worktree), so the whole line must
+// CONTAIN (not ASK) — dropping the fan-out to ASK merely because upstream
+// declined the split would waste human attention on a case with an
+// unambiguous, all-safe verdict.
+func TestForLoopBraceInListDotDotAllInRepoContained_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.MkdirAll(filepath.Join(repo, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"a.md", "b.md"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a.md,sub/../b.md}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131 follow-up: all-in-repo '..'-bearing brace list must not ASK; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 follow-up: all-in-repo '..'-bearing brace list resolves and contains")
+}
+
+// TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied_131 is a
+// regression pin for the specific silent-drop failure mode discovered while
+// building the fallback splitter: upstream's expand.Braces on a 3+-member
+// ".."-bearing list does not always leave residual "{"/"}" text — it can
+// instead silently DROP the escaping (and any later) member from its
+// returned sub-word slice with no error and no residual-brace signal
+// (verified via a probe of mvdan.cc/sh: `{a,b,../c}` returns only two
+// sub-words, "a" and "b", never "../c"). A fallback that only checked for
+// residual "{"/"}" text would miss this and treat the truncated two-item
+// result as fully resolved, silently ALLOWing past the escaping member.
+// staticExpandItem's independent hasDotDotBraceMember raw-text cross-check
+// (not just the subWords' own content) is what catches this.
+func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, f := range []string{"a", "b"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,b,../../../etc/passwd}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: escaping third member of a 3-element '..'-bearing brace list must DENY, not be silently dropped")
+}
+
+// TestForLoopBraceNestedFormStillFailsClosed_131 pins the deliberate,
+// narrower carve-out: staticExpandBraceFallback only understands the single
+// UNNESTED comma-list grammar `{a,b,c}`. Real bash DOES resolve a nested
+// ".."-bearing brace group (`{a,{b,../c}}` splits into "a", "b", "../c" —
+// verified live), but reproducing bash's full nested-brace grammar is
+// exactly the complexity the #131 follow-up spec says to avoid ("if you hit
+// a range form you don't handle, fall closed" generalizes to any brace
+// grammar this narrow fallback doesn't implement). Upstream's own
+// SplitBraces/expand.Braces partially declines this shape too (resolves "a"
+// but leaves residual "{"/"}" text for the nested "{b,../c}" sub-part), so
+// staticExpandItem's declined-detection fires and hands the raw text to
+// staticExpandBraceFallback, whose depth-tracking correctly detects the
+// nested "{" and returns ok=false — the whole item then fails closed to ASK
+// rather than mis-splitting it.
+func TestForLoopBraceNestedFormStillFailsClosed_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,{b,../c}}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: a nested '..'-bearing brace group is not the fallback's grammar and must still fail closed")
 }
 
 // TestForLoopBraceInListEscapingMemberDeniedNoDotDot_131 covers the same

@@ -813,29 +813,28 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 //     glob against the tracked running cwd (globDirPrefix), or (if none of
 //     the above apply) irreducibly dynamic → fail closed.
 //
-// A brace expression that syntax.SplitBraces could not actually split still
-// carries a literal `{`/`}` in its resolved text; that is detected and
-// treated as irreducibly dynamic (fail closed to ASK) rather than silently
-// run through containment as one bogus literal path (which would sail
-// through as a harmless-looking, probably-nonexistent literal filename —
-// the wrong direction, since it would ALLOW instead of failing closed).
-//
-// Deliberate deviation from the #131 follow-up spec's literal wording for
-// one case: real bash DOES split `{a,../../../etc/passwd}` into "a" and
-// "../../../etc/passwd" (verified live), so the spec expected a DENY via
-// worst-wins over the two members. But mvdan.cc/sh's own SplitBraces
-// declines to split ANY brace element containing "..", as a guard against
-// ambiguity with the `{x..y}` sequence form — and empirically that guard's
-// exact trigger is not a clean rule (some 3+-element lists with a
-// ".."-containing member DO split, e.g. "{a,b,../c}"; others, e.g.
-// "{../a,b,c}", do not). Reverse-engineering and replicating that heuristic
-// here would risk silently diverging from both bash's grammar and from
-// mvdan.cc/sh's own behavior in some corner case — exactly the complexity
-// the spec says to avoid ("fall back to fail-closed on forms you don't
-// expand"). So this case fails closed to ASK instead of the literal DENY the
-// acceptance bullet describes; see
-// TestForLoopBraceInListDotDotAmbiguityFailsClosed_131 for the pinned test
-// and full rationale.
+// mvdan.cc/sh's own syntax.SplitBraces declines to split any brace element
+// containing "..", as a guard against ambiguity with the `{x..y}` sequence
+// form. Real bash has no such hesitation: `{a,../../../etc/passwd}` splits
+// cleanly into "a" and "../../../etc/passwd" (verified live:
+// `bash -c 'for f in {a,../../../etc/passwd}; do echo "$f"; done'`).
+// Empirically, upstream's decline is not merely "leave literal braces in the
+// text" — for 3+-member lists it can silently DROP members instead
+// (`{a,b,../c}` expands to only "a","b", quietly losing "../c"; see
+// staticExpandBraceFallback's doc comment for the full probe). A silent drop
+// is worse than a residual `{}`: it would let the fan-out walk the body over
+// an incomplete item set, an ALLOW-shaped false negative. So whenever a
+// sub-word's resolved text still contains "{"/"}" (declined, residual
+// braces) OR the raw pre-split word contains a ".."-bearing top-level
+// brace-comma-list (declined, silently short — the residual check alone
+// would miss this), staticExpandBraceFallback below does the comma-list
+// split itself, so every member (including the escaping one) still flows
+// through the existing containment pipeline and gets worst-wins DENY/ASK
+// rather than being silently dropped or bulk-ASKed. staticExpandBraceFallback
+// only understands the single unnested `{x,y,z}` comma-list grammar; a
+// range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
+// closed exactly as before — the issue's carve-out ("if you hit a range
+// form you don't handle, fall closed").
 func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
@@ -848,9 +847,14 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 		}
 	}
 
+	// Capture the raw, pre-mutation printed form for the dotdot-comma-list
+	// cross-check below; SplitBraces mutates w's Parts in place.
+	raw := printWord(w)
+
 	syntax.SplitBraces(w)
 	subWords := expand.Braces(w)
 
+	declined := false
 	items := make([]string, 0, len(subWords))
 	for _, sw := range subWords {
 		val, exact := literalWord(sw, knownVars)
@@ -858,15 +862,189 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 			return nil, false
 		}
 		if strings.ContainsAny(val, "{}") {
-			// A brace that syntax.SplitBraces declined to split (malformed,
-			// or an element containing ".." per the upstream ambiguity
-			// guard) leaves literal brace syntax in the resolved text. The
-			// item is not actually resolvable to a concrete value — fail
-			// closed rather than treat the raw "{a,../../../etc/passwd}"
-			// text as one bogus literal path (which would sail through
-			// containment as a harmless-looking nonexistent filename).
+			// A brace that syntax.SplitBraces declined to split leaves
+			// literal brace syntax in the resolved text — the clean signal
+			// that upstream punted on this word.
+			declined = true
+			break
+		}
+		items = append(items, val)
+	}
+
+	// Even when no residual "{"/"}" survived, upstream can still have
+	// silently dropped a ".."-bearing member (the 3+-element case above).
+	// Cross-check independently of subWords' shape: if the raw word (before
+	// SplitBraces ran) contains a ".."-bearing top-level brace-comma-list,
+	// never trust the count/content upstream returned — always resolve via
+	// our own splitter for this item, whether upstream declined outright or
+	// quietly under-counted.
+	if !declined && hasDotDotBraceMember(raw) {
+		declined = true
+	}
+
+	if declined {
+		fallbackItems, ok := staticExpandBraceFallback(raw, cwdInvalid)
+		if !ok {
+			// Not a form our narrow fallback splitter understands (nested
+			// braces, a range form, multiple brace groups, malformed
+			// syntax, …) — fail closed rather than guess.
 			return nil, false
 		}
+		return fallbackItems, true
+	}
+
+	final := make([]string, 0, len(items))
+	for _, val := range items {
+		if hasGlobMeta(val) {
+			dir, ok := globDirPrefix(val, cwdInvalid)
+			if !ok {
+				return nil, false
+			}
+			final = append(final, dir)
+			continue
+		}
+		final = append(final, val)
+	}
+	return final, true
+}
+
+// hasDotDotBraceMember reports whether raw contains a top-level (unnested)
+// brace-comma-list `{...,...}` with at least one comma-separated member
+// containing "..". This is a cheap textual pre-check used purely to decide
+// whether to distrust upstream's expand.Braces output shape (#131 follow-up)
+// — it does not itself resolve anything. A false positive here just means
+// staticExpandBraceFallback gets consulted and, if the form is anything more
+// exotic than a single unnested comma-list, correctly declines (fail closed).
+func hasDotDotBraceMember(raw string) bool {
+	start := strings.IndexByte(raw, '{')
+	if start < 0 {
+		return false
+	}
+	depth := 0
+	memberHasDotDot := false
+	sawComma := false
+	for i := start; i < len(raw); i++ {
+		switch raw[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				if sawComma && memberHasDotDot {
+					return true
+				}
+				// Continue scanning past this closed group in case a LATER
+				// top-level group in the same word is the dotdot offender
+				// (e.g. literal text between two separate brace groups).
+				memberHasDotDot = false
+				sawComma = false
+			}
+		case ',':
+			if depth == 1 {
+				sawComma = true
+			}
+		case '.':
+			if depth >= 1 && i+1 < len(raw) && raw[i+1] == '.' {
+				memberHasDotDot = true
+			}
+		}
+	}
+	return false
+}
+
+// staticExpandBraceFallback splits ONE `for … in` item's raw printed text
+// when upstream's syntax.SplitBraces/expand.Braces declined (or, worse,
+// silently under-counted — see staticExpandItem's doc comment) on a
+// ".."-bearing member. It handles exactly the single, unnested comma-list
+// grammar `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list
+// brace-expansion semantics for that shape (verified live: `bash -c 'for f
+// in {a,../b,c}; do echo "$f"; done'` prints all three members unchanged).
+// It deliberately does NOT attempt: a range form (`{1..9}`, `{a..z}` — ok is
+// false, e.g. because the sole group's members don't contain a comma, so
+// depth-1 commaCount stays 0), nested braces (`{a,{b,c}}` — ok is false
+// because a nested "{" is found at depth 1), or more than one top-level
+// brace group in the same word. Any of those returns ok=false so the caller
+// fails closed to ASK rather than guess at bash's grammar.
+//
+// $VAR / other non-literal word parts around the brace group (e.g.
+// `{a,../b}$X.md`) are not visible in raw's flat text once mutated by
+// SplitBraces, so this fallback is only invoked on the word's raw
+// PRE-mutation text captured in staticExpandItem — meaning a brace group
+// combined with an adjacent $VAR is out of scope for this fallback and
+// naturally falls to ok=false (the raw text still contains the unresolved
+// "$X" token, which literalWord would already have marked inexact on the
+// upstream path; this fallback does not re-resolve variables at all, it
+// only pattern-matches a pure-literal comma-list). In practice this means:
+// when a ".."-bearing brace group is combined with a variable, the whole
+// item fails closed — a narrower guarantee than the brace-only case,
+// but consistent with the "fall back to fail-closed on forms you don't
+// handle" carve-out.
+func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
+	start := strings.IndexByte(raw, '{')
+	if start < 0 {
+		return nil, false
+	}
+	end := -1
+	depth := 0
+	for i := start; i < len(raw); i++ {
+		switch raw[i] {
+		case '{':
+			depth++
+			if depth > 1 {
+				// Nested brace group — not this fallback's grammar.
+				return nil, false
+			}
+		case '}':
+			depth--
+			if depth == 0 {
+				end = i
+			}
+		}
+		if end >= 0 {
+			break
+		}
+	}
+	if end < 0 {
+		return nil, false
+	}
+	// Reject a second top-level brace group in the same word (e.g.
+	// `{a,../b}{c,d}`) — out of scope for this narrow fallback.
+	if strings.IndexByte(raw[end+1:], '{') >= 0 {
+		return nil, false
+	}
+
+	prefix := raw[:start]
+	body := raw[start+1 : end]
+	suffix := raw[end+1:]
+
+	members := strings.Split(body, ",")
+	if len(members) < 2 {
+		// No comma at the top level: either a range form (`{1..9}`) or a
+		// malformed/degenerate group. Not this fallback's grammar.
+		return nil, false
+	}
+	for _, m := range members {
+		if strings.ContainsAny(m, "{}") {
+			// Shouldn't happen given the depth check above, but guard
+			// defensively rather than emit a bogus literal.
+			return nil, false
+		}
+	}
+
+	// unescape undoes the minimal escaping the printer/parser round trip can
+	// leave on a Lit's Value for characters that are syntactically
+	// significant to the shell (a literal comma or brace inside a brace
+	// group must itself have been escaped in the source for SplitBraces to
+	// have treated this as a group boundary at all); at this narrow scope
+	// (pure-literal comma-list) a backslash immediately before a shell
+	// metacharacter is the only escape form that can appear.
+	unescape := func(s string) string {
+		return strings.NewReplacer(`\{`, "{", `\}`, "}", `\,`, ",").Replace(s)
+	}
+
+	items := make([]string, 0, len(members))
+	for _, m := range members {
+		val := unescape(prefix) + unescape(m) + unescape(suffix)
 		if hasGlobMeta(val) {
 			dir, ok := globDirPrefix(val, cwdInvalid)
 			if !ok {

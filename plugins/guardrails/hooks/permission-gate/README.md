@@ -67,14 +67,23 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   match of the glob is a child of that prefix, so the prefix's
   containment verdict applies to the whole pattern. Every expanded item
   is checked (worst-wins), so an escaping item anywhere in the list is
-  still reported even when earlier items were safe. What still cannot
-  be reduced to a known value set — a command substitution, an
-  unresolved variable, a relative glob while the running cwd is invalid
-  (an earlier dynamic `cd`, #129), or a brace expression the upstream
-  parser declined to split (its own guard against ambiguity with the
-  `{x..y}` sequence form when an element contains `..`) — keeps the
-  loop variable unbound; the body still fails closed on that variable,
-  matching pre-#131 behavior. A `for x; do …` with no `in` clause
+  still reported even when earlier items were safe. A brace element
+  containing `..` (`{a,../../../etc/passwd}`) is where the upstream
+  parser's own `SplitBraces` declines to split — its guard against
+  ambiguity with the `{x..y}` sequence form — and can even silently
+  drop a member from a 3+-element list rather than merely leaving
+  residual `{`/`}` text; a fallback splitter (matching real bash's
+  actual comma-list semantics, verified live) detects both the decline
+  and the silent-drop shape and performs the split itself, so every
+  member — including the escaping one — still flows through normal
+  containment (worst-wins) instead of the whole list falling back to
+  an unnecessary ASK. The fallback only understands the single,
+  unnested `{a,b,c}` comma-list grammar; a brace form it does not
+  handle (nested braces combined with `..`, a bare range form like
+  `{1..9}` — ranges without a top-level comma resolve via the upstream
+  path directly and never reach the fallback) keeps the loop variable
+  unbound and the body fails closed on that variable, matching
+  pre-#131 behavior. A `for x; do …` with no `in` clause
   (iterates `"$@"`) is likewise never reduced. The binding is saved and
   restored around the loop so it does not clobber an outer variable of
   the same name, per the static-variable scope discipline above. Engine
