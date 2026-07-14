@@ -61,6 +61,14 @@ values in `payload/config.example.yml`.
 | `claude.version` | `stable` | which `claude` binary the host-side verified cache fetches |
 | `claude.renderer` | omitted (claude's own default) | terminal renderer on the interactive console: `classic` \| `fullscreen` \| unset |
 | `claude.remote_control` | omitted (`false`) | opt-in Remote Control: `true` adds `--remote-control` + a date-stamped `--name` default; `false`/unset passes CLI args through |
+| `packages.update_at_boot` | `true` | apt-get update && upgrade at boot |
+| `packages.add_apt_uris_to_allowlist` | `auto` | add derived egress URIs to the proxy allowlist only when boot-time package work needs them (`auto`), or always (`always`) |
+| `claude.permission_mode` | `bypassPermissions` | in-guest Claude's permission mode |
+| `claude.plugins.update_at_boot` | `true` | refresh marketplaces + reinstall changed plugins at boot |
+| `claude.plugins.add_marketplace_uris_to_allowlist` | `auto` | marketplace-URI analogue of `packages.add_apt_uris_to_allowlist` |
+| `claude.hooks.parser` | `"on"` | guardrails permission-gate hook |
+| `claude.hooks.no_background_agents` | `"on"` | block-background-agents hook |
+| `github.auth` | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
 
 Notes on the forward-looking keys:
 
@@ -107,6 +115,28 @@ Notes on the forward-looking keys:
   user's CLI args pass through unchanged. Accepts `true`/`false` (or leave
   unset); any other value aborts the launch. Ask the user whether they
   want Remote Control on by default; write the key only when they opt in.
+- **`packages.bake` / `packages.install_at_boot` / `packages.apt_sources`
+  are written empty (`[]`) by default.** Ask the user whether they want
+  any apt packages baked into the image, installed at boot, or any
+  third-party apt repos; write entries only if they name specific
+  packages/repos. Leaving these empty is the safe default (schema +
+  merge only as of issue #103 — the bake/boot-install consumers land in
+  sibling slices under #39).
+- **`claude.permissions.allow` / `.ask` / `.deny` and
+  `claude.marketplaces` / `claude.plugins.bake` /
+  `.plugins.install_at_boot` are written empty by default.** Same
+  reasoning: ask whether the user wants specific permission rules,
+  marketplaces, or plugins baked/installed; write entries only on
+  request.
+- **`claude.hooks.parser` / `.no_background_agents` default to
+  `"on"`.** These are quoted string scalars (`"on"`/`"off"`), not YAML
+  booleans — write them quoted so a future `off` isn't parsed as the
+  boolean `false`. Ask only if the user wants to disable a guardrail
+  hook; the safe default is `"on"` for both.
+- **`github.auth` defaults to `none`.** Ask the user whether they want
+  the guest seeded with a GitHub auth token derived from the host
+  (`host-token`); `none` is the safe default since the consumer that
+  seeds the token lands in a sibling slice under #39.
 
 ## Steps
 
@@ -192,6 +222,36 @@ claude:
   # remote_control: false  # opt-in Remote Control: true adds --remote-control
                         # + a date-stamped --name default; false/unset passes
                         # CLI args through. Omitted by default.
+  permission_mode: bypassPermissions   # bypassPermissions (default) | default
+  permissions:
+    allow: []           # write entries only if the user names specific rules
+    ask: []
+    deny: []
+  marketplaces: []      # {name, url} entries; write only on request
+  plugins:
+    bake: []             # plugin@marketplace refs; write only on request
+    install_at_boot: []
+    update_at_boot: true # refresh marketplaces + reinstall changed plugins
+                        # at boot (default true)
+    add_marketplace_uris_to_allowlist: auto   # auto (default) | always
+  hooks:
+    parser: "on"         # guardrails permission-gate hook: on (default) | off
+    no_background_agents: "on"  # block-background-agents hook:
+                        # on (default) | off
+
+# Guest software (issue #103; schema + merge only -- bake/boot-install
+# consumers land in sibling slices under #39).
+packages:
+  bake: []               # apt packages baked into the guest image
+  install_at_boot: []    # apt packages installed at boot, blocking
+  update_at_boot: true   # apt-get update && upgrade at boot (default true)
+  apt_sources: []        # third-party apt repos: {name, repo, key_url}
+  add_apt_uris_to_allowlist: auto   # auto (default) | always
+
+# Guest GitHub auth (issue #103; schema + merge only -- the token-seeding
+# consumer lands in a sibling slice under #39).
+github:
+  auth: none             # none (default) | host-token
 ```
 
 > On `proxy.cmd`: the bundled tinyproxy launcher
@@ -208,9 +268,12 @@ claude:
 and add **only** the keys from the default file that are absent. Keep
 every existing key and value verbatim, including any the user
 customized and any this skill does not recognize. For list keys
-(`egress.allow`), union the default entries in (do not drop the user's
-extras, do not duplicate). Render the merged result preserving the
-user's existing comments where practical.
+(`egress.allow`, `packages.bake`, `packages.install_at_boot`,
+`packages.apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
+`claude.marketplaces`, `claude.plugins.bake`/`.install_at_boot`), union
+the default entries in (do not drop the user's extras, do not
+duplicate). Render the merged result preserving the user's existing
+comments where practical.
 
 ### Step 4: Show the proposed file and get approval
 
@@ -236,10 +299,11 @@ call. The parent directory is created if needed.
 After the `Write`, re-read the file and confirm it parses as YAML and
 contains the expected keys (`cpus: 2`, `mem: 4096`, `proxy.port`,
 `provisioner: podman-mkosi`, `egress.allow` including `api.anthropic.com`,
-`claude.version`). `proxy.cmd` is intentionally absent — the launcher
-defaults to the bundled tinyproxy launcher when it is unset. This is
-content verification — `Write` already errors if the bytes did not land;
-the re-read confirms the *intended content*.
+`claude.version`, `claude.permission_mode`, `claude.hooks.parser`,
+`packages.update_at_boot`, `github.auth`). `proxy.cmd` is intentionally
+absent — the launcher defaults to the bundled tinyproxy launcher when it
+is unset. This is content verification — `Write` already errors if the
+bytes did not land; the re-read confirms the *intended content*.
 
 Report back:
 

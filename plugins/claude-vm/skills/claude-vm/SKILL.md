@@ -74,11 +74,21 @@ Two layers, both optional:
 ### Layering semantics
 
 - **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
-  `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`):
-  repo overrides global; global fills gaps; a hardcoded default applies
-  only when neither layer sets the key.
-- **Lists** (`egress.allow`, `mounts`): **merged** — the union of
-  global + repo entries, de-duplicated.
+  `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`,
+  `packages.update_at_boot`, `packages.add_apt_uris_to_allowlist`,
+  `claude.permission_mode`, `claude.plugins.update_at_boot`,
+  `claude.plugins.add_marketplace_uris_to_allowlist`,
+  `claude.hooks.parser`, `claude.hooks.no_background_agents`,
+  `github.auth`): repo overrides global; global fills gaps; a hardcoded
+  default applies only when neither layer sets the key.
+- **Lists** (`egress.allow`, `mounts`, `packages.bake`,
+  `packages.install_at_boot`, `packages.apt_sources`,
+  `claude.permissions.allow`, `claude.permissions.ask`,
+  `claude.permissions.deny`, `claude.marketplaces`,
+  `claude.plugins.bake`, `claude.plugins.install_at_boot`): **merged** —
+  the union of global + repo entries, de-duplicated. This includes list
+  keys nested two levels deep (e.g. `claude.permissions.allow`,
+  `claude.plugins.bake`), not just top-level keys.
 
 ### Keys
 
@@ -93,6 +103,19 @@ repo:
   mount: clone                    # clone (default) | live
   copy_back: local                # local (default) | none
 
+# Guest software: apt packages, baked or installed at boot (issue #103;
+# schema + merge only -- the bake/boot-install/egress-derivation
+# consumers land in sibling slices under #39).
+packages:
+  bake: []                        # apt packages baked into the guest image
+  install_at_boot: []             # apt packages installed at boot, blocking,
+                                  # before claude starts
+  update_at_boot: true            # apt-get update && upgrade at boot
+                                  # (default true)
+  apt_sources: []                 # third-party apt repos:
+                                  # {name, repo, key_url}
+  add_apt_uris_to_allowlist: auto # auto (default) | always
+
 claude:
   version: stable                 # stable (default) | latest | <pinned>
                                   # host-side GPG-verified cache key
@@ -102,6 +125,24 @@ claude:
   remote_control: false           # true | false (default) | (unset)
                                   # opt-in Remote Control: true adds
                                   # --remote-control + a date-stamped --name
+  permission_mode: bypassPermissions   # bypassPermissions (default) | default
+  permissions:
+    allow: []
+    ask: []
+    deny: []
+  marketplaces: []                # {name, url} entries
+  plugins:
+    bake: []                      # plugin@marketplace refs baked into the
+                                  # image
+    install_at_boot: []           # plugin@marketplace refs installed at boot
+    update_at_boot: true          # refresh marketplaces + reinstall changed
+                                  # plugins at boot (default true)
+    add_marketplace_uris_to_allowlist: auto   # auto (default) | always
+  hooks:
+    parser: "on"                  # guardrails permission-gate hook:
+                                  # on (default) | off
+    no_background_agents: "on"    # block-background-agents hook:
+                                  # on (default) | off
 
 proxy:
   cmd: "<forward-proxy launch command>"   # must read
@@ -122,6 +163,9 @@ mounts:                           # extra mounts beyond the repo auto-mount
   - source: ~/datasets/foo
     tag: data
     mode: ro
+
+github:
+  auth: none                      # none (default) | host-token
 ```
 
 - `egress.allow` is written to a newline-delimited file whose path is
@@ -162,6 +206,43 @@ mounts:                           # extra mounts beyond the repo auto-mount
   the launch. This is the config-driven equivalent of passing
   `--remote-control` on the command line — see the interactive-session
   section below.
+
+The following keys are schema + merge only as of issue #103 — the
+consumers that actually bake/install packages, render Claude settings,
+seed marketplaces/plugins, wire the guardrails hooks, or seed a GitHub
+token land in sibling slices under #39. They resolve correctly through
+`payload/lib/config.sh` today; nothing downstream reads them yet.
+
+- `packages.bake` / `packages.install_at_boot` list the apt packages to
+  bake into the guest image vs. install at boot (blocking, before
+  claude starts). Both union global + repo entries.
+- `packages.update_at_boot` (default `true`) runs `apt-get update &&
+  upgrade` at boot; `packages.apt_sources` (union) adds third-party apt
+  repos as `{name, repo, key_url}` entries.
+- `packages.add_apt_uris_to_allowlist` (`auto` default | `always`)
+  controls whether URIs derived from configured apt sources are added
+  to the proxy egress allowlist only when boot-time package work needs
+  them (`auto`), or unconditionally so in-session installs also work
+  (`always`). The knob never removes URIs that scheduled boot-time work
+  requires.
+- `claude.permission_mode` (`bypassPermissions` default | `default`)
+  and `claude.permissions.allow` / `.ask` / `.deny` (each a unioned
+  list) become the in-guest Claude settings' permission mode and
+  permission rules.
+- `claude.marketplaces` (union of `{name, url}` entries) and
+  `claude.plugins.bake` / `.install_at_boot` (unioned lists of
+  `plugin@marketplace` refs) control which marketplaces and plugins the
+  guest has available, baked vs. installed at boot.
+  `claude.plugins.update_at_boot` (default `true`) refreshes
+  marketplaces and reinstalls changed plugins at boot.
+  `claude.plugins.add_marketplace_uris_to_allowlist` (`auto` default |
+  `always`) is the marketplace-URI analogue of
+  `packages.add_apt_uris_to_allowlist`.
+- `claude.hooks.parser` and `claude.hooks.no_background_agents` (each
+  `"on"` default | `"off"`) toggle the guardrails permission-gate hook
+  and the block-background-agents hook in the guest.
+- `github.auth` (`none` default | `host-token`) selects whether the
+  guest is seeded with a GitHub auth token derived from the host.
 
 ## Interactive session (the launching terminal IS the in-VM claude)
 

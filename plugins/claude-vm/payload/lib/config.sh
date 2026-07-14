@@ -7,13 +7,20 @@
 # no network, and no host mutation, so payload/test/config-test.sh
 # exercises it in isolation.
 #
-# Layering semantics (from issue #6):
+# Layering semantics (from issue #6, extended by issue #103):
 #   - Scalars (cpus, mem, guest_image, repo.mount, repo.copy_back,
-#     proxy.cmd, proxy.port, proxy.host_alias): repo overrides global;
-#     global fills gaps.
-#   - Lists (egress.allow, mounts): MERGED -- union of global + repo
-#     entries (de-duplicated, order: global entries first, then repo
-#     entries not already present).
+#     proxy.cmd, proxy.port, proxy.host_alias, packages.update_at_boot,
+#     packages.add_apt_uris_to_allowlist, claude.permission_mode,
+#     claude.plugins.update_at_boot,
+#     claude.plugins.add_marketplace_uris_to_allowlist,
+#     claude.hooks.parser, claude.hooks.no_background_agents,
+#     github.auth): repo overrides global; global fills gaps.
+#   - Lists (egress.allow, mounts, packages.bake, packages.install_at_boot,
+#     packages.apt_sources, claude.permissions.allow/ask/deny,
+#     claude.marketplaces, claude.plugins.bake,
+#     claude.plugins.install_at_boot -- see CLAUDE_VM_LIST_KEYS below):
+#     MERGED -- union of global + repo entries (de-duplicated, order:
+#     global entries first, then repo entries not already present).
 #
 # Both layers are OPTIONAL. A missing file is treated as `{}` (empty
 # document), so any combination of {neither, global-only, repo-only,
@@ -45,6 +52,19 @@ CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS=192.168.127.254
 # (stable|latest|<pinned>). `stable` is the conservative default. Consumed
 # by lib/claude-cache.sh; defined here so all scalar defaults live together.
 CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
+
+# Guest-capability schema defaults (issue #103): packages, Claude
+# permissions/marketplaces/plugins/hooks, and GitHub auth. See
+# payload/config.example.yml and skills/claude-vm/SKILL.md for the full
+# annotated schema and semantics.
+CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT=true
+CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST=auto
+CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE=bypassPermissions
+CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
+CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
+CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER=on
+CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS=on
+CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
 # Homebrew formula at <prefix>/libexec/podman/gvproxy and is NOT placed
@@ -212,17 +232,44 @@ claude_vm_preflight_toolchain() {
   [ "$missing" -eq 0 ]
 }
 
+# The full set of list keys that UNION (global ++ repo, de-duplicated)
+# rather than following scalar repo-wins semantics. Each entry is a yq
+# path expression rooted at the document. Nested paths (e.g.
+# `.claude.permissions.allow`) are supported -- the splice step (below)
+# assigns back through the same path expression, so arbitrary nesting
+# depth works, not just top-level keys.
+CLAUDE_VM_LIST_KEYS=(
+  '.egress.allow'
+  '.mounts'
+  '.packages.bake'
+  '.packages.install_at_boot'
+  '.packages.apt_sources'
+  '.claude.permissions.allow'
+  '.claude.permissions.ask'
+  '.claude.permissions.deny'
+  '.claude.marketplaces'
+  '.claude.plugins.bake'
+  '.claude.plugins.install_at_boot'
+)
+
 # Merge two YAML files into one document on stdout.
 #   $1 -- global config path (may be absent)
 #   $2 -- repo config path   (may be absent)
 #
 # A missing file contributes an empty document. Scalars: repo wins.
-# Lists (egress.allow, mounts): union, global-first, de-duplicated.
+# Lists (CLAUDE_VM_LIST_KEYS, e.g. egress.allow, mounts,
+# claude.permissions.allow): union, global-first, de-duplicated. A list
+# key set in NEITHER layer, and any parent map left empty as a result
+# (e.g. `packages`, `claude.permissions`), is pruned from the output
+# entirely -- see claude_vm_prune_empty_skeleton below -- so the merged
+# document never conflates "user configured this as empty" with "user
+# didn't touch this at all".
 #
 # Implementation note: yq's `*` deep-merge clobbers arrays (repo array
 # replaces global array), which is the WRONG semantics for our lists.
-# So we deep-merge for scalars, then explicitly recompute the two list
-# keys as unions and splice them back in.
+# So we deep-merge for scalars (step 1), explicitly recompute each list
+# key as a union (step 2) and splice it back in (step 3), then prune
+# the resulting empty skeleton (step 4).
 claude_vm_merge_config() {
   local global="$1" repo="$2"
   local g r empty
@@ -239,45 +286,96 @@ claude_vm_merge_config() {
   # Step 1: scalar layer via deep merge (second doc wins on scalars).
   # Arrays from the repo doc temporarily clobber global arrays here;
   # fixed in step 2.
-  local scalars egress mounts rc=0
+  local scalars rc=0
   scalars="$(
     yq eval-all '
       select(fileIndex == 0) * select(fileIndex == 1)
     ' "$g" "$r" 2>/dev/null
   )" || { echo "claude-vm: failed to merge config (scalar layer)" >&2; rm -f "$empty"; return 1; }
 
-  # Step 2: recompute list unions for egress.allow and mounts.
-  # For each list key, concatenate global ++ repo then unique. `mounts`
-  # entries are mappings; `unique` on mappings de-dupes structurally,
-  # which is the intended "same source+tag+mode collapses" behavior.
-  egress="$(
-    yq eval-all '
-      [select(fileIndex == 0) | .egress.allow // [] | .[]]
-        + [select(fileIndex == 1) | .egress.allow // [] | .[]]
-      | unique
-    ' "$g" "$r" 2>/dev/null
-  )" || { echo "claude-vm: failed to merge egress.allow" >&2; rm -f "$empty"; return 1; }
-
-  mounts="$(
-    yq eval-all '
-      [select(fileIndex == 0) | .mounts // [] | .[]]
-        + [select(fileIndex == 1) | .mounts // [] | .[]]
-      | unique
-    ' "$g" "$r" 2>/dev/null
-  )" || { echo "claude-vm: failed to merge mounts" >&2; rm -f "$empty"; return 1; }
+  # Step 2: recompute list unions for every key in CLAUDE_VM_LIST_KEYS.
+  # For each list key, concatenate global ++ repo then unique. Mapping
+  # entries (e.g. `mounts`, `claude.marketplaces`) de-dupe structurally
+  # under `unique`, which is the intended "identical entry collapses"
+  # behavior.
+  local key merged_lists=()
+  for key in "${CLAUDE_VM_LIST_KEYS[@]}"; do
+    local list_yaml
+    list_yaml="$(
+      yq eval-all "
+        [select(fileIndex == 0) | ${key} // [] | .[]]
+          + [select(fileIndex == 1) | ${key} // [] | .[]]
+        | unique
+      " "$g" "$r" 2>/dev/null
+    )" || { echo "claude-vm: failed to merge $key" >&2; rm -f "$empty"; return 1; }
+    merged_lists+=("$key" "$list_yaml")
+  done
 
   # The empty-document scratch file is no longer needed past this point.
   rm -f "$empty"
 
-  # Step 3: splice the recomputed unions back over the scalar merge.
-  # Pass the lists in as env-injected YAML via strenv + from_yaml.
-  EGRESS_YAML="$egress" MOUNTS_YAML="$mounts" \
-    yq eval '
-      .egress.allow = (strenv(EGRESS_YAML) | from_yaml)
-      | .mounts = (strenv(MOUNTS_YAML) | from_yaml)
-    ' <(printf '%s\n' "$scalars") 2>/dev/null \
-    || { echo "claude-vm: failed to splice merged lists" >&2; rc=1; }
+  # Step 3: splice the recomputed unions back over the scalar merge, one
+  # key at a time. Each list's YAML is passed in as an env-injected
+  # string via strenv + from_yaml, keyed by array index so arbitrarily
+  # many list keys can be spliced without colliding env var names.
+  local current="$scalars" i=0 n="${#merged_lists[@]}"
+  while [ "$i" -lt "$n" ]; do
+    key="${merged_lists[$i]}"
+    list_yaml="${merged_lists[$((i + 1))]}"
+    current="$(
+      CLAUDE_VM_SPLICE_YAML="$list_yaml" \
+        yq eval "
+          ${key} = (strenv(CLAUDE_VM_SPLICE_YAML) | from_yaml)
+        " <(printf '%s\n' "$current") 2>/dev/null
+    )" || { echo "claude-vm: failed to splice merged list $key" >&2; rc=1; break; }
+    i=$((i + 2))
+  done
+
+  # Step 4: prune the empty skeleton (see claude_vm_prune_empty_skeleton).
+  if [ "$rc" -eq 0 ]; then
+    current="$(claude_vm_prune_empty_skeleton "$current")" \
+      || { echo "claude-vm: failed to prune empty config skeleton" >&2; rc=1; }
+  fi
+
+  printf '%s\n' "$current"
   return "$rc"
+}
+
+# Prune the "empty skeleton" that Step 2/3 above otherwise leaves behind:
+# a list key the user set in NEITHER layer still round-trips through the
+# union-then-splice as an empty list (`[]`), and its parent map(s) (e.g.
+# `packages`, `claude.permissions`) survive purely to hold that empty
+# list. Left in place, this invites a consumer to test "did the user
+# configure this?" by key PRESENCE (`has("packages")` -- wrong, always
+# true) instead of entry COUNT (right) -- conflating "absent" with
+# "configured empty".
+#
+#   $1 -- the merged YAML document (as a string, on stdin via a herestring
+#         below), AFTER the list-union splice in Step 3.
+#
+# Two passes:
+#   1. For every key in CLAUDE_VM_LIST_KEYS, delete it from the document
+#      IFF its merged value is an empty list. A key with entries is left
+#      untouched, so egress.allow/mounts and every populated new list
+#      key round-trip exactly as before -- this only removes lists that
+#      resolved to nothing.
+#   2. Recursively delete any map that is now empty as a RESULT of pass 1
+#      (e.g. `packages: {}` once every packages.* list was pruned and no
+#      packages.* scalar was set). Applied twice: pass 1 can empty a
+#      leaf map (e.g. `claude.plugins`) whose own parent (`claude`) only
+#      becomes empty once that leaf is gone, so one application of the
+#      empty-map delete is not enough to reach a fixpoint at this
+#      schema's max nesting depth (two levels below the document root).
+#      A scalar-bearing map (e.g. `packages: {update_at_boot: false}`)
+#      is never empty and is therefore never touched.
+claude_vm_prune_empty_skeleton() {
+  local doc="$1" expr key
+  expr=""
+  for key in "${CLAUDE_VM_LIST_KEYS[@]}"; do
+    expr="${expr}del(${key} | select(length == 0)) | "
+  done
+  expr="${expr}del(.. | select(tag == \"!!map\" and length == 0)) | del(.. | select(tag == \"!!map\" and length == 0))"
+  yq eval "$expr" <(printf '%s\n' "$doc") 2>/dev/null
 }
 
 # Read a scalar from a merged-config document (on stdin or in a file),
@@ -285,6 +383,14 @@ claude_vm_merge_config() {
 #   $1 -- merged config file path
 #   $2 -- yq path expression (e.g. '.cpus', '.repo.mount')
 #   $3 -- fallback value if the key is null/absent
+#
+# NOT boolean-safe: the `// ""` idiom below treats an explicit YAML
+# `false` the same as an absent key (both stringify to empty via `// ""`,
+# so this falls through to $fallback). That is correct for the existing
+# string/number scalars (cpus, mem, repo.mount, proxy.*, etc. -- none of
+# which are booleans), but WRONG for a boolean key where `false` is a
+# meaningful, distinct-from-absent value. Use claude_vm_bool_scalar for
+# those (packages.update_at_boot, claude.plugins.update_at_boot).
 claude_vm_scalar() {
   local file="$1" path="$2" fallback="$3" val
   val="$(yq eval "$path // \"\"" "$file" 2>/dev/null)"
@@ -292,6 +398,30 @@ claude_vm_scalar() {
     printf '%s\n' "$fallback"
   else
     printf '%s\n' "$val"
+  fi
+}
+
+# Read a BOOLEAN scalar from a merged-config document, applying a
+# hardcoded fallback ONLY when the key is genuinely absent/null --
+# unlike claude_vm_scalar, an explicit `false` is preserved and
+# returned as "false", not silently replaced by $fallback.
+#   $1 -- merged config file path
+#   $2 -- yq path expression (e.g. '.packages.update_at_boot')
+#   $3 -- fallback value if the key is null/absent (e.g. "true"/"false")
+#
+# Presence check: `(<path> == null)` is true both when the key is absent
+# AND when it is explicitly set to YAML `null`; either way there is no
+# value to preserve, so the fallback applies. We branch explicitly on
+# that presence check rather than yq's `//` operator, because `//`
+# treats the boolean `false` itself as falsy and would substitute
+# $fallback for it too -- exactly the bug this accessor exists to avoid.
+claude_vm_bool_scalar() {
+  local file="$1" path="$2" fallback="$3" is_null
+  is_null="$(yq eval "(${path} == null)" "$file" 2>/dev/null)"
+  if [ "$is_null" != "false" ]; then
+    printf '%s\n' "$fallback"
+  else
+    yq eval "${path}" "$file" 2>/dev/null
   fi
 }
 
@@ -308,6 +438,45 @@ claude_vm_mount_specs() {
   yq eval '
     .mounts // [] | .[]
     | [.source, .tag, (.mode // "ro")] | @tsv
+  ' "$file" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------
+# Guest-capability schema accessors (issue #103): packages, Claude
+# permissions/marketplaces/plugins/hooks, and GitHub auth. Schema + merge
+# only -- consumers (settings rendering, image build, boot install, egress
+# derivation) land in sibling slices under #39.
+
+# Emit a flat string list, one entry per line, from a merged-config file.
+#   $1 -- merged config file path
+#   $2 -- yq path expression to the list (e.g. '.packages.bake')
+claude_vm_list_items() {
+  local file="$1" path="$2"
+  yq eval "${path} // [] | .[]" "$file" 2>/dev/null
+}
+
+# Emit apt_sources as tab-separated "name<TAB>repo<TAB>key_url" lines from
+# a merged-config file. key_url is optional per-entry; `(.key_url // "")`
+# emits an empty field for a missing/null key_url rather than the LITERAL
+# string "null" that a bare `.key_url | @tsv` would render for a null yq
+# value.
+claude_vm_apt_sources() {
+  local file="$1"
+  yq eval '
+    .packages.apt_sources // [] | .[]
+    | [(.name // ""), (.repo // ""), (.key_url // "")] | @tsv
+  ' "$file" 2>/dev/null
+}
+
+# Emit marketplaces as tab-separated "name<TAB>url" lines from a
+# merged-config file. url is optional per-entry; `(.url // "")` emits an
+# empty field for a missing/null url rather than the literal string
+# "null" (same rationale as claude_vm_apt_sources above).
+claude_vm_marketplaces() {
+  local file="$1"
+  yq eval '
+    .claude.marketplaces // [] | .[]
+    | [(.name // ""), (.url // "")] | @tsv
   ' "$file" 2>/dev/null
 }
 

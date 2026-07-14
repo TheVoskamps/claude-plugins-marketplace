@@ -13,10 +13,13 @@ on top of the global config.
 This file is the project-specific layer of claude-vm's two-tier config.
 At runtime, `payload/lib/config.sh` layers it over the machine-wide
 global config (`~/.config/claude-vm/config.yml`): **scalars** in this
-file win over the global value, and **lists** (`egress.allow`, `mounts`)
-are unioned with the global lists. The config surface, layering
-semantics, and key meanings are documented in the sibling `claude-vm`
-skill (`skills/claude-vm/SKILL.md`) and the annotated
+file win over the global value, and **lists** (`egress.allow`, `mounts`,
+`packages.bake`, `packages.install_at_boot`, `packages.apt_sources`,
+`claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
+`claude.plugins.bake`/`.install_at_boot`) are unioned with the global
+lists, including nested list keys two levels deep. The config surface,
+layering semantics, and key meanings are documented in the sibling
+`claude-vm` skill (`skills/claude-vm/SKILL.md`) and the annotated
 `payload/config.example.yml`.
 
 It is the second slice of the claude-vm config work, the per-repo
@@ -37,7 +40,12 @@ file silently shadows future changes to the global default.
 
 - **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
   `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`,
-  `claude.remote_control`): write a key only if the user wants this repo
+  `claude.remote_control`, `packages.update_at_boot`,
+  `packages.add_apt_uris_to_allowlist`, `claude.permission_mode`,
+  `claude.plugins.update_at_boot`,
+  `claude.plugins.add_marketplace_uris_to_allowlist`,
+  `claude.hooks.parser`, `claude.hooks.no_background_agents`,
+  `github.auth`): write a key only if the user wants this repo
   to use a different value than the global config resolves to.
   (`claude.renderer` selects the interactive-console terminal renderer:
   `classic` | `fullscreen` | unset; an unrecognized value aborts the
@@ -45,13 +53,25 @@ file silently shadows future changes to the global default.
   `--remote-control` plus a date-stamped `--name` default to the in-guest
   claude invocation; `false`/unset passes the CLI args through unchanged;
   any other value aborts the launch. Setting it here lets one repo opt in
-  to Remote Control without turning it on globally.)
-- **Lists** (`egress.allow`, `mounts`): write only the **additional**
-  entries this repo needs. The runtime union keeps the global entries;
-  the per-repo file does not need to restate them. (The library cannot
-  *remove* a global entry from a list — the union only adds — so a repo
-  cannot subtract a global egress host. If the user asks to drop a
-  global host, explain that lists union and the removal must happen in
+  to Remote Control without turning it on globally. The guest-capability
+  keys — `packages.update_at_boot`/`.add_apt_uris_to_allowlist`,
+  `claude.permission_mode`, `claude.plugins.update_at_boot`/
+  `.add_marketplace_uris_to_allowlist`, `claude.hooks.*`, `github.auth` —
+  are schema + merge only as of issue #103; the consumers land in
+  sibling slices under #39, but this repo's override still resolves
+  correctly through the layering library today. `claude.hooks.parser`
+  and `claude.hooks.no_background_agents` are quoted string scalars
+  (`"on"`/`"off"`), not booleans.)
+- **Lists** (`egress.allow`, `mounts`, `packages.bake`,
+  `packages.install_at_boot`, `packages.apt_sources`,
+  `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
+  `claude.plugins.bake`/`.install_at_boot`): write only the
+  **additional** entries this repo needs. The runtime union keeps the
+  global entries; the per-repo file does not need to restate them. (The
+  library cannot *remove* a global entry from a list — the union only
+  adds — so a repo cannot subtract a global egress host, apt package,
+  permission rule, marketplace, or plugin. If the user asks to drop a
+  global entry, explain that lists union and the removal must happen in
   the global config.)
 
 ## Idempotent — detect and offer, never clobber
@@ -127,6 +147,15 @@ repo use?" The common cases:
 - Extra `egress.allow` hosts this repo's build/test needs (e.g. a
   package registry). These union with the global allowlist.
 - Extra `mounts` this repo needs.
+- Extra `packages.bake` / `packages.install_at_boot` apt packages, or
+  `packages.apt_sources` third-party repos, this repo's build needs
+  beyond the global set. These union with the global lists.
+- Extra `claude.permissions.allow`/`.ask`/`.deny` rules,
+  `claude.marketplaces`, or `claude.plugins.bake`/`.install_at_boot`
+  entries this repo needs. These union with the global lists.
+- A `claude.permission_mode`, `claude.hooks.parser`/
+  `.no_background_agents`, or `github.auth` override this repo needs
+  that differs from global.
 
 Record **only** the keys that differ from the global resolved value. If
 the user names a value identical to the global one, note that it is
@@ -164,9 +193,12 @@ the global values — that defeats the layering.
 parsed YAML and add **only** the new override keys that are absent. Keep
 every existing key and value verbatim, including any the user customized
 and any this skill does not recognize. For list keys (`egress.allow`,
-`mounts`), union the new entries in (do not drop the existing extras, do
-not duplicate). Render the merged result preserving the user's existing
-comments where practical.
+`mounts`, `packages.bake`, `packages.install_at_boot`,
+`packages.apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
+`claude.marketplaces`, `claude.plugins.bake`/`.install_at_boot`), union
+the new entries in (do not drop the existing extras, do not duplicate).
+Render the merged result preserving the user's existing comments where
+practical.
 
 ### Step 5: Show the proposed file and get approval
 
@@ -251,9 +283,12 @@ Report back:
   supplied at runtime, never written to config.
 - **Never write without explicit approval** in Step 5.
 - **Lists union, they do not subtract.** A per-repo file cannot remove a
-  global `egress.allow` host or a global mount; the runtime merge only
-  adds. If the user wants to drop a global entry, that edit belongs in
-  the global config.
+  global `egress.allow` host, a global mount, or a global entry in
+  `packages.bake`/`.install_at_boot`/`.apt_sources`,
+  `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`, or
+  `claude.plugins.bake`/`.install_at_boot`; the runtime merge only adds.
+  If the user wants to drop a global entry, that edit belongs in the
+  global config.
 - **Write exactly one file**: `<repo>/.claude-vm/config.yml`. This skill
   does not edit `.gitignore`, does not touch the global config, and runs
   no git commands beyond the read-only `git rev-parse --show-toplevel`

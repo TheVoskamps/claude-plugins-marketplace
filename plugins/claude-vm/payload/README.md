@@ -216,8 +216,11 @@ present in the example config) so the in-guest `claude` can reach it.
 
 Pure layering logic: two YAML inputs → one merged document. Both layers
 are optional; a missing layer contributes an empty document. Scalars
-are repo-over-global; `egress.allow` and `mounts` are unioned and
-de-duplicated.
+are repo-over-global; list keys (`egress.allow`, `mounts`, and — as of
+issue #103 — the guest-capability lists like `packages.bake` and
+`claude.permissions.allow`, including keys nested two levels deep) are
+unioned and de-duplicated. See the `claude-vm` skill
+(`skills/claude-vm/SKILL.md`) for the full schema and semantics.
 
 It also carries two small pure helpers used for the guest's `claude`
 argv:
