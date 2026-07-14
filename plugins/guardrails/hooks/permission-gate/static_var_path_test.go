@@ -348,9 +348,12 @@ func TestForLoopDynamicInListStillEscalates_131(t *testing.T) {
 	wantBucket(t, d, BucketAsk, "#131 dynamic for-in list must still escalate")
 }
 
-// TestForLoopGlobInListStillEscalates_131 covers a glob item (`*.md`): word
-// splitting / globbing is not statically knowable, so the loop must not bind.
-func TestForLoopGlobInListStillEscalates_131(t *testing.T) {
+// TestForLoopGlobInListResolvesUnderValidCwd_131 (follow-up) covers a glob
+// item (`*.md`) under a valid, tracked running cwd: containment is pure path
+// arithmetic on the glob's directory prefix (#129 cwd tracking + #131), so
+// every possible match of `*.md` is a child of the tracked cwd and the loop
+// now resolves (contained) instead of failing closed.
+func TestForLoopGlobInListResolvesUnderValidCwd_131(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -359,7 +362,244 @@ func TestForLoopGlobInListStillEscalates_131(t *testing.T) {
 
 	cmd := `for f in *.md; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 glob for-in list must still escalate")
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131 follow-up: glob for-in list under a valid cwd must not ASK; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 follow-up: glob for-in list resolves via directory-prefix containment")
+}
+
+// TestForLoopGlobInListEscapingPrefixDenied_131 covers a glob whose directory
+// prefix escapes the repo (`../../*.md`): every possible match is a child of
+// that escaping prefix, so the loop must deny, not ask or allow.
+func TestForLoopGlobInListEscapingPrefixDenied_131(t *testing.T) {
+	base := t.TempDir()
+	outer := filepath.Join(base, "outer")
+	if err := os.MkdirAll(outer, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(outer, "nested", "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in ../../*.md; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: glob prefix escaping the repo must be denied")
+}
+
+// TestForLoopGlobInListCwdInvalidStillEscalates_131 covers a glob item after
+// an earlier dynamic `cd` invalidated the running cwd (#129): a relative glob
+// cannot be safely anchored, so the loop must still fail closed (ASK).
+func TestForLoopGlobInListCwdInvalidStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `cd "$UNKNOWN" && for f in *.md; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: glob for-in list with invalid running cwd must still escalate")
+}
+
+// #131 follow-up (PR #139 review): braces, known-variable expansion, and
+// glob-directory-prefix resolution broaden the for-loop in-list fan-out.
+// staticForItems must expand every statically-knowable form and feed EVERY
+// expanded item through the existing containment pipeline; irreducibly
+// dynamic parts must still fail closed.
+
+// TestForLoopBraceInListBothContained_131 covers the simplest brace case:
+// `{a,b}.md`, both members in-repo, must resolve to contained (not ASK).
+func TestForLoopBraceInListBothContained_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, f := range []string{"a.md", "b.md"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,b}.md; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131 follow-up: brace for-in list must not ASK; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 follow-up: brace for-in list resolves and contains")
+}
+
+// TestForLoopBraceInListDotDotAmbiguityFailsClosed_131 documents a deliberate
+// deviation from the letter of the #131 follow-up acceptance criterion for
+// `{a,../../../etc/passwd}`. Real bash DOES split this into "a" and
+// "../../../etc/passwd" (verified: `bash -c 'for f in {a,../../../etc/passwd};
+// do echo "$f"; done'` prints both), so the acceptance criterion expected a
+// DENY via worst-wins over two split members. But mvdan.cc/sh's own
+// syntax.SplitBraces declines to split ANY brace element containing "..",
+// as a guard against ambiguity with the "{x..y}" sequence form — and that
+// guard's exact trigger condition is not a clean, reproducible rule (empirically,
+// some 3+-element lists with a ".."-containing member DO split, e.g.
+// "{a,b,../c}", while others, e.g. "{../a,b,c}", do NOT — see engine_a_bash.go
+// staticExpandItem's doc comment). Reverse-engineering and replicating that
+// heuristic in this repo's own code would risk silently diverging from both
+// bash's actual grammar and from mvdan.cc/sh's own behavior in some corner
+// case, which is exactly the complexity the #131 follow-up spec says to avoid
+// ("fall back to fail-closed on forms you don't expand"). So when
+// SplitBraces declines and literal "{"/"}" survives in the resolved text, the
+// gate treats the item as irreducibly dynamic and fails closed to ASK — safe
+// (never a false ALLOW of the raw brace text as a bogus literal filename),
+// but not the literal DENY the acceptance bullet describes. See the PR
+// comment / issue #131 for the full acceptance list; this is the one bullet
+// this fix intentionally satisfies with ASK instead of DENY.
+func TestForLoopBraceInListDotDotAmbiguityFailsClosed_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,../../../etc/passwd}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: brace list SplitBraces declines on '..' member, so it fails closed (ASK)")
+}
+
+// TestForLoopBraceInListEscapingMemberDeniedNoDotDot_131 covers the same
+// worst-wins requirement with a brace member that escapes WITHOUT triggering
+// the upstream ".." SplitBraces ambiguity guard, so the brace genuinely
+// splits into two items and containment denies the second.
+func TestForLoopBraceInListEscapingMemberDeniedNoDotDot_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "a"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(base, "etc-passwd-stand-in")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,` + outside + `}; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketDeny, "#131 follow-up: escaping brace member denied even when an earlier member was safe")
+}
+
+// TestForLoopBraceWithKnownVarContained_131 covers `{a,b}$X.md` where $X was
+// assigned a static literal earlier in the program: the brace expansion
+// combines with the resolved variable, producing concrete in-repo paths.
+func TestForLoopBraceWithKnownVarContained_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, f := range []string{"asub.md", "bsub.md"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `X=sub; for f in {a,b}$X.md; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131 follow-up: brace+known-var for-in list must not ASK; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 follow-up: brace+known-var for-in list resolves and contains")
+}
+
+// TestForLoopBraceWithUnresolvableVarStillEscalates_131 covers the same
+// brace+var shape when $X is NOT statically known: the whole list must still
+// fail closed.
+func TestForLoopBraceWithUnresolvableVarStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in {a,b}$X.md; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: brace+unresolvable-var for-in list must still escalate")
+}
+
+// TestForLoopKnownVarListContained_131 covers `for f in $LIST` where LIST was
+// assigned a static literal earlier: it must be split on IFS the way bash
+// word-splits an unquoted expansion, and each resulting word resolved and
+// contained.
+func TestForLoopKnownVarListContained_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	for _, f := range []string{"a.md", "b.md"} {
+		if err := os.WriteFile(filepath.Join(repo, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `LIST="a.md b.md"; for f in $LIST; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk {
+		t.Errorf("#131 follow-up: known-var for-in list must not ASK; got ASK (%s)", d.Reason)
+	}
+	wantBucket(t, d, BucketAllow, "#131 follow-up: known-var for-in list splits on IFS and contains")
+}
+
+// TestForLoopUnknownVarListStillEscalates_131 covers `for f in $LIST` when
+// LIST is NOT statically known (an env var, or simply undefined): the loop
+// must still fail closed exactly as before (regression pin).
+func TestForLoopUnknownVarListStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in $LIST; do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: unknown-var for-in list must still escalate")
+}
+
+// TestForLoopEmptyInListClassifiesBodyZeroTimes_131 pins the deliberate empty
+// in-list behavior: `for f in; do …; done` iterates zero times in real bash,
+// so the body must be classified (walked) zero times. We pin this by using a
+// body that would otherwise escalate (an unresolvable path) — if the body
+// were walked even once, the aggregate would ASK; since bash never enters the
+// loop, the command has nothing else to classify and must not ASK.
+func TestForLoopEmptyInListClassifiesBodyZeroTimes_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in; do cat "$f/../../../etc/passwd"; done`
+	d := classifyBash(cmd, ev)
+	if d.Bucket == BucketAsk || d.Bucket == BucketDeny {
+		t.Errorf("#131 follow-up: empty for-in list must classify the body zero times (bash never enters the loop); got %s (%s)", d.Bucket, d.Reason)
+	}
+}
+
+// TestForLoopCommandSubstInListStillEscalates_131 is a regression pin: a
+// command-substitution list (`for f in $(ls)`) is irreducibly dynamic and
+// must still escalate.
+func TestForLoopCommandSubstInListStillEscalates_131(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	cmd := `for f in $(ls); do cat "$f"; done`
+	d := classifyBash(cmd, ev)
+	wantBucket(t, d, BucketAsk, "#131 follow-up: command-substitution for-in list must still escalate")
 }
 
 // TestForLoopNoInListStillEscalates_131 covers a `for x; do …` with no `in`

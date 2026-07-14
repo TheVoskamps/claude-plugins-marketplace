@@ -51,19 +51,34 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   itself would). A `cd` inside a `( … )` subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
   the static-variable scope discipline above. A `for x in <words>; do
-  …; done` whose header is a fully static item list (#131) — every
-  item resolves to an exact literal and none contains a glob
-  metacharacter (`*`, `?`, `[`) — fans out: the body is walked once per
-  item with the loop variable bound to that item, so a body use of
-  `"$x"` resolves and is run through normal containment instead of
-  failing closed, capped at 64 items to bound the work. Any dynamic
-  item (a command substitution, an unresolved variable, a glob), or a
-  `for x; do …` with no `in` clause (iterates `"$@"`), cannot be
-  reduced to a known value set and keeps the loop variable unbound —
-  the body still fails closed on that variable, matching pre-#131
-  behavior. The binding is saved and restored around the loop so it
-  does not clobber an outer variable of the same name, per the
-  static-variable scope discipline above. Engine A also carries a
+  …; done` whose header is a fully static item list (#131, broadened by
+  a follow-up) fans out: the body is walked once per resolved item with
+  the loop variable bound to that item, so a body use of `"$x"`
+  resolves and is run through normal containment instead of failing
+  closed, capped at 64 items to bound the work. Every
+  statically-knowable item form is expanded and fanned out to its cross
+  product: a bare literal; brace expansion (`{a,b}.md`, including
+  combined with a known variable — `{a,b}$X.md`); a bare unquoted
+  known-variable word (`$LIST`, split on the default IFS the way bash
+  word-splits an unquoted expansion — a quoted `"$LIST"` is NOT split,
+  matching bash); and a glob (`*.md`, `src/*.go`, `../*.md`) resolved to
+  its containment-relevant directory prefix against the tracked running
+  cwd, by path arithmetic alone (no filesystem read) — every possible
+  match of the glob is a child of that prefix, so the prefix's
+  containment verdict applies to the whole pattern. Every expanded item
+  is checked (worst-wins), so an escaping item anywhere in the list is
+  still reported even when earlier items were safe. What still cannot
+  be reduced to a known value set — a command substitution, an
+  unresolved variable, a relative glob while the running cwd is invalid
+  (an earlier dynamic `cd`, #129), or a brace expression the upstream
+  parser declined to split (its own guard against ambiguity with the
+  `{x..y}` sequence form when an element contains `..`) — keeps the
+  loop variable unbound; the body still fails closed on that variable,
+  matching pre-#131 behavior. A `for x; do …` with no `in` clause
+  (iterates `"$@"`) is likewise never reduced. The binding is saved and
+  restored around the loop so it does not clobber an outer variable of
+  the same name, per the static-variable scope discipline above. Engine
+  A also carries a
   **read-only-utility classifier**
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,

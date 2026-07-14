@@ -426,20 +426,23 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 			// A `for x in <words>; do …; done` whose header is a fully static
 			// item list (#131) makes the loop variable's entire value set
 			// visible at parse time. When every item resolves to an exact
-			// literal via literalWord, fan out: walk c.Do once per item with
-			// the loop variable bound to that item's value, so body uses of
-			// "$x" resolve instead of staying inexact / fail-closed. Every
+			// literal (directly, via brace expansion, via a known-variable
+			// expansion, or via a glob's containment-relevant directory
+			// prefix — see staticForItems), fan out: walk c.Do once per item
+			// with the loop variable bound to that item's value, so body uses
+			// of "$x" resolve instead of staying inexact / fail-closed. Every
 			// item is walked — an escaping item later in the list is still
 			// reported even if earlier items were safe.
 			//
 			// Anything else — no `in` clause (`for x; do …`, iterates "$@"),
-			// or any dynamic item (`for f in $LIST`, a command substitution,
-			// a glob like `*.md`) — cannot be reduced to a known value set, so
-			// leave the existing conservative behavior: walk the body once
-			// with the loop variable NOT bound, so "$x" stays inexact and
-			// fails closed as before.
+			// or any irreducibly dynamic item (`for f in $UNKNOWN`, a command
+			// substitution, a glob while the running cwd is invalid) — cannot
+			// be reduced to a known value set, so leave the existing
+			// conservative behavior: walk the body once with the loop
+			// variable NOT bound, so "$x" stays inexact and fails closed as
+			// before.
 			if wi, ok := c.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() && wi.Name != nil {
-				items, allStatic := staticForItems(wi, knownVars)
+				items, allStatic := staticForItems(wi, knownVars, runningCWDInvalid)
 				if allStatic && len(items) <= maxForFanOut {
 					loopVar := wi.Name.Value
 					prevVal, hadPrev := knownVars[loopVar]
@@ -764,28 +767,113 @@ func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
 const maxForFanOut = 64
 
 // staticForItems reports the resolved literal value of every item word in a
-// `for x in <words>` header, and whether ALL of them are exact (#131). A
-// single dynamic item (command substitution, unresolved parameter expansion,
-// a glob that requires runtime word-splitting/expansion) makes the whole
-// list non-static, since the loop variable's value set is no longer fully
-// known at parse time.
-func staticForItems(wi *syntax.WordIter, knownVars map[string]string) ([]string, bool) {
+// `for x in <words>` header, and whether ALL of them are exact (#131). It
+// expands every statically-knowable form — brace expansion, a bare
+// known-variable word (split on IFS the way bash word-splits an unquoted
+// expansion), and a glob's containment-relevant directory prefix — and fans
+// out to the cross product of item words. A single irreducibly dynamic item
+// (command substitution, an unresolved parameter expansion, or a relative
+// glob while cwdInvalid) makes the WHOLE list non-static, since the loop
+// variable's value set is no longer fully known at parse time.
+//
+// cwdInvalid is whether the running cwd tracked through the walk (#129) is
+// currently invalid; used to fail closed on a relative glob item (case 3,
+// see globDirPrefix) that cannot be safely anchored. The resolved directory
+// prefix itself is left relative and resolved later, at containment time,
+// against the command's own tracked cwd (globDirPrefix's doc comment).
+func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
 	items := make([]string, 0, len(wi.Items))
 	for _, w := range wi.Items {
-		val, exact := literalWord(w, knownVars)
+		expanded, ok := staticExpandItem(w, knownVars, cwdInvalid)
+		if !ok {
+			return nil, false
+		}
+		items = append(items, expanded...)
+	}
+	return items, true
+}
+
+// staticExpandItem resolves ONE `for … in` item word to zero or more
+// concrete literal values (#131). It handles, in order:
+//
+//  1. Brace expansion (`{a,b}.md`, `{a,b}$X.md`) via the upstream
+//     syntax.SplitBraces + expand.Braces pair, which performs the
+//     cross-product fan-out itself. mvdan.cc/sh does NOT pre-expand braces
+//     during parsing (that is correct upstream behavior — matching happens
+//     at expansion time, not parse time), so this step is required even for
+//     the simplest `{a,b}` case.
+//  2. A bare unquoted known-variable word (`$LIST` / `${LIST}`, no other
+//     word parts): resolved from knownVars, then split on the default IFS
+//     the way bash word-splits an unquoted expansion. A quoted `"$LIST"` is
+//     a single DblQuoted word part, not a bare ParamExp, so it is NOT
+//     word-split here — that already resolves correctly as a single literal
+//     via literalWord/case 3 below, matching bash's no-split-when-quoted
+//     semantics.
+//  3. Every other resolved sub-word: literalWord — a straight literal, or a
+//     glob against the tracked running cwd (globDirPrefix), or (if none of
+//     the above apply) irreducibly dynamic → fail closed.
+//
+// A brace expression that syntax.SplitBraces could not actually split still
+// carries a literal `{`/`}` in its resolved text; that is detected and
+// treated as irreducibly dynamic (fail closed to ASK) rather than silently
+// run through containment as one bogus literal path (which would sail
+// through as a harmless-looking, probably-nonexistent literal filename —
+// the wrong direction, since it would ALLOW instead of failing closed).
+//
+// Deliberate deviation from the #131 follow-up spec's literal wording for
+// one case: real bash DOES split `{a,../../../etc/passwd}` into "a" and
+// "../../../etc/passwd" (verified live), so the spec expected a DENY via
+// worst-wins over the two members. But mvdan.cc/sh's own SplitBraces
+// declines to split ANY brace element containing "..", as a guard against
+// ambiguity with the `{x..y}` sequence form — and empirically that guard's
+// exact trigger is not a clean rule (some 3+-element lists with a
+// ".."-containing member DO split, e.g. "{a,b,../c}"; others, e.g.
+// "{../a,b,c}", do not). Reverse-engineering and replicating that heuristic
+// here would risk silently diverging from both bash's grammar and from
+// mvdan.cc/sh's own behavior in some corner case — exactly the complexity
+// the spec says to avoid ("fall back to fail-closed on forms you don't
+// expand"). So this case fails closed to ASK instead of the literal DENY the
+// acceptance bullet describes; see
+// TestForLoopBraceInListDotDotAmbiguityFailsClosed_131 for the pinned test
+// and full rationale.
+func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
+	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
+	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
+	// semantics (case 2) are not shadowed by literalWord's own $VAR
+	// resolution (which would return the whole unsplit value as one item).
+	if len(w.Parts) == 1 {
+		if p, ok := w.Parts[0].(*syntax.ParamExp); ok && isResolvableParamExp(p, knownVars) {
+			val := knownVars[p.Param.Value]
+			return expand.ReadFields(&expand.Config{}, val, -1, true), true
+		}
+	}
+
+	syntax.SplitBraces(w)
+	subWords := expand.Braces(w)
+
+	items := make([]string, 0, len(subWords))
+	for _, sw := range subWords {
+		val, exact := literalWord(sw, knownVars)
 		if !exact {
 			return nil, false
 		}
-		// A literal item containing a glob metacharacter (`*.md`, `file?.txt`,
-		// `[abc]`) is exact as an AST literal — the shell parser does not
-		// distinguish "looks like a glob" from a plain string, since matching
-		// happens at runtime, not parse time — but its actual expansion
-		// (zero, one, or many paths, entirely dependent on the CWD's
-		// directory contents at the time bash runs it) is not statically
-		// knowable here (#131). Treat it as non-static so the loop var is not
-		// bound and the body keeps failing closed.
-		if hasGlobMeta(val) {
+		if strings.ContainsAny(val, "{}") {
+			// A brace that syntax.SplitBraces declined to split (malformed,
+			// or an element containing ".." per the upstream ambiguity
+			// guard) leaves literal brace syntax in the resolved text. The
+			// item is not actually resolvable to a concrete value — fail
+			// closed rather than treat the raw "{a,../../../etc/passwd}"
+			// text as one bogus literal path (which would sail through
+			// containment as a harmless-looking nonexistent filename).
 			return nil, false
+		}
+		if hasGlobMeta(val) {
+			dir, ok := globDirPrefix(val, cwdInvalid)
+			if !ok {
+				return nil, false
+			}
+			items = append(items, dir)
+			continue
 		}
 		items = append(items, val)
 	}
@@ -793,12 +881,57 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string) ([]string,
 }
 
 // hasGlobMeta reports whether s contains a shell glob metacharacter
-// (`*`, `?`, `[`) that bash would expand via pathname expansion. Used only to
-// keep a static `for x in <words>` fan-out (#131) conservative about items
-// that merely LOOK like literals but actually depend on runtime directory
-// contents; it is not a general-purpose literalWord change.
+// (`*`, `?`, `[`) that bash would expand via pathname expansion. Used to
+// detect a static `for x in <words>` item (#131) that merely LOOKS like a
+// literal but actually depends on runtime directory contents; it is not a
+// general-purpose literalWord change.
 func hasGlobMeta(s string) bool {
 	return strings.ContainsAny(s, "*?[")
+}
+
+// globDirPrefix resolves a glob pattern's containment-relevant directory
+// prefix (#131 case 3), without reading the filesystem. Containment is pure
+// path arithmetic: every path a glob like `*.md` or `src/*.go` can possibly
+// match is a child of the pattern's directory prefix (the portion before the
+// first path segment that itself contains a glob metacharacter), so binding
+// the loop variable to that prefix directory makes every possible match
+// share the exact same containment verdict as the prefix itself —
+// contained, escapeWorktree, escapeRepo, or claudeConfig — via the existing
+// pathUnder equal-or-nested check. The returned prefix is deliberately left
+// relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
+// into the loop body, and the EXISTING containment pipeline
+// (containPathOperands -> testContainmentFrom) already resolves a relative
+// operand against the command's own tracked running cwd (#129, sc.cwd) at
+// classification time — resolving it again here would be redundant, not more
+// correct. This resolves the containment QUESTION without ever asking "which
+// files actually exist".
+//
+// ok is false when the prefix cannot be safely resolved: cwdInvalid (an
+// earlier dynamic `cd` invalidated the running cwd, #129) means a RELATIVE
+// glob cannot be safely anchored, so the caller fails the whole for-list
+// closed (ASK), matching cdInvalidAsk's fail-closed posture for every other
+// relative operand. An absolute glob (`/abs/*.md`) is unaffected by
+// cwdInvalid, since it needs no cwd to resolve.
+func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
+	segs := strings.Split(pattern, "/")
+	var prefix []string
+	for _, seg := range segs {
+		if hasGlobMeta(seg) {
+			break
+		}
+		prefix = append(prefix, seg)
+	}
+	dir := strings.Join(prefix, "/")
+	if dir == "" {
+		dir = "."
+	}
+	if filepath.IsAbs(dir) {
+		return dir, true
+	}
+	if cwdInvalid {
+		return "", false
+	}
+	return dir, true
 }
 
 // isResolvableParamExp reports whether a parameter expansion is a plain
