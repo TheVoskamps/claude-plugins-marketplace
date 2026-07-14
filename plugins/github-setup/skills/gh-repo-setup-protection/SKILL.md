@@ -26,56 +26,60 @@ ruleset that enforces them, so both are in scope:
    settings applied via the GitHub API, read-then-PATCH and idempotent
    like the GHAS toggles. See Step 4e.
 3. **A templated `dependabot.yml`** — version-update config covering
-   the `github-actions` ecosystem (always present — the skill itself
-   installs workflows, see Step 2) plus every other package ecosystem in
-   the operator's **Step 2b Dependabot resolved set** (the confirmed
-   toggles, not the raw manifest scan — so an operator-added ecosystem is
-   covered and an unchecked detected one is not), with a `security-updates`
-   group so security PRs are batched per ecosystem.
+   **every supported package ecosystem** (`github-actions`, `npm`,
+   `pip`, `docker`, `gomod`, `bundler`, `cargo`, `maven`, `gradle`,
+   `composer`, `terraform`), armed at install time regardless of what
+   the scan found, with a `security-updates` group so security PRs are
+   batched per ecosystem. Dependabot **no-ops** on an ecosystem whose
+   manifest is absent, so arming the full set adds no spurious update
+   PRs — it just means an ecosystem's first manifest is covered the
+   moment it lands, with no skill re-run. See Step 2 / Step 3. (The
+   Step 2b Dependabot tab is a *de-arm* override — drop an ecosystem you
+   never want — defaulting to the full set armed.)
 4. **An Advanced CodeQL workflow** — **only when CodeQL is enabled for
    this repo** (explicit `--codeql=on` operator override, or
-   auto-detection). The `actions` language is always in CodeQL's scope
-   (the skill always installs workflows), subject to the entitlement
-   guard. CodeQL is never turned on *by auto-detection* without an
-   analyzable language on an entitled (or public) repo; an explicit
-   `--codeql=on` is an operator override that the skill honors. The
-   shipped workflow is **Advanced setup from the first commit**
-   (SHA-pinned, autobuild-free, least-privilege). See the "CodeQL is
-   opt-in" section for why.
-5. **A dependency-install-gate** — **only when the repo has a manifest
-   for at least one of npm / pip / pnpm / yarn**. A `pull_request`
-   workflow whose **per-package-manager jobs** (`npm`, `pip`, `pnpm`,
-   `yarn`) replay the lockfile / run a resolver pre-flight over every
-   discovered manifest and fail the PR on a drifted
-   `package.json`/lockfile or an unresolvable requirements pin
-   (SHA-pinned, least-privilege). Each Node manager keys off its **own**
-   lockfile (`package-lock.json` / `pnpm-lock.yaml` / `yarn.lock`), so a
-   pnpm/yarn repo is gated by the right tool instead of silently passing
-   an npm-only check. Only the jobs in the operator's **Step 2b drift-gate
-   resolved set** are rendered into the workflow; the rest are dropped
-   (never run, never a required check). The resolved set — the operator's
-   confirmed toggles, not the raw manifest scan — drives what gets
-   authored, so a PM the operator added in "Other" renders and a detected
-   PM the operator unchecked does not. A repo whose resolved set is empty
-   gets no gate. See Step 5c.
-6. **A dependency-pinned-gate** — **only when the repo's Step 2b
-   pinned-gate resolved set contains at least one of npm / pip / actions
-   / docker / go**. The **sibling** of the dependency-install-gate: where
-   the install-gate protects the lockfile↔manifest *lock* relationship,
-   this gate protects how the manifest itself **declares** versions. A
-   `pull_request` workflow whose **per-ecosystem jobs** (`npm`, `pip`,
-   `actions`, `docker`, `go`) fail the PR when any *declared* dependency
-   is not pinned to an exact version (caret/tilde/comparator/X-range/OR/
-   compatible-release specs, floating action `@vN` tags, floating Docker
-   `:latest` tags, bare names) — catching the "works on main, breaks on
-   rebase" supply-chain drift that slips past a green install-gate.
-   Categorical exemptions (peerDependencies carets, `file:`/`workspace:`
-   specs, `engines`/`requires-python` floors, override-value classification,
+   auto-detection). The workflow is armed with the **full supported
+   CodeQL language set** and picks which to analyze at **runtime**, per
+   PR: a `detect` job emits the languages actually present in the tree,
+   an `analyze` matrix runs one leg per present language, and a
+   `codeql-required` aggregator is the single required check (green when
+   the matrix is empty, so a language-less repo is mergeable, not hung).
+   A language that lands *after* setup lights its leg up automatically —
+   no skill re-run. CodeQL is never turned on *by auto-detection* on an
+   unentitled private repo; an explicit `--codeql=on` is an operator
+   override that the skill honors. The shipped workflow is **Advanced
+   setup from the first commit** (SHA-pinned, autobuild-free,
+   least-privilege). See the "CodeQL is opt-in" section for why.
+5. **A dependency-install-gate** — **installed whenever CodeQL-style
+   protection is wanted for dependency drift** (armed with the full
+   supported set of npm / pip / pnpm / yarn). A `pull_request` workflow
+   with a `detect` job (emits the package managers whose manifest is
+   present), a matrixed `gate` job (one leg per present PM, replaying the
+   lockfile / running a resolver pre-flight and failing on drift), and an
+   `install-gate-required` aggregator that is the single required check
+   (green when the matrix is empty). Each Node manager keys off its
+   **own** lockfile (`package-lock.json` / `pnpm-lock.yaml` /
+   `yarn.lock`), so a pnpm/yarn repo is gated by the right tool instead
+   of silently passing an npm-only check. A PM whose manifest lands after
+   setup lights its leg up automatically — no skill re-run. See Step 5c.
+6. **A dependency-pinned-gate** — the **sibling** of the
+   dependency-install-gate (armed with the full supported set of npm /
+   pip / actions / docker / go): where the install-gate protects the
+   lockfile↔manifest *lock* relationship, this gate protects how the
+   manifest itself **declares** versions. A `pull_request` workflow with
+   the same `detect` → matrixed `gate` → `pinned-gate-required`
+   aggregator shape, whose per-ecosystem legs fail the PR when any
+   *declared* dependency is not pinned to an exact version
+   (caret/tilde/comparator/X-range/OR/compatible-release specs, floating
+   action `@vN` tags, floating Docker `:latest` tags, bare names) —
+   catching the "works on main, breaks on rebase" supply-chain drift that
+   slips past a green install-gate. Categorical exemptions
+   (peerDependencies carets, `file:`/`workspace:` specs,
+   `engines`/`requires-python` floors, override-value classification,
    `tag@sha256:` digests) live in the classifier, not an allowlist file.
-   Independently toggleable and independently a required check (separate
-   from the install-gate). Only the jobs in the operator's Step 2b
-   pinned-gate resolved set render; the rest are dropped. A repo whose
-   resolved set is empty gets no gate. See Step 5c-pinned.
+   `actions` is an always-present floor (the skill always installs
+   workflows). Its aggregator is a separate required check from the
+   install-gate's. See Step 5c-pinned.
 7. **A no-back-merging-guard** — installed **unconditionally** (it has
    no ecosystem dependency; it is pure git-history hygiene). A
    `pull_request` workflow whose single job `no-back-merging-guard`
@@ -92,15 +96,18 @@ ruleset that enforces them, so both are in scope:
    pusher) is not deadlocked by last-push-approval + code-owner review.
    Required status checks are wired through a **generic gate**: each one
    is added **only if its producing workflow is present in the repo this
-   run** — the issue #91/#230 phantom-check guard. CodeQL-derived checks
-   (code scanning / code quality) are added iff a CodeQL workflow is
-   present this run, the drift-gate's per-PM checks (one per rendered
-   `npm`/`pip`/`pnpm`/`yarn` job) iff the dependency-install-gate
-   workflow is present this run, the pinned-gate's per-ecosystem checks
-   (one per rendered `npm`/`pip`/`actions`/`docker`/`go` job) iff the
-   dependency-pinned-gate workflow is present this run, and the
-   `no-back-merging-guard` check iff that workflow is present this run
-   (always, since it ships unconditionally) — never standalone.
+   run** — the issue #91/#230 phantom-check guard, applied at
+   **workflow** granularity (never per-leg). The required checks are the
+   workflows' **aggregators**: `codeql-required` iff a CodeQL workflow is
+   present this run, `install-gate-required` iff the
+   dependency-install-gate workflow is present this run,
+   `pinned-gate-required` iff the dependency-pinned-gate workflow is
+   present this run, and `no-back-merging-guard` iff that workflow is
+   present this run (always, since it ships unconditionally) — never a
+   per-leg name like `Analyze (python)` or `Install gate (npm)`, which
+   would hang a repo lacking that language/PM (the #91/#230 failure
+   mode). Each aggregator passes green when its runtime matrix was empty,
+   so a repo missing the guarded languages/ecosystems is mergeable.
 
 **Converge the whole surface on every run — do not set-and-forget.**
 An org-level change can flip a per-repo setting back off (e.g. enabling
@@ -116,13 +123,21 @@ the desired config — it must never duplicate ecosystem blocks, append
 to a config that already has the right content, or hard-error because
 something is already in place.
 
-Before authoring anything, the skill presents an **operator confirmation
-checklist** (Step 2b) — a single multi-tab `AskUserQuestion` (drift-gate
-/ pinned-gate / Dependabot / CodeQL) whose preselections are the scan but whose
-**resolved set** (the operator's toggles) is what gets authored. This
-lets the operator correct an over- or under-detection and, crucially,
-toggle **on** an ecosystem that is not yet in the tree (still on an
-unmerged branch) — removing the protect-before-code ordering inversion.
+The **full supported set is armed at install time on every surface** —
+CodeQL languages, both gates' ecosystems, and Dependabot's ecosystems —
+and each surface **activates automatically the first time matching
+source appears, with no skill re-run**. For CodeQL and the two gates
+this is a **runtime dynamic-matrix**: a check appears on a PR iff the
+language/ecosystem it guards is present in the tree at that moment
+(present + clean → green; present + broken → red/blocking; absent → no
+check). For Dependabot (which emits no PR check) it means the rendered
+`updates:` list covers every supported ecosystem, no-opping on absent
+manifests. This **structurally removes the protect-before-code ordering
+inversion** — you no longer merge the code first so the skill can detect
+it. Before authoring anything, the skill presents an **operator
+confirmation checklist** (Step 2b) that is a *de-arm* override:
+everything is armed by default, and the operator can drop a
+language/ecosystem they never want armed.
 
 After rendering its files, the skill **commits, pushes, and opens a
 PR** for its own rendered files on a single approval (Step 7). The
@@ -155,8 +170,8 @@ All optional; everything else is inferred from the repo.
 - `--dry-run`: report what *would* change (files, GHAS toggles,
   merge-button settings, the ruleset, and the rendered-files PR) without
   writing files, calling the mutating API, or opening a PR. Skips the
-  Step 2b operator checklist (resolved set := detected set) so the
-  multi-repo verification pass is non-interactive.
+  Step 2b operator de-arm checklist (arms the full supported set on
+  every surface) so the multi-repo verification pass is non-interactive.
 
 If the user passed nothing, use the defaults above.
 
@@ -206,32 +221,33 @@ gh repo view --json visibility -q .visibility
 gh repo view --json isPrivate -q .isPrivate
 ```
 
-## Step 2: Detect package ecosystems present in the repo
+## Step 2: Scan package ecosystems present in the repo (informational)
 
-The Dependabot config covers two kinds of ecosystem:
+**The armed set is no longer narrowed by this scan.** All four
+protected surfaces — CodeQL, the two gates, and Dependabot — arm the
+**full supported set** at install time (see Steps 3, 5b, 5c, 5c-pinned).
+CodeQL and the two gates then narrow to the *present* set at **runtime**
+via each workflow's `detect` job; Dependabot no-ops on absent manifests.
+So this scan does **not** decide *what to author* — it is retained only
+as **informational context** for the operator (to show, in the Step 2b
+de-arm checklist, which languages/ecosystems already have source in the
+tree) and for the CodeQL on/off decision (Step 5, which still needs to
+know whether the repo has any analyzable language to auto-resolve).
 
-- **`github-actions` — always present, not discovered.** The skill
-  *itself* installs GitHub Actions workflows on every run (the
-  no-back-merging-guard ships unconditionally in Step 5d; CodeQL, the
-  dependency-install-gate, and the dependency-pinned-gate ship under
-  their own conditions). So
-  `github-actions` is an **always-present floor**: include a
-  `github-actions` ecosystem (directory `/`) on **every** run, by
-  definition of what this skill does — never gate it on whether the
-  repo had a `.github/workflows/` *before* the run. (Genuine
-  zero-workflow repos effectively no longer exist, because the guard
-  workflow always ships.)
-- **Every other ecosystem — discovered by scanning.** `github-actions`
-  is the floor, not the ceiling. Scan the working tree for manifest
-  files to preselect a Dependabot block for each ecosystem found. For
-  each manifest found, record the Dependabot `package-ecosystem` value
-  and the directory it lives in — this is the raw scan that preselects
-  the Step 2b Dependabot checklist; what gets authored is the operator's
-  resolved set, not this raw scan.
+The Dependabot supported set the skill arms unconditionally (one
+`updates:` block each — directory `/` for `github-actions`, recursive
+`**/*` for the rest):
 
-Use this mapping (manifest glob → ecosystem). Always run the scan from
-the repo root and ignore vendored trees (`node_modules`, `vendor`,
-`.git`):
+`github-actions`, `npm`, `pip`, `docker`, `gomod`, `bundler`, `cargo`,
+`maven`, `gradle`, `composer`, `terraform`.
+
+(Confirm the exact set against Dependabot's current supported-ecosystems
+docs at implementation time — arm whatever the current docs enumerate.
+`github-actions` is the floor and is always armed.)
+
+For the **informational** scan, use this mapping (manifest glob →
+ecosystem). Run it from the repo root over tracked files only and ignore
+vendored trees (`node_modules`, `vendor`, `.git`):
 
 | Manifest (anywhere in tree) | Dependabot ecosystem |
 | --- | --- |
@@ -246,31 +262,6 @@ the repo root and ignore vendored trees (`node_modules`, `vendor`,
 | `*.tf` | `terraform` |
 | `Dockerfile`, `*/Dockerfile` | `docker` |
 
-(`github-actions` is intentionally **not** in this discovery table —
-it is the always-present floor added unconditionally below, not
-something to detect by scanning for `.github/workflows/*.yml`.)
-
-**Node package managers map to a single Dependabot ecosystem, but the
-install-gate distinguishes them by lockfile.** `package.json` always
-maps to the Dependabot `npm` ecosystem regardless of whether the repo
-actually uses npm, pnpm, or yarn — Dependabot has no separate pnpm/yarn
-ecosystem. The **dependency-install-gate (Step 5c)** is finer-grained:
-it renders one job per Node package manager, keyed off that manager's
-**lockfile**, not off `package.json`. Detect each separately for Step
-5c's per-job rendering:
-
-| Lockfile (anywhere in tree) | Install-gate job |
-| --- | --- |
-| `package-lock.json` | `npm` |
-| `pnpm-lock.yaml` | `pnpm` |
-| `yarn.lock` | `yarn` |
-| `requirements*.txt`, `pyproject.toml`, `Pipfile`, `setup.py` | `pip` |
-
-A `package.json` with no lockfile contributes the `npm` **Dependabot**
-ecosystem (above) but no install-gate Node job — the gate needs a
-lockfile to replay. This lockfile-level detection is consumed only by
-Step 5c; the Dependabot ecosystem table above is unchanged.
-
 Reference detection commands (adjust as needed):
 
 ```bash
@@ -282,313 +273,181 @@ git -C "$ROOT" ls-files | grep -E '(^|/)(requirements.*\.txt|pyproject\.toml|Pip
 # ... etc per the table above
 ```
 
-**Always include a `github-actions` entry (directory `/`)** —
-unconditionally, on every run, regardless of whether the repo had any
-workflow file before the run. The skill is about to add workflows (the
-guard at minimum, Step 5d), so `github-actions` is always a present
-ecosystem by definition of what the skill does. Do **not** scan for
-`.github/workflows/*.yml` to decide this; the floor is fixed.
+**The gates' own detection is defined once, at runtime, by their
+scripts** — not by this scan. `dependency-install-gate.sh --present`
+and `dependency-pinned-gate.sh --present` emit the present set from the
+same `git ls-files` predicates the gates check with, and CodeQL's
+`codeql-language-present.sh --matrix` does the same for languages. This
+Step 2 scan never feeds those; it is purely for display and the CodeQL
+on/off gate.
 
-For each *other* detected (ecosystem, directory) pair, record the
-directory relative to the repo root with a leading `/` (`/` for root,
-`/frontend` for a subdir). Deduplicate: one block per
-(ecosystem, directory).
+**A `dependabot.yml` is always written** — the full supported set is
+armed unconditionally, so the `updates:` list is never empty. The old
+"no ecosystem detected → skip the file" / "markdown-only repo" path is
+**gone**: the skill always arms every supported ecosystem.
 
-**A `dependabot.yml` is therefore always written** — the
-`github-actions` floor guarantees the `updates:` list is never empty.
-The old "no ecosystem detected → skip the file" / "markdown-only repo"
-path **must no longer fire** merely because the repo had no workflows
-before the run: the skill is about to add some, so `github-actions` is
-always present and the config always has at least that one block. A
-genuinely empty `updates:` list can no longer arise.
+## Step 2b: Operator de-arm checklist (defaults to the full armed set)
 
-## Step 2b: Operator confirmation checklist (the resolved set)
+Every surface is **armed with the full supported set** at install time,
+and each **narrows to the present set at runtime** (CodeQL and the two
+gates via their `detect` jobs) or no-ops on absent manifests
+(Dependabot). So there is **nothing to detect-and-narrow up front** — the
+protect-before-code ordering inversion is gone structurally, not via an
+operator toggle. The scan (Step 2) is informational only.
 
-The Step 2 scan (and the CodeQL language mapping it feeds in Step 5) is
-a **proposal, not a verdict.** Detection is a heuristic over the *current
-working tree*; the operator knows things the grep cannot:
+The checklist that remains is a **de-arm override**: for each surface,
+the full supported set is armed by default, and the operator may **drop**
+a language/ecosystem they never want armed on this repo. This is the
+inverse of the old "confirm what to arm" flow — the default is
+everything-on, and the only edit is subtraction.
 
-- The repo is mid-transition and the manifest for an ecosystem to be
-  protected is on an **unmerged branch**, not yet in the tree. The
-  operator must be able to toggle that ecosystem **on** even though the
-  scan did not find it — this is what **structurally removes the
-  protect-before-code ordering inversion** (you no longer have to merge
-  the code first so the skill can detect it). The skill protects `main`
-  for an ecosystem still on a feature branch.
-- The scan over-detected (a vendored or example manifest the operator
-  does not want gated). The operator must be able to toggle it **off**.
+So after the informational scan and **before authoring any file**
+(Steps 3, 5b, 5c, 5c-pinned), present a **single multi-tab
+`AskUserQuestion`** — one tab per surface (drift-gate / pinned-gate /
+Dependabot / CodeQL), each `multiSelect: true` — whose options are the
+surface's **full supported set, all preselected (armed)**. The operator
+**unchecks** any item they want de-armed; the **armed set** (full set
+minus the operator's unchecks) is what is authored. This is the skill's
+up-front interaction; the single commit/push/PR approval (Step 7) still
+comes after, so the approve-once model is preserved.
 
-So after scanning and **before authoring any file** (Steps 3, 5b, 5c,
-5c-pinned), present a **single multi-tab `AskUserQuestion`** — one tab
-(question) per surface, each `multiSelect: true` — and author the
-**resolved set** (the operator's final toggles), never the raw scan.
-This is the skill's up-front interaction; the single commit/push/PR
-approval (Step 7) still comes after, so the approve-once model is
-preserved (the checklist confirms *what* to author; Step 7 approves
-committing it).
+Skip the checklist under `--dry-run` (arm the full supported set on every
+surface and note the checklist was skipped) — every interactive run
+presents it.
 
 **Working within the `AskUserQuestion` contract.** The tool caps a call
-at **1–4 questions, each with 2–4 options** (Anthropic Agent-SDK
-"Handle approvals and user input"). The four surfaces (drift-gate,
-pinned-gate, Dependabot, CodeQL) ⇒ four questions — exactly at the
-question cap. The **2–4-options-per-question cap** is the binding
-constraint, and it shapes how each tab is built:
+at 1–4 questions, each with 2–4 options. The four surfaces ⇒ four
+questions — at the question cap. Several surfaces have more than four
+supported values (Dependabot ≈11, CodeQL 10, pinned-gate 5), which
+exceeds the 2–4-options-per-question cap. Because the flow is now
+**de-arm only** (no free-text "add" path — the full set is already
+armed), an over-cap surface is presented as a **single confirm-or-edit
+option**: default "keep the full set armed", with a free-text `response`
+in which the operator lists **only the items to de-arm** (e.g. "drop
+maven, gradle"). A de-arm entry is validated against that surface's
+supported set (below); an unrecognized entry is reported and re-prompted,
+never silently applied. Surfaces that fit the cap (drift-gate has exactly
+four PMs) list each supported value as a preselected checkbox directly.
 
-- **Drift-gate** has a fixed, closed set of exactly **four** package
-  managers (`npm`, `pip`, `pnpm`, `yarn`), so its tab lists all four as
-  toggleable options directly — it fits the cap exactly.
-- **Pinned-gate** (`npm`, `pip`, `actions`, `docker`, `go` — **five**
-  ecosystems) **exceeds** the four-option cap by one, so its tab uses
-  the same over-cap pattern as Dependabot/CodeQL below rather than
-  enumerating all five as checkboxes: it offers the detected ecosystems
-  (preselected) plus a final **"Other — type ecosystems"** free-text
-  option through which the operator names any of the five (e.g. an
-  as-yet-undetected `docker` or `go`) to toggle on, and edits the
-  detected set (drop *these*, add *those*) via the free-text `response`.
-  The closed five-ecosystem set is the validation set for its "Other"
-  entries.
-- **Dependabot** (≈11 supported ecosystems) and **CodeQL** (≈5 supported
-  languages) **exceed** the four-option cap, so their tabs cannot
-  enumerate every supported value as a checkbox. Instead each of those
-  two tabs offers, as its options: the surface's **always-on floor**
-  (`github-actions` / `actions`, preselected and not removable), the
-  **detected** items (preselected), and a final **"Other — type
-  ecosystems/languages"** free-text option (the SDK's documented
-  free-text escape hatch). The operator unchecks a detected item to
-  toggle it **off**, and names an as-yet-undetected ecosystem/language
-  in the **"Other"** free-text to toggle it **on** — this is what keeps
-  the protect-before-code toggle-on path working without a checkbox per
-  supported value. If the floor plus the detected set already fills the
-  four option slots, fold the detected items and the "Other" path into a
-  single confirmation whose free-text `response` carries the operator's
-  edits (drop *these*, add *those*) rather than overflowing the cap.
+### The four tabs (all default to the full armed set)
 
-In all cases the resolved (confirmed) set per surface is what gets
-authored — never the raw scan, and never a checkbox the contract cannot
-render.
+- **Drift-gate tab** (armed set → Step 5c gate is armed with these PMs).
+  Options are the four supported package managers — `npm`, `pip`,
+  `pnpm`, `yarn` — each **preselected (armed)**. Unchecking a PM de-arms
+  it (its runtime `detect` never proposes it and no leg ever spawns).
+  The armed set is baked into the workflow's `detect` script coverage;
+  in practice the gate script already covers all four, so a de-arm is
+  honored by the ruleset/reporting layer, not by removing a job (there
+  are no per-PM jobs any more — one matrixed `gate` job covers all).
+- **Pinned-gate tab** (armed set → Step 5c-pinned). Five supported
+  ecosystems (`npm`, `pip`, `actions`, `docker`, `go`) — one over the
+  cap, so use the confirm-or-edit pattern: default "keep all five
+  armed", free-text de-arm listing the ecosystems to drop. `actions` is
+  the always-present floor — de-arming it is discouraged (report it) but
+  permitted.
+- **Dependabot tab** (armed set → Step 3 `updates:` blocks). The full
+  supported ecosystem set (`github-actions`, `npm`, `pip`, `docker`,
+  `gomod`, `bundler`, `cargo`, `maven`, `gradle`, `composer`,
+  `terraform`) — more than the cap, so use the confirm-or-edit pattern:
+  default "arm every supported ecosystem", free-text de-arm listing the
+  ecosystems to drop. `github-actions` is the floor and is not
+  de-armable.
+- **CodeQL tab** (armed set → Step 5b). The full supported CodeQL
+  language set (`javascript-typescript`, `python`, `go`, `java-kotlin`,
+  `csharp`, `c-cpp`, `ruby`, `rust`, `swift`, `actions`) — more than the
+  cap, so use the confirm-or-edit pattern: default "arm every supported
+  language", free-text de-arm listing the languages to drop. `actions`
+  is the floor. The armed set does **not** override the CodeQL on/off
+  decision — `--codeql` and the entitlement guard in Step 5 still decide
+  *whether* CodeQL runs; the armed set only bounds which languages the
+  runtime `detect` may propose. (De-arming every language does not turn
+  CodeQL off — the runtime matrix simply never spawns a leg, and the
+  `codeql-required` aggregator passes green.)
 
-**Detected items are preselected** on every tab. The operator toggles
-each line-item on/off (or, for the over-cap surfaces, edits via the
-"Other"/free-text path); the resolved set is what gets authored.
+### Validate a de-arm entry before it is applied
 
-Skip the checklist only under `--dry-run` (report the *detected* set as
-the resolved set and note the checklist was skipped) — every interactive
-run presents it.
+A free-text de-arm entry names an item to **remove** from the armed set.
+Validate each against its surface's supported set so a typo does not
+silently fail to de-arm (or, worse, get misread):
 
-### The four tabs
+- **Pinned-gate**: `npm`, `pip`, `actions`, `docker`, `go`.
+- **Dependabot**: the documented Dependabot `package-ecosystem` enum
+  (`github-actions`, `npm`, `pip`, `docker`, `gomod`, `bundler`, `cargo`,
+  `maven`, `gradle`, `composer`, `terraform`, plus any others GitHub's
+  options reference lists — treat the docs as authoritative).
+- **CodeQL**: `javascript-typescript`, `python`, `go`, `java-kotlin`,
+  `csharp`, `c-cpp`, `ruby`, `rust`, `swift`, `actions`.
 
-- **Drift-gate tab** (resolved set → Step 5c per-PM jobs). Options are
-  the four package managers the gate supports: `npm`, `pip`, `pnpm`,
-  `yarn` — a closed four-item set that fits the option cap directly.
-  Preselect each PM detected per the Step 2 **install-gate lockfile**
-  table. A PM toggled **off** ⇒ that PM's job is dropped from the
-  rendered workflow ⇒ it never runs and is never a required check. A PM
-  toggled **on** for a PM with no lockfile in the tree ⇒ render that
-  PM's job anyway (the operator is protecting `main` ahead of the
-  manifest landing). The resolved set replaces the raw Step 5c lockfile
-  scan as the input to per-job rendering.
-- **Pinned-gate tab** (resolved set → Step 5c-pinned per-ecosystem
-  jobs). The gate supports **five** ecosystems (`npm`, `pip`, `actions`,
-  `docker`, `go`) — one over the four-option cap, so the tab uses the
-  over-cap "Other" pattern (it does **not** enumerate all five as
-  checkboxes). Its options are: the ecosystems the Step 2 scan
-  **detected** for this gate (preselected per the pinned-gate
-  preselection table in Step 5c-pinned), and an **"Other — type
-  ecosystems"** free-text option for naming an as-yet-undetected one of
-  the five (e.g. `docker`/`go` before its manifest lands) to toggle
-  **on**. The operator unchecks a detected ecosystem to toggle it
-  **off**, or names one in "Other" to add it. The five-ecosystem set
-  (`npm`, `pip`, `actions`, `docker`, `go`) is the validation set for
-  the "Other" entries — an entry outside it is rejected and re-prompted
-  per "Validate the 'Other' free-text" below. The resolved set is what
-  drives Step 5c-pinned's per-job rendering, independently of the
-  drift-gate tab (the two gates are separate). An empty resolved set ⇒
-  no pinned-gate file is written (Step 5c-pinned).
-- **Dependabot tab** (resolved set → Step 3 `updates:` blocks). The
-  surface supports ≈11 ecosystems (`npm`, `pip`, `gomod`, `bundler`,
-  `cargo`, `composer`, `maven`, `gradle`, `terraform`, `docker` **plus
-  `github-actions`**) — more than the four-option cap, so the tab does
-  **not** list one checkbox per supported ecosystem. Its options are:
-  the **`github-actions` floor** (always preselected, not removable —
-  the skill installs workflows on every run, Step 5d at minimum, so the
-  floor is intrinsic, not operator-added, Step 2); the ecosystems the
-  Step 2 scan **detected** (preselected); and an **"Other — type
-  ecosystems"** free-text option for naming an as-yet-undetected
-  ecosystem to toggle **on**. The operator unchecks a detected ecosystem
-  to toggle it **off**, or names one in "Other" to add it. The resolved
-  set replaces the raw Step 2 ecosystem scan as the input to Step 3.
-  (Ecosystems carry a directory; default a newly-added ecosystem's
-  directory to `/` unless the operator's stated layout says otherwise.)
-- **CodeQL tab** (resolved set → Step 5 language matrix). The surface
-  supports ≈5 languages (`javascript-typescript`, `python`, `go`,
-  `java-kotlin` **plus `actions`**) — more than the four-option cap, so
-  the tab does **not** list one checkbox per supported language. Its
-  options are: the **`actions` floor** (always preselected — the skill
-  always installs workflows); the languages the Step 2 ecosystems
-  **detected**-and-mapped (preselected); and an **"Other — type
-  languages"** free-text option for naming an as-yet-undetected language
-  to toggle **on**. The operator unchecks a mapped language to toggle it
-  **off**, or names one in "Other" to add it. The resolved set is the
-  CodeQL **language matrix** used when CodeQL resolves on — it does
-  **not** override the on/off decision: `--codeql` and the
-  entitlement/no-supported-language guards in Step 5 still decide
-  *whether* CodeQL runs (the checklist cannot force CodeQL on for an
-  unentitled private repo — that recreates the issue #91 phantom-check
-  hang). When CodeQL resolves on, the matrix is the resolved set, never
-  the raw scan; when it resolves off, the CodeQL tab's selections are
-  moot. If the operator clears every language (including `actions`), the
-  no-supported-language hard stop in Step 5 applies and CodeQL is off
-  regardless of request.
+For each de-arm entry: normalize an unambiguous alias to its canonical
+value (`golang`/`gomod` → the surface's canonical form; `typescript` →
+`javascript-typescript`; `c#` → `csharp`; etc.); if it matches a
+supported value, remove that value from the armed set; if it resolves to
+nothing, report the unrecognized entry, show the surface's supported set,
+and re-prompt. Never apply an unvalidated de-arm.
 
-### Validate the "Other" free-text before it enters the resolved set
+### How the armed sets flow downstream
 
-The over-cap pinned-gate, Dependabot, and CodeQL tabs accept free-text
-via their **"Other"** option, and that free-text drives **directly** what
-the skill authors — the pinned-gate's rendered per-ecosystem jobs (Step
-5c-pinned), the Dependabot `package-ecosystem` value (Step 3), and the
-CodeQL `__CODEQL_LANGUAGES__` matrix (Step 5). A free-form string is not
-a validated identifier: a typo or non-canonical spelling (`pyhton`;
-`node` where Dependabot expects `npm`; `dockerfile` where the pinned-gate
-expects `docker`; `c#` where CodeQL expects `csharp`) would flow straight
-through to an **invalid render** — a Dependabot config GitHub rejects, a
-CodeQL workflow that fails on an unknown language, or a pinned-gate job
-for a mode the classifier does not accept — discovered long after the
-confirmation step.
-
-So **immediately after the operator submits the `AskUserQuestion`, and
-before the resolved set is finalized and handed to any authoring step
-(Steps 3, 5b, 5c, 5c-pinned)**, validate and normalize every free-text
-"Other"
-entry against the documented set of values its surface supports. This is
-an operative instruction to the executing model: perform the check, and
-loop back rather than author an unvalidated string.
-
-The validation set for each surface is that surface's **full documented
-identifier set**, not just the subset this skill auto-detects. The
-"Other" path exists precisely to add an ecosystem/language the working
-tree does **not** yet contain, so it must accept any value the surface
-genuinely supports — e.g. an operator protecting `main` for `nuget`
-before any `.csproj` lands, or for `ruby` before any Ruby source does.
-The Step 2 manifest→ecosystem table and the Step 5
-ecosystem→CodeQL-language map are the **preselection** sources (they
-seed the detected, already-canonical checkboxes); the **validation**
-sets are the wider documented enums below.
-
-- **Pinned-gate "Other" entries** validate against the gate's **closed
-  five-ecosystem set**: `npm`, `pip`, `actions`, `docker`, `go`. Unlike
-  the Dependabot/CodeQL enums, this set is fixed and small (it is the set
-  of modes `dependency-pinned-gate.sh` accepts), so the "Other" path
-  exists only to toggle on one of the five ahead of its manifest, never
-  to add an arbitrary ecosystem. Normalize the obvious aliases to the
-  canonical mode (`github-actions`/`gha`/`workflows` → `actions`;
-  `dockerfile`/`container` → `docker`; `golang`/`gomod`/`go.mod` → `go`;
-  `python`/`requirements`/`pyproject` → `pip`; `node`/`pnpm`/`yarn` →
-  `npm`); reject and re-prompt anything that does not resolve to one of
-  the five. Detected items are already canonical, so only the free-text
-  "Other" entries need this check.
-- **Dependabot "Other" entries** validate against the documented
-  Dependabot `package-ecosystem` enum — the exact set of YAML values
-  GitHub's options reference lists. At time of writing that set is:
-  `bazel`, `bun`, `bundler`, `cargo`, `composer`, `conda`, `deno`,
-  `devcontainers`, `docker`, `docker-compose`, `dotnet-sdk`, `elm`,
-  `github-actions`, `gitsubmodule`, `gomod`, `gradle`, `helm`, `julia`,
-  `maven`, `mix`, `nix`, `npm`, `nuget`, `opentofu`, `pip`,
-  `pre-commit`, `pub`, `rust-toolchain`, `sbt`, `swift`, `terraform`,
-  `uv`, `vcpkg`. (`mix` is the YAML value for the Hex/Elixir
-  ecosystem; `yarn`/`pnpm` are not their own values — they map to
-  `npm` — and likewise `pipenv`/`poetry`/`pip-compile` map to `pip`,
-  so those package-manager names are aliases normalized below, not
-  members of this enum. Treat GitHub's documented `package-ecosystem`
-  list as authoritative; when GitHub documents a new value, add it
-  here.) Detected items are already canonical (they come from the
-  Step 2 table), so only the free-text "Other" entries need this check.
-- **CodeQL "Other" entries** validate against the documented CodeQL
-  language identifiers the action accepts in its matrix: `c-cpp`,
-  `csharp`, `go`, `java-kotlin`, `javascript-typescript`, `python`,
-  `ruby`, `rust`, `swift`, `actions` (treat GitHub's documented CodeQL
-  language list as authoritative). Preselected mapped languages are
-  already canonical (they come from the Step 5 map), so only the
-  free-text "Other" entries need this check.
-
-For each free-text "Other" entry:
-
-1. **Exact canonical match** — if the entry already equals a value in
-   the surface's documented set (case-insensitively), accept it with the
-   canonical spelling from the set.
-2. **Unambiguous known alias** — normalize a documented synonym to its
-   canonical value where the mapping is unambiguous and safe (e.g. a
-   Dependabot answer of `golang` normalizes to `gomod`,
-   `pipenv`/`poetry`/`pip-compile` to `pip`, `yarn`/`pnpm` to `npm`
-   since Dependabot has a single Node ecosystem, `hex`/`elixir` to
-   `mix` (Dependabot's YAML value for the Hex/Elixir ecosystem); a
-   CodeQL answer of `typescript` or
-   `javascript` normalizes to `javascript-typescript`, `kotlin` or
-   `java` to `java-kotlin`, `c`/`cpp`/`c++` to `c-cpp`, `c#` to
-   `csharp`, `github-actions` to the CodeQL `actions` spelling). Do
-   **not** silently guess at anything that is not a documented,
-   unambiguous synonym.
-3. **No resolution → reject and re-prompt** — if the entry resolves to
-   neither a canonical value nor an unambiguous alias, it is invalid.
-   Do **not** author it. Tell the operator the entry was not recognized,
-   show the documented set of supported values for that surface, and
-   **loop back to the "Other" entry** (re-present the tab's free-text
-   for that surface) so they can correct or drop it. Repeat until every
-   "Other" entry resolves or is removed.
-
-Only **validated, canonical** values enter the resolved set.
-Unvalidated free-text **never** reaches the authoring steps — the
-pinned-gate's rendered jobs (Step 5c-pinned), Step 3's
-`package-ecosystem` values, and Step 5's `__CODEQL_LANGUAGES__` matrix
-are rendered only from the canonical, validated resolved set. This keeps
-the "Other" path's purpose intact (protect `main` for an ecosystem or
-language whose code has not landed yet) while guaranteeing the rendered
-config is well-formed.
-
-### How the resolved sets flow downstream
-
-| Tab | Resolved set drives | Consumed in |
+| Tab | Armed set drives | Consumed in |
 | --- | --- | --- |
-| Drift-gate | which per-PM jobs (`npm`/`pip`/`pnpm`/`yarn`) render | Step 5c, Step 6c |
-| Pinned-gate | which per-ecosystem jobs (`npm`/`pip`/`actions`/`docker`/`go`) render | Step 5c-pinned, Step 6c |
-| Dependabot | which `updates:` ecosystem blocks render (+ `github-actions` floor) | Step 3 |
-| CodeQL | the CodeQL language matrix (when CodeQL is on) | Step 5, Step 5b, Step 6c |
+| Drift-gate | which PMs the install-gate covers (runtime-matrixed) | Step 5c, Step 6c |
+| Pinned-gate | which ecosystems the pinned-gate covers (runtime-matrixed) | Step 5c-pinned, Step 6c |
+| Dependabot | which `updates:` ecosystem blocks render | Step 3 |
+| CodeQL | which languages the runtime CodeQL matrix may propose | Step 5, Step 5b, Step 6c |
 
-From Step 2b onward, "detected ecosystems / PMs / languages" in the
-downstream steps means the **resolved set**, not the raw scan. The
-preselection is the scan; the authored artifact is the operator's
-confirmed toggles.
+From Step 2b onward, the downstream steps arm the **armed set** (full
+supported set minus operator de-arms), and the **runtime `detect` jobs**
+(CodeQL and the two gates) narrow that to the present set per PR. The
+scan is informational; the authored artifact is the armed set; the
+running check is the present subset of the armed set.
 
 ## Step 3: Render and converge `dependabot.yml`
 
 Target path: `<repo-root>/.github/dependabot.yml`.
 
+**Arm the full supported ecosystem set** (Step 2's list, minus any
+Step 2b de-arms): `github-actions`, `npm`, `pip`, `docker`, `gomod`,
+`bundler`, `cargo`, `maven`, `gradle`, `composer`, `terraform`. Render
+one `updates:` block per armed ecosystem **unconditionally** — do
+**not** narrow to detected ecosystems. Dependabot no-ops on an ecosystem
+whose manifest is absent, so arming the full set adds no spurious update
+PRs; it just covers each ecosystem's first manifest the moment it lands,
+with no skill re-run.
+
 The generated baseline is **hardened** (issue #51): per-ecosystem
 cooldown soak, `versioning-strategy`, recursive directory coverage,
 semver-major ignore, and per-ecosystem schedules. Several values vary
-by **ecosystem class** — npm/pip (the rich tier), docker (cooldown but
-no semver tiers / no versioning-strategy), and github-actions (fixed
-directory, weekly, default-days only). The `ecosystem-block.yml`
+by **ecosystem class** — npm/pip (the rich tier), github-actions (fixed
+directory, weekly, default-days only), and everything else (docker,
+gomod, bundler, cargo, maven, gradle, composer, terraform — recursing
+directory, daily, default-days only). The `ecosystem-block.yml`
 template carries those variant parts as block placeholders the skill
-resolves per ecosystem.
+resolves per ecosystem. **Getting the class variant right for every
+armed ecosystem is the one real complexity** — a wrong variant (e.g.
+`versioning-strategy` on docker/github-actions, which Dependabot does
+not support) makes Dependabot **reject the whole config**. Test this
+hardest.
 
 1. Read the per-ecosystem template
    `gh-repo-setup-protection/ecosystem-block.yml`. Strip its leading
    comment block (every line up to and including the
    `# Indentation ...` comment) — only the YAML body is rendered.
-2. For each (ecosystem, directory) pair in the **resolved set** from the
-   Step 2b Dependabot tab (the operator's confirmed toggles, not the raw
-   scan — always including the `github-actions` floor), substitute the
-   placeholders below. Render the blocks in a **stable, sorted order**
-   (sort by ecosystem then directory) so the output is deterministic —
-   this is what makes the re-run a byte-for-byte no-op instead of a
-   reorder churn.
+2. For each armed ecosystem (directory `/` unless the operator's stated
+   layout says otherwise — since the armed set no longer comes from a
+   directory-bearing scan, default every ecosystem's directory to the
+   repo root), substitute the placeholders below. Render the blocks in a
+   **stable, sorted order** (sort by ecosystem then directory) so the
+   output is deterministic — this is what makes the re-run a
+   byte-for-byte no-op instead of a reorder churn.
 
    **Per-ecosystem placeholder resolution.** Resolve each placeholder
-   from the ecosystem (and detected directory). There are three
-   ecosystem classes: **npm/pip** (the rich tier), **github-actions**
-   (fixed directory, weekly, default-days only), and **everything else**
-   (docker, gomod, bundler, cargo, terraform, … — recursing directory,
-   daily, default-days only).
+   from the ecosystem class. There are three ecosystem classes:
+   **npm/pip** (the rich tier), **github-actions** (fixed directory,
+   weekly, default-days only), and **everything else** (docker, gomod,
+   bundler, cargo, maven, gradle, composer, terraform — recursing
+   directory, daily, default-days only). Every newly-armed ecosystem
+   (bundler, cargo, maven, gradle, composer, terraform) falls in the
+   **"everything else"** class: `directories: **/*`, daily, `cooldown:
+   default-days: 7` only, and **no** `versioning-strategy` (dropped).
 
    The two scalar placeholders resolve as:
 
@@ -995,71 +854,45 @@ Resolve whether CodeQL is wanted, in this order:
      unentitled repo with workflow files (this repo's shape — `actions`
      is an analyzable language), `--ghas=off` must still resolve CodeQL
      **off**, never let it auto-resolve **on**.
-   - **Off** if **no CodeQL-analyzable language** is in scope. The
-     language set is the **resolved set from the Step 2b CodeQL tab** (the
-     operator's confirmed toggles), which preselects the languages the
-     Step 2 ecosystems map to plus the always-present `actions` (Step 2's
-     floor). The ecosystem→CodeQL-language map that drives that
-     preselection — and that the resolved set is checked against for the
-     no-supported-language hard stop below — is:
+   - The old "no analyzable language → off" auto-skip is **gone.** The
+     CodeQL workflow is armed with the **full supported language set**
+     and narrows to the present languages at **runtime** via its
+     `detect` job (Step 5b). `actions` is an always-present floor (the
+     skill installs workflows), so at least one leg always runs on an
+     entitled-or-public repo, and the `codeql-required` aggregator
+     passes green even when the runtime matrix is empty. There is
+     therefore no install-time language check to fail — the only
+     off-branch left in `auto` is the **private + unentitled** case
+     above. A repo mid-transition (e.g. Python today, TypeScript
+     tomorrow) gets its new-language leg the moment the first `.ts` file
+     lands, with **no skill re-run** — the exact ordering inversion this
+     issue fixes.
+   - **On** otherwise (public repo, or entitled private repo).
+3. Do not ask — a public (or entitled private) repo resolves CodeQL
+   **on**. The runtime matrix (armed full set, narrowed to present) is
+   never a deadlock: an absent language produces no leg, and the
+   aggregator is green on an empty matrix. (The only off-resolutions
+   left are the private-unentitled and the explicit `--codeql=off`
+   cases.)
 
-     | Ecosystem | CodeQL language |
-     | --- | --- |
-     | `npm` | `javascript-typescript` |
-     | `pip` | `python` |
-     | `gomod` | `go` |
-     | `maven` | `java-kotlin` |
-     | `gradle` | `java-kotlin` |
-     | `cargo` | (no first-class CodeQL support → skip) |
-     | `composer` | (no CodeQL support → skip) |
-     | `github-actions` | `actions` |
-
-     A markdown-only repo with no entitlement would be off — but note
-     that `actions` is **always** an analyzable language here, because
-     the skill always installs workflows (Step 2). So the mapped
-     language set is **never** empty on an entitled-or-public repo; the
-     "no analyzable language" off-branch can only fire together with the
-     entitlement off-branch above (a private, unentitled repo). The
-     `actions` language is always in scope on every other repo, subject
-     only to that entitlement guard.
-   - **On** otherwise (public repo, or entitled private repo) — at
-     least one analyzable language is always present (`actions`).
-3. Actions-only is **not ambiguous** — resolve CodeQL **on** for
-   `actions`. Because the skill always installs workflows,
-   `github-actions` → `actions` is the always-present floor, so a public
-   (or entitled private) repo whose only analyzable language is
-   `actions` resolves CodeQL **on** with `actions` in the matrix. Do not
-   ask. (The only off-resolutions left are the private-unentitled and
-   the explicit `--codeql=off` cases.)
-
-**No-supported-language hard stop (defensive; applies even to
-`--codeql=on`).** After resolving the language set — the **Step 2b
-CodeQL resolved set** (the operator's confirmed toggles: the `actions`
-floor plus the confirmed mapped languages and any free-text "Other"
-additions, minus any unchecked language), not the raw
-ecosystem→CodeQL-language map — if that resolved set is **empty** —
-the repo has no CodeQL-analyzable language — CodeQL is **off regardless
-of how it was requested**, including an explicit `--codeql=on`.
-Installing a CodeQL workflow with an empty (or unsupported) language
-matrix produces a check that can never pass and deadlocks branch
-protection (issue #230's failure mode). In practice this branch is
-**unreachable** now that `actions` is the always-present floor (Step 2):
-every repo this skill touches gets workflows, so the mapped set always
-contains at least `actions`. The check is kept as a **defensive
-invariant** — it guards the "never install an empty matrix" property
-independently of how the language set was derived — but on a repo this
-skill has run, the set is never actually empty. (Even the former
-counter-example — a Makefiles + shell-scripts repo with no language
-manifests — still maps `actions`, because the guard workflow ships
-unconditionally.) `--codeql=on` overrides the *entitlement* auto-skip;
-it does **not** override this language check. Report
-"CodeQL: off (requested on, but no CodeQL-supported language detected —
-no workflow installed to avoid a phantom required check)" in the
-(now unreachable) empty-set case.
+**No install-time empty-matrix hazard (why the old hard stop is gone).**
+The old "no-supported-language hard stop" existed because the former
+static CodeQL language-list matrix could be authored **empty**, producing
+a check that can never pass and deadlocks branch protection (issue #230's
+failure mode). That hazard **no longer exists**: the workflow is armed
+with the full supported set and the analyze matrix is built at runtime
+from `codeql-language-present.sh --matrix`. An empty runtime matrix (no
+analyzable language present) spawns **zero** analyze legs and the
+`codeql-required` aggregator concludes **success** (`if: always()` +
+empty-matrix pass), so the PR is mergeable, never hung. `--codeql=on`
+overrides the *entitlement* auto-skip and installs the armed workflow;
+there is no separate language check for it to override, because the
+runtime matrix cannot deadlock.
 
 **Always report the CodeQL decision and the reason**, e.g.
 "CodeQL: off (auto — private repo without GHAS entitlement)" or
-"CodeQL: on (languages: javascript-typescript, python)".
+"CodeQL: on (armed with the full supported language set; runtime matrix
+narrows to present languages per PR)".
 
 ### 5a. Read the server-side CodeQL setup mode before writing
 
@@ -1162,9 +995,8 @@ this); the report wording below matches that framing. `configured`
 default setup alongside an advanced workflow is the issue #230 wedge,
 to be disabled with operator confirmation.
 
-Decision table once CodeQL has resolved **on** (Step 5, including the
-no-supported-language hard stop) and you are about to install advanced
-setup:
+Decision table once CodeQL has resolved **on** (Step 5) and you are
+about to install advanced setup:
 
 - **default setup `not-configured`** → this is the **correct
   mutually-exclusive state**: advanced setup active, default setup
@@ -1270,36 +1102,41 @@ Target paths:
 
 - `<repo-root>/.github/workflows/codeql.yml`
 - `<repo-root>/.github/codeql/codeql-config.yml`
+- `<repo-root>/.github/scripts/codeql-language-present.sh`
 
-1. Build `__CODEQL_LANGUAGES__` as a YAML flow sequence of the
-   **resolved set from the Step 2b CodeQL tab** (the operator's confirmed
-   toggles — the always-present `actions` floor plus the operator's
-   confirmed languages, including any free-text "Other" additions and
-   excluding any mapped language the operator unchecked), sorted for
-   determinism, e.g. `[ 'javascript-typescript', 'python' ]`. The
-   "Other" additions in this set are already **validated and normalized
-   to canonical CodeQL language identifiers** by Step 2b's "Validate the
-   'Other' free-text" sub-step — an unrecognized entry never reaches
-   here, so the matrix is always well-formed. This is the resolved set,
-   never the raw ecosystem→language map; it is the same set Step 5's
-   no-supported-language hard stop checks against and that the Step 2b
-   "CodeQL tab" (under "The four tabs") routes here as the language
-   matrix.
-2. Render `gh-repo-setup-protection/codeql.yml` (strip its leading
-   comment block) substituting `__DEFAULT_BRANCH__` and
-   `__CODEQL_LANGUAGES__`.
-3. `codeql-config.yml` has no placeholders — ship it verbatim (strip
-   its leading comment block? No — keep its `name:`/`queries:` body;
-   only strip the leading `#`-comment lines that document placeholders,
-   of which it has none, so it ships as-is).
+**There is no install-time CodeQL language-list placeholder any more.**
+The workflow is armed with the **full supported CodeQL language set** and
+narrows to the present languages at **runtime**: its `detect` job runs
+`codeql-language-present.sh --matrix`, which emits a JSON array of
+`{ language, runner }` matrix entries for exactly the languages present
+in the tracked tree, and the `analyze` job builds its matrix from that
+array via `fromJSON`. So the language set is decided per PR at runtime,
+never frozen at install time.
+
+1. Render `gh-repo-setup-protection/codeql.yml` (strip its leading
+   comment block) substituting **only** `__DEFAULT_BRANCH__`. The
+   template has no language placeholder.
+2. `codeql-config.yml` has no placeholders — keep its `name:`/`queries:`
+   body; it has no leading placeholder-doc comment block to strip, so it
+   ships as-is.
+3. `codeql-language-present.sh` has no placeholders — ship it
+   **verbatim** (including its leading comment block; it is a shell
+   script whose header documents its own behavior), with the executable
+   bit set (`chmod +x`). It is the SAME `git ls-files` predicate the
+   analyze matrix is built from, so "what detect thinks is present"
+   cannot drift from what the analyze legs run. The `swift` entry it
+   emits carries `runner: macos-latest`; every other language carries
+   `runner: ubuntu-latest`, so a Swift-less repo never provisions macOS.
 
 First apply the **pin-reconciliation pass (Step 5a-bis)** to the
-rendered desired content — keep any `uses:` pin the repo already has
-pinned to a strictly-newer SHA, never downgrade. Then converge exactly
-as in Step 3 against that pin-reconciled content: if the target file is
-absent, write it; if present and **semantically equal**, do nothing; if
-present and different, show the diff and halt before overwriting.
-Whole-file replace, never append.
+rendered `codeql.yml` — keep any `uses:` pin the repo already has
+pinned to a strictly-newer SHA, never downgrade. Then converge each
+target as in Step 3 against that pin-reconciled content: if the target
+file is absent, write it; if present and **semantically equal**, do
+nothing; if present and different, show the diff and halt before
+overwriting. Whole-file replace, never append. The `.sh` uses a
+normalized-text/byte compare (it is a shell script, not YAML), like the
+gate scripts.
 
 ## Step 5c: Render and converge the dependency-install-gate (drift guard)
 
@@ -1307,57 +1144,50 @@ A drifted `package.json`/lockfile (or an unresolvable requirements pin)
 can desync from its manifest via a Dependabot PR or a hand edit; without
 a PR-time gate the desync auto-merges into the default branch and breaks
 local dev and downstream pipelines. This step installs a
-**dependency-install-gate** — a `pull_request` workflow whose
-**per-package-manager jobs** (`npm`, `pip`, `pnpm`, `yarn`) replay the
-lockfile / run a resolver pre-flight over every discovered manifest and
-fail the PR on drift. The artifact is ported from the proven
-`ExampleProject/example-app-repo` gate.
+**dependency-install-gate** — a `pull_request` workflow armed with the
+**full supported set** of package managers (`npm`, `pip`, `pnpm`,
+`yarn`) that replays the lockfile / runs a resolver pre-flight over
+every discovered manifest and fails the PR on drift. The artifact is
+ported from the proven `ExampleProject/example-app-repo` gate.
 
-**Why per-PM jobs, not one Node job.** Each Node package manager keys
+**Runtime dynamic-matrix, not install-time-narrowed jobs.** The workflow
+has three jobs: a `detect` job that runs
+`dependency-install-gate.sh --present` (the SAME `git ls-files`
+discovery the gate checks with) and emits a JSON array of the PMs whose
+manifest is present right now; a matrixed `gate` job over
+`fromJSON(needs.detect.outputs.pms)`, so a leg exists for a PM **iff**
+its lockfile/manifest is in the tree at that moment; and an
+`install-gate-required` aggregator. A PM whose manifest lands **after**
+setup lights its leg up on the next PR, with **no skill re-run** — the
+ordering-inversion fix.
+
+**Why per-PM legs, not one Node job.** Each Node package manager keys
 off its **own** lockfile (npm → `package-lock.json`, pnpm →
 `pnpm-lock.yaml`, yarn → `yarn.lock`). A single npm-only job discovers
 nothing on a pnpm/yarn repo, hits its no-manifests-green branch, and
 exits 0 — a **dead check that gives false assurance** while the very
 `package.json`↔lockfile desync it exists to catch merges anyway
-(issue #111). One job per manager, each keyed off its own lockfile,
-closes that gap.
+(issue #111). One matrix leg per manager, each keyed off its own
+lockfile, closes that gap.
 
-### Gate the gate per package manager (the Step 2b resolved set)
+### The aggregator is the required check (not the per-PM legs)
 
-The gate's **four jobs are rendered independently**. Which jobs render
-is the **resolved set from the Step 2b drift-gate tab** (the operator's
-confirmed toggles), **not** the raw Step 2 lockfile scan. The scan
-(the "install-gate job" table, not the Dependabot-ecosystem table) only
-*preselects* the tab:
+GitHub `required_status_checks` is a static list of names and cannot
+express "require the `npm` leg only if it runs". So the per-PM legs
+(`Install gate (<pm>)`) are **visible** but **not** individually
+required; the always-running `install-gate-required` aggregator (stable
+name) is the single required check. It `needs:` the matrixed `gate` job,
+runs `if: always()`, and concludes:
 
-| Detected lockfile / manifest | Preselects this job |
-| --- | --- |
-| `package-lock.json` present | `npm` |
-| `pnpm-lock.yaml` present | `pnpm` |
-| `yarn.lock` present | `yarn` |
-| `requirements*.txt` / `pyproject.toml` / `Pipfile` / `setup.py` present | `pip` |
+- **success** when the matrix was empty (no PM present) — so a
+  manifest-less repo is **mergeable, not hung**;
+- **success** when every spawned leg succeeded;
+- **failure** when any leg failed or was cancelled.
 
-A PM the operator toggled **on** in Step 2b renders even when its
-lockfile is not in the tree yet (protecting `main` ahead of an unmerged
-manifest — the ordering-inversion fix); a PM toggled **off** does not
-render even if its lockfile is present.
-
-- **Each enabled PM's job is rendered** into the workflow as its own
-  status check (smaller, parallel).
-- **Each toggled-off PM's job is dropped from the rendered file** (see
-  "Render the gate files" below) — it never runs and is never a
-  required check. A repo on pnpm only ships a one-job (`pnpm`) workflow;
-  a polyglot npm+pip repo ships a two-job (`npm`, `pip`) workflow.
-
-**If the resolved set is empty** (the operator confirmed none of the
-four), do **not** write either gate file. Report
-"dependency-install-gate: skipped (no npm/pip/pnpm/yarn PM in the
-resolved set)" for both files and move on. A gate with no jobs is dead
-weight. This is independent of the CodeQL decision: the gate ships
-whenever the resolved set contains at least one PM, even on a repo where
-CodeQL resolved off. (Detection finding a lockfile is not enough on its
-own — a PM toggled off in Step 2b is not in the resolved set; conversely
-a PM toggled on with no lockfile yet *is*, and the gate ships.)
+The `if: always()` is **mandatory**: without it the aggregator is
+*skipped* on an empty matrix, and a required check treats "skipped" as
+not-passed → the #91/#230 phantom-check hang returns. Step 6c registers
+`install-gate-required`, never a per-leg name.
 
 ### Render the gate files
 
@@ -1367,45 +1197,31 @@ Target paths:
 - `<repo-root>/.github/scripts/dependency-install-gate.sh`
 
 1. Render `gh-repo-setup-protection/dependency-install-gate.yml` (strip
-   its leading comment block) substituting `__DEFAULT_BRANCH__`. This is
-   the only placeholder; the actions are SHA-pinned in the template
-   (with the human-readable tag in a trailing comment), matching the
-   `codeql.yml` convention — do not de-pin them.
-
-   **Per-job rendering (drop toggled-off PM jobs).** The template's four
-   job blocks are each wrapped in `# >>> JOB:<pm>` / `# <<< JOB:<pm>`
-   delimiter comment lines (`<pm>` ∈ `npm` `pnpm` `yarn` `pip`). Which
-   jobs render is the **resolved set from the Step 2b drift-gate tab**
-   (the operator's confirmed toggles), not the raw lockfile scan — a PM
-   toggled **on** with no lockfile in the tree still renders (protecting
-   `main` ahead of the manifest), and a PM toggled **off** does not
-   render even if its lockfile is present. For each PM **not in the
-   resolved set**, **remove the entire block** from `# >>> JOB:<pm>`
-   through `# <<< JOB:<pm>` inclusive. For each PM that **is in the
-   resolved set**, **keep the block's body but strip the two delimiter
-   comment lines** — the shipped file contains real jobs only, never
-   markers. After stripping, collapse any run of blank lines left under
-   `jobs:` (and trim trailing blank lines) so the rendered file is
-   clean. The result is a workflow whose `jobs:` map has exactly one
-   entry per resolved-set PM, in template order (`npm`, `pnpm`, `yarn`,
-   `pip`).
+   its leading comment block) substituting **only** `__DEFAULT_BRANCH__`.
+   The actions are SHA-pinned in the template (with the human-readable
+   tag in a trailing comment), matching the `codeql.yml` convention — do
+   not de-pin them. There is **no** per-job delimiter-comment rendering
+   any more: the workflow ships with the full detect → matrix →
+   aggregator shape, armed with all four PMs, and narrows at runtime.
 2. `dependency-install-gate.sh` has no placeholders — ship it
    **verbatim** (including its leading comment block; it is a shell
-   script whose header documents its own behavior, not a placeholder
-   block to strip). The script accepts all four modes (`npm`, `pip`,
-   `pnpm`, `yarn`) and no-ops gracefully (exit 0) for any mode whose
-   lockfile the repo lacks — which is exactly the runtime behavior a PM
-   toggled **on** ahead of its manifest relies on: its job is rendered
-   and runs, and no-ops cleanly until the lockfile lands. A mode's job
-   is only *invoked* when its block was rendered into the `.yml` per
-   step 1 (i.e. the PM is in the Step 2b resolved set). The `.sh` is
-   shipped whole regardless of which jobs render; both files are written
-   together whenever the resolved set contains at least one PM.
+   script whose header documents its own behavior). The script accepts
+   all four modes (`npm`, `pip`, `pnpm`, `yarn`), the `--present` mode
+   the detect job calls, and no-ops gracefully (exit 0) for any mode
+   whose lockfile the repo lacks. The `--present` mode reuses the same
+   discovery predicate, so the runtime matrix cannot drift from what the
+   gate checks. Ship it with the executable bit set (`chmod +x`).
 
-Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`, and
-never write it with an unstripped `# >>> JOB:` / `# <<< JOB:` marker. If
-either remains after rendering, abort per the README's unresolved-
-placeholder rule.
+The gate ships **unconditionally** whenever the skill installs
+workflows — there is no "empty resolved set → skip the file" case any
+more, because the workflow is armed with the full set and gates at
+runtime (an absent PM produces no leg and a green aggregator, so it is
+never dead weight or noise). Both files are always written together
+(the workflow calls the script).
+
+Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`. If it
+remains after rendering, abort per the README's unresolved-placeholder
+rule.
 
 ### Converge the gate files (idempotency)
 
@@ -1421,27 +1237,17 @@ content so a repo's strictly-newer SHA-pinned action (e.g. a
   the existing file and the pin-reconciled desired content as YAML,
   compare normalized structures). Equal → "unchanged"; absent → write;
   different → show the diff and halt before overwriting (whole-file
-  replace, never append).
+  replace, never append). Because the workflow is now a fixed
+  full-set-armed shape (no per-job rendering), the compare is against
+  the same content every run — a converged repo re-runs as a no-op.
 - **`dependency-install-gate.sh`** — this is a shell script, **not**
   YAML, so the semantic-compare is a **normalized-text/byte compare**
-  (trailing-whitespace-normalized), not a YAML parse. Equal → "unchanged";
-  absent → write (with the executable bit set, `chmod +x`, since the
-  workflow invokes it via `bash <path>` but a +x script is the
-  convention); different → show the diff and halt before overwriting.
+  (trailing-whitespace-normalized), not a YAML parse. Equal →
+  "unchanged"; absent → write (with the executable bit set, `chmod +x`);
+  different → show the diff and halt before overwriting.
 
-Both files are gated together on the "resolved set contains at least
-one PM" condition above: install both, or skip both. Never install one
-without the other (the workflow calls the script). The per-job rendering
-only changes *which jobs* the `.yml` contains; it does not split the two
-files apart.
-
-Because the rendered `.yml` varies with which PM jobs are in the
-resolved set, the YAML semantic-compare is against the
-**per-job-rendered** desired content (the same set of jobs you would
-render fresh this run), not against the full four-job template. A repo
-whose resolved set gains `yarn` between runs (the operator toggles it on,
-or a `yarn.lock` lands and is confirmed) will therefore see the `.yml` go
-`different → rewrite` (gaining the `yarn` job), which is correct.
+Both files are written together: install both. Never install one without
+the other (the workflow calls the script).
 
 ## Step 5c-pinned: Render and converge the dependency-pinned-gate
 
@@ -1456,18 +1262,30 @@ with `boto3>=1.40`, a workflow `uses: actions/checkout@v4`, or a
 even when the lockfile is perfectly in sync — the "works on main, breaks
 on rebase" supply-chain drift that slips past a green install-gate. This
 step installs the **dependency-pinned-gate** — the sibling of the
-install-gate — a `pull_request` workflow whose **per-ecosystem jobs**
-(`npm`, `pip`, `actions`, `docker`, `go`) fail the PR when any *declared*
-dependency is not pinned to an exact version (rejecting caret `^`, tilde
-`~`, comparators `>= <= > <`, hyphen/X-ranges, OR-ranges, compatible-
-release `~=`, floating action `@vN`/`@main` tags, floating Docker
-`:latest`/tag-only refs, and bare/unpinned names).
+install-gate — a `pull_request` workflow armed with the **full supported
+set** of ecosystems (`npm`, `pip`, `actions`, `docker`, `go`) whose
+per-ecosystem legs fail the PR when any *declared* dependency is not
+pinned to an exact version (rejecting caret `^`, tilde `~`, comparators
+`>= <= > <`, hyphen/X-ranges, OR-ranges, compatible-release `~=`,
+floating action `@vN`/`@main` tags, floating Docker `:latest`/tag-only
+refs, and bare/unpinned names).
 
-**It is a separate gate from the install-gate** — independently
-toggleable (its own Step 2b tab), independently a required check, its own
-workflow + script. Do not fold it into Step 5c; the two protect
-different properties (lock-drift vs. declared-version-floating) and a
-repo may want one without the other.
+**Runtime dynamic-matrix, same shape as the install-gate.** A `detect`
+job runs `dependency-pinned-gate.sh --present` (the SAME `git ls-files`
+discovery the gate checks with) and emits a JSON array of the ecosystems
+whose manifest is present; a matrixed `gate` job over
+`fromJSON(needs.detect.outputs.ecosystems)` runs one leg per present
+ecosystem; and a `pinned-gate-required` aggregator is the single
+required check. `actions` is an always-present floor (the skill always
+installs workflow files). An ecosystem whose manifest lands **after**
+setup (e.g. the repo's first `go.mod`) lights its leg up on the next PR,
+with **no skill re-run**.
+
+**It is a separate gate from the install-gate** — its own workflow +
+script, and its own aggregator (`pinned-gate-required`) is a separate
+required check from the install-gate's. Do not fold it into Step 5c; the
+two protect different properties (lock-drift vs. declared-version-
+floating) and a repo may want one without the other.
 
 **Categorical exemptions live in the classifier, not an allowlist
 file.** A small, fixed set of specs is *legitimately* not exact-pinnable
@@ -1491,40 +1309,18 @@ exist beside a deps-declaring manifest (an exact-pinned manifest with no
 lockfile still floats transitively). Transitive pinning itself stays the
 install-gate's job.
 
-### Gate the gate per ecosystem (the Step 2b resolved set)
+### The aggregator is the required check (not the per-ecosystem legs)
 
-The gate's **five jobs are rendered independently**. Which jobs render
-is the **resolved set from the Step 2b pinned-gate tab** (the operator's
-confirmed toggles), **not** the raw Step 2 manifest scan. The scan only
-*preselects* the tab:
-
-| Detected manifest | Preselects this job |
-| --- | --- |
-| `package.json` present | `npm` |
-| `requirements*.txt` / `pyproject.toml` present | `pip` |
-| `.github/workflows/*.yml` with a `uses:` ref present | `actions` |
-| `Dockerfile` present | `docker` |
-| `go.mod` present | `go` |
-
-A PM/ecosystem the operator toggled **on** in Step 2b renders even when
-its manifest is not in the tree yet (protecting `main` ahead of an
-unmerged manifest — the ordering-inversion fix); one toggled **off** does
-not render even if its manifest is present.
-
-- **Each enabled ecosystem's job is rendered** into the workflow as its
-  own status check (smaller, parallel).
-- **Each toggled-off ecosystem's job is dropped from the rendered file**
-  (see "Render the gate files" below) — it never runs and is never a
-  required check. A Go-only repo ships a one-job (`go`) workflow; a
-  polyglot npm+pip repo ships a two-job (`npm`, `pip`) workflow.
-
-**If the resolved set is empty** (the operator confirmed none of the
-five), do **not** write either gate file. Report
-"dependency-pinned-gate: skipped (no npm/pip/actions/docker/go ecosystem
-in the resolved set)" for both files and move on. A gate with no jobs is
-dead weight. This is independent of the install-gate and CodeQL
-decisions: the pinned-gate ships whenever its own resolved set contains
-at least one ecosystem.
+Exactly as the install-gate: the per-ecosystem legs
+(`Pinned gate (<ecosystem>)`) are **visible** but **not** individually
+required; the always-running `pinned-gate-required` aggregator (stable
+name) is the single required check. It `needs:` the matrixed `gate` job,
+runs `if: always()`, and concludes **success** on an empty matrix (no
+ecosystem present → mergeable, not hung) or when every leg succeeded,
+and **failure** when any leg failed or was cancelled. The `if: always()`
+is **mandatory** for the empty-matrix-success property (a skipped
+aggregator would hang the PR — #91/#230). Step 6c registers
+`pinned-gate-required`, never a per-leg name.
 
 ### Render the gate files (pinned-gate)
 
@@ -1534,78 +1330,52 @@ Target paths:
 - `<repo-root>/.github/scripts/dependency-pinned-gate.sh`
 
 1. Render `gh-repo-setup-protection/dependency-pinned-gate.yml` (strip
-   its leading comment block) substituting `__DEFAULT_BRANCH__`. This is
-   the only placeholder; the actions are SHA-pinned in the template
-   (with the human-readable tag in a trailing comment), matching the
-   `dependency-install-gate.yml` convention — do not de-pin them. (The
-   pinned-gate would flag its own workflow otherwise.)
-
-   **Per-job rendering (drop toggled-off ecosystem jobs).** The
-   template's five job blocks are each wrapped in `# >>> JOB:<mode>` /
-   `# <<< JOB:<mode>` delimiter comment lines (`<mode>` ∈ `npm` `pip`
-   `actions` `docker` `go`). Which jobs render is the **resolved set from
-   the Step 2b pinned-gate tab** (the operator's confirmed toggles), not
-   the raw manifest scan — an ecosystem toggled **on** with no manifest
-   in the tree still renders, and one toggled **off** does not render
-   even if its manifest is present. For each ecosystem **not in the
-   resolved set**, **remove the entire block** from `# >>> JOB:<mode>`
-   through `# <<< JOB:<mode>` inclusive. For each ecosystem that **is in
-   the resolved set**, **keep the block's body but strip the two
-   delimiter comment lines** — the shipped file contains real jobs only,
-   never markers. After stripping, collapse any run of blank lines left
-   under `jobs:` (and trim trailing blank lines) so the rendered file is
-   clean. The result is a workflow whose `jobs:` map has exactly one
-   entry per resolved-set ecosystem, in template order (`npm`, `pip`,
-   `actions`, `docker`, `go`).
+   its leading comment block) substituting **only** `__DEFAULT_BRANCH__`.
+   The actions are SHA-pinned in the template — do not de-pin them (the
+   pinned-gate would flag its own workflow otherwise). There is **no**
+   per-job delimiter-comment rendering any more: the workflow ships with
+   the full detect → matrix → aggregator shape, armed with all five
+   ecosystems, and narrows at runtime.
 2. `dependency-pinned-gate.sh` has no placeholders — ship it
    **verbatim** (including its leading comment block; it is a shell
-   script whose header documents its own classifier behavior, not a
-   placeholder block to strip). The script accepts all five modes and
-   no-ops gracefully (exit 0) for any mode whose manifest the repo lacks
-   — exactly the runtime behavior an ecosystem toggled **on** ahead of
-   its manifest relies on: its job is rendered and runs, and no-ops
-   cleanly until the manifest lands. A mode's job is only *invoked* when
-   its block was rendered into the `.yml` per step 1 (i.e. the ecosystem
-   is in the Step 2b resolved set). The `.sh` is shipped whole regardless
-   of which jobs render; both files are written together whenever the
-   resolved set contains at least one ecosystem.
+   script whose header documents its own classifier behavior). The
+   script accepts all five modes, the `--present` mode the detect job
+   calls, and no-ops gracefully (exit 0) for any mode whose manifest the
+   repo lacks. The `--present` mode reuses the same discovery predicate,
+   so the runtime matrix cannot drift from what the gate checks. Ship it
+   with the executable bit set (`chmod +x`).
 
-Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`, and never
-write it with an unstripped `# >>> JOB:` / `# <<< JOB:` marker. If either
+The gate ships **unconditionally** whenever the skill installs
+workflows — there is no "empty resolved set → skip the file" case any
+more (an absent ecosystem produces no leg and a green aggregator). Both
+files are always written together (the workflow calls the script).
+
+Never write the `.yml` with an unresolved `__DEFAULT_BRANCH__`. If it
 remains after rendering, abort per the README's unresolved-placeholder
 rule.
 
 ### Converge the gate files (idempotency, pinned-gate)
 
 Apply the same **whole-file-replace + semantic-compare** rule the skill
-uses for the dependency-install-gate, with one difference in the compare
-method per file type. For the `.yml`, first apply the **pin-reconciliation
-pass (Step 5a-bis)** to the rendered desired content so a repo's
-strictly-newer SHA-pinned action is **kept, never downgraded**, before
-the semantic-compare:
+uses for the dependency-install-gate. For the `.yml`, first apply the
+**pin-reconciliation pass (Step 5a-bis)** to the rendered desired
+content so a repo's strictly-newer SHA-pinned action is **kept, never
+downgraded**, before the semantic-compare:
 
 - **`dependency-pinned-gate.yml`** — YAML semantic-compare (parse both
   the existing file and the pin-reconciled desired content as YAML,
   compare normalized structures). Equal → "unchanged"; absent → write;
   different → show the diff and halt before overwriting (whole-file
-  replace, never append).
+  replace, never append). The workflow is a fixed full-set-armed shape,
+  so a converged repo re-runs as a no-op.
 - **`dependency-pinned-gate.sh`** — this is a shell script, **not** YAML,
   so the semantic-compare is a **normalized-text/byte compare**
   (trailing-whitespace-normalized), not a YAML parse. Equal →
   "unchanged"; absent → write (with the executable bit set, `chmod +x`);
   different → show the diff and halt before overwriting.
 
-Both files are gated together on the "resolved set contains at least one
-ecosystem" condition above: install both, or skip both. Never install
-one without the other (the workflow calls the script).
-
-Because the rendered `.yml` varies with which ecosystem jobs are in the
-resolved set, the YAML semantic-compare is against the
-**per-job-rendered** desired content (the same set of jobs you would
-render fresh this run), not against the full five-job template. A repo
-whose resolved set gains `docker` between runs will therefore see the
-`.yml` go `different → rewrite` (gaining the `docker` job), which is
-correct.
+Both files are written together: install both. Never install one without
+the other (the workflow calls the script).
 
 ## Step 5d: Render and converge the no-back-merging-guard
 
@@ -1808,22 +1578,43 @@ already existed in `.github/workflows/` and the skill left it unchanged
 disqualifies a check is the workflow being **absent** from the repo
 after this run — registering a check whose producing workflow never
 uploads results recreates the issue #91 phantom-check hang, where every
-PR waits forever for a result that never comes. So:
+PR waits forever for a result that never comes.
 
-- For each candidate check, the skill knows (from this run) whether the
-  producing workflow is **present in the repo**. If present → add the
-  check's context to `required_status_checks`. If absent → **omit it**
-  and report the skip with the #91 rationale.
-- **Code scanning** and **code quality** checks (issue #222 items 7/8)
-  are produced by the CodeQL workflow. Add them **iff CodeQL resolved
-  on and its workflow is present in the repo this run** (Step 5b wrote
-  or converged it, or it already existed). When CodeQL is off (no
-  workflow present), omit both and report
-  "code scanning / code quality required checks: skipped (no CodeQL
+**The required checks are the workflows' AGGREGATORS, never per-leg
+names.** Each of CodeQL and the two gates now runs a dynamic matrix and
+exposes a single always-running aggregator (`codeql-required`,
+`install-gate-required`, `pinned-gate-required`) whose stable name is
+what the ruleset lists. GitHub `required_status_checks` is a static list
+of names and **cannot** express "require `Analyze (python)` only if it
+runs" — listing a per-leg name on a repo lacking that language/PM hangs
+the PR forever (the #91/#230 failure mode). So the gate is applied at
+**workflow** granularity: present workflow → add its aggregator context;
+absent workflow → omit it. The per-leg legs stay **visible** (red/green,
+only when their language/ecosystem is present) but are **never**
+individually required.
+
+- For each candidate aggregator, the skill knows (from this run) whether
+  the producing workflow is **present in the repo**. If present → add
+  the aggregator's context to `required_status_checks`. If absent →
+  **omit it** and report the skip with the #91 rationale.
+- **CodeQL** — add the aggregator context **iff CodeQL resolved on and
+  its workflow is present in the repo this run** (Step 5b wrote or
+  converged it, or it already existed):
+
+  ```json
+  { "context": "codeql-required" }
+  ```
+
+  The `codeql-required` aggregator passes green when the runtime matrix
+  is empty (no analyzable language present), so a language-less repo is
+  mergeable, not hung. When CodeQL is off (no workflow present), omit it
+  and report "codeql-required required check: skipped (no CodeQL
   workflow present — would be a phantom required check, issue #91)".
 
-  When CodeQL **is** on, express the two as ruleset rules (matching the
-  reference shape):
+  When CodeQL **is** on, also express **code scanning** and **code
+  quality** as ruleset rules (issue #222 items 7/8; matching the
+  reference shape) — these are result-consuming rule types, orthogonal
+  to the status-check aggregator:
 
   ```json
   {
@@ -1842,76 +1633,41 @@ PR waits forever for a result that never comes. So:
   ```
 
   Append these to the `rules` array only when CodeQL is on this run.
-- **Dependency-install-gate per-PM checks** (issue #238, extended by
-  issue #111) are produced by the `dependency-install-gate.yml`
-  workflow installed in Step 5c. Add each to `required_status_checks`
+- **Dependency-install-gate** (issue #238, extended by issue #111) is
+  produced by the `dependency-install-gate.yml` workflow installed in
+  Step 5c. Add its **aggregator** context to `required_status_checks`
   **iff that workflow is present in the repo this run** (Step 5c
-  wrote/converged it for a repo whose Step 2b resolved set contains at
-  least one PM, or it already existed). The check contexts are the job
-  names **actually rendered into the workflow** — and per the per-job
-  rendering of Step 5c, only the resolved-set PMs' jobs exist:
+  wrote/converged it, or it already existed):
 
   ```json
-  { "context": "npm" },
-  { "context": "pnpm" },
-  { "context": "yarn" },
-  { "context": "pip" }
+  { "context": "install-gate-required" }
   ```
 
-  Add **only the contexts whose job is present in the rendered
-  workflow** — never a context for a PM whose job was dropped, or it
-  becomes a phantom required check that never reports (issue #91/#230).
-  Derive the set by reading the rendered `.yml`'s `jobs:` keys — the
-  authoritative source, since the resolved set (Step 2b) may differ from
-  the raw lockfile scan (an operator can toggle a PM on ahead of its
-  manifest, or off despite a present lockfile). A pnpm-only repo
-  registers just `{ "context": "pnpm" }`; an npm+pip repo registers
-  `npm` and `pip`. When the gate workflow is **absent** (Step 5c skipped
-  it — empty resolved set — and the repo has no pre-existing copy), omit
-  **all four** contexts and report
-  "drift-gate required checks: skipped (no dependency-install-gate
-  workflow present — would be a phantom required check, issue
-  #91/#230)". This is the same generic gate-on-producing-workflow
-  mechanism as the CodeQL checks above, refined to per-job granularity:
-  a required check is registered only when the specific job that
-  produces it is present in the repo this run.
-- **Dependency-pinned-gate per-ecosystem checks** (issue #90) are
-  produced by the `dependency-pinned-gate.yml` workflow installed in
-  Step 5c-pinned. Add each to `required_status_checks` **iff that
-  workflow is present in the repo this run** (Step 5c-pinned
-  wrote/converged it for a repo whose Step 2b pinned-gate resolved set
-  contains at least one ecosystem, or it already existed). The check
-  contexts are the job names **actually rendered into the workflow** —
-  per the per-job rendering of Step 5c-pinned, only the resolved-set
-  ecosystems' jobs exist:
+  Do **not** register the per-PM leg names (`Install gate (npm)`, etc.)
+  — those are dynamic and would hang a PR on a repo lacking that PM. The
+  aggregator passes green when the runtime matrix is empty (no PM
+  present). When the gate workflow is **absent** from the repo after
+  this run, omit `install-gate-required` and report "install-gate
+  required check: skipped (no dependency-install-gate workflow present —
+  would be a phantom required check, issue #91/#230)".
+- **Dependency-pinned-gate** (issue #90) is produced by the
+  `dependency-pinned-gate.yml` workflow installed in Step 5c-pinned. Add
+  its **aggregator** context to `required_status_checks` **iff that
+  workflow is present in the repo this run**:
 
   ```json
-  { "context": "npm" },
-  { "context": "pip" },
-  { "context": "actions" },
-  { "context": "docker" },
-  { "context": "go" }
+  { "context": "pinned-gate-required" }
   ```
 
-  Add **only the contexts whose job is present in the rendered
-  workflow** — never a context for an ecosystem whose job was dropped
-  (a phantom required check, issue #91/#230). Derive the set by reading
-  the rendered `.yml`'s `jobs:` keys — the authoritative source. A
-  Go-only repo registers just `{ "context": "go" }`. When the
-  pinned-gate workflow is **absent** (Step 5c-pinned skipped it — empty
-  resolved set — and the repo has no pre-existing copy), omit **all
-  five** contexts and report "pinned-gate required checks: skipped (no
-  dependency-pinned-gate workflow present — would be a phantom required
-  check, issue #91/#230)". This is the **separate** gate's parallel of
-  the drift-gate per-PM checks above: the two gates register their
-  checks independently, each gated on its own producing workflow.
-  Because the install-gate's `npm`/`pip` job names and the
-  pinned-gate's `npm`/`pip` job names collide as bare contexts, the two
-  workflows' jobs are matched by **workflow + job**; in the ruleset they
-  appear as the same `context` strings, and GitHub keys a required check
-  by the unique workflow/job pair, so a repo running both gates requires
-  both to pass (the contexts are not double-counted — each producing
-  workflow contributes its own job).
+  Do **not** register the per-ecosystem leg names — same phantom-check
+  hazard. The aggregator passes green on an empty runtime matrix. When
+  the pinned-gate workflow is **absent** from the repo after this run,
+  omit `pinned-gate-required` and report "pinned-gate required check:
+  skipped (no dependency-pinned-gate workflow present — would be a
+  phantom required check, issue #91/#230)". The two gates' aggregators
+  are **distinct** contexts (`install-gate-required` vs.
+  `pinned-gate-required`), so a repo running both requires both to pass,
+  with no context collision.
 - **No-back-merging-guard check** (issue #51) is produced by the
   `no-back-merging-guard.yml` workflow installed in Step 5d. Add its
   context to `required_status_checks` **iff that workflow is present in
@@ -2170,16 +1926,17 @@ CodeQL decision: <on|off> (<reason>)
 protect-main ruleset: <created|updated|unchanged|skipped (--ruleset=off)>
   require_last_push_approval         <true>
   Admin PR-only bypass               <ensured | already present>
-  Required status checks:
-    code scanning / code quality       <added (CodeQL present) | skipped (#91)>
-    drift gate (npm/pnpm/yarn/pip)     <added: per rendered jobs | skipped (#91)>
-    pinned gate (npm/pip/actions/docker/go) <added: per rendered jobs | skipped (#91)>
+  Required status checks (aggregators, not per-leg names):
+    codeql-required                    <added (CodeQL present) | skipped (#91)>
+    install-gate-required              <added (gate present) | skipped (#91)>
+    pinned-gate-required               <added (gate present) | skipped (#91)>
     no-back-merging-guard              <added (guard present) | skipped (#91)>
+  code scanning / code quality rules   <added (CodeQL on) | skipped>
 
-Resolved ecosystems: <Step 2b resolved set — always includes github-actions>  (detected: <raw scan>)
-Resolved drift-gate PMs: <Step 2b resolved set of npm/pip/pnpm/yarn>  (detected: <raw scan>)
-Resolved pinned-gate ecosystems: <Step 2b resolved set of npm/pip/actions/docker/go>  (detected: <raw scan>)
-Resolved CodeQL languages: <Step 2b resolved set — always includes actions when CodeQL on>  (detected: <raw scan>)
+Armed Dependabot ecosystems: <full supported set minus de-arms>  (present in tree: <raw scan>)
+Armed drift-gate PMs: <npm/pip/pnpm/yarn minus de-arms>  (runtime matrix narrows to present)
+Armed pinned-gate ecosystems: <npm/pip/actions/docker/go minus de-arms>  (runtime matrix narrows to present)
+Armed CodeQL languages: <full supported set minus de-arms; runtime matrix narrows to present>  (present in tree: <raw scan>)
 
 Rendered-files PR: <URL | no file changes to commit | left uncommitted at operator's request>
 
@@ -2201,8 +1958,10 @@ applied directly. A converged re-run with no file changes opens no PR.
 This skill is designed to be run repeatedly across many repos and on
 the same repo many times. The convergence guarantees:
 
-- **Deterministic render.** Ecosystem blocks and CodeQL languages are
-  emitted in sorted order, so the same repo state always renders the
+- **Deterministic render.** Dependabot ecosystem blocks are emitted in
+  sorted order, and CodeQL / the two gates ship a fixed full-set-armed
+  workflow shape (the language/ecosystem narrowing is a runtime concern,
+  not part of the rendered bytes), so the same repo always renders the
   same bytes. A second run with no repo change produces an identical
   file → no diff → nothing to commit.
 - **Whole-file replace, never append.** The skill owns the shape of
@@ -2307,26 +2066,21 @@ mutates no server-side state, and leaves `git status` clean.
   push). A no-op run with no file changes opens no PR. The **remote API
   changes** (GHAS toggles, merge-button settings, ruleset) are applied
   directly and are never part of the PR.
-- **Author the operator-confirmed resolved set, never the raw scan.**
-  After scanning, present the Step 2b multi-tab checklist (drift-gate /
-  pinned-gate / Dependabot / CodeQL — four `multiSelect` questions,
-  exactly at the `AskUserQuestion` 1–4-questions /
-  2–4-options-per-question cap) and
-  author the operator's confirmed toggles. Detected items are
-  preselected; an as-yet-undetected ecosystem can be toggled **on**
-  (which is what removes the protect-before-code ordering inversion) —
-  directly for the closed four-PM drift-gate tab, and via each over-cap
-  tab's **"Other" free-text** option for the pinned-gate, Dependabot,
-  and CodeQL surfaces
-  (those exceed four options, so they cannot enumerate every supported
-  value as a checkbox). The `github-actions` Dependabot option and the
-  `actions` CodeQL option are always preselected and intrinsic (the skill
-  installs workflows). The checklist is the up-front interaction; the
-  single commit/push/PR approval (Step 7) still follows it. Only
-  `--dry-run` skips the checklist (resolved set := detected set). The
-  CodeQL tab sets the *language matrix* only — it never overrides the
-  on/off decision or the entitlement / no-supported-language guards in
-  Step 5.
+- **Arm the full supported set; the Step 2b checklist only de-arms.**
+  Every surface (CodeQL languages, both gates' ecosystems, Dependabot
+  ecosystems) is armed with its full supported set at install time and
+  narrows to the present set at runtime (CodeQL and the gates via their
+  `detect` jobs; Dependabot no-ops on absent manifests). The Step 2b
+  multi-tab checklist (drift-gate / pinned-gate / Dependabot / CodeQL)
+  defaults to **everything armed**; the operator may only **de-arm** a
+  language/ecosystem they never want. This structurally removes the
+  protect-before-code ordering inversion — a new language/ecosystem's
+  check/coverage appears the first time its source lands, with no skill
+  re-run. Only `--dry-run` skips the checklist (arm the full set). The
+  CodeQL tab bounds the *armed language set* only — it never overrides
+  the on/off decision or the entitlement guard in Step 5, and de-arming
+  every language does not turn CodeQL off (the runtime matrix simply
+  never spawns a leg and the aggregator is green).
 - **Never auto-force CodeQL.** CodeQL is opt-in: it is enabled by an
   explicit `--codeql=on` operator override or by auto-detection, and
   **auto-detection** always skips the unentitled-private repo. The skill
@@ -2338,14 +2092,16 @@ mutates no server-side state, and leaves `git status` clean.
   auto-skip case: `actions` is the always-present floor, so every repo
   the skill touches has an analyzable language — the remaining auto-skip
   is the entitlement one.)
-- **Never enable CodeQL for a language the repo cannot analyze, and
-  never leave a conflicting default setup in place.** Even under an
-  explicit `--codeql=on`, if no CodeQL-supported language is present the
-  skill installs no workflow (it would deadlock branch protection — see
-  the no-supported-language hard stop in Step 5). When installing
-  advanced setup, the skill first reads the
-  server-side default-setup mode and disables it (with operator
-  confirmation) so the two cannot coexist (issue #230).
+- **The CodeQL workflow can never deadlock on an absent language, and
+  never leaves a conflicting default setup in place.** The workflow is
+  armed with the full supported language set and narrows to the present
+  languages at runtime; an empty runtime matrix spawns zero analyze legs
+  and the `codeql-required` aggregator passes green, so a
+  language-less repo is mergeable, not hung (this replaces the old
+  install-time no-supported-language hard stop). When installing
+  advanced setup, the skill first reads the server-side default-setup
+  mode and disables it (with operator confirmation) so the two cannot
+  coexist (issue #230).
 - **Never append to a config file.** Always whole-file replace from a
   deterministic render so re-runs converge instead of duplicating.
 - **Never overwrite user customization silently.** Halt and show the
@@ -2365,54 +2121,46 @@ mutates no server-side state, and leaves `git status` clean.
   newer SHA-pinned repo pin.
 - **Never write a file with unresolved `__...__` placeholders.** Abort
   per the README's unresolved-placeholder rule.
-- **Always write `dependabot.yml`** — the `github-actions` ecosystem is
-  the always-present floor (the skill installs workflows on every run,
-  Step 2), so the `updates:` list is never empty. The old "no ecosystem
-  detected → skip the file" path is gone; an empty `updates:` list can no
-  longer arise. Every other ecosystem in the operator's Step 2b
-  Dependabot resolved set (the operator's confirmed ecosystems, including
-  any free-text "Other" additions, excluding any they unchecked) is added
-  on top of the floor — never the raw scan. Free-text "Other" additions
-  are **validated and normalized to a canonical `package-ecosystem`
-  value before they enter the resolved set** (Step 2b → "Validate the
-  'Other' free-text"); an unrecognized entry is rejected and re-prompted,
-  never authored as-is.
-- **Always cover GitHub Actions in CodeQL when CodeQL is on.** The
-  `actions` language is always in CodeQL's scope (the skill installs
-  workflows), subject only to the entitlement guard. Actions-only is not
-  ambiguous — resolve CodeQL on for `actions` rather than asking.
-- **Never install the dependency-install-gate without a PM in the
-  resolved set, and render only the resolved-set PMs' jobs.** Install
-  `dependency-install-gate.{yml,sh}` only when the Step 2b drift-gate
-  resolved set contains at least one of npm / pip / pnpm / yarn (Step
-  5c); skip both files otherwise. Install both files together or neither
-  — the workflow invokes the script. Render only the per-PM jobs in the
-  resolved set (the operator's confirmed toggles, **not** the raw
-  lockfile scan — a PM toggled on with no lockfile yet still renders, a
-  PM toggled off despite a present lockfile does not; drop the rest, Step
-  5c), and add a required check to `protect-main` only for each PM job
-  that is present in the rendered workflow this run (Step 6c) — never a
-  context for a dropped job, never standalone (issue #91/#230, #111).
-- **Never install the dependency-pinned-gate without an ecosystem in
-  its resolved set, and render only the resolved-set ecosystems'
-  jobs.** Install `dependency-pinned-gate.{yml,sh}` only when the Step
-  2b pinned-gate resolved set contains at least one of npm / pip /
-  actions / docker / go (Step 5c-pinned); skip both files otherwise.
-  Install both files together or neither — the workflow invokes the
-  script. Render only the per-ecosystem jobs in the resolved set (the
-  operator's confirmed toggles, **not** the raw manifest scan — an
-  ecosystem toggled on with no manifest yet still renders, one toggled
-  off despite a present manifest does not; drop the rest, Step
-  5c-pinned), and add a required check to `protect-main` only for each
-  ecosystem job present in the rendered workflow this run (Step 6c) —
-  never a context for a dropped job, never standalone (issue #91/#230,
-  #90). The pinned-gate is **separate** from the install-gate:
-  independently toggled, independently a required check, rendered from
-  its own `dependency-pinned-gate.{yml,sh}` payload — do not fold the
-  two gates together. Categorical exemptions (peerDependencies carets,
-  `file:`/`workspace:` specs, `engines`/`requires-python` floors,
-  override-value classification, `tag@sha256:` digests) live in the
-  classifier script, never in a maintained allowlist file.
+- **Always write `dependabot.yml`, armed with the full supported
+  ecosystem set.** Render one `updates:` block per supported ecosystem
+  (`github-actions`, `npm`, `pip`, `docker`, `gomod`, `bundler`,
+  `cargo`, `maven`, `gradle`, `composer`, `terraform`) minus any Step 2b
+  de-arms — never narrowed to detected ecosystems. Dependabot no-ops on
+  an ecosystem whose manifest is absent, so the full set adds no spurious
+  update PRs; the `updates:` list is never empty and the old "no
+  ecosystem detected → skip the file" path is gone. Resolve the correct
+  **class variant** per ecosystem (no `versioning-strategy` on
+  docker/github-actions — Dependabot rejects it; `github-actions` uses
+  singular `directory: "/"` + weekly; others use recursive
+  `directories: **/*` + daily) — a wrong variant makes Dependabot reject
+  the whole config (Step 3).
+- **CodeQL, both gates arm the full set and gate at runtime — never
+  install-time-narrow.** Ship `codeql.yml`,
+  `dependency-install-gate.yml`, and `dependency-pinned-gate.yml` with
+  their full detect → matrix → aggregator shape (armed with the full
+  supported language/ecosystem set), plus their sibling scripts
+  (`codeql-language-present.sh`, `dependency-install-gate.sh`,
+  `dependency-pinned-gate.sh`, all with the executable bit set). Each
+  narrows to the present set at runtime via its `detect` job (the SAME
+  `git ls-files` predicate the analysis/gate uses — detection defined
+  once per surface). The two gates are **separate** (own workflow,
+  script, and aggregator); do not fold them together. The pinned-gate's
+  categorical exemptions (peerDependencies carets, `file:`/`workspace:`
+  specs, `engines`/`requires-python` floors, override-value
+  classification, `tag@sha256:` digests) live in the classifier script,
+  never in a maintained allowlist file.
+- **The required check per surface is its AGGREGATOR, never a per-leg
+  name.** Add `codeql-required`, `install-gate-required`, and
+  `pinned-gate-required` to `protect-main` **iff** each surface's
+  workflow is present in the repo this run (Step 6c) — never a per-leg
+  name like `Analyze (python)` or `Install gate (npm)`, which would hang
+  a PR on a repo lacking that language/PM (issue #91/#230). Each
+  aggregator passes green on an empty runtime matrix, so a repo missing
+  the guarded languages/ecosystems is mergeable.
+- **Swift never provisions macOS when absent.** The CodeQL detect job
+  adds a `swift` matrix entry (carrying `runner: macos-latest`) only
+  when `*.swift` is present; a Swift-less repo shows no swift leg and
+  never bills for a macOS runner.
 - **Always install the no-back-merging-guard, and its three files
   together.** The guard ships **unconditionally** (Step 5d) — no
   ecosystem gate, no disable flag; it is pure git-history hygiene.

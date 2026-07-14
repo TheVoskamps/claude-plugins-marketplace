@@ -7,16 +7,21 @@
 #                            the `target-branch` for every ecosystem so
 #                            Dependabot opens PRs against the right base.
 #   __DEPENDABOT_ECOSYSTEMS__  The fully-rendered `updates:` entries for
-#                            the package ecosystems detected in the repo
-#                            (one block per ecosystem). The skill builds
-#                            this list from the per-ecosystem block below
-#                            and substitutes it in. If the repo has no
-#                            recognized ecosystem, the skill does NOT
-#                            install this file at all (see SKILL.md).
+#                            EVERY supported package ecosystem (one block
+#                            per ecosystem — the full armed set, NOT just
+#                            the detected ones). The skill builds this
+#                            list from the per-ecosystem block below and
+#                            substitutes it in. Dependabot NO-OPS on an
+#                            ecosystem whose manifest is absent, so arming
+#                            the full set adds no spurious update PRs — it
+#                            just means an ecosystem's first manifest is
+#                            covered the moment it lands, with no skill
+#                            re-run. A `dependabot.yml` is therefore
+#                            ALWAYS written (see SKILL.md Step 3).
 #
 # This file is the OUTER template. The skill renders one copy of the
 # per-ecosystem block (kept in `ecosystem-block.yml` alongside this file)
-# for each detected ecosystem, concatenates them, and substitutes the
+# for each SUPPORTED ecosystem, concatenates them, and substitutes the
 # result for __DEPENDABOT_ECOSYSTEMS__.
 version: 2
 updates:
