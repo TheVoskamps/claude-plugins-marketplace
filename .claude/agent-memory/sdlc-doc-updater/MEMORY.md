@@ -3,10 +3,6 @@
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
-- [guardrails permgate docs locality](project_guardrails-permgate-docs-locality.md)
-  — permission-gate behavior lives in its own README.md + Go doc
-  comments, kept current by developer/fixer; watch for stale
-  count-before-list defects when sweeping that README.
 - [claude-vm two preflights](project_claude-vm-two-preflights.md) —
   launcher has a trust-path preflight AND a dependency preflight; docs
   must cover both, and list python3+gpg as required host tools.
@@ -23,9 +19,10 @@
   entry point; grep the whole directory after a containment-rule
   change, don't trust the developer's call-site edit alone.
 - [guardrails permgate docs locality](project_guardrails-permgate-docs-locality.md)
-  — permission-gate classifier behavior lives in its own README +
-  Go doc comments, usually already current by the time doc-updater
-  runs; watch for recurring N-before-list defects when sweeping.
+  — permission-gate classifier behavior lives in its own README.md +
+  Go doc comments, kept current by developer/fixer, usually already
+  current by the time doc-updater runs; watch for recurring
+  N-before-list defects when sweeping that README.
 - [gh pr diff and active gate](feedback_gh-pr-diff-and-active-gate.md)
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
