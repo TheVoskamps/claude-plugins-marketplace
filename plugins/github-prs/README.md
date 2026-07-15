@@ -19,14 +19,18 @@ deferred.
 
 ## Config: read internally, not by the caller
 
-The three lifecycle wrappers (`pr-ready`, `pr-draft`, `pr-link-issue`)
-take everything they need as arguments and read no configuration. The
-three operation skills (`pr-create`, `pr-diff`, `pr-review-submit`)
-each read the repo-config values they need **internally**, from
-`.claude/rules/repo-config.md`, following the read contract in the
-`issues` plugin's `skills/lib/repo-config.md`. The caller just invokes
-the skill with the issue/PR number — the operation owns its config
-read. This is the whole point of the split: a caller no longer parses
+Five of the six skills (`pr-ready`, `pr-draft`, `pr-link-issue`,
+`pr-diff`, `pr-review-submit`) take everything they need as arguments
+and read no configuration at all. Only `pr-create` reads
+repo-config — `default-pr-target-branch` and `issue-link-prefix` — and
+it does so **internally**, via a lightweight inline parse of just
+those two front-matter lines, not the `issues` plugin's full
+`skills/lib/repo-config.md` reader contract (that lib lives inside the
+`issues` plugin and isn't reachable across the plugin sandbox boundary
+— see `docs/plugin-authoring-constraints.md` → "Plugins are
+file-sandboxed"). The caller just invokes the skill with the issue/PR
+number — the operation owns its own config read where it needs one.
+This is the whole point of the split: a caller no longer parses
 repo-config to hand-roll a raw `gh pr create`/`gh pr diff`/`gh pr
 review`.
 
@@ -47,11 +51,12 @@ Opens a pull request for `<branch>` as a **draft**, against the base
 branch read from `default-pr-target-branch` in repo-config, with a
 `Closes <link-prefix><issue>` line in the PR body so the PR links and
 auto-closes its own issue on merge. Reads `default-pr-target-branch`
-and `issue-link-prefix` internally. `<issue>` must be the branch's own
-issue (`issue-<N>-<slug>`); when the passed `<issue>` and the branch's
-encoded `<N>` disagree, the branch name is the higher-fidelity source
-of truth. See the skill for the closing-keyword rule (PR body only,
-own issue only, never a commit).
+and `issue-link-prefix` internally via a lightweight inline parse (see
+"Config: read internally, not by the caller" above). `<issue>` must be
+the branch's own issue (`issue-<N>-<slug>`); when the passed `<issue>`
+and the branch's encoded `<N>` disagree, the branch name is the
+higher-fidelity source of truth. See the skill for the closing-keyword
+rule (PR body only, own issue only, never a commit).
 
 ### `/pr-diff <PR>`
 

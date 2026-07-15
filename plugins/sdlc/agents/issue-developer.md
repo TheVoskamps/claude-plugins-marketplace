@@ -8,6 +8,8 @@ isolation: worktree
 memory: project
 skills:
   - issue-view
+  - gh:branch-create
+  - github-prs:pr-create
 ---
 
 # Issue Developer
@@ -21,47 +23,18 @@ call onward. Run all commands as bare commands — `cd` does not persist
 between Bash calls in a subagent context. See `git-workflow.md` →
 "Subagent context" for the full rules.
 
-## Read global rules and repo config first
+## Read global rules first
 
-Before doing anything else:
+Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
+instructions at the top of that file.
 
-1. Read `~/.claude/CLAUDE.md` and follow the instructions at the
-   top of that file.
-2. Then read this repo's `.claude/rules/repo-config.md` from the
-   worktree root, following the read contract in
-   `skills/lib/repo-config.md`. This reader requires
-   **schema-version 6**. Run the canonical read sequence documented
-   there (locate, read, parse front-matter, check `schema-version`,
-   read the six front-matter fields, optionally read the
-   `github-project:` block) and use that library's abort messages
-   verbatim — including the "File missing", "Schema-version absent",
-   "Schema-version stale", and "Front-matter incomplete" cases. Do
-   not re-derive the parse rules or invent new abort wording here.
-
-The six canonical front-matter fields you resolve are:
-
-- `source-control` (`GitHub` | `CodeCommit`)
-- `issues` (`GitHub` | `Jira`)
-- `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for Jira)
-- `default-issue-source-branch` (string, e.g. `main` or `integ`)
-- `default-pr-target-branch` (string)
-- `issue-branch-naming-prefix` (`none` | `initials` | `name`)
-
-When the file is missing, abort with the library's "File missing"
-message; the `issue-developer requires it.` reader-specific prefix
-is permitted ahead of the canonical `Run /repo-config to create
-one.` tail.
-
-In the rest of this document, `<source-branch>`, `<target-branch>`,
-`<link-prefix>`, and the resolved `<branch-name>` mean the values from
-this config. Branch-name resolution per `issue-branch-naming-prefix`:
-
-- `none`     -> `issue-<N>-<slug>`
-- `initials` -> `<initials>/issue-<N>-<slug>`
-- `name`     -> `<name>/issue-<N>-<slug>`
-
-Where `<initials>` / `<name>` come from the human owner; if the
-spawn prompt does not give them, ask before proceeding.
+You no longer read `.claude/rules/repo-config.md` yourself for branch
+or PR mechanics — the `gh:branch-create` and `github-prs:pr-create`
+skills declared in the `skills:` frontmatter above read the config
+values they need internally (`default-issue-source-branch`,
+`issue-branch-naming-prefix`, `default-pr-target-branch`,
+`issue-link-prefix`). Invoke those skills rather than re-deriving their
+reads.
 
 ## Workflow
 
@@ -83,31 +56,22 @@ spawn prompt does not give them, ask before proceeding.
    regardless of tracker and do not need a separate Jira branch
    here.
 
-2. Determine a short slug from the issue title (lowercase, kebab-case,
-   max 5 words). Combine with `issue-branch-naming-prefix` to form
+2. Create the feature branch via `/gh:branch-create <N>`. It resolves
+   the branch name from the issue title and the repo's branch-naming
+   convention, and creates it rooted at the configured source branch —
+   the same wrong-base guard the raw `git switch -c` used to provide,
+   now owned by the skill. Note the branch name it reports back as
+   `<branch-name>` for the rest of this run.
+
+   The harness starts you on an auto-created `worktree-<random>`
+   branch; `/gh:branch-create` switches you off of it onto
    `<branch-name>`.
 
-3. Switch off the harness's auto-created `worktree-<random>` branch
-   onto `<branch-name>`, **rooted at `origin/<source-branch>`**. This
-   is the critical step that prevents the wrong-base bug: without
-   `origin/<source-branch>` as the explicit start point,
-   `git switch -c` roots the new branch at whatever commit the
-   worktree was already on.
+3. Read relevant files before changing anything.
 
-   Use the defensive form so a leftover branch from a prior aborted
-   run doesn't error the new run:
+4. Implement the minimal fix that addresses the issue description.
 
-   ```bash
-   git fetch origin <source-branch>
-   git switch -c <branch-name> origin/<source-branch> \
-      || git switch <branch-name>
-   ```
-
-4. Read relevant files before changing anything.
-
-5. Implement the minimal fix that addresses the issue description.
-
-6. Build and lint changed code. The cwd is the worktree root, so most
+5. Build and lint changed code. The cwd is the worktree root, so most
    commands run bare. If a step requires running inside a subdirectory
    (e.g. a per-package lint), use a **single Bash call** of the form
    `cd <subdir> && <cmd>`. This is allowed **only when `<cmd>` is not
@@ -121,10 +85,10 @@ spawn prompt does not give them, ask before proceeding.
    - If CDK files changed: `npm run build` (or scoped)
    - Fix any errors before proceeding.
 
-7. Run the test suite: if tests fail and aren't related to your fix,
+6. Run the test suite: if tests fail and aren't related to your fix,
    note it in the PR.
 
-8. Commit with an imperative commit message. NEVER place a closing
+7. Commit with an imperative commit message. NEVER place a closing
    keyword (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/
    `resolve`/`resolves`/`resolved`, case-insensitive) immediately
    before an issue reference (`#N`, `owner/repo#N`, `GH-N`, or an
@@ -133,45 +97,34 @@ spawn prompt does not give them, ask before proceeding.
    is fine. See `git-workflow.md` → "Issue References" for the full
    rule.
 
-9. Push the branch.
+8. Push the branch.
 
-10. Create a PR (or equivalent) targeting `<target-branch>`, **as a
-    draft**, with a closing keyword for the branch's OWN issue in the
-    PR body. If `source-control == GitHub`:
+9. Create the PR via `/github-prs:pr-create <N> <branch-name>`. The
+   skill opens the PR as a **draft**, targets the repo's configured
+   base branch, and writes `Closes <issue-link-prefix><N>` into the
+   PR body for the branch's own issue — the same wrong-issue guard
+   (preferring the `issue-<N>-<slug>` branch name over a mismatched
+   caller-supplied number) that used to be your responsibility is now
+   the skill's. If the caller supplies a title/summary, pass it
+   through; otherwise let the skill synthesize one.
 
-    ```bash
-    gh pr create --draft --base <target-branch> \
-      --title "<Imperative description>" \
-      --body "## Summary
-    <what changed and why>
+   - `--draft` is REQUIRED: every PR is born as a draft. A draft PR
+     cannot be auto-merged (the repo's auto-merge workflow filters
+     `isDraft == false`), so it stays inert until the orchestrator
+     flips it to ready in Phase 3 after the human blesses it. The
+     closing keyword only fires on merge to the default branch, so it
+     too stays inert while the PR is draft.
+   - The closing keyword in the **PR body** (never a commit message)
+     is REQUIRED, not forbidden. Per `git-workflow.md` → "CRITICAL —
+     closing keyword: PR body only, own issue only", it is how the PR
+     gets linked in the Development sidebar AND how the issue
+     auto-closes on merge. Never aim it at any other issue.
+   - The orchestrator also calls `/github-prs:pr-link-issue <PR> <N>`
+     as an idempotent safety-net after you report back — it is a
+     no-op when `/pr-create` already wrote the closing keyword, so you
+     don't need to call it yourself.
 
-    Closes #<N>"
-    ```
-
-    - `--draft` is required: every PR is born as a draft. A draft PR
-      cannot be auto-merged (the repo's auto-merge workflow filters
-      `isDraft == false`), so it stays inert until the orchestrator
-      flips it to ready in Phase 3 after the human blesses it. The
-      `Closes #<N>` keyword only fires on merge to the default branch,
-      so it too stays inert while the PR is draft.
-    - `Closes #<N>` in the **PR body** (where `<N>` is the branch's
-      OWN issue — the issue this branch was created for, also encoded
-      in the branch name `issue-<N>-<slug>`) is REQUIRED, not
-      forbidden. Per `git-workflow.md` → "CRITICAL — closing keyword:
-      PR body only, own issue only", the closing keyword in the PR
-      body is how the PR gets linked in the Development sidebar AND how
-      the issue auto-closes on merge. Never aim it at any other issue,
-      and never put a closing keyword in a commit message.
-    - You MAY additionally invoke `/github-workflow:pr-link-issue <PR>
-      <N>` afterward for consistency (it is an idempotent no-op when
-      the body already closes `#<N>`), but writing `Closes #<N>`
-      directly at create time is the primary path.
-
-    If `source-control == CodeCommit`: TODO — CodeCommit PR-create
-    path not yet implemented. Abort with: "CodeCommit source-control
-    selected, but the PR-create path is not implemented. See #104."
-
-11. Capture agent memory onto the branch, before worktree cleanup.
+10. Capture agent memory onto the branch, before worktree cleanup.
     `memory: project` resolves `.claude/agent-memory/` relative to
     your cwd, which is this throwaway worktree — anything you wrote
     there during this run is invisible to the PR and to every other
@@ -189,11 +142,11 @@ spawn prompt does not give them, ask before proceeding.
     append-only capture: do not prune or curate your own memory here;
     `doc-updater` reviews and curates every agent's memory later in the
     PR lifecycle. The commit message must obey the same closing-keyword
-    rule as step 8 — never a closing keyword immediately before an
+    rule as step 7 — never a closing keyword immediately before an
     issue reference. If `.claude/agent-memory/` has no changes, skip
     this step; there is nothing to commit.
 
-12. End-of-run cleanup — release the branch claim so subsequent
+11. End-of-run cleanup — release the branch claim so subsequent
     subagents (`doc-updater`, `issue-fixer`) can check out the same
     branch in their own worktrees:
 
@@ -203,13 +156,13 @@ spawn prompt does not give them, ask before proceeding.
     ```
 
     Without this, git refuses to check out a branch already claimed by
-    another worktree. Use `--detach` (not `git checkout <source-branch>`)
-    because the orchestrator's primary clone is already holding
-    `<source-branch>`, so a subagent worktree can't switch to it.
-    Detaching HEAD releases the feature-branch claim equivalently.
-    See `git-workflow.md` → "End-of-run cleanup pattern".
+    another worktree. Use `--detach` (not switching to the source
+    branch) because the orchestrator's primary clone is already holding
+    that branch, so a subagent worktree can't switch to it. Detaching
+    HEAD releases the feature-branch claim equivalently. See
+    `git-workflow.md` → "End-of-run cleanup pattern".
 
-13. Report back: PR URL (or equivalent), issue number, branch name.
+12. Report back: PR URL (or equivalent), issue number, branch name.
     (The orchestrator handles the worktree directory itself; the
     worktree path isn't something you need to surface.)
 

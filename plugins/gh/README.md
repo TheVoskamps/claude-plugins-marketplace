@@ -15,9 +15,13 @@ caller parses repo-config to hand-roll a branch create.
 
 `branch-create` reads `default-issue-source-branch` and
 `issue-branch-naming-prefix` from `.claude/rules/repo-config.md`
-itself, following the read contract in the `issues` plugin's
-`skills/lib/repo-config.md`. The caller supplies only the issue number
-(and, for non-`none` naming prefixes, the owner initials/name when the
+itself, via a lightweight inline parse of just those two front-matter
+lines — not the `issues` plugin's full `skills/lib/repo-config.md`
+reader contract, which lives inside that plugin and isn't reachable
+across the plugin sandbox boundary (see
+`docs/plugin-authoring-constraints.md` → "Plugins are
+file-sandboxed"). The caller supplies only the issue number (and, for
+non-`none` naming prefixes, the owner initials/name when the
 convention needs them).
 
 ## Skills

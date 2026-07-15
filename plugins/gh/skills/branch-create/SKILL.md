@@ -3,6 +3,8 @@ name: branch-create
 description: Create the correctly-named issue branch (issue-<N>-<slug>) off the configured source branch, reading branch conventions from repo-config internally.
 ---
 
+# Branch Create
+
 Create the feature branch for an issue: resolve the branch name from
 the issue number and the repo's branch-naming convention, and create it
 rooted at the configured source branch. This is the branch-create the
@@ -26,14 +28,23 @@ not at the source branch's tip.
 ## Repo-config
 
 This skill reads two values from `.claude/rules/repo-config.md`
-**internally** — the caller does not pass them. Follow the read
-contract in the `issues` plugin's `skills/lib/repo-config.md`; this
-reader requires **schema-version 6** and uses that library's canonical
-read sequence and abort messages verbatim (`File missing`,
-`Schema-version absent`, `Schema-version stale`, `Front-matter
-incomplete`). The `branch-create requires it.` reader-specific prefix
-is permitted ahead of the canonical `Run /repo-config to create one.`
-tail on the File-missing abort.
+**internally** — the caller does not pass them. It reads them with a
+lightweight **inline** parse of just these two front-matter lines,
+not the full reader contract in the `issues` plugin's
+`skills/lib/repo-config.md`: that lib file lives inside the `issues`
+plugin, and plugins are file-sandboxed (a bare `Read` from another
+plugin's skill cannot resolve a path outside its own plugin directory
+— see `docs/plugin-authoring-constraints.md` → "Plugins are
+file-sandboxed"). Bundling a duplicate copy of the 496-line lib into
+this plugin, or inventing a cross-plugin `Read`, would either
+reproduce the exact coupling issue #143 removed from `sdlc` or simply
+not work; a two-field inline parse avoids both.
+
+If `.claude/rules/repo-config.md` is missing, abort with: "This repo
+has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
+one." (the same wording the full reader contract uses for its
+"File missing" case, so the namespace's abort messages stay
+consistent even though this skill doesn't consume the whole contract).
 
 The two values consumed:
 

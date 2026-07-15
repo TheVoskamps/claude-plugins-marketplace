@@ -8,6 +8,8 @@ isolation: worktree
 memory: project
 skills:
   - issue-view
+  - github-prs:pr-diff
+  - github-prs:pr-review-submit
 ---
 
 # PR Reviewer
@@ -38,39 +40,39 @@ Before doing anything else:
 1. Read `~/.claude/CLAUDE.md` and follow the instructions at the
    top of that file.
 2. Then read this repo's `.claude/rules/repo-config.md` from the
-   worktree root, following the read contract in
-   `skills/lib/repo-config.md`. This reader requires
-   **schema-version 6**. Run the canonical read sequence documented
-   there (locate, read, parse front-matter, check `schema-version`,
-   read the six front-matter fields, optionally read the
-   `github-project:` block) and use that library's abort messages
-   verbatim — including the "File missing", "Schema-version absent",
-   "Schema-version stale", and "Front-matter incomplete" cases. Do
-   not re-derive the parse rules or invent new abort wording here.
+   worktree root, with a lightweight **inline** parse of just the one
+   front-matter field below — not the full reader contract in the
+   `issues` plugin's `skills/lib/repo-config.md`. That lib file lives
+   inside the `issues` plugin, and plugins are file-sandboxed (a bare
+   `Read` from an `sdlc` agent cannot resolve a path inside another
+   plugin's directory — see `docs/plugin-authoring-constraints.md` →
+   "Plugins are file-sandboxed"). `sdlc` no longer bundles its own copy
+   of that lib (`plugins/sdlc/skills/lib/repo-config.md` was deleted),
+   so do not attempt to `Read` it by any bare or qualified path.
 
-The six canonical front-matter fields you resolve are:
+You need only one field from the file:
 
-- `source-control` (`GitHub` | `CodeCommit`)
-- `issues` (`GitHub` | `Jira`)
-- `issue-link-prefix` (string)
-- `default-issue-source-branch` (string)
-- `default-pr-target-branch` (string)
-- `issue-branch-naming-prefix` (`none` | `initials` | `name`)
+- `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
+  Jira) — the prefix used in `References:` trailers (see step 2
+  below). This is an **issue-tracker** concern, independent of the PR
+  mechanics: `github-prs:pr-diff` and `github-prs:pr-review-submit`
+  (declared in the `skills:` frontmatter above) read no repo-config at
+  all — they are GitHub-only by design — so you no longer resolve
+  `source-control`, `default-issue-source-branch`,
+  `default-pr-target-branch`, or `issue-branch-naming-prefix` yourself.
 
-When the file is missing, abort with the library's "File missing"
-message; the `pr-reviewer requires it.` reader-specific prefix is
-permitted ahead of the canonical `Run /repo-config to create one.`
-tail.
+If `.claude/rules/repo-config.md` is missing, abort with: "This repo
+has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
+one." (the same wording the full reader contract uses for its "File
+missing" case, so the namespace's abort messages stay consistent even
+though this agent doesn't consume the whole contract).
 
 In the rest of this document, `<link-prefix>` means the resolved value.
 
 ## Workflow
 
-1. Fetch the PR diff:
-   - If `source-control == GitHub`: `gh pr diff <number>`
-   - If `source-control == CodeCommit`: TODO — CodeCommit diff path
-     not implemented. Abort with: "CodeCommit source-control selected,
-     but the diff-fetch path is not implemented. See #104."
+1. Fetch the PR diff via `/github-prs:pr-diff <number>` (preloaded via
+   the `skills:` frontmatter above).
 2. Identify the parent issue this PR is for. The parent issue is
    established by the **branch name** (typically `issue-<N>-<slug>`,
    `<initials>/issue-<N>-<slug>`, or `<name>/issue-<N>-<slug>` —
@@ -120,17 +122,15 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    the issue. Check the diff against the issue's acceptance criteria
    read in step 3 — flag any criterion the PR leaves unmet, and any
    change that goes beyond the issue's scope.
-6. Post your review as a **single** call carrying both verdict and
-   body — never two calls (a separate `--comment` then `--approve`
-   creates two notifications):
-   - If `source-control == GitHub`:
-     - Approving: `gh pr review <number> --approve --body "<review>"`
-     - Requesting changes: `gh pr review <number> --request-changes --body "<review>"`
-     - Comment-only (e.g. only Medium/Low findings, no verdict yet):
-       `gh pr review <number> --comment --body "<review>"`
-   - If `source-control == CodeCommit`: TODO — CodeCommit review-post
-     path not implemented. Abort with: "CodeCommit source-control
-     selected, but the review-post path is not implemented. See #104."
+6. Post your review via `/github-prs:pr-review-submit <number>
+   <verdict> <body>` (preloaded via the `skills:` frontmatter above),
+   with `<verdict>` one of `approve`, `request-changes`, or `comment`.
+   The skill posts a **single** call carrying both verdict and body —
+   never two calls (a separate `--comment` then `--approve` creates two
+   notifications) — and handles the self-review constraint (`gh`
+   blocks `--approve` when the reviewer is the PR author) by
+   downgrading to an inline `--comment` carrying an explicit `APPROVED`
+   line, exactly as this agent previously did inline.
 7. Capture agent memory onto the branch. `memory: project` resolves
    `.claude/agent-memory/` relative to your cwd, which is this
    throwaway worktree — anything you wrote there during this run is
@@ -179,8 +179,8 @@ git checkout --detach
 git branch -D <branch>
 ```
 
-Use `--detach` (not `git checkout <source-branch>`) because the
-orchestrator's primary clone is already holding `<source-branch>`, so a
+Use `--detach` (not switching to the source branch) because the
+orchestrator's primary clone is already holding that branch, so a
 subagent worktree can't switch to it. Detaching HEAD releases the
 feature-branch claim equivalently. See `git-workflow.md` → "End-of-run
 cleanup pattern". If you never checked out the PR branch, there is no
