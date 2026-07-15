@@ -53,15 +53,18 @@ file silently shadows future changes to the global default.
   `--remote-control` plus a date-stamped `--name` default to the in-guest
   claude invocation; `false`/unset passes the CLI args through unchanged;
   any other value aborts the launch. Setting it here lets one repo opt in
-  to Remote Control without turning it on globally. The guest-capability
-  keys — `packages.update_at_boot`/`.add_apt_uris_to_allowlist`,
-  `claude.permission_mode`, `claude.plugins.update_at_boot`/
-  `.add_marketplace_uris_to_allowlist`, `claude.hooks.*`, `github.auth` —
-  are schema + merge only as of issue #103; the consumers land in
-  sibling slices under #39, but this repo's override still resolves
-  correctly through the layering library today. `claude.hooks.parser`
-  and `claude.hooks.no_background_agents` are quoted string scalars
-  (`"on"`/`"off"`), not booleans.)
+  to Remote Control without turning it on globally. `claude.permission_mode`
+  and `claude.hooks.*` are rendered into the guest `settings.json`
+  (issue #104: `permission_mode` → `permissions.defaultMode`;
+  `hooks.parser`/`.no_background_agents` flip their plugin's
+  `enabledPlugins` entry). The remaining guest-capability keys —
+  `packages.update_at_boot`/`.add_apt_uris_to_allowlist`,
+  `claude.plugins.update_at_boot`/`.add_marketplace_uris_to_allowlist`,
+  `github.auth` — are schema + merge only as of issue #103; the
+  consumers land in sibling slices under #39, but this repo's override
+  still resolves correctly through the layering library today.
+  `claude.hooks.parser` and `claude.hooks.no_background_agents` are
+  quoted string scalars (`"on"`/`"off"`), not booleans.)
 - **Lists** (`egress.allow`, `mounts`, `packages.bake`,
   `packages.install_at_boot`, `packages.apt_sources`,
   `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
@@ -72,7 +75,9 @@ file silently shadows future changes to the global default.
   adds — so a repo cannot subtract a global egress host, apt package,
   permission rule, marketplace, or plugin. If the user asks to drop a
   global entry, explain that lists union and the removal must happen in
-  the global config.)
+  the global config. `claude.permissions.*` and `claude.plugins.bake`/
+  `.install_at_boot` feed the rendered guest `settings.json`
+  (issue #104) after the union resolves.)
 
 ## Idempotent — detect and offer, never clobber
 

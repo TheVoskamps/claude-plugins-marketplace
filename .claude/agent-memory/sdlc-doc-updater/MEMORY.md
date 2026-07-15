@@ -22,3 +22,11 @@
   — permission-gate duplicates containment-behavior doc comments per
   entry point; grep the whole directory after a containment-rule
   change, don't trust the developer's call-site edit alone.
+- [guardrails permgate docs locality](project_guardrails-permgate-docs-locality.md)
+  — permission-gate classifier behavior lives in its own README +
+  Go doc comments, usually already current by the time doc-updater
+  runs; watch for recurring N-before-list defects when sweeping.
+- [gh pr diff and active gate](feedback_gh-pr-diff-and-active-gate.md)
+  — `gh pr diff` can silently drop text files from a PR with binary
+  commits (cross-check with `git diff --stat`); the active
+  permission-gate blocks heredoc `git commit -m`, use `commit -F`.

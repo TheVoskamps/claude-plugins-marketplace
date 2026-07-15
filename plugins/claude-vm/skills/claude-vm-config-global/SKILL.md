@@ -127,12 +127,19 @@ Notes on the forward-looking keys:
   `.plugins.install_at_boot` are written empty by default.** Same
   reasoning: ask whether the user wants specific permission rules,
   marketplaces, or plugins baked/installed; write entries only on
-  request.
+  request. `claude.permission_mode` and `claude.permissions.*` are
+  rendered into the guest `settings.json` (issue #104); `claude.plugins.bake`
+  / `.install_at_boot` are rendered into that same file's
+  `enabledPlugins`, but the actual package-manager install of those
+  plugins is still a #39 sibling slice.
 - **`claude.hooks.parser` / `.no_background_agents` default to
   `"on"`.** These are quoted string scalars (`"on"`/`"off"`), not YAML
   booleans — write them quoted so a future `off` isn't parsed as the
   boolean `false`. Ask only if the user wants to disable a guardrail
-  hook; the safe default is `"on"` for both.
+  hook; the safe default is `"on"` for both. Each knob flips its
+  plugin's entry in the rendered guest `settings.json`'s
+  `enabledPlugins` (issue #104); a knob only matters when its plugin
+  is actually in `claude.plugins.bake` / `.install_at_boot`.
 - **`github.auth` defaults to `none`.** Ask the user whether they want
   the guest seeded with a GitHub auth token derived from the host
   (`host-token`); `none` is the safe default since the consumer that
@@ -222,6 +229,9 @@ claude:
   # remote_control: false  # opt-in Remote Control: true adds --remote-control
                         # + a date-stamped --name default; false/unset passes
                         # CLI args through. Omitted by default.
+  # permission_mode + permissions.* render into the guest settings.json's
+  # permissions (issue #104); the host's own ~/.claude/settings.json is
+  # never read.
   permission_mode: bypassPermissions   # bypassPermissions (default) | default
   permissions:
     allow: []           # write entries only if the user names specific rules
@@ -229,12 +239,17 @@ claude:
     deny: []
   marketplaces: []      # {name, url} entries; write only on request
   plugins:
-    bake: []             # plugin@marketplace refs; write only on request
-    install_at_boot: []
+    bake: []             # plugin@marketplace refs; rendered into
+    install_at_boot: []  # settings.json's enabledPlugins (issue #104);
+                        # actual package-manager install is a #39 sibling
+                        # slice. Write only on request.
     update_at_boot: true # refresh marketplaces + reinstall changed plugins
                         # at boot (default true)
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always
   hooks:
+    # Each knob flips its plugin's enabledPlugins entry in the rendered
+    # guest settings.json (issue #104); only matters when the plugin is
+    # in plugins.bake / .install_at_boot.
     parser: "on"         # guardrails permission-gate hook: on (default) | off
     no_background_agents: "on"  # block-background-agents hook:
                         # on (default) | off
