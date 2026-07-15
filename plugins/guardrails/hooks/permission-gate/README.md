@@ -294,9 +294,18 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   brace-list escaping member, `{a.md,~/.ssh/id_rsa}`, but pre-existing
   and reachable through any single-operand path too, e.g. plain
   `cat ~/.ssh/id_rsa`) — now it earns the escape verdict its real
-  location deserves. If the home directory cannot be resolved, `~` is
-  left as a literal relative segment, matching `applyCd`'s own
-  fail-safe posture (invalidate rather than guess).
+  location deserves. If the home directory cannot be resolved (`HOME`
+  unset/empty — real in cron jobs, minimal containers, stripped
+  environments), the containment layer (`testContainmentFrom`) treats
+  the operand as an unconditional `escapeRepo` — denied, never
+  `contained` — genuinely mirroring `applyCd`'s fail-safe posture
+  (invalidate rather than guess) rather than merely claiming to. An
+  earlier version of this fix (PR #139 round 3) left `~` as a literal
+  relative segment in this branch instead, which actually resolved as
+  `<base>/~/...` and read as `contained` — a live fail-open, caught by
+  round-3 review and closed by threading the resolver's
+  home-unresolvable signal through `testContainmentFrom` directly (see
+  `canonicalizeFromResolver` in `engine_b_containment.go`).
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the

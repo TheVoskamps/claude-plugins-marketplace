@@ -164,17 +164,54 @@ func canonicalize(p string) string {
 // escape to the user's home directory as `contained`. Expanding first makes
 // the path absolute, so it takes the correct branch below and earns
 // whatever verdict its real location deserves (contained if home happens to
-// be inside the repo, escapeRepo/escapeWorktree/claudeConfig otherwise). If
-// the home directory cannot be determined, `~` is left as a literal
-// relative segment, matching applyCd's own fail-safe posture (cd invalidates
-// rather than guesses).
+// be inside the repo, escapeRepo/escapeWorktree/claudeConfig otherwise).
+//
+// If the home directory cannot be determined, canonicalizeFrom discards the
+// unresolved-tilde signal from canonicalizeFromResolver (see there) and
+// returns the best-effort (still-literal-`~`) string. This is safe here
+// ONLY because canonicalizeFrom's own callers never treat that string as a
+// containment verdict by itself: they use it purely for `.git`-tree
+// detection (isUnderGitDir), and every one of them re-checks the SAME
+// operand through testContainmentFrom immediately afterward, which DOES
+// consult the fail-closed signal (see below). A caller that needs the
+// fail-closed signal directly — i.e. any caller doing full containment
+// classification, not just a `.git`-tree pre-check — must call
+// canonicalizeFromResolver itself instead of this convenience wrapper.
 func canonicalizeFrom(p string, base string) string {
+	real, _ := canonicalizeFromResolver(p, base, os.UserHomeDir)
+	return real
+}
+
+// canonicalizeFromResolver is canonicalizeFrom with the home-directory
+// lookup injected as homeDir, so callers (and tests) can force the
+// "home directory unresolvable" branch deterministically without depending
+// on the real environment having (or lacking) $HOME.
+//
+// It returns (real, unresolvedTilde). unresolvedTilde is true exactly when p
+// has a leading `~`/`~/...` AND homeDir() failed (non-nil error, or an empty
+// home string) — i.e. the tilde could NOT be expanded against a real home
+// directory. In that case real is still populated (best-effort, p with `~`
+// left as a literal segment) for callers that only want a display string,
+// but the caller MUST NOT treat real as eligible for a `contained` verdict:
+// an unresolvable `~` must fail closed (deny/ask), mirroring applyCd's own
+// posture for `cd ~` when the home directory can't be resolved (engine_a_
+// bash.go: applyCd sets runningCWDInvalid = true rather than guessing). A
+// literal `~/.ssh/id_rsa` segment left unexpanded would otherwise fall
+// through to the ordinary relative-join branch below and resolve as
+// `<base>/~/.ssh/id_rsa` — an in-repo-looking child path that silently
+// disguises a genuine (would-be) escape to the real home directory as
+// `contained`. testContainmentFrom uses unresolvedTilde to force a non-
+// contained (escapeRepo) verdict instead of running the normal pathUnder
+// checks against this best-effort string.
+func canonicalizeFromResolver(p string, base string, homeDir func() (string, error)) (real string, unresolvedTilde bool) {
 	if p == "" {
-		return p
+		return p, false
 	}
 	if p == "~" || strings.HasPrefix(p, "~/") {
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if home, err := homeDir(); err == nil && home != "" {
 			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+		} else {
+			unresolvedTilde = true
 		}
 	}
 	if !filepath.IsAbs(p) {
@@ -185,7 +222,7 @@ func canonicalizeFrom(p string, base string) string {
 		}
 	}
 	if real, err := filepath.EvalSymlinks(p); err == nil {
-		return real
+		return real, unresolvedTilde
 	}
 	// Path (or a tail segment) does not exist. Walk up to the longest
 	// existing ancestor, canonicalize that, then re-attach the tail.
@@ -199,10 +236,10 @@ func canonicalizeFrom(p string, base string) string {
 		tail = append([]string{filepath.Base(dir)}, tail...)
 		dir = parent
 		if real, err := filepath.EvalSymlinks(dir); err == nil {
-			return filepath.Join(append([]string{real}, tail...)...)
+			return filepath.Join(append([]string{real}, tail...)...), unresolvedTilde
 		}
 	}
-	return filepath.Clean(p)
+	return filepath.Clean(p), unresolvedTilde
 }
 
 // containmentResult is the outcome of testing a target path against the repo
@@ -244,8 +281,25 @@ func testContainment(target string, rc *repoContext) (containmentResult, string)
 // testContainmentFrom is testContainment with an explicit base directory for
 // the relative-join step (#129). An empty base preserves testContainment's
 // existing behavior (process/event cwd).
+//
+// It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
+// wrapper) so it can see the unresolvedTilde signal: a leading `~`/`~/...`
+// operand whose home directory could not be resolved (os.UserHomeDir
+// failing — HOME unset/empty, a stripped/minimal environment) must fail
+// CLOSED rather than fall through to the ordinary pathUnder checks against
+// the best-effort (still-literal-`~`) string, which would otherwise resolve
+// as an in-repo child path and read as `contained` — masking a real escape
+// to the (unresolvable) home directory as safe. This mirrors applyCd's own
+// posture for `cd ~` with no resolvable home (engine_a_bash.go: it sets
+// runningCWDInvalid = true rather than guessing) — escapeRepo is
+// testContainmentFrom's equivalent "invalidate rather than guess" verdict:
+// every caller (classifyFileTool, containPathOperands, containWriteOperands)
+// treats escapeRepo as deny, never allow.
 func testContainmentFrom(target string, base string, rc *repoContext) (containmentResult, string) {
-	real := canonicalizeFrom(target, base)
+	real, unresolvedTilde := canonicalizeFromResolver(target, base, os.UserHomeDir)
+	if unresolvedTilde {
+		return escapeRepo, real
+	}
 
 	if pathUnder(real, rc.topLevel) {
 		return contained, real
