@@ -78,9 +78,12 @@ Two layers, both optional:
   `packages.update_at_boot`, `packages.add_apt_uris_to_allowlist`,
   `claude.permission_mode`, `claude.plugins.update_at_boot`,
   `claude.plugins.add_marketplace_uris_to_allowlist`,
-  `claude.hooks.parser`, `claude.hooks.no_background_agents`,
   `github.auth`): repo overrides global; global fills gaps; a hardcoded
   default applies only when neither layer sets the key.
+- **Scalar maps** (`claude.plugins.enabled`): repo overrides global
+  **per key** — each plugin-ref → boolean entry follows the scalar
+  repo-wins rule independently, so a repo can flip one plugin's enabled
+  state without restating the global map.
 - **Lists** (`egress.allow`, `mounts`, `packages.bake`,
   `packages.install_at_boot`, `packages.apt_sources`,
   `claude.permissions.allow`, `claude.permissions.ask`,
@@ -138,11 +141,14 @@ claude:
     update_at_boot: true          # refresh marketplaces + reinstall changed
                                   # plugins at boot (default true)
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always
-  hooks:
-    parser: "on"                  # guardrails permission-gate hook:
-                                  # on (default) | off
-    no_background_agents: "on"    # block-background-agents hook:
-                                  # on (default) | off
+    enabled:                      # OPTIONAL map, plugin ref -> boolean,
+                                  # mirroring settings.json's enabledPlugins.
+                                  # Every bake/install_at_boot ref defaults
+                                  # enabled; list an entry only to override
+                                  # (false = installed-but-disabled). Keys must
+                                  # name an installed ref; values must be
+                                  # boolean; a typo aborts the launch.
+      show-loaded-rules@thevoskamps: false
 
 proxy:
   cmd: "<forward-proxy launch command>"   # must read
@@ -209,7 +215,7 @@ github:
 
 `claude.permission_mode`, `claude.permissions.*`,
 `claude.plugins.bake` / `.install_at_boot` (as `enabledPlugins`), and
-`claude.hooks.*` are **consumed** by the guest `settings.json` render
+`claude.plugins.enabled` are **consumed** by the guest `settings.json` render
 (issue #104) — the launcher renders `/root/.claude/settings.json`
 host-side and shares it into the guest (see "Guest Claude settings.json"
 below). The remaining keys are schema + merge only as of issue #103 — the
@@ -254,28 +260,28 @@ posture:
 - `permissions.allow` / `.ask` / `.deny` come verbatim from
   `claude.permissions.*` (each a unioned list).
 - `permissions.defaultMode` comes from `claude.permission_mode`
-  (`bypassPermissions` default | `default`). YOLO-by-default: the VM is
+  (`bypassPermissions` default | `default`). Only those two values are
+  accepted — any other aborts the launch (it is a security-posture value
+  with no defined behavior for an unknown mode). YOLO-by-default: the VM is
   the isolation boundary, so `bypassPermissions` is the default with the
   deny list as backstop. The guest runs claude as **root**, which claude
   refuses in `bypassPermissions` unless `IS_SANDBOX=1`; the launcher sets
   `IS_SANDBOX=1` unconditionally in `run.env` (the guest *is* the
   sandbox).
 - `enabledPlugins` maps every ref in
-  `claude.plugins.bake ++ claude.plugins.install_at_boot` to `true`, with
-  the two hook knobs flipping their plugin's entry to `false` when off:
-  `claude.hooks.parser: off` → `guardrails@<mp>: false`,
-  `claude.hooks.no_background_agents: off` →
-  `block-background-agents@<mp>: false`. A knob only matters when its
-  plugin is actually in a plugin list; `off` means installed-but-disabled
-  (re-enabling needs no reinstall).
+  `claude.plugins.bake ++ claude.plugins.install_at_boot` to `true`
+  (de-duplicated), then the optional `claude.plugins.enabled` map
+  overrides those defaults per key. `enabled` mirrors `settings.json`'s
+  own `enabledPlugins` vocabulary (plugin ref → boolean): `false` marks a
+  plugin **installed-but-disabled** (re-enabling needs no reinstall — handy
+  for toggling debug plugins like `show-loaded-rules` / `show-loaded-skills`
+  around a specific issue). The map is validated **once**: every value must
+  be boolean and every key must name an installed ref — an unknown key is a
+  typo and **aborts the launch**.
 
-**Per-run `--hook` override.** Pass
-`claude-vm --hook parser=on|off --hook no-background-agents=on|off` to
-override the config hook knobs for a single launch (affecting only the
-rendered `enabledPlugins`). These are claude-vm's own flags — they are
-consumed by the launcher and never forwarded to the guest `claude`. CLI
-wins over the config knob for that run. A malformed `--hook` (unknown
-hook name, or a state other than `on`/`off`) aborts the launch.
+claude-vm has **no** own CLI flags: every post-repo argument is forwarded
+to the guest `claude` verbatim. Plugin enable/disable state is set through
+`claude.plugins.enabled` in the config files, not on the command line.
 
 ## Interactive session (the launching terminal IS the in-VM claude)
 

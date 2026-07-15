@@ -13,8 +13,11 @@
 #     packages.add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot,
 #     claude.plugins.add_marketplace_uris_to_allowlist,
-#     claude.hooks.parser, claude.hooks.no_background_agents,
 #     github.auth): repo overrides global; global fills gaps.
+#   - Scalar MAPS (claude.plugins.enabled): repo-over-global PER KEY -- each
+#     plugin-ref -> boolean entry follows the scalar repo-wins rule
+#     independently, so a repo can flip one plugin's enabled state without
+#     restating the global map. See claude_vm_merge_config below.
 #   - Lists (egress.allow, mounts, packages.bake, packages.install_at_boot,
 #     packages.apt_sources, claude.permissions.allow/ask/deny,
 #     claude.marketplaces, claude.plugins.bake,
@@ -54,7 +57,7 @@ CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS=192.168.127.254
 CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
 
 # Guest-capability schema defaults (issue #103): packages, Claude
-# permissions/marketplaces/plugins/hooks, and GitHub auth. See
+# permissions/marketplaces/plugins, and GitHub auth. See
 # payload/config.example.yml and skills/claude-vm/SKILL.md for the full
 # annotated schema and semantics.
 CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT=true
@@ -62,8 +65,6 @@ CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST=auto
 CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE=bypassPermissions
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
-CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER=on
-CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS=on
 CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
@@ -443,7 +444,7 @@ claude_vm_mount_specs() {
 
 # ---------------------------------------------------------------------
 # Guest-capability schema accessors (issue #103): packages, Claude
-# permissions/marketplaces/plugins/hooks, and GitHub auth. The schema +
+# permissions/marketplaces/plugins, and GitHub auth. The schema +
 # merge landed in #103; the settings-rendering consumer
 # (claude_vm_render_guest_settings, below) landed in #104. The remaining
 # consumers (image build, boot install, egress derivation) land in sibling
@@ -487,18 +488,10 @@ claude_vm_marketplaces() {
 #
 # Render the guest's ~/.claude/settings.json (installed at
 # /root/.claude/settings.json by the guest boot launcher) from the merged
-# config -- PURE (merged-config file + two resolved hook states in ->
-# settings.json on stdout), so it is host-side unit-testable with no VM,
-# no network, and no host mutation.
+# config -- PURE (merged-config file in -> settings.json on stdout), so it
+# is host-side unit-testable with no VM, no network, and no host mutation.
 #
 #   $1 -- merged config file path
-#   $2 -- resolved parser hook state ("on" | "off") -- the CLI --hook
-#         parser=... override when passed, else claude.hooks.parser from
-#         config, else the built-in "on". Resolved by the caller so this
-#         function stays pure and the CLI-over-config precedence lives in
-#         one place (claude-vm.sh).
-#   $3 -- resolved no_background_agents hook state ("on" | "off") -- same
-#         resolution as $2 for claude.hooks.no_background_agents.
 #
 # The rendered document has exactly two top-level keys:
 #
@@ -509,78 +502,99 @@ claude_vm_marketplaces() {
 #                            the guest's Claude surface is defined by the
 #                            claude-vm configs, per the issue's product
 #                            intent). An empty/unset list renders as [].
-#     defaultMode         -- from claude.permission_mode; the caller passes
-#                            the resolved value (default bypassPermissions)
-#                            as it is a plain scalar with a repo-config
-#                            default already resolved upstream. Read here
-#                            from the merged file with the same default so
-#                            the render is self-contained and testable.
+#     defaultMode         -- from claude.permission_mode (default
+#                            bypassPermissions). Read here from the merged
+#                            file with the same default so the render is
+#                            self-contained and testable. The launcher
+#                            (claude-vm.sh) enum-guards this value BEFORE
+#                            calling here; this render trusts it.
 #   enabledPlugins:
 #     an object mapping every plugin ref in
 #     (claude.plugins.bake ++ claude.plugins.install_at_boot) to a boolean.
-#     All refs default to true (installed-and-enabled). The two hook knobs
-#     flip THEIR plugin's entry to false when the resolved state is "off":
-#       parser=off               -> guardrails@<mp>: false
-#       no_background_agents=off -> block-background-agents@<mp>: false
-#     A knob is meaningful only when its plugin appears in a plugin list --
-#     if guardrails@<mp> is not in the lists, the parser knob has nothing
-#     to flip and adds no entry. "off" means installed-but-disabled, so
-#     flipping the knob back on needs no reinstall. Matching is on the
-#     plugin NAME (the part before '@'), so guardrails@anymarketplace and
-#     block-background-agents@anymarketplace are matched regardless of which
-#     marketplace hosts them.
+#     Every such ref defaults to true (installed-and-enabled), de-duplicated
+#     (bake first, then install_at_boot; a ref in both collapses to one
+#     entry). The optional claude.plugins.enabled map -- which mirrors
+#     settings.json's own enabledPlugins vocabulary (plugin ref -> boolean) --
+#     then OVERRIDES those defaults per key: `false` marks a plugin
+#     installed-but-disabled (re-enabling needs no reinstall -- the owner
+#     toggles debug plugins like show-loaded-rules / show-loaded-skills
+#     around specific issues), `true` is redundant with the default but
+#     accepted.
 #
-# The plugin-name match is done in yq (not shell) so a ref with an
-# unexpected shape is handled uniformly. Refs are de-duplicated by the
-# object construction itself (later assignment to the same key wins, and
-# bake precedes install_at_boot); a plugin in both lists collapses to one
-# entry.
+# VALIDATION (done here, once, on the merged config -- this is the single
+# reader/render path): every claude.plugins.enabled VALUE must be a boolean,
+# and every KEY must name a plugin ref present in the merged
+# (bake ++ install_at_boot) lists. A non-boolean value or an unknown key is
+# a config typo and ABORTS (non-zero return + a claude-vm: diagnostic on
+# stderr) so the launcher stops rather than rendering a settings.json that
+# silently drops or misspells a plugin toggle.
 claude_vm_render_guest_settings() {
-  local file="$1" parser_state="$2" nba_state="$3"
+  local file="$1"
   local permission_mode
 
   # Resolve permission_mode with the same default as the schema
   # (bypassPermissions). claude_vm_scalar treats absent/null as the
   # fallback; permission_mode is a plain string, never a boolean, so the
-  # non-boolean-safe accessor is correct here.
+  # non-boolean-safe accessor is correct here. The launcher enum-guards the
+  # value up front, so an unexpected mode never reaches this render.
   permission_mode="$(claude_vm_scalar "$file" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
 
-  # Build the enabledPlugins object as a YAML fragment in shell, applying
-  # the hook-knob overrides here. Every ref in (bake ++ install_at_boot)
-  # maps to true, EXCEPT the two hook-owned plugins whose entry flips to
-  # false when the resolved knob state is "off". A knob is meaningful only
-  # when its plugin is actually present in the lists, so a knob with no
-  # matching ref adds nothing. Matching is on the plugin NAME (the part
-  # before '@'), so guardrails@<any-marketplace> /
-  # block-background-agents@<any-marketplace> match regardless of the
-  # hosting marketplace. Refs are de-duplicated (bake first, then
-  # install_at_boot; a ref in both collapses to one entry, later value
-  # wins -- but the value is knob-determined, not order-determined, so the
-  # collapse is stable).
-  local plugins_yaml="" ref name value seen=""
+  # Collect the installed plugin refs (bake ++ install_at_boot), preserving
+  # order and de-duplicating. These are both the enabledPlugins keys (all
+  # default true) AND the valid key-set for claude.plugins.enabled overrides.
+  local ref installed=() seen=""
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
-    name="${ref%%@*}"
-    value="true"
-    case "$name" in
-      guardrails)
-        [ "$parser_state" = "off" ] && value="false" ;;
-      block-background-agents)
-        [ "$nba_state" = "off" ] && value="false" ;;
-    esac
-    # De-duplicate: skip a ref already emitted (its knob-determined value
-    # is identical on a second sighting, so the first entry stands).
     case " $seen " in
       *" $ref "*) continue ;;
     esac
     seen="$seen $ref"
-    # Quote the key so a ref containing YAML-significant characters is a
-    # valid single mapping key; the value is a bare boolean literal.
-    plugins_yaml="${plugins_yaml}$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null): ${value}"$'\n'
+    installed+=("$ref")
   done < <(
     claude_vm_list_items "$file" '.claude.plugins.bake'
     claude_vm_list_items "$file" '.claude.plugins.install_at_boot'
   )
+
+  # Read the claude.plugins.enabled override map as tab-separated
+  # "ref<TAB>value" lines. yq emits nothing when the key is absent.
+  # Validate each entry HERE, once: value must be a boolean, key must be an
+  # installed ref. Build an associative override map keyed by ref.
+  local -A enabled_override=()
+  local line ov_ref ov_val
+  while IFS=$'\t' read -r ov_ref ov_val; do
+    [ -n "$ov_ref" ] || continue
+    case "$ov_val" in
+      true|false) : ;;
+      *)
+        echo "claude-vm: claude.plugins.enabled['$ov_ref'] must be a boolean (true|false), got '$ov_val'" >&2
+        return 1 ;;
+    esac
+    case " $seen " in
+      *" $ov_ref "*) : ;;
+      *)
+        echo "claude-vm: claude.plugins.enabled['$ov_ref'] names a plugin not in claude.plugins.bake or install_at_boot" >&2
+        return 1 ;;
+    esac
+    enabled_override["$ov_ref"]="$ov_val"
+  done < <(
+    yq eval '
+      .claude.plugins.enabled // {}
+      | to_entries | .[] | [.key, .value] | @tsv
+    ' "$file" 2>/dev/null
+  )
+
+  # Build the enabledPlugins object as a YAML fragment: every installed ref
+  # -> true, then apply the validated overrides.
+  local plugins_yaml="" value
+  for ref in ${installed[@]+"${installed[@]}"}; do
+    value="true"
+    if [ -n "${enabled_override[$ref]+x}" ]; then
+      value="${enabled_override[$ref]}"
+    fi
+    # Quote the key so a ref containing YAML-significant characters is a
+    # valid single mapping key; the value is a bare boolean literal.
+    plugins_yaml="${plugins_yaml}$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null): ${value}"$'\n'
+  done
 
   # An empty fragment (no plugin refs at all) must parse to an empty object,
   # not the empty string -- `"" | from_yaml` errors with EOF in yq. Default
@@ -604,110 +618,6 @@ claude_vm_render_guest_settings() {
         "enabledPlugins": (strenv(CLAUDE_VM_ENABLED_PLUGINS) | from_yaml // {})
       }
     ' "$file" 2>/dev/null
-}
-
-# ---------------------------------------------------------------------
-# claude-vm own-flags: --hook parser=on|off / --hook no-background-agents=on|off
-# (issue #104).
-#
-# These are claude-vm's OWN flags (the first of them; the #51 launcher forwards
-# everything else straight to the guest claude). They override the config hook
-# knobs (claude.hooks.parser / claude.hooks.no_background_agents) for ONE run --
-# affecting only the rendered settings.json's enabledPlugins entries -- and MUST
-# be consumed here so they never leak through to the guest `claude` argv.
-#
-# PURE and testable: given the post-repo CLI args, print a fixed 2-line header
-# (the resolved override for each knob, or the literal `-` when the flag was not
-# passed) followed by a `--ARGS--` sentinel line, then the REMAINING args (the
-# own-flags stripped out) one per line:
-#
-#   line 1:  parser override            -- "on" | "off" | "-"
-#   line 2:  no-background-agents override -- "on" | "off" | "-"
-#   line 3:  "--ARGS--"                 -- fixed sentinel
-#   line 4+: each surviving arg, one per line (may be zero lines)
-#
-# A `-` means "flag absent, do not override" -- the caller then falls back to
-# the config knob. Emitting a fixed marker (not just omitting the line) keeps
-# the header a constant two lines so the caller parses it positionally without
-# ambiguity when an override value happens to be empty.
-#
-# Accepted forms (both `--hook NAME=STATE` two-token and `--hook=NAME=STATE`
-# one-token):
-#   --hook parser=on            --hook parser=off
-#   --hook no-background-agents=on   --hook no-background-agents=off
-#   --hook=parser=on            (and the =-joined forms of the above)
-# An unknown hook name or a non-on/off state is an ERROR: the function prints a
-# claude-vm: diagnostic to stderr and returns non-zero, so the launcher aborts
-# rather than silently forwarding a malformed --hook to the guest claude (which
-# does not understand it) or silently ignoring a typo'd knob.
-#
-# One arg per line means an arg with embedded whitespace is preserved intact
-# (the caller reads it back with a line-oriented read loop, same contract as
-# claude_vm_augment_rc_args).
-claude_vm_split_hook_flags() {
-  local parser_override="-" nba_override="-"
-  local -a rest=()
-  local expect_hook_value=0 spec name state
-
-  # Apply one resolved NAME=STATE hook spec. Sets the matching override or
-  # returns non-zero on an unknown name / bad state (message on stderr).
-  _apply_hook_spec() {
-    local s="$1" n v
-    case "$s" in
-      *=*) n="${s%%=*}"; v="${s#*=}" ;;
-      *)
-        echo "claude-vm: --hook expects NAME=STATE (e.g. --hook parser=off); got '$s'" >&2
-        return 1 ;;
-    esac
-    case "$v" in
-      on|off) : ;;
-      *)
-        echo "claude-vm: --hook $n: state must be 'on' or 'off', got '$v'" >&2
-        return 1 ;;
-    esac
-    case "$n" in
-      parser)               parser_override="$v" ;;
-      no-background-agents) nba_override="$v" ;;
-      *)
-        echo "claude-vm: --hook: unknown hook '$n' (expected parser | no-background-agents)" >&2
-        return 1 ;;
-    esac
-    return 0
-  }
-
-  local a
-  for a in "$@"; do
-    if [ "$expect_hook_value" -eq 1 ]; then
-      expect_hook_value=0
-      _apply_hook_spec "$a" || { unset -f _apply_hook_spec; return 1; }
-      continue
-    fi
-    case "$a" in
-      --hook)
-        expect_hook_value=1 ;;
-      --hook=*)
-        spec="${a#--hook=}"
-        _apply_hook_spec "$spec" || { unset -f _apply_hook_spec; return 1; } ;;
-      *)
-        rest+=("$a") ;;
-    esac
-  done
-  unset -f _apply_hook_spec
-
-  # A trailing `--hook` with no value token is a usage error.
-  if [ "$expect_hook_value" -eq 1 ]; then
-    echo "claude-vm: --hook requires a NAME=STATE argument (e.g. --hook parser=off)" >&2
-    return 1
-  fi
-
-  printf '%s\n' "$parser_override"
-  printf '%s\n' "$nba_override"
-  printf -- '--ARGS--\n'
-  local r
-  for r in ${rest[@]+"${rest[@]}"}; do
-    printf '%s\n' "$r"
-  done
-  return 0
 }
 
 # ---------------------------------------------------------------------

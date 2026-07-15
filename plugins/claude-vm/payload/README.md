@@ -159,15 +159,16 @@ read, so the guest deliberately runs its own posture (the host lists govern
 Claude *outside* the VM; inside, one may run a different, riskier posture).
 It has two keys: `permissions` (`allow`/`ask`/`deny` verbatim from
 `claude.permissions.*`, plus `defaultMode` from `claude.permission_mode`,
-default `bypassPermissions`) and `enabledPlugins` (every ref in
-`claude.plugins.bake ++ claude.plugins.install_at_boot` mapped to `true`, with
-the hook knobs flipping their plugin to `false`: `claude.hooks.parser: off` →
-`guardrails@<mp>: false`; `claude.hooks.no_background_agents: off` →
-`block-background-agents@<mp>: false`). A per-run
-`claude-vm --hook parser=on|off --hook no-background-agents=on|off` overrides
-the config knobs for one launch (CLI wins); those are claude-vm's own flags,
-consumed by the launcher and never forwarded to the guest `claude`.
-`bypassPermissions` is *YOLO-by-default* — the VM is the isolation boundary,
+default `bypassPermissions`; only `bypassPermissions`/`default` are accepted,
+anything else aborts the launch) and `enabledPlugins` (every ref in
+`claude.plugins.bake ++ claude.plugins.install_at_boot` mapped to `true`, then
+the optional `claude.plugins.enabled` map — which mirrors `settings.json`'s own
+`enabledPlugins` vocabulary of plugin-ref → boolean — overrides those defaults
+per key, so `false` marks a plugin installed-but-disabled). The `enabled` map
+is validated once: every value must be boolean and every key must name an
+installed plugin ref, so a typo aborts the launch. claude-vm has **no** own
+CLI flags — plugin enable/disable state comes from the config files, not the
+command line. `bypassPermissions` is *YOLO-by-default* — the VM is the isolation boundary,
 with the deny list as backstop. Because the guest runs `claude` as **root**,
 and `claude` refuses `bypassPermissions` as root unless `IS_SANDBOX=1` (or
 `CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes `IS_SANDBOX=1` unconditionally
@@ -272,21 +273,15 @@ argv:
   computed host-side and passed in, so the helper stays pure and
   unit-tested.
 - `claude_vm_render_guest_settings` — renders the guest's
-  `settings.json` (issue #104) from the merged-config file plus the two
-  resolved hook states. Pure (file + two states in → JSON on stdout), so
-  it is unit-tested host-side. Emits `permissions` (`allow`/`ask`/`deny`
-  verbatim from `claude.permissions.*`, `defaultMode` from
-  `claude.permission_mode`) and `enabledPlugins` (bake ++ install_at_boot,
-  with the hook knobs flipping `guardrails@<mp>` /
-  `block-background-agents@<mp>` to `false` when off). Reads the claude-vm
-  config only — never the host `~/.claude/settings.json`.
-- `claude_vm_split_hook_flags` — splits claude-vm's own `--hook`
-  flags (issue #104) out of the post-repo CLI args. Pure: prints the
-  per-knob override (`on`/`off`/`-`) then an `--ARGS--` sentinel then the
-  surviving args, so the launcher strips the `--hook` flags before
-  forwarding argv to the guest `claude`. A malformed `--hook` (unknown
-  name / non-`on`/`off` state / missing value) returns non-zero so the
-  launcher aborts.
+  `settings.json` (issue #104) from the merged-config file. Pure (file in
+  → JSON on stdout), so it is unit-tested host-side. Emits `permissions`
+  (`allow`/`ask`/`deny` verbatim from `claude.permissions.*`, `defaultMode`
+  from `claude.permission_mode`) and `enabledPlugins` (every ref in
+  bake ++ install_at_boot defaults `true`, then `claude.plugins.enabled`
+  overrides per key). Validates the `enabled` map once (boolean values;
+  keys must name installed refs) and returns non-zero on a typo so the
+  launcher aborts. Reads the claude-vm config only — never the host
+  `~/.claude/settings.json`.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

@@ -69,32 +69,9 @@ REPO_SRC="${1:?usage: claude-vm <repo-path> [claude args...]}"
 shift
 CLAUDE_ARGS=("$@")
 
-# claude-vm own-flags: --hook parser=on|off / --hook no-background-agents=on|off
-# (issue #104). These are claude-vm's OWN flags -- they override the config hook
-# knobs for THIS run (affecting only the rendered guest settings.json) and MUST
-# be consumed here so they never reach the guest `claude` argv. Split them out of
-# CLAUDE_ARGS up front (before any config work), capturing the per-knob override
-# ("on"/"off", or "-" = not passed -> fall back to config) and the remaining args.
-# claude_vm_split_hook_flags is pure (lib/config.sh); it prints a 2-line header
-# (parser override, no-background-agents override) then an --ARGS-- sentinel then
-# the surviving args one per line. A malformed --hook (unknown name / bad state /
-# missing value) makes it exit non-zero with a claude-vm: diagnostic -> abort
-# here rather than silently forwarding a bad flag to the guest.
-HOOK_PARSER_OVERRIDE="-"
-HOOK_NBA_OVERRIDE="-"
-_hook_split_out="$(claude_vm_split_hook_flags ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})" || exit 1
-{
-  IFS= read -r HOOK_PARSER_OVERRIDE
-  IFS= read -r HOOK_NBA_OVERRIDE
-  IFS= read -r _hook_marker   # consume the --ARGS-- sentinel line
-  CLAUDE_ARGS=()
-  while IFS= read -r _line; do
-    CLAUDE_ARGS+=("$_line")
-  done
-} <<HOOKSPLIT
-$_hook_split_out
-HOOKSPLIT
-unset _hook_split_out _hook_marker _line
+# claude-vm has NO own-flags: every post-repo arg is forwarded to the guest
+# claude verbatim (the #51 launcher contract). The guest's plugin enable/disable
+# state comes from the config files (claude.plugins.enabled), not from CLI flags.
 
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
@@ -205,34 +182,20 @@ done < <(claude_vm_augment_rc_args \
 CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
 unset _rc_name_stamp _augmented_args _line
 
-# Resolve the two guardrails hook states for the rendered guest settings.json
-# (issue #104). Precedence: the per-run CLI --hook override (parsed out of
-# CLAUDE_ARGS above) wins; otherwise the config knob (claude.hooks.parser /
-# claude.hooks.no_background_agents), which merge-resolution already layered
-# repo-over-global; otherwise the built-in default ("on"). The resolved states
-# drive claude_vm_render_guest_settings' enabledPlugins flips below. Validate the
-# config knob to on/off so a typo aborts here rather than silently rendering an
-# unexpected enabledPlugins entry.
-if [ "$HOOK_PARSER_OVERRIDE" != "-" ]; then
-  HOOK_PARSER_STATE="$HOOK_PARSER_OVERRIDE"
-else
-  HOOK_PARSER_STATE="$(claude_vm_scalar "$MERGED" '.claude.hooks.parser' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER")"
-fi
-if [ "$HOOK_NBA_OVERRIDE" != "-" ]; then
-  HOOK_NBA_STATE="$HOOK_NBA_OVERRIDE"
-else
-  HOOK_NBA_STATE="$(claude_vm_scalar "$MERGED" '.claude.hooks.no_background_agents' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS")"
-fi
-case "$HOOK_PARSER_STATE" in
-  on|off) : ;;
+# Resolve and enum-guard claude.permission_mode for the rendered guest
+# settings.json (issue #104). This is a security-posture value -- it becomes
+# permissions.defaultMode in the guest's settings.json -- and there is no
+# reasoning model for how the guest claude behaves under an unknown defaultMode,
+# so accept ONLY the two known modes and abort on anything else, mirroring the
+# scalar-enum validation used for claude.renderer / claude.remote_control above.
+# The render (claude_vm_render_guest_settings) re-reads this key with the same
+# default, but the authoritative guard is HERE so a typo aborts the launch
+# rather than writing an unexpected defaultMode into the guest.
+CLAUDE_PERMISSION_MODE="$(claude_vm_scalar "$MERGED" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+case "$CLAUDE_PERMISSION_MODE" in
+  bypassPermissions|default) : ;;
   *)
-    echo "claude-vm: claude.hooks.parser must be 'on' or 'off', got '$HOOK_PARSER_STATE'" >&2
-    exit 1 ;;
-esac
-case "$HOOK_NBA_STATE" in
-  on|off) : ;;
-  *)
-    echo "claude-vm: claude.hooks.no_background_agents must be 'on' or 'off', got '$HOOK_NBA_STATE'" >&2
+    echo "claude-vm: claude.permission_mode must be 'bypassPermissions' or 'default', got '$CLAUDE_PERMISSION_MODE'" >&2
     exit 1 ;;
 esac
 
@@ -551,13 +514,14 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 #
 # Host-side render of /root/.claude/settings.json from the merged config: the
 # permission allow/ask/deny lists, the permission defaultMode
-# (claude.permission_mode, default bypassPermissions), and the enabledPlugins
-# object (claude.plugins.bake ++ install_at_boot, with the two hook knobs
-# flipping their plugin entries -- states already resolved into
-# HOOK_PARSER_STATE / HOOK_NBA_STATE above, CLI --hook overriding config). The
-# permissions come from the claude-vm configs ONLY -- the host's
-# ~/.claude/settings.json is NEVER read, so the guest's Claude surface is defined
-# entirely by claude-vm, per the issue's product intent.
+# (claude.permission_mode, default bypassPermissions, enum-guarded above), and
+# the enabledPlugins object (every ref in claude.plugins.bake ++ install_at_boot
+# defaults true, then claude.plugins.enabled overrides per key). The permissions
+# come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
+# NEVER read, so the guest's Claude surface is defined entirely by claude-vm, per
+# the issue's product intent. The render also VALIDATES claude.plugins.enabled
+# (boolean values, keys must name installed plugins) and returns non-zero on a
+# typo, so a bad enabled map aborts the launch here.
 #
 # It rides the SAME transient claudecreds mount ($CREDS_DIR, mountTag=claudecreds)
 # as the credential and identity seed, and the guest boot launcher installs it at
@@ -567,7 +531,7 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # still inside the umask-077 window, so it lands 0600 like its dir-mates; the
 # chmod 600 is belt-and-braces.
 GUEST_SETTINGS="$CREDS_DIR/settings.json"
-claude_vm_render_guest_settings "$MERGED" "$HOOK_PARSER_STATE" "$HOOK_NBA_STATE" > "$GUEST_SETTINGS" \
+claude_vm_render_guest_settings "$MERGED" > "$GUEST_SETTINGS" \
   || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
 chmod 600 "$GUEST_SETTINGS"
 
@@ -907,10 +871,16 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
     # boot launcher execs /mnt/claudebin/claude against /mnt/repo.
     printf 'CLAUDEBIN_TAG=claudebin\n'
-    # The host's claude.ai OAuth credential's containing dir is shared
-    # under this virtio-fs tag (mounted RO at /mnt/claudecreds by the guest
-    # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
-    # (mode 0600) so claude authenticates as the host operator.
+    # The claudecreds dir carries ALL host-rendered guest ~/.claude files --
+    # not just credentials: the OAuth credential (.credentials.json, a SECRET),
+    # the identity seed (claude-json-seed.json, account identity -- also
+    # sensitive), and the rendered settings.json (permissions + enabledPlugins,
+    # NOT a secret). Its containing dir is shared under this virtio-fs tag
+    # (mounted RO at /mnt/claudecreds by the guest fstab); the boot launcher
+    # installs each file into $HOME/.claude/ (mode 0600) so the guest comes up
+    # authenticated, onboarded, and under the claude-vm permission posture. One
+    # tag for all three avoids adding extra virtio-fs devices; the whole dir is
+    # shredded on exit regardless of which files are secret.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
     # Host terminal geometry (issue #88). Empty when not launched from a real
     # terminal; the boot launcher only runs `stty` when both are non-empty.
