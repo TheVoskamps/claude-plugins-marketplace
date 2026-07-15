@@ -45,27 +45,9 @@ branch name is the authoritative issue. If the passed
 PR's head branch, prefer the branch's `<N>` and note the discrepancy
 in the report-back.
 
-## Required repo-config: source-control
-
-This skill only needs to know whether the repo is GitHub-backed — it
-does not need the full repo-config reader contract. Read the
-`source-control:` field directly from
-`.claude/rules/repo-config.md`'s front-matter (a plain YAML
-`key: value` line near the top of the file):
-
-- `source-control: GitHub`, or the field is absent/unreadable but
-  `gh` is available → proceed.
-- `source-control: CodeCommit` → abort cleanly with: "CodeCommit
-  source-control selected, but `/pr-link-issue` is GitHub-only and the
-  CodeCommit path is not implemented." (This mirrors how
-  `issue-developer` handles the CodeCommit PR-create path today.)
-
 ## Execution
 
-1. Read `source-control` per "Required repo-config" above and abort
-   if it is not GitHub.
-
-2. **Resolve the authoritative issue number.** Fetch the PR's head
+1. **Resolve the authoritative issue number.** Fetch the PR's head
    branch and body:
 
    ```bash
@@ -76,7 +58,7 @@ does not need the full repo-config reader contract. Read the
    authoritative issue number (per "Own issue only"); otherwise use
    the passed `<issue-number>`. Call the result `<issue>`.
 
-3. **Idempotent check.** Scan the PR body for a closing keyword
+2. **Idempotent check.** Scan the PR body for a closing keyword
    (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
    `resolves`/`resolved`, case-insensitive) immediately followed by a
    reference to `<issue>` — i.e. the keyword, optional whitespace,
@@ -88,7 +70,7 @@ does not need the full repo-config reader contract. Read the
    - **Already linked** → no-op. Report `PR #<PR> already closes
      #<issue>` and stop. Do not append a duplicate keyword.
 
-4. **Append.** If no such keyword-reference pair is present, append
+3. **Append.** If no such keyword-reference pair is present, append
    `Closes #<issue>` to the existing PR body (preserve the current
    body; add the line separated by a blank line) and write it back:
 
@@ -102,5 +84,5 @@ does not need the full repo-config reader contract. Read the
    `Closes #<issue>` line. Do not add a closing keyword aimed at any
    other issue, and never write the keyword into a commit message.
 
-5. Report back a single line: whether the PR was already linked or the
+4. Report back a single line: whether the PR was already linked or the
    `Closes #<issue>` line was appended, naming `<PR>` and `<issue>`.
