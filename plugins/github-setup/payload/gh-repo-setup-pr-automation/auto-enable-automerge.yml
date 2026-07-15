@@ -73,7 +73,7 @@ on:
 # This workflow has two jobs with disjoint trigger sets:
 #
 #  1. enable-automerge -- runs on pull_request opened/reopened/
-#     ready_for_review. Enables GitHub's native auto-merge on every PR to
+#     ready_for_review/synchronize. Enables GitHub's native auto-merge on every PR to
 #     __DEFAULT_BRANCH__ so the PR merges automatically once required
 #     checks + approvals are green. This is the path for HUMAN PRs: native
 #     auto-merge waits for the full ruleset (review + code-owner + status
