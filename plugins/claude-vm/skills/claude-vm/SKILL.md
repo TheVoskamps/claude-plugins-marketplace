@@ -207,11 +207,16 @@ github:
   `--remote-control` on the command line — see the interactive-session
   section below.
 
-The following keys are schema + merge only as of issue #103 — the
-consumers that actually bake/install packages, render Claude settings,
-seed marketplaces/plugins, wire the guardrails hooks, or seed a GitHub
-token land in sibling slices under #39. They resolve correctly through
-`payload/lib/config.sh` today; nothing downstream reads them yet.
+`claude.permission_mode`, `claude.permissions.*`,
+`claude.plugins.bake` / `.install_at_boot` (as `enabledPlugins`), and
+`claude.hooks.*` are **consumed** by the guest `settings.json` render
+(issue #104) — the launcher renders `/root/.claude/settings.json`
+host-side and shares it into the guest (see "Guest Claude settings.json"
+below). The remaining keys are schema + merge only as of issue #103 — the
+consumers that actually bake/install packages, seed marketplaces/plugins,
+or seed a GitHub token land in sibling slices under #39. They resolve
+correctly through `payload/lib/config.sh` today; nothing downstream reads
+them yet.
 
 - `packages.bake` / `packages.install_at_boot` list the apt packages to
   bake into the guest image vs. install at boot (blocking, before
@@ -225,24 +230,52 @@ token land in sibling slices under #39. They resolve correctly through
   them (`auto`), or unconditionally so in-session installs also work
   (`always`). The knob never removes URIs that scheduled boot-time work
   requires.
-- `claude.permission_mode` (`bypassPermissions` default | `default`)
-  and `claude.permissions.allow` / `.ask` / `.deny` (each a unioned
-  list) become the in-guest Claude settings' permission mode and
-  permission rules.
 - `claude.marketplaces` (union of `{name, url}` entries) and
-  `claude.plugins.bake` / `.install_at_boot` (unioned lists of
-  `plugin@marketplace` refs) control which marketplaces and plugins the
-  guest has available, baked vs. installed at boot.
-  `claude.plugins.update_at_boot` (default `true`) refreshes
-  marketplaces and reinstalls changed plugins at boot.
-  `claude.plugins.add_marketplace_uris_to_allowlist` (`auto` default |
-  `always`) is the marketplace-URI analogue of
-  `packages.add_apt_uris_to_allowlist`.
-- `claude.hooks.parser` and `claude.hooks.no_background_agents` (each
-  `"on"` default | `"off"`) toggle the guardrails permission-gate hook
-  and the block-background-agents hook in the guest.
+  `claude.plugins.update_at_boot` (default `true`) / `.add_marketplace_uris_to_allowlist`
+  (`auto` default | `always`) control which marketplaces the guest has
+  available and how plugin refresh/allowlisting works at boot.
+  (`claude.plugins.bake` / `.install_at_boot` are consumed by the
+  settings.json render below as `enabledPlugins`; the actual plugin
+  installation is still a #39 sibling slice.)
 - `github.auth` (`none` default | `host-token`) selects whether the
   guest is seeded with a GitHub auth token derived from the host.
+
+### Guest Claude settings.json (issue #104)
+
+The launcher renders the guest's `/root/.claude/settings.json`
+host-side from the merged config and shares it into the guest over the
+existing transient `claudecreds` mount (the same one the OAuth
+credential and identity seed ride). The guest boot launcher installs it
+at `$HOME/.claude/settings.json`. The rendered file is derived from the
+claude-vm configs **only** — the host's `~/.claude/settings.json` is
+never read, so the guest deliberately runs its own (possibly riskier)
+posture:
+
+- `permissions.allow` / `.ask` / `.deny` come verbatim from
+  `claude.permissions.*` (each a unioned list).
+- `permissions.defaultMode` comes from `claude.permission_mode`
+  (`bypassPermissions` default | `default`). YOLO-by-default: the VM is
+  the isolation boundary, so `bypassPermissions` is the default with the
+  deny list as backstop. The guest runs claude as **root**, which claude
+  refuses in `bypassPermissions` unless `IS_SANDBOX=1`; the launcher sets
+  `IS_SANDBOX=1` unconditionally in `run.env` (the guest *is* the
+  sandbox).
+- `enabledPlugins` maps every ref in
+  `claude.plugins.bake ++ claude.plugins.install_at_boot` to `true`, with
+  the two hook knobs flipping their plugin's entry to `false` when off:
+  `claude.hooks.parser: off` → `guardrails@<mp>: false`,
+  `claude.hooks.no_background_agents: off` →
+  `block-background-agents@<mp>: false`. A knob only matters when its
+  plugin is actually in a plugin list; `off` means installed-but-disabled
+  (re-enabling needs no reinstall).
+
+**Per-run `--hook` override.** Pass
+`claude-vm --hook parser=on|off --hook no-background-agents=on|off` to
+override the config hook knobs for a single launch (affecting only the
+rendered `enabledPlugins`). These are claude-vm's own flags — they are
+consumed by the launcher and never forwarded to the guest `claude`. CLI
+wins over the config knob for that run. A malformed `--hook` (unknown
+hook name, or a state other than `on`/`off`) aborts the launch.
 
 ## Interactive session (the launching terminal IS the in-VM claude)
 

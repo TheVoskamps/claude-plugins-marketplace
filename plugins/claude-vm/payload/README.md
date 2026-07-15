@@ -149,6 +149,32 @@ RO-mounted binary, so an update attempt can only ever fail. That knob is not
 a secret, so `run.env` (sourced under `set -a` in the guest launcher) is the
 right vehicle.
 
+**Rendered guest `settings.json` + `IS_SANDBOX` (issue #104).** The launcher
+renders the guest's `/root/.claude/settings.json` **host-side** from the
+merged claude-vm config and shares it into the guest over the same transient
+`claudecreds` mount as the credential and seed; the boot launcher installs it
+at `$HOME/.claude/settings.json`. The rendered file is derived from the
+claude-vm configs **only** — the host's `~/.claude/settings.json` is never
+read, so the guest deliberately runs its own posture (the host lists govern
+Claude *outside* the VM; inside, one may run a different, riskier posture).
+It has two keys: `permissions` (`allow`/`ask`/`deny` verbatim from
+`claude.permissions.*`, plus `defaultMode` from `claude.permission_mode`,
+default `bypassPermissions`) and `enabledPlugins` (every ref in
+`claude.plugins.bake ++ claude.plugins.install_at_boot` mapped to `true`, with
+the hook knobs flipping their plugin to `false`: `claude.hooks.parser: off` →
+`guardrails@<mp>: false`; `claude.hooks.no_background_agents: off` →
+`block-background-agents@<mp>: false`). A per-run
+`claude-vm --hook parser=on|off --hook no-background-agents=on|off` overrides
+the config knobs for one launch (CLI wins); those are claude-vm's own flags,
+consumed by the launcher and never forwarded to the guest `claude`.
+`bypassPermissions` is *YOLO-by-default* — the VM is the isolation boundary,
+with the deny list as backstop. Because the guest runs `claude` as **root**,
+and `claude` refuses `bypassPermissions` as root unless `IS_SANDBOX=1` (or
+`CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes `IS_SANDBOX=1` unconditionally
+into `run.env` — the guest *is* the sandbox. `settings.json` is not a secret,
+but it rides the `claudecreds` mount so every host-rendered guest `~/.claude`
+file arrives over one dir rather than adding another virtio-fs device.
+
 **Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
 structurally-complete `claudeAiOauth` object whose `accessToken` and
 `refreshToken` are **empty strings** (with `expiresAt: 0`) — a degraded
@@ -245,6 +271,22 @@ argv:
   `--remote-control`, the args pass through unchanged. The date stamp is
   computed host-side and passed in, so the helper stays pure and
   unit-tested.
+- `claude_vm_render_guest_settings` — renders the guest's
+  `settings.json` (issue #104) from the merged-config file plus the two
+  resolved hook states. Pure (file + two states in → JSON on stdout), so
+  it is unit-tested host-side. Emits `permissions` (`allow`/`ask`/`deny`
+  verbatim from `claude.permissions.*`, `defaultMode` from
+  `claude.permission_mode`) and `enabledPlugins` (bake ++ install_at_boot,
+  with the hook knobs flipping `guardrails@<mp>` /
+  `block-background-agents@<mp>` to `false` when off). Reads the claude-vm
+  config only — never the host `~/.claude/settings.json`.
+- `claude_vm_split_hook_flags` — splits claude-vm's own `--hook`
+  flags (issue #104) out of the post-repo CLI args. Pure: prints the
+  per-knob override (`on`/`off`/`-`) then an `--ARGS--` sentinel then the
+  surviving args, so the launcher strips the `--hook` flags before
+  forwarding argv to the guest `claude`. A malformed `--hook` (unknown
+  name / non-`on`/`off` state / missing value) returns non-zero so the
+  launcher aborts.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

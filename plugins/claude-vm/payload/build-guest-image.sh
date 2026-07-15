@@ -154,7 +154,9 @@ emit_boot_launcher() {
 # operator (issue #50) AND the host's identity seed (userID + oauthAccount +
 # synthesized onboarding/auto-update/version keys, benign host UI keys, and a
 # /mnt/repo projects entry that skips the trust dialog) into $HOME/.claude.json
-# so the interactive TUI comes up already onboarded + logged in (issue #88), seeds
+# so the interactive TUI comes up already onboarded + logged in (issue #88) AND
+# the host-rendered settings.json (permissions allow/ask/deny + defaultMode +
+# enabledPlugins) into $HOME/.claude/settings.json (issue #104), seeds
 # the tty geometry from the host (issue #88), then
 # `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
@@ -272,6 +274,38 @@ if [ -s "$MOUNTED_CLAUDE_JSON_SEED" ]; then
 else
   log "claude-vm: no identity seed found at $MOUNTED_CLAUDE_JSON_SEED (mountTag=claudecreds);"
   log "claude-vm: continuing without it -- claude may show its onboarding/login wall on this console."
+fi
+
+# ---------------------------------------------------------------------
+# Settings: install the host-rendered guest settings.json (issue #104).
+#
+# The host rendered /root/.claude/settings.json from the merged claude-vm config
+# -- the permission allow/ask/deny lists, permissions.defaultMode
+# (claude.permission_mode, YOLO-by-default bypassPermissions), and the
+# enabledPlugins object (with the guardrails/block-background-agents hook knobs
+# and per-run --hook flags flipping their entries) -- and shared it into the SAME
+# claudecreds mount as the credential + seed above. Those permissions come from
+# the claude-vm configs ONLY; the host's ~/.claude/settings.json is never
+# consulted (the VM deliberately runs its own, possibly riskier, posture). claude
+# reads its settings from $HOME/.claude/settings.json, so copy the mounted file
+# there. The RO virtio-fs mount cannot BE that file, so copy (don't symlink), the
+# same as the credential above. $CRED_DIR ($CLAUDE_HOME/.claude) already exists
+# from the credential install above.
+#
+# ADDITIVE and tolerated-when-absent: like the identity seed (and unlike the
+# credential, a hard requirement), a missing settings.json is logged and the
+# guest still boots -- claude then falls back to its own built-in defaults (no
+# allow/ask/deny, interactive permission prompts). The host launcher always
+# renders one, so absence here is unexpected but not worth aborting a bootable
+# guest.
+MOUNTED_GUEST_SETTINGS="$CLAUDECREDS_MNT/settings.json"
+if [ -s "$MOUNTED_GUEST_SETTINGS" ]; then
+  cp "$MOUNTED_GUEST_SETTINGS" "$CRED_DIR/settings.json"
+  chmod 600 "$CRED_DIR/settings.json"
+  log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.json (permissions + enabledPlugins)."
+else
+  log "claude-vm: no rendered settings.json found at $MOUNTED_GUEST_SETTINGS (mountTag=claudecreds);"
+  log "claude-vm: continuing without it -- claude falls back to its built-in defaults (no allow/ask/deny)."
 fi
 
 # ---------------------------------------------------------------------

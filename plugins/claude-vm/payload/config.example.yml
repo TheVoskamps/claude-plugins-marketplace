@@ -105,14 +105,18 @@ claude:
   # (or leave unset); any other value aborts the launch.
   # remote_control: false
 
-  # Guest Claude permission mode + permission rules (issue #103; schema +
-  # merge only -- the settings-rendering consumer lands in a sibling slice
-  # under #39).
+  # Guest Claude permission mode + permission rules (issue #103 schema, rendered
+  # into the guest /root/.claude/settings.json by issue #104). The guest's Claude
+  # surface is defined by THESE claude-vm configs ONLY -- the host's
+  # ~/.claude/settings.json is never copied in. YOLO-by-default: the VM is the
+  # isolation boundary, so permission_mode defaults to bypassPermissions with the
+  # deny list as backstop. Per-run override: claude-vm --hook has no bearing here;
+  # to run one launch under interactive prompts, set permission_mode: default.
   permission_mode: bypassPermissions   # bypassPermissions (default) | default
   permissions:
     allow: []             # list, union
     ask: []               # list, union
-    deny: []              # list, union
+    deny: []              # list, union -- enforced even under bypassPermissions
 
   # Marketplaces + plugins available to the guest (issue #103; schema +
   # merge only).
@@ -129,7 +133,15 @@ claude:
                           # packages.add_apt_uris_to_allowlist, applied to
                           # marketplace URIs (scalar)
 
-  # Guardrails hook toggles (issue #103; schema + merge only).
+  # Guardrails hook toggles (issue #103 schema, consumed by issue #104's
+  # settings.json render). Each knob flips its plugin's enabledPlugins entry in
+  # the rendered guest settings.json: parser: off -> guardrails@<mp>: false;
+  # no_background_agents: off -> block-background-agents@<mp>: false. A knob is
+  # meaningful only when its plugin is in claude.plugins.bake/install_at_boot;
+  # "off" means installed-but-disabled (re-enabling needs no reinstall). Override
+  # per run without editing config via
+  #   claude-vm --hook parser=on|off --hook no-background-agents=on|off
+  # (CLI wins over these config knobs for that one launch).
   hooks:
     parser: "on"                # guardrails permission-gate hook: on
                                 # (default) | off (scalar, repo wins)

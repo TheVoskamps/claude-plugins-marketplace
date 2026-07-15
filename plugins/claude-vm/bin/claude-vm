@@ -81,8 +81,30 @@ REPO_NAME="${REPO_NAME%.git}"
 #    used instead of the computed-but-unused RUN_NAME.
 # ---------------------------------------------------------------------
 CLAUDE_ARGS=("$@")
-if [ "$#" -gt 0 ]; then
-  SUFFIX="$*"
+# Build the run-name suffix from the trailing args, EXCLUDING claude-vm's own
+# --hook flags (issue #104: --hook parser=on|off / --hook no-background-agents=
+# on|off). Those are consumed by payload/claude-vm.sh and never reach the guest
+# claude, so folding them into the run name would produce a nonsense name like
+# "--hook parser=off <repo>". Drop `--hook` and its following value token (the
+# two-token form) and any `--hook=...` (the =-joined form) from the suffix. If
+# that leaves nothing (only own-flags were passed), fall back to the date stamp,
+# same as the no-args case. This is name-derivation ONLY -- CLAUDE_ARGS still
+# forwards the --hook flags verbatim to the launcher, which parses them.
+SUFFIX_PARTS=()
+SKIP_NEXT=0
+for arg in ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"}; do
+  if [ "$SKIP_NEXT" -eq 1 ]; then
+    SKIP_NEXT=0
+    continue
+  fi
+  case "$arg" in
+    --hook)   SKIP_NEXT=1; continue ;;
+    --hook=*) continue ;;
+  esac
+  SUFFIX_PARTS+=("$arg")
+done
+if [ "${#SUFFIX_PARTS[@]}" -gt 0 ]; then
+  SUFFIX="${SUFFIX_PARTS[*]}"
 else
   SUFFIX="$(date '+%b%d-%H:%M')"
 fi

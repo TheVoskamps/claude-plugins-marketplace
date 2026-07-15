@@ -69,6 +69,33 @@ REPO_SRC="${1:?usage: claude-vm <repo-path> [claude args...]}"
 shift
 CLAUDE_ARGS=("$@")
 
+# claude-vm own-flags: --hook parser=on|off / --hook no-background-agents=on|off
+# (issue #104). These are claude-vm's OWN flags -- they override the config hook
+# knobs for THIS run (affecting only the rendered guest settings.json) and MUST
+# be consumed here so they never reach the guest `claude` argv. Split them out of
+# CLAUDE_ARGS up front (before any config work), capturing the per-knob override
+# ("on"/"off", or "-" = not passed -> fall back to config) and the remaining args.
+# claude_vm_split_hook_flags is pure (lib/config.sh); it prints a 2-line header
+# (parser override, no-background-agents override) then an --ARGS-- sentinel then
+# the surviving args one per line. A malformed --hook (unknown name / bad state /
+# missing value) makes it exit non-zero with a claude-vm: diagnostic -> abort
+# here rather than silently forwarding a bad flag to the guest.
+HOOK_PARSER_OVERRIDE="-"
+HOOK_NBA_OVERRIDE="-"
+_hook_split_out="$(claude_vm_split_hook_flags ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})" || exit 1
+{
+  IFS= read -r HOOK_PARSER_OVERRIDE
+  IFS= read -r HOOK_NBA_OVERRIDE
+  IFS= read -r _hook_marker   # consume the --ARGS-- sentinel line
+  CLAUDE_ARGS=()
+  while IFS= read -r _line; do
+    CLAUDE_ARGS+=("$_line")
+  done
+} <<HOOKSPLIT
+$_hook_split_out
+HOOKSPLIT
+unset _hook_split_out _hook_marker _line
+
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
 REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
@@ -177,6 +204,37 @@ done < <(claude_vm_augment_rc_args \
            ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
 CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
 unset _rc_name_stamp _augmented_args _line
+
+# Resolve the two guardrails hook states for the rendered guest settings.json
+# (issue #104). Precedence: the per-run CLI --hook override (parsed out of
+# CLAUDE_ARGS above) wins; otherwise the config knob (claude.hooks.parser /
+# claude.hooks.no_background_agents), which merge-resolution already layered
+# repo-over-global; otherwise the built-in default ("on"). The resolved states
+# drive claude_vm_render_guest_settings' enabledPlugins flips below. Validate the
+# config knob to on/off so a typo aborts here rather than silently rendering an
+# unexpected enabledPlugins entry.
+if [ "$HOOK_PARSER_OVERRIDE" != "-" ]; then
+  HOOK_PARSER_STATE="$HOOK_PARSER_OVERRIDE"
+else
+  HOOK_PARSER_STATE="$(claude_vm_scalar "$MERGED" '.claude.hooks.parser' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER")"
+fi
+if [ "$HOOK_NBA_OVERRIDE" != "-" ]; then
+  HOOK_NBA_STATE="$HOOK_NBA_OVERRIDE"
+else
+  HOOK_NBA_STATE="$(claude_vm_scalar "$MERGED" '.claude.hooks.no_background_agents' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS")"
+fi
+case "$HOOK_PARSER_STATE" in
+  on|off) : ;;
+  *)
+    echo "claude-vm: claude.hooks.parser must be 'on' or 'off', got '$HOOK_PARSER_STATE'" >&2
+    exit 1 ;;
+esac
+case "$HOOK_NBA_STATE" in
+  on|off) : ;;
+  *)
+    echo "claude-vm: claude.hooks.no_background_agents must be 'on' or 'off', got '$HOOK_NBA_STATE'" >&2
+    exit 1 ;;
+esac
 
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
@@ -487,6 +545,31 @@ EFISTORE="$RUN/efistore"
 # world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
+
+# ---------------------------------------------------------------------
+# Render the guest Claude settings.json (issue #104).
+#
+# Host-side render of /root/.claude/settings.json from the merged config: the
+# permission allow/ask/deny lists, the permission defaultMode
+# (claude.permission_mode, default bypassPermissions), and the enabledPlugins
+# object (claude.plugins.bake ++ install_at_boot, with the two hook knobs
+# flipping their plugin entries -- states already resolved into
+# HOOK_PARSER_STATE / HOOK_NBA_STATE above, CLI --hook overriding config). The
+# permissions come from the claude-vm configs ONLY -- the host's
+# ~/.claude/settings.json is NEVER read, so the guest's Claude surface is defined
+# entirely by claude-vm, per the issue's product intent.
+#
+# It rides the SAME transient claudecreds mount ($CREDS_DIR, mountTag=claudecreds)
+# as the credential and identity seed, and the guest boot launcher installs it at
+# $HOME/.claude/settings.json. settings.json is NOT a secret, but sharing it via
+# the existing claudecreds mount avoids adding another virtio-fs device and keeps
+# every host-rendered guest ~/.claude file arriving over one dir. Written now,
+# still inside the umask-077 window, so it lands 0600 like its dir-mates; the
+# chmod 600 is belt-and-braces.
+GUEST_SETTINGS="$CREDS_DIR/settings.json"
+claude_vm_render_guest_settings "$MERGED" "$HOOK_PARSER_STATE" "$HOOK_NBA_STATE" > "$GUEST_SETTINGS" \
+  || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
+chmod 600 "$GUEST_SETTINGS"
 
 # ---------------------------------------------------------------------
 # Host claude.ai OAuth credential -> transient, owner-only tmpfile.
@@ -807,8 +890,9 @@ RUN_ENV="$CONFIG_DIR/run.env"
 #     numerics on a real tty; empty on a non-tty). Provably-numeric in
 #     practice, but %q-quoted defensively since they come from a subprocess.
 #   - NO_PROXY, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
-#     DISABLE_AUTOUPDATER, and the renderer CLAUDE_CODE_* vars: FIXED LITERALS
-#     (or emitted only for a validated enum value) -> provably safe, left as-is.
+#     DISABLE_AUTOUPDATER, IS_SANDBOX, and the renderer CLAUDE_CODE_* vars:
+#     FIXED LITERALS (or emitted only for a validated enum value) -> provably
+#     safe, left as-is.
 #   - CLAUDE_ARGS: arbitrary user CLI args -> the per-arg-%q + outer-%q
 #     round-trip below (its own dedicated fix).
 (
@@ -848,6 +932,17 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # an update attempt can only ever fail. Not a secret -- run.env is the right
     # vehicle.
     printf 'DISABLE_AUTOUPDATER=1\n'
+    # IS_SANDBOX=1 unconditionally (issue #104). The guest runs claude as ROOT
+    # (hvc1 autologin, issue #88), and claude REFUSES to start in
+    # bypassPermissions as root unless IS_SANDBOX=1 (or CLAUDE_CODE_BUBBLEWRAP=1)
+    # -- confirmed from the claude-code source quoted in anthropics/claude-code
+    # #58510. The guest IS the sandbox (the VM is the isolation boundary), so set
+    # it always: bypassPermissions is the default guest posture, and even under
+    # permission_mode: default this is a correct, harmless assertion (the guest is
+    # a sandbox regardless). A FIXED LITERAL -> provably safe under the run.env
+    # `set -a` sourcing (value-quoting audit above). The boot launcher sources
+    # run.env under `set -a`, so it exports into claude's environment for free.
+    printf 'IS_SANDBOX=1\n'
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
     # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced

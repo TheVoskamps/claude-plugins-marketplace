@@ -764,6 +764,165 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Test 14: guest settings.json render (issue #104).
+#
+# claude_vm_render_guest_settings is pure (merged-config file + two resolved
+# hook states -> settings.json on stdout). Cover the acceptance criteria that
+# are verifiable host-side: config-only permissions, defaultMode from
+# permission_mode, enabledPlugins from bake ++ install_at_boot, the hook-knob
+# flips, and CLI-over-config precedence (exercised via the resolved state the
+# caller passes in). A tiny JSON reader (yq) inspects the emitted document.
+# ---------------------------------------------------------------------
+S_FULL="$WORK/settings-full.yml"
+cat > "$S_FULL" <<'YML'
+claude:
+  permission_mode: bypassPermissions
+  permissions:
+    allow:
+      - "Bash(git:*)"
+    ask:
+      - "Bash(rm:*)"
+    deny:
+      - "Bash(ssh-keygen:*)"
+  plugins:
+    bake:
+      - guardrails@thevoskamps
+      - block-background-agents@thevoskamps
+    install_at_boot:
+      - issues@thevoskamps
+YML
+
+# get_json <settings-json> <yq-json-path> -- read one scalar from rendered JSON.
+# Output is the RAW scalar (yq default output), so a string value comes back
+# bare ("default", not "\"default\"") and a boolean/number bare too. `null` for
+# an absent path.
+get_json() {
+  printf '%s' "$1" | yq -p=json eval "$2" - 2>/dev/null
+}
+
+# All hooks on: permissions verbatim, defaultMode bypassPermissions, all
+# plugins true.
+R_ON="$(claude_vm_render_guest_settings "$S_FULL" on on)"
+assert_eq "render: defaultMode from permission_mode (bypassPermissions)" \
+  "bypassPermissions" "$(get_json "$R_ON" '.permissions.defaultMode')"
+assert_eq "render: permissions.allow verbatim from config" \
+  "Bash(git:*)" "$(get_json "$R_ON" '.permissions.allow[0]')"
+assert_eq "render: permissions.ask verbatim from config" \
+  "Bash(rm:*)" "$(get_json "$R_ON" '.permissions.ask[0]')"
+assert_eq "render: configured deny rule present" \
+  "Bash(ssh-keygen:*)" "$(get_json "$R_ON" '.permissions.deny[0]')"
+assert_eq "render: guardrails enabled when parser=on" \
+  "true" "$(get_json "$R_ON" '.enabledPlugins["guardrails@thevoskamps"]')"
+assert_eq "render: block-background-agents enabled when no-bg=on" \
+  "true" "$(get_json "$R_ON" '.enabledPlugins["block-background-agents@thevoskamps"]')"
+assert_eq "render: non-hook plugin (issues) always enabled" \
+  "true" "$(get_json "$R_ON" '.enabledPlugins["issues@thevoskamps"]')"
+
+# parser off -> only guardrails flips to false; the others stay true.
+R_POFF="$(claude_vm_render_guest_settings "$S_FULL" off on)"
+assert_eq "render: parser=off flips guardrails to false" \
+  "false" "$(get_json "$R_POFF" '.enabledPlugins["guardrails@thevoskamps"]')"
+assert_eq "render: parser=off leaves block-background-agents true" \
+  "true" "$(get_json "$R_POFF" '.enabledPlugins["block-background-agents@thevoskamps"]')"
+
+# no-background-agents off -> only that plugin flips.
+R_NOFF="$(claude_vm_render_guest_settings "$S_FULL" on off)"
+assert_eq "render: no-bg=off flips block-background-agents to false" \
+  "false" "$(get_json "$R_NOFF" '.enabledPlugins["block-background-agents@thevoskamps"]')"
+assert_eq "render: no-bg=off leaves guardrails true" \
+  "true" "$(get_json "$R_NOFF" '.enabledPlugins["guardrails@thevoskamps"]')"
+
+# Config-only permissions: the render NEVER reads host settings; with no
+# claude.permissions.* set, the lists are empty (NOT populated from anywhere).
+S_EMPTY="$WORK/settings-empty.yml"
+printf 'claude:\n  permission_mode: default\n' > "$S_EMPTY"
+R_EMPTY="$(claude_vm_render_guest_settings "$S_EMPTY" on on)"
+assert_eq "render: permission_mode: default -> defaultMode default" \
+  "default" "$(get_json "$R_EMPTY" '.permissions.defaultMode')"
+assert_eq "render: unset allow renders as empty array (config-only)" \
+  "0" "$(get_json "$R_EMPTY" '.permissions.allow | length')"
+assert_eq "render: unset deny renders as empty array (config-only)" \
+  "0" "$(get_json "$R_EMPTY" '.permissions.deny | length')"
+assert_eq "render: no plugins -> empty enabledPlugins object" \
+  "0" "$(get_json "$R_EMPTY" '.enabledPlugins | length')"
+
+# permission_mode default resolution: absent key -> bypassPermissions.
+S_NOMODE="$WORK/settings-nomode.yml"
+printf 'claude:\n  permissions:\n    deny:\n      - "Bash(sudo:*)"\n' > "$S_NOMODE"
+R_NOMODE="$(claude_vm_render_guest_settings "$S_NOMODE" on on)"
+assert_eq "render: absent permission_mode defaults to bypassPermissions" \
+  "bypassPermissions" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
+
+# A knob is meaningful only when its plugin is present: parser=off with no
+# guardrails ref in the lists adds no entry (it does not fabricate one).
+S_NOGUARD="$WORK/settings-noguard.yml"
+printf 'claude:\n  plugins:\n    bake:\n      - issues@mp\n' > "$S_NOGUARD"
+R_NOGUARD="$(claude_vm_render_guest_settings "$S_NOGUARD" off off)"
+assert_eq "render: parser=off with no guardrails ref adds no entry" \
+  "null" "$(get_json "$R_NOGUARD" '.enabledPlugins["guardrails@mp"]')"
+assert_eq "render: only the present plugin is in enabledPlugins" \
+  "1" "$(get_json "$R_NOGUARD" '.enabledPlugins | length')"
+
+# guardrails hosted by any marketplace still matches (name-based match).
+S_ALTMP="$WORK/settings-altmp.yml"
+printf 'claude:\n  plugins:\n    bake:\n      - guardrails@some-other-mp\n' > "$S_ALTMP"
+R_ALTMP="$(claude_vm_render_guest_settings "$S_ALTMP" off on)"
+assert_eq "render: guardrails@<any-mp> flips regardless of marketplace" \
+  "false" "$(get_json "$R_ALTMP" '.enabledPlugins["guardrails@some-other-mp"]')"
+
+# ---------------------------------------------------------------------
+# Test 15: --hook own-flag split (issue #104).
+#
+# claude_vm_split_hook_flags is pure: post-repo args -> 2-line override header
+# + --ARGS-- sentinel + surviving args. Cover: absent flags pass through, both
+# forms (two-token and =-joined) parse, the flags are stripped from the args,
+# args with whitespace survive, and malformed flags abort (non-zero).
+# ---------------------------------------------------------------------
+
+# Absent flags -> both overrides '-', args pass through unchanged.
+SPLIT_NONE="$(claude_vm_split_hook_flags --name "foo bar" --resume)"
+assert_eq "hook-split: no flags -> parser override '-'" \
+  "-" "$(printf '%s\n' "$SPLIT_NONE" | sed -n 1p)"
+assert_eq "hook-split: no flags -> no-bg override '-'" \
+  "-" "$(printf '%s\n' "$SPLIT_NONE" | sed -n 2p)"
+# The surviving args (after the --ARGS-- sentinel on line 3): --name / foo bar / --resume
+SPLIT_NONE_ARGS="$(printf '%s\n' "$SPLIT_NONE" | tail -n +4 | tr '\n' '|')"
+assert_eq "hook-split: no flags -> args pass through (whitespace intact)" \
+  "--name|foo bar|--resume|" "$SPLIT_NONE_ARGS"
+
+# Two-token form, both knobs, mixed with a claude arg.
+SPLIT_BOTH="$(claude_vm_split_hook_flags --hook parser=off --resume --hook no-background-agents=on)"
+assert_eq "hook-split: two-token parser=off parsed" \
+  "off" "$(printf '%s\n' "$SPLIT_BOTH" | sed -n 1p)"
+assert_eq "hook-split: two-token no-background-agents=on parsed" \
+  "on" "$(printf '%s\n' "$SPLIT_BOTH" | sed -n 2p)"
+SPLIT_BOTH_ARGS="$(printf '%s\n' "$SPLIT_BOTH" | tail -n +4 | tr '\n' '|')"
+assert_eq "hook-split: --hook flags stripped, only claude arg survives" \
+  "--resume|" "$SPLIT_BOTH_ARGS"
+
+# =-joined form.
+SPLIT_EQ="$(claude_vm_split_hook_flags --hook=parser=on)"
+assert_eq "hook-split: =-joined --hook=parser=on parsed" \
+  "on" "$(printf '%s\n' "$SPLIT_EQ" | sed -n 1p)"
+
+# Malformed: unknown hook name, bad state, and trailing --hook all abort.
+if claude_vm_split_hook_flags --hook bogus=on >/dev/null 2>&1; then
+  assert_eq "hook-split: unknown hook name aborts" "abort" "no-abort"
+else
+  assert_eq "hook-split: unknown hook name aborts" "abort" "abort"
+fi
+if claude_vm_split_hook_flags --hook parser=maybe >/dev/null 2>&1; then
+  assert_eq "hook-split: bad state aborts" "abort" "no-abort"
+else
+  assert_eq "hook-split: bad state aborts" "abort" "abort"
+fi
+if claude_vm_split_hook_flags --name x --hook >/dev/null 2>&1; then
+  assert_eq "hook-split: trailing --hook aborts" "abort" "no-abort"
+else
+  assert_eq "hook-split: trailing --hook aborts" "abort" "abort"
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo
