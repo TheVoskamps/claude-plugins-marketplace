@@ -1,0 +1,6 @@
+{
+  "name": "github-prs",
+  "description": "GitHub PR-operations skills: create, diff, and review-submit a PR; flip a PR draft/ready; and link a PR to its issue via a closing keyword in the PR body. Each skill reads the repo-config it needs internally; GitHub-only by design.",
+  "version": "0.2.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
