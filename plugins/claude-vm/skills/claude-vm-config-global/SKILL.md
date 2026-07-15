@@ -63,11 +63,10 @@ values in `payload/config.example.yml`.
 | `claude.remote_control` | omitted (`false`) | opt-in Remote Control: `true` adds `--remote-control` + a date-stamped `--name` default; `false`/unset passes CLI args through |
 | `packages.update_at_boot` | `true` | apt-get update && upgrade at boot |
 | `packages.add_apt_uris_to_allowlist` | `auto` | add derived egress URIs to the proxy allowlist only when boot-time package work needs them (`auto`), or always (`always`) |
-| `claude.permission_mode` | `bypassPermissions` | in-guest Claude's permission mode |
+| `claude.permission_mode` | `bypassPermissions` | in-guest Claude's permission mode (`bypassPermissions` \| `default` only; any other value aborts the launch) |
 | `claude.plugins.update_at_boot` | `true` | refresh marketplaces + reinstall changed plugins at boot |
 | `claude.plugins.add_marketplace_uris_to_allowlist` | `auto` | marketplace-URI analogue of `packages.add_apt_uris_to_allowlist` |
-| `claude.hooks.parser` | `"on"` | guardrails permission-gate hook |
-| `claude.hooks.no_background_agents` | `"on"` | block-background-agents hook |
+| `claude.plugins.enabled` | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
 | `github.auth` | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
 
 Notes on the forward-looking keys:
@@ -127,12 +126,20 @@ Notes on the forward-looking keys:
   `.plugins.install_at_boot` are written empty by default.** Same
   reasoning: ask whether the user wants specific permission rules,
   marketplaces, or plugins baked/installed; write entries only on
-  request.
-- **`claude.hooks.parser` / `.no_background_agents` default to
-  `"on"`.** These are quoted string scalars (`"on"`/`"off"`), not YAML
-  booleans — write them quoted so a future `off` isn't parsed as the
-  boolean `false`. Ask only if the user wants to disable a guardrail
-  hook; the safe default is `"on"` for both.
+  request. `claude.permission_mode` and `claude.permissions.*` are
+  rendered into the guest `settings.json` (issue #104); `claude.plugins.bake`
+  / `.install_at_boot` are rendered into that same file's
+  `enabledPlugins`, but the actual package-manager install of those
+  plugins is still a #39 sibling slice.
+- **`claude.plugins.enabled` is omitted by default.** It is an optional
+  map of plugin ref → boolean that mirrors `settings.json`'s own
+  `enabledPlugins` vocabulary and is rendered straight into the guest
+  `settings.json` (issue #104). Every ref in `claude.plugins.bake` /
+  `.install_at_boot` is enabled by default, so write an `enabled` entry
+  only when the user wants to override that — e.g. `false` to ship a
+  plugin installed-but-disabled (toggling a debug plugin like
+  `show-loaded-rules` around a specific issue). Keys must name an
+  installed ref and values must be boolean; a typo aborts the launch.
 - **`github.auth` defaults to `none`.** Ask the user whether they want
   the guest seeded with a GitHub auth token derived from the host
   (`host-token`); `none` is the safe default since the consumer that
@@ -222,6 +229,9 @@ claude:
   # remote_control: false  # opt-in Remote Control: true adds --remote-control
                         # + a date-stamped --name default; false/unset passes
                         # CLI args through. Omitted by default.
+  # permission_mode + permissions.* render into the guest settings.json's
+  # permissions (issue #104); the host's own ~/.claude/settings.json is
+  # never read.
   permission_mode: bypassPermissions   # bypassPermissions (default) | default
   permissions:
     allow: []           # write entries only if the user names specific rules
@@ -229,15 +239,20 @@ claude:
     deny: []
   marketplaces: []      # {name, url} entries; write only on request
   plugins:
-    bake: []             # plugin@marketplace refs; write only on request
-    install_at_boot: []
+    bake: []             # plugin@marketplace refs; rendered into
+    install_at_boot: []  # settings.json's enabledPlugins (issue #104);
+                        # actual package-manager install is a #39 sibling
+                        # slice. Write only on request.
     update_at_boot: true # refresh marketplaces + reinstall changed plugins
                         # at boot (default true)
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always
-  hooks:
-    parser: "on"         # guardrails permission-gate hook: on (default) | off
-    no_background_agents: "on"  # block-background-agents hook:
-                        # on (default) | off
+    # enabled: OPTIONAL map, plugin ref -> boolean, mirroring settings.json's
+    # enabledPlugins. Every bake/install_at_boot ref defaults enabled; write
+    # an entry only to override (false = installed-but-disabled). Keys must
+    # name an installed ref, values must be boolean; a typo aborts the launch.
+    # Write only on request.
+    # enabled:
+    #   show-loaded-rules@thevoskamps: false
 
 # Guest software (issue #103; schema + merge only -- bake/boot-install
 # consumers land in sibling slices under #39).
@@ -299,7 +314,7 @@ call. The parent directory is created if needed.
 After the `Write`, re-read the file and confirm it parses as YAML and
 contains the expected keys (`cpus: 2`, `mem: 4096`, `proxy.port`,
 `provisioner: podman-mkosi`, `egress.allow` including `api.anthropic.com`,
-`claude.version`, `claude.permission_mode`, `claude.hooks.parser`,
+`claude.version`, `claude.permission_mode`,
 `packages.update_at_boot`, `github.auth`). `proxy.cmd` is intentionally
 absent — the launcher defaults to the bundled tinyproxy launcher when it
 is unset. This is content verification — `Write` already errors if the

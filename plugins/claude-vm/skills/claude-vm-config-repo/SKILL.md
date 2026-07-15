@@ -44,7 +44,6 @@ file silently shadows future changes to the global default.
   `packages.add_apt_uris_to_allowlist`, `claude.permission_mode`,
   `claude.plugins.update_at_boot`,
   `claude.plugins.add_marketplace_uris_to_allowlist`,
-  `claude.hooks.parser`, `claude.hooks.no_background_agents`,
   `github.auth`): write a key only if the user wants this repo
   to use a different value than the global config resolves to.
   (`claude.renderer` selects the interactive-console terminal renderer:
@@ -53,15 +52,22 @@ file silently shadows future changes to the global default.
   `--remote-control` plus a date-stamped `--name` default to the in-guest
   claude invocation; `false`/unset passes the CLI args through unchanged;
   any other value aborts the launch. Setting it here lets one repo opt in
-  to Remote Control without turning it on globally. The guest-capability
-  keys — `packages.update_at_boot`/`.add_apt_uris_to_allowlist`,
-  `claude.permission_mode`, `claude.plugins.update_at_boot`/
-  `.add_marketplace_uris_to_allowlist`, `claude.hooks.*`, `github.auth` —
-  are schema + merge only as of issue #103; the consumers land in
-  sibling slices under #39, but this repo's override still resolves
-  correctly through the layering library today. `claude.hooks.parser`
-  and `claude.hooks.no_background_agents` are quoted string scalars
-  (`"on"`/`"off"`), not booleans.)
+  to Remote Control without turning it on globally. `claude.permission_mode`
+  is rendered into the guest `settings.json` (issue #104:
+  `permission_mode` → `permissions.defaultMode`; only `bypassPermissions` /
+  `default` are accepted, anything else aborts the launch). The remaining
+  guest-capability keys — `packages.update_at_boot`/`.add_apt_uris_to_allowlist`,
+  `claude.plugins.update_at_boot`/`.add_marketplace_uris_to_allowlist`,
+  `github.auth` — are schema + merge only as of issue #103; the
+  consumers land in sibling slices under #39, but this repo's override
+  still resolves correctly through the layering library today.)
+- **Scalar maps** (`claude.plugins.enabled`): a map of plugin ref →
+  boolean that merges repo-over-global **per key**, so this repo can flip
+  one plugin's enabled state (e.g. `false` = installed-but-disabled)
+  without restating the global map. It is rendered into the guest
+  `settings.json`'s `enabledPlugins` (issue #104); keys must name a ref in
+  `claude.plugins.bake`/`.install_at_boot` and values must be boolean, or
+  the launch aborts.
 - **Lists** (`egress.allow`, `mounts`, `packages.bake`,
   `packages.install_at_boot`, `packages.apt_sources`,
   `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
@@ -72,7 +78,9 @@ file silently shadows future changes to the global default.
   adds — so a repo cannot subtract a global egress host, apt package,
   permission rule, marketplace, or plugin. If the user asks to drop a
   global entry, explain that lists union and the removal must happen in
-  the global config.)
+  the global config. `claude.permissions.*` and `claude.plugins.bake`/
+  `.install_at_boot` feed the rendered guest `settings.json`
+  (issue #104) after the union resolves.)
 
 ## Idempotent — detect and offer, never clobber
 
@@ -153,9 +161,9 @@ repo use?" The common cases:
 - Extra `claude.permissions.allow`/`.ask`/`.deny` rules,
   `claude.marketplaces`, or `claude.plugins.bake`/`.install_at_boot`
   entries this repo needs. These union with the global lists.
-- A `claude.permission_mode`, `claude.hooks.parser`/
-  `.no_background_agents`, or `github.auth` override this repo needs
-  that differs from global.
+- A `claude.permission_mode`, a `claude.plugins.enabled` per-plugin
+  toggle, or a `github.auth` override this repo needs that differs from
+  global.
 
 Record **only** the keys that differ from the global resolved value. If
 the user names a value identical to the global one, note that it is

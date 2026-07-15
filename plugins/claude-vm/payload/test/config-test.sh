@@ -98,9 +98,9 @@ claude:
       - bar@global-mp
     update_at_boot: false
     add_marketplace_uris_to_allowlist: auto
-  hooks:
-    parser: "on"
-    no_background_agents: "on"
+    enabled:
+      foo@global-mp: true
+      bar@global-mp: false
 github:
   auth: none
 YML
@@ -149,9 +149,8 @@ claude:
       - bar@global-mp
     update_at_boot: true
     add_marketplace_uris_to_allowlist: always
-  hooks:
-    parser: "off"
-    no_background_agents: "off"
+    enabled:
+      bar@global-mp: true
 github:
   auth: host-token
 YML
@@ -215,10 +214,13 @@ assert_eq "scalar: claude.plugins.update_at_boot repo wins (true)" \
   "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.update_at_boot' 'X')"
 assert_eq "scalar: claude.plugins.add_marketplace_uris_to_allowlist repo wins (always)" \
   "always" "$(claude_vm_scalar "$MERGED" '.claude.plugins.add_marketplace_uris_to_allowlist' 'X')"
-assert_eq "scalar: claude.hooks.parser repo wins (off)" \
-  "off" "$(claude_vm_scalar "$MERGED" '.claude.hooks.parser' 'X')"
-assert_eq "scalar: claude.hooks.no_background_agents repo wins (off)" \
-  "off" "$(claude_vm_scalar "$MERGED" '.claude.hooks.no_background_agents' 'X')"
+# claude.plugins.enabled is a scalar MAP merged repo-over-global PER KEY.
+# global: {foo: true, bar: false}; repo: {bar: true}. Merged: foo stays true
+# (global fills the gap), bar flips to true (repo wins on its own key).
+assert_eq "map: claude.plugins.enabled[foo] from global (per-key gap fill)" \
+  "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.enabled["foo@global-mp"]' 'X')"
+assert_eq "map: claude.plugins.enabled[bar] repo wins (per-key override)" \
+  "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.enabled["bar@global-mp"]' 'X')"
 assert_eq "scalar: github.auth repo wins (host-token)" \
   "host-token" "$(claude_vm_scalar "$MERGED" '.github.auth' 'X')"
 
@@ -406,12 +408,8 @@ assert_eq "neither: claude.plugins.update_at_boot fallback (true)" \
 assert_eq "neither: claude.plugins.add_marketplace_uris_to_allowlist fallback (auto)" \
   "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST" \
   "$(claude_vm_scalar "$MERGED_N" '.claude.plugins.add_marketplace_uris_to_allowlist' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
-assert_eq "neither: claude.hooks.parser fallback (on)" \
-  "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER" \
-  "$(claude_vm_scalar "$MERGED_N" '.claude.hooks.parser' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER")"
-assert_eq "neither: claude.hooks.no_background_agents fallback (on)" \
-  "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS" \
-  "$(claude_vm_scalar "$MERGED_N" '.claude.hooks.no_background_agents' "$CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS")"
+assert_eq "neither: claude.plugins.enabled absent -> empty map" \
+  "0" "$(yq eval '.claude.plugins.enabled // {} | length' "$MERGED_N" 2>/dev/null)"
 assert_eq "neither: github.auth fallback (none)" \
   "$CLAUDE_VM_DEFAULT_GITHUB_AUTH" \
   "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$CLAUDE_VM_DEFAULT_GITHUB_AUTH")"
@@ -761,6 +759,193 @@ if command -v rsync >/dev/null 2>&1; then
 else
   echo "ok   - copy-back gate: SKIP (rsync not available)"
   PASS=$((PASS + 1))
+fi
+
+# ---------------------------------------------------------------------
+# Test 14: guest settings.json render (issue #104).
+#
+# claude_vm_render_guest_settings is pure (merged-config file -> settings.json
+# on stdout). Cover the acceptance criteria that are verifiable host-side:
+# config-only permissions, defaultMode from permission_mode, enabledPlugins from
+# bake ++ install_at_boot (all default true), the claude.plugins.enabled
+# per-key overrides, and the validation (boolean values, keys must be installed
+# refs) that aborts on a typo. A tiny JSON reader (yq) inspects the emitted
+# document.
+# ---------------------------------------------------------------------
+S_FULL="$WORK/settings-full.yml"
+cat > "$S_FULL" <<'YML'
+claude:
+  permission_mode: bypassPermissions
+  permissions:
+    allow:
+      - "Bash(git:*)"
+    ask:
+      - "Bash(rm:*)"
+    deny:
+      - "Bash(ssh-keygen:*)"
+  plugins:
+    bake:
+      - guardrails@thevoskamps
+      - show-loaded-rules@thevoskamps
+    install_at_boot:
+      - issues@thevoskamps
+    enabled:
+      show-loaded-rules@thevoskamps: false
+YML
+
+# get_json <settings-json> <yq-json-path> -- read one scalar from rendered JSON.
+# Output is the RAW scalar (yq default output), so a string value comes back
+# bare ("default", not "\"default\"") and a boolean/number bare too. `null` for
+# an absent path.
+get_json() {
+  printf '%s' "$1" | yq -p=json eval "$2" - 2>/dev/null
+}
+
+# Full config: permissions verbatim, defaultMode bypassPermissions, every
+# installed plugin defaults true, and the one enabled: false override applies.
+R_FULL="$(claude_vm_render_guest_settings "$S_FULL")"
+assert_eq "render: defaultMode from permission_mode (bypassPermissions)" \
+  "bypassPermissions" "$(get_json "$R_FULL" '.permissions.defaultMode')"
+assert_eq "render: permissions.allow verbatim from config" \
+  "Bash(git:*)" "$(get_json "$R_FULL" '.permissions.allow[0]')"
+assert_eq "render: permissions.ask verbatim from config" \
+  "Bash(rm:*)" "$(get_json "$R_FULL" '.permissions.ask[0]')"
+assert_eq "render: configured deny rule present" \
+  "Bash(ssh-keygen:*)" "$(get_json "$R_FULL" '.permissions.deny[0]')"
+assert_eq "render: installed plugin defaults to enabled (true)" \
+  "true" "$(get_json "$R_FULL" '.enabledPlugins["guardrails@thevoskamps"]')"
+assert_eq "render: install_at_boot plugin also defaults enabled (true)" \
+  "true" "$(get_json "$R_FULL" '.enabledPlugins["issues@thevoskamps"]')"
+assert_eq "render: enabled: false override marks plugin disabled" \
+  "false" "$(get_json "$R_FULL" '.enabledPlugins["show-loaded-rules@thevoskamps"]')"
+assert_eq "render: enabledPlugins has one entry per installed ref (3)" \
+  "3" "$(get_json "$R_FULL" '.enabledPlugins | length')"
+
+# Config-only permissions: the render NEVER reads host settings; with no
+# claude.permissions.* set, the lists are empty (NOT populated from anywhere).
+S_EMPTY="$WORK/settings-empty.yml"
+printf 'claude:\n  permission_mode: default\n' > "$S_EMPTY"
+R_EMPTY="$(claude_vm_render_guest_settings "$S_EMPTY")"
+assert_eq "render: permission_mode: default -> defaultMode default" \
+  "default" "$(get_json "$R_EMPTY" '.permissions.defaultMode')"
+assert_eq "render: unset allow renders as empty array (config-only)" \
+  "0" "$(get_json "$R_EMPTY" '.permissions.allow | length')"
+assert_eq "render: unset deny renders as empty array (config-only)" \
+  "0" "$(get_json "$R_EMPTY" '.permissions.deny | length')"
+assert_eq "render: no plugins -> empty enabledPlugins object" \
+  "0" "$(get_json "$R_EMPTY" '.enabledPlugins | length')"
+
+# permission_mode default resolution: absent key -> bypassPermissions.
+S_NOMODE="$WORK/settings-nomode.yml"
+printf 'claude:\n  permissions:\n    deny:\n      - "Bash(sudo:*)"\n' > "$S_NOMODE"
+R_NOMODE="$(claude_vm_render_guest_settings "$S_NOMODE")"
+assert_eq "render: absent permission_mode defaults to bypassPermissions" \
+  "bypassPermissions" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
+
+# A ref in BOTH bake and install_at_boot collapses to one enabledPlugins entry.
+S_DUP="$WORK/settings-dup.yml"
+printf 'claude:\n  plugins:\n    bake:\n      - dup@mp\n    install_at_boot:\n      - dup@mp\n' > "$S_DUP"
+R_DUP="$(claude_vm_render_guest_settings "$S_DUP")"
+assert_eq "render: ref in both lists de-duplicates to one entry" \
+  "1" "$(get_json "$R_DUP" '.enabledPlugins | length')"
+assert_eq "render: de-duplicated ref is enabled" \
+  "true" "$(get_json "$R_DUP" '.enabledPlugins["dup@mp"]')"
+
+# ---------------------------------------------------------------------
+# Test 15: claude.plugins.enabled validation (issue #104).
+#
+# The render validates the enabled map ONCE: every value must be a boolean and
+# every key must name an installed plugin ref (present in bake ++
+# install_at_boot). A bad value or an unknown key ABORTS (non-zero), so a config
+# typo stops the launch rather than silently dropping/misspelling a toggle.
+# ---------------------------------------------------------------------
+
+# Accept: a valid enabled map (all keys installed, all boolean values) renders.
+S_ENA_OK="$WORK/settings-enabled-ok.yml"
+cat > "$S_ENA_OK" <<'YML'
+claude:
+  plugins:
+    bake:
+      - a@mp
+      - b@mp
+    enabled:
+      a@mp: false
+      b@mp: true
+YML
+if R_ENA_OK="$(claude_vm_render_guest_settings "$S_ENA_OK" 2>/dev/null)"; then
+  assert_eq "enabled-validate: valid map renders (accept)" "accept" "accept"
+  assert_eq "enabled-validate: a@mp disabled via false override" \
+    "false" "$(get_json "$R_ENA_OK" '.enabledPlugins["a@mp"]')"
+else
+  assert_eq "enabled-validate: valid map renders (accept)" "accept" "reject"
+fi
+
+# Reject: an unknown key (names a plugin not in bake/install_at_boot) aborts.
+S_ENA_BADKEY="$WORK/settings-enabled-badkey.yml"
+cat > "$S_ENA_BADKEY" <<'YML'
+claude:
+  plugins:
+    bake:
+      - a@mp
+    enabled:
+      typo@mp: false
+YML
+if claude_vm_render_guest_settings "$S_ENA_BADKEY" >/dev/null 2>&1; then
+  assert_eq "enabled-validate: unknown key aborts (reject)" "reject" "accept"
+else
+  assert_eq "enabled-validate: unknown key aborts (reject)" "reject" "reject"
+fi
+
+# Reject: a non-boolean value aborts.
+S_ENA_BADVAL="$WORK/settings-enabled-badval.yml"
+cat > "$S_ENA_BADVAL" <<'YML'
+claude:
+  plugins:
+    bake:
+      - a@mp
+    enabled:
+      a@mp: maybe
+YML
+if claude_vm_render_guest_settings "$S_ENA_BADVAL" >/dev/null 2>&1; then
+  assert_eq "enabled-validate: non-boolean value aborts (reject)" "reject" "accept"
+else
+  assert_eq "enabled-validate: non-boolean value aborts (reject)" "reject" "reject"
+fi
+
+# ---------------------------------------------------------------------
+# Test 16: claude.permission_mode enum guard (issue #104).
+#
+# The launcher (claude-vm.sh) accepts ONLY bypassPermissions | default for
+# claude.permission_mode and aborts on anything else -- it is a security-posture
+# value and there is no reasoning model for an unknown defaultMode. The guard is
+# a bare case in claude-vm.sh (not a lib function), so exercise the same case
+# logic here against representative values.
+# ---------------------------------------------------------------------
+_permission_mode_ok() {
+  case "$1" in
+    bypassPermissions|default) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if _permission_mode_ok "bypassPermissions"; then
+  assert_eq "permission-mode: bypassPermissions accepted" "accept" "accept"
+else
+  assert_eq "permission-mode: bypassPermissions accepted" "accept" "reject"
+fi
+if _permission_mode_ok "default"; then
+  assert_eq "permission-mode: default accepted" "accept" "accept"
+else
+  assert_eq "permission-mode: default accepted" "accept" "reject"
+fi
+if _permission_mode_ok "acceptEdits"; then
+  assert_eq "permission-mode: unknown mode rejected" "reject" "accept"
+else
+  assert_eq "permission-mode: unknown mode rejected" "reject" "reject"
+fi
+if _permission_mode_ok "yolo"; then
+  assert_eq "permission-mode: garbage rejected" "reject" "accept"
+else
+  assert_eq "permission-mode: garbage rejected" "reject" "reject"
 fi
 
 # ---------------------------------------------------------------------

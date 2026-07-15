@@ -117,7 +117,14 @@ BASE_OS_REV="debian-12-20250601"
 # `exec "$CLAUDE_BIN" "$@"`, exactly reversing the host's new per-arg-%q +
 # outer-%q quoting (claude_vm_quote_args in lib/config.sh). The boot-logic change
 # requires old images (stamped 'launcher8') to rebuild.
-LAUNCHER_LOGIC_REV="9"
+#
+# Bumped 9 -> 10: guest settings.json install (issue #104). The boot launcher now
+# installs the host-rendered ~/.claude/settings.json (permissions + defaultMode +
+# enabledPlugins) from the claudecreds mount, and treats its ABSENCE as a hard
+# abort (it is a security-posture file carrying the deny-list backstop -- booting
+# without it would silently drop that backstop). This is a new boot-logic step,
+# so old images (stamped 'launcher9') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="10"
 PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 usage() {
@@ -154,7 +161,9 @@ emit_boot_launcher() {
 # operator (issue #50) AND the host's identity seed (userID + oauthAccount +
 # synthesized onboarding/auto-update/version keys, benign host UI keys, and a
 # /mnt/repo projects entry that skips the trust dialog) into $HOME/.claude.json
-# so the interactive TUI comes up already onboarded + logged in (issue #88), seeds
+# so the interactive TUI comes up already onboarded + logged in (issue #88) AND
+# the host-rendered settings.json (permissions allow/ask/deny + defaultMode +
+# enabledPlugins) into $HOME/.claude/settings.json (issue #104), seeds
 # the tty geometry from the host (issue #88), then
 # `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
@@ -185,8 +194,12 @@ RUNCONFIG_MNT=/mnt/runconfig
 # The host-verified claude binary's containing dir, shared under tag
 # 'claudebin' and mounted here by the guest fstab.
 CLAUDEBIN_MNT=/mnt/claudebin
-# The host's claude.ai OAuth credential dir, shared RO under tag
-# 'claudecreds' and mounted here by the guest fstab.
+# The dir of ALL host-rendered guest ~/.claude files, shared RO under tag
+# 'claudecreds' and mounted here by the guest fstab. It carries the OAuth
+# credential (.credentials.json, a SECRET), the identity seed
+# (claude-json-seed.json, account identity), and the rendered settings.json
+# (permissions + enabledPlugins, NOT a secret) -- not credentials alone. The
+# boot launcher installs each into $HOME/.claude/ below.
 CLAUDECREDS_MNT=/mnt/claudecreds
 
 # Load run environment (proxy, mount tags, geometry, renderer, CLAUDE_ARGS)
@@ -273,6 +286,43 @@ else
   log "claude-vm: no identity seed found at $MOUNTED_CLAUDE_JSON_SEED (mountTag=claudecreds);"
   log "claude-vm: continuing without it -- claude may show its onboarding/login wall on this console."
 fi
+
+# ---------------------------------------------------------------------
+# Settings: install the host-rendered guest settings.json (issue #104).
+#
+# The host rendered /root/.claude/settings.json from the merged claude-vm config
+# -- the permission allow/ask/deny lists, permissions.defaultMode
+# (claude.permission_mode, YOLO-by-default bypassPermissions), and the
+# enabledPlugins object (every claude.plugins.bake ++ install_at_boot ref
+# defaults enabled; claude.plugins.enabled overrides per plugin) -- and shared it
+# into the SAME claudecreds mount as the credential + seed above. Those
+# permissions come from the claude-vm configs ONLY; the host's
+# ~/.claude/settings.json is never consulted (the VM deliberately runs its own,
+# possibly riskier, posture). claude reads its settings from
+# $HOME/.claude/settings.json, so copy the mounted file there. The RO virtio-fs
+# mount cannot BE that file, so copy (don't symlink), the same as the credential
+# above. $CRED_DIR ($CLAUDE_HOME/.claude) already exists from the credential
+# install above.
+#
+# HARD ABORT when absent, exactly like the credential above (NOT tolerated). The
+# rendered settings.json is a SECURITY-POSTURE file: it carries the deny-list
+# backstop that constrains the guest even under bypassPermissions. Booting
+# without it silently drops that backstop -- claude would fall back to its own
+# built-in defaults with no configured allow/ask/deny -- which is exactly the
+# unsafe state this guest must never enter. The host launcher always renders one,
+# so absence here means something is wrong upstream; refuse to boot rather than
+# run the guest with a weaker posture than the operator configured.
+MOUNTED_GUEST_SETTINGS="$CLAUDECREDS_MNT/settings.json"
+if [ ! -s "$MOUNTED_GUEST_SETTINGS" ]; then
+  log "claude-vm: no rendered settings.json found at $MOUNTED_GUEST_SETTINGS"
+  log "claude-vm: (mountTag=claudecreds). This is a security-posture file (the deny-list"
+  log "claude-vm: backstop); refusing to boot without it. The host launcher should always"
+  log "claude-vm: render one -- this indicates a launcher fault."
+  exit 1
+fi
+cp "$MOUNTED_GUEST_SETTINGS" "$CRED_DIR/settings.json"
+chmod 600 "$CRED_DIR/settings.json"
+log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.json (permissions + enabledPlugins)."
 
 # ---------------------------------------------------------------------
 # claude-fetch SEAM -- FILLED (issue #49).

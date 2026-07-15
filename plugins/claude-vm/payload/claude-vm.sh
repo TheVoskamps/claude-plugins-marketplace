@@ -69,6 +69,10 @@ REPO_SRC="${1:?usage: claude-vm <repo-path> [claude args...]}"
 shift
 CLAUDE_ARGS=("$@")
 
+# claude-vm has NO own-flags: every post-repo arg is forwarded to the guest
+# claude verbatim (the #51 launcher contract). The guest's plugin enable/disable
+# state comes from the config files (claude.plugins.enabled), not from CLI flags.
+
 # Resolve to an absolute repo root so per-repo config and clone work
 # regardless of the caller's cwd.
 REPO_SRC="$(cd "$REPO_SRC" && git rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_SRC" && pwd))"
@@ -177,6 +181,23 @@ done < <(claude_vm_augment_rc_args \
            ${CLAUDE_ARGS[@]+"${CLAUDE_ARGS[@]}"})
 CLAUDE_ARGS=(${_augmented_args[@]+"${_augmented_args[@]}"})
 unset _rc_name_stamp _augmented_args _line
+
+# Resolve and enum-guard claude.permission_mode for the rendered guest
+# settings.json (issue #104). This is a security-posture value -- it becomes
+# permissions.defaultMode in the guest's settings.json -- and there is no
+# reasoning model for how the guest claude behaves under an unknown defaultMode,
+# so accept ONLY the two known modes and abort on anything else, mirroring the
+# scalar-enum validation used for claude.renderer / claude.remote_control above.
+# The render (claude_vm_render_guest_settings) re-reads this key with the same
+# default, but the authoritative guard is HERE so a typo aborts the launch
+# rather than writing an unexpected defaultMode into the guest.
+CLAUDE_PERMISSION_MODE="$(claude_vm_scalar "$MERGED" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+case "$CLAUDE_PERMISSION_MODE" in
+  bypassPermissions|default) : ;;
+  *)
+    echo "claude-vm: claude.permission_mode must be 'bypassPermissions' or 'default', got '$CLAUDE_PERMISSION_MODE'" >&2
+    exit 1 ;;
+esac
 
 # claude.signing_key_fingerprint: the claude-code signing key fingerprint
 # the operator out-of-band-verified at import time. This PINS the GPG
@@ -487,6 +508,32 @@ EFISTORE="$RUN/efistore"
 # world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
+
+# ---------------------------------------------------------------------
+# Render the guest Claude settings.json (issue #104).
+#
+# Host-side render of /root/.claude/settings.json from the merged config: the
+# permission allow/ask/deny lists, the permission defaultMode
+# (claude.permission_mode, default bypassPermissions, enum-guarded above), and
+# the enabledPlugins object (every ref in claude.plugins.bake ++ install_at_boot
+# defaults true, then claude.plugins.enabled overrides per key). The permissions
+# come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
+# NEVER read, so the guest's Claude surface is defined entirely by claude-vm, per
+# the issue's product intent. The render also VALIDATES claude.plugins.enabled
+# (boolean values, keys must name installed plugins) and returns non-zero on a
+# typo, so a bad enabled map aborts the launch here.
+#
+# It rides the SAME transient claudecreds mount ($CREDS_DIR, mountTag=claudecreds)
+# as the credential and identity seed, and the guest boot launcher installs it at
+# $HOME/.claude/settings.json. settings.json is NOT a secret, but sharing it via
+# the existing claudecreds mount avoids adding another virtio-fs device and keeps
+# every host-rendered guest ~/.claude file arriving over one dir. Written now,
+# still inside the umask-077 window, so it lands 0600 like its dir-mates; the
+# chmod 600 is belt-and-braces.
+GUEST_SETTINGS="$CREDS_DIR/settings.json"
+claude_vm_render_guest_settings "$MERGED" > "$GUEST_SETTINGS" \
+  || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
+chmod 600 "$GUEST_SETTINGS"
 
 # ---------------------------------------------------------------------
 # Host claude.ai OAuth credential -> transient, owner-only tmpfile.
@@ -807,8 +854,9 @@ RUN_ENV="$CONFIG_DIR/run.env"
 #     numerics on a real tty; empty on a non-tty). Provably-numeric in
 #     practice, but %q-quoted defensively since they come from a subprocess.
 #   - NO_PROXY, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
-#     DISABLE_AUTOUPDATER, and the renderer CLAUDE_CODE_* vars: FIXED LITERALS
-#     (or emitted only for a validated enum value) -> provably safe, left as-is.
+#     DISABLE_AUTOUPDATER, IS_SANDBOX, and the renderer CLAUDE_CODE_* vars:
+#     FIXED LITERALS (or emitted only for a validated enum value) -> provably
+#     safe, left as-is.
 #   - CLAUDE_ARGS: arbitrary user CLI args -> the per-arg-%q + outer-%q
 #     round-trip below (its own dedicated fix).
 (
@@ -823,10 +871,16 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
     # boot launcher execs /mnt/claudebin/claude against /mnt/repo.
     printf 'CLAUDEBIN_TAG=claudebin\n'
-    # The host's claude.ai OAuth credential's containing dir is shared
-    # under this virtio-fs tag (mounted RO at /mnt/claudecreds by the guest
-    # fstab); the boot launcher copies it into $HOME/.claude/.credentials.json
-    # (mode 0600) so claude authenticates as the host operator.
+    # The claudecreds dir carries ALL host-rendered guest ~/.claude files --
+    # not just credentials: the OAuth credential (.credentials.json, a SECRET),
+    # the identity seed (claude-json-seed.json, account identity -- also
+    # sensitive), and the rendered settings.json (permissions + enabledPlugins,
+    # NOT a secret). Its containing dir is shared under this virtio-fs tag
+    # (mounted RO at /mnt/claudecreds by the guest fstab); the boot launcher
+    # installs each file into $HOME/.claude/ (mode 0600) so the guest comes up
+    # authenticated, onboarded, and under the claude-vm permission posture. One
+    # tag for all three avoids adding extra virtio-fs devices; the whole dir is
+    # shredded on exit regardless of which files are secret.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
     # Host terminal geometry (issue #88). Empty when not launched from a real
     # terminal; the boot launcher only runs `stty` when both are non-empty.
@@ -848,6 +902,17 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # an update attempt can only ever fail. Not a secret -- run.env is the right
     # vehicle.
     printf 'DISABLE_AUTOUPDATER=1\n'
+    # IS_SANDBOX=1 unconditionally (issue #104). The guest runs claude as ROOT
+    # (hvc1 autologin, issue #88), and claude REFUSES to start in
+    # bypassPermissions as root unless IS_SANDBOX=1 (or CLAUDE_CODE_BUBBLEWRAP=1)
+    # -- confirmed from the claude-code source quoted in anthropics/claude-code
+    # #58510. The guest IS the sandbox (the VM is the isolation boundary), so set
+    # it always: bypassPermissions is the default guest posture, and even under
+    # permission_mode: default this is a correct, harmless assertion (the guest is
+    # a sandbox regardless). A FIXED LITERAL -> provably safe under the run.env
+    # `set -a` sourcing (value-quoting audit above). The boot launcher sources
+    # run.env under `set -a`, so it exports into claude's environment for free.
+    printf 'IS_SANDBOX=1\n'
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
     # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced

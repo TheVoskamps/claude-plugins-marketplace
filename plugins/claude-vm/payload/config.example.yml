@@ -8,8 +8,9 @@
 #   - Scalars (cpus, mem, guest_image, repo.*, proxy.*, packages.update_at_boot,
 #     packages.add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot,
-#     claude.plugins.add_marketplace_uris_to_allowlist, claude.hooks.*,
+#     claude.plugins.add_marketplace_uris_to_allowlist,
 #     github.auth): repo overrides global; global fills gaps.
+#   - Scalar maps (claude.plugins.enabled): repo overrides global PER KEY.
 #   - Lists (egress.allow, mounts, packages.bake, packages.install_at_boot,
 #     packages.apt_sources, claude.permissions.allow/ask/deny,
 #     claude.marketplaces, claude.plugins.bake,
@@ -105,14 +106,19 @@ claude:
   # (or leave unset); any other value aborts the launch.
   # remote_control: false
 
-  # Guest Claude permission mode + permission rules (issue #103; schema +
-  # merge only -- the settings-rendering consumer lands in a sibling slice
-  # under #39).
+  # Guest Claude permission mode + permission rules (issue #103 schema, rendered
+  # into the guest /root/.claude/settings.json by issue #104). The guest's Claude
+  # surface is defined by THESE claude-vm configs ONLY -- the host's
+  # ~/.claude/settings.json is never copied in. YOLO-by-default: the VM is the
+  # isolation boundary, so permission_mode defaults to bypassPermissions with the
+  # deny list as backstop. To run under interactive prompts, set
+  # permission_mode: default. Only bypassPermissions | default are accepted; any
+  # other value aborts the launch.
   permission_mode: bypassPermissions   # bypassPermissions (default) | default
   permissions:
     allow: []             # list, union
     ask: []               # list, union
-    deny: []              # list, union
+    deny: []              # list, union -- enforced even under bypassPermissions
 
   # Marketplaces + plugins available to the guest (issue #103; schema +
   # merge only).
@@ -129,12 +135,20 @@ claude:
                           # packages.add_apt_uris_to_allowlist, applied to
                           # marketplace URIs (scalar)
 
-  # Guardrails hook toggles (issue #103; schema + merge only).
-  hooks:
-    parser: "on"                # guardrails permission-gate hook: on
-                                # (default) | off (scalar, repo wins)
-    no_background_agents: "on"  # block-background-agents hook: on (default)
-                                # | off (scalar, repo wins)
+    # enabled: an OPTIONAL map of plugin ref -> boolean that mirrors
+    # settings.json's own enabledPlugins vocabulary. It is rendered straight
+    # into the guest settings.json's enabledPlugins. Every ref in bake ++
+    # install_at_boot defaults to enabled (true); list an entry here ONLY to
+    # override that -- `false` marks a plugin installed-but-disabled (flipping
+    # it back on needs no reinstall). Useful for toggling debug plugins (e.g.
+    # show-loaded-rules / show-loaded-skills) around a specific issue without
+    # uninstalling them. Merge is repo-over-global PER KEY. VALIDATION: every
+    # value must be a boolean and every key must name a ref that is present in
+    # bake or install_at_boot -- an unknown key is treated as a typo and aborts
+    # the launch.
+    # enabled:
+    #   show-loaded-rules@thevoskamps: false
+    #   show-loaded-skills@thevoskamps: false
 
 proxy:
   # A launcher command for your forward proxy. When UNSET, the launcher

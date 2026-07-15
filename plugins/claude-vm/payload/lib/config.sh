@@ -13,8 +13,11 @@
 #     packages.add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot,
 #     claude.plugins.add_marketplace_uris_to_allowlist,
-#     claude.hooks.parser, claude.hooks.no_background_agents,
 #     github.auth): repo overrides global; global fills gaps.
+#   - Scalar MAPS (claude.plugins.enabled): repo-over-global PER KEY -- each
+#     plugin-ref -> boolean entry follows the scalar repo-wins rule
+#     independently, so a repo can flip one plugin's enabled state without
+#     restating the global map. See claude_vm_merge_config below.
 #   - Lists (egress.allow, mounts, packages.bake, packages.install_at_boot,
 #     packages.apt_sources, claude.permissions.allow/ask/deny,
 #     claude.marketplaces, claude.plugins.bake,
@@ -54,7 +57,7 @@ CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS=192.168.127.254
 CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
 
 # Guest-capability schema defaults (issue #103): packages, Claude
-# permissions/marketplaces/plugins/hooks, and GitHub auth. See
+# permissions/marketplaces/plugins, and GitHub auth. See
 # payload/config.example.yml and skills/claude-vm/SKILL.md for the full
 # annotated schema and semantics.
 CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT=true
@@ -62,8 +65,6 @@ CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST=auto
 CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE=bypassPermissions
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
-CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_PARSER=on
-CLAUDE_VM_DEFAULT_CLAUDE_HOOKS_NO_BACKGROUND_AGENTS=on
 CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
 
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
@@ -443,9 +444,11 @@ claude_vm_mount_specs() {
 
 # ---------------------------------------------------------------------
 # Guest-capability schema accessors (issue #103): packages, Claude
-# permissions/marketplaces/plugins/hooks, and GitHub auth. Schema + merge
-# only -- consumers (settings rendering, image build, boot install, egress
-# derivation) land in sibling slices under #39.
+# permissions/marketplaces/plugins, and GitHub auth. The schema +
+# merge landed in #103; the settings-rendering consumer
+# (claude_vm_render_guest_settings, below) landed in #104. The remaining
+# consumers (image build, boot install, egress derivation) land in sibling
+# slices under #39.
 
 # Emit a flat string list, one entry per line, from a merged-config file.
 #   $1 -- merged config file path
@@ -478,6 +481,143 @@ claude_vm_marketplaces() {
     .claude.marketplaces // [] | .[]
     | [(.name // ""), (.url // "")] | @tsv
   ' "$file" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------
+# Guest Claude settings.json render (issue #104).
+#
+# Render the guest's ~/.claude/settings.json (installed at
+# /root/.claude/settings.json by the guest boot launcher) from the merged
+# config -- PURE (merged-config file in -> settings.json on stdout), so it
+# is host-side unit-testable with no VM, no network, and no host mutation.
+#
+#   $1 -- merged config file path
+#
+# The rendered document has exactly two top-level keys:
+#
+#   permissions:
+#     allow | ask | deny  -- verbatim from merged claude.permissions.*
+#                            (claude-vm configs ONLY; the host's
+#                            ~/.claude/settings.json is NEVER consulted --
+#                            the guest's Claude surface is defined by the
+#                            claude-vm configs, per the issue's product
+#                            intent). An empty/unset list renders as [].
+#     defaultMode         -- from claude.permission_mode (default
+#                            bypassPermissions). Read here from the merged
+#                            file with the same default so the render is
+#                            self-contained and testable. The launcher
+#                            (claude-vm.sh) enum-guards this value BEFORE
+#                            calling here; this render trusts it.
+#   enabledPlugins:
+#     an object mapping every plugin ref in
+#     (claude.plugins.bake ++ claude.plugins.install_at_boot) to a boolean.
+#     Every such ref defaults to true (installed-and-enabled), de-duplicated
+#     (bake first, then install_at_boot; a ref in both collapses to one
+#     entry). The optional claude.plugins.enabled map -- which mirrors
+#     settings.json's own enabledPlugins vocabulary (plugin ref -> boolean) --
+#     then OVERRIDES those defaults per key: `false` marks a plugin
+#     installed-but-disabled (re-enabling needs no reinstall -- the owner
+#     toggles debug plugins like show-loaded-rules / show-loaded-skills
+#     around specific issues), `true` is redundant with the default but
+#     accepted.
+#
+# VALIDATION (done here, once, on the merged config -- this is the single
+# reader/render path): every claude.plugins.enabled VALUE must be a boolean,
+# and every KEY must name a plugin ref present in the merged
+# (bake ++ install_at_boot) lists. A non-boolean value or an unknown key is
+# a config typo and ABORTS (non-zero return + a claude-vm: diagnostic on
+# stderr) so the launcher stops rather than rendering a settings.json that
+# silently drops or misspells a plugin toggle.
+claude_vm_render_guest_settings() {
+  local file="$1"
+  local permission_mode
+
+  # Resolve permission_mode with the same default as the schema
+  # (bypassPermissions). claude_vm_scalar treats absent/null as the
+  # fallback; permission_mode is a plain string, never a boolean, so the
+  # non-boolean-safe accessor is correct here. The launcher enum-guards the
+  # value up front, so an unexpected mode never reaches this render.
+  permission_mode="$(claude_vm_scalar "$file" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+
+  # Collect the installed plugin refs (bake ++ install_at_boot), preserving
+  # order and de-duplicating. These are both the enabledPlugins keys (all
+  # default true) AND the valid key-set for claude.plugins.enabled overrides.
+  local ref installed=() seen=""
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+    case " $seen " in
+      *" $ref "*) continue ;;
+    esac
+    seen="$seen $ref"
+    installed+=("$ref")
+  done < <(
+    claude_vm_list_items "$file" '.claude.plugins.bake'
+    claude_vm_list_items "$file" '.claude.plugins.install_at_boot'
+  )
+
+  # Read the claude.plugins.enabled override map as tab-separated
+  # "ref<TAB>value" lines. yq emits nothing when the key is absent.
+  # Validate each entry HERE, once: value must be a boolean, key must be an
+  # installed ref. Build an associative override map keyed by ref.
+  local -A enabled_override=()
+  local line ov_ref ov_val
+  while IFS=$'\t' read -r ov_ref ov_val; do
+    [ -n "$ov_ref" ] || continue
+    case "$ov_val" in
+      true|false) : ;;
+      *)
+        echo "claude-vm: claude.plugins.enabled['$ov_ref'] must be a boolean (true|false), got '$ov_val'" >&2
+        return 1 ;;
+    esac
+    case " $seen " in
+      *" $ov_ref "*) : ;;
+      *)
+        echo "claude-vm: claude.plugins.enabled['$ov_ref'] names a plugin not in claude.plugins.bake or install_at_boot" >&2
+        return 1 ;;
+    esac
+    enabled_override["$ov_ref"]="$ov_val"
+  done < <(
+    yq eval '
+      .claude.plugins.enabled // {}
+      | to_entries | .[] | [.key, .value] | @tsv
+    ' "$file" 2>/dev/null
+  )
+
+  # Build the enabledPlugins object as a YAML fragment: every installed ref
+  # -> true, then apply the validated overrides.
+  local plugins_yaml="" value
+  for ref in ${installed[@]+"${installed[@]}"}; do
+    value="true"
+    if [ -n "${enabled_override[$ref]+x}" ]; then
+      value="${enabled_override[$ref]}"
+    fi
+    # Quote the key so a ref containing YAML-significant characters is a
+    # valid single mapping key; the value is a bare boolean literal.
+    plugins_yaml="${plugins_yaml}$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null): ${value}"$'\n'
+  done
+
+  # An empty fragment (no plugin refs at all) must parse to an empty object,
+  # not the empty string -- `"" | from_yaml` errors with EOF in yq. Default
+  # it to the literal `{}` so enabledPlugins renders as {} when no plugins
+  # are configured.
+  [ -n "$plugins_yaml" ] || plugins_yaml="{}"
+
+  # Compose the final document: permissions.{allow,ask,deny} verbatim from
+  # the merged config (// [] so an unset list renders as []), the resolved
+  # defaultMode, and the enabledPlugins fragment injected as parsed YAML.
+  CLAUDE_VM_PERMISSION_MODE="$permission_mode" \
+  CLAUDE_VM_ENABLED_PLUGINS="$plugins_yaml" \
+    yq eval -o=json '
+      {
+        "permissions": {
+          "allow": (.claude.permissions.allow // []),
+          "ask":   (.claude.permissions.ask   // []),
+          "deny":  (.claude.permissions.deny  // []),
+          "defaultMode": strenv(CLAUDE_VM_PERMISSION_MODE)
+        },
+        "enabledPlugins": (strenv(CLAUDE_VM_ENABLED_PLUGINS) | from_yaml // {})
+      }
+    ' "$file" 2>/dev/null
 }
 
 # ---------------------------------------------------------------------
