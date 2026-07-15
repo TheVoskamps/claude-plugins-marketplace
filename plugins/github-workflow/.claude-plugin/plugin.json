@@ -1,7 +1,6 @@
 {
   "name": "github-workflow",
   "description": "Thin GitHub PR-lifecycle skills: flip a PR draft/ready and link a PR to its issue via a closing keyword in the PR body.",
-  "version": "0.1.1",
-  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" },
-  "dependencies": ["issues"]
+  "version": "0.1.2",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }

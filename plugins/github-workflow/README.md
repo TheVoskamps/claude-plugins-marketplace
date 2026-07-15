@@ -10,12 +10,13 @@ issue, and only flips draft → ready once the human blesses the PR at
 end-of-loop), but each skill is a standalone verb usable by a human or
 any caller.
 
-Every skill reads `.claude/rules/repo-config.md` (per the
-`skills/lib/repo-config.md` reader contract, schema-version 6) for
-`source-control` and is **GitHub-only**: on `source-control !=
-GitHub` it aborts cleanly (CodeCommit → a "not implemented" abort,
-mirroring how `issue-developer` handles the CodeCommit PR-create path
-today).
+Every skill reads the `source-control:` field directly from
+`.claude/rules/repo-config.md`'s front-matter and is **GitHub-only**:
+on `source-control != GitHub` it aborts cleanly (CodeCommit → a "not
+implemented" abort, mirroring how `issue-developer` handles the
+CodeCommit PR-create path today). This is a lightweight, self-contained
+read — these skills have no dependency on the `issues` plugin's shared
+repo-config reader.
 
 ## Skills
 

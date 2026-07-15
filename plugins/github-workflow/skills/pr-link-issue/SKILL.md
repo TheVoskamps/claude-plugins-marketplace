@@ -19,11 +19,6 @@ create the sidebar link, which is why this skill writes the PR body,
 never a commit. Both effects are intended: the sidebar link is the
 whole point, and auto-close-on-merge is the behavior we want.
 
-Read `skills/lib/repo-config.md` (the reader contract in the `issues`
-plugin) for the repo-config read sequence; this skill requires
-**schema-version 6** and uses that library's canonical read sequence
-and abort messages for `.claude/rules/repo-config.md`.
-
 ## Invocation
 
 ```text
@@ -52,19 +47,18 @@ in the report-back.
 
 ## Required repo-config: source-control
 
-Run the canonical read sequence from `skills/lib/repo-config.md` and
-read the `source-control` front-matter field. This skill is
-**GitHub-only**:
+This skill only needs to know whether the repo is GitHub-backed — it
+does not need the full repo-config reader contract. Read the
+`source-control:` field directly from
+`.claude/rules/repo-config.md`'s front-matter (a plain YAML
+`key: value` line near the top of the file):
 
-- `source-control == GitHub` → proceed.
-- `source-control == CodeCommit` → abort cleanly with: "CodeCommit
+- `source-control: GitHub`, or the field is absent/unreadable but
+  `gh` is available → proceed.
+- `source-control: CodeCommit` → abort cleanly with: "CodeCommit
   source-control selected, but `/pr-link-issue` is GitHub-only and the
   CodeCommit path is not implemented." (This mirrors how
   `issue-developer` handles the CodeCommit PR-create path today.)
-
-If the repo-config file is missing, is stale, or has incomplete
-front-matter, abort with the corresponding message from the
-`skills/lib/repo-config.md` abort catalogue.
 
 ## Execution
 
