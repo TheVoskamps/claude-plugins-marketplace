@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+# Cross-plugin lib sharing (unresolved, historical)
+
 `docs/plugin-authoring-constraints.md` (verified-facts doc, already in
 this repo) states plugins are file-sandboxed — a bare `Read` of
 `skills/lib/repo-config.md` only resolves within the plugin that
