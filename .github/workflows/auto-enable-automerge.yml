@@ -26,7 +26,19 @@
 name: auto-enable-automerge
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    # ready_for_review is silently swallowed by GitHub when the PR is
+    # CONFLICTING/DIRTY at the moment it goes ready: `pull_request` runs
+    # against the PR's test-merge commit, and GitHub does not create a
+    # run at all for a conflicting PR
+    # (https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+    # A PR that was marked ready while conflicting therefore never
+    # re-enables auto-merge from ready_for_review alone. synchronize is
+    # the re-arm path: once the author pushes a conflict resolution, the
+    # push fires synchronize (not ready_for_review), and the
+    # `draft == false` job guard plus the enable-automerge job's
+    # autoMergeRequest.enabledAt idempotency pre-check make every other
+    # synchronize (draft or already-enabled) a cheap no-op.
+    types: [opened, reopened, ready_for_review, synchronize]
     branches: [main]
   # The Dependabot REST-merge job below re-evaluates eligibility whenever a
   # required-check-producing workflow completes (a PR's checks finishing is
