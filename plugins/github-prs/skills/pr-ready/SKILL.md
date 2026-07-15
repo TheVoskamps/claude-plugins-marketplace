@@ -3,6 +3,8 @@ name: pr-ready
 description: Mark a draft GitHub pull request as ready for review (draft -> ready).
 ---
 
+# PR Ready
+
 Flip a draft GitHub pull request into the ready-for-review state via
 `gh pr ready <N>`. This is the transition the `/sdlc:orchestrate`
 orchestrator performs in Phase 3, after the human confirms a PR is

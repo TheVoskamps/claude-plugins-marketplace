@@ -3,6 +3,8 @@ name: pr-draft
 description: Convert a ready-for-review GitHub pull request back to a draft (ready -> draft).
 ---
 
+# PR Draft
+
 Convert a ready-for-review GitHub pull request back into a draft via
 `gh pr ready <N> --undo`. Use this manually when a PR that was flipped
 to ready turns out to still need work (e.g. it looks untested), to

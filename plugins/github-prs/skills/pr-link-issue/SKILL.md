@@ -3,6 +3,8 @@ name: pr-link-issue
 description: Idempotently ensure a GitHub PR body closes its own issue (appends `Closes #<issue>` if not already present).
 ---
 
+# PR Link Issue
+
 Ensure a GitHub pull request's body links to and closes the one issue
 it resolves, by verifying — and, if needed, appending — a closing
 keyword immediately followed by that issue reference in the **PR

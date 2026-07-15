@@ -3,6 +3,8 @@ name: pr-diff
 description: Fetch the full unified diff of a GitHub pull request (`gh pr diff <PR>`).
 ---
 
+# PR Diff
+
 Fetch the full unified diff of a GitHub pull request via
 `gh pr diff <PR>`. This is the diff-fetch that PR consumers —
 `/sdlc:orchestrate`'s `pr-reviewer`, `issue-fixer`, and `doc-updater`

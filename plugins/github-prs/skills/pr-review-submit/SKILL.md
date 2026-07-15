@@ -3,6 +3,8 @@ name: pr-review-submit
 description: Post a single GitHub PR review carrying both a verdict and a body in one call, handling the self-review approve constraint.
 ---
 
+# PR Review Submit
+
 Post a **single** pull-request review on a GitHub PR, carrying both a
 verdict and a review body in one `gh pr review` call. This is the
 review-submission the `/sdlc:orchestrate` flow's `pr-reviewer`
