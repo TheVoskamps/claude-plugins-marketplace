@@ -1,6 +1,6 @@
 ---
 name: cross-plugin-lib-sharing-unresolved
-description: skills/lib/repo-config.md (owned by issues plugin) is not actually readable cross-plugin; sdlc works around it by duplicating a 496-line copy; github-workflow (issue #143 / PR #150) hit the same wall and the real fix was escalated rather than guessed
+description: skills/lib/repo-config.md (owned by issues plugin) is not actually readable cross-plugin; sdlc works around it by duplicating a 496-line copy; github-workflow (issue #143 / PR #150) hit the same wall — resolved by dropping the shared-lib dependency entirely, not by duplicating or lib-as-skill
 metadata:
   type: project
 ---
@@ -47,13 +47,37 @@ issue-fixer scope. See [[issue-113-graphql-scanner-hardening]] for a
 different but related "don't guess at repo-wide restructuring inside a
 narrow fix" judgment call.
 
-**How to apply:** before writing a new plugin's SKILL.md that needs
-`.claude/rules/repo-config.md`, do NOT assume a bare
-`skills/lib/repo-config.md` reference resolves — it only does inside
-`issues` itself or inside `sdlc` (which carries its own duplicate).
-Either (a) bundle a duplicate copy matching `sdlc`'s existing
-(debt-laden but working) precedent, or (b) if/when the lib-as-skill
-migration lands, invoke `/issues:repo-config-lib` instead. Check which
-of the two is true at the time by grepping for `name: repo-config-lib`
-under `plugins/issues/skills/` — if absent, the migration hasn't
-happened yet and only (a) works.
+**How the github-workflow case actually resolved (2026-07, second
+fixer pass on PR #150):** the first fixer pass tried adding
+`"dependencies": ["issues"]` to `github-workflow`'s plugin.json to
+"fix" the bare Read — per constraint 3 above, that does nothing for
+file access, so PR review flagged it again (still a Medium). The
+second pass's fix was a **third option neither (a) nor (b) below**:
+notice that `pr-ready`/`pr-draft`/`pr-link-issue` each only ever
+consumed *one field* (`source-control`, for a GitHub-only guard) out
+of the full 496-line reader contract. Rather than pulling in the
+whole contract by any mechanism, each SKILL.md now does a lightweight
+inline read of just that one front-matter line straight from
+`.claude/rules/repo-config.md`, with no schema-version requirement, no
+abort-catalogue reference, no shared lib at all. Lesson: before
+reaching for the shared-lib machinery (duplicate vs. lib-as-skill),
+check whether the consumer actually needs the *whole* reader contract
+or just one cheap field — if it's one field, inlining it beats every
+sharing mechanism.
+
+**How to apply generally:** before writing a new plugin's SKILL.md
+that needs `.claude/rules/repo-config.md`, first ask how much of the
+contract it actually needs.
+- Needs only 1-2 simple front-matter fields (e.g. a GitHub-only
+  `source-control` guard) → inline a lightweight direct read, no lib
+  reference at all (the github-workflow precedent above).
+- Needs the full reader contract (schema-version check, all six
+  fields, `github-project:`/`jira:` block resolution) → do NOT assume
+  a bare `skills/lib/repo-config.md` reference resolves outside
+  `issues` itself or `sdlc` (which carries its own duplicate). Either
+  (a) bundle a duplicate copy matching `sdlc`'s existing (debt-laden
+  but working) precedent, or (b) if/when the lib-as-skill migration
+  lands, invoke `/issues:repo-config-lib` instead. Check which of the
+  two is true at the time by grepping for `name: repo-config-lib`
+  under `plugins/issues/skills/` — if absent, the migration hasn't
+  happened yet and only (a) works.
