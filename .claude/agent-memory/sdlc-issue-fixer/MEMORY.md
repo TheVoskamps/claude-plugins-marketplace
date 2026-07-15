@@ -4,4 +4,4 @@
 - [Docs locality: packaging vs. hook-event](project_docs-locality-packaging-vs-hook-event.md) — plugin-authoring-constraints.md (packaging) vs. hook-event-notes.md (per-event runtime facts); don't conflate
 - [Commit heredoc gate](feedback_commit-heredoc-gate.md) — `git commit -m "$(cat <<EOF...)"` is blocked here; use `git commit -F <scratch-file>` for multi-line messages
 - [Worktree path, not main clone](feedback_worktree-path-not-main-clone.md) — Read/Edit the worktree-absolute path; main-clone path is a different checkout and gives a stale file view
-- [Cross-plugin lib sharing unresolved](project_cross-plugin-lib-sharing-unresolved.md) — skills/lib/repo-config.md not readable cross-plugin; github-workflow (#143/PR150) fixed by inlining the one field it needed, not by sharing the lib
+- [Cross-plugin lib sharing unresolved](project_cross-plugin-lib-sharing-unresolved.md) — skills/lib/repo-config.md not readable cross-plugin; github-workflow (#143/PR150) final fix was zero coupling — GitHub-only `gh` wrappers need no guard at all

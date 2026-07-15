@@ -1,6 +1,6 @@
 ---
 name: cross-plugin-lib-sharing-unresolved
-description: skills/lib/repo-config.md (owned by issues plugin) is not actually readable cross-plugin; sdlc works around it by duplicating a 496-line copy; github-workflow (issue #143 / PR #150) hit the same wall — resolved by dropping the shared-lib dependency entirely, not by duplicating or lib-as-skill
+description: skills/lib/repo-config.md (owned by issues plugin) is not actually readable cross-plugin; sdlc works around it by duplicating a 496-line copy; github-workflow (issue #143 / PR #150) hit the same wall — final resolution is zero repo-config coupling for GitHub-only gh wrappers (no guard at all, since there is no other backend to branch on)
 metadata:
   type: project
 ---
@@ -65,12 +65,35 @@ check whether the consumer actually needs the *whole* reader contract
 or just one cheap field — if it's one field, inlining it beats every
 sharing mechanism.
 
+**How the github-workflow case FINALLY resolved (2026-07, third fixer
+pass on PR #150):** the second pass's "lightweight inline
+`source-control` read" (previous paragraph) was itself unnecessary and
+was stripped entirely in the third pass. The insight: `pr-ready`,
+`pr-draft`, and `pr-link-issue` are thin wrappers around the `gh` CLI,
+which is GitHub-only by construction. There is no CodeCommit code path
+these skills could ever take, so a `source-control` guard — inline or
+otherwise — has nothing to branch on. It was dead prose, not a real
+guard. The correct end state for a plugin whose skills are 1:1 wrappers
+around a backend-specific CLI is **zero repo-config coupling**: no
+front-matter read, no abort catalogue, no schema-version mention,
+nothing. Lesson sharpened: "does this skill need 1-2 fields, inline
+them" (second pass) was still one step short of the real question —
+"does this skill's underlying tool already imply the backend, making
+the guard vacuous?" Ask the vacuous-guard question BEFORE reaching for
+inlining.
+
 **How to apply generally:** before writing a new plugin's SKILL.md
 that needs `.claude/rules/repo-config.md`, first ask how much of the
 contract it actually needs.
-- Needs only 1-2 simple front-matter fields (e.g. a GitHub-only
-  `source-control` guard) → inline a lightweight direct read, no lib
-  reference at all (the github-workflow precedent above).
+
+- The skill wraps a backend-specific CLI/API that has no other backend
+  it could target (e.g. `gh pr ...` for a GitHub-only PR wrapper) →
+  need **nothing**. Skip repo-config entirely; do not write a guard
+  that can never fire.
+- Needs only 1-2 simple front-matter fields for a genuine multi-backend
+  branch (e.g. choosing between `gh` and `aws codecommit`) → inline a
+  lightweight direct read, no lib reference at all (the github-workflow
+  second-pass precedent above still applies when the branch is real).
 - Needs the full reader contract (schema-version check, all six
   fields, `github-project:`/`jira:` block resolution) → do NOT assume
   a bare `skills/lib/repo-config.md` reference resolves outside
