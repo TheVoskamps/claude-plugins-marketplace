@@ -1,13 +1,19 @@
-# Per-ecosystem Dependabot block, rendered once per detected ecosystem
-# and concatenated into __DEPENDABOT_ECOSYSTEMS__ in dependabot.yml.
+# Per-ecosystem Dependabot block, rendered once per SUPPORTED ecosystem
+# (the full armed set, not just the detected ones) and concatenated into
+# __DEPENDABOT_ECOSYSTEMS__ in dependabot.yml. Dependabot no-ops on an
+# ecosystem whose manifest is absent, so arming the full set costs only a
+# longer file and covers a new manifest the moment it lands.
 #
 # This is the HARDENED generated baseline (issue #51): cooldown soak,
 # versioning-strategy, recursive directory coverage, semver-major
 # ignore, and per-ecosystem schedules. Several values vary BY ECOSYSTEM
-# CLASS (npm/pip vs docker vs github-actions), so the variant parts are
-# placeholders the skill resolves per ecosystem — see SKILL.md "Step 3"
-# for the resolution table. Do NOT hard-code one ecosystem's values
-# here; the skill renders the right variant for each detected ecosystem.
+# CLASS (npm/pip vs docker vs github-actions vs the rest), so the variant
+# parts are placeholders the skill resolves per ecosystem — see SKILL.md
+# "Step 3" for the resolution table, which covers EVERY armed ecosystem
+# class. A wrong variant (e.g. `versioning-strategy` on docker) makes
+# Dependabot reject the whole config, so the per-class resolution must be
+# correct for each ecosystem. Do NOT hard-code one ecosystem's values
+# here; the skill renders the right variant for each ecosystem.
 #
 # Multi-line block placeholders (__DIRECTORY_BLOCK__,
 # __VERSIONING_STRATEGY_BLOCK__, __COOLDOWN_BLOCK__) each sit alone on a

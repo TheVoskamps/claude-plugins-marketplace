@@ -3,6 +3,10 @@
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
+- [guardrails permgate docs locality](project_guardrails-permgate-docs-locality.md)
+  — permission-gate behavior lives in its own README.md + Go doc
+  comments, kept current by developer/fixer; watch for stale
+  count-before-list defects when sweeping that README.
 - [claude-vm two preflights](project_claude-vm-two-preflights.md) —
   launcher has a trust-path preflight AND a dependency preflight; docs
   must cover both, and list python3+gpg as required host tools.

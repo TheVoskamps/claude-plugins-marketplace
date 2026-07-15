@@ -21,16 +21,26 @@ payload/
 
 Each `<skill-name>/` subdirectory mirrors the skill's name under
 `skills/` (e.g. `gh-repo-setup-protection` with its templated
-`dependabot.yml`, CodeQL workflow, CodeQL config,
-dependency-install-gate (workflow + drift-check script),
-dependency-pinned-gate (workflow + exact-version classifier script +
-a developer-local self-test that is not rendered into target repos),
-and
+`dependabot.yml`, CodeQL workflow (a runtime detect → analyze-matrix →
+`codeql-required` aggregator armed with the full supported language
+set), CodeQL config, CodeQL language-presence detect script +
+self-test, dependency-install-gate (workflow + drift-check script,
+same runtime detect → matrix → `install-gate-required` aggregator
+shape), dependency-pinned-gate (workflow + exact-version classifier
+script + a developer-local self-test that is not rendered into target
+repos), and
 no-back-merging-guard (workflow + guard script + self-test) payloads,
 `gh-repo-setup-pr-automation` with its auto-merge/auto-rebase workflow
 payloads plus the npm lockfile-regen script and its self-test,
 `gh-create-app` with its App-auth workflow snippet and
 App-metadata document payloads).
+
+The `gh-repo-setup-protection` CodeQL and dependency-gate workflows are
+**armed with the full supported set** and narrow to the present
+languages/ecosystems at **runtime** via each workflow's `detect` job —
+there is no install-time CodeQL language-list placeholder or per-job
+delimiter-comment rendering (both removed in issue #145). The only
+placeholder those workflows carry is `__DEFAULT_BRANCH__`.
 
 ## Placeholder syntax
 
