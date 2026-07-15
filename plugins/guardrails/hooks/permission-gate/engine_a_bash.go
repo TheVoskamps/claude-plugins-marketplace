@@ -423,6 +423,48 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 				walkCmd(c.Else, nil)
 			}
 		case *syntax.ForClause:
+			// A `for x in <words>; do …; done` whose header is a fully static
+			// item list (#131) makes the loop variable's entire value set
+			// visible at parse time. When every item resolves to an exact
+			// literal (directly, via brace expansion, via a known-variable
+			// expansion, or via a glob's containment-relevant directory
+			// prefix — see staticForItems), fan out: walk c.Do once per item
+			// with the loop variable bound to that item's value, so body uses
+			// of "$x" resolve instead of staying inexact / fail-closed. Every
+			// item is walked — an escaping item later in the list is still
+			// reported even if earlier items were safe.
+			//
+			// Anything else — no `in` clause (`for x; do …`, iterates "$@"),
+			// or any irreducibly dynamic item (`for f in $UNKNOWN`, a command
+			// substitution, a glob while the running cwd is invalid) — cannot
+			// be reduced to a known value set, so leave the existing
+			// conservative behavior: walk the body once with the loop
+			// variable NOT bound, so "$x" stays inexact and fails closed as
+			// before.
+			if wi, ok := c.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() && wi.Name != nil {
+				items, allStatic := staticForItems(wi, knownVars, runningCWDInvalid)
+				if allStatic && len(items) <= maxForFanOut {
+					loopVar := wi.Name.Value
+					prevVal, hadPrev := knownVars[loopVar]
+					for _, item := range items {
+						knownVars[loopVar] = item
+						for _, s := range c.Do {
+							walkStmt(s)
+						}
+					}
+					// Restore/remove the binding so it does not leak past the
+					// loop or clobber an outer variable of the same name
+					// (#131 scopeDepth discipline).
+					if hadPrev {
+						knownVars[loopVar] = prevVal
+					} else {
+						delete(knownVars, loopVar)
+					}
+					break
+				}
+				// Dynamic item(s), or the fan-out cap was exceeded: fall
+				// through to the conservative unbound walk below.
+			}
 			for _, s := range c.Do {
 				walkStmt(s)
 			}
@@ -715,6 +757,359 @@ func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
 		return printWord(w), false
 	}
 	return lit, exact
+}
+
+// maxForFanOut bounds how many items a static `for x in <words>` fan-out
+// (#131) will expand. A pathologically long static item list would otherwise
+// walk the loop body once per item; above this cap we fall back to the
+// conservative unbound walk (fail-closed on body uses of the loop variable)
+// rather than doing unbounded work.
+const maxForFanOut = 64
+
+// staticForItems reports the resolved literal value of every item word in a
+// `for x in <words>` header, and whether ALL of them are exact (#131). It
+// expands every statically-knowable form — brace expansion, a bare
+// known-variable word (split on IFS the way bash word-splits an unquoted
+// expansion), and a glob's containment-relevant directory prefix — and fans
+// out to the cross product of item words. A single irreducibly dynamic item
+// (command substitution, an unresolved parameter expansion, or a relative
+// glob while cwdInvalid) makes the WHOLE list non-static, since the loop
+// variable's value set is no longer fully known at parse time.
+//
+// cwdInvalid is whether the running cwd tracked through the walk (#129) is
+// currently invalid; used to fail closed on a relative glob item (case 3,
+// see globDirPrefix) that cannot be safely anchored. The resolved directory
+// prefix itself is left relative and resolved later, at containment time,
+// against the command's own tracked cwd (globDirPrefix's doc comment).
+func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
+	items := make([]string, 0, len(wi.Items))
+	for _, w := range wi.Items {
+		expanded, ok := staticExpandItem(w, knownVars, cwdInvalid)
+		if !ok {
+			return nil, false
+		}
+		items = append(items, expanded...)
+	}
+	return items, true
+}
+
+// staticExpandItem resolves ONE `for … in` item word to zero or more
+// concrete literal values (#131). It handles, in order:
+//
+//  1. Brace expansion (`{a,b}.md`, `{a,b}$X.md`) via the upstream
+//     syntax.SplitBraces + expand.Braces pair, which performs the
+//     cross-product fan-out itself. mvdan.cc/sh does NOT pre-expand braces
+//     during parsing (that is correct upstream behavior — matching happens
+//     at expansion time, not parse time), so this step is required even for
+//     the simplest `{a,b}` case.
+//  2. A bare unquoted known-variable word (`$LIST` / `${LIST}`, no other
+//     word parts): resolved from knownVars, then split on the default IFS
+//     the way bash word-splits an unquoted expansion. A quoted `"$LIST"` is
+//     a single DblQuoted word part, not a bare ParamExp, so it is NOT
+//     word-split here — that already resolves correctly as a single literal
+//     via literalWord/case 3 below, matching bash's no-split-when-quoted
+//     semantics.
+//  3. Every other resolved sub-word: literalWord — a straight literal, or a
+//     glob against the tracked running cwd (globDirPrefix), or (if none of
+//     the above apply) irreducibly dynamic → fail closed.
+//
+// mvdan.cc/sh's own syntax.SplitBraces declines to split any brace element
+// containing "..", as a guard against ambiguity with the `{x..y}` sequence
+// form. Real bash has no such hesitation: `{a,../../../etc/passwd}` splits
+// cleanly into "a" and "../../../etc/passwd" (verified live:
+// `bash -c 'for f in {a,../../../etc/passwd}; do echo "$f"; done'`).
+// Empirically, upstream's decline is not merely "leave literal braces in the
+// text" — for 3+-member lists it can silently DROP members instead
+// (`{a,b,../c}` expands to only "a","b", quietly losing "../c"; see
+// staticExpandBraceFallback's doc comment for the full probe). A silent drop
+// is worse than a residual `{}`: it would let the fan-out walk the body over
+// an incomplete item set, an ALLOW-shaped false negative. So whenever a
+// sub-word's resolved text still contains "{"/"}" (declined, residual
+// braces) OR the raw pre-split word contains a ".."-bearing top-level
+// brace-comma-list (declined, silently short — the residual check alone
+// would miss this), staticExpandBraceFallback below does the comma-list
+// split itself, so every member (including the escaping one) still flows
+// through the existing containment pipeline and gets worst-wins DENY/ASK
+// rather than being silently dropped or bulk-ASKed. staticExpandBraceFallback
+// only understands the single unnested `{x,y,z}` comma-list grammar; a
+// range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
+// closed exactly as before — the issue's carve-out ("if you hit a range
+// form you don't handle, fall closed").
+func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
+	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
+	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
+	// semantics (case 2) are not shadowed by literalWord's own $VAR
+	// resolution (which would return the whole unsplit value as one item).
+	if len(w.Parts) == 1 {
+		if p, ok := w.Parts[0].(*syntax.ParamExp); ok && isResolvableParamExp(p, knownVars) {
+			val := knownVars[p.Param.Value]
+			return expand.ReadFields(&expand.Config{}, val, -1, true), true
+		}
+	}
+
+	// Capture the raw, pre-mutation printed form for the dotdot-comma-list
+	// cross-check below; SplitBraces mutates w's Parts in place.
+	raw := printWord(w)
+
+	syntax.SplitBraces(w)
+	subWords := expand.Braces(w)
+
+	declined := false
+	items := make([]string, 0, len(subWords))
+	for _, sw := range subWords {
+		val, exact := literalWord(sw, knownVars)
+		if !exact {
+			return nil, false
+		}
+		if strings.ContainsAny(val, "{}") {
+			// A brace that syntax.SplitBraces declined to split leaves
+			// literal brace syntax in the resolved text — the clean signal
+			// that upstream punted on this word.
+			declined = true
+			break
+		}
+		items = append(items, val)
+	}
+
+	// Even when no residual "{"/"}" survived, upstream can still have
+	// silently dropped a ".."-bearing member (the 3+-element case above).
+	// Cross-check independently of subWords' shape: if the raw word (before
+	// SplitBraces ran) contains a ".."-bearing top-level brace-comma-list,
+	// never trust the count/content upstream returned — always resolve via
+	// our own splitter for this item, whether upstream declined outright or
+	// quietly under-counted.
+	if !declined && hasDotDotBraceMember(raw) {
+		declined = true
+	}
+
+	if declined {
+		fallbackItems, ok := staticExpandBraceFallback(raw, cwdInvalid)
+		if !ok {
+			// Not a form our narrow fallback splitter understands (nested
+			// braces, a range form, multiple brace groups, malformed
+			// syntax, …) — fail closed rather than guess.
+			return nil, false
+		}
+		return fallbackItems, true
+	}
+
+	final := make([]string, 0, len(items))
+	for _, val := range items {
+		if hasGlobMeta(val) {
+			dir, ok := globDirPrefix(val, cwdInvalid)
+			if !ok {
+				return nil, false
+			}
+			final = append(final, dir)
+			continue
+		}
+		final = append(final, val)
+	}
+	return final, true
+}
+
+// hasDotDotBraceMember reports whether raw contains a top-level (unnested)
+// brace-comma-list `{...,...}` with at least one comma-separated member
+// containing "..". This is a cheap textual pre-check used purely to decide
+// whether to distrust upstream's expand.Braces output shape (#131 follow-up)
+// — it does not itself resolve anything. A false positive here just means
+// staticExpandBraceFallback gets consulted and, if the form is anything more
+// exotic than a single unnested comma-list, correctly declines (fail closed).
+func hasDotDotBraceMember(raw string) bool {
+	start := strings.IndexByte(raw, '{')
+	if start < 0 {
+		return false
+	}
+	depth := 0
+	memberHasDotDot := false
+	sawComma := false
+	for i := start; i < len(raw); i++ {
+		switch raw[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				if sawComma && memberHasDotDot {
+					return true
+				}
+				// Continue scanning past this closed group in case a LATER
+				// top-level group in the same word is the dotdot offender
+				// (e.g. literal text between two separate brace groups).
+				memberHasDotDot = false
+				sawComma = false
+			}
+		case ',':
+			if depth == 1 {
+				sawComma = true
+			}
+		case '.':
+			if depth >= 1 && i+1 < len(raw) && raw[i+1] == '.' {
+				memberHasDotDot = true
+			}
+		}
+	}
+	return false
+}
+
+// staticExpandBraceFallback splits ONE `for … in` item's raw printed text
+// when upstream's syntax.SplitBraces/expand.Braces declined (or, worse,
+// silently under-counted — see staticExpandItem's doc comment) on a
+// ".."-bearing member. It handles exactly the single, unnested comma-list
+// grammar `<prefix>{a,b,c}<suffix>`, matching bash's actual comma-list
+// brace-expansion semantics for that shape (verified live: `bash -c 'for f
+// in {a,../b,c}; do echo "$f"; done'` prints all three members unchanged).
+// It deliberately does NOT attempt: a range form (`{1..9}`, `{a..z}` — ok is
+// false, e.g. because the sole group's members don't contain a comma, so
+// depth-1 commaCount stays 0), nested braces (`{a,{b,c}}` — ok is false
+// because a nested "{" is found at depth 1), or more than one top-level
+// brace group in the same word. Any of those returns ok=false so the caller
+// fails closed to ASK rather than guess at bash's grammar.
+//
+// $VAR / other non-literal word parts around the brace group (e.g.
+// `{a,../b}$X.md`) are not visible in raw's flat text once mutated by
+// SplitBraces, so this fallback is only invoked on the word's raw
+// PRE-mutation text captured in staticExpandItem — meaning a brace group
+// combined with an adjacent $VAR is out of scope for this fallback and
+// naturally falls to ok=false (the raw text still contains the unresolved
+// "$X" token, which literalWord would already have marked inexact on the
+// upstream path; this fallback does not re-resolve variables at all, it
+// only pattern-matches a pure-literal comma-list). In practice this means:
+// when a ".."-bearing brace group is combined with a variable, the whole
+// item fails closed — a narrower guarantee than the brace-only case,
+// but consistent with the "fall back to fail-closed on forms you don't
+// handle" carve-out.
+func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
+	start := strings.IndexByte(raw, '{')
+	if start < 0 {
+		return nil, false
+	}
+	end := -1
+	depth := 0
+	for i := start; i < len(raw); i++ {
+		switch raw[i] {
+		case '{':
+			depth++
+			if depth > 1 {
+				// Nested brace group — not this fallback's grammar.
+				return nil, false
+			}
+		case '}':
+			depth--
+			if depth == 0 {
+				end = i
+			}
+		}
+		if end >= 0 {
+			break
+		}
+	}
+	if end < 0 {
+		return nil, false
+	}
+	// Reject a second top-level brace group in the same word (e.g.
+	// `{a,../b}{c,d}`) — out of scope for this narrow fallback.
+	if strings.IndexByte(raw[end+1:], '{') >= 0 {
+		return nil, false
+	}
+
+	prefix := raw[:start]
+	body := raw[start+1 : end]
+	suffix := raw[end+1:]
+
+	members := strings.Split(body, ",")
+	if len(members) < 2 {
+		// No comma at the top level: either a range form (`{1..9}`) or a
+		// malformed/degenerate group. Not this fallback's grammar.
+		return nil, false
+	}
+	for _, m := range members {
+		if strings.ContainsAny(m, "{}") {
+			// Shouldn't happen given the depth check above, but guard
+			// defensively rather than emit a bogus literal.
+			return nil, false
+		}
+	}
+
+	// unescape undoes the minimal escaping the printer/parser round trip can
+	// leave on a Lit's Value for characters that are syntactically
+	// significant to the shell (a literal comma or brace inside a brace
+	// group must itself have been escaped in the source for SplitBraces to
+	// have treated this as a group boundary at all); at this narrow scope
+	// (pure-literal comma-list) a backslash immediately before a shell
+	// metacharacter is the only escape form that can appear.
+	unescape := func(s string) string {
+		return strings.NewReplacer(`\{`, "{", `\}`, "}", `\,`, ",").Replace(s)
+	}
+
+	items := make([]string, 0, len(members))
+	for _, m := range members {
+		val := unescape(prefix) + unescape(m) + unescape(suffix)
+		if hasGlobMeta(val) {
+			dir, ok := globDirPrefix(val, cwdInvalid)
+			if !ok {
+				return nil, false
+			}
+			items = append(items, dir)
+			continue
+		}
+		items = append(items, val)
+	}
+	return items, true
+}
+
+// hasGlobMeta reports whether s contains a shell glob metacharacter
+// (`*`, `?`, `[`) that bash would expand via pathname expansion. Used to
+// detect a static `for x in <words>` item (#131) that merely LOOKS like a
+// literal but actually depends on runtime directory contents; it is not a
+// general-purpose literalWord change.
+func hasGlobMeta(s string) bool {
+	return strings.ContainsAny(s, "*?[")
+}
+
+// globDirPrefix resolves a glob pattern's containment-relevant directory
+// prefix (#131 case 3), without reading the filesystem. Containment is pure
+// path arithmetic: every path a glob like `*.md` or `src/*.go` can possibly
+// match is a child of the pattern's directory prefix (the portion before the
+// first path segment that itself contains a glob metacharacter), so binding
+// the loop variable to that prefix directory makes every possible match
+// share the exact same containment verdict as the prefix itself —
+// contained, escapeWorktree, escapeRepo, or claudeConfig — via the existing
+// pathUnder equal-or-nested check. The returned prefix is deliberately left
+// relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
+// into the loop body, and the EXISTING containment pipeline
+// (containPathOperands -> testContainmentFrom) already resolves a relative
+// operand against the command's own tracked running cwd (#129, sc.cwd) at
+// classification time — resolving it again here would be redundant, not more
+// correct. This resolves the containment QUESTION without ever asking "which
+// files actually exist".
+//
+// ok is false when the prefix cannot be safely resolved: cwdInvalid (an
+// earlier dynamic `cd` invalidated the running cwd, #129) means a RELATIVE
+// glob cannot be safely anchored, so the caller fails the whole for-list
+// closed (ASK), matching cdInvalidAsk's fail-closed posture for every other
+// relative operand. An absolute glob (`/abs/*.md`) is unaffected by
+// cwdInvalid, since it needs no cwd to resolve.
+func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
+	segs := strings.Split(pattern, "/")
+	var prefix []string
+	for _, seg := range segs {
+		if hasGlobMeta(seg) {
+			break
+		}
+		prefix = append(prefix, seg)
+	}
+	dir := strings.Join(prefix, "/")
+	if dir == "" {
+		dir = "."
+	}
+	if filepath.IsAbs(dir) {
+		return dir, true
+	}
+	if cwdInvalid {
+		return "", false
+	}
+	return dir, true
 }
 
 // isResolvableParamExp reports whether a parameter expansion is a plain

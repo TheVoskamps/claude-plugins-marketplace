@@ -50,7 +50,44 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   — a later re-anchoring `cd` can clear the invalid state, since bash
   itself would). A `cd` inside a `( … )` subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
-  the static-variable scope discipline above. Engine A also carries a
+  the static-variable scope discipline above. A `for x in <words>; do
+  …; done` whose header is a fully static item list (#131, broadened by
+  a follow-up) fans out: the body is walked once per resolved item with
+  the loop variable bound to that item, so a body use of `"$x"`
+  resolves and is run through normal containment instead of failing
+  closed, capped at 64 items to bound the work. Every
+  statically-knowable item form is expanded and fanned out to its cross
+  product: a bare literal; brace expansion (`{a,b}.md`, including
+  combined with a known variable — `{a,b}$X.md`); a bare unquoted
+  known-variable word (`$LIST`, split on the default IFS the way bash
+  word-splits an unquoted expansion — a quoted `"$LIST"` is NOT split,
+  matching bash); and a glob (`*.md`, `src/*.go`, `../*.md`) resolved to
+  its containment-relevant directory prefix against the tracked running
+  cwd, by path arithmetic alone (no filesystem read) — every possible
+  match of the glob is a child of that prefix, so the prefix's
+  containment verdict applies to the whole pattern. Every expanded item
+  is checked (worst-wins), so an escaping item anywhere in the list is
+  still reported even when earlier items were safe. A brace element
+  containing `..` (`{a,../../../etc/passwd}`) is where the upstream
+  parser's own `SplitBraces` declines to split — its guard against
+  ambiguity with the `{x..y}` sequence form — and can even silently
+  drop a member from a 3+-element list rather than merely leaving
+  residual `{`/`}` text; a fallback splitter (matching real bash's
+  actual comma-list semantics, verified live) detects both the decline
+  and the silent-drop shape and performs the split itself, so every
+  member — including the escaping one — still flows through normal
+  containment (worst-wins) instead of the whole list falling back to
+  an unnecessary ASK. The fallback only understands the single,
+  unnested `{a,b,c}` comma-list grammar; a brace form it does not
+  handle (nested braces combined with `..`, a bare range form like
+  `{1..9}` — ranges without a top-level comma resolve via the upstream
+  path directly and never reach the fallback) keeps the loop variable
+  unbound and the body fails closed on that variable, matching
+  pre-#131 behavior. A `for x; do …` with no `in` clause
+  (iterates `"$@"`) is likewise never reduced. The binding is saved and
+  restored around the loop so it does not clobber an outer variable of
+  the same name, per the static-variable scope discipline above. Engine
+  A also carries a
   **read-only-utility classifier**
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
@@ -245,7 +282,30 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   in-repo-write shell classifier still DENY a target that resolves to
   the primary clone (#127), and #148 cross-repo reads/writes are
   unaffected by this carve-out (it only relaxes the primary-clone /
-  common-dir case, not a genuine sibling repo).
+  common-dir case, not a genuine sibling repo). (4) a leading `~` or
+  `~/...` in any operand is expanded against the real home directory
+  BEFORE the relative-join/canonicalize step (#131 follow-up review),
+  mirroring the tilde handling Engine A's `applyCd` already does for
+  `cd ~`. Without this, `~/.ssh/id_rsa` is not `filepath.IsAbs` and
+  would silently fall through to the relative-join branch, resolving
+  as `<base>/~/.ssh/id_rsa` — a literal, in-repo-looking child path
+  that masked an escape to the user's real home directory as
+  `contained`. This was a genuine fail-open (found via a for-loop
+  brace-list escaping member, `{a.md,~/.ssh/id_rsa}`, but pre-existing
+  and reachable through any single-operand path too, e.g. plain
+  `cat ~/.ssh/id_rsa`) — now it earns the escape verdict its real
+  location deserves. If the home directory cannot be resolved (`HOME`
+  unset/empty — real in cron jobs, minimal containers, stripped
+  environments), the containment layer (`testContainmentFrom`) treats
+  the operand as an unconditional `escapeRepo` — denied, never
+  `contained` — genuinely mirroring `applyCd`'s fail-safe posture
+  (invalidate rather than guess) rather than merely claiming to. An
+  earlier version of this fix (PR #139 round 3) left `~` as a literal
+  relative segment in this branch instead, which actually resolved as
+  `<base>/~/...` and read as `contained` — a live fail-open, caught by
+  round-3 review and closed by threading the resolver's
+  home-unresolvable signal through `testContainmentFrom` directly (see
+  `canonicalizeFromResolver` in `engine_b_containment.go`).
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the

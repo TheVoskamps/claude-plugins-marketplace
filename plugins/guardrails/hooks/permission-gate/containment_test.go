@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -515,5 +516,132 @@ func TestContainmentFailClosed_NoCWD(t *testing.T) {
 	d := classifyFileTool(ev)
 	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
 		t.Errorf("empty cwd must fail closed; got %q", d.Bucket)
+	}
+}
+
+// TestCanonicalizeFromExpandsTilde pins the containment-level fix (PR #139
+// follow-up review) directly at canonicalizeFrom, independent of any Bash
+// classification path. Before this fix, `~/.ssh/id_rsa` was not
+// filepath.IsAbs, so it silently fell through to the relative-join branch
+// and resolved as `<base>/~/.ssh/id_rsa` — a literal, in-repo-looking child
+// path that masked an escape to the real home directory as `contained`.
+func TestCanonicalizeFromExpandsTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skip("no resolvable home directory in this environment")
+	}
+	wantHomeFile := canonicalize(filepath.Join(home, ".ssh", "id_rsa"))
+
+	base := t.TempDir()
+
+	got := canonicalizeFrom("~/.ssh/id_rsa", base)
+	if got != wantHomeFile {
+		t.Errorf("canonicalizeFrom(%q, base) = %q, want %q (must resolve against the real home directory, not <base>/~/...)",
+			"~/.ssh/id_rsa", got, wantHomeFile)
+	}
+	if pathUnder(got, canonicalize(base)) {
+		t.Errorf("canonicalizeFrom(%q, base) = %q must NOT resolve under base %q", "~/.ssh/id_rsa", got, base)
+	}
+
+	wantHome := canonicalize(home)
+	if gotBare := canonicalizeFrom("~", base); gotBare != wantHome {
+		t.Errorf("canonicalizeFrom(\"~\", base) = %q, want %q", gotBare, wantHome)
+	}
+}
+
+// TestContainmentTildeEscapeDenied covers the same fix one layer up, through
+// testContainmentFrom: a tilde-prefixed target must earn the escape verdict
+// its real (home-directory) location deserves, not `contained`.
+func TestContainmentTildeEscapeDenied(t *testing.T) {
+	if _, err := os.UserHomeDir(); err != nil {
+		t.Skip("no resolvable home directory in this environment")
+	}
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	rc := &repoContext{insideWorkTree: true, topLevel: canonicalize(repo)}
+
+	result, _ := testContainmentFrom("~/.ssh/id_rsa", canonicalize(repo), rc)
+	if result == contained {
+		t.Errorf("tilde-prefixed target must not resolve as contained; got %v", result)
+	}
+}
+
+// failingHomeDir is a homeDir resolver that deterministically fails, for
+// pinning canonicalizeFromResolver's no-home branch without depending on
+// (or skipping under) the ambient test environment's actual home-directory
+// resolvability.
+func failingHomeDir() (string, error) {
+	return "", fmt.Errorf("injected: home directory unresolvable")
+}
+
+// TestCanonicalizeFromResolverNoHomeUnresolvedTilde pins canonicalizeFrom
+// Resolver's no-home branch directly: PR #139 round-3 review found that the
+// previous fix (TestCanonicalizeFromExpandsTilde /
+// TestContainmentTildeEscapeDenied above) only covered the home-resolvable
+// path — both of those tests t.Skip when there is no home, so the no-home
+// branch shipped completely unpinned, and it fell through to the ordinary
+// relative-join and resolved as `<base>/~/.ssh/id_rsa`, an in-repo-looking
+// path (fail-OPEN), despite a code comment and the README both claiming it
+// matched applyCd's fail-closed ("invalidate rather than guess") posture.
+//
+// This test injects a homeDir resolver that always fails, so it runs
+// deterministically in every environment (real $HOME set or not) — it does
+// NOT skip, which is the whole point: the no-home branch must always be
+// exercised, never silently skipped again.
+func TestCanonicalizeFromResolverNoHomeUnresolvedTilde(t *testing.T) {
+	base := t.TempDir()
+
+	for _, p := range []string{"~", "~/.ssh/id_rsa"} {
+		_, unresolvedTilde := canonicalizeFromResolver(p, base, failingHomeDir)
+		if !unresolvedTilde {
+			t.Errorf("canonicalizeFromResolver(%q, base, failingHomeDir) unresolvedTilde = false, want true", p)
+		}
+		// Note: the returned `real` string is only a best-effort display
+		// value here (still `<base>/~/...`-shaped — the same string the old,
+		// buggy code would have treated as `contained`). unresolvedTilde is
+		// the ONLY signal a caller may rely on to fail closed; see
+		// testContainmentFrom, which checks unresolvedTilde BEFORE running
+		// any pathUnder comparison against real.
+	}
+
+	// Non-tilde and resolvable-tilde-adjacent paths are unaffected: no
+	// leading `~` means the homeDir resolver is never consulted.
+	if real, unresolvedTilde := canonicalizeFromResolver("a.md", base, failingHomeDir); unresolvedTilde {
+		t.Errorf("canonicalizeFromResolver(%q, ...) unresolvedTilde = true, want false; real = %q", "a.md", real)
+	}
+	if real, unresolvedTilde := canonicalizeFromResolver("foo~bar", base, failingHomeDir); unresolvedTilde {
+		t.Errorf("canonicalizeFromResolver(%q, ...) unresolvedTilde = true, want false (non-leading ~ is a literal); real = %q",
+			"foo~bar", real)
+	}
+}
+
+// TestContainmentNoHomeTildeFailsClosed pins the fix one layer up, through
+// testContainmentFrom, using t.Setenv("HOME", "") to deterministically force
+// os.UserHomeDir to fail on Unix (UserHomeDir reads $HOME directly) rather
+// than relying on — or skipping under — whatever the ambient test
+// environment's real home-directory resolvability happens to be. This is
+// the exact "HOME unset" scenario from the PR #139 round-3 review (cron
+// jobs, minimal containers, stripped environments): a leading-tilde operand
+// must earn a non-contained (escapeRepo) verdict, never `contained`, so
+// every caller (classifyFileTool, containPathOperands, containWriteOperands)
+// denies rather than allows.
+func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	t.Setenv("HOME", "")
+
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	rc := &repoContext{insideWorkTree: true, topLevel: canonicalize(repo)}
+
+	for _, p := range []string{"~", "~/.ssh/id_rsa"} {
+		result, _ := testContainmentFrom(p, canonicalize(repo), rc)
+		if result != escapeRepo {
+			t.Errorf("testContainmentFrom(%q, repo, rc) with HOME unset = %v, want escapeRepo (fail closed); "+
+				"a %v verdict here is the exact fail-open this test pins against", p, result, result)
+		}
 	}
 }
