@@ -57,3 +57,20 @@ literalWord/resolveVar-level semantics changes; always diff the
 README's variable-resolution paragraph against the actual `literalWord`
 doc comment when a PR touches that function, don't just grep for
 whether the README path appears in the PR diff.
+
+**Same counterexample class again (#132, PR #164):** the developer
+added a command-substitution anchor allowlist (`resolveAnchorCmdSubst`,
+`anchorCommands` — recognizes exact `$(git rev-parse --show-toplevel)`
+/ `$(git rev-parse --git-common-dir)` / `$(pwd)`/`` `pwd` `` as an
+assignment RHS) with dense, accurate Go doc comments on every new
+function, but again did NOT touch the README. This is a sibling
+mechanism to the #156 five-variable allowlist, not a variant of it — the
+README needed a new paragraph distinguishing "resolves bare variable
+references" (#156) from "resolves specific command-substitution forms"
+(#132), inserted right after the #156 paragraph it sits beside. Confirms
+the rule from the #156 entry above generalizes: any PR that adds a new
+*recognized form* to Engine A's static-resolution machinery (variable
+allowlist, anchor allowlist, whatever comes next) needs its own README
+paragraph even when the Go comments are already complete — check by
+grepping the README's variable/anchor-resolution paragraph for the new
+mechanism's name, not just whether the README path is in the PR diff.

@@ -63,7 +63,7 @@ func TestHomeVarUnresolvableFailsClosed_156(t *testing.T) {
 
 	file := mustParse(t, `cat "$HOME/.ssh/id_rsa"`)
 	resolver := fakeResolver("", errors.New("no home directory"), nil)
-	cmds, err := extractSimpleCommands(file, cwd, resolver)
+	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestHomeVarUnresolvableFailsClosed_156(t *testing.T) {
 	// Empty string from homeDir() (no error, but no home) must also fail
 	// closed, not resolve to an empty-string $HOME.
 	resolverEmpty := fakeResolver("", nil, nil)
-	cmds2, err := extractSimpleCommands(file, cwd, resolverEmpty)
+	cmds2, err := extractSimpleCommands(file, cwd, resolverEmpty, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestPWDResolvesAgainstTrackedCwdNotEventCwd_156(t *testing.T) {
 	// Directly assert the resolved value via extractSimpleCommands, so the
 	// test pins the RESOLVED PATH, not just the eventual bucket.
 	file := mustParse(t, cmd)
-	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver())
+	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestOLDPWDResolvesToPriorTrackedCwd_156(t *testing.T) {
 	}
 
 	file := mustParse(t, cmd)
-	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver())
+	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestUserAndTmpdirResolveFromProcessEnv_156(t *testing.T) {
 
 	file := mustParse(t, `cat "$USER/x"`)
 	resolver := fakeResolver(base, nil, map[string]string{"USER": "alice"})
-	cmds, err := extractSimpleCommands(file, cwd, resolver)
+	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestTmpdirUnsetFailsClosed_156(t *testing.T) {
 
 	file := mustParse(t, `cat "$TMPDIR/x"`)
 	resolver := fakeResolver(base, nil, nil) // no TMPDIR key at all
-	cmds, err := extractSimpleCommands(file, cwd, resolver)
+	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func TestInScriptAssignmentWinsOverEnv_156(t *testing.T) {
 	// Inject a DIFFERENT home dir than the in-script assignment, so a pass
 	// would prove precedence rather than accidentally matching.
 	resolver := fakeResolver(filepath.Join(base, "real-home"), nil, nil)
-	cmds, err := extractSimpleCommands(file, cwd, resolver)
+	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -109,7 +109,16 @@ func classifyBash(command string, ev *Event) Decision {
 		return d
 	}
 
-	cmds, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver())
+	// Resolve the git context once, up front, so recordAssign can recognize
+	// the #132 command-substitution anchors ($(git rev-parse
+	// --show-toplevel), $(git rev-parse --git-common-dir)). A resolution
+	// failure (not inside a git work tree, git missing, timeout) leaves rc
+	// nil; every anchor-recognition call below treats a nil rc as "cannot
+	// resolve this anchor" and keeps the existing fail-closed behavior — it
+	// does NOT abort classification of the rest of the line.
+	rc, _ := resolveRepoContext(ev.CWD)
+
+	cmds, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver(), rc)
 	if extractErr != nil {
 		return ask("bash:unhandled-construct", fmt.Sprintf(
 			"Blocked: the Bash command contains a construct the permission gate "+
@@ -232,7 +241,14 @@ func (sc simpleCommand) allowEligible() bool {
 //
 // resolver supplies the authoritative sources for $HOME/$USER/$TMPDIR (#156);
 // it is threaded down into every literalWord call the walk makes.
-func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolver) ([]simpleCommand, error) {
+//
+// rc is the resolved git context for the event's cwd (nil when resolution
+// failed, e.g. not inside a work tree). recordAssign threads it into
+// resolveAnchorCmdSubst (#132) so an assignment RHS that is EXACTLY
+// `$(git rev-parse --show-toplevel)` / `$(git rev-parse --git-common-dir)`
+// can be recorded as a known literal instead of always being dropped as an
+// unresolvable command substitution.
+func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolver, rc *repoContext) ([]simpleCommand, error) {
 	var out []simpleCommand
 	var walkErr error
 
@@ -321,6 +337,20 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
 		val, exact := literalWord(a.Value, knownVars, resolver, cc)
 		if !exact {
+			// #132: before giving up on a dynamic RHS, check whether it is
+			// EXACTLY one of the allowlisted anchor command substitutions
+			// ($(git rev-parse --show-toplevel), $(git rev-parse
+			// --git-common-dir), $(pwd)/`pwd`). Those substitutions' output is
+			// a known, resolvable filesystem location, so recording it lets a
+			// later use of the variable run through normal containment
+			// instead of failing closed. Anything else (a compound
+			// substitution, a non-allowlisted command, a substitution
+			// embedded alongside other word parts) is NOT an anchor and falls
+			// through to the existing drop-and-delete behavior.
+			if anchor, ok := resolveAnchorCmdSubst(a.Value, rc, runningCWD, runningCWDInvalid); ok {
+				knownVars[name] = anchor
+				return
+			}
 			// RHS is dynamic (e.g. `D=$(date)`, or built from an
 			// unresolved variable). The variable is no longer statically
 			// known — drop any stale value so a later use stays fail-closed.
@@ -845,6 +875,118 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 				return "", false
 			}
 			return v, true
+		}
+	}
+	return "", false
+}
+
+// anchorCommand describes one allowlisted command substitution whose output
+// is a known, resolvable filesystem location (#132). match reports whether
+// args (the substituted command's argv, program name included) is EXACTLY
+// this anchor's recognized form — no extra flags, no extra arguments.
+// resolve computes the anchor's value from the current repoContext / tracked
+// cwd; it returns ok=false when the needed source is unavailable (e.g. rc is
+// nil, or rc.commonDir is empty), which keeps the caller fail-closed rather
+// than guessing.
+type anchorCommand struct {
+	match   func(args []string) bool
+	resolve func(rc *repoContext, runningCWD string, runningCWDInvalid bool) (string, bool)
+}
+
+// anchorCommands is the closed, explicit allowlist of command substitutions
+// resolveAnchorCmdSubst recognizes (#132). Matching is exact: the substituted
+// command's argv must equal one of these forms precisely, with no additional
+// arguments or flags — anything else is not an anchor and stays unresolved
+// (fail-closed), preserving the conservative default for arbitrary
+// substitutions.
+var anchorCommands = []anchorCommand{
+	{
+		// $(git rev-parse --show-toplevel) → this worktree's root. A path
+		// built on it is contained by construction — the safest possible
+		// anchor.
+		match: func(args []string) bool {
+			return len(args) == 3 && args[0] == "git" && args[1] == "rev-parse" && args[2] == "--show-toplevel"
+		},
+		resolve: func(rc *repoContext, _ string, _ bool) (string, bool) {
+			if rc == nil || rc.topLevel == "" {
+				return "", false
+			}
+			return rc.topLevel, true
+		},
+	},
+	{
+		// $(git rev-parse --git-common-dir) → the shared git dir. A path
+		// anchored here lands under .git/ and is subject to the isUnderGitDir
+		// deny once resolved — resolving it makes that deny deterministic
+		// instead of a fail-closed ASK. It is NOT treated as a
+		// writable/contained anchor.
+		match: func(args []string) bool {
+			return len(args) == 3 && args[0] == "git" && args[1] == "rev-parse" && args[2] == "--git-common-dir"
+		},
+		resolve: func(rc *repoContext, _ string, _ bool) (string, bool) {
+			if rc == nil || rc.commonDir == "" {
+				return "", false
+			}
+			return rc.commonDir, true
+		},
+	},
+	{
+		// $(pwd) / `pwd` (bare, no arguments) → the CD-TRACKED running cwd
+		// (#129's runningCWD), NOT ev.CWD — a preceding `cd` changes what a
+		// real `pwd` would print. An invalid tracked cwd (a prior dynamic
+		// `cd`) keeps this unresolved.
+		match: func(args []string) bool {
+			return len(args) == 1 && args[0] == "pwd"
+		},
+		resolve: func(_ *repoContext, runningCWD string, runningCWDInvalid bool) (string, bool) {
+			if runningCWDInvalid || runningCWD == "" {
+				return "", false
+			}
+			return runningCWD, true
+		},
+	},
+}
+
+// resolveAnchorCmdSubst reports whether word is EXACTLY a single command
+// substitution matching one of anchorCommands, and if so, its resolved value
+// (#132). "Exactly" means: the word has one part, that part is a *CmdSubst,
+// its substituted program is a SINGLE statement (no `;`/`&&`/pipeline inside
+// the substitution), and that statement is a plain CallExpr with no
+// assignments/redirects whose argv matches an anchor form precisely. Any
+// other shape (a word with additional literal/expansion parts around the
+// substitution, a compound substitution, a non-allowlisted command) is not
+// recognized and returns ok=false, so the caller falls back to its existing
+// fail-closed behavior.
+func resolveAnchorCmdSubst(word *syntax.Word, rc *repoContext, runningCWD string, runningCWDInvalid bool) (string, bool) {
+	if word == nil || len(word.Parts) != 1 {
+		return "", false
+	}
+	cs, ok := word.Parts[0].(*syntax.CmdSubst)
+	if !ok || len(cs.Stmts) != 1 {
+		return "", false
+	}
+	stmt := cs.Stmts[0]
+	// Reject anything beyond a plain command: a background marker, redirects,
+	// or (implicitly, since we only accept a *CallExpr below) any other
+	// command construct.
+	if stmt.Background || stmt.Negated || len(stmt.Redirs) > 0 {
+		return "", false
+	}
+	call, ok := stmt.Cmd.(*syntax.CallExpr)
+	if !ok || len(call.Assigns) > 0 {
+		return "", false
+	}
+	args := make([]string, 0, len(call.Args))
+	for _, w := range call.Args {
+		lit, exact := literalWord(w, nil, varResolver{}, cwdCtx{})
+		if !exact {
+			return "", false
+		}
+		args = append(args, lit)
+	}
+	for _, anchor := range anchorCommands {
+		if anchor.match(args) {
+			return anchor.resolve(rc, runningCWD, runningCWDInvalid)
 		}
 	}
 	return "", false
