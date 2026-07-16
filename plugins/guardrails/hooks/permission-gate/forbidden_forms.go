@@ -105,7 +105,7 @@ func stmtIsCdWithArg(stmt *syntax.Stmt) bool {
 	if !ok || len(call.Args) < 2 {
 		return false
 	}
-	prog, _ := literalWord(call.Args[0], nil)
+	prog, _ := literalWord(call.Args[0], nil, defaultVarResolver(), cwdCtx{})
 	return basename(prog) == "cd"
 }
 
@@ -118,7 +118,7 @@ func stmtIsGit(stmt *syntax.Stmt) bool {
 	if !ok || len(call.Args) == 0 {
 		return false
 	}
-	prog, _ := literalWord(call.Args[0], nil)
+	prog, _ := literalWord(call.Args[0], nil, defaultVarResolver(), cwdCtx{})
 	return basename(prog) == "git"
 }
 
@@ -130,14 +130,14 @@ func callIsGitDashCAbs(call *syntax.CallExpr) bool {
 	if len(call.Args) < 2 {
 		return false
 	}
-	prog, _ := literalWord(call.Args[0], nil)
+	prog, _ := literalWord(call.Args[0], nil, defaultVarResolver(), cwdCtx{})
 	if basename(prog) != "git" {
 		return false
 	}
 	// Collect literal arg values after the program token.
 	args := make([]string, 0, len(call.Args)-1)
 	for _, w := range call.Args[1:] {
-		lit, _ := literalWord(w, nil)
+		lit, _ := literalWord(w, nil, defaultVarResolver(), cwdCtx{})
 		args = append(args, lit)
 	}
 	// Scan for a `-C` / `-C<path>` global with an absolute path.

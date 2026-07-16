@@ -11,6 +11,74 @@ import (
 	"mvdan.cc/sh/v3/syntax"
 )
 
+// varResolver supplies the authoritative sources for the closed allowlist of
+// process-environment-derived variables ($HOME, $USER, $TMPDIR) that #156
+// widens literalWord/isResolvableParamExp to resolve when a name is absent
+// from knownVars. $PWD and $OLDPWD are deliberately NOT resolved through this
+// struct — they come from the per-command tracked cwd (simpleCommand.cwd /
+// cwdInvalid and their oldCWD counterparts, threaded separately through
+// reduceCallExpr), because the hook's process-env $PWD is the EVENT cwd and
+// would be wrong after an in-script `cd` (see the "$PWD must NOT come from
+// the process environment" note in issue #156).
+//
+// Fields are injectable funcs (mirroring PR #139's `homeDir` resolver for
+// `~`) so the fail-closed branches (homeDir erroring/empty, a var absent from
+// the process env) are deterministically testable rather than dependent on
+// ambient environment.
+type varResolver struct {
+	// homeDir returns the process's home directory, or an error/empty string
+	// when it cannot be determined. Authoritative for $HOME — the same source
+	// applyCd's `cd ~` handling and claudeConfigRoot already use.
+	homeDir func() (string, error)
+	// lookupEnv returns the process-environment value of name and whether it
+	// was set. Authoritative for $USER / $TMPDIR — variables that do not
+	// change mid-script, so the hook's own env matches the command's.
+	lookupEnv func(name string) (string, bool)
+}
+
+// defaultVarResolver returns a varResolver backed by the real OS: os.UserHomeDir
+// for $HOME, os.LookupEnv for $USER/$TMPDIR.
+func defaultVarResolver() varResolver {
+	return varResolver{
+		homeDir:   os.UserHomeDir,
+		lookupEnv: os.LookupEnv,
+	}
+}
+
+// envResolvableNames is the closed, explicit allowlist of variable names
+// resolved via varResolver's process-environment source ($HOME, $USER,
+// $TMPDIR). $PWD and $OLDPWD are handled separately (see varResolver's doc
+// comment) because they need the per-command tracked cwd, not the process
+// env. Any other env var (e.g. $FOO, $PATH) stays unresolvable — the gate
+// must not resolve arbitrary environment state whose relationship to the
+// command's environment is unverified.
+var envResolvableNames = map[string]bool{
+	"HOME":   true,
+	"USER":   true,
+	"TMPDIR": true,
+}
+
+// cwdResolvableNames is the closed allowlist of variable names resolved from
+// the per-command tracked cwd rather than the process environment.
+var cwdResolvableNames = map[string]bool{
+	"PWD":    true,
+	"OLDPWD": true,
+}
+
+// cwdCtx carries the per-command tracked-cwd state literalWord needs to
+// resolve $PWD/$OLDPWD (#156): the running cwd and its validity (mirroring
+// simpleCommand.cwd/cwdInvalid, #129) plus the PRIOR cwd and its validity
+// (for $OLDPWD, recorded by applyCd on each `cd`). The zero value (all
+// fields empty/invalid) makes $PWD/$OLDPWD fail closed, which is correct
+// for any call site that has no tracked cwd to offer (e.g. a RHS assignment
+// expansion evaluated before cwd tracking is meaningful).
+type cwdCtx struct {
+	cwd           string
+	cwdInvalid    bool
+	oldCWD        string
+	oldCWDInvalid bool
+}
+
 // classifyBash parses a Bash command to an AST and classifies it. The result
 // is the AGGREGATE verdict over every simple command in the line: a single
 // DENY beats everything, then ASK, then ALLOW; if every simple command is a
@@ -41,7 +109,7 @@ func classifyBash(command string, ev *Event) Decision {
 		return d
 	}
 
-	cmds, extractErr := extractSimpleCommands(file, ev.CWD)
+	cmds, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver())
 	if extractErr != nil {
 		return ask("bash:unhandled-construct", fmt.Sprintf(
 			"Blocked: the Bash command contains a construct the permission gate "+
@@ -128,6 +196,14 @@ type simpleCommand struct {
 	// cannot be safely resolved and must fail closed (treated as unknown), even
 	// though absolute operands are unaffected.
 	cwdInvalid bool
+	// oldCWD / oldCWDInvalid are $OLDPWD's tracked source (#156): the running
+	// cwd's value immediately BEFORE the most recent statically-resolvable
+	// `cd` that preceded this command in the walk. Stamped alongside cwd at
+	// the same point (before this call's own `cd` side effect, if any).
+	// oldCWDInvalid is true when no `cd` has happened yet in this scope, or
+	// the prior cwd was itself invalid — either way $OLDPWD must fail closed.
+	oldCWD        string
+	oldCWDInvalid bool
 }
 
 // allowEligible reports whether a command is eligible for the high-confidence
@@ -153,7 +229,10 @@ func (sc simpleCommand) allowEligible() bool {
 // cwd (and its validity) AT THE POINT it is walked, so containment resolves
 // relative operands against the cwd that was actually in effect for that
 // command, not the process-wide event cwd.
-func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, error) {
+//
+// resolver supplies the authoritative sources for $HOME/$USER/$TMPDIR (#156);
+// it is threaded down into every literalWord call the walk makes.
+func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolver) ([]simpleCommand, error) {
 	var out []simpleCommand
 	var walkErr error
 
@@ -165,6 +244,14 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 	// simpleCommand in that scope carries cwdInvalid=true.
 	runningCWD := seedCWD
 	runningCWDInvalid := false
+
+	// runningOldCWD / runningOldCWDInvalid track $OLDPWD (#156): the value of
+	// runningCWD immediately before the most recent statically-resolvable
+	// `cd`. Starts invalid — before any `cd` has happened, $OLDPWD is not
+	// tracked and must fail closed. applyCd updates these BEFORE it mutates
+	// runningCWD, so they always hold the PRIOR value.
+	runningOldCWD := ""
+	runningOldCWDInvalid := true
 
 	// knownVars accumulates variables assigned to a STATIC literal value
 	// (#60) earlier in the same parsed program, in walk order (which is
@@ -228,7 +315,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 			knownVars[name] = ""
 			return
 		}
-		val, exact := literalWord(a.Value, knownVars)
+		// The RHS of an assignment is resolved with the SAME cwdCtx/resolver
+		// as any other word — a static `P=$PWD/sub` should resolve $PWD from
+		// the running cwd just like a direct use would.
+		cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+		val, exact := literalWord(a.Value, knownVars, resolver, cc)
 		if !exact {
 			// RHS is dynamic (e.g. `D=$(date)`, or built from an
 			// unresolved variable). The variable is no longer statically
@@ -258,11 +349,22 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 	// target that is not statically resolvable (command substitution, unknown
 	// variable) invalidates: later relative operands in this scope must fail
 	// closed rather than resolve against a stale or guessed cwd.
+	//
+	// Before mutating runningCWD, it records the PRIOR value into
+	// runningOldCWD/runningOldCWDInvalid (#156, $OLDPWD's source) — mirroring
+	// real bash, which sets $OLDPWD to the directory `cd` is leaving. Every
+	// exit path that goes on to change (or invalidate) runningCWD does this
+	// capture first, including the invalidating paths: bash still updates
+	// $OLDPWD on a `cd` whose target turns out to be unusable in ways we
+	// cannot statically distinguish, so treating the pre-cd cwd as the new
+	// $OLDPWD source (rather than leaving the OLDER $OLDPWD in place) is the
+	// conservative, fail-closed-compatible choice.
 	applyCd = func(call *syntax.CallExpr) {
 		if len(call.Args) == 0 {
 			return
 		}
-		prog, _ := literalWord(call.Args[0], knownVars)
+		cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+		prog, _ := literalWord(call.Args[0], knownVars, resolver, cc)
 		if basename(prog) != "cd" {
 			return
 		}
@@ -271,7 +373,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 		}
 		if len(call.Args) == 1 {
 			// Bare `cd` (no argument) goes to $HOME.
-			home, err := os.UserHomeDir()
+			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
+			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				runningCWDInvalid = true
 				return
@@ -280,22 +383,25 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 			runningCWDInvalid = false
 			return
 		}
-		lit, exact := literalWord(call.Args[1], knownVars)
+		lit, exact := literalWord(call.Args[1], knownVars, resolver, cc)
 		if !exact || lit == "-" {
 			// Dynamic target, or `cd -` (previous dir, not worth tracking):
 			// invalidate so later relative operands in this scope fail closed.
+			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			runningCWDInvalid = true
 			return
 		}
 		if lit == "" {
-			// `cd ""` is a no-op in bash (stays in the current directory).
+			// `cd ""` is a no-op in bash (stays in the current directory) —
+			// $OLDPWD is not updated by a no-op.
 			return
 		}
+		runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 		switch {
 		case filepath.IsAbs(lit):
 			runningCWD = lit
 		case lit == "~" || strings.HasPrefix(lit, "~/"):
-			home, err := os.UserHomeDir()
+			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				runningCWDInvalid = true
 				return
@@ -376,17 +482,20 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 					recordAssign(a)
 				}
 			}
-			sc, err := reduceCallExpr(c, redirs, knownVars)
+			// Stamp the running cwd (and its validity) AT THE POINT this command
+			// is walked (#129/#156), BEFORE applying this call's own `cd` side
+			// effect (a `cd`'s own arguments, if any, are resolved against the
+			// PRIOR cwd, not the directory it is about to change into).
+			cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+			sc, err := reduceCallExpr(c, redirs, knownVars, resolver, cc)
 			if err != nil {
 				walkErr = err
 				return
 			}
-			// Stamp the running cwd (and its validity) AT THE POINT this command
-			// is walked (#129), BEFORE applying this call's own `cd` side effect
-			// (a `cd`'s own arguments, if any, are resolved against the PRIOR
-			// cwd, not the directory it is about to change into).
 			sc.cwd = runningCWD
 			sc.cwdInvalid = runningCWDInvalid
+			sc.oldCWD = runningOldCWD
+			sc.oldCWDInvalid = runningOldCWDInvalid
 			// A bare assignment-only CallExpr (VAR=x with no program) yields
 			// no args; skip it (it mutates only shell state).
 			if len(sc.args) > 0 {
@@ -442,7 +551,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 			// variable NOT bound, so "$x" stays inexact and fails closed as
 			// before.
 			if wi, ok := c.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() && wi.Name != nil {
-				items, allStatic := staticForItems(wi, knownVars, runningCWDInvalid)
+				cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+				items, allStatic := staticForItems(wi, knownVars, runningCWDInvalid, resolver, cc)
 				if allStatic && len(items) <= maxForFanOut {
 					loopVar := wi.Name.Value
 					prevVal, hadPrev := knownVars[loopVar]
@@ -555,7 +665,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string) ([]simpleCommand, 
 // substitution or unresolved parameter expansion mark hasUnknownExpansion.
 // Leading `env VAR=val` wrappers and assignment prefixes are stripped so the
 // real program lands at args[0] (§10: `env VAR=x <cmd>`).
-func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string) (simpleCommand, error) {
+//
+// resolver and cc thread the #156 var-resolution sources (process env for
+// $HOME/$USER/$TMPDIR, the tracked cwd for $PWD/$OLDPWD) into every
+// literalWord call this reduction makes.
+func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) (simpleCommand, error) {
 	sc := simpleCommand{}
 
 	// Detect redirections to real files (anything other than /dev/null).
@@ -564,7 +678,7 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		if r.Word == nil {
 			continue
 		}
-		target, exact := literalWord(r.Word, knownVars)
+		target, exact := literalWord(r.Word, knownVars, resolver, cc)
 		// A redirect target built from a command substitution, process
 		// substitution, or unresolved expansion (e.g. `wc < <(grep x f)`,
 		// `cmd > "$DYNAMIC"`) cannot be statically proven safe — an input
@@ -597,7 +711,7 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 	}
 
 	for _, w := range c.Args {
-		lit, exact := literalWord(w, knownVars)
+		lit, exact := literalWord(w, knownVars, resolver, cc)
 		if !exact {
 			sc.hasUnknownExpansion = true
 		}
@@ -683,30 +797,86 @@ func isAssignment(tok string) bool {
 	return true
 }
 
+// resolveVar resolves a bare variable name to its value and whether
+// resolution succeeded, applying the #156 precedence: an in-script static
+// assignment (knownVars) always wins over any environment/engine-derived
+// source, so `HOME=/tmp cat "$HOME/x"` resolves $HOME to /tmp, not the
+// process env. Only when the name is ABSENT from knownVars does resolution
+// fall through to the closed allowlists:
+//
+//   - cwdResolvableNames ($PWD, $OLDPWD): resolved from the tracked cwd (cc),
+//     never the process env — the hook's own $PWD is the EVENT cwd, which
+//     diverges from the shell's actual $PWD after an in-script `cd`.
+//   - envResolvableNames ($HOME, $USER, $TMPDIR): resolved from the
+//     resolver's injectable sources (os.UserHomeDir / os.LookupEnv by
+//     default).
+//
+// Any other name (not in knownVars, not in either allowlist) fails to
+// resolve — the gate must not resolve arbitrary environment state.
+func resolveVar(name string, knownVars map[string]string, resolver varResolver, cc cwdCtx) (string, bool) {
+	if v, ok := knownVars[name]; ok {
+		return v, true
+	}
+	if cwdResolvableNames[name] {
+		switch name {
+		case "PWD":
+			if cc.cwdInvalid || cc.cwd == "" {
+				return "", false
+			}
+			return cc.cwd, true
+		case "OLDPWD":
+			if cc.oldCWDInvalid || cc.oldCWD == "" {
+				return "", false
+			}
+			return cc.oldCWD, true
+		}
+	}
+	if envResolvableNames[name] {
+		switch name {
+		case "HOME":
+			home, err := resolver.homeDir()
+			if err != nil || home == "" {
+				return "", false
+			}
+			return home, true
+		case "USER", "TMPDIR":
+			v, ok := resolver.lookupEnv(name)
+			if !ok || v == "" {
+				return "", false
+			}
+			return v, true
+		}
+	}
+	return "", false
+}
+
 // literalWord returns the static literal value of a word and whether it is
 // EXACT (no command substitution, no unresolved parameter expansion). A word
 // like `"foo"` or `'bar'` or `foo` is exact; `$(date)` is not. A simple
-// parameter expansion (`$VAR` / `${VAR}`) is exact ONLY when VAR is present in
+// parameter expansion (`$VAR` / `${VAR}`) is exact when VAR is present in
 // knownVars — i.e. it was assigned to a static literal earlier in the same
-// parsed program (#60); otherwise it is inexact (fail-closed for env vars and
-// dynamically-assigned vars).
+// parsed program (#60) — OR when VAR is one of the closed allowlist of names
+// (#156: $HOME, $USER, $TMPDIR, $PWD, $OLDPWD) resolveVar can resolve from
+// its authoritative source; otherwise it is inexact (fail-closed for every
+// other env var and for dynamically-assigned vars).
 //
-// expand.Literal with the knownVars-backed environment resolves quoting,
+// expand.Literal with the resolveVar-backed environment resolves quoting,
 // tilde, and resolvable parameter expansions but returns an error / partial
 // result for command substitutions, which we treat as inexact (#1: quoted
 // strings with expansions are first-class, classified, not heuristically
 // matched).
-func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
+func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolver, cc cwdCtx) (string, bool) {
 	// Fast path: detect any part that is a command substitution or an
-	// expansion we cannot statically resolve. A simple `$VAR`/`${VAR}` whose
-	// name is in knownVars is resolvable and does NOT make the word inexact.
+	// expansion we cannot statically resolve. A simple `$VAR`/`${VAR}` that
+	// isResolvableParamExp accepts is resolvable and does NOT make the word
+	// inexact.
 	exact := true
 	for _, part := range w.Parts {
 		switch p := part.(type) {
 		case *syntax.Lit, *syntax.SglQuoted:
 			// fully static
 		case *syntax.ParamExp:
-			if !isResolvableParamExp(p, knownVars) {
+			if !isResolvableParamExp(p, knownVars, resolver, cc) {
 				exact = false
 			}
 		case *syntax.DblQuoted:
@@ -714,7 +884,7 @@ func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
 				switch dq := dp.(type) {
 				case *syntax.Lit:
 				case *syntax.ParamExp:
-					if !isResolvableParamExp(dq, knownVars) {
+					if !isResolvableParamExp(dq, knownVars, resolver, cc) {
 						exact = false
 					}
 				default:
@@ -729,15 +899,14 @@ func literalWord(w *syntax.Word, knownVars map[string]string) (string, bool) {
 
 	cfg := &expand.Config{
 		// Resolve a variable to its statically-known literal value when we
-		// recorded one earlier in the program (#60); unknown names expand to
-		// "" (as before) and the fast-path loop above has already marked the
-		// word inexact, so such a command cannot ride the allow track and is
-		// not run through containment as if resolved.
+		// recorded one earlier in the program (#60), or to its
+		// authoritative-source value for the closed #156 allowlist; unknown
+		// names expand to "" (as before) and the fast-path loop above has
+		// already marked the word inexact, so such a command cannot ride the
+		// allow track and is not run through containment as if resolved.
 		Env: expand.FuncEnviron(func(name string) string {
-			if v, ok := knownVars[name]; ok {
-				return v
-			}
-			return ""
+			v, _ := resolveVar(name, knownVars, resolver, cc)
+			return v
 		}),
 		// No command substitution: leave the literal as-is and mark inexact.
 		CmdSubst: func(io.Writer, *syntax.CmdSubst) error { return nil },
@@ -781,10 +950,10 @@ const maxForFanOut = 64
 // see globDirPrefix) that cannot be safely anchored. The resolved directory
 // prefix itself is left relative and resolved later, at containment time,
 // against the command's own tracked cwd (globDirPrefix's doc comment).
-func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
+func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	items := make([]string, 0, len(wi.Items))
 	for _, w := range wi.Items {
-		expanded, ok := staticExpandItem(w, knownVars, cwdInvalid)
+		expanded, ok := staticExpandItem(w, knownVars, cwdInvalid, resolver, cc)
 		if !ok {
 			return nil, false
 		}
@@ -835,14 +1004,14 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
 // closed exactly as before — the issue's carve-out ("if you hit a range
 // form you don't handle, fall closed").
-func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool) ([]string, bool) {
+func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
 	// semantics (case 2) are not shadowed by literalWord's own $VAR
 	// resolution (which would return the whole unsplit value as one item).
 	if len(w.Parts) == 1 {
-		if p, ok := w.Parts[0].(*syntax.ParamExp); ok && isResolvableParamExp(p, knownVars) {
-			val := knownVars[p.Param.Value]
+		if p, ok := w.Parts[0].(*syntax.ParamExp); ok && isResolvableParamExp(p, knownVars, resolver, cc) {
+			val, _ := resolveVar(p.Param.Value, knownVars, resolver, cc)
 			return expand.ReadFields(&expand.Config{}, val, -1, true), true
 		}
 	}
@@ -857,7 +1026,7 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 	declined := false
 	items := make([]string, 0, len(subWords))
 	for _, sw := range subWords {
-		val, exact := literalWord(sw, knownVars)
+		val, exact := literalWord(sw, knownVars, resolver, cc)
 		if !exact {
 			return nil, false
 		}
@@ -1113,13 +1282,19 @@ func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
 }
 
 // isResolvableParamExp reports whether a parameter expansion is a plain
-// `$VAR` / `${VAR}` whose name was statically assigned earlier in the same
-// program (present in knownVars). Anything with extra logic — default
+// `$VAR` / `${VAR}` whose name is resolvable — either because it was
+// statically assigned earlier in the same program (present in knownVars,
+// #60) or because it is one of the closed #156 allowlist of names
+// ($HOME, $USER, $TMPDIR, $PWD, $OLDPWD) resolveVar can resolve from its
+// authoritative source (in-script assignment always takes precedence over
+// these — see resolveVar's doc comment). Anything with extra logic — default
 // (`${VAR:-x}`), length (`${#VAR}`), indirection (`${!VAR}`), array index,
 // slice, replacement, modifiers, or special parameters ($1, $@, $?) — is NOT
-// resolvable here and keeps the word inexact (fail-closed). A name absent from
-// knownVars (an env var, or a var assigned dynamically) is also not resolvable.
-func isResolvableParamExp(p *syntax.ParamExp, knownVars map[string]string) bool {
+// resolvable here and keeps the word inexact (fail-closed): this issue widens
+// WHICH NAMES resolve, not which expansion forms are accepted. A name
+// resolvable by neither source (an arbitrary env var, or a var assigned
+// dynamically) stays unresolvable.
+func isResolvableParamExp(p *syntax.ParamExp, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {
 	if p == nil || p.Param == nil {
 		return false
 	}
@@ -1130,7 +1305,7 @@ func isResolvableParamExp(p *syntax.ParamExp, knownVars map[string]string) bool 
 		p.Slice != nil || p.Repl != nil || p.Names != 0 || p.Exp != nil {
 		return false
 	}
-	_, ok := knownVars[p.Param.Value]
+	_, ok := resolveVar(p.Param.Value, knownVars, resolver, cc)
 	return ok
 }
 

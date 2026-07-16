@@ -106,7 +106,11 @@ func TestStaticVarPathFromCmdSubstStillEscalates_60(t *testing.T) {
 
 // TestUndefinedVarPathStillEscalates_60 covers case (c): a variable that was
 // never assigned in the program (an environment variable, or simply undefined)
-// is not statically known and must STILL escalate (fail-closed).
+// is not statically known and must STILL escalate (fail-closed). $HOME is
+// EXCLUDED from this case as of #156 — it is now resolved via os.UserHomeDir()
+// (see TestHomeVarResolvesLikeTilde_156 in var_resolution_test.go) — so this
+// test uses $FOO, a name outside the #156 closed allowlist, to keep pinning
+// the general "arbitrary env var stays unresolvable" invariant.
 func TestUndefinedVarPathStillEscalates_60(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -114,7 +118,7 @@ func TestUndefinedVarPathStillEscalates_60(t *testing.T) {
 	cwd := canonicalize(repo)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
 
-	cmd := `cat "$HOME/.ssh/id_rsa"`
+	cmd := `cat "$FOO/.ssh/id_rsa"`
 	d := classifyBash(cmd, ev)
 	wantBucket(t, d, BucketAsk, "#60 undefined/env var still escalates")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
@@ -778,18 +782,14 @@ func TestForLoopBraceInListAbsoluteEscapingMemberDenied_131(t *testing.T) {
 	wantBucket(t, d, BucketDeny, "#131 follow-up: absolute escaping brace member must DENY")
 }
 
-// TestForLoopBraceInListHomeVarEscapingMemberStillEscalates_131 pins the
-// $HOME-based escaping-member shape named in the PR #139 High finding. $HOME
-// is an ordinary environment variable, not a shell built-in the gate
-// pre-populates into knownVars, so `$HOME/.ssh/id_rsa` is an unresolvable
-// parameter expansion (isResolvableParamExp requires the name to be in
-// knownVars). staticExpandItem's literalWord call marks the sub-word inexact
-// and the whole for-in list fails closed — matching every other unresolved-
-// variable case in this file (e.g.
-// TestForLoopBraceWithUnresolvableVarStillEscalates_131). This is the
-// correct verdict, not a defect: an unresolvable value set cannot be proven
-// safe OR proven escaping, so ASK (not a guessed DENY or ALLOW) is right.
-func TestForLoopBraceInListHomeVarEscapingMemberStillEscalates_131(t *testing.T) {
+// TestForLoopBraceInListHomeVarEscapingMemberDenied_131 pins the $HOME-based
+// escaping-member shape named in the PR #139 High finding. As of #156, $HOME
+// is resolved from its authoritative source (os.UserHomeDir(), the same
+// source the sibling `~` tests below already use) rather than failing closed,
+// so `$HOME/.ssh/id_rsa` now agrees with `~/.ssh/id_rsa` — both DENY. See
+// TestForLoopBraceInListTildeEscapingMemberFirstPosition_131 for the
+// equivalent tilde shape this now matches.
+func TestForLoopBraceInListHomeVarEscapingMemberDenied_131(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -801,7 +801,7 @@ func TestForLoopBraceInListHomeVarEscapingMemberStillEscalates_131(t *testing.T)
 
 	cmd := `for f in {a.md,$HOME/.ssh/id_rsa}; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: unresolvable $HOME-based brace member must escalate (ASK), not guess ALLOW or DENY")
+	wantBucket(t, d, BucketDeny, "#156: $HOME-based brace member must DENY, matching the equivalent ~-based member")
 }
 
 // TestForLoopBraceInListTildeEscapingMemberFirstPosition_131 and

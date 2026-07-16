@@ -161,7 +161,7 @@ func TestCdTrackingSubshellCdDoesNotPersist_129(t *testing.T) {
 	}
 
 	cmd := "( cd " + a + " ) && cat ../x"
-	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt)
+	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, defaultVarResolver())
 	if err != nil {
 		t.Fatal(err)
 	}
