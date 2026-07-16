@@ -44,3 +44,16 @@ README path). Do re-grep the whole README for `\(1\)|Two |Three |Four `
 style count-before-list patterns while the file is open, since this
 class of defect keeps surfacing and the sweep-the-class rule applies to
 the whole file once you're editing it, not just the touched paragraph.
+
+**Counterexample (#156, PR #159):** the developer landed exhaustive Go
+doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
+literalWord, varResolver) but did NOT touch the README, even though
+#156 widened literalWord's variable-resolution semantics (adding a
+closed $HOME/$USER/$TMPDIR/$PWD/$OLDPWD allowlist) in a way that made
+an existing README sentence — "an undefined / environment variable...
+stays inexact" — actively false. So the "usually already current"
+pattern holds for git/gh/aws classifier tiers but not reliably for
+literalWord/resolveVar-level semantics changes; always diff the
+README's variable-resolution paragraph against the actual `literalWord`
+doc comment when a PR touches that function, don't just grep for
+whether the README path appears in the PR diff.

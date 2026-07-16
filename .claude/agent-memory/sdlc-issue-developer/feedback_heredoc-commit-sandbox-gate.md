@@ -22,3 +22,12 @@ write the message to a file under `.claude/tmp/<task-slug>/` with the
 identical commit (same multi-paragraph body, same trailers) without
 tripping the gate. Clean up the scratch file at end-of-run alongside the
 rest of `.claude/tmp/<task-slug>/`.
+
+**Trap**: the `-F` path argument must be a LITERAL string, not a
+`$(git rev-parse --show-toplevel)/...` substitution — the same static-argv
+gate that blocks `-m "$(cat <<EOF...)"` also blocks
+`git commit -F "$(...)"` (any `$(...)` inside a git argv, regardless of
+which flag it's under, trips "arguments are not all static literals").
+Resolve the absolute worktree path yourself (e.g. from a prior
+`git rev-parse --show-toplevel` call's output) and pass it as a plain
+literal string.

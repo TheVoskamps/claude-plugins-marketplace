@@ -26,10 +26,24 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   of failing closed on `hasUnknownExpansion` (#60): e.g.
   `P=/abs/dir; cat "$P/file"` is contained, not escalated. A variable
   assigned from a command substitution / another unresolved expansion,
-  an undefined / environment variable, or a non-plain expansion
-  (`${P:-x}`, `${#P}`, …) stays inexact and keeps escalating
-  (fail-closed); a `VAR=x cmd` prefix sets env for that one command only
-  and does not persist to later commands. Static-variable resolution is
+  or a non-plain expansion (`${P:-x}`, `${#P}`, …) stays inexact and
+  keeps escalating (fail-closed); a `VAR=x cmd` prefix sets env for
+  that one command only and does not persist to later commands. A name
+  absent from that in-script static-assignment map falls through to a
+  **closed allowlist of five process-environment-derived variables**
+  (#156) — `$HOME`, `$USER`, `$TMPDIR`, `$PWD`, `$OLDPWD` — each
+  resolved from its own authoritative source rather than the gate's
+  ambient process environment: `$HOME`/`$USER`/`$TMPDIR` from
+  `os.UserHomeDir`/`os.LookupEnv` (injectable for tests), and
+  `$PWD`/`$OLDPWD` from the **same tracked running-cwd state** the `cd`
+  handling below already maintains — never from the hook's own process
+  env, which holds the event's cwd and would be wrong after an
+  in-script `cd`. An in-script static assignment always takes
+  precedence over these five when both apply (`HOME=/tmp cat
+  "$HOME/x"` resolves to `/tmp`). Any other env var (`$FOO`, `$PATH`,
+  …) stays unresolvable — the gate does not resolve arbitrary
+  environment state whose relationship to the command's actual
+  environment is unverified. Static-variable resolution is
   also **scope-aware**: an assignment made inside a `( … )` subshell, a
   function body, or a backgrounded group/subshell (`{ … ; } &`,
   `( … ) &`) runs in a child shell and does NOT leak into the
@@ -50,7 +64,12 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   — a later re-anchoring `cd` can clear the invalid state, since bash
   itself would). A `cd` inside a `( … )` subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
-  the static-variable scope discipline above. A `for x in <words>; do
+  the static-variable scope discipline above. Each `cd` also records the
+  **prior** running cwd as `$OLDPWD`'s tracked source (#156, mirroring
+  real bash), so a command that follows a `cd` and uses `$OLDPWD` (e.g.
+  `cd <subdir>; cat "$OLDPWD/x"`) resolves against the directory the
+  `cd` left, not the event's cwd; before any `cd` in scope, `$OLDPWD` is
+  untracked and fails closed. A `for x in <words>; do
   …; done` whose header is a fully static item list (#131, broadened by
   a follow-up) fans out: the body is walked once per resolved item with
   the loop variable bound to that item, so a body use of `"$x"`
