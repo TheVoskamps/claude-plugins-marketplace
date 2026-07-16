@@ -98,24 +98,32 @@ Two layers, both optional:
 ```yaml
 cpus: 4
 mem: 8192
-guest_image: /path/to/guest.raw   # repo may override; default cache
-                                  # location (~/.config/claude-vm/images/
-                                  # guest.raw) when unset
+guest_image: /path/to/guest.raw   # repo may override; SET = used verbatim
+                                  # (opts out of bake-hash variants); UNSET =
+                                  # derived (shared guest.raw, or a
+                                  # guest-<hash>.raw variant when packages are
+                                  # baked -- see packages below)
 
 repo:
   mount: clone                    # clone (default) | live
   copy_back: local                # local (default) | none
 
-# Guest software: apt packages, baked or installed at boot (issue #103;
-# schema + merge only -- the bake/boot-install/egress-derivation
-# consumers land in sibling slices under #39).
+# Guest software: apt packages baked into the image or installed at boot.
+# packages.bake + packages.apt_sources are BAKED INTO THE IMAGE (issue #105):
+# baked packages are present with no boot-time network, and apt_sources repos
+# install their packages at build time. The launcher derives a bake-hash over
+# the (order-normalized) bake + apt_sources config and stores each distinct
+# bake set as its own image variant (guest-<hash>.raw); no-bake configs share
+# one guest.raw. install_at_boot / update_at_boot are boot-time, not baked
+# (their consumers land in a sibling slice under #39).
 packages:
-  bake: []                        # apt packages baked into the guest image
+  bake: []                        # apt packages baked into the guest image at
+                                  # build time (present with no boot network)
   install_at_boot: []             # apt packages installed at boot, blocking,
                                   # before claude starts
   update_at_boot: true            # apt-get update && upgrade at boot
                                   # (default true)
-  apt_sources: []                 # third-party apt repos:
+  apt_sources: []                 # third-party apt repos baked into the build:
                                   # {name, repo, key_url}
   add_apt_uris_to_allowlist: auto # auto (default) | always
 
@@ -218,18 +226,25 @@ github:
 `claude.plugins.enabled` are **consumed** by the guest `settings.json` render
 (issue #104) — the launcher renders `/root/.claude/settings.json`
 host-side and shares it into the guest (see "Guest Claude settings.json"
-below). The remaining keys are schema + merge only as of issue #103 — the
-consumers that actually bake/install packages, seed marketplaces/plugins,
-or seed a GitHub token land in sibling slices under #39. They resolve
-correctly through `payload/lib/config.sh` today; nothing downstream reads
-them yet.
+below). `packages.bake` and `packages.apt_sources` are **consumed** by the
+guest-image build (issue #105 — see "Guest image" below). The remaining
+keys are schema + merge only as of issue #103 — the consumers that
+install-at-boot packages, seed marketplaces/plugins, or seed a GitHub token
+land in sibling slices under #39. They resolve correctly through
+`payload/lib/config.sh` today; nothing downstream reads them yet.
 
 - `packages.bake` / `packages.install_at_boot` list the apt packages to
   bake into the guest image vs. install at boot (blocking, before
-  claude starts). Both union global + repo entries.
+  claude starts). Both union global + repo entries. `packages.bake` is
+  baked at build time (issue #105): the baked packages are present in the
+  guest with no boot-time network, and the image is cached per bake set
+  (see "Guest image" below).
 - `packages.update_at_boot` (default `true`) runs `apt-get update &&
   upgrade` at boot; `packages.apt_sources` (union) adds third-party apt
-  repos as `{name, repo, key_url}` entries.
+  repos as `{name, repo, key_url}` entries. `apt_sources` is baked into the
+  build (issue #105): each entry's `key_url` is fetched into a keyring and the
+  repo added `signed-by` that key, so its packages install at image-build time
+  (e.g. `gh` from cli.github.com).
 - `packages.add_apt_uris_to_allowlist` (`auto` default | `always`)
   controls whether URIs derived from configured apt sources are added
   to the proxy egress allowlist only when boot-time package work needs
@@ -370,11 +385,27 @@ Claude Code updates daily, so the guest image does **not** bake in
   launcher logic changes — not when claude does.
 - The base is **version-pinned** in `payload/build-guest-image.sh`
   (`BASE_OS_REV` + `LAUNCHER_LOGIC_REV`; never the claude version).
+- **Baked packages (issue #105).** `packages.bake` and
+  `packages.apt_sources` ARE baked into the image (unlike `claude`): the
+  baked packages are present in the guest with no boot-time network, and
+  each `apt_sources` repo's `key_url` is fetched into a keyring so its
+  packages install (`signed-by` that key) at build time. Because the image
+  is a shared cache, the launcher derives a **bake-hash** — sha256 (first 8
+  hex) over the order-normalized bake config (sorted `packages.bake`,
+  normalized `apt_sources`) — and folds it into the pinned version
+  (`BASE_OS_REV+launcherN+bake<hash>`) and the image filename. A config with
+  no baked packages hashes to a constant, keeps the legacy version, and
+  shares the one global `guest.raw`; a config that bakes packages gets its
+  own `guest-<hash>.raw` variant, built on first use and stored alongside.
+  Adding an override builds+stores a new variant; removing it reverts to the
+  shared image with no rebuild. Only bake + apt_sources feed the hash —
+  changing cpus/egress/permissions never rebuilds. The `guest_image` scalar,
+  when set, opts out of variant derivation and is used verbatim.
 - On startup, the launcher **ensures the image exists and matches the
-  pinned version**. If `guest_image` is missing or version-mismatched,
-  it builds the image (`payload/build-guest-image.sh --output …`)
-  rather than erroring. The image's pinned version is stamped at
-  `<image>.version`.
+  pinned version**. If the resolved image is missing or version-mismatched,
+  it builds the image (`payload/build-guest-image.sh --output …`, passing the
+  canonical bake config through `CLAUDE_VM_BAKE_CONFIG`) rather than erroring.
+  The image's pinned version is stamped at `<image>.version`.
 - **No image artifact is committed to the repo**, and there is no
   publish-prebuilt-image path. Every machine builds its own.
 

@@ -117,10 +117,44 @@ GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED" '.proxy.host_alias' "$CLAUDE_VM
 DEFAULT_PROXY_CMD="$SCRIPT_DIR/proxy/tinyproxy-launch.sh"
 PROXY_CMD="$(claude_vm_scalar "$MERGED" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 
-# guest_image: a normal scalar; default to the build/cache location
-# alongside the global config dir when unset.
+# guest_image: a normal scalar. When SET, it is used as-is -- an explicit
+# operator override that opts OUT of bake-hash variant derivation (issue #105):
+# the operator owns that path and its contents, so we neither hash nor rewrite
+# it. When UNSET, the launcher DERIVES the image path from the bake-relevant
+# config below (bake-hash variants), defaulting into the cache dir alongside
+# the global config.
+#
+# Bake-hash image variants (issue #105). The guest image now bakes
+# packages.bake + packages.apt_sources, so two configs that bake different
+# things need SEPARATE cached images while configs with no bake-affecting
+# overrides SHARE one. We compute the canonical bake config once (order-/
+# key-normalized JSON) and pass it to build-guest-image.sh for BOTH
+# --print-version and --output via CLAUDE_VM_BAKE_CONFIG, so the version it
+# stamps and the version we compare against are hashed from the same bytes.
+#   - No bake overrides (canonical == the empty form) -> the shared default
+#     image guest.raw (legacy name; every such config collides here and
+#     reuses one image, so removing an override reverts to it with no rebuild).
+#   - Bake overrides present -> guest-<hash>.raw, its own cached variant built
+#     on first use and stored alongside the shared image.
 DEFAULT_IMAGE_DIR="$(dirname "$GLOBAL_CONFIG")/images"
-GUEST_IMAGE="$(claude_vm_scalar "$MERGED" '.guest_image' "$DEFAULT_IMAGE_DIR/guest.raw")"
+CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED")" \
+  || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
+export CLAUDE_VM_BAKE_CONFIG
+_explicit_guest_image="$(claude_vm_scalar "$MERGED" '.guest_image' "")"
+if [ -n "$_explicit_guest_image" ]; then
+  # Explicit override: use verbatim, opting out of variant derivation.
+  GUEST_IMAGE="$_explicit_guest_image"
+elif claude_vm_bake_config_is_empty "$MERGED"; then
+  # No bake-affecting overrides: share the global default image.
+  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest.raw"
+else
+  # Bake overrides present: derive a per-variant image keyed on the bake-hash.
+  _bake_hash="$(claude_vm_bake_hash "$MERGED")" \
+    || { echo "claude-vm: could not compute the bake-hash for the guest image variant" >&2; exit 1; }
+  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest-$_bake_hash.raw"
+  unset _bake_hash
+fi
+unset _explicit_guest_image
 
 # claude.version: the channel/pin the host-side verified cache fetches
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
@@ -346,6 +380,12 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # Ensure guest image exists and matches the pinned version. Build on
 # demand rather than erroring. The base is version-pinned; claude is
 # NOT baked in -- it is fetched at boot through the egress allowlist.
+# The bake-hash variant segment (issue #105) flows into BOTH the
+# --print-version below and the --output build through the exported
+# CLAUDE_VM_BAKE_CONFIG (set above), so a config with baked packages stamps
+# and compares its OWN version (BASE+launcherN+bake<hash>) and rebuilds only
+# when the bake config changes -- while a no-bake config keeps the legacy
+# base version and shares the one global guest.raw.
 # ---------------------------------------------------------------------
 PINNED_VERSION="$("$SCRIPT_DIR/build-guest-image.sh" --print-version)"
 ensure_guest_image() {

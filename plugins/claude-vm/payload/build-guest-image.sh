@@ -31,6 +31,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Reuse the launcher's canonical bake-hash helper (issue #105) so the version
+# stamped here and the version the launcher compares against are computed by
+# the SAME code over the SAME canonical bytes. config.sh is pure/sourceable
+# (no VM, no network) -- see its header.
+# shellcheck source=lib/config.sh
+. "$SCRIPT_DIR/lib/config.sh"
+
 # The bundled DEFAULT provisioner: mkosi in a throwaway rootless podman
 # container (see payload/provisioners/podman-mkosi.sh). Used when
 # CLAUDE_VM_IMAGE_PROVISIONER is unset; the env var still overrides it.
@@ -125,13 +132,54 @@ BASE_OS_REV="debian-12-20250601"
 # without it would silently drop that backstop). This is a new boot-logic step,
 # so old images (stamped 'launcher9') must rebuild to gain it.
 LAUNCHER_LOGIC_REV="10"
-PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
+BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
+
+# ---------------------------------------------------------------------
+# Bake-hash image variants (issue #105).
+#
+# The base version above pins the OS + launcher logic. On top of it, the
+# guest image now bakes packages.bake (extra apt packages) and renders
+# packages.apt_sources (third-party apt repos) into the build. Two configs
+# that bake different things must produce DIFFERENT images, so the version --
+# which is the image cache key -- gains a bake-hash SEGMENT derived from the
+# bake-relevant config.
+#
+# The launcher passes the CANONICAL bake config (claude_vm_bake_config_json,
+# order-normalized compact JSON) in CLAUDE_VM_BAKE_CONFIG. We hash it with the
+# SAME helper the launcher uses (claude_vm_bake_hash_from_json), so
+# --print-version here and the launcher's variant derivation agree by
+# construction. When the bake config is EMPTY (the canonical
+# `{"bake":[],"apt_sources":[]}`, i.e. no bake-affecting overrides), NO segment
+# is appended -- the version stays the legacy `BASE+launcherN`, so such configs
+# share the one global image and never rebuild on this account. A non-empty
+# bake config appends `+bake<hash>`, giving that config its own cached variant.
+#
+# CLAUDE_VM_BAKE_CONFIG unset/empty is treated as "no bake config" -- the base
+# version, unchanged. This keeps a bare `build-guest-image.sh --print-version`
+# (no launcher, e.g. a smoke test) working and pinned to the legacy version.
+CLAUDE_VM_EMPTY_BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
+compute_pinned_version() {
+  local bake_config="${CLAUDE_VM_BAKE_CONFIG:-}"
+  if [ -z "$bake_config" ] || [ "$bake_config" = "$CLAUDE_VM_EMPTY_BAKE_CONFIG" ]; then
+    printf '%s\n' "$BASE_PINNED_VERSION"
+    return 0
+  fi
+  local hash
+  hash="$(claude_vm_bake_hash_from_json "$bake_config")" || return 1
+  printf '%s+bake%s\n' "$BASE_PINNED_VERSION" "$hash"
+}
+PINNED_VERSION="$(compute_pinned_version)" \
+  || { echo "build-guest-image: failed to compute bake-hash version" >&2; exit 1; }
 
 usage() {
   cat >&2 <<'EOF'
 usage:
   build-guest-image.sh --print-version
   build-guest-image.sh --output <image-path>
+
+The bake-relevant config (canonical JSON from the launcher) is read from the
+CLAUDE_VM_BAKE_CONFIG environment variable; unset/empty means no baked
+packages (the legacy base image).
 EOF
 }
 
@@ -426,7 +474,11 @@ build_image() {
   # writes a bootable raw image. CLAUDE_VM_IMAGE_PROVISIONER overrides the
   # bundled default (podman-mkosi.sh). Export BASE_OS_REV so the
   # provisioner pins the same guest distro this recipe pins, rather than
-  # duplicating the version.
+  # duplicating the version. Export the CANONICAL bake config (issue #105) so
+  # the provisioner renders packages.bake into the mkosi Packages= list and
+  # packages.apt_sources into keyring + sources.list.d drop-ins -- it hashed
+  # into PINNED_VERSION above, so the built image's contents and its stamped
+  # version stay in lockstep. Unset/empty means no baked packages.
   local provisioner
   if [ -n "${CLAUDE_VM_IMAGE_PROVISIONER:-}" ]; then
     provisioner="$CLAUDE_VM_IMAGE_PROVISIONER"
@@ -441,6 +493,7 @@ build_image() {
     return 1
   fi
   CLAUDE_VM_BASE_OS_REV="$BASE_OS_REV" \
+  CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
     "$provisioner" "$stage/boot-launcher.sh" "$output"
   # ----------------------------------------------------------------------
 

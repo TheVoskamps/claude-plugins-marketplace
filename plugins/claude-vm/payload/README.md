@@ -168,11 +168,12 @@ per key, so `false` marks a plugin installed-but-disabled). The `enabled` map
 is validated once: every value must be boolean and every key must name an
 installed plugin ref, so a typo aborts the launch. claude-vm has **no** own
 CLI flags — plugin enable/disable state comes from the config files, not the
-command line. `bypassPermissions` is *YOLO-by-default* — the VM is the isolation boundary,
-with the deny list as backstop. Because the guest runs `claude` as **root**,
-and `claude` refuses `bypassPermissions` as root unless `IS_SANDBOX=1` (or
-`CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes `IS_SANDBOX=1` unconditionally
-into `run.env` — the guest *is* the sandbox. `settings.json` is not a secret,
+command line. `bypassPermissions` is *YOLO-by-default* — the VM is the
+isolation boundary, with the deny list as backstop. Because the guest runs
+`claude` as **root**, and `claude` refuses `bypassPermissions` as root unless
+`IS_SANDBOX=1` (or `CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes
+`IS_SANDBOX=1` unconditionally into `run.env` — the guest *is* the sandbox.
+`settings.json` is not a secret,
 but it rides the `claudecreds` mount so every host-rendered guest `~/.claude`
 file arrives over one dir rather than adding another virtio-fs device.
 
@@ -282,6 +283,16 @@ argv:
   keys must name installed refs) and returns non-zero on a typo so the
   launcher aborts. Reads the claude-vm config only — never the host
   `~/.claude/settings.json`.
+- `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
+  `claude_vm_bake_hash_from_json` / `claude_vm_bake_config_is_empty` — the
+  bake-hash image-variant helpers (issue #105). `claude_vm_bake_config_json`
+  emits the **canonical** bake-relevant config (sorted `packages.bake`,
+  normalized `apt_sources`) as compact JSON; `claude_vm_bake_hash` hashes it
+  to 8 hex chars (via `claude_vm_bake_hash_from_json`, which
+  `build-guest-image.sh` reuses to hash the same bytes the launcher passes
+  it). An empty/absent bake config canonicalizes to a constant, so
+  `claude_vm_bake_config_is_empty` gates the launcher between the shared
+  `guest.raw` and a `guest-<hash>.raw` variant. All pure and unit-tested.
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -296,7 +307,7 @@ identically and is never duplicated. Any value other than `true`/`false`
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
-build-guest-image.sh --print-version          # pinned base version
+build-guest-image.sh --print-version          # pinned version (base [+bake<hash>])
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
@@ -309,6 +320,20 @@ the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
+**Baked packages + image variants (issue #105).** Unlike `claude`,
+`packages.bake` (apt packages) and `packages.apt_sources` (third-party apt
+repos) ARE baked into the image. `build-guest-image.sh` reads the canonical
+bake config from the `CLAUDE_VM_BAKE_CONFIG` env var (the launcher sets it via
+`claude_vm_bake_config_json`), folds an 8-hex **bake-hash** over it into the
+pinned version (`BASE_OS_REV+launcherN+bake<hash>`; a no-bake config keeps the
+legacy base version), and passes the same config to the provisioner. Two
+configs that bake different things therefore stamp different versions and get
+different cached images; configs with no bake overrides share one `guest.raw`.
+The launcher resolves the image path to `guest-<hash>.raw` for a baked config
+and `guest.raw` otherwise (an explicit `guest_image` opts out and is used
+verbatim). An unset/empty `CLAUDE_VM_BAKE_CONFIG` means no baked packages — the
+legacy base image.
+
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
 podman container (Debian Trixie build container, systemd ≥ 254 for the
@@ -319,7 +344,14 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 (`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
 Requires `podman` with a started podman machine. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
-`<boot-launcher-path> <output-image-path>`.
+`<boot-launcher-path> <output-image-path>`. The provisioner renders
+`packages.bake` into a `mkosi.conf.d` `Packages=` drop-in and each
+`packages.apt_sources` entry into an apt keyring + `sources.list.d` drop-in in
+the mkosi **sandbox tree** (fetching each `key_url` inside the build container,
+which has network), so mkosi's apt can install packages served by third-party
+repos. That keyring-fetch + sources-write step is a reusable unit the
+boot-time-install slice (issue #106) reuses against the guest's live
+`/etc/apt`.
 
 The launcher attaches **two** virtio-serial consoles (issue #88). The
 first (`logFilePath`, guest `hvc0`) captures the booting guest's

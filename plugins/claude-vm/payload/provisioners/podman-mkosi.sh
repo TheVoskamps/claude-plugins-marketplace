@@ -55,6 +55,21 @@ set -euo pipefail
 BOOT_LAUNCHER="${1:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-path>}"
 OUTPUT_IMAGE="${2:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-path>}"
 
+# Baked packages + third-party apt repos (issue #105). build-guest-image.sh
+# exports the CANONICAL bake config (order-/key-normalized JSON, from
+# claude_vm_bake_config_json) as CLAUDE_VM_BAKE_CONFIG. Empty/unset means no
+# baked packages -- the recipe is exactly the legacy base image. When present,
+# the in-container build step (below) parses it to: (a) extend the mkosi
+# Packages= list with packages.bake, and (b) render each packages.apt_sources
+# entry into a keyring + sources.list.d drop-in in the mkosi SANDBOX TREE, so
+# mkosi's apt can install baked packages that come from third-party repos.
+# An unset/empty value is normalized to the empty canonical form so the
+# in-container parser always sees valid JSON.
+BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}"
+if [ -z "$BAKE_CONFIG" ]; then
+  BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
+fi
+
 # The guest Debian release. build-guest-image.sh exports BASE_OS_REV as
 # CLAUDE_VM_BASE_OS_REV so the guest pin is owned by the build recipe, not
 # duplicated here. BASE_OS_REV looks like "debian-12-20250601"; the middle
@@ -131,6 +146,20 @@ mkdir -p "$STAGE/recipe/mkosi.extra/usr/local/lib/claude-vm"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/network"
 mkdir -p "$STAGE/out"
+
+# Bake config (issue #105): write the canonical JSON into the recipe tree so
+# the in-container build step can parse it (with the container's python3) to
+# extend Packages= and render apt_sources. The mkosi.sandbox/ dir is where the
+# apt keyrings + sources.list.d entries are placed: mkosi auto-uses
+# mkosi.sandbox/ as a SandboxTree (rooted at /), and invokes apt from OUTSIDE
+# the image reading package-manager config from the sandbox tree's canonical
+# /etc locations -- so a third-party repo written to
+# mkosi.sandbox/etc/apt/sources.list.d/ (with its key at
+# mkosi.sandbox/etc/apt/keyrings/) is available to mkosi's apt at install time.
+# Created empty here; the in-container step populates it from apt_sources.
+printf '%s\n' "$BAKE_CONFIG" > "$STAGE/recipe/bake-config.json"
+mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/sources.list.d"
+mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/keyrings"
 
 # Install the boot launcher into the guest filesystem tree (mkosi.extra is
 # copied verbatim into the rootfs).
@@ -390,6 +419,122 @@ Packages=
     \${KERNEL_PKG}
 KCONF
 echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_PKG}" >&2
+
+# -------------------------------------------------------------------------
+# Baked packages + third-party apt repos (issue #105).
+#
+# The canonical bake config lives at /work/recipe/bake-config.json (written by
+# the host provisioner). Parse it here with the container's python3 (already
+# installed above) and render two things:
+#
+#   (a) packages.bake -> a mkosi.conf.d drop-in extending Packages= (same
+#       mechanism as the kernel drop-in above), so mkosi installs them into
+#       the guest image.
+#   (b) packages.apt_sources -> for each {name, repo, key_url}, fetch the key
+#       into the mkosi SANDBOX TREE at /etc/apt/keyrings/<name>.asc and write
+#       /etc/apt/sources.list.d/<name>.list (signed-by that keyring), so
+#       mkosi's apt -- which reads package-manager config from the sandbox
+#       tree -- can install baked packages served from third-party repos
+#       (e.g. gh from cli.github.com). The fetch happens HERE, in the build
+#       container, which has network.
+#
+# render_apt_source is written as a REUSABLE unit (keyring fetch + sources.list
+# write) so the boot-time-install sibling slice (issue #106) can reuse the same
+# shape against the guest's real /etc/apt at boot. The two WRITE dirs are args
+# so the caller points them at the sandbox tree here (or the live guest /etc/apt
+# there). keyring_runtime_dir is separate from keyrings_dir because the file is
+# WRITTEN to the staging sandbox tree (/work/recipe/mkosi.sandbox/etc/apt/...)
+# but apt READS it, at mkosi build time, from the sandbox tree's canonical
+# mount point (/etc/apt/...) -- so the [signed-by=] path baked into the source
+# line must be the RUNTIME path, not the staging path. For #106 the caller
+# passes the same value for keyrings_dir and keyring_runtime_dir (both the live
+# /etc/apt/keyrings), so the two collapse and the same function works verbatim.
+#
+#   render_apt_source <name> <repo> <key_url> \
+#                     <keyrings_dir> <sources_dir> <keyring_runtime_dir>
+render_apt_source() {
+  local name="\$1" repo="\$2" key_url="\$3" keyrings_dir="\$4" sources_dir="\$5"
+  local keyring_runtime_dir="\${6:-\$4}"
+  if [ -z "\$name" ] || [ -z "\$repo" ]; then
+    echo "podman-mkosi(inner): apt_source entry missing name or repo; skipping" >&2
+    return 1
+  fi
+  mkdir -p "\$keyrings_dir" "\$sources_dir"
+  local keyring_write_path="\$keyrings_dir/\${name}.asc"
+  local keyring_runtime_path="\$keyring_runtime_dir/\${name}.asc"
+  local have_key=0
+  if [ -n "\$key_url" ]; then
+    # Fetch the signing key into the keyring (staging path). -fsSL: fail on HTTP
+    # error, quiet, follow redirects. A failed key fetch is fatal -- an
+    # unsigned/unverified third-party repo must not be silently added.
+    if ! curl -fsSL "\$key_url" -o "\$keyring_write_path"; then
+      echo "podman-mkosi(inner): failed to fetch apt key for '\$name' from \$key_url" >&2
+      return 1
+    fi
+    have_key=1
+  fi
+  # Write the one-line deb source. When a key was fetched, splice an inline
+  # [signed-by=<runtime-keyring>] option right after the leading "deb"/"deb-src"
+  # token (apt one-line format), so the repo is verified against exactly that
+  # key at the path apt will see it. The repo string is otherwise used verbatim
+  # from config. If it does not begin with deb/deb-src (unusual), it is written
+  # unchanged.
+  local line
+  if [ "\$have_key" -eq 1 ]; then
+    line="\$(printf '%s' "\$repo" | awk -v sb="\$keyring_runtime_path" '{
+      if (\$1=="deb" || \$1=="deb-src") { printf "%s [signed-by=%s]", \$1, sb; for(i=2;i<=NF;i++) printf " %s", \$i; print "" }
+      else { print }
+    }')"
+  else
+    line="\$repo"
+  fi
+  printf '%s\n' "\$line" > "\$sources_dir/\${name}.list"
+  echo "podman-mkosi(inner): rendered apt_source '\$name' -> \$sources_dir/\${name}.list" >&2
+}
+
+# Parse the bake config with python3 and emit shell-safe records.
+# Baked packages, one per line.
+BAKE_PACKAGES="\$(python3 -c '
+import json,sys
+d=json.load(open("/work/recipe/bake-config.json"))
+for p in d.get("bake",[]):
+    print(p)
+')"
+if [ -n "\$BAKE_PACKAGES" ]; then
+  {
+    echo "[Content]"
+    echo "Packages="
+    while IFS= read -r pkg; do
+      [ -n "\$pkg" ] && printf '    %s\n' "\$pkg"
+    done <<< "\$BAKE_PACKAGES"
+  } > /work/recipe/mkosi.conf.d/20-bake-packages.conf
+  echo "podman-mkosi(inner): baking packages: \$(printf '%s ' \$BAKE_PACKAGES)" >&2
+fi
+
+# apt_sources, one TAB-separated record per line: name<TAB>repo<TAB>key_url.
+# python3's json parse preserves the canonical order; render each into the
+# mkosi sandbox tree so mkosi's apt sees the repo at install time.
+# SANDBOX_* are the STAGING write paths under the recipe tree; APT_KEYRINGS_RT
+# is the RUNTIME path apt reads keyrings from (the sandbox tree is mounted at
+# / for the build), which is what the [signed-by=] in each source line must
+# reference.
+SANDBOX_KEYRINGS=/work/recipe/mkosi.sandbox/etc/apt/keyrings
+SANDBOX_SOURCES=/work/recipe/mkosi.sandbox/etc/apt/sources.list.d
+APT_KEYRINGS_RT=/etc/apt/keyrings
+python3 -c '
+import json
+d=json.load(open("/work/recipe/bake-config.json"))
+for s in d.get("apt_sources",[]):
+    name=s.get("name","") or ""
+    repo=s.get("repo","") or ""
+    key_url=s.get("key_url","") or ""
+    print("\t".join([name,repo,key_url]))
+' | while IFS=\$'\t' read -r as_name as_repo as_key_url; do
+  [ -n "\$as_name" ] || continue
+  render_apt_source "\$as_name" "\$as_repo" "\$as_key_url" \\
+    "\$SANDBOX_KEYRINGS" "\$SANDBOX_SOURCES" "\$APT_KEYRINGS_RT"
+done
+# -------------------------------------------------------------------------
 
 cd /work/recipe
 # Build. RepartOffline=yes (set in mkosi.conf) keeps this off loop devices.
