@@ -452,6 +452,13 @@ echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_P
 #
 #   render_apt_source <name> <repo> <key_url> \
 #                     <keyrings_dir> <sources_dir> <keyring_runtime_dir>
+#
+# name VALIDATION: name flows unescaped into staging filenames
+# (<keyrings_dir>/<name>.asc, <sources_dir>/<name>.list). The merged config
+# unions the per-repo .claude-vm/config.yml into apt_sources, so name is NOT
+# fully operator-authored for an untrusted repo -- a name containing e.g.
+# "../" could write outside the intended staging dirs. Reject anything
+# outside a conservative filename-safe charset BEFORE building any path.
 render_apt_source() {
   local name="\$1" repo="\$2" key_url="\$3" keyrings_dir="\$4" sources_dir="\$5"
   local keyring_runtime_dir="\${6:-\$4}"
@@ -459,6 +466,12 @@ render_apt_source() {
     echo "podman-mkosi(inner): apt_source entry missing name or repo; skipping" >&2
     return 1
   fi
+  case "\$name" in
+    *[!A-Za-z0-9._-]*)
+      echo "podman-mkosi(inner): apt_source name '\$name' contains characters outside [A-Za-z0-9._-]; aborting" >&2
+      return 1
+      ;;
+  esac
   mkdir -p "\$keyrings_dir" "\$sources_dir"
   local keyring_write_path="\$keyrings_dir/\${name}.asc"
   local keyring_runtime_path="\$keyring_runtime_dir/\${name}.asc"

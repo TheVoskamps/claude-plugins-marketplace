@@ -500,8 +500,17 @@ claude_vm_apt_sources() {
 #   $1 -- merged config file path
 #
 # Canonicalization rules:
-#   - packages.bake       -> the list, de-duplicated and SORTED (so order in
-#                            the YAML does not change the hash).
+#   - packages.bake       -> the list, with null/empty-string entries STRIPPED
+#                            (a YAML `null` list entry, e.g. from a stray `-`
+#                            or a trailing comma, would otherwise round-trip
+#                            through yq's JSON encoder as the literal string
+#                            "None" once it reaches the Python parser in
+#                            podman-mkosi.sh, producing a bogus "None" package
+#                            name in the mkosi Packages= list and failing the
+#                            image build; an empty string is equally
+#                            meaningless as a package name), then
+#                            de-duplicated and SORTED (so order in the YAML
+#                            does not change the hash).
 #   - packages.apt_sources-> each entry reduced to exactly {name, repo,
 #                            key_url} with a missing/null field normalized to
 #                            "" (so a missing vs. explicit-empty key_url hash
@@ -512,11 +521,17 @@ claude_vm_apt_sources() {
 # `{"bake":[],"apt_sources":[]}` -- a stable value shared across every such
 # config (the "shares the global image" case). Output is compact (-I=0) and
 # key-ordered by the literal object constructor below, so it is byte-stable.
+#
+# Stripping null/empty bake entries here -- rather than at the one call site
+# in podman-mkosi.sh that renders Packages= -- means every downstream
+# consumer of this canonical JSON (the bake-hash, build-guest-image.sh's
+# --print-version, and the in-container render) is covered by construction;
+# a future second consumer cannot reintroduce the bug by skipping a guard.
 claude_vm_bake_config_json() {
   local file="$1"
   yq eval -o=json -I=0 '
     {
-      "bake": (.packages.bake // [] | unique | sort),
+      "bake": (.packages.bake // [] | map(select(. != null and . != "")) | unique | sort),
       "apt_sources": (
         .packages.apt_sources // []
         | map({

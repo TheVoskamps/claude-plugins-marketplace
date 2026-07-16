@@ -1039,6 +1039,27 @@ fi
 assert_ne "bake-hash: apt_sources-only hashes distinctly from empty" \
   "$(claude_vm_bake_hash "$BH_APTONLY")" "$(claude_vm_bake_hash "$BH_EMPTY")"
 
+# packages.bake null/empty entries (e.g. a stray `-` in the YAML list, or a
+# trailing comma in flow style) must be STRIPPED from the canonical form, not
+# passed through as the literal string "None"/"" -- a "None" package name
+# would fail the mkosi image build (PR #161 review finding).
+BH_NULLS="$WORK/bake-nulls.yml"; cat > "$BH_NULLS" <<'YML'
+packages:
+  bake: [null, "", git]
+YML
+assert_eq "bake-hash: null/empty bake entries are stripped from canonical JSON" \
+  '{"bake":["git"],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_NULLS")"
+BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"; printf 'packages:\n  bake: [git]\n' > "$BH_NULLS_CLEAN"
+assert_eq "bake-hash: null/empty-stripped config hashes the same as the equivalent clean config" \
+  "$(claude_vm_bake_hash "$BH_NULLS")" "$(claude_vm_bake_hash "$BH_NULLS_CLEAN")"
+# All-null/empty bake list canonicalizes to the same empty form as no bake key.
+BH_ALLNULL="$WORK/bake-allnull.yml"; cat > "$BH_ALLNULL" <<'YML'
+packages:
+  bake: [null, ""]
+YML
+assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" \
+  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
+
 # ---------------------------------------------------------------------
 # Test 18: guest-image variant path derivation (issue #105).
 #
@@ -1123,6 +1144,77 @@ assert_ne "print-version: different bake config -> different version" \
 LIB_HASH_FOR_BAKED="$(claude_vm_bake_hash_from_json '{"bake":["git","jq"],"apt_sources":[]}')"
 assert_eq "print-version: build-guest-image version embeds the lib bake-hash" \
   "$BASE_VER+bake$LIB_HASH_FOR_BAKED" "$BGI_BAKED"
+
+# ---------------------------------------------------------------------
+# Test 20: render_apt_source name validation (issue #105 review finding).
+#
+# render_apt_source is defined INSIDE the <<INNER heredoc in
+# podman-mkosi.sh (it only ever runs inside the throwaway build container),
+# so it is not directly sourceable. Extract its literal body (start line
+# found by the function-header marker, end line the next top-level `}`)
+# and un-escape the heredoc's `\$` back to `$`, then source the extracted
+# function in-process to exercise the name-validation guard directly, with
+# no container and no network.
+#
+# name flows unescaped into staging filenames (<dir>/<name>.asc,
+# <dir>/<name>.list); since the merged config unions the per-repo
+# .claude-vm/config.yml, name is not fully operator-authored for an
+# untrusted repo. A name containing e.g. "../" must be REJECTED before any
+# path is built, rather than allowed to write outside the staging dirs.
+# ---------------------------------------------------------------------
+PODMAN_MKOSI="$TEST_DIR/../provisioners/podman-mkosi.sh"
+RAS_START="$(grep -n '^render_apt_source() {' "$PODMAN_MKOSI" | head -1 | cut -d: -f1)"
+RAS_END="$(awk -v start="$RAS_START" 'NR > start && /^}/ { print NR; exit }' "$PODMAN_MKOSI")"
+RAS_SRC="$WORK/render_apt_source.sh"
+if [ -n "$RAS_START" ] && [ -n "$RAS_END" ]; then
+  awk -v start="$RAS_START" -v end="$RAS_END" 'NR >= start && NR <= end' "$PODMAN_MKOSI" \
+    | sed 's/\\\$/$/g' > "$RAS_SRC"
+  # shellcheck source=/dev/null
+  . "$RAS_SRC"
+fi
+
+if [ -n "${RAS_START:-}" ] && [ -n "${RAS_END:-}" ] && command -v render_apt_source >/dev/null 2>&1; then
+  RAS_KEYRINGS="$WORK/ras-keyrings"
+  RAS_SOURCES="$WORK/ras-sources"
+
+  # Path-traversal name is rejected (non-zero return), and -- critically --
+  # no file is written outside (or inside) the intended staging dirs.
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  if render_apt_source '../../etc/evil' 'deb https://x stable main' '' \
+      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "rejected"
+  fi
+  assert_true "render_apt_source: rejected traversal name writes no file in sources_dir" \
+    bash -c '[ -z "$(ls -A "$1" 2>/dev/null)" ]' _ "$RAS_SOURCES"
+  assert_true "render_apt_source: rejected traversal name writes nothing outside staging dirs" \
+    bash -c '[ ! -e "$1/etc/evil.list" ]' _ "$WORK"
+
+  # A name containing a slash but no ".." is equally rejected -- the guard is
+  # a charset allowlist, not a ".." blacklist.
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  if render_apt_source 'sub/dir' 'deb https://x stable main' '' \
+      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    assert_eq "render_apt_source: slash-containing name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source: slash-containing name is rejected" "rejected" "rejected"
+  fi
+
+  # A conservative charset-safe name (letters, digits, dot, underscore,
+  # hyphen) is still accepted and renders the expected files.
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  if render_apt_source 'gh-cli.v2' 'deb https://cli.github.com/packages stable main' '' \
+      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    assert_eq "render_apt_source: charset-safe name is accepted" "accepted" "accepted"
+  else
+    assert_eq "render_apt_source: charset-safe name is accepted" "accepted" "rejected"
+  fi
+  assert_true "render_apt_source: charset-safe name writes the expected sources file" \
+    test -f "$RAS_SOURCES/gh-cli.v2.list"
+else
+  echo "SKIP: render_apt_source extraction from podman-mkosi.sh failed; name-validation tests skipped." >&2
+fi
 
 # ---------------------------------------------------------------------
 # Summary
