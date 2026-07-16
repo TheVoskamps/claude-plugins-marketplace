@@ -19,6 +19,7 @@
     { "name": "block-background-agents", "source": "./plugins/block-background-agents" },
     { "name": "claude-vm", "source": "./plugins/claude-vm" },
     { "name": "show-loaded-rules", "source": "./plugins/show-loaded-rules" },
-    { "name": "show-loaded-skills", "source": "./plugins/show-loaded-skills" }
+    { "name": "show-loaded-skills", "source": "./plugins/show-loaded-skills" },
+    { "name": "writing-tools", "source": "./plugins/writing-tools" }
   ]
 }

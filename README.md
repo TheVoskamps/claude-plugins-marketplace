@@ -46,6 +46,10 @@ The marketplace currently ships these plugins (one entry each in
 - **`show-loaded-skills`** — `UserPromptExpansion` and `PreToolUse`
   (matcher `Skill`) hooks that surface a one-line message every time a
   skill loads, whether typed as a command or invoked by the model.
+- **`writing-tools`** — writing and text-editing helpers. Currently
+  ships `mask-inappropriate-language`, which replaces inappropriate
+  language (profanity, slurs, strong insults) in provided text or a
+  file with asterisks, character-for-character.
 
 ## Add this marketplace
 
