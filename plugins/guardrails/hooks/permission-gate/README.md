@@ -69,7 +69,23 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   real bash), so a command that follows a `cd` and uses `$OLDPWD` (e.g.
   `cd <subdir>; cat "$OLDPWD/x"`) resolves against the directory the
   `cd` left, not the event's cwd; before any `cd` in scope, `$OLDPWD` is
-  untracked and fails closed. A `for x in <words>; do
+  untracked and fails closed. A sibling mechanism, the **command-substitution
+  anchor allowlist** (#132), recognizes an assignment RHS that is EXACTLY one
+  of three command substitutions — `$(git rev-parse --show-toplevel)` (this
+  worktree's root), `$(git rev-parse --git-common-dir)` (the shared git dir,
+  which a later use still runs through the `.git/` deny), and `$(pwd)` /
+  `` `pwd` `` (the cd-tracked running cwd, #129, not the event's raw cwd) —
+  and records its resolved value into the static-assignment map instead of
+  dropping the variable as unresolvable. Matching is exact: extra flags, extra
+  arguments, or the substitution combined with other word parts is not an
+  anchor and falls through to the existing fail-closed drop. Anchor
+  resolution never bypasses containment or the `.git/` deny — it only lets a
+  known-safe location resolve statically instead of failing closed on a
+  dynamic RHS. This is a distinct mechanism from the five-variable
+  `$HOME`/`$USER`/`$TMPDIR`/`$PWD`/`$OLDPWD` allowlist above: that allowlist
+  resolves bare *variable* references from authoritative sources, while the
+  anchor allowlist resolves specific *command-substitution* forms. A `for x
+  in <words>; do
   …; done` whose header is a fully static item list (#131, broadened by
   a follow-up) fans out: the body is walked once per resolved item with
   the loop variable bound to that item, so a body use of `"$x"`
