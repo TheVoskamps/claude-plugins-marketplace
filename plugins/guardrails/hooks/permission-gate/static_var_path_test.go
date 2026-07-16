@@ -83,6 +83,13 @@ func TestStaticVarPathResolvesToContainment_60(t *testing.T) {
 // assigned from a command substitution is NOT statically known, so a later use
 // must keep marking hasUnknownExpansion and escalate (fail-closed). It must NOT
 // be resolved to an empty / bogus path.
+//
+// NOTE: `$(pwd)` itself was the example command substitution here before #132
+// allowlisted it as a known-anchor substitution (see
+// TestPwdAnchorResolvesToTrackedCwd_132 in anchor_cmdsubst_test.go for its new
+// behavior). This test now uses `$(git log)` — a real, but NOT allowlisted,
+// command substitution — to keep pinning the general "arbitrary command
+// substitution stays unresolvable" invariant.
 func TestStaticVarPathFromCmdSubstStillEscalates_60(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -90,7 +97,7 @@ func TestStaticVarPathFromCmdSubstStillEscalates_60(t *testing.T) {
 	cwd := canonicalize(repo)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
 
-	cmd := `D=$(pwd); cat "$D/README.md"`
+	cmd := `D=$(git log); cat "$D/README.md"`
 	d := classifyBash(cmd, ev)
 	wantBucket(t, d, BucketAsk, "#60 cmd-subst-assigned var still escalates")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
@@ -98,8 +105,8 @@ func TestStaticVarPathFromCmdSubstStillEscalates_60(t *testing.T) {
 	}
 
 	// A reassignment from a static literal to a dynamic value must DROP the
-	// previously-known value: `P=/repo; P=$(pwd); cat "$P/x"` escalates.
-	cmd2 := `P=` + repo + `; P=$(pwd); cat "$P/README.md"`
+	// previously-known value: `P=/repo; P=$(git log); cat "$P/x"` escalates.
+	cmd2 := `P=` + repo + `; P=$(git log); cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev)
 	wantBucket(t, d2, BucketAsk, "#60 static-then-dynamic reassignment escalates")
 }
