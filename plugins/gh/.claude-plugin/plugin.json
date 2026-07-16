@@ -1,0 +1,6 @@
+{
+  "name": "gh",
+  "description": "Git/GitHub branch operations for issue work: create the correctly-named issue branch off the right base, reading branch conventions from repo-config internally.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}

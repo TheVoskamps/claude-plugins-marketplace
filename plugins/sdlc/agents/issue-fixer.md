@@ -8,6 +8,7 @@ isolation: worktree
 memory: project
 skills:
   - issue-view
+  - github-prs:pr-diff
 ---
 
 # Issue Fixer
@@ -21,39 +22,17 @@ call onward. Run all commands as bare commands — `cd` does not persist
 between Bash calls in a subagent context. See `git-workflow.md` →
 "Subagent context" for the full rules.
 
-## Read global rules and repo config first
+## Read global rules first
 
-Before doing anything else:
+Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
+instructions at the top of that file.
 
-1. Read `~/.claude/CLAUDE.md` and follow the instructions at the
-   top of that file.
-2. Then read this repo's `.claude/rules/repo-config.md` from the
-   worktree root, following the read contract in
-   `skills/lib/repo-config.md`. This reader requires
-   **schema-version 6**. Run the canonical read sequence documented
-   there (locate, read, parse front-matter, check `schema-version`,
-   read the six front-matter fields, optionally read the
-   `github-project:` block) and use that library's abort messages
-   verbatim — including the "File missing", "Schema-version absent",
-   "Schema-version stale", and "Front-matter incomplete" cases. Do
-   not re-derive the parse rules or invent new abort wording here.
-
-The six canonical front-matter fields you resolve are:
-
-- `source-control` (`GitHub` | `CodeCommit`)
-- `issues` (`GitHub` | `Jira`)
-- `issue-link-prefix` (string)
-- `default-issue-source-branch` (string)
-- `default-pr-target-branch` (string)
-- `issue-branch-naming-prefix` (`none` | `initials` | `name`)
-
-When the file is missing, abort with the library's "File missing"
-message; the `issue-fixer requires it.` reader-specific prefix is
-permitted ahead of the canonical `Run /repo-config to create one.`
-tail.
-
-In the rest of this document, `<source-branch>`, `<target-branch>`,
-`<link-prefix>`, and `<branch-name>` mean the resolved values.
+You no longer read `.claude/rules/repo-config.md` yourself for PR
+mechanics — the `github-prs:pr-diff` skill declared in the `skills:`
+frontmatter above is GitHub-only by design and reads no repo-config;
+invoke it rather than re-deriving a `source-control` branch yourself.
+`<branch-name>` in the rest of this document means the value passed to
+you in the spawn prompt (see "Inputs" below).
 
 ## Inputs
 
@@ -94,11 +73,8 @@ If any are missing, ask before proceeding.
    backend" and the `/issues-jira:jira-lib` skill) — so you call it the same way
    regardless of tracker.
 
-3. Fetch the full PR diff for context:
-   - If `source-control == GitHub`: `gh pr diff <PR_number>`
-   - If `source-control == CodeCommit`: TODO — CodeCommit diff path
-     not implemented. Abort with: "CodeCommit source-control selected,
-     but the diff-fetch path is not implemented. See #104."
+3. Fetch the full PR diff for context via `/github-prs:pr-diff
+   <PR_number>` (preloaded via the `skills:` frontmatter above).
 
 4. Read the affected files before making changes.
 
@@ -167,10 +143,10 @@ If any are missing, ask before proceeding.
     git branch -D <branch-name>
     ```
 
-    Use `--detach` (not `git checkout <source-branch>`) because the
-    orchestrator's primary clone is already holding `<source-branch>`,
-    so a subagent worktree can't switch to it. Detaching HEAD releases
-    the feature-branch claim equivalently. See `git-workflow.md` →
+    Use `--detach` (not switching to the source branch) because the
+    orchestrator's primary clone is already holding that branch, so a
+    subagent worktree can't switch to it. Detaching HEAD releases the
+    feature-branch claim equivalently. See `git-workflow.md` →
     "End-of-run cleanup pattern".
 
 13. Report back:

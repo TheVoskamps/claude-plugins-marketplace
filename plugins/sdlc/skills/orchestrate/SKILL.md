@@ -119,39 +119,39 @@ git rev-parse --git-dir
 ### Pre-flight: read the per-repo config
 
 Once the primary-clone check passes, read `.claude/rules/repo-config.md`
-following the read contract in `skills/lib/repo-config.md`.
-`/sdlc:orchestrate` requires **schema-version 6**. Run the canonical read
-sequence documented there (locate the file at
-`<repo-root>/.claude/rules/repo-config.md`, read it, parse the
-front-matter, check `schema-version`, read the six front-matter
-fields, optionally read the `github-project:` block) and use that
-library's abort messages verbatim — including the "File missing",
-"Schema-version absent", "Schema-version stale", and "Front-matter
-incomplete" cases. Do not re-derive the parse rules or invent new
-abort wording here.
+with a lightweight **inline** parse of just the fields below — not the
+full six-field reader contract that used to live at
+`plugins/sdlc/skills/lib/repo-config.md`. That duplicate was deleted
+(issue #143): `sdlc` no longer bundles its own copy of the `issues`
+plugin's reader contract, and a bare cross-plugin reference to
+`skills/lib/repo-config.md` cannot resolve it either — plugins are
+file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
+are file-sandboxed"). This is deliberate, not a gap: the orchestrator
+no longer does branch/PR mechanics itself — `issue-developer` now
+delegates those reads to `gh:branch-create` and `github-prs:pr-create`
+— so the orchestrator only ever needed two things out of the old
+six-field contract:
 
-The six canonical front-matter fields you resolve are:
+- `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
+  Jira) — used in spawn-prompt templates (`<link-prefix>101`) and the
+  final-report tables below.
+- The optional `github-project:` block (GitHub) or the Jira `status`
+  slot — read only for the status-slot gate in "Issue-status
+  transitions" below; both degrade to warn-and-skip when absent, per
+  that section.
 
-- `source-control` (`GitHub` | `CodeCommit`)
-- `issues` (`GitHub` | `Jira`)
-- `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for Jira)
-- `default-issue-source-branch` (string, e.g. `main` or `integ`)
-- `default-pr-target-branch` (string)
-- `issue-branch-naming-prefix` (`none` | `initials` | `name`)
+If `.claude/rules/repo-config.md` is missing, abort with: "This repo
+has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
+one." (the same wording the old six-field contract used for its "File
+missing" case, so the abort wording stays consistent even though this
+skill no longer consumes the whole contract).
 
-When the file is missing, abort with the library's "File missing"
-message; the `/sdlc:orchestrate requires it.` reader-specific prefix is
-permitted ahead of the canonical `Run /repo-config to create one.`
-tail.
-
-Throughout the rest of this template, references to `<source-branch>`,
-`<target-branch>`, `<link-prefix>`, and `<branch-name>` mean the
-resolved values from this config. Branch-name resolution per
-`issue-branch-naming-prefix`:
-
-- `none`     -> `issue-<N>-<slug>`
-- `initials` -> `<initials>/issue-<N>-<slug>`
-- `name`     -> `<name>/issue-<N>-<slug>`
+Throughout the rest of this template, `<link-prefix>` means the
+resolved value above. `<source-branch>`, `<target-branch>`, and
+`<branch-name>` are no longer resolved here — they're internal to
+`gh:branch-create` and `github-prs:pr-create`, invoked by
+`issue-developer` (see "Spawn-prompt principle" below, which already
+tells you not to pass resolved repo-config values to teammates).
 
 ### Read each issue, in parallel
 
@@ -227,6 +227,23 @@ the background" under Hard Constraints below.
 
 Work in waves as defined by your plan.
 
+### Set each issue to In Progress before spawning its developer
+
+Immediately after the human confirms the plan (end of Phase 1) and
+**before spawning any agent for a given issue**, transition that issue
+to In Progress:
+
+```text
+/issue-set-status <N> "In Progress"
+```
+
+This is gated on the repo having a configured status slot — see
+"Issue-status transitions" below for the gate and the option-name
+fallback. Set the status for each issue as its wave is about to be
+spawned (so an issue queued behind another wave flips to In Progress
+only when its own developer is about to start), not all at once up
+front.
+
 ### Spawn-prompt principle
 
 Pass only what the agent needs to do its specific task:
@@ -262,6 +279,24 @@ Implement the fix end-to-end per your agent definition. Report back:
 PR URL (or equivalent), branch name, test result, any decisions you
 made during the fix.
 ```
+
+### After each issue-developer reports back: link the PR to its issue
+
+Before spawning the follow-up agents, call `/github-prs:pr-link-issue
+<PR> <issue>` for the PR the developer just reported. This is an
+idempotent safety-net: the `issue-developer` already writes
+`Closes #<issue>` into the PR body at create time, so this call
+normally no-ops ("already linked") — but running it unconditionally
+guarantees the PR carries the closing keyword (and thus the
+Development-sidebar link and the auto-close-on-merge) even if a
+developer variant or a human hand-edit skipped it. The orchestrate
+flow always has the issue number in hand, so this always runs.
+`<issue>` is the branch's own issue (the one the developer fixed); the
+skill prefers the `issue-<N>-<slug>` branch name as the source of
+truth when they disagree.
+
+The PR stays a **draft** at this point and through the entire
+review/fix loop — see "PR draft/ready lifecycle" below.
 
 ### After each issue-developer reports back: doc-updater first, then pr-reviewer
 
@@ -411,6 +446,44 @@ concurrently.
 ---
 
 ## Phase 3: Final Report
+
+### End-of-loop lifecycle transitions (per PR, on human confirmation)
+
+The review/fix loop leaves each PR **draft** and its issue **In
+Progress**. Phase 3 is where the human confirms — per PR — that the
+loop is done and the PR is good enough to move forward. On that
+end-of-loop confirmation for a given PR, and only then, the
+orchestrator performs two transitions:
+
+1. **Flip the PR draft → ready:**
+
+   ```text
+   /github-prs:pr-ready <PR>
+   ```
+
+   This is the deliberate gate: because the repo's auto-merge workflow
+   filters `isDraft == false`, a PR stays unmergeable (and its
+   `Closes #N` auto-close stays inert) until this call. Keeping the PR
+   draft through the whole review/fix loop is what makes "the
+   orchestrator never merges before the human blesses the PR" enforced
+   by state, not just by prose. Do **not** call `/pr-ready` earlier in
+   the loop.
+
+2. **Set the issue to In Review:**
+
+   ```text
+   /issue-set-status <N> "In Review"
+   ```
+
+   Gated on a configured status slot — see "Issue-status transitions"
+   below.
+
+Neither transition merges the PR; the human still owns the merge. If
+the human ends the loop without blessing a PR (e.g. it lands in "Needs
+Your Attention"), leave that PR draft and its issue In Progress — do
+not flip it to ready or In Review.
+
+### Summary
 
 Once all waves are complete and all review loops have settled, deliver
 a summary:
@@ -584,6 +657,21 @@ itself:
   `/issue-*` equivalent, so raw `gh` stays the tool here — but
   commenting on an *issue* goes through `/issue-comment <N>`, per
   "Prefer the `/issue-*` namespace over raw `gh`" below.
+- **Manage a PR's draft/ready state and issue link via the
+  `/github-prs:*` skills** — `/pr-link-issue <PR> <issue>` (link
+  a PR to its own issue) and `/pr-ready <N>` (flip draft → ready at
+  end-of-loop). These are coordination metadata in the same bucket as
+  `gh pr comment`: they set the PR's lifecycle state, they don't
+  author feature work or a review verdict. `/pr-link-issue` is
+  idempotent (a no-op when the developer already wrote `Closes #N`),
+  and `/pr-ready` merely un-drafts — neither merges the PR. See
+  "PR draft/ready lifecycle" below for when the orchestrator calls
+  each.
+- **Set issue status via `/issue-set-status`** — `In Progress` when
+  work starts, `In Review` at end-of-loop. Coordination metadata, not
+  agent-owned work. See "Issue-status transitions" below and the
+  `/issue-*` namespace rule for the general "prefer the skill"
+  principle.
 - **File follow-up issues via `/issue-create`.** It sets type,
   priority, size, status, project-board entry, and assignee from
   repo-config in one shot, so the issue is fully configured before the
@@ -611,6 +699,64 @@ itself:
   is structurally weaker than having an independent caller verify it,
   and the orchestrator is that independent caller — so it reads the
   issue back rather than trusting the create runbook's self-report.
+
+### PR draft/ready lifecycle
+
+Every PR the orchestrate flow produces goes through the same
+draft-first lifecycle:
+
+1. **Born draft.** `issue-developer` creates each PR with `--draft`
+   (see its agent definition). A draft PR cannot be auto-merged — the
+   repo's auto-merge workflow filters `isDraft == false` — so the PR
+   is inert from the moment it opens.
+2. **Linked.** Right after the developer reports back, the
+   orchestrator calls `/github-prs:pr-link-issue <PR> <issue>` to
+   guarantee the PR body closes its own issue (idempotent — see "After
+   each issue-developer reports back: link the PR to its issue"). The
+   `Closes #N` keyword only fires on merge to the default branch, so
+   it stays inert while the PR is draft.
+3. **Stays draft through the whole review/fix loop.** doc-updater,
+   pr-reviewer, and any issue-fixer rounds all run against the draft
+   PR. Nothing in the loop flips it to ready.
+4. **Ready at end-of-loop, on human confirmation only.** In Phase 3,
+   when the human confirms a PR is good enough to end the loop, the
+   orchestrator calls `/github-prs:pr-ready <PR>` (see "End-of-loop
+   lifecycle transitions"). This is the single point where the PR
+   becomes mergeable, and even then the human — never the orchestrator
+   — performs the merge.
+
+The draft state is the enforcement mechanism behind the "Never merge a
+PR" Hard Constraint: it makes "unmergeable until the human blesses it"
+a property of the PR's state, not just a rule in prose.
+
+### Issue-status transitions
+
+The orchestrator keeps each issue's board status in sync with its
+lifecycle via `/issue-set-status`:
+
+- **In Progress** — set after plan confirmation, before spawning the
+  issue's developer (Phase 2, "Set each issue to In Progress before
+  spawning its developer").
+- **In Review** — set on end-of-loop human confirmation (Phase 3,
+  "End-of-loop lifecycle transitions").
+
+Both transitions are **gated on a configured status slot**: the repo
+must have `github-project.fields.status` (GitHub) or the Jira `status`
+slot in `.claude/rules/repo-config.md`. If no status slot is
+configured, **warn-and-skip** — emit a one-line note that status
+tracking is not configured and continue the run. Do **not** abort;
+this matches how `/issue-set-status` itself degrades.
+
+**Option-name fallback.** `/issue-set-status` matches option names
+case-insensitively, so `"In Progress"` / `"In Review"` resolve to a
+board's `In progress` / `In review` options automatically. But if the
+board has a status slot that **lacks** a matching option — i.e.
+`/issue-set-status` aborts with its "Slot value not in options map"
+error — the orchestrator must **catch that abort and ask the human**
+which status option to use instead, or whether to skip the transition
+for this run. It must **not** let that abort fail the whole run. This
+keeps the feature working on boards whose status options are named
+differently (e.g. `Doing` / `Reviewing`).
 
 ### Prefer the `/issue-*` namespace over raw `gh`
 

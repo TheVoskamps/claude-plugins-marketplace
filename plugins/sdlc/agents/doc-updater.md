@@ -1,11 +1,13 @@
 ---
 name: doc-updater
 description: Updates project documentation to reflect code changes. Given a PR number, issue number, and branch name, updates CLAUDE.md, relevant README.md files, repo-level .claude/rules/ and .claude/skills/, anything under /docs, and in-code doc comments (TSDoc or the language equivalent) in files the PR touched. Invoke this after code changes are committed but before a PR is reviewed, or as a standalone task when docs are known to be stale.
-tools: Read, Write, Edit, Glob, Grep, Bash
+tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: sonnet
 effort: medium
 isolation: worktree
 memory: project
+skills:
+  - github-prs:pr-diff
 ---
 
 # Doc Updater
@@ -22,55 +24,34 @@ call onward. Run all commands as bare commands — `cd` does not persist
 between Bash calls in a subagent context. See `git-workflow.md` →
 "Subagent context" for the full rules.
 
-## Read global rules and repo config first
+## Read global rules first
 
-Before doing anything else:
+Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
+instructions at the top of that file.
 
-1. Read `~/.claude/CLAUDE.md` and follow the instructions at the
-   top of that file.
-2. Then read this repo's `.claude/rules/repo-config.md` from the
-   worktree root, following the read contract in
-   `skills/lib/repo-config.md`. This reader requires
-   **schema-version 6**. Run the canonical read sequence documented
-   there (locate, read, parse front-matter, check `schema-version`,
-   read the six front-matter fields, optionally read the
-   `github-project:` block) and use that library's abort messages
-   verbatim — including the "File missing", "Schema-version absent",
-   "Schema-version stale", and "Front-matter incomplete" cases. Do
-   not re-derive the parse rules or invent new abort wording here.
-
-The canonical front-matter fields you resolve are:
-
-- `source-control` (`GitHub` | `CodeCommit`)
-- `issues` (`GitHub` | `Jira`)
-- `issue-link-prefix` (string)
-- `default-issue-source-branch` (string)
-- `default-pr-target-branch` (string)
-- `issue-branch-naming-prefix` (`none` | `initials` | `name`)
-
-When the file is missing, abort with the library's "File missing"
-message; the `doc-updater requires it.` reader-specific prefix is
-permitted ahead of the canonical `Run /repo-config to create one.`
-tail.
-
-In the rest of this document, `<source-branch>`, `<link-prefix>`, and
-`<branch-name>` mean the resolved values.
+You no longer read `.claude/rules/repo-config.md` yourself for PR
+mechanics — the `github-prs:pr-diff` skill declared in the `skills:`
+frontmatter above is GitHub-only by design and reads no repo-config;
+invoke it rather than re-deriving a `source-control` branch yourself.
+`<branch-name>` in the rest of this document means the value passed to
+you in the spawn prompt (see "Inputs" below).
 
 ## Inputs
 
 You must be given:
 
-- PR number (for diff/view of the PR; CLI selected by `source-control`)
+- PR number (for the diff fetch via `/github-prs:pr-diff`)
 - Issue number (for context — the parent issue this PR is for)
 - Branch name (`<branch-name>`) — you check this out before making changes
 
 This agent works purely from the **PR diff** (the committed code
 change) — it documents what changed, not what the issue asked for.
-It therefore does **not** read the parent issue, and so does not use
-the `/issue-view` skill or carry `Skill` in its `tools:` list. The
-issue number is passed only as a label for the commit/PR context; the
-source of truth for documentation updates is the diff, not the issue
-body.
+It therefore does **not** read the parent issue and does not use the
+`/issue-view` skill. It does carry `Skill` in its `tools:` list and
+`github-prs:pr-diff` in its `skills:` frontmatter, but only for the
+diff fetch — never for issue context. The issue number is passed only
+as a label for the commit/PR context; the source of truth for
+documentation updates is the diff, not the issue body.
 
 Do not assume you inherit cwd, branch, or any other context from a
 parent agent. Each subagent starts fresh.
@@ -96,11 +77,8 @@ Before writing anything, read what already exists:
    - `find ./docs -type f -name "*.md" 2>/dev/null`
    - `find . -name "*.md" -path "*/.claude/*" -not -path "*/node_modules/*"`
 
-2. Fetch the PR diff for what changed:
-   - If `source-control == GitHub`: `gh pr diff <PR_number>`
-   - If `source-control == CodeCommit`: TODO — CodeCommit diff path
-     not implemented. Abort with: "CodeCommit source-control selected,
-     but the diff-fetch path is not implemented. See #104."
+2. Fetch the PR diff for what changed via `/github-prs:pr-diff
+   <PR_number>` (preloaded via the `skills:` frontmatter above).
 
 3. Read the files most likely affected based on what changed. Don't read
    everything — focus on documentation that covers the changed code paths,
@@ -317,11 +295,11 @@ git branch -D <branch-name>
 ```
 
 Without this, git refuses to check out a branch already claimed by
-another worktree. Use `--detach` (not `git checkout <source-branch>`)
-because the orchestrator's primary clone is already holding
-`<source-branch>`, so a subagent worktree can't switch to it.
-Detaching HEAD releases the feature-branch claim equivalently. See
-`git-workflow.md` → "End-of-run cleanup pattern".
+another worktree. Use `--detach` (not switching to the source branch)
+because the orchestrator's primary clone is already holding that
+branch, so a subagent worktree can't switch to it. Detaching HEAD
+releases the feature-branch claim equivalently. See `git-workflow.md`
+→ "End-of-run cleanup pattern".
 
 ## Quality Bar
 
