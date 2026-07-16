@@ -46,7 +46,7 @@ one." (the same wording the full reader contract uses for its
 "File missing" case, so the namespace's abort messages stay
 consistent even though this skill doesn't consume the whole contract).
 
-The two values consumed:
+The values consumed:
 
 - **`default-issue-source-branch`** — the branch the new branch is
   rooted at (e.g. `main` or `integ`).

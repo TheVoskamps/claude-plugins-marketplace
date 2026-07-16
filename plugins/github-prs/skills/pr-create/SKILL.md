@@ -49,7 +49,7 @@ one." (the same wording the full reader contract uses for its
 "File missing" case, so the namespace's abort messages stay
 consistent even though this skill doesn't consume the whole contract).
 
-The two values consumed:
+The values consumed:
 
 - **`default-pr-target-branch`** — the base branch the PR targets.
 - **`issue-link-prefix`** — the literal string concatenated with the

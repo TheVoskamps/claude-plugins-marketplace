@@ -27,3 +27,7 @@
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
   permission-gate blocks heredoc `git commit -m`, use `commit -F`.
+- [sdlc repo-config split](project_sdlc-repo-config-split.md) — sdlc
+  agents no longer read the full repo-config contract; branch/PR
+  mechanics moved into gh:branch-create / github-prs:pr-create, each
+  doing its own inline 1-2 field parse.
