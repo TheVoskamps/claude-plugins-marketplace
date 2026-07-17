@@ -1,0 +1,6 @@
+{
+  "name": "writing-tools",
+  "description": "Writing and text-editing helpers. Currently: mask inappropriate language (profanity, slurs, strong insults) in provided text or a file.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
