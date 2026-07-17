@@ -12,16 +12,15 @@ The marketplace currently ships these plugins (one entry each in
 - **`issues-jira`** — optional Jira backend for the issue verbs.
 - **`sdlc`** — issue orchestration and the developer/fixer/reviewer/doc
   agents.
-- **`gh`** — Git/GitHub branch operations for issue work: create the
-  correctly-named issue branch off the right base, reading branch
-  conventions from repo-config internally.
 - **`github-prs`** — GitHub PR-operations skills: create, diff, and
   review-submit a PR; flip a PR draft/ready; and link a PR to its issue
   via a closing keyword in the PR body. GitHub-only by design.
 - **`github-setup`** — GitHub repo provisioning (App identity, PR
   automation, branch protection, public mirror, history scrubbing,
   private-to-public promotion).
-- **`git-tools`** — branch/worktree cleanup and test generation.
+- **`git-tools`** — create the correctly-named issue branch off the
+  right base, clean up merged branches and stale worktrees, and
+  generate unit tests.
 - **`cc-tools`** — Claude Code maintenance helpers.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the

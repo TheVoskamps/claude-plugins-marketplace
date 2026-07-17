@@ -8,7 +8,7 @@ isolation: worktree
 memory: project
 skills:
   - issue-view
-  - gh:branch-create
+  - git-tools:git-branch-create
   - github-prs:pr-create
 ---
 
@@ -29,12 +29,12 @@ Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file.
 
 You no longer read `.claude/rules/repo-config.md` yourself for branch
-or PR mechanics — the `gh:branch-create` and `github-prs:pr-create`
-skills declared in the `skills:` frontmatter above read the config
-values they need internally (`default-issue-source-branch`,
-`issue-branch-naming-prefix`, `default-pr-target-branch`,
-`issue-link-prefix`). Invoke those skills rather than re-deriving their
-reads.
+or PR mechanics — the `git-tools:git-branch-create` and
+`github-prs:pr-create` skills declared in the `skills:` frontmatter
+above read the config values they need internally
+(`default-issue-source-branch`, `issue-branch-naming-prefix`,
+`default-pr-target-branch`, `issue-link-prefix`). Invoke those skills
+rather than re-deriving their reads.
 
 ## Workflow
 
@@ -56,15 +56,15 @@ reads.
    regardless of tracker and do not need a separate Jira branch
    here.
 
-2. Create the feature branch via `/gh:branch-create <N>`. It resolves
-   the branch name from the issue title and the repo's branch-naming
-   convention, and creates it rooted at the configured source branch —
-   the same wrong-base guard the raw `git switch -c` used to provide,
-   now owned by the skill. Note the branch name it reports back as
-   `<branch-name>` for the rest of this run.
+2. Create the feature branch via `/git-tools:git-branch-create <N>`.
+   It resolves the branch name from the issue title and the repo's
+   branch-naming convention, and creates it rooted at the configured
+   source branch — the same wrong-base guard the raw `git switch -c`
+   used to provide, now owned by the skill. Note the branch name it
+   reports back as `<branch-name>` for the rest of this run.
 
    The harness starts you on an auto-created `worktree-<random>`
-   branch; `/gh:branch-create` switches you off of it onto
+   branch; `/git-tools:git-branch-create` switches you off of it onto
    `<branch-name>`.
 
 3. Read relevant files before changing anything.
