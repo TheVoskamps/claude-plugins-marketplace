@@ -389,7 +389,17 @@ Claude Code updates daily, so the guest image does **not** bake in
   `packages.apt_sources` ARE baked into the image (unlike `claude`): the
   baked packages are present in the guest with no boot-time network, and
   each `apt_sources` repo's `key_url` is fetched into a keyring so its
-  packages install (`signed-by` that key) at build time. Because the image
+  packages install (`signed-by` that key) at build time. An
+  `apt_sources` entry's `repo` may already carry its own apt one-line
+  `[options]` block (e.g. an operator-authored `signed-by=`); the
+  renderer adapts to the line's existing shape instead of unconditionally
+  appending a second `[options]` block (apt allows only one, and two make
+  the line unparseable) — no block gets one added, a block without
+  `signed-by=` gets it merged in, and a block that already pins
+  `signed-by=<path>` is left verbatim with the fetched key written to that
+  path's staging equivalent. `packages.bake` entries that are null/empty
+  (e.g. a stray `-` in the YAML list) are stripped during canonicalization
+  rather than baked in as a literal `"None"` package name. Because the image
   is a shared cache, the launcher derives a **bake-hash** — sha256 (first 8
   hex) over the order-normalized bake config (sorted `packages.bake`,
   normalized `apt_sources`) — and folds it into the pinned version
@@ -593,11 +603,22 @@ The config-resolution half (layering, scalar/list resolution) is
 exercisable without the virtualization stack; see
 `payload/test/config-test.sh`, and the verified-cache logic (resolve /
 verify / checksum / abort / warm-boot) in
-`payload/test/claude-cache-test.sh`. The end-to-end acceptance test —
-default-provisioner build, vfkit boot to the claude-fetch seam (exec'ing
-the host-verified claude off the mount), egress confinement, and the
-host-side GPG-verified cache — is `payload/test/host-acceptance.sh`; it is
-host-gated by cause: it skips cleanly when a required binary is absent,
+`payload/test/claude-cache-test.sh`.
+
+`payload/test/podman-mkosi-test.sh` regression-tests the recipe the
+default provisioner generates (the literal `mkosi.conf` and
+`build-in-container.sh`), stubbing only `podman` at the container
+handoff — added after a real end-to-end build caught failures (a
+backtick-command-substitution bug corrupting `mkosi.conf`, and a missing
+`curl`/`ca-certificates` in the build container) that no pure-function
+`config-test.sh` case could catch, since none of them render or execute
+the actual generated recipe files.
+
+The end-to-end acceptance test — default-provisioner build, vfkit boot
+to the claude-fetch seam (exec'ing the host-verified claude off the
+mount), egress confinement, and the host-side GPG-verified cache — is
+`payload/test/host-acceptance.sh`; it is host-gated by cause: it skips
+cleanly when a required binary is absent,
 but a stopped or absent podman machine is not a skip — the test starts
 the machine itself and tears down exactly what it changed on exit. A
 bring-up the test attempted that then fails (`podman machine

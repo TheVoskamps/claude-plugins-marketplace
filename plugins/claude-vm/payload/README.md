@@ -36,6 +36,11 @@ payload/
                         # unit tests for the verified claude cache
                         # (resolve/verify/checksum/abort/warm-boot; stubbed
                         # network+gpg, fully offline)
+    podman-mkosi-test.sh
+                        # regression tests for the generated mkosi recipe
+                        # (issue #105 real-build follow-up); stubs podman
+                        # at the container handoff, asserts on the literal
+                        # generated mkosi.conf / build-in-container.sh
     host-acceptance.sh  # self-contained on-host acceptance test (build +
                         # boot + egress confinement); host-gated, skips
                         # when a required binary is absent, but starts a
@@ -353,6 +358,23 @@ repos. That keyring-fetch + sources-write step is a reusable unit the
 boot-time-install slice (issue #106) reuses against the guest's live
 `/etc/apt`.
 
+A `packages.apt_sources` entry's `repo` is a raw apt one-line source string
+and may already carry its own `[options]` block (e.g. an operator-authored
+`deb [arch=arm64 signed-by=/etc/apt/keyrings/x.asc] ...`). The renderer
+adapts to whatever shape the line already has rather than unconditionally
+splicing in a second `[signed-by=...]` block (apt's one-line format allows
+exactly one such block, and two make the line unparseable): no block at all
+gets one added; a block with no `signed-by=` gets it merged in, other
+options untouched; a block that already pins `signed-by=<path>` is left
+byte-for-byte verbatim — that path wins, and the fetched key is written to
+its staging equivalent instead of the default `<name>.asc`, so the declared
+path and the actual key location never drift apart. This was a real-build
+finding (issue #105 follow-up): unconditionally appending a second block
+produced an apt "Malformed entry (URI parse)" failure. `packages.bake`
+entries that are null or empty (e.g. a stray `-` in the YAML list) are
+stripped during canonicalization rather than passed through as a literal
+`"None"` package name, which would otherwise fail the image build.
+
 The launcher attaches **two** virtio-serial consoles (issue #88). The
 first (`logFilePath`, guest `hvc0`) captures the booting guest's
 kernel/systemd output to `$RUN/guest-console.log`, making an otherwise
@@ -478,6 +500,7 @@ replacement.
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
 ```
 
@@ -498,6 +521,19 @@ matching pin is accepted, a non-matching pin is rejected) and end-to-end
 key). The network primitive and (for the pipeline tests) gpg are stubbed
 with local fixtures, so it is fully offline and deterministic; requires
 only `bash` + a sha256 tool.
+
+`podman-mkosi-test.sh` exercises the recipe `provisioners/podman-mkosi.sh`
+generates on the real host code path, stubbing only `podman` at the point
+it would hand off to the build container, then asserting on the literal
+generated `mkosi.conf` and `build-in-container.sh`. It was added after a
+real end-to-end build (issue #105 review follow-up, PR #161) hit three
+failures — a paired-backtick command-substitution bug in the `mkosi.conf`
+heredoc's comment prose that corrupted `RootPassword=`, and a missing
+`curl`/`ca-certificates` in the build container's toolchain that broke
+`render_apt_source`'s key fetch — none of which `config-test.sh`'s
+pure-function cases could catch, since none of them render or execute the
+actual generated recipe files. It does not run a real `mkosi build` (no
+container, no network); that gap is covered by `host-acceptance.sh`.
 
 `host-acceptance.sh` is the self-contained on-host acceptance test for
 the bootable runtime. It runs the acceptance criteria end-to-end with no
