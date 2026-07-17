@@ -388,6 +388,66 @@ if [ -f "$CAPTURE_INNER" ]; then
       echo "FAIL - real githubcli failure line: does not match 'deb <one bracket-group> <http-uri>' shape"
       echo "        actual: [$RENDERED_LINE]"
     fi
+    # -----------------------------------------------------------------
+    # Security regression (review round 3, High): case 3 (repo line already
+    # carries its own signed-by=P) used to accept ANY absolute,
+    # charset-safe, '..'-free P and write the fetched key there verbatim.
+    # apt_sources is unioned in from the per-repo (UNTRUSTED)
+    # .claude-vm/config.yml, so a malicious config could pair
+    # signed-by=/etc/cron.d/x with an attacker-served key_url to get
+    # attacker-controlled bytes written to an arbitrary path in the guest
+    # image staging tree, which then boots as root. render_apt_source must
+    # now accept P ONLY when it is directly under /etc/apt/keyrings or
+    # /usr/share/keyrings (no further subdirectories), and reject (exit
+    # nonzero, write nothing) everything else.
+    # -----------------------------------------------------------------
+
+    # --- (a) case-3 P under /etc/apt/keyrings -- still works verbatim. ---
+    P_ETC="/etc/apt/keyrings/foo.asc"
+    REPO_P_ETC="deb [arch=amd64 signed-by=${P_ETC}] https://example.test/repo stable main"
+    OUT="$(call_render seckeep-etc secure-etc "$REPO_P_ETC" 'https://example.test/repo/key.asc')"
+    assert_eq "keyrings-dir constraint: /etc/apt/keyrings P: exit 0" \
+      "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "keyrings-dir constraint: /etc/apt/keyrings P: line kept verbatim" \
+      "$REPO_P_ETC" "$RENDERED_LINE"
+    assert_contains "keyrings-dir constraint: /etc/apt/keyrings P: key lands at sandbox equivalent" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox${P_ETC}"
+
+    # --- (b) case-3 P under /usr/share/keyrings -- still works verbatim. ---
+    P_USR="/usr/share/keyrings/foo.gpg"
+    REPO_P_USR="deb [arch=amd64 signed-by=${P_USR}] https://example.test/repo stable main"
+    OUT="$(call_render seckeep-usr secure-usr "$REPO_P_USR" 'https://example.test/repo/key.asc')"
+    assert_eq "keyrings-dir constraint: /usr/share/keyrings P: exit 0" \
+      "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "keyrings-dir constraint: /usr/share/keyrings P: line kept verbatim" \
+      "$REPO_P_USR" "$RENDERED_LINE"
+    assert_contains "keyrings-dir constraint: /usr/share/keyrings P: key lands at sandbox equivalent" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox${P_USR}"
+
+    # --- (c) the reviewer's exploit: signed-by=/etc/cron.d/pwn must be
+    # REJECTED, and nothing must be written anywhere under the stage. ---
+    P_EXPLOIT="/etc/cron.d/pwn"
+    REPO_P_EXPLOIT="deb [arch=amd64 signed-by=${P_EXPLOIT}] https://attacker.test/repo stable main"
+    OUT="$(call_render exploit-cron exploit-cron "$REPO_P_EXPLOIT" 'https://attacker.test/repo/key.asc')"
+    assert_eq "exploit: signed-by=/etc/cron.d/pwn is REJECTED (nonzero exit)" \
+      "1" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    assert_not_contains "exploit: no key file written anywhere under the stage" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "exploit: no .list file written" \
+      "<no .list file written>" "$RENDERED_LINE"
+
+    # --- (d) nested subdirectory under an allowed root must also be
+    # rejected -- only DIRECTLY under the two allowed dirs is accepted. ---
+    P_NESTED="/etc/apt/keyrings/sub/dir/foo.asc"
+    REPO_P_NESTED="deb [arch=amd64 signed-by=${P_NESTED}] https://example.test/repo stable main"
+    OUT="$(call_render nested-subdir nested-subdir "$REPO_P_NESTED" 'https://example.test/repo/key.asc')"
+    assert_eq "nested subdir under keyrings dir is REJECTED (nonzero exit)" \
+      "1" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    assert_not_contains "nested subdir: no key file written anywhere under the stage" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:"
   else
     FAIL=$((FAIL + 1))
     echo "FAIL - could not extract render_apt_source() body from $CAPTURE_INNER"

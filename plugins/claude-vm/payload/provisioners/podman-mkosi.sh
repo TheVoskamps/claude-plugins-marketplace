@@ -555,12 +555,50 @@ render_apt_source() {
         fi
       done
       unset IFS
+      # SECURITY: absolute + charset-safe + no '..' is NOT sufficient. repo
+      # (and therefore existing_signed_by) is UNTRUSTED -- it flows from the
+      # merged, per-repo .claude-vm/config.yml (same untrusted-input status
+      # documented on 'name' above). Without a further constraint, a
+      # malicious per-repo config could pair an attacker-served key_url with
+      # e.g. signed-by=/etc/cron.d/x and this function would write
+      # attacker-controlled bytes to an arbitrary path in the guest image
+      # staging tree, which then boots as root -- a strictly larger write
+      # primitive than the one the 'name' allowlist closes. Constrain P to
+      # the two canonical apt keyring directories: it must be exactly
+      # /etc/apt/keyrings/<file> or /usr/share/keyrings/<file>, with no
+      # further subdirectories and a charset-safe <file>. A repo wanting a
+      # custom keyring path outside these is not a supported use case.
+      case "\$existing_signed_by" in
+        /etc/apt/keyrings/*|/usr/share/keyrings/*)
+          local kr_file="\${existing_signed_by##*/}"
+          case "\$kr_file" in
+            *[!A-Za-z0-9._-]*|"")
+              echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' has a filename outside [A-Za-z0-9._-]; aborting" >&2
+              return 1
+              ;;
+          esac
+          local kr_parent="\${existing_signed_by%/*}"
+          if [ "\$kr_parent" != "/etc/apt/keyrings" ] && [ "\$kr_parent" != "/usr/share/keyrings" ]; then
+            echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' is not directly under an allowed keyrings directory; aborting" >&2
+            return 1
+          fi
+          ;;
+        *)
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' is outside the allowed keyrings directories (/etc/apt/keyrings, /usr/share/keyrings); aborting" >&2
+          return 1
+          ;;
+      esac
       # Write the fetched key to the STAGING equivalent of the declared
       # runtime path: <keyrings_dir-as-sandbox-root> + P. keyrings_dir is
-      # ".../mkosi.sandbox/etc/apt/keyrings" here; its sandbox-tree root is
-      # everything up to (and excluding) "/etc/apt/keyrings", so strip that
-      # known suffix to recover the root, then append P verbatim.
-      local sandbox_root="\${keyrings_dir%/etc/apt/keyrings}"
+      # "<sandbox_root><keyring_runtime_dir>" by construction (the caller
+      # points keyrings_dir at the staging equivalent of
+      # keyring_runtime_dir), so strip keyring_runtime_dir itself -- not a
+      # hardcoded "/etc/apt/keyrings" literal -- as the suffix to recover the
+      # root. This stays correct if a future caller (issue #106) passes a
+      # keyring_runtime_dir other than /etc/apt/keyrings, and collapses to
+      # sandbox_root="" for #106's live-/etc/apt reuse (write dir == runtime
+      # dir), which is exactly the identity write-in-place that case needs.
+      local sandbox_root="\${keyrings_dir%\$keyring_runtime_dir}"
       keyring_write_path="\${sandbox_root}\${existing_signed_by}"
       mkdir -p "\$(dirname "\$keyring_write_path")"
     fi
