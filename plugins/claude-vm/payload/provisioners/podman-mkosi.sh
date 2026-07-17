@@ -463,6 +463,32 @@ echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_P
 # fully operator-authored for an untrusted repo -- a name containing e.g.
 # "../" could write outside the intended staging dirs. Reject anything
 # outside a conservative filename-safe charset BEFORE building any path.
+#
+# repo-line MERGE + PRECEDENCE (issue #105 real-build follow-up): the repo
+# string may already carry its own apt one-line "[options]" block (e.g. an
+# operator-authored "deb [arch=arm64 signed-by=/etc/apt/keyrings/x.asc] ...").
+# apt's one-line format allows exactly ONE such block right after the leading
+# deb/deb-src token; unconditionally splicing a second [signed-by=...] block
+# in produces a line with TWO option blocks, which apt cannot parse (the
+# second block lands where the URI belongs). So this function ADAPTS to
+# whatever shape the repo line already has, and for any option the repo line
+# already specifies (signed-by, today), the REPO LINE'S VALUE WINS -- this
+# function never overrides an operator-authored option value:
+#
+#   1. No [options] block at all -> add one: "deb [signed-by=<runtime>] ...".
+#   2. [options] block present, no signed-by= in it -> MERGE signed-by=<runtime>
+#      into the existing block (other options pass through untouched); still
+#      exactly one block.
+#   3. [options] block present WITH an existing signed-by=P -> the line is
+#      left byte-for-byte VERBATIM (P wins), and the fetched key is written to
+#      P's STAGING equivalent (<keyrings_dir's sandbox root> + P) instead of
+#      the default <keyrings_dir>/<name>.asc, so the declared path and the
+#      actual key location never drift apart. P is validated with the same
+#      conservative charset/traversal discipline as name before use.
+#   4. No key_url (have_key=0) -- write the line verbatim regardless of shape;
+#      an operator-supplied signed-by with no key_url is the operator's own
+#      arrangement to pass through, not an error.
+#   5. Lines not starting with deb/deb-src are written verbatim (unchanged).
 render_apt_source() {
   local name="\$1" repo="\$2" key_url="\$3" keyrings_dir="\$4" sources_dir="\$5"
   local keyring_runtime_dir="\${6:-\$4}"
@@ -479,30 +505,102 @@ render_apt_source() {
   mkdir -p "\$keyrings_dir" "\$sources_dir"
   local keyring_write_path="\$keyrings_dir/\${name}.asc"
   local keyring_runtime_path="\$keyring_runtime_dir/\${name}.asc"
+
+  # Does the repo line start with deb/deb-src, and if so does it already
+  # carry an [options] block, and if so does that block already have a
+  # signed-by=? Detected with one bash regex so the merge logic below has a
+  # single source of truth for "what shape is this line". The [options]
+  # block is a single bracketed span that may itself contain spaces (e.g.
+  # "[arch=amd64 signed-by=...]"), so this is NOT safe to detect via
+  # whitespace field-splitting (awk \$2) -- it must match the bracket span
+  # itself.
+  local is_deb_line=0 has_block=0 block_has_signed_by=0 existing_signed_by=""
+  if [[ "\$repo" =~ ^(deb|deb-src)([[:space:]]+)\[([^]]*)\](.*)\$ ]]; then
+    is_deb_line=1
+    has_block=1
+    local block_body="\${BASH_REMATCH[3]}"
+    if [[ "\$block_body" =~ (^|[[:space:]])signed-by=([^[:space:]]+) ]]; then
+      block_has_signed_by=1
+      existing_signed_by="\${BASH_REMATCH[2]}"
+    fi
+  elif [[ "\$repo" =~ ^(deb|deb-src)[[:space:]] ]]; then
+    is_deb_line=1
+  fi
+
   local have_key=0
   if [ -n "\$key_url" ]; then
-    # Fetch the signing key into the keyring (staging path). -fsSL: fail on HTTP
-    # error, quiet, follow redirects. A failed key fetch is fatal -- an
-    # unsigned/unverified third-party repo must not be silently added.
+    if [ "\$is_deb_line" -eq 1 ] && [ "\$has_block" -eq 1 ] && [ "\$block_has_signed_by" -eq 1 ]; then
+      # Case 3: the repo line already pins its own signed-by path. That path
+      # wins verbatim; validate it before using it to build a staging write
+      # path (same charset/traversal discipline as name -- this value flows
+      # from the merged, partially repo-authored config).
+      case "\$existing_signed_by" in
+        /*) : ;;
+        *)
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' is not absolute; aborting" >&2
+          return 1
+          ;;
+      esac
+      case "\$existing_signed_by" in
+        *[[:space:]]*|*']'*)
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' contains disallowed characters; aborting" >&2
+          return 1
+          ;;
+      esac
+      local seg IFS=/
+      for seg in \$existing_signed_by; do
+        if [ "\$seg" = ".." ]; then
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' contains a '..' path segment; aborting" >&2
+          return 1
+        fi
+      done
+      unset IFS
+      # Write the fetched key to the STAGING equivalent of the declared
+      # runtime path: <keyrings_dir-as-sandbox-root> + P. keyrings_dir is
+      # ".../mkosi.sandbox/etc/apt/keyrings" here; its sandbox-tree root is
+      # everything up to (and excluding) "/etc/apt/keyrings", so strip that
+      # known suffix to recover the root, then append P verbatim.
+      local sandbox_root="\${keyrings_dir%/etc/apt/keyrings}"
+      keyring_write_path="\${sandbox_root}\${existing_signed_by}"
+      mkdir -p "\$(dirname "\$keyring_write_path")"
+    fi
+    # Fetch the signing key into the keyring (staging path, resolved above).
+    # -fsSL: fail on HTTP error, quiet, follow redirects. A failed key fetch
+    # is fatal -- an unsigned/unverified third-party repo must not be
+    # silently added.
     if ! curl -fsSL "\$key_url" -o "\$keyring_write_path"; then
       echo "podman-mkosi(inner): failed to fetch apt key for '\$name' from \$key_url" >&2
       return 1
     fi
     have_key=1
   fi
-  # Write the one-line deb source. When a key was fetched, splice an inline
-  # [signed-by=<runtime-keyring>] option right after the leading "deb"/"deb-src"
-  # token (apt one-line format), so the repo is verified against exactly that
-  # key at the path apt will see it. The repo string is otherwise used verbatim
-  # from config. If it does not begin with deb/deb-src (unusual), it is written
-  # unchanged.
+
+  # Compose the emitted line per the have_key/shape matrix documented above.
   local line
-  if [ "\$have_key" -eq 1 ]; then
+  if [ "\$have_key" -eq 1 ] && [ "\$is_deb_line" -eq 1 ] && [ "\$has_block" -eq 1 ] && [ "\$block_has_signed_by" -eq 1 ]; then
+    # Case 3: repo line wins -- emit verbatim, unchanged.
+    line="\$repo"
+  elif [ "\$have_key" -eq 1 ] && [ "\$is_deb_line" -eq 1 ] && [ "\$has_block" -eq 1 ]; then
+    # Case 2: existing [options] block, no signed-by= in it -- merge
+    # signed-by=<runtime> INTO the existing block; other options pass
+    # through untouched. Reconstruct via the same regex match used for
+    # detection above so this does not re-derive the split independently.
+    if [[ "\$repo" =~ ^(deb|deb-src)([[:space:]]+)\[([^]]*)\](.*)\$ ]]; then
+      local tok="\${BASH_REMATCH[1]}" ws="\${BASH_REMATCH[2]}" body="\${BASH_REMATCH[3]}" rest="\${BASH_REMATCH[4]}"
+      line="\${tok}\${ws}[\${body} signed-by=\${keyring_runtime_path}]\${rest}"
+    else
+      # Unreachable given has_block=1 above; fall back to verbatim rather
+      # than risk emitting a malformed line.
+      line="\$repo"
+    fi
+  elif [ "\$have_key" -eq 1 ] && [ "\$is_deb_line" -eq 1 ]; then
+    # Case 1: no [options] block at all -- add one right after the leading
+    # deb/deb-src token.
     line="\$(printf '%s' "\$repo" | awk -v sb="\$keyring_runtime_path" '{
-      if (\$1=="deb" || \$1=="deb-src") { printf "%s [signed-by=%s]", \$1, sb; for(i=2;i<=NF;i++) printf " %s", \$i; print "" }
-      else { print }
+      printf "%s [signed-by=%s]", \$1, sb; for(i=2;i<=NF;i++) printf " %s", \$i; print ""
     }')"
   else
+    # Case 4/5: no key fetched, or not a deb/deb-src line -- verbatim.
     line="\$repo"
   fi
   printf '%s\n' "\$line" > "\$sources_dir/\${name}.list"

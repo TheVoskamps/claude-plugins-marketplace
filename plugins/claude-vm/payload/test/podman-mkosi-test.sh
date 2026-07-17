@@ -235,6 +235,169 @@ if [ -f "$CAPTURE_RECIPE/mkosi.conf" ]; then
 fi
 
 # ---------------------------------------------------------------------
+# Bug 4 regression (real second real-build failure): render_apt_source used
+# to unconditionally splice a NEW [signed-by=...] block onto the repo line,
+# even when the repo string already carried its own [options] block. apt's
+# one-line format allows exactly ONE options block after deb/deb-src; two
+# blocks produces "Malformed entry ... (URI parse)" because the second
+# block lands where the URI belongs. This exact shape (an operator-authored
+# [arch=... signed-by=...] block) is the githubcli apt_source that hit the
+# real failure.
+#
+# Drive render_apt_source DIRECTLY (not through the whole provisioner) by
+# extracting it from the ACTUAL generated build-in-container.sh captured
+# above -- CAPTURE_INNER already has the function fully de-escaped (real $
+# and real backticks, exactly as it would execute inside the build
+# container), so this exercises the real code path, not a hand-copied
+# reimplementation. A stubbed curl intercepts the key fetch (no network) but
+# every other line -- the regex matching, the case/[[ validation, the path
+# arithmetic, the line composition -- is the actual generated code running
+# for real under bash.
+# ---------------------------------------------------------------------
+RENDER_WORK="$WORK/render-apt-source"
+mkdir -p "$RENDER_WORK/bin"
+
+# Stub curl: succeed and write a fixed marker as the "fetched key" content,
+# regardless of URL, so no network is needed. Real fetch success/failure
+# handling (the -fsSL / -o path, the fatal-on-failure branch) is exercised
+# by the whole-provisioner run above; this stub only removes the network
+# dependency for the direct-call cases below.
+cat > "$RENDER_WORK/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+# curl -fsSL <url> -o <path>
+out=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  prev="$a"
+done
+[ -n "$out" ] || exit 1
+printf 'stub-key-material\n' > "$out"
+exit 0
+EOF
+chmod +x "$RENDER_WORK/bin/curl"
+
+if [ -f "$CAPTURE_INNER" ]; then
+  # Extract exactly the render_apt_source() { ... } function body (from its
+  # def line to the matching closing brace on its own line) into a standalone
+  # sourceable file, so sourcing it does not also run the rest of
+  # build-in-container.sh (apt-get, mkosi build, etc.).
+  RENDER_FN="$RENDER_WORK/render_apt_source.sh"
+  awk '
+    /^render_apt_source\(\) \{/ { capture=1 }
+    capture { print }
+    capture && /^}$/ { exit }
+  ' "$CAPTURE_INNER" > "$RENDER_FN"
+
+  if [ -s "$RENDER_FN" ]; then
+    # call_render <case-label> <name> <repo> <key_url>
+    # Sources the extracted function fresh each call (subshell) and invokes
+    # it against a clean staging tree, then prints:
+    #   RENDERED:<the .list file's content>
+    #   KEYFILE:<path the key was actually written to, relative to the
+    #            staging root>|<content>
+    call_render() {
+      local case_label="$1" c_name="$2" c_repo="$3" c_key_url="$4"
+      local stage="$RENDER_WORK/stage-$case_label"
+      rm -rf "$stage"
+      mkdir -p "$stage/sandbox/etc/apt/keyrings" "$stage/sandbox/etc/apt/sources.list.d"
+      (
+        PATH="$RENDER_WORK/bin:$PATH"
+        # shellcheck source=/dev/null
+        source "$RENDER_FN"
+        render_apt_source "$c_name" "$c_repo" "$c_key_url" \
+          "$stage/sandbox/etc/apt/keyrings" "$stage/sandbox/etc/apt/sources.list.d" \
+          "/etc/apt/keyrings"
+      )
+      local rc=$?
+      echo "EXIT:$rc"
+      local list_file="$stage/sandbox/etc/apt/sources.list.d/${c_name}.list"
+      if [ -f "$list_file" ]; then
+        echo "RENDERED:$(cat "$list_file")"
+      else
+        echo "RENDERED:<no .list file written>"
+      fi
+      # Report every key file actually written under the stage, relative to
+      # stage/, so a case-3 write to a NON-default path is visible. Not
+      # scoped to *.asc: a repo-authored non-default signed-by= path may use
+      # any extension (e.g. the .gpg case below), so match any regular file
+      # under sandbox/.
+      find "$stage/sandbox" -type f 2>/dev/null | while read -r f; do
+        echo "KEYFILE:${f#"$stage"/}"
+      done
+    }
+
+    # --- Case: bare repo line, no [options] block at all. ---
+    OUT="$(call_render bare githubcli-bare 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/key.gpg')"
+    assert_eq "bare line: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "bare line: renders exactly one [signed-by=] block at the default runtime path" \
+      "deb [signed-by=/etc/apt/keyrings/githubcli-bare.asc] https://cli.github.com/packages stable main" \
+      "$RENDERED_LINE"
+    assert_eq "bare line: exactly one '[' in rendered output" \
+      "1" "$(printf '%s' "$RENDERED_LINE" | grep -o '\[' | wc -l | tr -d ' ')"
+    assert_contains "bare line: key written to default staging path" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-bare.asc"
+
+    # --- Case: [options] block present, WITHOUT signed-by=. ---
+    OUT="$(call_render optnosb githubcli-opt 'deb [arch=arm64] https://cli.github.com/packages stable main' 'https://cli.github.com/packages/key.gpg')"
+    assert_eq "options-no-signed-by: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "options-no-signed-by: merges signed-by INTO the existing block, arch preserved" \
+      "deb [arch=arm64 signed-by=/etc/apt/keyrings/githubcli-opt.asc] https://cli.github.com/packages stable main" \
+      "$RENDERED_LINE"
+    assert_eq "options-no-signed-by: exactly one '[' in rendered output (single block)" \
+      "1" "$(printf '%s' "$RENDERED_LINE" | grep -o '\[' | wc -l | tr -d ' ')"
+
+    # --- Case: [options] block present WITH an existing signed-by= at a
+    # NON-default path P. The repo line must win verbatim, and the key must
+    # land at P's staging equivalent, not the default <name>.asc location. ---
+    NONDEFAULT_P="/usr/share/keyrings/custom-githubcli.gpg"
+    REPO_WITH_P="deb [arch=arm64 signed-by=${NONDEFAULT_P}] https://cli.github.com/packages stable main"
+    OUT="$(call_render nondefault githubcli-nd "$REPO_WITH_P" 'https://cli.github.com/packages/key.gpg')"
+    assert_eq "existing signed-by at non-default P: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "existing signed-by at non-default P: line kept byte-for-byte verbatim (P wins)" \
+      "$REPO_WITH_P" "$RENDERED_LINE"
+    assert_contains "existing signed-by at non-default P: key written to P's staging equivalent" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox${NONDEFAULT_P}"
+    assert_not_contains "existing signed-by at non-default P: key NOT written to the default <name>.asc path" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-nd.asc"
+
+    # --- Case: the EXACT githubcli line from the real failure report. ---
+    REAL_FAILURE_REPO="deb [arch=arm64 signed-by=/etc/apt/keyrings/githubcli.asc] https://cli.github.com/packages stable main"
+    OUT="$(call_render realfail githubcli "$REAL_FAILURE_REPO" 'https://cli.github.com/packages/githubcli-archive-keyring.gpg')"
+    assert_eq "real githubcli failure line: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "real githubcli failure line: rendered verbatim (P == default path here, still wins verbatim)" \
+      "$REAL_FAILURE_REPO" "$RENDERED_LINE"
+    # Structural apt-shape validation (not just substring matching): exactly
+    # one '[...]' group, then a URI starting with http, matching
+    # "deb <ONE bracket-group> http...". This is the shape apt's one-line
+    # parser requires -- a second bracket group here is exactly what
+    # produced "Malformed entry ... (URI parse)" in the real failure.
+    assert_eq "real githubcli failure line: exactly one '[' " \
+      "1" "$(printf '%s' "$RENDERED_LINE" | grep -o '\[' | wc -l | tr -d ' ')"
+    assert_eq "real githubcli failure line: exactly one ']' " \
+      "1" "$(printf '%s' "$RENDERED_LINE" | grep -o ']' | wc -l | tr -d ' ')"
+    if [[ "$RENDERED_LINE" =~ ^deb[[:space:]]+\[[^]]*\][[:space:]]+https?:// ]]; then
+      PASS=$((PASS + 1))
+      echo "ok   - real githubcli failure line: matches 'deb <one bracket-group> <http-uri>' shape apt requires"
+    else
+      FAIL=$((FAIL + 1))
+      echo "FAIL - real githubcli failure line: does not match 'deb <one bracket-group> <http-uri>' shape"
+      echo "        actual: [$RENDERED_LINE]"
+    fi
+  else
+    FAIL=$((FAIL + 1))
+    echo "FAIL - could not extract render_apt_source() body from $CAPTURE_INNER"
+  fi
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - generated build-in-container.sh not found at $CAPTURE_INNER (cannot run render_apt_source cases)"
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo
