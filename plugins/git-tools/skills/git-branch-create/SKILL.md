@@ -1,9 +1,9 @@
 ---
-name: branch-create
+name: git-branch-create
 description: Create the correctly-named issue branch (issue-<N>-<slug>) off the configured source branch, reading branch conventions from repo-config internally.
 ---
 
-# Branch Create
+# Git Branch Create
 
 Create the feature branch for an issue: resolve the branch name from
 the issue number and the repo's branch-naming convention, and create it
@@ -19,7 +19,7 @@ not at the source branch's tip.
 ## Invocation
 
 ```text
-/branch-create <issue-number>
+/git-tools:git-branch-create <issue-number>
 ```
 
 - `<issue-number>` (required): the issue this branch is for, with or

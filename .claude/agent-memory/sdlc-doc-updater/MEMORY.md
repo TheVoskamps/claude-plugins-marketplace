@@ -29,5 +29,9 @@
   permission-gate blocks heredoc `git commit -m`, use `commit -F`.
 - [sdlc repo-config split](project_sdlc-repo-config-split.md) — sdlc
   agents no longer read the full repo-config contract; branch/PR
-  mechanics moved into gh:branch-create / github-prs:pr-create, each
-  doing its own inline 1-2 field parse.
+  mechanics moved into git-tools:git-branch-create (formerly
+  gh:branch-create) / github-prs:pr-create, each doing its own inline
+  1-2 field parse.
+- [gh plugin retired into git-tools](project_gh-plugin-retired-into-git-tools.md)
+  — the standalone `gh` plugin is gone (issue #166); its sole skill
+  `branch-create` moved into `git-tools` as `git-branch-create`.

@@ -128,9 +128,9 @@ plugin's reader contract, and a bare cross-plugin reference to
 file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
 are file-sandboxed"). This is deliberate, not a gap: the orchestrator
 no longer does branch/PR mechanics itself — `issue-developer` now
-delegates those reads to `gh:branch-create` and `github-prs:pr-create`
-— so the orchestrator only ever needed two things out of the old
-six-field contract:
+delegates those reads to `git-tools:git-branch-create` and
+`github-prs:pr-create` — so the orchestrator only ever needed two
+things out of the old six-field contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — used in spawn-prompt templates (`<link-prefix>101`) and the
@@ -149,7 +149,7 @@ skill no longer consumes the whole contract).
 Throughout the rest of this template, `<link-prefix>` means the
 resolved value above. `<source-branch>`, `<target-branch>`, and
 `<branch-name>` are no longer resolved here — they're internal to
-`gh:branch-create` and `github-prs:pr-create`, invoked by
+`git-tools:git-branch-create` and `github-prs:pr-create`, invoked by
 `issue-developer` (see "Spawn-prompt principle" below, which already
 tells you not to pass resolved repo-config values to teammates).
 
