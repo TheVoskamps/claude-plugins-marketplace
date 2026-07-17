@@ -364,16 +364,20 @@ Review PR <PR_N>, which fixes issue <link-prefix><issue_N>: "<title>".
 Branch: <branch-name>
 
 Review per your agent definition and post a single review with verdict.
-Report back: APPROVED or NEEDS_CHANGES with severity counts.
+Report back: APPROVED, NEEDS_CHANGES, or BLOCKED with severity counts.
 ```
 
 ### Handling review findings — the fix loop
 
 When a pr-reviewer reports back:
 
-**If APPROVED**: No further action needed for this PR.
+**If APPROVED with Low findings**: List the Lows in the final report
+for human decision. Do not spawn the fixer — no loop runs for Lows
+alone.
 
-**If NEEDS_CHANGES with Critical or High findings**:
+**If APPROVED with no findings**: No further action needed for this PR.
+
+**If NEEDS_CHANGES (any open Critical/High/Medium finding)**:
 
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between the issue title and the summary,
@@ -385,11 +389,8 @@ When a pr-reviewer reports back:
    PR <PR_N> for issue <link-prefix><issue_N> received review feedback.
    Branch: <branch-name>
 
-   Critical and High findings to address:
-   <paste Critical and High findings>
-
-   Medium and Low findings (fix if straightforward):
-   <paste Medium and Low findings>
+   Findings to address — all of them, including Low:
+   <paste every finding from the review, un-tiered>
 
    Address per your agent definition. Report back what you fixed and
    what you didn't.
@@ -402,13 +403,10 @@ When a pr-reviewer reports back:
    subagent.
 4. Spawn the pr-reviewer again for a follow-up review of the new
    changes.
-5. Repeat this loop up to 2 times (max 3 total reviews per PR).
-6. If Critical or High findings persist after 3 reviews, escalate to the
-   human in the final report.
-
-**If NEEDS_CHANGES with only Medium or Low findings**:
-Include in the final report for human decision — do not spawn the
-issue-fixer for cosmetic issues alone.
+5. Repeat this loop until APPROVED or until the review-round cap
+   (Hard Constraints → "Max review rounds per PR") is reached.
+6. If findings above Low persist when the cap is reached, escalate to
+   the human in the final report.
 
 ### When a teammate escalates
 
@@ -500,7 +498,7 @@ a summary:
 ### Needs Your Attention
 | Issue | PR | Problem |
 |-------|----|---------|
-| <link-prefix>102  | <PR3> | Critical finding persists after 3 rounds |
+| <link-prefix>102  | <PR3> | Critical finding persists at review-round cap |
 
 ### Sequential Queue (not yet started)
 | Issue | Waiting On | Reason |
@@ -615,7 +613,7 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   serial within a wave, per Anthropic issue #48927.
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
-- **Max 3 review rounds per PR.** Escalate to human after that.
+- **Max review rounds per PR: 5.** Escalate to human after that.
 
 ### What the orchestrator IS allowed to do
 

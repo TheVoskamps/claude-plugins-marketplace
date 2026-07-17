@@ -122,6 +122,18 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    the issue. Check the diff against the issue's acceptance criteria
    read in step 3 — flag any criterion the PR leaves unmet, and any
    change that goes beyond the issue's scope.
+
+   A PR-body or diff-comment claim that a criterion is satisfied by
+   other means (a design decision, an alternate mechanism, "not
+   needed because...") is a **load-bearing developer claim** — verify
+   it before accepting it. Read the relevant docs, exercise the code,
+   or otherwise confirm the claim is true. If you cannot verify it,
+   grade the criterion as if the claim were false — do not accept an
+   unverifiable claim at face value. A developer design decision that
+   reinterprets or narrows an acceptance criterion is itself a finding
+   with the severity and verdict it earns (see "Verdict follows from
+   findings" below) — it is never a nit merely "flagged for intent
+   confirmation" (see "A finding asserts a defect" below).
 6. Post your review via `/github-prs:pr-review-submit <number>
    <verdict> <body>` (preloaded via the `skills:` frontmatter above),
    with `<verdict>` one of `approve`, `request-changes`, or `comment`.
@@ -166,7 +178,10 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    subsequent subagent needs it back.
 
 8. Report back your verdict: APPROVED, NEEDS_CHANGES, or BLOCKED, plus
-   severity counts (Critical, High, Medium, Low).
+   severity counts (Critical, High, Medium, Low) covering findings
+   only — verified passes are reported separately (the "Verified"
+   list, see "A finding asserts a defect" below) and are never
+   counted toward severity.
 
 ## End-of-run cleanup
 
@@ -210,15 +225,12 @@ claim to release — skip this.
 ### Analysis Focus Areas
 
 - **Security**: authentication, authorization, input validation, SQL
-  injection, XSS, secrets in code
-  - **Security vulnerabilities**: SQL injection, XSS, authentication
-    flaws, data exposure
+  injection, XSS, secrets in code, data exposure
 - **Architecture**: design patterns, separation of concerns, coupling,
   blast radius
-- **Performance**: N+1 queries, inefficient algorithms, resource leaks,
-  unnecessary API calls
-  - **Performance issues**: O(n²) algorithms, unnecessary loops, memory
-    leaks
+- **Performance**: N+1 queries, inefficient algorithms, O(n²)
+  algorithms, unnecessary loops, resource/memory leaks, unnecessary
+  API calls
 - **Logic errors and bugs**: edge cases, null handling, error conditions
 - **Code quality**: naming, complexity, duplication, dead code,
   comments, SOLID principles, code that should be helper functions,
@@ -312,24 +324,88 @@ guess. A hedged-but-wrong topology finding ("appears to be a
 separate copy", "likely out of sync") still lands as fact to the
 reader and is the exact failure mode this section exists to prevent.
 
+## A finding asserts a defect
+
+A finding claims that something in the PR is wrong, or will cause harm
+if merged as-is. That is the entire definition. If a candidate
+observation doesn't fit that shape, it is not a finding — it has one
+of the following non-finding homes instead, and must never be given a
+severity label:
+
+- **Confirmation of correctness** ("this check passed", "the logic is
+  sound here") → report in a separate, unnumbered **Verified** list
+  in the review body. Never a severity-labeled finding.
+- **An intentional, documented design choice the reviewer doesn't
+  dispute** → not a finding at all. Say nothing, or note it as
+  context. (A design choice the reviewer *does* dispute — e.g. because
+  it narrows or reinterprets an acceptance criterion — is a real
+  finding graded on its consequence; see "Verdict follows from
+  findings" below.)
+- **A question to confirm intent** → ask it as a plain question in the
+  review body prose, not as a severity-labeled finding.
+- **An out-of-scope observation** → note it as a "Follow-up
+  suggestion" and, if warranted, recommend filing a new issue. Not a
+  finding on this PR.
+
+Litmus test: if the recommendation is "no action" or "confirm this was
+intended," it is not a finding. Filing non-defects as severity-labeled
+findings pads the findings list with noise and forces the human to
+re-triage every review — exactly the work this pipeline exists to
+delegate.
+
 ## Review Format
 
 - Overall assessment (Approve/Request Changes/Comment)
+- Verified list (confirmations of correctness — see "A finding asserts
+  a defect" above), reported separately and never counted toward
+  severity
 - Counts of files changed, changes by file, findings by severity
+  (findings only, not verified passes)
 - Findings ranked by severity (each finding using the
   `**Finding:** / **Evidence:** / **Recommendation:**` format above)
 - Specific line-by-line feedback where relevant
 
 ### Findings by Severity
 
-Provide findings as:
+Grade every finding by the **consequence of merging the PR as-is** —
+never by topic. A performance nit and a security hole are not
+automatically the same severity just because both are "non-functional
+concerns"; grade what actually happens if this ships unchanged.
 
-- **Critical**: security vulnerabilities, data loss risks, production
-  blockers
-- **High**: performance issues, architectural problems, missing error
-  handling
-- **Medium**: code quality issues, maintainability concerns
-- **Low**: style suggestions, minor improvements
+- **Critical**: merging causes data loss, opens a security hole, or
+  breaks production.
+- **High**: shipped behavior is materially broken, OR an acceptance
+  criterion of the issue is unmet. An unmet acceptance criterion is
+  **always at minimum High**, regardless of how small the remaining
+  work looks.
+- **Medium**: a real defect or debt that should be fixed in this PR
+  but does not break shipped behavior.
+- **Low**: genuinely optional polish. If it must be fixed before
+  merge, it is not Low — re-grade it Medium or higher.
+
+A finding whose entire remedy is rewording a comment or docstring is
+at most Low — *unless* the comment masks an unmet acceptance
+criterion (e.g. a comment asserting a criterion is satisfied when it
+isn't), in which case the finding IS the unmet criterion and is graded
+High per the rule above, not Low for "just a comment fix."
+
+## Verdict follows from findings
+
+The verdict is a mechanical consequence of the findings, not a
+separate judgment call:
+
+- Any open Critical, High, or Medium finding → `request-changes`
+  (report `NEEDS_CHANGES`, or `BLOCKED` if the fix is outside the
+  issue's scope and needs human decision).
+- Only Low findings, or no findings at all → `approve`.
+
+This is a hard invariant, not a guideline. "APPROVED (1 High)" is
+malformed by definition — it cannot occur under a correct review. If
+you feel the pull to approve despite an open High or Medium, that
+feeling means the severity grading is wrong, not that the invariant
+should bend: re-grade the finding (often it turns out to be Low, or
+turns out the "finding" isn't a finding at all per "A finding asserts
+a defect" above) rather than approving with an open non-Low finding.
 
 **Critical Issues** (must fix before merge)
 
