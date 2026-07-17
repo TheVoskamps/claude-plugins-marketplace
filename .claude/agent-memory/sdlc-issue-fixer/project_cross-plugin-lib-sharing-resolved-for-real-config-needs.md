@@ -1,6 +1,6 @@
 ---
 name: cross-plugin-lib-sharing-resolved-for-real-config-needs
-description: gh:branch-create and github-prs:pr-create genuinely need 2 real (non-vacuous) repo-config fields each; final fix was an inline 2-field parse per skill, not a bare cross-plugin Read of the issues plugin's skills/lib/repo-config.md (which cannot resolve — plugins are file-sandboxed)
+description: git-tools:git-branch-create (formerly gh:branch-create, moved by issue #166) and github-prs:pr-create genuinely need 2 real (non-vacuous) repo-config fields each; final fix was an inline 2-field parse per skill, not a bare cross-plugin Read of the issues plugin's skills/lib/repo-config.md (which cannot resolve — plugins are file-sandboxed)
 metadata:
   type: project
 ---
@@ -15,8 +15,12 @@ backend to branch on. That memory left one case open: what about a
 skill that needs *real*, per-repo-varying config values, not a
 backend guard?
 
-`gh:branch-create` (needs `default-issue-source-branch` +
-`issue-branch-naming-prefix`) and `github-prs:pr-create` (needs
+`git-tools:git-branch-create` (formerly `gh:branch-create`; the
+standalone `gh` plugin was retired and this skill moved into
+`git-tools` in issue #166 / PR #167 — see
+[[project_gh-plugin-retired-into-git-tools]]) (needs
+`default-issue-source-branch` + `issue-branch-naming-prefix`) and
+`github-prs:pr-create` (needs
 `default-pr-target-branch` + `issue-link-prefix`) are exactly that
 case — two fields each, both genuinely vary per repo, neither is a
 vacuous GitHub-only guard. The checkpoint commit these skills first
@@ -54,9 +58,10 @@ readers that actually consume the whole thing (schema-version gating,
 `github-project:`/`jira:` block resolution) — today that means readers
 living inside the `issues` plugin itself, or a plugin willing to bundle
 a duplicate copy (the debt-laden `sdlc` precedent this issue #143 PR
-just removed — see the `sdlc` plugin's dependency list, now
-`["issues", "gh", "github-prs"]` with zero repo-config lib coupling of
-its own).
+just removed — see the `sdlc` plugin's dependency list, at the time
+`["issues", "gh", "github-prs"]` (now `["issues", "git-tools",
+"github-prs"]` after issue #166 retired the `gh` plugin) with zero
+repo-config lib coupling of its own).
 
 **Same bug, same fix, one more surface:** deleting
 `plugins/sdlc/skills/lib/repo-config.md` (per this issue's design)
