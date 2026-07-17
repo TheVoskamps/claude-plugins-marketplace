@@ -306,7 +306,7 @@ Format=disk
 # workspace (/var/tmp, the container overlay), NOT the bind-mounted
 # /work/out. mkosi finishes by rename()-ing its staged artifacts into
 # OutputDirectory; a cross-device rename (workspace overlay -> bind mount)
-# falls back to `cp --preserve=...,xattr`, which fails EOPNOTSUPP on the
+# falls back to 'cp --preserve=...,xattr', which fails EOPNOTSUPP on the
 # bind mount (it cannot hold security.* xattrs). Keeping the output on the
 # overlay makes that an in-device rename. The finished image is then
 # copied out to the bind-mounted /work/out with a plain cp (no xattr
@@ -318,7 +318,7 @@ Output=guest
 Bootable=yes
 Bootloader=systemd-boot
 # Interactive in-VM session (issue #88): give root an UNLOCKED, passwordless
-# account. The `hashed:` prefix with no hash sets an empty password hash, so
+# account. The 'hashed:' prefix with no hash sets an empty password hash, so
 # root can log in with no password. This is what lets the autologin getty
 # (serial-getty@hvc1 drop-in) reach a session -- the base recipe set no
 # RootPassword, so the live login prompt rejected every credential. The guest
@@ -395,11 +395,15 @@ apt-get update -qq
 # The host toolchain mkosi v26 shells out to for a Debian disk build, plus
 # python3-venv/pip + git to install mkosi v26 from upstream. systemd-ukify,
 # cpio, zstd, xz-utils, mtools, squashfs-tools are part of the v26 toolchain
-# (issue #71).
+# (issue #71). curl + ca-certificates are required by render_apt_source
+# below (issue #105), which fetches each packages.apt_sources key_url with
+# curl INSIDE this build container -- without them the fetch fails with
+# "curl: command not found" before any baked package can be installed.
 apt-get install -y -qq --no-install-recommends \\
   python3 python3-venv python3-pip git \\
   systemd-boot debootstrap dosfstools e2fsprogs systemd-repart \\
-  systemd-ukify cpio zstd xz-utils mtools squashfs-tools >/dev/null
+  systemd-ukify cpio zstd xz-utils mtools squashfs-tools \\
+  curl ca-certificates >/dev/null
 
 # Install mkosi v26 (pinned tag) + pefile into a venv and put it on PATH.
 python3 -m venv /opt/mkosi-venv
