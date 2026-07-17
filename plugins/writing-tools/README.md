@@ -67,9 +67,12 @@ reading clear, and flagged to the user when unsure.
 
 ## How the masking works
 
-- **Character-for-character.** Each character of an offending word becomes
-  a single `*`, so the masked span is the same length as the original: a
-  4-letter word becomes `****`, a 7-letter word becomes `*******`.
+- **Character-for-character.** Each letter or digit of an offending word
+  becomes a single `*`, so the masked span is the same length as the
+  original: a 4-letter word becomes `****`, a 7-letter word becomes
+  `*******`. Interior punctuation that is part of normal writing (a hyphen
+  joining separate words, for example) stays in place; symbols used *as*
+  letters in an obfuscated spelling are masked along with the rest.
 - **Structure preserved.** Surrounding whitespace, punctuation,
   capitalization of other words, line breaks, Markdown/formatting, and
   every non-offending word are left byte-for-byte unchanged. Only the
