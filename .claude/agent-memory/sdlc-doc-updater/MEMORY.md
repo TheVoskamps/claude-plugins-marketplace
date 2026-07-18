@@ -37,3 +37,8 @@
 - [gh plugin retired into git-tools](project_gh-plugin-retired-into-git-tools.md)
   — the standalone `gh` plugin is gone (issue #166); its sole skill
   `branch-create` moved into `git-tools` as `git-branch-create`.
+- [claude-vm parallel allowlist knobs](project_claude-vm-parallel-allowlist-knobs.md)
+  — packages.add_apt_uris_to_allowlist and
+  claude.plugins.add_marketplace_uris_to_allowlist are independent
+  knobs with shared semantics, never one controlling the other; grep
+  both names across docs when either changes.
