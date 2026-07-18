@@ -440,7 +440,7 @@ hardest.
    byte-for-byte no-op instead of a reorder churn.
 
    **Per-ecosystem placeholder resolution.** Resolve each placeholder
-   from the ecosystem class. There are three ecosystem classes:
+   from the ecosystem class. The ecosystem classes are:
    **npm/pip** (the rich tier), **github-actions** (fixed directory,
    weekly, default-days only), and **everything else** (docker, gomod,
    bundler, cargo, maven, gradle, composer, terraform — recursing
@@ -1306,7 +1306,14 @@ file is needed.
 For **npm**, the depth is **direct deps + lockfile-present**: the
 human-authored specs in `package.json` must be exact, AND a lockfile must
 exist beside a deps-declaring manifest (an exact-pinned manifest with no
-lockfile still floats transitively). Transitive pinning itself stays the
+lockfile still floats transitively). The lockfile-present check is
+**workspace-aware** (issue #170): a manifest with no sibling lockfile is
+still accepted when an ancestor directory up to the repo root has both a
+lockfile and a workspace declaration (`pnpm-workspace.yaml` `packages:`
+globs, or package.json `workspaces`) whose globs cover the manifest's
+directory — pnpm/npm/yarn workspaces keep a single lockfile at the
+workspace root by design. A manifest the workspace does not cover still
+floats and stays a violation. Transitive pinning itself stays the
 install-gate's job.
 
 ### The aggregator is the required check (not the per-ecosystem legs)
