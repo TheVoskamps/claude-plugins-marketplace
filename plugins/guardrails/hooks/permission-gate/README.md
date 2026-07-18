@@ -204,13 +204,18 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   delete), plain `--force`/`-f` **ask**, while `--force-with-lease`, a
   clean named-branch delete (`--delete <branch>`, `origin :branch`), and
   an ordinary fast-forward push **allow**. For `gh`: `gh api` is routed
-  through a method/body/endpoint gate (#64, extended by #113). The
-  write DENY tiers are unchanged: a non-GET method, an
-  implicit-POST-flipping body flag on a REST endpoint, an
-  `x-http-method-override` header, or `--hostname` (which aims the
-  signed request at a non-default host — the gh analog of
-  `--endpoint-url`) **deny**. On the `graphql` endpoint the gate now
-  **classifies the query document** instead of blanket-denying (#113):
+  through a method/body/endpoint gate (#64, extended by #113 and #162).
+  A REST write — a non-GET method, an implicit-POST-flipping body flag
+  on a REST endpoint, or an `x-http-method-override` header — **asks**
+  (#162): a `gh api` REST write is a credential-carrying mutation of
+  remote repo state the microVM cannot roll back, the same
+  not-backstopped-by-containment class as an `aws` mutation (#124) and a
+  `git push` refspec, so it gets a one-click human ask rather than a
+  no-escape-hatch deny. `--hostname` (which aims the signed request at a
+  non-default host — the gh analog of `--endpoint-url`) keeps its own
+  **deny**: it is the one shape the egress proxy's host-allowlist can
+  see and control, not a write/read question. On the `graphql` endpoint
+  the gate now **classifies the query document** instead of blanket-denying (#113):
   a document supplied literally via `-f query=…` / `--raw-field
   query=…` is scanned (string literals and `#` comments stripped) and,
   if every top-level construct is provably a `query`, the anonymous

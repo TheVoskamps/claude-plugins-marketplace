@@ -46,12 +46,12 @@ var gitReadOnlySubcommands = map[string]bool{
 //   - DENY: identity switches (#117); irreparable destructive verbs (repo/
 //     release/issue/gist delete, secret/variable writes, repo rename/transfer,
 //     ruleset delete, release/gist publish); the #64 precondition (non-static
-//     argv, inline env-assignment); the gh api write/unclassifiable tiers
-//     (non-GET method, implicit-POST body, method-override header, --hostname,
-//     and an unclassifiable graphql document — see classifyGhAPI, #64/#113).
+//     argv, inline env-assignment); gh api --hostname (signed-request redirect)
+//     and an unclassifiable graphql document (see classifyGhAPI, #64/#113).
 //   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
-//     graphql mutation, an unknown gh api flag, or a non-allowlisted gh api
-//     REST endpoint (#113).
+//     graphql mutation, an unknown gh api flag, a non-allowlisted gh api REST
+//     endpoint (#113), or a gh api REST write — non-GET method, implicit-POST
+//     body flag, or method-override header (#162).
 //   - ALLOW: read-only verbs and ordinary mutations (pr create, issue comment,
 //     pr merge, …) the spec does not name as dangerous; a provably query-only
 //     gh api graphql document and an allow-listed gh api REST GET (#113).
@@ -271,21 +271,30 @@ func hasFlagPrefix(args []string, prefix string) bool {
 	return false
 }
 
-// classifyghAPIDeny wraps the shared write/unclassifiable DENY label for
-// `gh api`.
+// classifyghAPIDeny wraps the shared DENY label for the `gh api` shapes that
+// still deny after #162: --hostname (own justification — the egress proxy's
+// host-allowlist can see and control it) and an unclassifiable graphql
+// document.
 func classifyghAPIDeny(reason string) Decision {
-	return deny("gh api write/unclassifiable (#64)", reason)
+	return deny("gh api deny (#64/#113)", reason)
 }
 
 // classifyGhAPI gates `gh api` (#64 bypass gate 1). It walks the argv after
-// `api`, applies the unchanged write DENY tiers first, then branches on the
-// endpoint:
+// `api`, applies the --hostname DENY and the write ASK tiers first, then
+// branches on the endpoint:
 //
-//   - Write DENY tiers (unchanged from #64): --hostname (any form, signed-request
-//     redirect), an x-http-method-override header, an explicit non-GET method,
-//     and a request-body flag (-f/-F/--field/--raw-field/--input) with no
-//     explicit GET method (implicit-POST flip). The `-XGET -f …` carve-out (a GET
-//     with params) is preserved.
+//   - --hostname (any form, signed-request redirect to a non-default host) →
+//     DENY unconditionally — this is the one shape the egress proxy's
+//     host-allowlist can see and control, so it keeps its own justification
+//     (not the write/read asymmetry the other tiers below hinge on).
+//   - Write ASK tiers (#162; DENY under #64/#113): an x-http-method-override
+//     header, an explicit non-GET method, and a request-body flag
+//     (-f/-F/--field/--raw-field/--input) with no explicit GET method
+//     (implicit-POST flip). A `gh api` REST write is a credential-carrying
+//     mutation of remote repo state the microVM cannot roll back — the same
+//     "not backstopped by containment" class as an `aws` mutation (#124) and a
+//     `git push` refspec — so it ASKs (one-click human approval) rather than
+//     DENYs. The `-XGET -f …` carve-out (a GET with params) is preserved.
 //   - graphql endpoint (#113 Design A): classify the query DOCUMENT instead of
 //     blanket-denying. The document is extractable only from a literal
 //     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no
@@ -304,8 +313,8 @@ func classifyghAPIDeny(reason string) Decision {
 func classifyGhAPI(args []string, sc simpleCommand) Decision {
 	// Walk the tokens after `api`. Track method, body-bearing flags, graphql,
 	// the endpoint positional, and whether the graphql query (if any) was
-	// supplied via a body flag that is NOT a literal string field. hostname and
-	// method-override header DENY immediately.
+	// supplied via a body flag that is NOT a literal string field. hostname
+	// DENYs immediately; the method-override header ASKs immediately.
 	var method string
 	var endpoint string
 	bodyBearing := false
@@ -388,20 +397,23 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 		case a == "-H" || a == "--header":
 			if i+1 < len(args) {
 				if headerIsMethodOverride(args[i+1]) {
-					return classifyghAPIDeny(
-						"Blocked: 'gh api' with an X-HTTP-Method-Override header can perform a write disguised as a GET. Denied.")
+					return ask("gh api x-http-method-override (#162)",
+						"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET. "+
+							"Confirm this write is intended.")
 				}
 				i++
 			}
 		case strings.HasPrefix(a, "-H") && len(a) > 2:
 			if headerIsMethodOverride(strings.TrimPrefix(a, "-H")) {
-				return classifyghAPIDeny(
-					"Blocked: 'gh api' with an X-HTTP-Method-Override header can perform a write disguised as a GET. Denied.")
+				return ask("gh api x-http-method-override (#162)",
+					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET. "+
+						"Confirm this write is intended.")
 			}
 		case strings.HasPrefix(a, "--header="):
 			if headerIsMethodOverride(strings.TrimPrefix(a, "--header=")) {
-				return classifyghAPIDeny(
-					"Blocked: 'gh api' with an X-HTTP-Method-Override header can perform a write disguised as a GET. Denied.")
+				return ask("gh api x-http-method-override (#162)",
+					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET. "+
+						"Confirm this write is intended.")
 			}
 		case strings.HasPrefix(a, "-") && a != "-":
 			// A flag the walker does not consume above. The REST GET-gate's
@@ -419,23 +431,23 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 		}
 	}
 
-	// Write DENY tiers (unchanged): an explicit non-GET method, or a body-bearing
+	// Write ASK tiers (#162): an explicit non-GET method, or a body-bearing
 	// flag with no explicit GET method (implicit-POST flip). These fire BEFORE the
 	// endpoint branch so a `-X DELETE graphql` or a `-f a=b`-flipped POST to a
-	// REST endpoint denies regardless of endpoint.
+	// REST endpoint asks regardless of endpoint.
 	if method != "" && !strings.EqualFold(method, "GET") {
-		return classifyghAPIDeny(
-			"Blocked: 'gh api' with a non-GET method (-X/--method " + method + ") performs a write. Denied.")
+		return ask("gh api non-GET method (#162)",
+			"'gh api' with a non-GET method (-X/--method "+method+") performs a write. Confirm this write is intended.")
 	}
 	if bodyBearing && method == "" && !graphql {
 		// Body-bearing on a REST endpoint with no explicit method flips the
 		// default GET to a POST → a write. (On the graphql endpoint the body flag
 		// is how the query is passed; the graphql path below classifies the
-		// document instead of denying on the body flag.) The `-XGET -f …`
+		// document instead of asking on the body flag.) The `-XGET -f …`
 		// carve-out (method == "GET") stays a read and falls through.
-		return classifyghAPIDeny(
-			"Blocked: 'gh api' with a request-body flag (-f/-F/--field/--raw-field/--input) and no explicit " +
-				"GET method implicitly flips to POST and performs a write. Denied.")
+		return ask("gh api implicit-POST body flag (#162)",
+			"'gh api' with a request-body flag (-f/-F/--field/--raw-field/--input) and no explicit GET method "+
+				"implicitly flips to POST and performs a write. Confirm this write is intended.")
 	}
 
 	// --- graphql endpoint (#113 Design A): classify the query document. ---

