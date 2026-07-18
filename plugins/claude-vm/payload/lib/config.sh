@@ -471,6 +471,141 @@ claude_vm_apt_sources() {
   ' "$file" 2>/dev/null
 }
 
+# ---------------------------------------------------------------------
+# Bake-relevant config canonicalization + bake-hash (issue #105).
+#
+# The guest image bakes packages.bake into the mkosi Packages= list and
+# renders packages.apt_sources into the build (keyring + sources.list.d).
+# Two configs that bake the SAME thing must share ONE cached image; two
+# that bake different things must get SEPARATE cached variants. So the
+# image cache key gains a "bake-hash" segment derived from -- and ONLY
+# from -- the bake-relevant config, canonicalized so cosmetic differences
+# (list order, key order, a missing-vs-empty key_url) do not fork the cache.
+#
+# The hash DELIBERATELY excludes everything else in the merged config
+# (cpus, egress, permissions, plugins, ...): those do not change what is
+# baked into the image, so they must not trigger a rebuild. Plugin /
+# marketplace freshness is handled by the update_at_boot knobs, not the
+# bake-hash; when the marketplaces/plugins bake slice lands it will EXTEND
+# this canonical input with the plugin/marketplace refs (a one-time
+# rebuild), which is why the canonical form is a structured object rather
+# than an opaque string -- a future key can be added without disturbing the
+# existing hash for configs that set no plugins.
+
+# Emit the CANONICAL bake-relevant config as compact JSON on stdout, from a
+# merged-config file. This is the single canonical form the bake-hash is
+# computed over AND that the launcher passes to build-guest-image.sh, so the
+# `--print-version` hash and the actual build always agree by construction.
+#
+#   $1 -- merged config file path
+#
+# Canonicalization rules:
+#   - packages.bake       -> the list, with null/empty-string entries STRIPPED
+#                            (a YAML `null` list entry, e.g. from a stray `-`
+#                            or a trailing comma, would otherwise round-trip
+#                            through yq's JSON encoder as the literal string
+#                            "None" once it reaches the Python parser in
+#                            podman-mkosi.sh, producing a bogus "None" package
+#                            name in the mkosi Packages= list and failing the
+#                            image build; an empty string is equally
+#                            meaningless as a package name), then
+#                            de-duplicated and SORTED (so order in the YAML
+#                            does not change the hash).
+#   - packages.apt_sources-> each entry reduced to exactly {name, repo,
+#                            key_url} with a missing/null field normalized to
+#                            "" (so a missing vs. explicit-empty key_url hash
+#                            identically), then the whole list SORTED by name
+#                            (so declaration order does not change the hash).
+# Absent packages / packages.bake / packages.apt_sources all normalize to the
+# empty list, so a config with no bake-affecting overrides emits exactly
+# `{"bake":[],"apt_sources":[]}` -- a stable value shared across every such
+# config (the "shares the global image" case). Output is compact (-I=0) and
+# key-ordered by the literal object constructor below, so it is byte-stable.
+#
+# Stripping null/empty bake entries here -- rather than at the one call site
+# in podman-mkosi.sh that renders Packages= -- means every downstream
+# consumer of this canonical JSON (the bake-hash, build-guest-image.sh's
+# --print-version, and the in-container render) is covered by construction;
+# a future second consumer cannot reintroduce the bug by skipping a guard.
+claude_vm_bake_config_json() {
+  local file="$1"
+  yq eval -o=json -I=0 '
+    {
+      "bake": (.packages.bake // [] | map(select(. != null and . != "")) | unique | sort),
+      "apt_sources": (
+        .packages.apt_sources // []
+        | map({
+            "name":    (.name // ""),
+            "repo":    (.repo // ""),
+            "key_url": (.key_url // "")
+          })
+        | sort_by(.name)
+      )
+    }
+  ' "$file" 2>/dev/null
+}
+
+# Compute the BAKE-HASH: the first 8 hex chars of the sha256 of the canonical
+# bake-relevant config (claude_vm_bake_config_json). Printed on stdout with no
+# trailing newline noise beyond a single \n.
+#
+#   $1 -- merged config file path
+#
+# The 8-hex prefix is the image-variant discriminator the launcher folds into
+# the guest image's cache key + filename (guest-<hash>.raw). An empty bake
+# config always yields the SAME hash (the canonical `{"bake":[],
+# "apt_sources":[]}` is constant), so repos with no bake overrides collide on
+# one hash and share one image -- exactly the intended warm-path behavior.
+#
+# sha256 tool resolution: prefer `shasum -a 256` (ships with macOS, the only
+# supported host) and fall back to `sha256sum` (coreutils) so the helper works
+# whether or not coreutils is installed. Both emit "<hex>  -" for stdin; cut
+# takes the hex field and the ${hex:0:8} the 8-char prefix.
+claude_vm_bake_hash() {
+  local file="$1" json
+  json="$(claude_vm_bake_config_json "$file")" || return 1
+  claude_vm_bake_hash_from_json "$json"
+}
+
+# Compute the 8-hex bake-hash from an ALREADY-CANONICAL bake-config JSON string
+# (as produced by claude_vm_bake_config_json). Split out from
+# claude_vm_bake_hash so build-guest-image.sh can hash the canonical JSON the
+# launcher hands it WITHOUT re-reading or re-canonicalizing the merged config
+# (which would require yq in the build path and risk the two sides diverging).
+# The launcher and the build script therefore hash the exact same bytes.
+#
+#   $1 -- canonical bake-config JSON (compact, from claude_vm_bake_config_json)
+claude_vm_bake_hash_from_json() {
+  local json="$1" hex
+  if command -v shasum >/dev/null 2>&1; then
+    hex="$(printf '%s' "$json" | shasum -a 256 2>/dev/null | cut -d' ' -f1)"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hex="$(printf '%s' "$json" | sha256sum 2>/dev/null | cut -d' ' -f1)"
+  else
+    echo "claude-vm: neither 'shasum' nor 'sha256sum' found to compute the bake-hash." >&2
+    return 1
+  fi
+  # An empty hex (tool failure) is a hard error -- a truncated/empty variant
+  # segment would silently collapse distinct bake configs onto one image.
+  [ -n "$hex" ] || { echo "claude-vm: failed to compute bake-hash" >&2; return 1; }
+  printf '%s\n' "${hex:0:8}"
+}
+
+# True (exit 0) when the merged config has NO bake-affecting entries -- i.e.
+# both packages.bake and packages.apt_sources are empty/absent. The launcher
+# uses this to decide between the shared default image (guest.raw) and a
+# per-variant image (guest-<hash>.raw): an empty bake config shares the global
+# image, a non-empty one gets its own cached variant.
+#
+#   $1 -- merged config file path
+claude_vm_bake_config_is_empty() {
+  local file="$1" count
+  count="$(yq eval '
+    ((.packages.bake // []) | length) + ((.packages.apt_sources // []) | length)
+  ' "$file" 2>/dev/null)"
+  [ "${count:-0}" = "0" ]
+}
+
 # Emit marketplaces as tab-separated "name<TAB>url" lines from a
 # merged-config file. url is optional per-entry; `(.url // "")` emits an
 # empty field for a missing/null url rather than the literal string

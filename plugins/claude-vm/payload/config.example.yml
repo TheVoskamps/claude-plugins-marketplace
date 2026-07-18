@@ -25,9 +25,14 @@
 cpus: 4
 mem: 8192
 
-# guest_image is a normal scalar; a repo may override it. When unset,
-# the launcher uses a default build/cache location alongside the global
-# config dir (~/.config/claude-vm/images/guest.raw) and builds on demand.
+# guest_image is a normal scalar; a repo may override it. When SET, it is used
+# VERBATIM -- an explicit override that OPTS OUT of bake-hash image-variant
+# derivation (see packages.bake / apt_sources below): you own that path and its
+# contents. When UNSET, the launcher derives the image path from the
+# bake-relevant config: a config with no baked packages shares the one global
+# image (~/.config/claude-vm/images/guest.raw), while a config that bakes
+# packages gets its own cached variant (~/.config/claude-vm/images/
+# guest-<hash>.raw), built on first use. Either way the image is built on demand.
 guest_image: /path/to/guest.raw
 
 repo:
@@ -35,16 +40,31 @@ repo:
   copy_back: local      # local (default) | none -- post-exit copy-back target
 
 # Guest software: apt packages baked into the image or installed at boot,
-# and third-party apt repos (issue #103; schema + merge only -- the
-# consumers that bake/install/derive egress from these live in sibling
-# slices under #39).
+# and third-party apt repos.
+#
+# packages.bake + packages.apt_sources are BAKED INTO THE GUEST IMAGE at build
+# time (issue #105): the baked packages are present in the guest with no network
+# needed at boot, and packages served by a third-party apt_source (e.g. gh from
+# cli.github.com) install at build time from that repo. Because the image is a
+# shared cache, the launcher derives a bake-HASH from the (order-normalized)
+# bake + apt_sources config and stores each distinct bake set as its own image
+# variant (guest-<hash>.raw). A config with no bake/apt_sources shares the one
+# global guest.raw; adding a bake item builds+stores a separate variant on first
+# use; removing it reverts to the shared image with no rebuild. Only bake +
+# apt_sources feed the hash -- changing cpus/egress/permissions/etc. never
+# rebuilds the image. (install_at_boot / update_at_boot are boot-time, NOT baked;
+# their consumers land in a sibling slice under #39.)
 packages:
-  bake: []                # apt packages baked into the guest image (list, union)
+  bake: []                # apt packages baked into the guest image at build
+                          # time -- present with no network at boot (list, union)
   install_at_boot: []     # apt packages installed at boot, blocking, before
                           # claude starts (list, union)
   update_at_boot: true    # apt-get update && upgrade at boot (scalar, repo
                           # wins; default true)
-  apt_sources: []         # third-party apt repos: {name, repo, key_url}
+  apt_sources: []         # third-party apt repos baked into the build so their
+                          # packages install at image-build time:
+                          # {name, repo, key_url}. key_url is fetched into a
+                          # keyring and the repo is added signed-by that key
                           # (list, union)
   add_apt_uris_to_allowlist: auto   # auto (default) | always -- auto adds
                           # derived egress URIs to the proxy allowlist only

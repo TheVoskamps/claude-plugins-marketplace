@@ -7,3 +7,5 @@
 - [gh-repo-setup-protection runtime matrix](gh-repo-setup-protection-runtime-matrix.md) — the protect skill's CodeQL/gate workflows use detect→matrix→aggregator; empty-matrix aggregator MUST use if: always() or the phantom-check hang returns
 - [Test bash scripts under bash, not zsh](feedback_bash-scripts-test-under-bash-not-zsh.md) — the Bash tool's shell is zsh; drive bash payload funcs with `bash -c`, not by sourcing. Plus: mikefarah yq has no `reduce`; `""|from_yaml` errors EOF
 - [go mod cache reads blocked, use go doc](gomodcache-outside-repo-use-go-doc.md) — gate blocks ~/go/pkg/mod reads even when the issue says it's fine; use `go doc <pkg>.<Symbol>` instead
+- [mikefarah yq unique does not sort](mikefarah-yq-unique-does-not-sort.md) — `unique` de-dupes in first-seen order; use `unique | sort` for an order-insensitive canonical form (hashing/cache keys)
+- [claude-vm mkosi third-party apt](claude-vm-mkosi-third-party-apt.md) — build-time third-party apt repos go in the mkosi SandboxTree (mkosi.sandbox/etc/apt/...), and signed-by must be the runtime /etc/apt path, not the staging path

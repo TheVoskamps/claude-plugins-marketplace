@@ -36,6 +36,11 @@ payload/
                         # unit tests for the verified claude cache
                         # (resolve/verify/checksum/abort/warm-boot; stubbed
                         # network+gpg, fully offline)
+    podman-mkosi-test.sh
+                        # regression tests for the generated mkosi recipe
+                        # (issue #105 real-build follow-up); stubs podman
+                        # at the container handoff, asserts on the literal
+                        # generated mkosi.conf / build-in-container.sh
     host-acceptance.sh  # self-contained on-host acceptance test (build +
                         # boot + egress confinement); host-gated, skips
                         # when a required binary is absent, but starts a
@@ -168,11 +173,12 @@ per key, so `false` marks a plugin installed-but-disabled). The `enabled` map
 is validated once: every value must be boolean and every key must name an
 installed plugin ref, so a typo aborts the launch. claude-vm has **no** own
 CLI flags — plugin enable/disable state comes from the config files, not the
-command line. `bypassPermissions` is *YOLO-by-default* — the VM is the isolation boundary,
-with the deny list as backstop. Because the guest runs `claude` as **root**,
-and `claude` refuses `bypassPermissions` as root unless `IS_SANDBOX=1` (or
-`CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes `IS_SANDBOX=1` unconditionally
-into `run.env` — the guest *is* the sandbox. `settings.json` is not a secret,
+command line. `bypassPermissions` is *YOLO-by-default* — the VM is the
+isolation boundary, with the deny list as backstop. Because the guest runs
+`claude` as **root**, and `claude` refuses `bypassPermissions` as root unless
+`IS_SANDBOX=1` (or `CLAUDE_CODE_BUBBLEWRAP=1`), the launcher writes
+`IS_SANDBOX=1` unconditionally into `run.env` — the guest *is* the sandbox.
+`settings.json` is not a secret,
 but it rides the `claudecreds` mount so every host-rendered guest `~/.claude`
 file arrives over one dir rather than adding another virtio-fs device.
 
@@ -282,6 +288,16 @@ argv:
   keys must name installed refs) and returns non-zero on a typo so the
   launcher aborts. Reads the claude-vm config only — never the host
   `~/.claude/settings.json`.
+- `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
+  `claude_vm_bake_hash_from_json` / `claude_vm_bake_config_is_empty` — the
+  bake-hash image-variant helpers (issue #105). `claude_vm_bake_config_json`
+  emits the **canonical** bake-relevant config (sorted `packages.bake`,
+  normalized `apt_sources`) as compact JSON; `claude_vm_bake_hash` hashes it
+  to 8 hex chars (via `claude_vm_bake_hash_from_json`, which
+  `build-guest-image.sh` reuses to hash the same bytes the launcher passes
+  it). An empty/absent bake config canonicalizes to a constant, so
+  `claude_vm_bake_config_is_empty` gates the launcher between the shared
+  `guest.raw` and a `guest-<hash>.raw` variant. All pure and unit-tested.
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -296,7 +312,7 @@ identically and is never duplicated. Any value other than `true`/`false`
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
-build-guest-image.sh --print-version          # pinned base version
+build-guest-image.sh --print-version          # pinned version (base [+bake<hash>])
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
@@ -309,6 +325,20 @@ the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
+**Baked packages + image variants (issue #105).** Unlike `claude`,
+`packages.bake` (apt packages) and `packages.apt_sources` (third-party apt
+repos) ARE baked into the image. `build-guest-image.sh` reads the canonical
+bake config from the `CLAUDE_VM_BAKE_CONFIG` env var (the launcher sets it via
+`claude_vm_bake_config_json`), folds an 8-hex **bake-hash** over it into the
+pinned version (`BASE_OS_REV+launcherN+bake<hash>`; a no-bake config keeps the
+legacy base version), and passes the same config to the provisioner. Two
+configs that bake different things therefore stamp different versions and get
+different cached images; configs with no bake overrides share one `guest.raw`.
+The launcher resolves the image path to `guest-<hash>.raw` for a baked config
+and `guest.raw` otherwise (an explicit `guest_image` opts out and is used
+verbatim). An unset/empty `CLAUDE_VM_BAKE_CONFIG` means no baked packages — the
+legacy base image.
+
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
 podman container (Debian Trixie build container, systemd ≥ 254 for the
@@ -319,7 +349,31 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 (`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
 Requires `podman` with a started podman machine. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
-`<boot-launcher-path> <output-image-path>`.
+`<boot-launcher-path> <output-image-path>`. The provisioner renders
+`packages.bake` into a `mkosi.conf.d` `Packages=` drop-in and each
+`packages.apt_sources` entry into an apt keyring + `sources.list.d` drop-in in
+the mkosi **sandbox tree** (fetching each `key_url` inside the build container,
+which has network), so mkosi's apt can install packages served by third-party
+repos. That keyring-fetch + sources-write step is a reusable unit the
+boot-time-install slice (issue #106) reuses against the guest's live
+`/etc/apt`.
+
+A `packages.apt_sources` entry's `repo` is a raw apt one-line source string
+and may already carry its own `[options]` block (e.g. an operator-authored
+`deb [arch=arm64 signed-by=/etc/apt/keyrings/x.asc] ...`). The renderer
+adapts to whatever shape the line already has rather than unconditionally
+splicing in a second `[signed-by=...]` block (apt's one-line format allows
+exactly one such block, and two make the line unparseable): no block at all
+gets one added; a block with no `signed-by=` gets it merged in, other
+options untouched; a block that already pins `signed-by=<path>` is left
+byte-for-byte verbatim — that path wins, and the fetched key is written to
+its staging equivalent instead of the default `<name>.asc`, so the declared
+path and the actual key location never drift apart. This was a real-build
+finding (issue #105 follow-up): unconditionally appending a second block
+produced an apt "Malformed entry (URI parse)" failure. `packages.bake`
+entries that are null or empty (e.g. a stray `-` in the YAML list) are
+stripped during canonicalization rather than passed through as a literal
+`"None"` package name, which would otherwise fail the image build.
 
 The launcher attaches **two** virtio-serial consoles (issue #88). The
 first (`logFilePath`, guest `hvc0`) captures the booting guest's
@@ -446,6 +500,7 @@ replacement.
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
 ```
 
@@ -466,6 +521,19 @@ matching pin is accepted, a non-matching pin is rejected) and end-to-end
 key). The network primitive and (for the pipeline tests) gpg are stubbed
 with local fixtures, so it is fully offline and deterministic; requires
 only `bash` + a sha256 tool.
+
+`podman-mkosi-test.sh` exercises the recipe `provisioners/podman-mkosi.sh`
+generates on the real host code path, stubbing only `podman` at the point
+it would hand off to the build container, then asserting on the literal
+generated `mkosi.conf` and `build-in-container.sh`. It was added after a
+real end-to-end build (issue #105 review follow-up, PR #161) hit three
+failures — a paired-backtick command-substitution bug in the `mkosi.conf`
+heredoc's comment prose that corrupted `RootPassword=`, and a missing
+`curl`/`ca-certificates` in the build container's toolchain that broke
+`render_apt_source`'s key fetch — none of which `config-test.sh`'s
+pure-function cases could catch, since none of them render or execute the
+actual generated recipe files. It does not run a real `mkosi build` (no
+container, no network); that gap is covered by `host-acceptance.sh`.
 
 `host-acceptance.sh` is the self-contained on-host acceptance test for
 the bootable runtime. It runs the acceptance criteria end-to-end with no

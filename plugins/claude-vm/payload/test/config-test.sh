@@ -949,6 +949,274 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Test 17: bake-relevant config canonicalization + bake-hash (issue #105).
+#
+# claude_vm_bake_config_json / claude_vm_bake_hash are pure (merged-config
+# file -> canonical JSON / 8-hex hash). Cover the acceptance-critical
+# properties: the hash is order-INSENSITIVE (bake list order + apt_sources
+# declaration order do not change it), a missing key_url canonicalizes the
+# same as an explicit empty one, an empty bake config hashes identically to an
+# absent one (the "shares the global image" case), and different bake content
+# hashes differently.
+# ---------------------------------------------------------------------
+BH_EMPTY="$WORK/bake-empty.yml";  printf '{}\n' > "$BH_EMPTY"
+BH_EMPTY2="$WORK/bake-empty2.yml"; printf 'cpus: 4\nmem: 8192\n' > "$BH_EMPTY2"  # no packages at all
+
+# Canonical form of an absent/empty bake config is the constant empty object.
+assert_eq "bake-hash: absent packages canonicalizes to empty form" \
+  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_EMPTY")"
+assert_eq "bake-hash: config with no packages key canonicalizes to empty form" \
+  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_EMPTY2")"
+# Empty == absent: both hash to the same stable value (share the global image).
+assert_eq "bake-hash: empty-config hash equals no-packages-config hash" \
+  "$(claude_vm_bake_hash "$BH_EMPTY")" "$(claude_vm_bake_hash "$BH_EMPTY2")"
+# is_empty predicate agrees.
+assert_true "bake-hash: absent bake config is_empty" \
+  claude_vm_bake_config_is_empty "$BH_EMPTY"
+
+# Order-insensitivity: two configs with the same bake set in different orders
+# (and a duplicate) hash identically.
+BH_A="$WORK/bake-a.yml"; cat > "$BH_A" <<'YML'
+packages:
+  bake: [git, jq, ripgrep]
+  apt_sources:
+    - name: zeta
+      repo: "deb https://z stable main"
+      key_url: https://z/key.asc
+    - name: alpha
+      repo: "deb https://a stable main"
+YML
+BH_B="$WORK/bake-b.yml"; cat > "$BH_B" <<'YML'
+packages:
+  bake: [ripgrep, git, jq, git]
+  apt_sources:
+    - name: alpha
+      repo: "deb https://a stable main"
+      key_url: null
+    - name: zeta
+      repo: "deb https://z stable main"
+      key_url: https://z/key.asc
+YML
+assert_eq "bake-hash: bake list order + dup does not change the hash" \
+  "$(claude_vm_bake_hash "$BH_A")" "$(claude_vm_bake_hash "$BH_B")"
+# Missing key_url (alpha in A) and explicit null key_url (alpha in B) both
+# canonicalize to "" -- proven by the equal hashes above AND the JSON form.
+assert_eq "bake-hash: missing vs explicit-null key_url canonicalize identically" \
+  "$(claude_vm_bake_config_json "$BH_A")" "$(claude_vm_bake_config_json "$BH_B")"
+if claude_vm_bake_config_is_empty "$BH_A"; then
+  assert_eq "bake-hash: config with bake items is not empty" "not-empty" "empty"
+else
+  assert_eq "bake-hash: config with bake items is not empty" "not-empty" "not-empty"
+fi
+
+# Different bake content -> different hash.
+BH_MORE="$WORK/bake-more.yml"; printf 'packages:\n  bake: [git, jq, ripgrep, fd-find]\n' > "$BH_MORE"
+assert_ne "bake-hash: adding a package changes the hash" \
+  "$(claude_vm_bake_hash "$BH_A")" "$(claude_vm_bake_hash "$BH_MORE")"
+
+# Hash shape: exactly 8 lowercase hex chars.
+BH_HASH="$(claude_vm_bake_hash "$BH_A")"
+if printf '%s' "$BH_HASH" | grep -qE '^[0-9a-f]{8}$'; then
+  assert_eq "bake-hash: hash is 8 lowercase hex chars" "ok" "ok"
+else
+  assert_eq "bake-hash: hash is 8 lowercase hex chars" "ok" "bad: [$BH_HASH]"
+fi
+
+# apt_sources-only (no bake packages) still counts as non-empty and hashes
+# distinctly from the empty form.
+BH_APTONLY="$WORK/bake-aptonly.yml"; cat > "$BH_APTONLY" <<'YML'
+packages:
+  apt_sources:
+    - name: gh
+      repo: "deb https://cli.github.com/packages stable main"
+      key_url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+YML
+if claude_vm_bake_config_is_empty "$BH_APTONLY"; then
+  assert_eq "bake-hash: apt_sources-only config is not empty" "not-empty" "empty"
+else
+  assert_eq "bake-hash: apt_sources-only config is not empty" "not-empty" "not-empty"
+fi
+assert_ne "bake-hash: apt_sources-only hashes distinctly from empty" \
+  "$(claude_vm_bake_hash "$BH_APTONLY")" "$(claude_vm_bake_hash "$BH_EMPTY")"
+
+# packages.bake null/empty entries (e.g. a stray `-` in the YAML list, or a
+# trailing comma in flow style) must be STRIPPED from the canonical form, not
+# passed through as the literal string "None"/"" -- a "None" package name
+# would fail the mkosi image build (PR #161 review finding).
+BH_NULLS="$WORK/bake-nulls.yml"; cat > "$BH_NULLS" <<'YML'
+packages:
+  bake: [null, "", git]
+YML
+assert_eq "bake-hash: null/empty bake entries are stripped from canonical JSON" \
+  '{"bake":["git"],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_NULLS")"
+BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"; printf 'packages:\n  bake: [git]\n' > "$BH_NULLS_CLEAN"
+assert_eq "bake-hash: null/empty-stripped config hashes the same as the equivalent clean config" \
+  "$(claude_vm_bake_hash "$BH_NULLS")" "$(claude_vm_bake_hash "$BH_NULLS_CLEAN")"
+# All-null/empty bake list canonicalizes to the same empty form as no bake key.
+BH_ALLNULL="$WORK/bake-allnull.yml"; cat > "$BH_ALLNULL" <<'YML'
+packages:
+  bake: [null, ""]
+YML
+assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" \
+  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
+
+# ---------------------------------------------------------------------
+# Test 18: guest-image variant path derivation (issue #105).
+#
+# Reproduce the launcher's derivation logic (a bare block in claude-vm.sh, not
+# a lib function) here against merged configs: explicit guest_image opts out;
+# an empty bake config shares guest.raw; a bake config derives guest-<hash>.raw;
+# and removing the override reverts to the shared guest.raw with no path churn.
+# ---------------------------------------------------------------------
+derive_image_path() {
+  # Mirror claude-vm.sh's derivation: <merged-file> <default-image-dir>.
+  local merged="$1" dir="$2" explicit
+  explicit="$(claude_vm_scalar "$merged" '.guest_image' "")"
+  if [ -n "$explicit" ]; then
+    printf '%s\n' "$explicit"
+  elif claude_vm_bake_config_is_empty "$merged"; then
+    printf '%s\n' "$dir/guest.raw"
+  else
+    printf '%s\n' "$dir/guest-$(claude_vm_bake_hash "$merged").raw"
+  fi
+}
+IMGDIR="/home/op/.config/claude-vm/images"
+
+# Empty bake config -> shared guest.raw.
+VP_EMPTY="$WORK/vp-empty.yml"; printf 'cpus: 4\n' > "$VP_EMPTY"
+assert_eq "variant-path: no bake overrides -> shared guest.raw" \
+  "$IMGDIR/guest.raw" "$(derive_image_path "$VP_EMPTY" "$IMGDIR")"
+
+# Bake config -> guest-<hash>.raw (matching the standalone hash helper).
+VP_BAKE="$WORK/vp-bake.yml"; printf 'packages:\n  bake: [git, jq]\n' > "$VP_BAKE"
+VP_BAKE_HASH="$(claude_vm_bake_hash "$VP_BAKE")"
+assert_eq "variant-path: bake overrides -> guest-<hash>.raw" \
+  "$IMGDIR/guest-$VP_BAKE_HASH.raw" "$(derive_image_path "$VP_BAKE" "$IMGDIR")"
+
+# Explicit guest_image opts out of variant derivation, even WITH bake items.
+VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\npackages:\n  bake: [git]\n' > "$VP_OVERRIDE"
+assert_eq "variant-path: explicit guest_image opts out (used verbatim)" \
+  "/custom/my.raw" "$(derive_image_path "$VP_OVERRIDE" "$IMGDIR")"
+
+# Removing the bake override reverts to the SAME shared guest.raw (warm path:
+# no rebuild, since the path -- and thus the cached image + .version -- is the
+# one an unchanged empty config already resolved to).
+assert_eq "variant-path: removing bake override reverts to shared guest.raw" \
+  "$(derive_image_path "$VP_EMPTY" "$IMGDIR")" "$IMGDIR/guest.raw"
+
+# Two configs with the SAME bake set derive the SAME variant path (share one
+# cached image), even declared in different orders.
+VP_BAKE2="$WORK/vp-bake2.yml"; printf 'packages:\n  bake: [jq, git]\n' > "$VP_BAKE2"
+assert_eq "variant-path: same bake set (reordered) derives same variant path" \
+  "$(derive_image_path "$VP_BAKE" "$IMGDIR")" "$(derive_image_path "$VP_BAKE2" "$IMGDIR")"
+
+# ---------------------------------------------------------------------
+# Test 19: build-guest-image.sh --print-version bake-hash segment (issue #105).
+#
+# The launcher passes the canonical bake config to build-guest-image.sh via
+# CLAUDE_VM_BAKE_CONFIG for both --print-version and --output, so the stamped
+# version and the compared version agree. Exercise --print-version directly:
+# empty/unset -> the legacy base version (share the global image, warm path);
+# non-empty -> base+bake<hash>, stable and content-sensitive.
+# ---------------------------------------------------------------------
+BGI="$TEST_DIR/../build-guest-image.sh"
+BASE_VER="$("$BGI" --print-version)"   # unset CLAUDE_VM_BAKE_CONFIG -> base version
+assert_eq "print-version: unset bake config -> legacy base version (no +bake)" \
+  "$BASE_VER" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' "$BGI" --print-version)"
+# A non-empty bake config appends +bake<8hex>. Check the prefix and the
+# +bake<8hex> suffix shape separately (a literal-prefix + regex-suffix check
+# avoids escaping the base version's own metacharacters into a regex).
+BGI_BAKED="$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' "$BGI" --print-version)"
+BGI_SUFFIX="${BGI_BAKED#"$BASE_VER"}"   # strip the exact base-version prefix
+if [ "$BGI_SUFFIX" != "$BGI_BAKED" ] && printf '%s' "$BGI_SUFFIX" | grep -qE '^\+bake[0-9a-f]{8}$'; then
+  assert_eq "print-version: baked config appends +bake<8hex> to base version" "ok" "ok"
+else
+  assert_eq "print-version: baked config appends +bake<8hex> to base version" "ok" "bad: [$BGI_BAKED]"
+fi
+# Same bake config -> same version (warm path: no spurious rebuild).
+assert_eq "print-version: same bake config -> same version (warm path)" \
+  "$BGI_BAKED" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' "$BGI" --print-version)"
+# Different bake config -> different version.
+assert_ne "print-version: different bake config -> different version" \
+  "$BGI_BAKED" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git"],"apt_sources":[]}' "$BGI" --print-version)"
+# The build-guest-image hash MATCHES the standalone lib hash for the same
+# canonical bytes (the two sides agree by construction).
+LIB_HASH_FOR_BAKED="$(claude_vm_bake_hash_from_json '{"bake":["git","jq"],"apt_sources":[]}')"
+assert_eq "print-version: build-guest-image version embeds the lib bake-hash" \
+  "$BASE_VER+bake$LIB_HASH_FOR_BAKED" "$BGI_BAKED"
+
+# ---------------------------------------------------------------------
+# Test 20: render_apt_source name validation (issue #105 review finding).
+#
+# render_apt_source is defined INSIDE the <<INNER heredoc in
+# podman-mkosi.sh (it only ever runs inside the throwaway build container),
+# so it is not directly sourceable. Extract its literal body (start line
+# found by the function-header marker, end line the next top-level `}`)
+# and un-escape the heredoc's `\$` back to `$`, then source the extracted
+# function in-process to exercise the name-validation guard directly, with
+# no container and no network.
+#
+# name flows unescaped into staging filenames (<dir>/<name>.asc,
+# <dir>/<name>.list); since the merged config unions the per-repo
+# .claude-vm/config.yml, name is not fully operator-authored for an
+# untrusted repo. A name containing e.g. "../" must be REJECTED before any
+# path is built, rather than allowed to write outside the staging dirs.
+# ---------------------------------------------------------------------
+PODMAN_MKOSI="$TEST_DIR/../provisioners/podman-mkosi.sh"
+RAS_START="$(grep -n '^render_apt_source() {' "$PODMAN_MKOSI" | head -1 | cut -d: -f1)"
+RAS_END="$(awk -v start="$RAS_START" 'NR > start && /^}/ { print NR; exit }' "$PODMAN_MKOSI")"
+RAS_SRC="$WORK/render_apt_source.sh"
+if [ -n "$RAS_START" ] && [ -n "$RAS_END" ]; then
+  awk -v start="$RAS_START" -v end="$RAS_END" 'NR >= start && NR <= end' "$PODMAN_MKOSI" \
+    | sed 's/\\\$/$/g' > "$RAS_SRC"
+  # shellcheck source=/dev/null
+  . "$RAS_SRC"
+fi
+
+if [ -n "${RAS_START:-}" ] && [ -n "${RAS_END:-}" ] && command -v render_apt_source >/dev/null 2>&1; then
+  RAS_KEYRINGS="$WORK/ras-keyrings"
+  RAS_SOURCES="$WORK/ras-sources"
+
+  # Path-traversal name is rejected (non-zero return), and -- critically --
+  # no file is written outside (or inside) the intended staging dirs.
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  if render_apt_source '../../etc/evil' 'deb https://x stable main' '' \
+      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source: path-traversal name is rejected" "rejected" "rejected"
+  fi
+  assert_true "render_apt_source: rejected traversal name writes no file in sources_dir" \
+    bash -c '[ -z "$(ls -A "$1" 2>/dev/null)" ]' _ "$RAS_SOURCES"
+  assert_true "render_apt_source: rejected traversal name writes nothing outside staging dirs" \
+    bash -c '[ ! -e "$1/etc/evil.list" ]' _ "$WORK"
+
+  # A name containing a slash but no ".." is equally rejected -- the guard is
+  # a charset allowlist, not a ".." blacklist.
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  if render_apt_source 'sub/dir' 'deb https://x stable main' '' \
+      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    assert_eq "render_apt_source: slash-containing name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source: slash-containing name is rejected" "rejected" "rejected"
+  fi
+
+  # A conservative charset-safe name (letters, digits, dot, underscore,
+  # hyphen) is still accepted and renders the expected files.
+  rm -rf "$RAS_KEYRINGS" "$RAS_SOURCES"; mkdir -p "$RAS_KEYRINGS" "$RAS_SOURCES"
+  if render_apt_source 'gh-cli.v2' 'deb https://cli.github.com/packages stable main' '' \
+      "$RAS_KEYRINGS" "$RAS_SOURCES" >/dev/null 2>&1; then
+    assert_eq "render_apt_source: charset-safe name is accepted" "accepted" "accepted"
+  else
+    assert_eq "render_apt_source: charset-safe name is accepted" "accepted" "rejected"
+  fi
+  assert_true "render_apt_source: charset-safe name writes the expected sources file" \
+    test -f "$RAS_SOURCES/gh-cli.v2.list"
+else
+  echo "SKIP: render_apt_source extraction from podman-mkosi.sh failed; name-validation tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

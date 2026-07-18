@@ -55,6 +55,21 @@ set -euo pipefail
 BOOT_LAUNCHER="${1:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-path>}"
 OUTPUT_IMAGE="${2:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-path>}"
 
+# Baked packages + third-party apt repos (issue #105). build-guest-image.sh
+# exports the CANONICAL bake config (order-/key-normalized JSON, from
+# claude_vm_bake_config_json) as CLAUDE_VM_BAKE_CONFIG. Empty/unset means no
+# baked packages -- the recipe is exactly the legacy base image. When present,
+# the in-container build step (below) parses it to: (a) extend the mkosi
+# Packages= list with packages.bake, and (b) render each packages.apt_sources
+# entry into a keyring + sources.list.d drop-in in the mkosi SANDBOX TREE, so
+# mkosi's apt can install baked packages that come from third-party repos.
+# An unset/empty value is normalized to the empty canonical form so the
+# in-container parser always sees valid JSON.
+BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}"
+if [ -z "$BAKE_CONFIG" ]; then
+  BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
+fi
+
 # The guest Debian release. build-guest-image.sh exports BASE_OS_REV as
 # CLAUDE_VM_BASE_OS_REV so the guest pin is owned by the build recipe, not
 # duplicated here. BASE_OS_REV looks like "debian-12-20250601"; the middle
@@ -131,6 +146,20 @@ mkdir -p "$STAGE/recipe/mkosi.extra/usr/local/lib/claude-vm"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/network"
 mkdir -p "$STAGE/out"
+
+# Bake config (issue #105): write the canonical JSON into the recipe tree so
+# the in-container build step can parse it (with the container's python3) to
+# extend Packages= and render apt_sources. The mkosi.sandbox/ dir is where the
+# apt keyrings + sources.list.d entries are placed: mkosi auto-uses
+# mkosi.sandbox/ as a SandboxTree (rooted at /), and invokes apt from OUTSIDE
+# the image reading package-manager config from the sandbox tree's canonical
+# /etc locations -- so a third-party repo written to
+# mkosi.sandbox/etc/apt/sources.list.d/ (with its key at
+# mkosi.sandbox/etc/apt/keyrings/) is available to mkosi's apt at install time.
+# Created empty here; the in-container step populates it from apt_sources.
+printf '%s\n' "$BAKE_CONFIG" > "$STAGE/recipe/bake-config.json"
+mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/sources.list.d"
+mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/keyrings"
 
 # Install the boot launcher into the guest filesystem tree (mkosi.extra is
 # copied verbatim into the rootfs).
@@ -277,7 +306,7 @@ Format=disk
 # workspace (/var/tmp, the container overlay), NOT the bind-mounted
 # /work/out. mkosi finishes by rename()-ing its staged artifacts into
 # OutputDirectory; a cross-device rename (workspace overlay -> bind mount)
-# falls back to `cp --preserve=...,xattr`, which fails EOPNOTSUPP on the
+# falls back to 'cp --preserve=...,xattr', which fails EOPNOTSUPP on the
 # bind mount (it cannot hold security.* xattrs). Keeping the output on the
 # overlay makes that an in-device rename. The finished image is then
 # copied out to the bind-mounted /work/out with a plain cp (no xattr
@@ -289,7 +318,7 @@ Output=guest
 Bootable=yes
 Bootloader=systemd-boot
 # Interactive in-VM session (issue #88): give root an UNLOCKED, passwordless
-# account. The `hashed:` prefix with no hash sets an empty password hash, so
+# account. The 'hashed:' prefix with no hash sets an empty password hash, so
 # root can log in with no password. This is what lets the autologin getty
 # (serial-getty@hvc1 drop-in) reach a session -- the base recipe set no
 # RootPassword, so the live login prompt rejected every credential. The guest
@@ -366,11 +395,15 @@ apt-get update -qq
 # The host toolchain mkosi v26 shells out to for a Debian disk build, plus
 # python3-venv/pip + git to install mkosi v26 from upstream. systemd-ukify,
 # cpio, zstd, xz-utils, mtools, squashfs-tools are part of the v26 toolchain
-# (issue #71).
+# (issue #71). curl + ca-certificates are required by render_apt_source
+# below (issue #105), which fetches each packages.apt_sources key_url with
+# curl INSIDE this build container -- without them the fetch fails with
+# "curl: command not found" before any baked package can be installed.
 apt-get install -y -qq --no-install-recommends \\
   python3 python3-venv python3-pip git \\
   systemd-boot debootstrap dosfstools e2fsprogs systemd-repart \\
-  systemd-ukify cpio zstd xz-utils mtools squashfs-tools >/dev/null
+  systemd-ukify cpio zstd xz-utils mtools squashfs-tools \\
+  curl ca-certificates >/dev/null
 
 # Install mkosi v26 (pinned tag) + pefile into a venv and put it on PATH.
 python3 -m venv /opt/mkosi-venv
@@ -390,6 +423,271 @@ Packages=
     \${KERNEL_PKG}
 KCONF
 echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_PKG}" >&2
+
+# -------------------------------------------------------------------------
+# Baked packages + third-party apt repos (issue #105).
+#
+# The canonical bake config lives at /work/recipe/bake-config.json (written by
+# the host provisioner). Parse it here with the container's python3 (already
+# installed above) and render two things:
+#
+#   (a) packages.bake -> a mkosi.conf.d drop-in extending Packages= (same
+#       mechanism as the kernel drop-in above), so mkosi installs them into
+#       the guest image.
+#   (b) packages.apt_sources -> for each {name, repo, key_url}, fetch the key
+#       into the mkosi SANDBOX TREE at /etc/apt/keyrings/<name>.asc and write
+#       /etc/apt/sources.list.d/<name>.list (signed-by that keyring), so
+#       mkosi's apt -- which reads package-manager config from the sandbox
+#       tree -- can install baked packages served from third-party repos
+#       (e.g. gh from cli.github.com). The fetch happens HERE, in the build
+#       container, which has network.
+#
+# render_apt_source is written as a REUSABLE unit (keyring fetch + sources.list
+# write) so the boot-time-install sibling slice (issue #106) can reuse the same
+# shape against the guest's real /etc/apt at boot. The two WRITE dirs are args
+# so the caller points them at the sandbox tree here (or the live guest /etc/apt
+# there). keyring_runtime_dir is separate from keyrings_dir because the file is
+# WRITTEN to the staging sandbox tree (/work/recipe/mkosi.sandbox/etc/apt/...)
+# but apt READS it, at mkosi build time, from the sandbox tree's canonical
+# mount point (/etc/apt/...) -- so the [signed-by=] path baked into the source
+# line must be the RUNTIME path, not the staging path. For #106 the caller
+# passes the same value for keyrings_dir and keyring_runtime_dir (both the live
+# /etc/apt/keyrings), so the two collapse and the same function works verbatim.
+#
+#   render_apt_source <name> <repo> <key_url> \
+#                     <keyrings_dir> <sources_dir> <keyring_runtime_dir>
+#
+# name VALIDATION: name flows unescaped into staging filenames
+# (<keyrings_dir>/<name>.asc, <sources_dir>/<name>.list). The merged config
+# unions the per-repo .claude-vm/config.yml into apt_sources, so name is NOT
+# fully operator-authored for an untrusted repo -- a name containing e.g.
+# "../" could write outside the intended staging dirs. Reject anything
+# outside a conservative filename-safe charset BEFORE building any path.
+#
+# repo-line MERGE + PRECEDENCE (issue #105 real-build follow-up): the repo
+# string may already carry its own apt one-line "[options]" block (e.g. an
+# operator-authored "deb [arch=arm64 signed-by=/etc/apt/keyrings/x.asc] ...").
+# apt's one-line format allows exactly ONE such block right after the leading
+# deb/deb-src token; unconditionally splicing a second [signed-by=...] block
+# in produces a line with TWO option blocks, which apt cannot parse (the
+# second block lands where the URI belongs). So this function ADAPTS to
+# whatever shape the repo line already has, and for any option the repo line
+# already specifies (signed-by, today), the REPO LINE'S VALUE WINS -- this
+# function never overrides an operator-authored option value:
+#
+#   1. No [options] block at all -> add one: "deb [signed-by=<runtime>] ...".
+#   2. [options] block present, no signed-by= in it -> MERGE signed-by=<runtime>
+#      into the existing block (other options pass through untouched); still
+#      exactly one block.
+#   3. [options] block present WITH an existing signed-by=P -> the line is
+#      left byte-for-byte VERBATIM (P wins), and the fetched key is written to
+#      P's STAGING equivalent (<keyrings_dir's sandbox root> + P) instead of
+#      the default <keyrings_dir>/<name>.asc, so the declared path and the
+#      actual key location never drift apart. P is validated with the same
+#      conservative charset/traversal discipline as name before use.
+#   4. No key_url (have_key=0) -- write the line verbatim regardless of shape;
+#      an operator-supplied signed-by with no key_url is the operator's own
+#      arrangement to pass through, not an error.
+#   5. Lines not starting with deb/deb-src are written verbatim (unchanged).
+render_apt_source() {
+  local name="\$1" repo="\$2" key_url="\$3" keyrings_dir="\$4" sources_dir="\$5"
+  local keyring_runtime_dir="\${6:-\$4}"
+  if [ -z "\$name" ] || [ -z "\$repo" ]; then
+    echo "podman-mkosi(inner): apt_source entry missing name or repo; skipping" >&2
+    return 1
+  fi
+  case "\$name" in
+    *[!A-Za-z0-9._-]*)
+      echo "podman-mkosi(inner): apt_source name '\$name' contains characters outside [A-Za-z0-9._-]; aborting" >&2
+      return 1
+      ;;
+  esac
+  mkdir -p "\$keyrings_dir" "\$sources_dir"
+  local keyring_write_path="\$keyrings_dir/\${name}.asc"
+  local keyring_runtime_path="\$keyring_runtime_dir/\${name}.asc"
+
+  # Does the repo line start with deb/deb-src, and if so does it already
+  # carry an [options] block, and if so does that block already have a
+  # signed-by=? Detected with one bash regex so the merge logic below has a
+  # single source of truth for "what shape is this line". The [options]
+  # block is a single bracketed span that may itself contain spaces (e.g.
+  # "[arch=amd64 signed-by=...]"), so this is NOT safe to detect via
+  # whitespace field-splitting (awk \$2) -- it must match the bracket span
+  # itself.
+  local is_deb_line=0 has_block=0 block_has_signed_by=0 existing_signed_by=""
+  if [[ "\$repo" =~ ^(deb|deb-src)([[:space:]]+)\[([^]]*)\](.*)\$ ]]; then
+    is_deb_line=1
+    has_block=1
+    local block_body="\${BASH_REMATCH[3]}"
+    if [[ "\$block_body" =~ (^|[[:space:]])signed-by=([^[:space:]]+) ]]; then
+      block_has_signed_by=1
+      existing_signed_by="\${BASH_REMATCH[2]}"
+    fi
+  elif [[ "\$repo" =~ ^(deb|deb-src)[[:space:]] ]]; then
+    is_deb_line=1
+  fi
+
+  local have_key=0
+  if [ -n "\$key_url" ]; then
+    if [ "\$is_deb_line" -eq 1 ] && [ "\$has_block" -eq 1 ] && [ "\$block_has_signed_by" -eq 1 ]; then
+      # Case 3: the repo line already pins its own signed-by path. That path
+      # wins verbatim; validate it before using it to build a staging write
+      # path (same charset/traversal discipline as name -- this value flows
+      # from the merged, partially repo-authored config).
+      case "\$existing_signed_by" in
+        /*) : ;;
+        *)
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' is not absolute; aborting" >&2
+          return 1
+          ;;
+      esac
+      case "\$existing_signed_by" in
+        *[[:space:]]*|*']'*)
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' contains disallowed characters; aborting" >&2
+          return 1
+          ;;
+      esac
+      local seg IFS=/
+      for seg in \$existing_signed_by; do
+        if [ "\$seg" = ".." ]; then
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' contains a '..' path segment; aborting" >&2
+          return 1
+        fi
+      done
+      unset IFS
+      # SECURITY: absolute + charset-safe + no '..' is NOT sufficient. repo
+      # (and therefore existing_signed_by) is UNTRUSTED -- it flows from the
+      # merged, per-repo .claude-vm/config.yml (same untrusted-input status
+      # documented on 'name' above). Without a further constraint, a
+      # malicious per-repo config could pair an attacker-served key_url with
+      # e.g. signed-by=/etc/cron.d/x and this function would write
+      # attacker-controlled bytes to an arbitrary path in the guest image
+      # staging tree, which then boots as root -- a strictly larger write
+      # primitive than the one the 'name' allowlist closes. Constrain P to
+      # the two canonical apt keyring directories: it must be exactly
+      # /etc/apt/keyrings/<file> or /usr/share/keyrings/<file>, with no
+      # further subdirectories and a charset-safe <file>. A repo wanting a
+      # custom keyring path outside these is not a supported use case.
+      case "\$existing_signed_by" in
+        /etc/apt/keyrings/*|/usr/share/keyrings/*)
+          local kr_file="\${existing_signed_by##*/}"
+          case "\$kr_file" in
+            *[!A-Za-z0-9._-]*|"")
+              echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' has a filename outside [A-Za-z0-9._-]; aborting" >&2
+              return 1
+              ;;
+          esac
+          local kr_parent="\${existing_signed_by%/*}"
+          if [ "\$kr_parent" != "/etc/apt/keyrings" ] && [ "\$kr_parent" != "/usr/share/keyrings" ]; then
+            echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' is not directly under an allowed keyrings directory; aborting" >&2
+            return 1
+          fi
+          ;;
+        *)
+          echo "podman-mkosi(inner): apt_source '\$name' signed-by path '\$existing_signed_by' is outside the allowed keyrings directories (/etc/apt/keyrings, /usr/share/keyrings); aborting" >&2
+          return 1
+          ;;
+      esac
+      # Write the fetched key to the STAGING equivalent of the declared
+      # runtime path: <keyrings_dir-as-sandbox-root> + P. keyrings_dir is
+      # "<sandbox_root><keyring_runtime_dir>" by construction (the caller
+      # points keyrings_dir at the staging equivalent of
+      # keyring_runtime_dir), so strip keyring_runtime_dir itself -- not a
+      # hardcoded "/etc/apt/keyrings" literal -- as the suffix to recover the
+      # root. This stays correct if a future caller (issue #106) passes a
+      # keyring_runtime_dir other than /etc/apt/keyrings, and collapses to
+      # sandbox_root="" for #106's live-/etc/apt reuse (write dir == runtime
+      # dir), which is exactly the identity write-in-place that case needs.
+      local sandbox_root="\${keyrings_dir%\$keyring_runtime_dir}"
+      keyring_write_path="\${sandbox_root}\${existing_signed_by}"
+      mkdir -p "\$(dirname "\$keyring_write_path")"
+    fi
+    # Fetch the signing key into the keyring (staging path, resolved above).
+    # -fsSL: fail on HTTP error, quiet, follow redirects. A failed key fetch
+    # is fatal -- an unsigned/unverified third-party repo must not be
+    # silently added.
+    if ! curl -fsSL "\$key_url" -o "\$keyring_write_path"; then
+      echo "podman-mkosi(inner): failed to fetch apt key for '\$name' from \$key_url" >&2
+      return 1
+    fi
+    have_key=1
+  fi
+
+  # Compose the emitted line per the have_key/shape matrix documented above.
+  local line
+  if [ "\$have_key" -eq 1 ] && [ "\$is_deb_line" -eq 1 ] && [ "\$has_block" -eq 1 ] && [ "\$block_has_signed_by" -eq 1 ]; then
+    # Case 3: repo line wins -- emit verbatim, unchanged.
+    line="\$repo"
+  elif [ "\$have_key" -eq 1 ] && [ "\$is_deb_line" -eq 1 ] && [ "\$has_block" -eq 1 ]; then
+    # Case 2: existing [options] block, no signed-by= in it -- merge
+    # signed-by=<runtime> INTO the existing block; other options pass
+    # through untouched. Reconstruct via the same regex match used for
+    # detection above so this does not re-derive the split independently.
+    if [[ "\$repo" =~ ^(deb|deb-src)([[:space:]]+)\[([^]]*)\](.*)\$ ]]; then
+      local tok="\${BASH_REMATCH[1]}" ws="\${BASH_REMATCH[2]}" body="\${BASH_REMATCH[3]}" rest="\${BASH_REMATCH[4]}"
+      line="\${tok}\${ws}[\${body} signed-by=\${keyring_runtime_path}]\${rest}"
+    else
+      # Unreachable given has_block=1 above; fall back to verbatim rather
+      # than risk emitting a malformed line.
+      line="\$repo"
+    fi
+  elif [ "\$have_key" -eq 1 ] && [ "\$is_deb_line" -eq 1 ]; then
+    # Case 1: no [options] block at all -- add one right after the leading
+    # deb/deb-src token.
+    line="\$(printf '%s' "\$repo" | awk -v sb="\$keyring_runtime_path" '{
+      printf "%s [signed-by=%s]", \$1, sb; for(i=2;i<=NF;i++) printf " %s", \$i; print ""
+    }')"
+  else
+    # Case 4/5: no key fetched, or not a deb/deb-src line -- verbatim.
+    line="\$repo"
+  fi
+  printf '%s\n' "\$line" > "\$sources_dir/\${name}.list"
+  echo "podman-mkosi(inner): rendered apt_source '\$name' -> \$sources_dir/\${name}.list" >&2
+}
+
+# Parse the bake config with python3 and emit shell-safe records.
+# Baked packages, one per line.
+BAKE_PACKAGES="\$(python3 -c '
+import json,sys
+d=json.load(open("/work/recipe/bake-config.json"))
+for p in d.get("bake",[]):
+    print(p)
+')"
+if [ -n "\$BAKE_PACKAGES" ]; then
+  {
+    echo "[Content]"
+    echo "Packages="
+    while IFS= read -r pkg; do
+      [ -n "\$pkg" ] && printf '    %s\n' "\$pkg"
+    done <<< "\$BAKE_PACKAGES"
+  } > /work/recipe/mkosi.conf.d/20-bake-packages.conf
+  echo "podman-mkosi(inner): baking packages: \$(printf '%s ' \$BAKE_PACKAGES)" >&2
+fi
+
+# apt_sources, one TAB-separated record per line: name<TAB>repo<TAB>key_url.
+# python3's json parse preserves the canonical order; render each into the
+# mkosi sandbox tree so mkosi's apt sees the repo at install time.
+# SANDBOX_* are the STAGING write paths under the recipe tree; APT_KEYRINGS_RT
+# is the RUNTIME path apt reads keyrings from (the sandbox tree is mounted at
+# / for the build), which is what the [signed-by=] in each source line must
+# reference.
+SANDBOX_KEYRINGS=/work/recipe/mkosi.sandbox/etc/apt/keyrings
+SANDBOX_SOURCES=/work/recipe/mkosi.sandbox/etc/apt/sources.list.d
+APT_KEYRINGS_RT=/etc/apt/keyrings
+python3 -c '
+import json
+d=json.load(open("/work/recipe/bake-config.json"))
+for s in d.get("apt_sources",[]):
+    name=s.get("name","") or ""
+    repo=s.get("repo","") or ""
+    key_url=s.get("key_url","") or ""
+    print("\t".join([name,repo,key_url]))
+' | while IFS=\$'\t' read -r as_name as_repo as_key_url; do
+  [ -n "\$as_name" ] || continue
+  render_apt_source "\$as_name" "\$as_repo" "\$as_key_url" \\
+    "\$SANDBOX_KEYRINGS" "\$SANDBOX_SOURCES" "\$APT_KEYRINGS_RT"
+done
+# -------------------------------------------------------------------------
 
 cd /work/recipe
 # Build. RepartOffline=yes (set in mkosi.conf) keeps this off loop devices.
