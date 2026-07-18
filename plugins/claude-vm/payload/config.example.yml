@@ -80,14 +80,16 @@ packages:
                           # time into the guest's live /etc/apt whenever
                           # install_at_boot is nonempty (so a boot-time install
                           # can pull from the same third-party repos bake can).
-  add_apt_uris_to_allowlist: auto   # auto (default) | always -- controls BOTH
-                          # the build-time marketplace/plugin URIs (a sibling
-                          # knob under claude.plugins) AND this boot-time apt
-                          # egress: deb.debian.org + security.debian.org, plus
-                          # every apt_sources host, are added to the guest's
-                          # egress allowlist IFF install_at_boot is nonempty, OR
-                          # update_at_boot is true (the default), OR this is
-                          # set to "always". "auto" with update_at_boot: false
+  add_apt_uris_to_allowlist: auto   # auto (default) | always -- controls this
+                          # boot-time apt egress (claude.plugins carries its
+                          # own parallel add_marketplace_uris_to_allowlist
+                          # knob for marketplace/plugin URIs, applied the same
+                          # way but independently): deb.debian.org +
+                          # security.debian.org, plus every apt_sources host,
+                          # are added to the guest's egress allowlist IFF
+                          # install_at_boot is nonempty, OR update_at_boot is
+                          # true (the default), OR this is set to "always".
+                          # "auto" with update_at_boot: false
                           # and an empty install_at_boot derives NO apt egress
                           # at all -- a hard-secure all-baked config leaves the
                           # guest unable to reach any package repo. "always"
