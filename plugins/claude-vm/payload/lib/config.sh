@@ -472,6 +472,84 @@ claude_vm_apt_sources() {
 }
 
 # ---------------------------------------------------------------------
+# Boot-time apt derived egress (issue #106).
+#
+# packages.install_at_boot / packages.update_at_boot install/refresh apt
+# packages at guest boot, through the proxy -- so the Debian mirror hosts
+# (and any packages.apt_sources hosts) must be reachable from the guest.
+# The launcher adds them to the egress allowlist iff boot-time apt work is
+# actually configured (packages.add_apt_uris_to_allowlist: auto, the
+# default) or unconditionally when the operator opts in
+# (packages.add_apt_uris_to_allowlist: always). See
+# claude_vm_boot_apt_egress_needed (the "iff" gate) and
+# claude_vm_apt_source_hosts (the per-entry host derivation) below.
+
+# The two Debian mirror hosts every install_at_boot/update_at_boot needs
+# regardless of packages.apt_sources -- the base image's /etc/apt/sources.list
+# points at these.
+CLAUDE_VM_DEBIAN_MIRROR_HOSTS="deb.debian.org security.debian.org"
+
+# True (exit 0) when boot-time apt work is configured that needs the Debian
+# mirrors/apt_sources hosts reachable from the guest -- i.e. the launcher
+# should derive and add apt egress to the allowlist. False (exit 1) means
+# "auto, and nothing configured" -- a hard-secure all-baked config leaves
+# package repos unreachable from the guest by design.
+#
+#   $1 -- merged config file path
+#
+# True iff ANY of:
+#   - packages.install_at_boot is nonempty
+#   - packages.update_at_boot is true (default true)
+#   - packages.add_apt_uris_to_allowlist is "always" (default "auto")
+claude_vm_boot_apt_egress_needed() {
+  local file="$1"
+  local mode
+  mode="$(claude_vm_scalar "$file" '.packages.add_apt_uris_to_allowlist' "$CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST")"
+  if [ "$mode" = "always" ]; then
+    return 0
+  fi
+  if [ -n "$(claude_vm_list_items "$file" '.packages.install_at_boot')" ]; then
+    return 0
+  fi
+  local update_at_boot
+  update_at_boot="$(claude_vm_bool_scalar "$file" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+  [ "$update_at_boot" = "true" ]
+}
+
+# Emit the hostnames parsed out of packages.apt_sources repo/key_url URIs,
+# one per line, de-duplicated. Used (alongside CLAUDE_VM_DEBIAN_MIRROR_HOSTS)
+# to derive the egress hosts a boot-time apt_sources render needs.
+#
+#   $1 -- merged config file path
+#
+# repo is an apt one-line source (e.g. "deb [signed-by=...] https://HOST/path
+# suite component"); the host is the authority component of its URI, wherever
+# it appears in the line. key_url is a plain URL. Both are parsed with the
+# same permissive extraction: find an http(s):// URI, strip the scheme, drop
+# any userinfo@ prefix, then drop a :port suffix (this codebase's egress
+# allowlists are host-only, so a port suffix would never match). Entries with
+# no parseable http(s) URI contribute nothing (e.g. a key_url left empty, or a
+# repo line this permissive scan cannot find a URI in) rather than aborting --
+# host derivation degrades quietly, matching the rest of this file's "missing
+# input -> empty, not an error" convention.
+claude_vm_apt_source_hosts() {
+  local file="$1"
+  # Emit repo/key_url as a flat YAML LIST (not a bare comma-expression) so an
+  # entry with no key_url still contributes its "" placeholder line rather
+  # than silently dropping the NEXT entry's key_url -- a comma-expression
+  # (`(.repo // ""), (.key_url // "")` per .[] element) was observed to
+  # collapse output across array elements under yq v4.53 when an element
+  # produced an empty second branch.
+  yq eval '
+    .packages.apt_sources // [] | .[]
+    | [(.repo // ""), (.key_url // "")] | .[]
+  ' "$file" 2>/dev/null \
+    | grep -oE 'https?://[^/[:space:]]+' \
+    | sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' \
+    | sort -u
+}
+
+# ---------------------------------------------------------------------
 # Bake-relevant config canonicalization + bake-hash (issue #105).
 #
 # The guest image bakes packages.bake into the mkosi Packages= list and

@@ -1217,6 +1217,163 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Test 21: boot-time apt derived egress (issue #106).
+#
+# claude_vm_boot_apt_egress_needed (the "iff" gate) and
+# claude_vm_apt_source_hosts (per-entry host derivation) are the two pure
+# helpers claude-vm.sh's derived-egress block uses to decide whether/what to
+# add to the guest egress allowlist for boot-time apt work. Exercise both
+# directly, with no VM and no launcher run.
+# ---------------------------------------------------------------------
+DE_AUTO_QUIET="$WORK/de-auto-quiet.yml"
+cat > "$DE_AUTO_QUIET" <<'YML'
+packages:
+  install_at_boot: []
+  update_at_boot: false
+  add_apt_uris_to_allowlist: auto
+YML
+if ! claude_vm_boot_apt_egress_needed "$DE_AUTO_QUIET"; then
+  assert_eq "boot_apt_egress_needed: auto + empty install_at_boot + update_at_boot false -> NOT needed" "not-needed" "not-needed"
+else
+  assert_eq "boot_apt_egress_needed: auto + empty install_at_boot + update_at_boot false -> NOT needed" "not-needed" "needed"
+fi
+
+DE_INSTALL="$WORK/de-install.yml"
+cat > "$DE_INSTALL" <<'YML'
+packages:
+  install_at_boot:
+    - htop
+  update_at_boot: false
+  add_apt_uris_to_allowlist: auto
+YML
+if claude_vm_boot_apt_egress_needed "$DE_INSTALL"; then
+  assert_eq "boot_apt_egress_needed: nonempty install_at_boot -> needed" "needed" "needed"
+else
+  assert_eq "boot_apt_egress_needed: nonempty install_at_boot -> needed" "needed" "not-needed"
+fi
+
+DE_UPDATE_DEFAULT="$WORK/de-update-default.yml"
+printf '{}\n' > "$DE_UPDATE_DEFAULT"
+if claude_vm_boot_apt_egress_needed "$DE_UPDATE_DEFAULT"; then
+  assert_eq "boot_apt_egress_needed: unset config -> needed (update_at_boot defaults true)" "needed" "needed"
+else
+  assert_eq "boot_apt_egress_needed: unset config -> needed (update_at_boot defaults true)" "needed" "not-needed"
+fi
+
+DE_ALWAYS="$WORK/de-always.yml"
+cat > "$DE_ALWAYS" <<'YML'
+packages:
+  install_at_boot: []
+  update_at_boot: false
+  add_apt_uris_to_allowlist: always
+YML
+if claude_vm_boot_apt_egress_needed "$DE_ALWAYS"; then
+  assert_eq "boot_apt_egress_needed: add_apt_uris_to_allowlist always -> needed regardless" "needed" "needed"
+else
+  assert_eq "boot_apt_egress_needed: add_apt_uris_to_allowlist always -> needed regardless" "needed" "not-needed"
+fi
+
+# Host derivation: repo + key_url URIs (including a non-default port, which
+# must be STRIPPED -- egress allowlists in this codebase are host-only), a
+# repo line with no key_url at all, de-duplicated across entries.
+DE_HOSTS="$WORK/de-hosts.yml"
+cat > "$DE_HOSTS" <<'YML'
+packages:
+  apt_sources:
+    - name: gh-cli
+      repo: "deb https://cli.github.com/packages stable main"
+      key_url: "https://key.example.com:8443/key.gpg"
+    - name: dup-host
+      repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/x.asc] https://cli.github.com/other stable main"
+YML
+DE_HOSTS_OUT="$(claude_vm_apt_source_hosts "$DE_HOSTS" | sort | tr '\n' ',')"
+assert_eq "apt_source_hosts: repo + key_url hosts extracted, port stripped, de-duped" \
+  "cli.github.com,key.example.com," "$DE_HOSTS_OUT"
+
+DE_HOSTS_EMPTY="$WORK/de-hosts-empty.yml"
+printf '{}\n' > "$DE_HOSTS_EMPTY"
+assert_eq "apt_source_hosts: no apt_sources -> empty" \
+  "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY")"
+
+assert_eq "CLAUDE_VM_DEBIAN_MIRROR_HOSTS: pins the two Debian mirror hosts" \
+  "deb.debian.org security.debian.org" "$CLAUDE_VM_DEBIAN_MIRROR_HOSTS"
+
+# ---------------------------------------------------------------------
+# Test 22: render_apt_source_boot name validation (issue #106).
+#
+# render_apt_source_boot is defined INSIDE the <<'BOOT' heredoc in
+# build-guest-image.sh's emit_boot_launcher (it only ever runs as root at
+# guest boot, against the guest's LIVE /etc/apt), so it is not directly
+# sourceable. Extract its literal body the same way Test 20 extracts
+# podman-mkosi.sh's render_apt_source -- no `\$` un-escaping needed here
+# (this heredoc is a plain <<'BOOT', not a nested <<INNER inside another
+# heredoc) -- then source it in-process.
+#
+# Only the REJECTION paths are exercised here: render_apt_source_boot
+# hardcodes /etc/apt/keyrings and /etc/apt/sources.list.d (it writes the
+# guest's LIVE apt config, unlike the build-time function's staging-dir
+# parameters), which this host-side test process cannot write to (and must
+# not attempt to). Every rejection below returns BEFORE any mkdir/write, so
+# they are safely exercisable without touching the test host's real
+# /etc/apt -- the same "name is not fully operator-authored, so validate
+# before building any path" rationale as Test 20.
+# ---------------------------------------------------------------------
+BUILD_GUEST_IMAGE="$TEST_DIR/../build-guest-image.sh"
+RASB_START="$(grep -n '^render_apt_source_boot() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+RASB_END="$(awk -v start="$RASB_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
+RASB_SRC="$WORK/render_apt_source_boot.sh"
+if [ -n "$RASB_START" ] && [ -n "$RASB_END" ]; then
+  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" > "$RASB_SRC"
+  # render_apt_source_boot calls log(); stub it so the extracted function
+  # sources standalone without pulling in the rest of the boot launcher.
+  printf 'log() { :; }\n' > "$WORK/render_apt_source_boot_stub.sh"
+  cat "$RASB_SRC" >> "$WORK/render_apt_source_boot_stub.sh"
+  # shellcheck source=/dev/null
+  . "$WORK/render_apt_source_boot_stub.sh"
+fi
+
+if [ -n "${RASB_START:-}" ] && [ -n "${RASB_END:-}" ] && command -v render_apt_source_boot >/dev/null 2>&1; then
+  # Path-traversal name is rejected (non-zero return) BEFORE any mkdir/write.
+  if render_apt_source_boot '../../etc/evil' 'deb https://x stable main' '' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: path-traversal name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: path-traversal name is rejected" "rejected" "rejected"
+  fi
+
+  # A name containing a slash but no ".." is equally rejected -- charset
+  # allowlist, not a ".." blacklist.
+  if render_apt_source_boot 'sub/dir' 'deb https://x stable main' '' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: slash-containing name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: slash-containing name is rejected" "rejected" "rejected"
+  fi
+
+  # Missing name/repo is rejected.
+  if render_apt_source_boot '' 'deb https://x stable main' '' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: empty name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: empty name is rejected" "rejected" "rejected"
+  fi
+
+  # A pinned signed-by outside the two allowed keyrings directories is
+  # rejected (the case-3 write-primitive guard ported from render_apt_source).
+  if render_apt_source_boot 'evil' 'deb [signed-by=/etc/cron.d/x] https://x stable main' 'https://x/key.asc' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: signed-by outside allowed keyrings dirs is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: signed-by outside allowed keyrings dirs is rejected" "rejected" "rejected"
+  fi
+
+  # A pinned signed-by with a '..' path segment is rejected.
+  if render_apt_source_boot 'evil2' 'deb [signed-by=/etc/apt/keyrings/../../cron.d/x] https://x stable main' 'https://x/key.asc' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: signed-by with '..' segment is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: signed-by with '..' segment is rejected" "rejected" "rejected"
+  fi
+else
+  echo "SKIP: render_apt_source_boot extraction from build-guest-image.sh failed; name-validation tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

@@ -114,18 +114,26 @@ repo:
 # install their packages at build time. The launcher derives a bake-hash over
 # the (order-normalized) bake + apt_sources config and stores each distinct
 # bake set as its own image variant (guest-<hash>.raw); no-bake configs share
-# one guest.raw. install_at_boot / update_at_boot are boot-time, not baked
-# (their consumers land in a sibling slice under #39).
+# one guest.raw. install_at_boot / update_at_boot run INSIDE the guest at
+# boot instead, through the proxy, blocking, before claude starts (issue
+# #106) -- use install_at_boot for packages that change often (e.g. the AWS
+# SDK/CLI) so they stay fresh without a rebuild.
 packages:
   bake: []                        # apt packages baked into the guest image at
                                   # build time (present with no boot network)
   install_at_boot: []             # apt packages installed at boot, blocking,
-                                  # before claude starts
-  update_at_boot: true            # apt-get update && upgrade at boot
-                                  # (default true)
-  apt_sources: []                 # third-party apt repos baked into the build:
-                                  # {name, repo, key_url}
-  add_apt_uris_to_allowlist: auto # auto (default) | always
+                                  # before claude starts, through the proxy
+  update_at_boot: true            # apt-get update && upgrade at boot,
+                                  # through the proxy (default true)
+  apt_sources: []                 # third-party apt repos: {name, repo,
+                                  # key_url}. Rendered at build time (for
+                                  # bake) AND at boot time into the guest's
+                                  # live /etc/apt (for install_at_boot)
+  add_apt_uris_to_allowlist: auto # auto (default) | always -- adds
+                                  # deb.debian.org/security.debian.org +
+                                  # apt_sources hosts to guest egress iff
+                                  # boot-time apt work is configured (auto),
+                                  # or unconditionally (always)
 
 claude:
   version: stable                 # stable (default) | latest | <pinned>
@@ -227,30 +235,46 @@ github:
 (issue #104) — the launcher renders `/root/.claude/settings.json`
 host-side and shares it into the guest (see "Guest Claude settings.json"
 below). `packages.bake` and `packages.apt_sources` are **consumed** by the
-guest-image build (issue #105 — see "Guest image" below). The remaining
-keys are schema + merge only as of issue #103 — the consumers that
-install-at-boot packages, seed marketplaces/plugins, or seed a GitHub token
-land in sibling slices under #39. They resolve correctly through
-`payload/lib/config.sh` today; nothing downstream reads them yet.
+guest-image build (issue #105 — see "Guest image" below).
+`packages.install_at_boot`, `packages.update_at_boot`, and
+`packages.add_apt_uris_to_allowlist` are **consumed** by the guest boot
+launcher's boot-time apt phase (issue #106 — see "Boot-time package
+install/update" in `payload/README.md`). The remaining keys (marketplace/
+plugin seeding, GitHub token seeding) are schema + merge only as of issue
+#103 — those consumers land in sibling slices under #39. They resolve
+correctly through `payload/lib/config.sh` today; nothing downstream reads
+them yet.
 
 - `packages.bake` / `packages.install_at_boot` list the apt packages to
   bake into the guest image vs. install at boot (blocking, before
-  claude starts). Both union global + repo entries. `packages.bake` is
-  baked at build time (issue #105): the baked packages are present in the
-  guest with no boot-time network, and the image is cached per bake set
-  (see "Guest image" below).
+  claude starts, through the proxy). Both union global + repo entries.
+  `packages.bake` is baked at build time (issue #105): the baked packages
+  are present in the guest with no boot-time network, and the image is
+  cached per bake set (see "Guest image" below). `packages.install_at_boot`
+  runs `apt-get -y install <list>` at boot (issue #106): use it for
+  packages that change often (e.g. the AWS SDK/CLI) so they stay fresh
+  without an image rebuild; a failed install warns loudly and continues to
+  claude rather than blocking the session.
 - `packages.update_at_boot` (default `true`) runs `apt-get update &&
-  upgrade` at boot; `packages.apt_sources` (union) adds third-party apt
-  repos as `{name, repo, key_url}` entries. `apt_sources` is baked into the
-  build (issue #105): each entry's `key_url` is fetched into a keyring and the
-  repo added `signed-by` that key, so its packages install at image-build time
-  (e.g. `gh` from cli.github.com).
+  upgrade` at boot, through the proxy, before claude starts (issue #106); a
+  failed update warns loudly and continues. `packages.apt_sources` (union)
+  adds third-party apt repos as `{name, repo, key_url}` entries. Each entry
+  is rendered TWICE, independently: at **image-build** time (issue #105 —
+  baked into the mkosi sandbox tree so `packages.bake` packages from that
+  repo install at build time) and, separately, at **boot** time into the
+  guest's live `/etc/apt` whenever `packages.install_at_boot` is nonempty
+  (issue #106 — reusing the exact same keyring-fetch + sources.list.d-write
+  shape, ported to plain bash since the guest has no python3/jq).
 - `packages.add_apt_uris_to_allowlist` (`auto` default | `always`)
-  controls whether URIs derived from configured apt sources are added
-  to the proxy egress allowlist only when boot-time package work needs
-  them (`auto`), or unconditionally so in-session installs also work
-  (`always`). The knob never removes URIs that scheduled boot-time work
-  requires.
+  controls whether `deb.debian.org` + `security.debian.org` + every
+  `packages.apt_sources` host are added to the guest's egress allowlist.
+  `auto` adds them only when boot-time package work needs them
+  (`install_at_boot` nonempty, or `update_at_boot` true); with neither
+  configured, `auto` derives nothing, leaving package repos unreachable —
+  by design, for a hard-secure all-baked config. `always` adds them
+  unconditionally so in-session `apt-get install` also works. The knob
+  never removes URIs that scheduled boot-time work requires, and every
+  derived addition is logged.
 - `claude.marketplaces` (union of `{name, url}` entries) and
   `claude.plugins.update_at_boot` (default `true`) / `.add_marketplace_uris_to_allowlist`
   (`auto` default | `always`) control which marketplaces the guest has
@@ -411,6 +435,15 @@ Claude Code updates daily, so the guest image does **not** bake in
   shared image with no rebuild. Only bake + apt_sources feed the hash —
   changing cpus/egress/permissions never rebuilds. The `guest_image` scalar,
   when set, opts out of variant derivation and is used verbatim.
+- **Boot-time package install/update (issue #106).** Unlike the above,
+  `packages.install_at_boot` and `packages.update_at_boot` do **not** touch
+  the image or its version — they run a new blocking phase in the boot
+  launcher itself, right before claude execs, through the same proxy the
+  rest of the guest's egress goes through. See "Boot-time package
+  install/update" in `payload/README.md` for the full mechanics (the
+  reused `render_apt_source` shape, the proxy `-o Acquire::*::Proxy=`
+  flags, the failure policy, and the `add_apt_uris_to_allowlist` derived-
+  egress gate).
 - On startup, the launcher **ensures the image exists and matches the
   pinned version**. If the resolved image is missing or version-mismatched,
   it builds the image (`payload/build-guest-image.sh --output …`, passing the

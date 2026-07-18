@@ -52,25 +52,49 @@ repo:
 # global guest.raw; adding a bake item builds+stores a separate variant on first
 # use; removing it reverts to the shared image with no rebuild. Only bake +
 # apt_sources feed the hash -- changing cpus/egress/permissions/etc. never
-# rebuilds the image. (install_at_boot / update_at_boot are boot-time, NOT baked;
-# their consumers land in a sibling slice under #39.)
+# rebuilds the image.
+#
+# install_at_boot / update_at_boot are BOOT-TIME instead (issue #106): they run
+# `apt-get install` / `apt-get update && upgrade` INSIDE the guest, blocking,
+# right before claude starts -- through the SAME proxy the rest of the guest's
+# egress goes through. Use install_at_boot for packages that change often (the
+# AWS SDK/CLI is the motivating example) so they stay fresh without a rebuild;
+# use bake for anything stable enough to not need a fresh copy every launch. If
+# a boot-time install is too slow for your workflow, move that package to bake
+# instead. A failed boot-time update/install prints a loud warning to the
+# captured console/log and CONTINUES to claude -- it never blocks an
+# interactive session on a broken mirror.
 packages:
   bake: []                # apt packages baked into the guest image at build
                           # time -- present with no network at boot (list, union)
   install_at_boot: []     # apt packages installed at boot, blocking, before
-                          # claude starts (list, union)
-  update_at_boot: true    # apt-get update && upgrade at boot (scalar, repo
-                          # wins; default true)
-  apt_sources: []         # third-party apt repos baked into the build so their
-                          # packages install at image-build time:
-                          # {name, repo, key_url}. key_url is fetched into a
-                          # keyring and the repo is added signed-by that key
-                          # (list, union)
-  add_apt_uris_to_allowlist: auto   # auto (default) | always -- auto adds
-                          # derived egress URIs to the proxy allowlist only
-                          # when configured boot-time work needs them;
-                          # always adds them regardless, enabling in-session
-                          # installs (scalar, repo wins)
+                          # claude starts, through the proxy (list, union)
+  update_at_boot: true    # apt-get update && upgrade at boot, through the
+                          # proxy, before claude starts (scalar, repo wins;
+                          # default true)
+  apt_sources: []         # third-party apt repos: {name, repo, key_url}.
+                          # key_url is fetched into a keyring and the repo is
+                          # added signed-by that key (list, union). Rendered
+                          # at IMAGE-BUILD time (baking whatever packages.bake
+                          # names from these repos) AND, separately, at BOOT
+                          # time into the guest's live /etc/apt whenever
+                          # install_at_boot is nonempty (so a boot-time install
+                          # can pull from the same third-party repos bake can).
+  add_apt_uris_to_allowlist: auto   # auto (default) | always -- controls BOTH
+                          # the build-time marketplace/plugin URIs (a sibling
+                          # knob under claude.plugins) AND this boot-time apt
+                          # egress: deb.debian.org + security.debian.org, plus
+                          # every apt_sources host, are added to the guest's
+                          # egress allowlist IFF install_at_boot is nonempty, OR
+                          # update_at_boot is true (the default), OR this is
+                          # set to "always". "auto" with update_at_boot: false
+                          # and an empty install_at_boot derives NO apt egress
+                          # at all -- a hard-secure all-baked config leaves the
+                          # guest unable to reach any package repo. "always"
+                          # keeps the URIs allowlisted regardless, so an
+                          # in-guest `apt-get install` still works mid-session
+                          # even with boot-time apt work disabled. Every
+                          # derived addition is logged (scalar, repo wins)
 
 # Which `claude` binary to run in the guest. The HOST resolves this to a
 # concrete version, downloads that version's GPG-signed manifest, verifies

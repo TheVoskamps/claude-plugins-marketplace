@@ -375,6 +375,42 @@ entries that are null or empty (e.g. a stray `-` in the YAML list) are
 stripped during canonicalization rather than passed through as a literal
 `"None"` package name, which would otherwise fail the image build.
 
+**Boot-time package install/update (issue #106).** Unlike `packages.bake`,
+`packages.install_at_boot` and `packages.update_at_boot` run **inside the
+guest at boot**, blocking, right before claude execs — not baked into the
+image. The boot launcher (`build-guest-image.sh`'s `boot_apt_phase`) runs, in
+order: (1) when `packages.update_at_boot` is true (the default),
+`apt-get update` + `apt-get -y upgrade`; (2) when `packages.install_at_boot`
+is nonempty, render any `packages.apt_sources` entries into the guest's
+**live** `/etc/apt` — reusing the exact same keyring-fetch + sources.list.d-
+write shape as the build-time `render_apt_source` (case-matrix, name/path
+validation, and all), ported to plain bash since the guest image carries no
+python3/jq to parse a manifest — then `apt-get -y install <list>`. Both
+`apt-get` calls proxy through `Acquire::http::Proxy` / `Acquire::https::Proxy`
+pointed at the same `HTTP_PROXY`/`HTTPS_PROXY` `run.env` already carries. A
+failed update/install prints a loud warning to the `hvc0` diagnostic log and
+**continues** to claude — a failed optional install must never brick an
+interactive session (per the issue's agreed failure policy). The host
+delivers the manifest (`packages.install_at_boot` names, and the
+`packages.apt_sources` TSV) as plain newline/TSV files on the same
+`runconfig` virtio-fs share `run.env` already rides, for the same "no
+python3/jq in the guest" reason.
+
+`packages.add_apt_uris_to_allowlist` (`auto`, the default, or `always`)
+controls whether the launcher adds `deb.debian.org` + `security.debian.org` +
+every `packages.apt_sources` host to the guest's egress allowlist. `auto`
+adds them **iff** boot-time apt work is actually configured
+(`install_at_boot` nonempty, or `update_at_boot` true); with no boot-time
+work configured, `auto` derives nothing — a hard-secure all-baked config
+leaves package repos genuinely unreachable from the guest. `always` keeps
+the URIs allowlisted regardless, so an in-guest `apt-get install` still
+works mid-session even with boot-time apt work turned off. The launcher
+never removes a URI that scheduled boot-time work requires (so `auto` and
+`always` never conflict), and logs every derived addition — no silent
+allowlist growth. This derivation runs in `claude-vm.sh`, after the
+warm-boot `claude.ai`/`downloads.claude.ai` tightening (issue #49) so a
+dropped entry from that step is never re-added here.
+
 The launcher attaches **two** virtio-serial consoles (issue #88). The
 first (`logFilePath`, guest `hvc0`) captures the booting guest's
 kernel/systemd output to `$RUN/guest-console.log`, making an otherwise

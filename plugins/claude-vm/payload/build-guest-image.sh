@@ -131,7 +131,21 @@ BASE_OS_REV="debian-12-20250601"
 # abort (it is a security-posture file carrying the deny-list backstop -- booting
 # without it would silently drop that backstop). This is a new boot-logic step,
 # so old images (stamped 'launcher9') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="10"
+# Bumped 10 -> 11: boot-time package install/update through the proxy (issue
+# #106). The boot launcher now runs a new BLOCKING phase, right before the
+# claude-fetch seam: (1) when CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (the
+# run.env default), `apt-get update` + `apt-get -y upgrade`; (2) when
+# apt-install.list (from the runconfig mount) is nonempty, render any
+# apt-sources.tsv entries into the guest's live /etc/apt (reusing the #105
+# render_apt_source shape, now inlined here since the guest has no python3),
+# then `apt-get -y install` the listed packages. Both steps proxy through
+# Acquire::http::Proxy / Acquire::https::Proxy pointed at the SAME
+# HTTP_PROXY/HTTPS_PROXY run.env already carries. A failed install/update
+# prints a loud warning to the hvc0 diagnostic log and CONTINUES to claude --
+# a failed optional install must never brick an interactive session. This is
+# a new boot-logic step, so old images (stamped 'launcher10') must rebuild to
+# gain it.
+LAUNCHER_LOGIC_REV="11"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -371,6 +385,204 @@ fi
 cp "$MOUNTED_GUEST_SETTINGS" "$CRED_DIR/settings.json"
 chmod 600 "$CRED_DIR/settings.json"
 log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.json (permissions + enabledPlugins)."
+
+# ---------------------------------------------------------------------
+# Boot-time package install/update through the proxy (issue #106).
+#
+# BLOCKING, before claude execs (agreed in the issue: if a package is too
+# slow to install at boot, the user moves it from install_at_boot to bake).
+#
+#   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, default true):
+#      `apt-get update` + `apt-get -y upgrade`.
+#   2. apt-install.list (runconfig mount) nonempty: render any
+#      apt-sources.tsv entries into the guest's LIVE /etc/apt (reusing the
+#      #105 render_apt_source shape -- inlined here, not sourced, because the
+#      guest has no python3/jq to parse a JSON manifest; see the [Content]
+#      Packages= list in provisioners/podman-mkosi.sh), then
+#      `apt-get -y install <list>`.
+#
+# Both apt-get invocations proxy through Acquire::http::Proxy /
+# Acquire::https::Proxy pointed at the SAME HTTP_PROXY/HTTPS_PROXY run.env
+# already exported above (set -a), rather than relying on apt's env-var
+# pickup, which is not guaranteed across apt versions -- an explicit -o flag
+# always wins.
+#
+# FAILURE POLICY: a failed update/install prints a loud warning to the hvc0
+# diagnostic log (log(), same as every other boot diagnostic) and CONTINUES
+# -- a failed optional install must never brick an interactive session. This
+# whole phase is therefore wrapped so no `apt-get` exit status escapes under
+# `set -e`.
+APT_INSTALL_LIST="$RUNCONFIG_MNT/apt-install.list"
+APT_SOURCES_TSV="$RUNCONFIG_MNT/apt-sources.tsv"
+APT_PROXY_OPTS=()
+if [ -n "${HTTP_PROXY:-}" ]; then
+  APT_PROXY_OPTS+=(-o "Acquire::http::Proxy=$HTTP_PROXY")
+fi
+if [ -n "${HTTPS_PROXY:-}" ]; then
+  APT_PROXY_OPTS+=(-o "Acquire::https::Proxy=$HTTPS_PROXY")
+fi
+
+# render_apt_source_boot: the #105 keyring-fetch + sources.list.d-write unit
+# (podman-mkosi.sh's render_apt_source), reused against the guest's LIVE
+# /etc/apt at boot instead of a build-time mkosi sandbox tree -- the reuse
+# the #105 comment on render_apt_source names this slice by issue number.
+# Same case matrix (no [options] block / block without signed-by / block
+# WITH signed-by already pinned / no key / non-deb line), same name/path
+# validation (charset-safe name; a pinned signed-by path is constrained to
+# /etc/apt/keyrings or /usr/share/keyrings with a charset-safe filename and
+# no '..' segment) -- ported to plain bash (no python3 in the guest) and
+# collapsed to ONE directory tree (keyrings_dir == sources_dir's sibling ==
+# the live runtime path) since there is no staging/runtime split at boot.
+render_apt_source_boot() {
+  local name="$1" repo="$2" key_url="$3"
+  local keyrings_dir="/etc/apt/keyrings" sources_dir="/etc/apt/sources.list.d"
+  if [ -z "$name" ] || [ -z "$repo" ]; then
+    log "claude-vm: boot apt_source entry missing name or repo; skipping"
+    return 1
+  fi
+  case "$name" in
+    *[!A-Za-z0-9._-]*)
+      log "claude-vm: boot apt_source name '$name' contains characters outside [A-Za-z0-9._-]; skipping"
+      return 1
+      ;;
+  esac
+  mkdir -p "$keyrings_dir" "$sources_dir"
+  local keyring_path="$keyrings_dir/${name}.asc"
+
+  local is_deb_line=0 has_block=0 block_has_signed_by=0 existing_signed_by=""
+  if [[ "$repo" =~ ^(deb|deb-src)([[:space:]]+)\[([^]]*)\](.*)$ ]]; then
+    is_deb_line=1
+    has_block=1
+    local block_body="${BASH_REMATCH[3]}"
+    if [[ "$block_body" =~ (^|[[:space:]])signed-by=([^[:space:]]+) ]]; then
+      block_has_signed_by=1
+      existing_signed_by="${BASH_REMATCH[2]}"
+    fi
+  elif [[ "$repo" =~ ^(deb|deb-src)[[:space:]] ]]; then
+    is_deb_line=1
+  fi
+
+  local have_key=0
+  if [ -n "$key_url" ]; then
+    if [ "$is_deb_line" -eq 1 ] && [ "$has_block" -eq 1 ] && [ "$block_has_signed_by" -eq 1 ]; then
+      case "$existing_signed_by" in
+        /*) : ;;
+        *)
+          log "claude-vm: boot apt_source '$name' signed-by path '$existing_signed_by' is not absolute; skipping"
+          return 1
+          ;;
+      esac
+      case "$existing_signed_by" in
+        *[[:space:]]*|*']'*)
+          log "claude-vm: boot apt_source '$name' signed-by path '$existing_signed_by' contains disallowed characters; skipping"
+          return 1
+          ;;
+      esac
+      local seg
+      local old_ifs="$IFS"
+      IFS=/
+      for seg in $existing_signed_by; do
+        if [ "$seg" = ".." ]; then
+          IFS="$old_ifs"
+          log "claude-vm: boot apt_source '$name' signed-by path '$existing_signed_by' contains a '..' path segment; skipping"
+          return 1
+        fi
+      done
+      IFS="$old_ifs"
+      case "$existing_signed_by" in
+        /etc/apt/keyrings/*|/usr/share/keyrings/*)
+          local kr_file="${existing_signed_by##*/}"
+          case "$kr_file" in
+            *[!A-Za-z0-9._-]*|"")
+              log "claude-vm: boot apt_source '$name' signed-by path '$existing_signed_by' has a filename outside [A-Za-z0-9._-]; skipping"
+              return 1
+              ;;
+          esac
+          local kr_parent="${existing_signed_by%/*}"
+          if [ "$kr_parent" != "/etc/apt/keyrings" ] && [ "$kr_parent" != "/usr/share/keyrings" ]; then
+            log "claude-vm: boot apt_source '$name' signed-by path '$existing_signed_by' is not directly under an allowed keyrings directory; skipping"
+            return 1
+          fi
+          ;;
+        *)
+          log "claude-vm: boot apt_source '$name' signed-by path '$existing_signed_by' is outside the allowed keyrings directories (/etc/apt/keyrings, /usr/share/keyrings); skipping"
+          return 1
+          ;;
+      esac
+      mkdir -p "$(dirname "$existing_signed_by")"
+      keyring_path="$existing_signed_by"
+    fi
+    # curl (unlike apt-get) does not take -o Acquire::...=... proxy flags; it
+    # already honors the HTTP_PROXY/HTTPS_PROXY env vars run.env exported
+    # above (set -a), so no explicit proxy flag is needed here.
+    if ! curl -fsSL "$key_url" -o "$keyring_path"; then
+      log "claude-vm: failed to fetch boot apt_source key for '$name' from $key_url"
+      return 1
+    fi
+    have_key=1
+  fi
+
+  local line
+  if [ "$have_key" -eq 1 ] && [ "$is_deb_line" -eq 1 ] && [ "$has_block" -eq 1 ] && [ "$block_has_signed_by" -eq 1 ]; then
+    line="$repo"
+  elif [ "$have_key" -eq 1 ] && [ "$is_deb_line" -eq 1 ] && [ "$has_block" -eq 1 ]; then
+    if [[ "$repo" =~ ^(deb|deb-src)([[:space:]]+)\[([^]]*)\](.*)$ ]]; then
+      local tok="${BASH_REMATCH[1]}" ws="${BASH_REMATCH[2]}" body="${BASH_REMATCH[3]}" rest="${BASH_REMATCH[4]}"
+      line="${tok}${ws}[${body} signed-by=${keyring_path}]${rest}"
+    else
+      line="$repo"
+    fi
+  elif [ "$have_key" -eq 1 ] && [ "$is_deb_line" -eq 1 ]; then
+    line="$(printf '%s' "$repo" | awk -v sb="$keyring_path" '{
+      printf "%s [signed-by=%s]", $1, sb; for(i=2;i<=NF;i++) printf " %s", $i; print ""
+    }')"
+  else
+    line="$repo"
+  fi
+  printf '%s\n' "$line" > "$sources_dir/${name}.list"
+  log "claude-vm: rendered boot apt_source '$name' -> $sources_dir/${name}.list"
+}
+
+boot_apt_phase() {
+  local did_update=0
+
+  if [ "${CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT:-true}" = "true" ]; then
+    log "claude-vm: boot-time apt: running 'apt-get update' + 'apt-get -y upgrade' (packages.update_at_boot)."
+    if apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" update -qq \
+        && DEBIAN_FRONTEND=noninteractive apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" -y -qq upgrade; then
+      did_update=1
+    else
+      log "claude-vm: WARNING -- boot-time 'apt-get update/upgrade' failed; continuing to claude with the image as-is."
+    fi
+  fi
+
+  if [ -s "$APT_INSTALL_LIST" ]; then
+    log "claude-vm: boot-time apt: rendering apt_sources for install_at_boot."
+    if [ -s "$APT_SOURCES_TSV" ]; then
+      while IFS=$'\t' read -r as_name as_repo as_key_url; do
+        [ -n "$as_name" ] || continue
+        render_apt_source_boot "$as_name" "$as_repo" "$as_key_url" || true
+      done < "$APT_SOURCES_TSV"
+      if [ "$did_update" -eq 0 ]; then
+        # A newly-rendered apt_source needs its own index fetched before
+        # install can see its packages, even when update_at_boot is false.
+        apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" update -qq \
+          || log "claude-vm: WARNING -- boot-time 'apt-get update' (for newly rendered apt_sources) failed; install below may fail to find those packages."
+      fi
+    fi
+    local install_packages=()
+    while IFS= read -r pkg; do
+      [ -n "$pkg" ] && install_packages+=("$pkg")
+    done < "$APT_INSTALL_LIST"
+    if [ "${#install_packages[@]}" -gt 0 ]; then
+      log "claude-vm: boot-time apt: installing packages.install_at_boot: ${install_packages[*]}"
+      if ! DEBIAN_FRONTEND=noninteractive apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" -y -qq install "${install_packages[@]}"; then
+        log "claude-vm: WARNING -- boot-time 'apt-get install' failed for one or more of: ${install_packages[*]}; continuing to claude without them."
+      fi
+    fi
+  fi
+}
+boot_apt_phase
 
 # ---------------------------------------------------------------------
 # claude-fetch SEAM -- FILLED (issue #49).

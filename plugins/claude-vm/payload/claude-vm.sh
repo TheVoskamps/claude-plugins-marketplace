@@ -117,6 +117,11 @@ GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED" '.proxy.host_alias' "$CLAUDE_VM
 DEFAULT_PROXY_CMD="$SCRIPT_DIR/proxy/tinyproxy-launch.sh"
 PROXY_CMD="$(claude_vm_scalar "$MERGED" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 
+# Boot-time apt update flag (issue #106): resolved once here so both the
+# run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
+# below) read the SAME value the boot launcher will act on.
+PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+
 # guest_image: a normal scalar. When SET, it is used as-is -- an explicit
 # operator override that opts OUT of bake-hash variant derivation (issue #105):
 # the operator owns that path and its contents, so we neither hash nor rewrite
@@ -953,6 +958,12 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # `set -a` sourcing (value-quoting audit above). The boot launcher sources
     # run.env under `set -a`, so it exports into claude's environment for free.
     printf 'IS_SANDBOX=1\n'
+    # Boot-time apt update flag (issue #106): whether the guest boot launcher
+    # runs `apt-get update && apt-get -y upgrade` before claude starts. A
+    # plain boolean scalar (packages.update_at_boot, default true) -> a fixed
+    # 'true'/'false' literal is provably safe under the run.env `set -a`
+    # sourcing (value-quoting audit above).
+    printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
     # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced
@@ -973,6 +984,26 @@ RUN_ENV="$CONFIG_DIR/run.env"
   } > "$RUN_ENV"
 )
 chmod 600 "$RUN_ENV"
+
+# ---------------------------------------------------------------------
+# Boot-time apt manifest (issue #106): packages.install_at_boot +
+# packages.apt_sources, delivered to the guest boot launcher via the SAME
+# runconfig share as run.env (mountTag=runconfig -- see the EXTRA_MOUNT_FLAGS
+# device list below). Plain newline/TSV files, NOT JSON: the base guest image
+# carries no python3/jq (see provisioners/podman-mkosi.sh's minimal
+# [Content] Packages= list), so the boot launcher -- plain bash -- parses
+# these the same line-oriented way build-guest-image.sh's other manifest
+# reads work. Neither file is secret, so no umask/chmod tightening beyond
+# what CONFIG_DIR already has.
+#
+#   apt-install.list  -- one package name per line (packages.install_at_boot).
+#   apt-sources.tsv   -- name<TAB>repo<TAB>key_url per line
+#                        (packages.apt_sources), reusing the SAME accessor
+#                        (claude_vm_apt_sources) and TSV shape the #105 build-
+#                        time render already consumes, so both boot-time and
+#                        bake-time renders read identically-shaped input.
+claude_vm_list_items "$MERGED" '.packages.install_at_boot' > "$CONFIG_DIR/apt-install.list"
+claude_vm_apt_sources "$MERGED" > "$CONFIG_DIR/apt-sources.tsv"
 
 # ---------------------------------------------------------------------
 # Egress allowlist -- write it where the proxy reads it. The proxy.cmd
@@ -1008,6 +1039,36 @@ case "${CLAUDE_VM_CACHE_NETWORK:-}" in
     fi
     ;;
 esac
+
+# ---------------------------------------------------------------------
+# Boot-time apt derived egress (issue #106).
+#
+# packages.install_at_boot / packages.update_at_boot run apt-get INSIDE the
+# guest at boot, through this proxy -- so the Debian mirror hosts (and any
+# packages.apt_sources hosts) must be reachable. Add them to the allowlist
+# iff boot-time apt work actually needs them (claude_vm_boot_apt_egress_needed:
+# install_at_boot nonempty, or update_at_boot true, or
+# add_apt_uris_to_allowlist: always) -- "auto" (the default) with no boot-time
+# apt work derives NOTHING, so a hard-secure all-baked config leaves package
+# repos unreachable from the guest, by design. Every derived addition is
+# logged (no silent allowlist growth). Runs AFTER the warm-boot tightening
+# above so a dropped claude.ai/downloads.claude.ai entry is never
+# re-introduced by this step.
+if claude_vm_boot_apt_egress_needed "$MERGED"; then
+  DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED" | tr '\n' ' ')"
+  EXISTING_HOSTS=" $(tr '\n' ' ' < "$EGRESS_ALLOWLIST" 2>/dev/null) "
+  for _host in $DERIVED_APT_HOSTS; do
+    case "$EXISTING_HOSTS" in
+      *" $_host "*) ;;
+      *)
+        printf '%s\n' "$_host" >> "$EGRESS_ALLOWLIST"
+        EXISTING_HOSTS="${EXISTING_HOSTS}${_host} "
+        echo "claude-vm: derived apt egress -- added '$_host' to the guest egress allowlist (boot-time apt work configured)." >&2
+        ;;
+    esac
+  done
+  unset _host
+fi
 
 export CLAUDE_VM_EGRESS_ALLOWLIST="$EGRESS_ALLOWLIST"
 # The proxy.cmd must bind the port the guest's HTTPS_PROXY points at (set
