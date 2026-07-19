@@ -63,7 +63,12 @@ repo:
 # a boot-time install is too slow for your workflow, move that package to bake
 # instead. A failed boot-time update/install prints a loud warning to the
 # captured console/log and CONTINUES to claude -- it never blocks an
-# interactive session on a broken mirror.
+# interactive session on a broken mirror. This requires `apt` itself to be
+# present in the guest -- mkosi does NOT provide it for free, since mkosi
+# installs packages from OUTSIDE the image with its own apt. `apt` is
+# therefore baked into every guest image UNCONDITIONALLY (not gated on
+# whether install_at_boot/update_at_boot are configured), since
+# update_at_boot defaults to true.
 packages:
   bake: []                # apt packages baked into the guest image at build
                           # time -- present with no network at boot (list, union)

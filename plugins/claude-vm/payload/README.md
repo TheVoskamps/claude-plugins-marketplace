@@ -378,7 +378,17 @@ stripped during canonicalization rather than passed through as a literal
 **Boot-time package install/update (issue #106).** Unlike `packages.bake`,
 `packages.install_at_boot` and `packages.update_at_boot` run **inside the
 guest at boot**, blocking, right before claude execs — not baked into the
-image. The boot launcher (`build-guest-image.sh`'s `boot_apt_phase`) runs, in
+image. This requires `apt` itself to be present in the guest, which mkosi
+does NOT provide for free: mkosi installs packages from OUTSIDE the image
+with its own (build-container) apt, so nothing else ever pulls apt/dpkg
+tooling into the guest rootfs. `apt` is therefore baked into the base
+`Packages=` list (`provisioners/podman-mkosi.sh`) **unconditionally** — not
+gated on whether boot-time apt work is configured — because
+`update_at_boot` defaults to true (so nearly every config needs it) and the
+`always` mid-session-install mode below is only honest if apt exists to use.
+The security boundary for a hard-secure all-baked config is the egress
+allowlist (package mirrors left unreachable), not the absence of the apt
+binary. The boot launcher (`build-guest-image.sh`'s `boot_apt_phase`) runs, in
 order: (1) when `packages.update_at_boot` is true (the default),
 `apt-get update` + `apt-get -y upgrade`; (2) when `packages.install_at_boot`
 is nonempty, render any `packages.apt_sources` entries into the guest's

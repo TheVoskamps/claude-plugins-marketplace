@@ -145,7 +145,22 @@ BASE_OS_REV="debian-12-20250601"
 # a failed optional install must never brick an interactive session. This is
 # a new boot-logic step, so old images (stamped 'launcher10') must rebuild to
 # gain it.
-LAUNCHER_LOGIC_REV="11"
+# Bumped 11 -> 12: bake `apt` into the base Packages= list (issue #106 real-run
+# fix). A real guest boot found boot_apt_phase (added in the 10 -> 11 bump)
+# failing on every apt-get call with "command not found": mkosi installs
+# packages from OUTSIDE the image with its own (build-container) apt, so
+# nothing ever pulled apt/dpkg tooling INTO the guest rootfs -- the base
+# Packages= list (provisioners/podman-mkosi.sh) never named it. `apt` is now
+# baked UNCONDITIONALLY, not gated on whether boot-time apt work is
+# configured, because packages.update_at_boot defaults to true (so nearly
+# every config needs it), the security boundary for a hard-secure all-baked
+# config is the egress allowlist (mirrors left unreachable), not the absence
+# of the apt binary, and the add_apt_uris_to_allowlist: always mid-session-
+# install path is only honest if apt exists. This is a base-image CONTENT
+# change (not boot-logic code), but it still must invalidate every cached
+# image built before it -- including images already built at rev 11 without
+# apt -- so old images (stamped 'launcher11') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="12"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------

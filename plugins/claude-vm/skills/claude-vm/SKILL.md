@@ -117,7 +117,10 @@ repo:
 # one guest.raw. install_at_boot / update_at_boot run INSIDE the guest at
 # boot instead, through the proxy, blocking, before claude starts (issue
 # #106) -- use install_at_boot for packages that change often (e.g. the AWS
-# SDK/CLI) so they stay fresh without a rebuild.
+# SDK/CLI) so they stay fresh without a rebuild. This requires `apt` itself
+# to be present in the guest, which mkosi does not provide for free -- so
+# `apt` is baked into every guest image's base Packages= list
+# unconditionally, regardless of whether boot-time apt work is configured.
 packages:
   bake: []                        # apt packages baked into the guest image at
                                   # build time (present with no boot network)
@@ -435,11 +438,17 @@ Claude Code updates daily, so the guest image does **not** bake in
   shared image with no rebuild. Only bake + apt_sources feed the hash —
   changing cpus/egress/permissions never rebuilds. The `guest_image` scalar,
   when set, opts out of variant derivation and is used verbatim.
-- **Boot-time package install/update (issue #106).** Unlike the above,
-  `packages.install_at_boot` and `packages.update_at_boot` do **not** touch
-  the image or its version — they run a new blocking phase in the boot
-  launcher itself, right before claude execs, through the same proxy the
-  rest of the guest's egress goes through. See "Boot-time package
+- **Boot-time package install/update (issue #106).** `packages.install_at_boot`
+  and `packages.update_at_boot` do **not** feed the bake-hash — they run a
+  blocking phase in the boot launcher itself, right before claude execs,
+  through the same proxy the rest of the guest's egress goes through. The
+  base image DOES need one thing unconditionally to support this phase: `apt`
+  itself, baked into the base `Packages=` list regardless of whether
+  install_at_boot/update_at_boot are configured (mkosi does not otherwise put
+  apt/dpkg tooling into the guest rootfs, since it installs baked packages
+  from OUTSIDE the image with its own build-container apt) — this is covered
+  by `LAUNCHER_LOGIC_REV`, the same base-version pin as everything else in
+  this bullet's parent bullet, not by the bake-hash. See "Boot-time package
   install/update" in `payload/README.md` for the full mechanics (the
   reused `render_apt_source` shape, the proxy `-o Acquire::*::Proxy=`
   flags, the failure policy, and the `add_apt_uris_to_allowlist` derived-

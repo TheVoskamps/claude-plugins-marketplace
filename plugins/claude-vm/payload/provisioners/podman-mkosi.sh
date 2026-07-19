@@ -365,6 +365,21 @@ Packages=
     # It is Essential on Debian (so normally present), but the autologin getty
     # depends on it directly, so pin it explicitly in the auditable recipe.
     util-linux
+    # apt provides apt-get, which the boot launcher's boot_apt_phase (issue
+    # #106) execs INSIDE the guest for install_at_boot/update_at_boot. Baked
+    # here UNCONDITIONALLY -- not gated on whether boot-time apt work is
+    # configured -- because mkosi installs packages from OUTSIDE the image
+    # with its own (build-container) apt, so nothing else ever pulls apt/dpkg
+    # tooling into the guest rootfs; a real guest boot confirmed
+    # boot_apt_phase failing with "apt-get: command not found" before this
+    # was added. The security boundary for a hard-secure all-baked config
+    # (add_apt_uris_to_allowlist: auto, no boot-time apt work configured) is
+    # the egress allowlist leaving package mirrors unreachable, NOT the
+    # absence of the apt binary -- and the add_apt_uris_to_allowlist: always
+    # mid-session-install path is only honest if apt actually exists to use
+    # it. The fail-soft failure policy (a failed apt-get warns and continues
+    # to claude) is unchanged.
+    apt
 
 [Build]
 # Offline repart: build the disk without loopback devices so this runs in
