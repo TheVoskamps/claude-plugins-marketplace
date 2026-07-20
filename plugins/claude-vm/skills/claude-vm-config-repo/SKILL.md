@@ -38,7 +38,8 @@ per-repo file. The layering library fills every un-overridden key from
 the global layer at runtime; duplicating them here would mean the repo
 file silently shadows future changes to the global default.
 
-- **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
+- **Scalars** (`cpus`, `mem`, `guest_image`, `image.root_headroom_mb`,
+  `repo.mount`,
   `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`,
   `claude.remote_control`, `packages.update_at_boot`,
   `packages.add_apt_uris_to_allowlist`, `claude.permission_mode`,
@@ -46,6 +47,11 @@ file silently shadows future changes to the global default.
   `claude.plugins.add_marketplace_uris_to_allowlist`,
   `github.auth`): write a key only if the user wants this repo
   to use a different value than the global config resolves to.
+  (`image.root_headroom_mb` sizes the guest root partition's free margin
+  above its measured/estimated base content — issue #106; bump it for a
+  repo whose sessions install many packages or otherwise grow the guest
+  disk more than the 1024 MB default anticipates. Non-default values fork
+  their own cached image variant and trigger a rebuild.)
   (`claude.renderer` selects the interactive-console terminal renderer:
   `classic` | `fullscreen` | unset; an unrecognized value aborts the
   launch. `claude.remote_control` is an opt-in boolean — `true` adds

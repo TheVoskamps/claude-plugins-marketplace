@@ -70,6 +70,19 @@ if [ -z "$BAKE_CONFIG" ]; then
   BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
 fi
 
+# Root partition headroom (issue #106 real-run fix). build-guest-image.sh
+# resolves image.root_headroom_mb (default 1024, see
+# lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB) and exports it as
+# CLAUDE_VM_ROOT_HEADROOM_MB; it also validates it as a positive integer, so
+# this is defense-in-depth, not the primary guard.
+ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-1024}"
+case "$ROOT_HEADROOM_MB" in
+  ''|*[!0-9]*)
+    echo "podman-mkosi: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
+    exit 1
+    ;;
+esac
+
 # The guest Debian release. build-guest-image.sh exports BASE_OS_REV as
 # CLAUDE_VM_BASE_OS_REV so the guest pin is owned by the build recipe, not
 # duplicated here. BASE_OS_REV looks like "debian-12-20250601"; the middle
@@ -146,6 +159,148 @@ mkdir -p "$STAGE/recipe/mkosi.extra/usr/local/lib/claude-vm"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/system"
 mkdir -p "$STAGE/recipe/mkosi.extra/etc/systemd/network"
 mkdir -p "$STAGE/out"
+
+# ---------------------------------------------------------------------
+# Guest apt metadata diet (issue #106 real-run fix).
+#
+# A real guest boot hit ENOSPC twice in one session on the 991 MB root
+# (~850 MB base usage): boot_apt_phase's `apt-get update` was re-materializing
+# ~163 MB under /var/lib/apt/lists PLUS ~88 MB of pkgcache.bin/srcpkgcache.bin
+# on every boot (packages.update_at_boot defaults true). Root cause, verified
+# against mkosi v26's actual Debian installer (mkosi/distribution/debian.py):
+# left to its own defaults, mkosi writes a `<suite>.sources` file with
+# `Types: deb deb-src` for FOUR repo stanzas (main, debian-debug, updates,
+# security) into the GUEST image itself (install_apt_sources() targets
+# etc/apt/sources.list.d/<release>.sources with for_image=True) -- none of
+# which this recipe ever asked for; we install pre-built binary packages
+# only, never build from source, and never need debug symbols in the guest.
+#
+# Fix: pre-empt mkosi's own write. install_apt_sources() only writes when
+# `not sources.exists()` -- mkosi.skeleton/ is copied into the OS tree BEFORE
+# the package manager (and its sources file) is set up (unlike mkosi.extra/,
+# which lands AFTER package installation and would be too late to affect
+# apt's OWN traffic during the mkosi build). Placing our own binary-only,
+# no-debug .sources file at the same path under mkosi.skeleton/ means mkosi's
+# installer sees the file already exists and never overwrites it -- so the
+# GUEST'S OWN sources.list.d entry point (used by boot_apt_phase and any
+# later interactive apt-get) is main+updates+security, deb only, from the
+# start. This does not touch the BUILD CONTAINER's own apt sources (which
+# mkosi computes separately via cls.repositories(context) with
+# for_image=False, unaffected by this file) -- only the image mkosi produces.
+#
+# Also drop Acquire::Languages "none" (skips Translation-* downloads --
+# verified ~32 MB of the 163 MB lists total) and disable the persistent
+# pkgcache.bin/srcpkgcache.bin (Dir::Cache::pkgcache/srcpkgcache "") via an
+# apt.conf.d drop-in, mirroring standard container practice (empirically the
+# same knobs debuerreotype/Docker's official debian images use for this exact
+# problem -- confirmed by inspecting a debian:bookworm image's own
+# /etc/apt/apt.conf.d/docker-clean). Placed under mkosi.skeleton/ (not
+# mkosi.extra/) so it is present in the image's /etc/apt/apt.conf.d from
+# before mkosi's own install_packages() step runs -- guaranteeing it governs
+# boot_apt_phase and any later interactive apt-get inside the GUEST. Whether
+# it ALSO influences mkosi's own build-container apt run (which uses an
+# explicit -o Dir::Cache=/var/cache/apt / Dir::State::lists=... invocation
+# targeting the sandbox, not this file -- see installer/apt.py's Apt.cmd) is
+# NOT relied upon here; that apt run's own cache is discarded with the
+# throwaway build container regardless, so it does not affect guest disk.
+mkdir -p "$STAGE/recipe/mkosi.skeleton/etc/apt/sources.list.d" \
+         "$STAGE/recipe/mkosi.skeleton/etc/apt/apt.conf.d"
+cat > "$STAGE/recipe/mkosi.skeleton/etc/apt/sources.list.d/${GUEST_SUITE}.sources" <<SOURCES
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: $GUEST_SUITE
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://deb.debian.org/debian
+Suites: ${GUEST_SUITE}-updates
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+Types: deb
+URIs: http://deb.debian.org/debian-security
+Suites: ${GUEST_SUITE}-security
+Components: main
+Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+SOURCES
+cat > "$STAGE/recipe/mkosi.skeleton/etc/apt/apt.conf.d/99claude-vm-diet.conf" <<'DIET'
+// claude-vm apt metadata diet (issue #106 real-run fix). Skips Translation-*
+// list downloads (unused; ~32 MB of a stock Debian lists set) and disables
+// the persistent binary package caches (regenerated on every apt-get call;
+// ~88 MB) so the guest's per-boot apt working set stays small on the small
+// (headroom-constrained) root partition. boot_apt_phase's `apt-get clean`
+// still removes any .deb archives fetched by an install; this drop-in means
+// there is no pkgcache.bin/srcpkgcache.bin for clean to need to remove.
+Acquire::Languages "none";
+Dir::Cache::pkgcache "";
+Dir::Cache::srcpkgcache "";
+DIET
+
+# ---------------------------------------------------------------------
+# Root partition headroom (issue #106 real-run fix, new feature).
+#
+# A real guest boot hit ENOSPC twice in one session on the previously
+# auto-sized root: with NO mkosi.repart/ directory of our own, mkosi
+# generates its OWN default partition definitions (verified against mkosi
+# v26's actual make_disk(), mkosi/__init__.py) -- a 512M ESP (00-esp.conf,
+# Type=esp/Format=vfat/SizeMinBytes=SizeMaxBytes=512M, no BIOS boot partition
+# since this recipe has no grub-bios) and a root partition (10-root.conf,
+# Type=root/Format=ext4/CopyFiles=//Minimize=guess) with NO SizeMinBytes= at
+# all -- Minimize=guess sizes it to the TIGHT-FIT minimum needed to hold the
+# built rootfs content, with zero margin for anything the guest writes after
+# boot (apt working set, journald, session growth -- all empirically
+# observed to matter; see build-guest-image.sh's boot_apt_phase and
+# lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB comments).
+#
+# Fix: provide our OWN mkosi.repart/ directory. Once mkosi.repart/ exists at
+# all, mkosi does NOT layer its defaults on top -- our directory must be a
+# COMPLETE partition table, not just an addendum (verified from mkosi's own
+# make_disk(): `if context.config.repart_dirs: definitions = ... else:
+# <generate the two defaults>` -- an either/or, not a merge). So 00-esp.conf
+# below is a VERBATIM copy of mkosi's own generated default (same Type=esp/
+# Format=vfat/CopyFiles=/SizeMinBytes=SizeMaxBytes=512M -- we are not
+# changing ESP sizing, only root), and 10-root.conf keeps Minimize=guess
+# (so systemd-repart still self-measures the tight-fit content size -- we
+# do not hardcode or re-derive that number ourselves) but ADDS
+# SizeMinBytes=, which composes with Minimize=guess as "the larger of the
+# two wins" (systemd repart.d(5): merging partition definitions,
+# SizeMinBytes=/PaddingMinBytes= use the larger of the two values) -- so the
+# partition ends up at max(guessed-tight-fit-size, BASE_ESTIMATE_MB +
+# headroom), i.e. the guess still governs whenever the real content is
+# bigger than our estimate, and our floor only bites when content is
+# smaller. BASE_ESTIMATE_MB is a conservative ROUNDED-UP estimate from the
+# real-run evidence (issue #106 review: "guest.raw size is 1.5G, consumes
+# 850.2M" pre-diet, ESP ~512M of that 1.5G-ish total -> ~850M root content
+# pre-diet; the post-diet apt/metadata trims reduce PER-BOOT churn, not this
+# static baked content, so the estimate is kept at the pre-diet figure rather
+# than assumed smaller) -- not a measurement of THIS build (mkosi's static
+# mkosi.repart/ files cannot embed a value computed mid-build; see the
+# investigation note this comment is paired with in the PR). Because
+# Minimize=guess still runs and wins whenever it exceeds this floor, an
+# underestimate here does not silently under-size the image -- it only means
+# the operator-configured headroom is measured from a slightly-stale base
+# figure, not a hard incorrectness.
+BASE_ESTIMATE_MB=900
+ROOT_SIZE_MIN_MB=$((BASE_ESTIMATE_MB + ROOT_HEADROOM_MB))
+mkdir -p "$STAGE/recipe/mkosi.repart"
+cat > "$STAGE/recipe/mkosi.repart/00-esp.conf" <<'ESPCONF'
+[Partition]
+Type=esp
+Format=vfat
+CopyFiles=/boot:/
+CopyFiles=/efi:/
+SizeMinBytes=512M
+SizeMaxBytes=512M
+ESPCONF
+cat > "$STAGE/recipe/mkosi.repart/10-root.conf" <<ROOTCONF
+[Partition]
+Type=root
+Format=ext4
+CopyFiles=/
+Minimize=guess
+SizeMinBytes=${ROOT_SIZE_MIN_MB}M
+ROOTCONF
 
 # Bake config (issue #105): write the canonical JSON into the recipe tree so
 # the in-container build step can parse it (with the container's python3) to

@@ -67,6 +67,22 @@ CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
 CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
 
+# image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
+# partition is sized ABOVE the measured/estimated base image content, so a
+# live session has room to grow without hitting ENOSPC. A real guest boot hit
+# ENOSPC twice in one short session on the previously auto-sized (~991 MB)
+# root, which left only ~140 MB free over an ~850 MB base -- consumed by the
+# boot-time apt working set (up to ~250 MB pre-diet, ~50 MB post-diet; see
+# podman-mkosi.sh/build-guest-image.sh) plus ~44 MB of observed session growth
+# (journald and/or the in-guest claude's home; root cause not pinned down) in
+# a SHORT session -- a longer one grows more. 1024 MB is roughly 20x that
+# observed short-session growth and covers several rounds of mid-session
+# `apt-get install` on top of the post-diet boot working set, so a stock
+# session (update_at_boot: true, the default) should not hit ENOSPC. Chosen
+# to be generous rather than tight: the human's directive is that claude-vm
+# must WORK out of the box, and disk is cheap relative to a bricked session.
+CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB=1024
+
 # Resolve the gvproxy binary path. gvproxy ships INSIDE the podman
 # Homebrew formula at <prefix>/libexec/podman/gvproxy and is NOT placed
 # on PATH by a stock `brew install podman` (verified: podman 5.8.3). So

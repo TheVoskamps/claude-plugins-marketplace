@@ -138,9 +138,10 @@ chmod +x "$BOOT_LAUNCHER"
 OUT_IMAGE="$WORK/out.raw"
 
 run_provisioner() {
-  local bake_config="$1"
+  local bake_config="$1" headroom_mb="${2:-}"
   PATH="$STUB_BIN:$PATH" \
   CLAUDE_VM_BAKE_CONFIG="$bake_config" \
+  CLAUDE_VM_ROOT_HEADROOM_MB="$headroom_mb" \
   bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" >"$WORK/stdout.log" 2>"$WORK/stderr.log"
 }
 
@@ -456,6 +457,94 @@ else
   FAIL=$((FAIL + 1))
   echo "FAIL - generated build-in-container.sh not found at $CAPTURE_INNER (cannot run render_apt_source cases)"
 fi
+
+# ---------------------------------------------------------------------
+# Issue #106 real-run fix: guest apt metadata diet (mkosi.skeleton/) and
+# root-partition headroom (mkosi.repart/). Re-run the provisioner with a
+# fresh capture so these assertions do not depend on state left over from
+# the render_apt_source cases above.
+# ---------------------------------------------------------------------
+run_provisioner "$BAKE_CONFIG" "2048"
+DIET_RUN_EXIT=$?
+assert_eq "diet/headroom run reaches container handoff (stub exit 42)" \
+  "42" "$DIET_RUN_EXIT"
+
+SKELETON_SOURCES="$CAPTURE_RECIPE/mkosi.skeleton/etc/apt/sources.list.d/bookworm.sources"
+if [ -f "$SKELETON_SOURCES" ]; then
+  assert_contains "skeleton sources: binary Types only (deb)" \
+    "$SKELETON_SOURCES" "Types: deb"
+  assert_not_contains "skeleton sources: no deb-src" \
+    "$SKELETON_SOURCES" "deb-src"
+  assert_not_contains "skeleton sources: no debian-debug repo" \
+    "$SKELETON_SOURCES" "debug"
+  assert_contains "skeleton sources: main suite present" \
+    "$SKELETON_SOURCES" "Suites: bookworm"
+  assert_contains "skeleton sources: updates suite present" \
+    "$SKELETON_SOURCES" "Suites: bookworm-updates"
+  assert_contains "skeleton sources: security suite present" \
+    "$SKELETON_SOURCES" "Suites: bookworm-security"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.skeleton sources file not found at $SKELETON_SOURCES"
+fi
+
+SKELETON_APTCONF="$CAPTURE_RECIPE/mkosi.skeleton/etc/apt/apt.conf.d/99claude-vm-diet.conf"
+if [ -f "$SKELETON_APTCONF" ]; then
+  assert_contains "skeleton apt.conf.d: Acquire::Languages none" \
+    "$SKELETON_APTCONF" 'Acquire::Languages "none";'
+  assert_contains "skeleton apt.conf.d: Dir::Cache::pkgcache disabled" \
+    "$SKELETON_APTCONF" 'Dir::Cache::pkgcache ""'
+  assert_contains "skeleton apt.conf.d: Dir::Cache::srcpkgcache disabled" \
+    "$SKELETON_APTCONF" 'Dir::Cache::srcpkgcache ""'
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.skeleton apt.conf.d diet file not found at $SKELETON_APTCONF"
+fi
+
+REPART_ESP="$CAPTURE_RECIPE/mkosi.repart/00-esp.conf"
+REPART_ROOT="$CAPTURE_RECIPE/mkosi.repart/10-root.conf"
+if [ -f "$REPART_ESP" ] && [ -f "$REPART_ROOT" ]; then
+  assert_contains "repart ESP: Type=esp" "$REPART_ESP" "Type=esp"
+  assert_contains "repart ESP: 512M sizing (unchanged from mkosi's own default)" \
+    "$REPART_ESP" "SizeMinBytes=512M"
+  assert_contains "repart root: Type=root" "$REPART_ROOT" "Type=root"
+  assert_contains "repart root: Format=ext4" "$REPART_ROOT" "Format=ext4"
+  assert_contains "repart root: Minimize=guess retained (content still self-measures)" \
+    "$REPART_ROOT" "Minimize=guess"
+  # 2048 (headroom) + 900 (BASE_ESTIMATE_MB) = 2948.
+  assert_contains "repart root: SizeMinBytes reflects base-estimate + headroom (2948M)" \
+    "$REPART_ROOT" "SizeMinBytes=2948M"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.repart/ definition files not found ($REPART_ESP, $REPART_ROOT)"
+fi
+
+# Default headroom (unset CLAUDE_VM_ROOT_HEADROOM_MB) resolves to 900+1024=1924M.
+run_provisioner "$BAKE_CONFIG" ""
+DEFAULT_HEADROOM_EXIT=$?
+assert_eq "default-headroom run reaches container handoff (stub exit 42)" \
+  "42" "$DEFAULT_HEADROOM_EXIT"
+DEFAULT_REPART_ROOT="$CAPTURE_RECIPE/mkosi.repart/10-root.conf"
+if [ -f "$DEFAULT_REPART_ROOT" ]; then
+  assert_contains "repart root: default headroom yields SizeMinBytes=1924M" \
+    "$DEFAULT_REPART_ROOT" "SizeMinBytes=1924M"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.repart/10-root.conf not found for default-headroom run"
+fi
+
+# An invalid (non-integer) headroom must abort before any container handoff.
+run_provisioner "$BAKE_CONFIG" "not-a-number"
+BAD_HEADROOM_EXIT=$?
+if [ "$BAD_HEADROOM_EXIT" -ne 0 ] && [ "$BAD_HEADROOM_EXIT" -ne 42 ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - non-integer CLAUDE_VM_ROOT_HEADROOM_MB aborts before container handoff"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - non-integer CLAUDE_VM_ROOT_HEADROOM_MB did not abort as expected (exit=$BAD_HEADROOM_EXIT)"
+fi
+assert_contains "non-integer headroom: actionable error on stderr" \
+  "$WORK/stderr.log" "must be a positive integer"
 
 # ---------------------------------------------------------------------
 # Summary

@@ -68,6 +68,7 @@ values in `payload/config.example.yml`.
 | `claude.plugins.add_marketplace_uris_to_allowlist` | `auto` | marketplace-URI analogue of `packages.add_apt_uris_to_allowlist` |
 | `claude.plugins.enabled` | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
 | `github.auth` | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
+| `image.root_headroom_mb` | `1024` | extra MiB the guest root partition is sized above its measured/estimated base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
 
 Notes on the forward-looking keys:
 
@@ -267,6 +268,12 @@ packages:
 # consumer lands in a sibling slice under #39).
 github:
   auth: none             # none (default) | host-token
+
+# Guest image build sizing (issue #106 real-run fix).
+image:
+  root_headroom_mb: 1024 # extra MiB the guest root partition is sized above
+                        # its measured/estimated base content, so a live
+                        # session does not hit ENOSPC (default 1024)
 ```
 
 > On `proxy.cmd`: the bundled tinyproxy launcher
@@ -315,7 +322,8 @@ After the `Write`, re-read the file and confirm it parses as YAML and
 contains the expected keys (`cpus: 2`, `mem: 4096`, `proxy.port`,
 `provisioner: podman-mkosi`, `egress.allow` including `api.anthropic.com`,
 `claude.version`, `claude.permission_mode`,
-`packages.update_at_boot`, `github.auth`). `proxy.cmd` is intentionally
+`packages.update_at_boot`, `github.auth`, `image.root_headroom_mb`).
+`proxy.cmd` is intentionally
 absent — the launcher defaults to the bundled tinyproxy launcher when it
 is unset. This is content verification — `Write` already errors if the
 bytes did not land; the re-read confirms the *intended content*.

@@ -73,7 +73,8 @@ Two layers, both optional:
 
 ### Layering semantics
 
-- **Scalars** (`cpus`, `mem`, `guest_image`, `repo.mount`,
+- **Scalars** (`cpus`, `mem`, `guest_image`, `image.root_headroom_mb`,
+  `repo.mount`,
   `repo.copy_back`, `proxy.*`, `claude.version`, `claude.renderer`,
   `packages.update_at_boot`, `packages.add_apt_uris_to_allowlist`,
   `claude.permission_mode`, `claude.plugins.update_at_boot`,
@@ -99,10 +100,23 @@ Two layers, both optional:
 cpus: 4
 mem: 8192
 guest_image: /path/to/guest.raw   # repo may override; SET = used verbatim
-                                  # (opts out of bake-hash variants); UNSET =
-                                  # derived (shared guest.raw, or a
-                                  # guest-<hash>.raw variant when packages are
-                                  # baked -- see packages below)
+                                  # (opts out of image-variant derivation);
+                                  # UNSET = derived (shared guest.raw, or a
+                                  # guest-<hash>.raw / guest-headroom<N>.raw /
+                                  # guest-<hash>-headroom<N>.raw variant when
+                                  # packages are baked and/or root_headroom_mb
+                                  # is non-default -- see packages/image below)
+
+# image.root_headroom_mb: extra MiB the guest root partition is sized ABOVE
+# its measured/estimated base content (default 1024, repo overrides global;
+# issue #106). Real-hardware testing hit ENOSPC twice in one short session on
+# a tight-fit-sized root (systemd-repart's Minimize=guess with no configured
+# floor) -- boot-time apt working set + ordinary session growth (journald,
+# the in-guest claude's home) both eat into a root with zero margin. 1024 MB
+# is roughly 20x the observed short-session growth. A non-default value forks
+# its own cached image variant and triggers a rebuild, like packages.bake.
+image:
+  root_headroom_mb: 1024
 
 repo:
   mount: clone                    # clone (default) | live
@@ -121,6 +135,15 @@ repo:
 # to be present in the guest, which mkosi does not provide for free -- so
 # `apt` is baked into every guest image's base Packages= list
 # unconditionally, regardless of whether boot-time apt work is configured.
+# The guest's baked apt sources are binary-only (main + updates + security,
+# no deb-src/debug/Translations -- issue #106 real-run fix) to keep the
+# per-boot apt working set small; boot_apt_phase ends with `apt-get clean`.
+# The proxy that covers boot-time apt ALSO covers a mid-session interactive
+# apt-get: run.env exports lowercase http_proxy/https_proxy/no_proxy
+# alongside the uppercase forms (apt honors only lowercase; curl ignores
+# uppercase HTTP_PROXY for plain http://), and the boot launcher writes a
+# persistent /etc/apt/apt.conf.d/99claude-vm-proxy so proxying does not
+# depend on a shell re-sourcing run.env.
 packages:
   bake: []                        # apt packages baked into the guest image at
                                   # build time (present with no boot network)
@@ -438,6 +461,17 @@ Claude Code updates daily, so the guest image does **not** bake in
   shared image with no rebuild. Only bake + apt_sources feed the hash —
   changing cpus/egress/permissions never rebuilds. The `guest_image` scalar,
   when set, opts out of variant derivation and is used verbatim.
+- **Root headroom image variants (issue #106 real-run fix).**
+  `image.root_headroom_mb` also forks the image cache key, independently of
+  the bake-hash above: when the resolved headroom differs from the default
+  (`CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB`, `lib/config.sh`), the launcher
+  folds a `+headroomN` segment into the pinned version and the image
+  filename (`guest-headroom<N>.raw`, or `guest-<hash>-headroom<N>.raw` when
+  bake overrides are ALSO present). A default-headroom, no-bake config keeps
+  sharing the one `guest.raw`. Kept as its own segment rather than folded
+  into the bake-hash's canonical JSON, so the bake-hash's "empty bake config
+  is a hash-stable constant" invariant (exercised by existing coverage)
+  stays undisturbed by an unrelated key.
 - **Boot-time package install/update (issue #106).** `packages.install_at_boot`
   and `packages.update_at_boot` do **not** feed the bake-hash — they run a
   blocking phase in the boot launcher itself, right before claude execs,
@@ -449,10 +483,12 @@ Claude Code updates daily, so the guest image does **not** bake in
   from OUTSIDE the image with its own build-container apt) — this is covered
   by `LAUNCHER_LOGIC_REV`, the same base-version pin as everything else in
   this bullet's parent bullet, not by the bake-hash. See "Boot-time package
-  install/update" in `payload/README.md` for the full mechanics (the
-  reused `render_apt_source` shape, the proxy `-o Acquire::*::Proxy=`
-  flags, the failure policy, and the `add_apt_uris_to_allowlist` derived-
-  egress gate).
+  install/update" and "Mid-session apt proxying, metadata diet, and root
+  headroom" in `payload/README.md` for the full mechanics (the reused
+  `render_apt_source` shape, the proxy `-o Acquire::*::Proxy=` flags and
+  persistent `apt.conf.d` drop-in, the apt metadata diet, `apt-get clean`,
+  the failure policy, and the `add_apt_uris_to_allowlist` derived-egress
+  gate).
 - On startup, the launcher **ensures the image exists and matches the
   pinned version**. If the resolved image is missing or version-mismatched,
   it builds the image (`payload/build-guest-image.sh --output …`, passing the

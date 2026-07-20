@@ -53,6 +53,8 @@ cat > "$GLOBAL" <<'YML'
 cpus: 2
 mem: 4096
 guest_image: /global/guest.raw
+image:
+  root_headroom_mb: 1024
 repo:
   mount: clone
 proxy:
@@ -108,6 +110,8 @@ YML
 cat > "$REPO" <<'YML'
 cpus: 8
 guest_image: /repo/guest.raw
+image:
+  root_headroom_mb: 2048
 repo:
   mount: live
 egress:
@@ -173,6 +177,8 @@ assert_eq "scalar: nested proxy.cmd from global" \
   "global-proxy" "$(claude_vm_scalar "$MERGED" '.proxy.cmd' 'X')"
 assert_eq "scalar: nested proxy.port from global" \
   "3128" "$(claude_vm_scalar "$MERGED" '.proxy.port' 'X')"
+assert_eq "scalar: repo overrides global (image.root_headroom_mb)" \
+  "2048" "$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 2: list union -- egress.allow merged + de-duplicated
@@ -365,6 +371,8 @@ assert_eq "global-only: github.auth from global" \
   "none" "$(claude_vm_scalar "$MERGED_G" '.github.auth' 'X')"
 assert_eq "global-only: packages.bake count is 2" \
   "2" "$(claude_vm_list_items "$MERGED_G" '.packages.bake' | grep -c .)"
+assert_eq "global-only: image.root_headroom_mb from global" \
+  "1024" "$(claude_vm_scalar "$MERGED_G" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 5: repo-only (global config absent) resolves cleanly
@@ -381,6 +389,8 @@ assert_eq "repo-only: github.auth from repo (host-token)" \
   "host-token" "$(claude_vm_scalar "$MERGED_R" '.github.auth' 'X')"
 assert_eq "repo-only: packages.update_at_boot from repo (true)" \
   "true" "$(claude_vm_scalar "$MERGED_R" '.packages.update_at_boot' 'X')"
+assert_eq "repo-only: image.root_headroom_mb from repo (2048)" \
+  "2048" "$(claude_vm_scalar "$MERGED_R" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 6: neither layer present -- all scalars hit hardcoded fallbacks
@@ -419,6 +429,9 @@ assert_eq "neither: claude.permissions.allow is empty" \
   "0" "$(claude_vm_list_items "$MERGED_N" '.claude.permissions.allow' | grep -c .)"
 assert_eq "neither: claude.marketplaces is empty" \
   "0" "$(claude_vm_marketplaces "$MERGED_N" | grep -c .)"
+assert_eq "neither: image.root_headroom_mb fallback (1024)" \
+  "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB" \
+  "$(claude_vm_scalar "$MERGED_N" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
 
 # ---------------------------------------------------------------------
 # Test 6b: empty-skeleton pruning (issue #103 review finding). A list
@@ -1144,6 +1157,34 @@ assert_ne "print-version: different bake config -> different version" \
 LIB_HASH_FOR_BAKED="$(claude_vm_bake_hash_from_json '{"bake":["git","jq"],"apt_sources":[]}')"
 assert_eq "print-version: build-guest-image version embeds the lib bake-hash" \
   "$BASE_VER+bake$LIB_HASH_FOR_BAKED" "$BGI_BAKED"
+
+# ---------------------------------------------------------------------
+# Test 19b: root-headroom image-variant segment (issue #106 real-run fix).
+#
+# CLAUDE_VM_ROOT_HEADROOM_MB folds into PINNED_VERSION as its OWN segment,
+# independent of the bake-hash: unset/default -> no +headroomN segment (warm
+# path, shares the legacy version); non-default -> +headroomN appended;
+# combined with a bake config -> both segments present, in order.
+# ---------------------------------------------------------------------
+assert_eq "print-version: default headroom -> no +headroom segment (warm path)" \
+  "$BASE_VER" "$(CLAUDE_VM_ROOT_HEADROOM_MB=1024 "$BGI" --print-version)"
+assert_eq "print-version: unset headroom -> same as explicit default (1024)" \
+  "$(CLAUDE_VM_ROOT_HEADROOM_MB=1024 "$BGI" --print-version)" "$("$BGI" --print-version)"
+assert_eq "print-version: non-default headroom appends +headroom<N>" \
+  "$BASE_VER+headroom2048" "$(CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)"
+assert_ne "print-version: different non-default headroom -> different version" \
+  "$(CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)" \
+  "$(CLAUDE_VM_ROOT_HEADROOM_MB=4096 "$BGI" --print-version)"
+assert_eq "print-version: bake + non-default headroom -> both segments, bake first" \
+  "$BASE_VER+bake$LIB_HASH_FOR_BAKED+headroom2048" \
+  "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)"
+# A non-integer headroom aborts with a clear error rather than silently
+# building an unsized (or garbage-sized) image.
+if CLAUDE_VM_ROOT_HEADROOM_MB=notanumber "$BGI" --print-version >/dev/null 2>&1; then
+  assert_eq "print-version: non-integer headroom is rejected" "rejected" "accepted"
+else
+  assert_eq "print-version: non-integer headroom is rejected" "rejected" "rejected"
+fi
 
 # ---------------------------------------------------------------------
 # Test 20: render_apt_source name validation (issue #105 review finding).

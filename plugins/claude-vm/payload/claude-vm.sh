@@ -123,43 +123,94 @@ PROXY_CMD="$(claude_vm_scalar "$MERGED" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 
 # guest_image: a normal scalar. When SET, it is used as-is -- an explicit
-# operator override that opts OUT of bake-hash variant derivation (issue #105):
-# the operator owns that path and its contents, so we neither hash nor rewrite
-# it. When UNSET, the launcher DERIVES the image path from the bake-relevant
-# config below (bake-hash variants), defaulting into the cache dir alongside
-# the global config.
+# operator override that opts OUT of variant derivation (issue #105, extended
+# by the #106 root-headroom knob): the operator owns that path and its
+# contents, so we neither hash nor rewrite it. When UNSET, the launcher
+# DERIVES the image path from the bake-relevant config AND the root headroom
+# below (variant naming), defaulting into the cache dir alongside the global
+# config.
 #
-# Bake-hash image variants (issue #105). The guest image now bakes
-# packages.bake + packages.apt_sources, so two configs that bake different
-# things need SEPARATE cached images while configs with no bake-affecting
-# overrides SHARE one. We compute the canonical bake config once (order-/
-# key-normalized JSON) and pass it to build-guest-image.sh for BOTH
-# --print-version and --output via CLAUDE_VM_BAKE_CONFIG, so the version it
-# stamps and the version we compare against are hashed from the same bytes.
-#   - No bake overrides (canonical == the empty form) -> the shared default
-#     image guest.raw (legacy name; every such config collides here and
-#     reuses one image, so removing an override reverts to it with no rebuild).
-#   - Bake overrides present -> guest-<hash>.raw, its own cached variant built
-#     on first use and stored alongside the shared image.
+# Image variants (issue #105, extended by #106). The guest image now bakes
+# packages.bake + packages.apt_sources, and sizes its root partition from
+# image.root_headroom_mb, so two configs that differ in EITHER dimension need
+# SEPARATE cached images while configs that differ in NEITHER share one. We
+# compute the canonical bake config once (order-/key-normalized JSON) and
+# pass it to build-guest-image.sh for BOTH --print-version and --output via
+# CLAUDE_VM_BAKE_CONFIG, so the version it stamps and the version we compare
+# against are hashed from the same bytes; the resolved headroom is passed the
+# same way via CLAUDE_VM_ROOT_HEADROOM_MB, below.
+#   - No bake overrides AND default headroom -> the shared default image
+#     guest.raw (legacy name; every such config collides here and reuses one
+#     image, so removing all overrides reverts to it with no rebuild).
+#   - Bake overrides and/or non-default headroom present -> guest-<hash>.raw /
+#     guest-headroom<N>.raw / guest-<hash>-headroom<N>.raw as applicable, its
+#     own cached variant built on first use and stored alongside the shared
+#     image.
 DEFAULT_IMAGE_DIR="$(dirname "$GLOBAL_CONFIG")/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
+
+# image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
+# partition is sized above its measured/estimated base content, so a live
+# session has room to grow without hitting ENOSPC (see lib/config.sh's
+# CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB for the default's justification).
+# A normal scalar (repo overrides global), resolved once here and exported so
+# build-guest-image.sh's --print-version below and its --output build (via
+# the SAME env var, forwarded to the provisioner) agree on the same value --
+# same lockstep contract as CLAUDE_VM_BAKE_CONFIG above. Validated as a
+# positive integer up front (a typo here should abort the launch, not
+# silently fall through to whatever build-guest-image.sh does with garbage).
+CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
+case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
+  ''|*[!0-9]*)
+    echo "claude-vm: image.root_headroom_mb must be a positive integer (MiB), got '$CLAUDE_VM_ROOT_HEADROOM_MB'" >&2
+    exit 1
+    ;;
+esac
+export CLAUDE_VM_ROOT_HEADROOM_MB
+# A non-default root headroom is ALSO an image-variant trigger (issue #106
+# real-run fix), exactly like a bake override: it changes the built image's
+# content (root partition size), so it must fork the cache path too. Without
+# this, a headroom-only override would still resolve to the shared
+# guest.raw path while PINNED_VERSION carried a +headroomN suffix that never
+# matches guest.raw.version -- ensure_guest_image (below) would rebuild on
+# EVERY launch (each config stamps a version the other config's compare then
+# rejects), never converging. Checked independently of the bake-hash
+# (claude_vm_bake_config_is_empty only looks at packages.bake/apt_sources),
+# so a headroom-only override (no bake) still gets its own variant, and a
+# bake-only override (default headroom) still uses the bake-hash name alone.
+_needs_headroom_variant=0
+if [ "$CLAUDE_VM_ROOT_HEADROOM_MB" != "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB" ]; then
+  _needs_headroom_variant=1
+fi
 _explicit_guest_image="$(claude_vm_scalar "$MERGED" '.guest_image' "")"
 if [ -n "$_explicit_guest_image" ]; then
   # Explicit override: use verbatim, opting out of variant derivation.
   GUEST_IMAGE="$_explicit_guest_image"
-elif claude_vm_bake_config_is_empty "$MERGED"; then
-  # No bake-affecting overrides: share the global default image.
+elif claude_vm_bake_config_is_empty "$MERGED" && [ "$_needs_headroom_variant" -eq 0 ]; then
+  # No bake-affecting overrides and default headroom: share the global
+  # default image.
   GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest.raw"
 else
-  # Bake overrides present: derive a per-variant image keyed on the bake-hash.
-  _bake_hash="$(claude_vm_bake_hash "$MERGED")" \
-    || { echo "claude-vm: could not compute the bake-hash for the guest image variant" >&2; exit 1; }
-  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest-$_bake_hash.raw"
-  unset _bake_hash
+  # Bake overrides and/or non-default headroom present: derive a per-variant
+  # image keyed on the bake-hash (empty-bake-config hash omitted when there is
+  # no bake override, so a headroom-only override does not carry a spurious
+  # "no bake" hash segment) and/or the headroom value.
+  _variant_suffix=""
+  if ! claude_vm_bake_config_is_empty "$MERGED"; then
+    _bake_hash="$(claude_vm_bake_hash "$MERGED")" \
+      || { echo "claude-vm: could not compute the bake-hash for the guest image variant" >&2; exit 1; }
+    _variant_suffix="${_variant_suffix}-${_bake_hash}"
+    unset _bake_hash
+  fi
+  if [ "$_needs_headroom_variant" -eq 1 ]; then
+    _variant_suffix="${_variant_suffix}-headroom${CLAUDE_VM_ROOT_HEADROOM_MB}"
+  fi
+  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest${_variant_suffix}.raw"
+  unset _variant_suffix
 fi
-unset _explicit_guest_image
+unset _explicit_guest_image _needs_headroom_variant
 
 # claude.version: the channel/pin the host-side verified cache fetches
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
@@ -892,13 +943,16 @@ RUN_ENV="$CONFIG_DIR/run.env"
 # run.env value-quoting audit (issue #88). run.env is sourced under `set -a`
 # by the guest boot launcher, so EVERY value line must be a safe shell
 # assignment. Audited all values written below:
-#   - HTTPS_PROXY / HTTP_PROXY: built from $GVPROXY_HOST_ALIAS + $PROXY_PORT,
-#     both CONFIG scalars (proxy.host_alias / proxy.port) a user can set to an
-#     arbitrary string -> %q-quoted below (arbitrary-string carriers).
+#   - HTTPS_PROXY / HTTP_PROXY (and their lowercase mirrors https_proxy /
+#     http_proxy, issue #106 real-run fix -- apt honors only lowercase,
+#     curl's plain-http path ignores uppercase): built from
+#     $GVPROXY_HOST_ALIAS + $PROXY_PORT, both CONFIG scalars
+#     (proxy.host_alias / proxy.port) a user can set to an arbitrary string
+#     -> %q-quoted below (arbitrary-string carriers).
 #   - CLAUDE_VM_COLUMNS / CLAUDE_VM_LINES: from `stty size` (always "rows cols"
 #     numerics on a real tty; empty on a non-tty). Provably-numeric in
 #     practice, but %q-quoted defensively since they come from a subprocess.
-#   - NO_PROXY, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
+#   - NO_PROXY / no_proxy, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
 #     DISABLE_AUTOUPDATER, IS_SANDBOX, and the renderer CLAUDE_CODE_* vars:
 #     FIXED LITERALS (or emitted only for a validated enum value) -> provably
 #     safe, left as-is.
@@ -910,6 +964,20 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'HTTPS_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'HTTP_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
+    # Lowercase mirrors of the three vars above (issue #106 real-run fix).
+    # apt-get honors ONLY lowercase http_proxy/https_proxy (never the
+    # uppercase forms), and curl deliberately ignores uppercase HTTP_PROXY
+    # for plain http:// URLs (the well-known "httpoxy" CGI-variable carve-
+    # out; it does honor HTTPS_PROXY for https:// URLs). A real guest boot
+    # confirmed: bare `apt-get install` mid-session failed to resolve
+    # deb.debian.org with only the uppercase vars in run.env; prefixing the
+    # SAME command with lowercase http_proxy/https_proxy succeeded. Same
+    # value, same %q-quoting -- this is purely an additional-name mirror of
+    # the audited HTTPS_PROXY/HTTP_PROXY/NO_PROXY lines above, so the value-
+    # quoting audit comment above covers these too.
+    printf 'https_proxy=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'http_proxy=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'no_proxy=localhost,127.0.0.1\n'
     printf 'REPO_TAG=repo\n'
     printf 'POLICY_TAG=policy\n'
     # The host-verified claude binary is shared into the guest under this

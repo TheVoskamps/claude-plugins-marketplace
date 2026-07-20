@@ -160,7 +160,32 @@ BASE_OS_REV="debian-12-20250601"
 # change (not boot-logic code), but it still must invalidate every cached
 # image built before it -- including images already built at rev 11 without
 # apt -- so old images (stamped 'launcher11') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="12"
+# Bumped 12 -> 13: second real-run pass (issue #106) -- mid-session apt
+# proxying, apt metadata/cache diet, and root-partition headroom. A real
+# guest boot found THREE more problems past the 11 -> 12 apt-bake fix: (1) an
+# INTERACTIVE (not boot-launcher) `apt-get install` got no proxy at all --
+# apt honors only lowercase http_proxy/https_proxy (run.env carried only the
+# uppercase forms) and curl ignores uppercase HTTP_PROXY for plain http://
+# URLs; fixed by exporting lowercase mirrors in run.env (claude-vm.sh) AND
+# writing a persistent /etc/apt/apt.conf.d/99claude-vm-proxy from the boot
+# launcher so EVERY apt-get for the rest of the boot is proxied regardless of
+# environment. (2) boot_apt_phase's apt-get update was re-materializing
+# ~250 MB of working set (mkosi's default deb-src/debian-debug/Translation
+# lists plus pkgcache.bin/srcpkgcache.bin) on EVERY boot, exhausting the
+# small root twice in one session; fixed by a binary-only/no-debug/no-
+# Translations apt metadata diet baked into the image (podman-mkosi.sh's
+# mkosi.skeleton/ apt sources + apt.conf.d) plus a defensive `apt-get clean`
+# at the end of boot_apt_phase, dropping the per-boot working set to
+# ~50 MB. (3) the root partition had NO configured minimum size (mkosi's own
+# Minimize=guess default, verified against mkosi v26 source), leaving near-
+# zero margin for session growth even after the (2) diet; fixed by a new
+# image.root_headroom_mb config knob wired into a custom mkosi.repart/ (see
+# lib/config.sh, podman-mkosi.sh). (1) and the apt.conf.d half of (2) are
+# BOOT-LOGIC changes; (2)'s baked sources/apt.conf.d and (3) are base-image
+# CONTENT changes -- all three still require every cached image (baked-apt
+# rev 12 included) to rebuild, so old images (stamped 'launcher12') rebuild
+# on next use.
+LAUNCHER_LOGIC_REV="13"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -187,15 +212,47 @@ BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 # version, unchanged. This keeps a bare `build-guest-image.sh --print-version`
 # (no launcher, e.g. a smoke test) working and pinned to the legacy version.
 CLAUDE_VM_EMPTY_BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
+
+# Root headroom (issue #106 real-run fix). image.root_headroom_mb sizes the
+# guest root partition (base usage + this many MiB of free space -- see the
+# [Content] mkosi.repart/ definition below), so it changes the CONTENT of the
+# produced image just like a bake override does, and must participate in the
+# same image cache key: two configs with different headroom must not share a
+# cached image (a smaller headroom baked into an already-built larger image
+# would just be silently ignored; a larger headroom needs an actual rebuild
+# to grow the partition). Kept as its OWN version segment -- not folded into
+# CLAUDE_VM_BAKE_CONFIG/the bake-hash -- because the bake-hash's "empty
+# config" invariant (a config with no packages.bake/apt_sources ALWAYS
+# collides on the one shared image) is load-bearing and exercised by
+# extensive existing coverage; adding an unrelated key to that canonical form
+# risks disturbing it. CLAUDE_VM_ROOT_HEADROOM_MB unset/empty defaults to the
+# launcher's own default (CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB in
+# lib/config.sh) so a bare --print-version smoke test (no launcher) still
+# resolves to a concrete value. Mirrors the bake-hash's own "no segment for
+# the common/default case" shape: only a headroom that DIFFERS from the
+# default appends a `+headroomN` segment, so the overwhelming common case
+# (nobody overrides the default) keeps sharing the one legacy-named image.
+CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB="$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB"
+ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB}"
+case "$ROOT_HEADROOM_MB" in
+  ''|*[!0-9]*)
+    echo "build-guest-image: CLAUDE_VM_ROOT_HEADROOM_MB must be a positive integer (MiB), got '$ROOT_HEADROOM_MB'" >&2
+    exit 1
+    ;;
+esac
+
 compute_pinned_version() {
   local bake_config="${CLAUDE_VM_BAKE_CONFIG:-}"
-  if [ -z "$bake_config" ] || [ "$bake_config" = "$CLAUDE_VM_EMPTY_BAKE_CONFIG" ]; then
-    printf '%s\n' "$BASE_PINNED_VERSION"
-    return 0
+  local version="$BASE_PINNED_VERSION"
+  if [ -n "$bake_config" ] && [ "$bake_config" != "$CLAUDE_VM_EMPTY_BAKE_CONFIG" ]; then
+    local hash
+    hash="$(claude_vm_bake_hash_from_json "$bake_config")" || return 1
+    version="${version}+bake${hash}"
   fi
-  local hash
-  hash="$(claude_vm_bake_hash_from_json "$bake_config")" || return 1
-  printf '%s+bake%s\n' "$BASE_PINNED_VERSION" "$hash"
+  if [ "$ROOT_HEADROOM_MB" != "$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB" ]; then
+    version="${version}+headroom${ROOT_HEADROOM_MB}"
+  fi
+  printf '%s\n' "$version"
 }
 PINNED_VERSION="$(compute_pinned_version)" \
   || { echo "build-guest-image: failed to compute bake-hash version" >&2; exit 1; }
@@ -208,7 +265,9 @@ usage:
 
 The bake-relevant config (canonical JSON from the launcher) is read from the
 CLAUDE_VM_BAKE_CONFIG environment variable; unset/empty means no baked
-packages (the legacy base image).
+packages (the legacy base image). The root-partition headroom (MiB) is read
+from CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to
+CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB (lib/config.sh).
 EOF
 }
 
@@ -422,6 +481,28 @@ log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.jso
 # pickup, which is not guaranteed across apt versions -- an explicit -o flag
 # always wins.
 #
+# PERSISTENT proxy drop-in (issue #106 real-run fix). The -o flags above only
+# cover apt-get invocations THIS phase makes; a real guest boot found a
+# MID-SESSION `apt-get install` (run interactively by the in-guest claude,
+# not by this launcher) got NO proxy at all -- run.env carried only uppercase
+# HTTP_PROXY/HTTPS_PROXY, which apt-get never reads (it honors only lowercase
+# http_proxy/https_proxy, and even that env pickup is not guaranteed across
+# apt versions per the comment above). The host now also exports lowercase
+# http_proxy/https_proxy/no_proxy in run.env (claude-vm.sh), but that still
+# only helps a shell that re-sources run.env -- an interactive login shell on
+# hvc1 does not. Write a real apt.conf.d drop-in so EVERY apt-get invocation
+# for the rest of this boot -- this phase's, and any later interactive one --
+# is proxied regardless of environment. Written before boot_apt_phase runs so
+# its own apt-get calls also pick it up (making the -o flags above redundant
+# but harmless defense-in-depth, kept as-is as agreed).
+if [ -n "${HTTP_PROXY:-}" ] || [ -n "${HTTPS_PROXY:-}" ]; then
+  {
+    [ -n "${HTTP_PROXY:-}" ]  && printf 'Acquire::http::Proxy "%s";\n' "$HTTP_PROXY"
+    [ -n "${HTTPS_PROXY:-}" ] && printf 'Acquire::https::Proxy "%s";\n' "$HTTPS_PROXY"
+  } > /etc/apt/apt.conf.d/99claude-vm-proxy
+  log "claude-vm: wrote persistent apt proxy config to /etc/apt/apt.conf.d/99claude-vm-proxy."
+fi
+#
 # FAILURE POLICY: a failed update/install prints a loud warning to the hvc0
 # diagnostic log (log(), same as every other boot diagnostic) and CONTINUES
 # -- a failed optional install must never brick an interactive session. This
@@ -596,6 +677,28 @@ boot_apt_phase() {
       fi
     fi
   fi
+
+  # `apt-get clean` (issue #106 real-run fix). Empirically verified (real
+  # `apt-get update` + install + clean, in a throwaway Debian container, with
+  # the docker-supplied Dir::Cache::pkgcache override removed so the test sees
+  # native apt behavior): `apt-get clean` deletes every fetched .deb under
+  # /var/cache/apt/archives/ AND both /var/cache/apt/pkgcache.bin and
+  # srcpkgcache.bin (36 MB each in that test) -- the exact ~88 MB pkgcache
+  # working set that reappears on every `apt-get update`/`install` call
+  # regardless of the Dir::Cache::pkgcache "" drop-in baked into the image
+  # (podman-mkosi.sh): that drop-in stops the .bin files from being WRITTEN in
+  # the first place, but a defensive `clean` here still catches anything that
+  # slips through (e.g. an operator override of the drop-in). `clean` does NOT
+  # touch /var/lib/apt/lists (verified same test: unchanged before/after) --
+  # that ~50 MB (post apt-diet) is the index data apt needs for the NEXT
+  # `apt-get install` to resolve packages without re-running `update`, so it
+  # must survive to the interactive session. Run unconditionally (whether or
+  # not update/install actually ran above) and outside the `if` gates so a
+  # stray .bin regenerated by an earlier failed/partial call is still swept;
+  # `|| true` keeps this from ever escaping under `set -e` (same failure
+  # policy as the rest of this phase -- boot must never brick on a cleanup
+  # step).
+  apt-get clean || true
 }
 boot_apt_phase
 
@@ -705,7 +808,11 @@ build_image() {
   # the provisioner renders packages.bake into the mkosi Packages= list and
   # packages.apt_sources into keyring + sources.list.d drop-ins -- it hashed
   # into PINNED_VERSION above, so the built image's contents and its stamped
-  # version stay in lockstep. Unset/empty means no baked packages.
+  # version stay in lockstep. Unset/empty means no baked packages. Export the
+  # resolved root headroom (issue #106 real-run fix) so the provisioner sizes
+  # the root partition's mkosi.repart/ SizeMinBytes= from it -- it also hashed
+  # into PINNED_VERSION above (when non-default), so a headroom change forces
+  # a rebuild the same way a bake change does.
   local provisioner
   if [ -n "${CLAUDE_VM_IMAGE_PROVISIONER:-}" ]; then
     provisioner="$CLAUDE_VM_IMAGE_PROVISIONER"
@@ -721,6 +828,7 @@ build_image() {
   fi
   CLAUDE_VM_BASE_OS_REV="$BASE_OS_REV" \
   CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
+  CLAUDE_VM_ROOT_HEADROOM_MB="$ROOT_HEADROOM_MB" \
     "$provisioner" "$stage/boot-launcher.sh" "$output"
   # ----------------------------------------------------------------------
 

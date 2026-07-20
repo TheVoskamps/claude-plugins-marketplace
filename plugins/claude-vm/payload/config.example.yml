@@ -5,7 +5,8 @@
 #   per-repo: <repo>/.claude-vm/config.yml      (project-specific)
 #
 # Layering:
-#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*, packages.update_at_boot,
+#   - Scalars (cpus, mem, guest_image, image.root_headroom_mb, repo.*, proxy.*,
+#     packages.update_at_boot,
 #     packages.add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot,
 #     claude.plugins.add_marketplace_uris_to_allowlist,
@@ -26,14 +27,32 @@ cpus: 4
 mem: 8192
 
 # guest_image is a normal scalar; a repo may override it. When SET, it is used
-# VERBATIM -- an explicit override that OPTS OUT of bake-hash image-variant
-# derivation (see packages.bake / apt_sources below): you own that path and its
-# contents. When UNSET, the launcher derives the image path from the
-# bake-relevant config: a config with no baked packages shares the one global
-# image (~/.config/claude-vm/images/guest.raw), while a config that bakes
-# packages gets its own cached variant (~/.config/claude-vm/images/
-# guest-<hash>.raw), built on first use. Either way the image is built on demand.
+# VERBATIM -- an explicit override that OPTS OUT of image-variant derivation
+# (see packages.bake / apt_sources / image.root_headroom_mb below): you own
+# that path and its contents. When UNSET, the launcher derives the image path
+# from the bake-relevant config AND the root headroom: a config with no baked
+# packages and the default headroom shares the one global image
+# (~/.config/claude-vm/images/guest.raw), while a config that bakes packages
+# and/or sets a non-default root_headroom_mb gets its own cached variant
+# (~/.config/claude-vm/images/guest-<hash>.raw /
+# guest-headroom<N>.raw / guest-<hash>-headroom<N>.raw), built on first use.
+# Either way the image is built on demand.
 guest_image: /path/to/guest.raw
+
+# image.root_headroom_mb: extra MiB the guest root partition is sized ABOVE
+# its measured/estimated base content (scalar, repo wins; default 1024).
+# Real-hardware testing hit ENOSPC twice in one short session on a
+# tight-fit-sized root (systemd-repart's Minimize=guess with no floor): the
+# boot-time apt working set and ordinary session growth (journald, the
+# in-guest claude's home) both eat into a root with zero margin. 1024 MB is
+# roughly 20x the observed short-session growth and covers several rounds of
+# mid-session `apt-get install` on top of the (diet-reduced) boot-time apt
+# working set -- generous by design, since the goal is that claude-vm WORKS
+# out of the box, and disk is cheap relative to a bricked session. A
+# non-default value forks its own cached image variant (see guest_image
+# above) and triggers a rebuild, exactly like a packages.bake change does.
+image:
+  root_headroom_mb: 1024
 
 repo:
   mount: clone          # clone (default) | live
@@ -69,6 +88,20 @@ repo:
 # therefore baked into every guest image UNCONDITIONALLY (not gated on
 # whether install_at_boot/update_at_boot are configured), since
 # update_at_boot defaults to true.
+#
+# The SAME proxy also covers apt-get run INTERACTIVELY inside the guest
+# (mid-session, by the in-guest claude, not by the boot launcher): run.env
+# carries both uppercase (HTTP_PROXY/HTTPS_PROXY/NO_PROXY) and lowercase
+# (http_proxy/https_proxy/no_proxy) forms -- apt honors only lowercase, and
+# curl ignores uppercase HTTP_PROXY for plain http:// URLs -- AND the boot
+# launcher writes a persistent /etc/apt/apt.conf.d/99claude-vm-proxy from
+# those values, so proxying does not depend on a shell re-sourcing run.env.
+# The guest's own apt sources (baked into the image) are binary-only, main +
+# security + updates, no deb-src/debug/Translations -- a metadata diet that
+# keeps the per-boot apt working set small on the (headroom-constrained,
+# see image.root_headroom_mb above) root partition; boot_apt_phase also runs
+# `apt-get clean` at the end of every boot to sweep any leftover archives/
+# pkgcache.
 packages:
   bake: []                # apt packages baked into the guest image at build
                           # time -- present with no network at boot (list, union)
