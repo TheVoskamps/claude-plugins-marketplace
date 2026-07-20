@@ -822,6 +822,23 @@ func awsHasEndpointURL(args []string) bool {
 // awsCredentialRead reports whether an `aws <svc> <op>` is one of the reads that
 // returns credentials or secrets (#64 ASK tier). The ssm get-parameter family
 // is a credential read only with --with-decryption.
+//
+// #97: this decision is now the WHITELIST ANCHOR for the credential-exposure
+// surface, not a blacklist. The exact-pair switch below still names the
+// recognized credential reads (so they keep their specific explanatory ASK
+// message), but it is no longer the ONLY thing standing between a
+// credential-returning read and the ALLOW floor. The blacklist could only ever
+// be one AWS release behind — a new credential-returning `get-*` op the switch
+// does not name (`eks get-token`, `redshift get-cluster-credentials`, `sso
+// get-role-credentials`, `lightsail get-instance-access-details`, …) would
+// reach ALLOW via awsReadOnlyOp's `get-` prefix, and a miss there costs a
+// LEAKED SECRET, not a prompt. So after the exact-pair switch, a STRUCTURAL
+// credential-material name signal (awsCredentialShapedGet) pulls any remaining
+// `get-*` whose operation name carries a credential-material token back to the
+// ASK tier BY CONSTRUCTION. The failure asymmetry is the guide: on this
+// (allow/deny) surface a miss must cost a prompt, never a leak, so the residual
+// `get-*` reads are default-deny-shaped (allowed only if they do NOT look
+// credential-shaped) rather than blanket-allowed.
 func awsCredentialRead(svc, op string, args []string) bool {
 	op = strings.ToLower(op)
 	svc = strings.ToLower(svc)
@@ -848,6 +865,57 @@ func awsCredentialRead(svc, op string, args []string) bool {
 		// (#64 exposure harm). The key is the next positional after `get`.
 		if op == "get" {
 			return awsConfigureReadsSecret(args)
+		}
+	}
+	// #97 structural whitelist anchor: any `get-*` operation whose NAME carries a
+	// credential-material token is treated as a credential read regardless of
+	// service, so a credential-returning `get-*` the exact-pair switch above does
+	// not enumerate still ASKs instead of reaching the ALLOW floor.
+	return awsCredentialShapedGet(op)
+}
+
+// awsCredentialMaterialTokens are the hyphen-segment name tokens that mark an
+// aws operation as returning credential material. They generalize the exact-pair
+// blacklist in awsCredentialRead into a STRUCTURAL signal: AWS names its
+// credential-returning reads with these tokens (`get-session-token`,
+// `get-cluster-credentials`, `get-login-password`, `get-secret-value`,
+// `get-instance-access-details`, `get-role-credentials`, …), so matching the
+// token catches whole families at once — including future ops that follow the
+// convention — rather than one exact (svc, op) pair at a time.
+//
+// The tokens are matched as WHOLE hyphen segments (see awsCredentialShapedGet),
+// not substrings, so a benign op is not caught by an incidental substring. The
+// set is deliberately conservative toward ASK: a benign `get-*` op that happens
+// to carry one of these segments costs one spurious prompt (cheap, the accepted
+// cost on the allow side), whereas a missed credential read costs a leak.
+var awsCredentialMaterialTokens = map[string]bool{
+	"credential":  true, // iam get-credential-report
+	"credentials": true, // redshift get-cluster-credentials, sso get-role-credentials, cognito-identity get-credentials-for-identity
+	"token":       true, // sts get-session-token, ecr get-authorization-token, eks get-token, cognito-identity get-open-id-token
+	"password":    true, // ecr get-login-password
+	"secret":      true, // secretsmanager get-secret-value
+	"details":     true, // lightsail get-instance-access-details (the SSH key material segment)
+}
+
+// awsCredentialShapedGet reports whether a `get-*` operation name carries a
+// credential-material token as one of its hyphen segments (#97). Scoped to the
+// `get-` prefix on purpose: `get-*` fetches one named resource, so a
+// credential-material segment means the resource IS credential material. The
+// convention-allowed `list-*`/`describe-*` reads are NOT scanned — they return
+// collections/metadata (e.g. `iam list-access-keys`, `codecatalyst
+// list-access-tokens` return identifiers/metadata, never the secret), so
+// scanning them would trade real over-blocking of routine surveys for no
+// exposure gain. Non-read prefixes (`generate-`/`request-`/`send-`) never reach
+// the ALLOW floor at all — they already fall through awsReadOnlyOp to the #124
+// ASK default — so they need no guard here.
+func awsCredentialShapedGet(op string) bool {
+	op = strings.ToLower(op)
+	if !strings.HasPrefix(op, "get-") {
+		return false
+	}
+	for _, seg := range strings.Split(op, "-") {
+		if awsCredentialMaterialTokens[seg] {
+			return true
 		}
 	}
 	return false

@@ -258,6 +258,57 @@ func TestAwsCredentialReadAsk_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "aws ssm get-parameter --name n", false), BucketAllow, "ssm get-parameter no-decryption")
 }
 
+// #97: the credential-read decision is now the WHITELIST ANCHOR for the
+// credential-exposure surface, not a per-(svc,op) blacklist. A
+// credential-returning `get-*` op the exact-pair switch does NOT enumerate must
+// still ASK — it must not reach the ALLOW floor via awsReadOnlyOp's `get-`
+// prefix. These are exactly the ops the pre-#97 blacklist leaked (a miss here
+// costs a LEAKED SECRET, not a prompt), caught now by the structural
+// credential-material name signal (awsCredentialShapedGet).
+func TestAwsCredentialShapedGetAsk_97(t *testing.T) {
+	for _, cmd := range []string{
+		"aws eks get-token --cluster-name c",                                         // token
+		"aws redshift get-cluster-credentials --db-user u --cluster-identifier c",    // credentials
+		"aws redshift get-cluster-credentials-with-iam --cluster-identifier c",       // credentials
+		"aws emr get-cluster-session-credentials --cluster-id c",                     // credentials
+		"aws sso get-role-credentials --role-name r --account-id a --access-token t", // credentials
+		"aws lightsail get-instance-access-details --instance-name i",                // details
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws credential-shaped get- (#97): "+cmd)
+	}
+}
+
+// #97 regression guard: the credential-material name signal must NOT over-block
+// the many benign `get-*` reads. A spurious ASK here is the accepted cost on the
+// allow side, but a wide false-positive would defeat the classifier's purpose
+// (not interrupting the human on safe debug reads), so these must stay ALLOW.
+// `get-caller-identity` is the load-bearing one: it returns account/ARN/UserId,
+// NOT credentials, and its `identity` segment must not be caught.
+func TestAwsBenignGetStillAllow_97(t *testing.T) {
+	for _, cmd := range []string{
+		"aws sts get-caller-identity",
+		"aws lambda get-function --function-name f",
+		"aws s3api get-object --bucket b --key k out",
+		"aws s3api get-bucket-policy --bucket b",
+		"aws iam get-access-key-last-used --access-key-id AKIA", // last-used metadata, not the key
+		"aws dynamodb get-item --table-name t --key '{}'",
+		"aws ssm get-parameter --name n", // no --with-decryption
+		"aws cloudformation get-template --stack-name s",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "aws benign get- stays allow (#97): "+cmd)
+	}
+	// `list-*` / `describe-*` reads that carry a credential-material token in the
+	// name return metadata/collections, NOT the secret, and stay ALLOW — the
+	// structural signal is scoped to the `get-` prefix on purpose.
+	for _, cmd := range []string{
+		"aws iam list-access-keys --user-name u",             // access-key IDs, not secrets
+		"aws codecatalyst list-access-tokens --space-name s", // token metadata, not the token
+		"aws license-manager list-tokens",                    // token metadata
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "aws list-/describe- credential-metadata stays allow (#97): "+cmd)
+	}
+}
+
 // `aws configure get <secret-key>` reads the LOCAL credential store. It is a
 // bare-verb command (no hyphen) — the hyphen anchor must EXCLUDE it from the
 // read-allow tier (the issue body names `aws configure get/set` as a required
