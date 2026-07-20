@@ -10,3 +10,4 @@
 - [go mod cache reads blocked, use go doc](gomodcache-outside-repo-use-go-doc.md) — gate blocks ~/go/pkg/mod reads even when the issue says it's fine; use `go doc <pkg>.<Symbol>` instead
 - [mikefarah yq unique does not sort](mikefarah-yq-unique-does-not-sort.md) — `unique` de-dupes in first-seen order; use `unique | sort` for an order-insensitive canonical form (hashing/cache keys)
 - [claude-vm mkosi third-party apt](claude-vm-mkosi-third-party-apt.md) — build-time third-party apt repos go in the mkosi SandboxTree (mkosi.sandbox/etc/apt/...), and signed-by must be the runtime /etc/apt path, not the staging path
+- [aws/gh/acli credential-read surface](aws-gh-acli-credential-read-surface.md) — of the convention-based read-verb classifiers, only aws leaked credentials (fixed #97); gh auth token + acli get do NOT — sweep reference
