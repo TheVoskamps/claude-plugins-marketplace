@@ -1415,6 +1415,92 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Test 23: boot_apt_phase fallback-update hoist (issue #106 review finding,
+# PR #174 round 3).
+#
+# boot_apt_phase is defined INSIDE the same <<'BOOT' heredoc as
+# render_apt_source_boot above, so it is extracted the same way: grab its
+# literal body by line range and source it in-process with log/apt-get/
+# render_apt_source_boot stubbed out. apt-get is stubbed to APPEND its argv
+# to a call-log file (rather than a no-op) so these tests can assert WHICH
+# apt-get subcommands ran, not just that the function didn't crash.
+#
+# The scenario under test: install_at_boot names only base-repo packages
+# (no apt_sources), and update_at_boot is false. Before the round-3 fix,
+# the fallback `apt-get update` for a nonempty install list was nested
+# inside the `-s "$APT_SOURCES_TSV"` branch, so this exact combination ran
+# `apt-get install` with NO index refresh this boot. The fix hoists the
+# fallback out so any nonempty install list gets a refresh whenever
+# update_at_boot didn't already provide one.
+# ---------------------------------------------------------------------
+BAP_START="$(grep -n '^boot_apt_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+BAP_END="$(awk -v start="$BAP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
+BAP_SRC="$WORK/boot_apt_phase.sh"
+if [ -n "$BAP_START" ] && [ -n "$BAP_END" ]; then
+  {
+    echo 'log() { :; }'
+    echo 'render_apt_source_boot() { :; }'
+    echo 'APT_GET_CALL_LOG="${APT_GET_CALL_LOG:-/dev/null}"'
+    echo 'apt-get() { printf "%s\n" "$*" >> "$APT_GET_CALL_LOG"; return "${APT_GET_STUB_EXIT:-0}"; }'
+    awk -v start="$BAP_START" -v end="$BAP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
+  } > "$BAP_SRC"
+  # shellcheck source=/dev/null
+  . "$BAP_SRC"
+fi
+
+if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase >/dev/null 2>&1; then
+  # Scenario: update_at_boot=false, install_at_boot nonempty (base-repo-only
+  # -- no apt_sources.tsv). Before the fix: no 'update' call at all. After
+  # the fix: exactly one 'update' call (the hoisted fallback), before the
+  # 'install' call.
+  BAP_CALLS="$WORK/boot-apt-calls.log"
+  : > "$BAP_CALLS"
+  APT_GET_CALL_LOG="$BAP_CALLS"
+  APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
+  printf 'curl\n' > "$APT_INSTALL_LIST"
+  APT_SOURCES_TSV="$WORK/apt-sources-empty.tsv"
+  : > "$APT_SOURCES_TSV"
+  APT_PROXY_OPTS=()
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+
+  UPDATE_CALLS="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
+  assert_eq "boot_apt_phase: base-repo-only install with update_at_boot=false still refreshes the index" \
+    "1" "$UPDATE_CALLS"
+
+  INSTALL_LINE_NO="$(grep -n ' install ' "$BAP_CALLS" | head -1 | cut -d: -f1)"
+  UPDATE_LINE_NO="$(grep -n '^ *update ' "$BAP_CALLS" | head -1 | cut -d: -f1)"
+  if [ -n "$INSTALL_LINE_NO" ] && [ -n "$UPDATE_LINE_NO" ] && [ "$UPDATE_LINE_NO" -lt "$INSTALL_LINE_NO" ]; then
+    assert_eq "boot_apt_phase: fallback update runs before install" "before" "before"
+  else
+    assert_eq "boot_apt_phase: fallback update runs before install" "before" "after-or-missing"
+  fi
+
+  # Scenario: update_at_boot=true. did_update is already 1, so the
+  # fallback must NOT fire a second 'update' -- only the one from the
+  # update_at_boot branch itself.
+  : > "$BAP_CALLS"
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="true"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+  UPDATE_CALLS_TRUE="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
+  assert_eq "boot_apt_phase: update_at_boot=true does not double-update for install_at_boot" \
+    "1" "$UPDATE_CALLS_TRUE"
+
+  # Scenario: update_at_boot=false and install_at_boot EMPTY -- no apt-get
+  # calls should run at all (nothing to refresh an index for).
+  : > "$BAP_CALLS"
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  APT_INSTALL_LIST="$WORK/apt-install-empty.list"
+  : > "$APT_INSTALL_LIST"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+  UPDATE_CALLS_EMPTY="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
+  assert_eq "boot_apt_phase: no install_at_boot and update_at_boot=false runs no update" \
+    "0" "$UPDATE_CALLS_EMPTY"
+else
+  echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

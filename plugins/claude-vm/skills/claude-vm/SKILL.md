@@ -266,10 +266,10 @@ guest-image build (issue #105 — see "Guest image" below).
 `packages.add_apt_uris_to_allowlist` are **consumed** by the guest boot
 launcher's boot-time apt phase (issue #106 — see "Boot-time package
 install/update" in `payload/README.md`). The remaining keys (marketplace/
-plugin seeding, GitHub token seeding) are schema + merge only as of issue
-#103 — those consumers land in sibling slices under #39. They resolve
-correctly through `payload/lib/config.sh` today; nothing downstream reads
-them yet.
+plugin seeding, GitHub token seeding) are schema + merge only as of
+issue #103 — those consumers land in sibling slices under #39. They
+resolve correctly through `payload/lib/config.sh` today; nothing
+downstream reads them yet.
 
 - `packages.bake` / `packages.install_at_boot` list the apt packages to
   bake into the guest image vs. install at boot (blocking, before

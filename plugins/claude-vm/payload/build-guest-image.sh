@@ -185,7 +185,17 @@ BASE_OS_REV="debian-12-20250601"
 # CONTENT changes -- all three still require every cached image (baked-apt
 # rev 12 included) to rebuild, so old images (stamped 'launcher12') rebuild
 # on next use.
-LAUNCHER_LOGIC_REV="13"
+# Bumped 13 -> 14: fallback-update hoist fix (issue #106 review finding, PR
+# #174 round 3). boot_apt_phase's fallback `apt-get update` (for a nonempty
+# install_at_boot when update_at_boot didn't already refresh the index) was
+# nested inside the `-s "$APT_SOURCES_TSV"` branch, so a base-repo-only
+# install_at_boot (no third-party apt_sources) with update_at_boot=false ran
+# `apt-get install` with NO index refresh this boot, relying on possibly-
+# stale/absent baked /var/lib/apt/lists. The fallback now runs whenever
+# install_at_boot is nonempty and did_update is still 0, regardless of
+# whether apt_sources rendered anything. This is a BOOT-LOGIC change, so old
+# images (stamped 'launcher13') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="14"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -653,18 +663,24 @@ boot_apt_phase() {
   fi
 
   if [ -s "$APT_INSTALL_LIST" ]; then
-    log "claude-vm: boot-time apt: rendering apt_sources for install_at_boot."
     if [ -s "$APT_SOURCES_TSV" ]; then
+      log "claude-vm: boot-time apt: rendering apt_sources for install_at_boot."
       while IFS=$'\t' read -r as_name as_repo as_key_url; do
         [ -n "$as_name" ] || continue
         render_apt_source_boot "$as_name" "$as_repo" "$as_key_url" || true
       done < "$APT_SOURCES_TSV"
-      if [ "$did_update" -eq 0 ]; then
-        # A newly-rendered apt_source needs its own index fetched before
-        # install can see its packages, even when update_at_boot is false.
-        apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" update -qq \
-          || log "claude-vm: WARNING -- boot-time 'apt-get update' (for newly rendered apt_sources) failed; install below may fail to find those packages."
-      fi
+    fi
+    if [ "$did_update" -eq 0 ]; then
+      # An index refresh is needed before install can resolve packages,
+      # whenever update_at_boot didn't already provide one -- whether that's
+      # because a NEWLY-rendered apt_source just added packages the baked
+      # index doesn't know about, or because install_at_boot names only
+      # base-repo packages and the guest's baked/cached
+      # /var/lib/apt/lists is stale or absent. Unconditional on nonempty
+      # APT_INSTALL_LIST (not nested under the apt_sources check above) so
+      # BOTH cases get refreshed.
+      apt-get "${APT_PROXY_OPTS[@]+"${APT_PROXY_OPTS[@]}"}" update -qq \
+        || log "claude-vm: WARNING -- boot-time 'apt-get update' (for install_at_boot) failed; install below may fail to find those packages."
     fi
     local install_packages=()
     while IFS= read -r pkg; do
