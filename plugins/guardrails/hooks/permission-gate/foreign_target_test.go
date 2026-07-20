@@ -84,6 +84,22 @@ func TestGhUnrecognizedFailsClosedToAsk_163(t *testing.T) {
 	}
 }
 
+// #97: `gh auth token` prints the active GitHub OAuth/PAT token to stdout — the
+// gh analog of `aws configure get aws_secret_access_key`. Its noun `auth` is not
+// in isGhReadOnly's knownNouns and its verb `token` is not an enumerated
+// recoverable write, so it falls through to the #163 fail-closed ASK. This test
+// pins that the credential-exposure path holds (the gate is the semantic
+// boundary for what the guest's credential may expose at an allowed host); a
+// future refactor that added `auth` to knownNouns must not silently ALLOW it.
+func TestGhAuthTokenFailsClosedToAsk_97(t *testing.T) {
+	for _, cmd := range []string{
+		"gh auth token",
+		"gh auth token --hostname github.com",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "gh auth token fails closed: "+cmd)
+	}
+}
+
 // A verb explicitly mapped false in ghRecoverableWriteVerbs (issue transfer) is
 // NOT an enumerated recoverable write and falls through to the fail-closed ASK.
 func TestGhMappedFalseVerbAsks_163(t *testing.T) {

@@ -302,7 +302,35 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   `output`, `aws_access_key_id`, `cli_pager`) is separately allowed as a
   local-config-only read, while a secret-key `configure get` lands in
   the credential-read ask tier above — token-matched not
-  substring-matched) **allow**. **Every other aws op — including
+  substring-matched) **allow**. **The credential-read decision is
+  whitelist-anchored, not a blacklist (#97).** Under #64/#124 the
+  credential-read tier was an exact-pair blacklist (`sts
+  get-session-token`, `ecr get-login-password`, …) with an ALLOW floor
+  underneath it — a `get-*` op the blacklist did not name reached ALLOW
+  via the `get-` prefix, and on this surface a miss costs a **leaked
+  secret**, not a prompt. The credential surface cannot be exhaustively
+  enumerated (`eks get-token`, `redshift get-cluster-credentials`, `sso
+  get-role-credentials`, `lightsail get-instance-access-details`, plus
+  whatever AWS ships next), so the exact-pair blacklist is always one
+  release behind. To make the **allow side** default-deny-shaped by
+  construction, any `get-*` operation whose NAME carries a
+  credential-material token (`credential`/`credentials`/`token`/
+  `password`/`secret`/`details`, matched as whole hyphen segments) is
+  pulled to the credential-read **ask** tier regardless of service —
+  a `get-*` is allowed only if it does NOT look credential-shaped. The
+  failure asymmetry is the guide (the #163 role, applied to the floor
+  itself): a benign `get-*` that happens to carry such a segment costs
+  one spurious prompt (cheap, the accepted cost on the allow side),
+  whereas a missed credential read costs a leak (unacceptable). The
+  signal is scoped to the `get-` prefix on purpose — `get-*` fetches one
+  named resource, so a credential-material segment means the resource IS
+  credential material, whereas the convention-allowed `list-*`/
+  `describe-*` reads return collections/metadata (e.g. `iam
+  list-access-keys`, `codecatalyst list-access-tokens` return
+  identifiers, never the secret) and stay ALLOW. The gh analog is `gh
+  auth token` (prints the active token) — noun `auth` is not in
+  `isGhReadOnly`'s known nouns, so it falls to the #163 fail-closed
+  **ask**. **Every other aws op — including
   ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
   `cloudformation delete-stack`, `lambda invoke`, …) — asks (#124)**:
   the gate cannot prove the op read-only, and an aws mutation carries
