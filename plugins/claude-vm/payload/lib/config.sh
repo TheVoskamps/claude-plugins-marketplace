@@ -645,11 +645,13 @@ claude_vm_bake_config_json() {
 #
 #   $1 -- merged config file path
 #
-# The 8-hex prefix is the image-variant discriminator the launcher folds into
-# the guest image's cache key + filename (guest-<hash>.raw). An empty bake
-# config always yields the SAME hash (the canonical `{"bake":[],
-# "apt_sources":[]}` is constant), so repos with no bake overrides collide on
-# one hash and share one image -- exactly the intended warm-path behavior.
+# NOTE: this hashes the MERGED bake config. Since issue #106 the image
+# cache key + filename is instead composed by claude_vm_image_identity_segments
+# from the two config LAYERS independently (which uses the superset
+# claude_vm_build_config_json, adding image.root_headroom_mb). This helper is
+# retained for the older callers/tests that hash the merged bake config; it no
+# longer drives the image filename. An empty bake config always yields the SAME
+# hash (the canonical `{"bake":[],"apt_sources":[]}` is constant).
 #
 # sha256 tool resolution: prefer `shasum -a 256` (ships with macOS, the only
 # supported host) and fall back to `sha256sum` (coreutils) so the helper works
@@ -686,10 +688,12 @@ claude_vm_bake_hash_from_json() {
 }
 
 # True (exit 0) when the merged config has NO bake-affecting entries -- i.e.
-# both packages.bake and packages.apt_sources are empty/absent. The launcher
-# uses this to decide between the shared default image (guest.raw) and a
-# per-variant image (guest-<hash>.raw): an empty bake config shares the global
-# image, a non-empty one gets its own cached variant.
+# both packages.bake and packages.apt_sources are empty/absent.
+#
+# NOTE: since issue #106 the launcher decides image identity per LAYER via
+# claude_vm_build_config_is_empty (which also considers image.root_headroom_mb),
+# not this merged-config helper. Retained for the pure-function tests that
+# still exercise the merged bake-config canonicalization.
 #
 #   $1 -- merged config file path
 claude_vm_bake_config_is_empty() {
@@ -698,6 +702,158 @@ claude_vm_bake_config_is_empty() {
     ((.packages.bake // []) | length) + ((.packages.apt_sources // []) | length)
   ' "$file" 2>/dev/null)"
   [ "${count:-0}" = "0" ]
+}
+
+# ---------------------------------------------------------------------
+# Image-identity hashing (issue #106 real-run redesign).
+#
+# The bake-hash above hashes the MERGED bake config. That was enough while
+# the only build-relevant knob was packages.bake/apt_sources, but it has two
+# problems the redesign fixes: (1) it never covered image.root_headroom_mb,
+# so changing the headroom did not fork the cache; (2) it collapses global
+# and repo provenance into one merged hash, so an image filename could not
+# tell you WHOSE override produced a given variant.
+#
+# The new scheme hashes each config LAYER independently over its
+# BUILD-RELEVANT content, and composes a self-documenting image identity:
+#
+#   - config-less repo:   <base>+global<globalhash>
+#   - repo with a config: <base>+global<globalhash>+<reponame>-<repohash>
+#
+# where <globalhash> is the build-hash of the GLOBAL config alone and
+# <repohash> is the build-hash of the REPO config alone. Every repo without a
+# .claude-vm/config.yml shares one image keyed on the global hash; a repo with
+# a config gets its own image, disambiguated by its NAME (so two repos with
+# byte-identical repo configs still get two images -- legibility over maximal
+# dedup, the human's explicit choice: you can see whose override runs where).
+#
+# BUILD-RELEVANT content is exactly what changes the built image: the baked
+# packages/apt_sources (as canonicalized by claude_vm_bake_config_json) PLUS
+# image.root_headroom_mb (which sizes the root partition). Everything else in
+# the config (cpus, mem, egress, proxy, permissions, marketplaces, plugins,
+# install_at_boot/update_at_boot, github.auth, ...) is applied at boot/run and
+# does NOT change the image, so it is deliberately excluded -- a change to a
+# purely-runtime key must not force an image rebuild.
+#
+# root_headroom_mb is read RAW per layer (absent -> ""): a layer's build-hash
+# reflects only what THAT layer declares, so changing the global config's
+# image.root_headroom_mb changes the global hash (the default case, where
+# headroom is a global knob), and a repo that overrides headroom changes its
+# own repo hash. The EFFECTIVE headroom the build actually uses is still the
+# merged, default-filled value resolved by the launcher; these hashes track
+# provenance for the cache key, not the applied value.
+
+# Emit the CANONICAL build-relevant config as compact JSON for ONE config
+# layer (global OR repo, NOT the merged document). Superset of
+# claude_vm_bake_config_json: same bake/apt_sources canonicalization, plus a
+# root_headroom_mb field (the raw scalar this layer declares, or "" when the
+# layer does not set it). Byte-stable and key-ordered so it can be hashed
+# directly.
+#
+#   $1 -- a SINGLE config file path (a layer, not the merged document). A
+#         missing file is treated as an empty document, yielding the canonical
+#         empty form {"bake":[],"apt_sources":[],"root_headroom_mb":""}.
+claude_vm_build_config_json() {
+  local file="$1"
+  # A missing/empty layer must still produce the stable canonical empty form.
+  # yq on a nonexistent path errors, so normalize a missing file to `{}`.
+  local src="$file"
+  if [ -z "$file" ] || [ ! -f "$file" ]; then
+    src="$(claude_vm_mktemp claude-vm-build-empty)"
+    printf '{}\n' > "$src"
+  fi
+  yq eval -o=json -I=0 '
+    {
+      "bake": (.packages.bake // [] | map(select(. != null and . != "")) | unique | sort),
+      "apt_sources": (
+        .packages.apt_sources // []
+        | map({
+            "name":    (.name // ""),
+            "repo":    (.repo // ""),
+            "key_url": (.key_url // "")
+          })
+        | sort_by(.name)
+      ),
+      "root_headroom_mb": (.image.root_headroom_mb // "" | tostring)
+    }
+  ' "$src" 2>/dev/null
+  if [ "$src" != "$file" ]; then rm -f "$src"; fi
+}
+
+# Compute the 8-hex BUILD-HASH of a single config layer's build-relevant
+# content (the canonical JSON from claude_vm_build_config_json). Reuses the
+# same sha256 machinery as the bake-hash so both agree on tool resolution and
+# prefix length.
+#
+#   $1 -- a SINGLE config file path (a layer, not the merged document)
+claude_vm_build_hash() {
+  local file="$1" json
+  json="$(claude_vm_build_config_json "$file")" || return 1
+  claude_vm_bake_hash_from_json "$json"
+}
+
+# True (exit 0) when a SINGLE config layer has NO build-relevant content --
+# i.e. no packages.bake, no packages.apt_sources, and no image.root_headroom_mb.
+# A missing file counts as empty. Used to decide whether a layer contributes an
+# image-identity segment at all (an all-empty repo config file, e.g. one that
+# sets only runtime keys like cpus, produces NO repo segment -- it does not
+# change the image, so it shares the global image just like a config-less repo).
+#
+#   $1 -- a SINGLE config file path (a layer, not the merged document)
+claude_vm_build_config_is_empty() {
+  local file="$1"
+  if [ -z "$file" ] || [ ! -f "$file" ]; then return 0; fi
+  local count headroom
+  count="$(yq eval '
+    ((.packages.bake // []) | length) + ((.packages.apt_sources // []) | length)
+  ' "$file" 2>/dev/null)"
+  headroom="$(yq eval '.image.root_headroom_mb // ""' "$file" 2>/dev/null)"
+  [ "${count:-0}" = "0" ] && { [ -z "$headroom" ] || [ "$headroom" = "null" ]; }
+}
+
+# Sanitize a repo name for use as an image-filename / version segment: keep
+# only [A-Za-z0-9._-], collapse every other run to a single '-', and trim
+# leading/trailing '-'. The repo name is a directory basename (operator's
+# checkout path), so it can contain spaces or other characters that would
+# corrupt a filename or version string; this makes it filename-safe while
+# staying human-legible. An empty result (e.g. a name that was all separators)
+# falls back to "repo" so a segment is always well-formed.
+#
+#   $1 -- raw repo name (typically basename of the repo root)
+claude_vm_sanitize_repo_name() {
+  local raw="$1" clean
+  clean="$(printf '%s' "$raw" | tr -c 'A-Za-z0-9._-' '-' | sed -E 's/-+/-/g; s/^-+//; s/-+$//')"
+  [ -n "$clean" ] || clean="repo"
+  printf '%s\n' "$clean"
+}
+
+# Compose the image-identity variant segment(s) appended to the base version /
+# image filename, from the two config LAYERS and the repo name.
+#
+#   $1 -- global config file path (a layer; may be absent)
+#   $2 -- repo config file path   (a layer; may be absent)
+#   $3 -- repo name (raw; sanitized internally). Only used when the repo layer
+#         contributes a segment.
+#
+# Emits (on stdout, no leading '+'):
+#   - config-less / build-empty repo: "global<globalhash>"
+#   - repo with build-relevant config: "global<globalhash>+<reponame>-<repohash>"
+#
+# The GLOBAL segment is ALWAYS present (even for an empty global config, whose
+# build-hash is the stable empty-form hash) so every image name states which
+# global build it came from. The repo segment appears only when the repo layer
+# has build-relevant content (claude_vm_build_config_is_empty false).
+claude_vm_image_identity_segments() {
+  local global="$1" repo="$2" repo_name="$3"
+  local ghash rhash rname out
+  ghash="$(claude_vm_build_hash "$global")" || return 1
+  out="global${ghash}"
+  if ! claude_vm_build_config_is_empty "$repo"; then
+    rhash="$(claude_vm_build_hash "$repo")" || return 1
+    rname="$(claude_vm_sanitize_repo_name "$repo_name")"
+    out="${out}+${rname}-${rhash}"
+  fi
+  printf '%s\n' "$out"
 }
 
 # Emit marketplaces as tab-separated "name<TAB>url" lines from a

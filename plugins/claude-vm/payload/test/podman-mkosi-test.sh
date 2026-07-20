@@ -509,10 +509,13 @@ if [ -f "$REPART_ESP" ] && [ -f "$REPART_ROOT" ]; then
     "$REPART_ESP" "SizeMinBytes=512M"
   assert_contains "repart root: Type=root" "$REPART_ROOT" "Type=root"
   assert_contains "repart root: Format=ext4" "$REPART_ROOT" "Format=ext4"
-  assert_contains "repart root: Minimize=guess retained (content still self-measures)" \
-    "$REPART_ROOT" "Minimize=guess"
-  # 2048 (headroom) + 900 (BASE_ESTIMATE_MB) = 2948.
-  assert_contains "repart root: SizeMinBytes reflects base-estimate + headroom (2948M)" \
+  # Bug 1 fix: Minimize=guess is DROPPED so the ext4 filesystem is sized to
+  # FILL SizeMinBytes (fs == partition), rather than minimized to a tight fit
+  # while SizeMinBytes only padded the GPT slot with dead space (headroom inert).
+  assert_not_contains "repart root: Minimize dropped (fs fills the partition, not minimized)" \
+    "$REPART_ROOT" "Minimize"
+  # 2048 (headroom) + 900 (ROOT_BASE_FLOOR_MB) = 2948.
+  assert_contains "repart root: SizeMinBytes reflects base-floor + headroom (2948M)" \
     "$REPART_ROOT" "SizeMinBytes=2948M"
 else
   FAIL=$((FAIL + 1))

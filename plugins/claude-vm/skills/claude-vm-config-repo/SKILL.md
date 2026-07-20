@@ -47,11 +47,12 @@ file silently shadows future changes to the global default.
   `claude.plugins.add_marketplace_uris_to_allowlist`,
   `github.auth`): write a key only if the user wants this repo
   to use a different value than the global config resolves to.
-  (`image.root_headroom_mb` sizes the guest root partition's free margin
-  above its measured/estimated base content — issue #106; bump it for a
-  repo whose sessions install many packages or otherwise grow the guest
-  disk more than the 1024 MB default anticipates. Non-default values fork
-  their own cached image variant and trigger a rebuild.)
+  (`image.root_headroom_mb` sets the guest root filesystem's free margin
+  above its base content — issue #106; bump it for a repo whose sessions
+  install many packages or otherwise grow the guest disk more than the
+  1024 MB default anticipates. Setting it in this repo config adds a repo
+  segment to the image identity — `guest+global<hash>+<reponame>-<repohash>.raw`
+  — and triggers a rebuild for this repo.)
   (`claude.renderer` selects the interactive-console terminal renderer:
   `classic` | `fullscreen` | unset; an unrecognized value aborts the
   launch. `claude.remote_control` is an opt-in boolean — `true` adds

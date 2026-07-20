@@ -126,41 +126,43 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_
 # operator override that opts OUT of variant derivation (issue #105, extended
 # by the #106 root-headroom knob): the operator owns that path and its
 # contents, so we neither hash nor rewrite it. When UNSET, the launcher
-# DERIVES the image path from the bake-relevant config AND the root headroom
-# below (variant naming), defaulting into the cache dir alongside the global
-# config.
+# DERIVES the image path from the image-identity segments below, defaulting
+# into the cache dir alongside the global config.
 #
-# Image variants (issue #105, extended by #106). The guest image now bakes
-# packages.bake + packages.apt_sources, and sizes its root partition from
-# image.root_headroom_mb, so two configs that differ in EITHER dimension need
-# SEPARATE cached images while configs that differ in NEITHER share one. We
-# compute the canonical bake config once (order-/key-normalized JSON) and
-# pass it to build-guest-image.sh for BOTH --print-version and --output via
-# CLAUDE_VM_BAKE_CONFIG, so the version it stamps and the version we compare
-# against are hashed from the same bytes; the resolved headroom is passed the
-# same way via CLAUDE_VM_ROOT_HEADROOM_MB, below.
-#   - No bake overrides AND default headroom -> the shared default image
-#     guest.raw (legacy name; every such config collides here and reuses one
-#     image, so removing all overrides reverts to it with no rebuild).
-#   - Bake overrides and/or non-default headroom present -> guest-<hash>.raw /
-#     guest-headroom<N>.raw / guest-<hash>-headroom<N>.raw as applicable, its
-#     own cached variant built on first use and stored alongside the shared
-#     image.
+# Image identity (issue #105 bake-hash, redesigned by issue #106). The image's
+# CONTENT is determined by build-relevant config -- packages.bake +
+# packages.apt_sources (baked in) and image.root_headroom_mb (root partition
+# size). Its IDENTITY (cache key + filename) is composed from the two config
+# LAYERS independently, so the filename is self-documenting:
+#
+#   - config-less repo:   guest+global<globalhash>.raw
+#   - repo with a config: guest+global<globalhash>+<reponame>-<repohash>.raw
+#
+# Every repo WITHOUT a .claude-vm/config.yml shares one image keyed on the
+# global build-hash; a repo WITH build-relevant config gets its own image,
+# disambiguated by NAME (two repos with byte-identical repo configs still get
+# two images -- legibility over dedup, the human's explicit choice). The
+# segments are computed ONCE here (claude_vm_image_identity_segments) and
+# passed to build-guest-image.sh via CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS for both
+# --print-version and --output, so the version it stamps and the version we
+# compare against are the SAME string; the MERGED bake config and MERGED
+# headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
+# as the image build CONTENT.
 DEFAULT_IMAGE_DIR="$(dirname "$GLOBAL_CONFIG")/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
-# partition is sized above its measured/estimated base content, so a live
-# session has room to grow without hitting ENOSPC (see lib/config.sh's
-# CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB for the default's justification).
-# A normal scalar (repo overrides global), resolved once here and exported so
-# build-guest-image.sh's --print-version below and its --output build (via
-# the SAME env var, forwarded to the provisioner) agree on the same value --
-# same lockstep contract as CLAUDE_VM_BAKE_CONFIG above. Validated as a
-# positive integer up front (a typo here should abort the launch, not
-# silently fall through to whatever build-guest-image.sh does with garbage).
+# partition is sized above its base content, so a live session has room to grow
+# without hitting ENOSPC (see lib/config.sh's
+# CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB for the default's justification). A
+# normal scalar (repo overrides global), resolved once here as the MERGED,
+# default-filled value and exported so build-guest-image.sh forwards it to the
+# provisioner as the actual partition size. Validated as a positive integer up
+# front (a typo here should abort the launch, not silently fall through to
+# whatever the provisioner does with garbage). This is the BUILD input; the
+# cache key is the identity segment below, which covers headroom per LAYER.
 CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
 case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
   ''|*[!0-9]*)
@@ -169,48 +171,30 @@ case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
     ;;
 esac
 export CLAUDE_VM_ROOT_HEADROOM_MB
-# A non-default root headroom is ALSO an image-variant trigger (issue #106
-# real-run fix), exactly like a bake override: it changes the built image's
-# content (root partition size), so it must fork the cache path too. Without
-# this, a headroom-only override would still resolve to the shared
-# guest.raw path while PINNED_VERSION carried a +headroomN suffix that never
-# matches guest.raw.version -- ensure_guest_image (below) would rebuild on
-# EVERY launch (each config stamps a version the other config's compare then
-# rejects), never converging. Checked independently of the bake-hash
-# (claude_vm_bake_config_is_empty only looks at packages.bake/apt_sources),
-# so a headroom-only override (no bake) still gets its own variant, and a
-# bake-only override (default headroom) still uses the bake-hash name alone.
-_needs_headroom_variant=0
-if [ "$CLAUDE_VM_ROOT_HEADROOM_MB" != "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB" ]; then
-  _needs_headroom_variant=1
-fi
+
+# Compose the image-identity segments from the two config LAYERS (global +
+# repo, hashed independently over each layer's build-relevant content) plus the
+# repo name. Always yields at least "global<hash>"; a repo with build-relevant
+# config appends "+<reponame>-<repohash>". Exported so build-guest-image.sh's
+# --print-version and --output stamp the exact same version string.
+CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_CONFIG" "$REPO_CONFIG" "$(basename "$REPO_SRC")")" \
+  || { echo "claude-vm: could not compute the guest image identity segments" >&2; exit 1; }
+export CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS
+
 _explicit_guest_image="$(claude_vm_scalar "$MERGED" '.guest_image' "")"
 if [ -n "$_explicit_guest_image" ]; then
   # Explicit override: use verbatim, opting out of variant derivation.
   GUEST_IMAGE="$_explicit_guest_image"
-elif claude_vm_bake_config_is_empty "$MERGED" && [ "$_needs_headroom_variant" -eq 0 ]; then
-  # No bake-affecting overrides and default headroom: share the global
-  # default image.
-  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest.raw"
 else
-  # Bake overrides and/or non-default headroom present: derive a per-variant
-  # image keyed on the bake-hash (empty-bake-config hash omitted when there is
-  # no bake override, so a headroom-only override does not carry a spurious
-  # "no bake" hash segment) and/or the headroom value.
-  _variant_suffix=""
-  if ! claude_vm_bake_config_is_empty "$MERGED"; then
-    _bake_hash="$(claude_vm_bake_hash "$MERGED")" \
-      || { echo "claude-vm: could not compute the bake-hash for the guest image variant" >&2; exit 1; }
-    _variant_suffix="${_variant_suffix}-${_bake_hash}"
-    unset _bake_hash
-  fi
-  if [ "$_needs_headroom_variant" -eq 1 ]; then
-    _variant_suffix="${_variant_suffix}-headroom${CLAUDE_VM_ROOT_HEADROOM_MB}"
-  fi
-  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest${_variant_suffix}.raw"
-  unset _variant_suffix
+  # Derive the image filename from the identity segments, so the filename and
+  # the stamped version carry the same self-documenting identity. A config-less
+  # repo gets guest+global<hash>.raw; a repo with config gets the two-segment
+  # name. No special-casing of the "shared default": the global hash is always
+  # present, so config-less repos collide on one guest+global<hash>.raw by
+  # construction.
+  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest+${CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS}.raw"
 fi
-unset _explicit_guest_image _needs_headroom_variant
+unset _explicit_guest_image
 
 # claude.version: the channel/pin the host-side verified cache fetches
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
@@ -436,12 +420,14 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # Ensure guest image exists and matches the pinned version. Build on
 # demand rather than erroring. The base is version-pinned; claude is
 # NOT baked in -- it is fetched at boot through the egress allowlist.
-# The bake-hash variant segment (issue #105) flows into BOTH the
-# --print-version below and the --output build through the exported
-# CLAUDE_VM_BAKE_CONFIG (set above), so a config with baked packages stamps
-# and compares its OWN version (BASE+launcherN+bake<hash>) and rebuilds only
-# when the bake config changes -- while a no-bake config keeps the legacy
-# base version and shares the one global guest.raw.
+# The image-identity segments (issue #106) flow into BOTH the --print-version
+# below and the --output build through the exported
+# CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS (set above), so the version stamped in
+# <img>.version and the version we compare against are the SAME string. A
+# config-less repo stamps/compares BASE+launcherN+global<hash> and shares that
+# one image; a repo with build-relevant config stamps its own
+# BASE+launcherN+global<hash>+<reponame>-<repohash> and rebuilds only when its
+# global or repo build-relevant config changes.
 # ---------------------------------------------------------------------
 PINNED_VERSION="$("$SCRIPT_DIR/build-guest-image.sh" --print-version)"
 ensure_guest_image() {

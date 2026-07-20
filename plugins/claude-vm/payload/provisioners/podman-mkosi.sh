@@ -247,11 +247,11 @@ DIET
 # Type=esp/Format=vfat/SizeMinBytes=SizeMaxBytes=512M, no BIOS boot partition
 # since this recipe has no grub-bios) and a root partition (10-root.conf,
 # Type=root/Format=ext4/CopyFiles=//Minimize=guess) with NO SizeMinBytes= at
-# all -- Minimize=guess sizes it to the TIGHT-FIT minimum needed to hold the
-# built rootfs content, with zero margin for anything the guest writes after
-# boot (apt working set, journald, session growth -- all empirically
-# observed to matter; see build-guest-image.sh's boot_apt_phase and
-# lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB comments).
+# all -- Minimize=guess sizes the EXT4 FILESYSTEM to the TIGHT-FIT minimum
+# needed to hold the built rootfs content, with zero margin for anything the
+# guest writes after boot (apt working set, journald, session growth -- all
+# empirically observed to matter; see build-guest-image.sh's boot_apt_phase
+# and lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB comments).
 #
 # Fix: provide our OWN mkosi.repart/ directory. Once mkosi.repart/ exists at
 # all, mkosi does NOT layer its defaults on top -- our directory must be a
@@ -260,29 +260,50 @@ DIET
 # <generate the two defaults>` -- an either/or, not a merge). So 00-esp.conf
 # below is a VERBATIM copy of mkosi's own generated default (same Type=esp/
 # Format=vfat/CopyFiles=/SizeMinBytes=SizeMaxBytes=512M -- we are not
-# changing ESP sizing, only root), and 10-root.conf keeps Minimize=guess
-# (so systemd-repart still self-measures the tight-fit content size -- we
-# do not hardcode or re-derive that number ourselves) but ADDS
-# SizeMinBytes=, which composes with Minimize=guess as "the larger of the
-# two wins" (systemd repart.d(5): merging partition definitions,
-# SizeMinBytes=/PaddingMinBytes= use the larger of the two values) -- so the
-# partition ends up at max(guessed-tight-fit-size, BASE_ESTIMATE_MB +
-# headroom), i.e. the guess still governs whenever the real content is
-# bigger than our estimate, and our floor only bites when content is
-# smaller. BASE_ESTIMATE_MB is a conservative ROUNDED-UP estimate from the
-# real-run evidence (issue #106 review: "guest.raw size is 1.5G, consumes
-# 850.2M" pre-diet, ESP ~512M of that 1.5G-ish total -> ~850M root content
-# pre-diet; the post-diet apt/metadata trims reduce PER-BOOT churn, not this
-# static baked content, so the estimate is kept at the pre-diet figure rather
-# than assumed smaller) -- not a measurement of THIS build (mkosi's static
-# mkosi.repart/ files cannot embed a value computed mid-build; see the
-# investigation note this comment is paired with in the PR). Because
-# Minimize=guess still runs and wins whenever it exceeds this floor, an
-# underestimate here does not silently under-size the image -- it only means
-# the operator-configured headroom is measured from a slightly-stale base
-# figure, not a hard incorrectness.
-BASE_ESTIMATE_MB=900
-ROOT_SIZE_MIN_MB=$((BASE_ESTIMATE_MB + ROOT_HEADROOM_MB))
+# changing ESP sizing, only root).
+#
+# 10-root.conf DROPS Minimize=guess and sets ONLY SizeMinBytes=. The prior
+# round kept Minimize=guess alongside SizeMinBytes= on the theory they
+# compose as "the larger of the two wins", so the partition would end up at
+# max(tight-fit, floor+headroom). A REAL build proved that BACKWARDS, and the
+# reason is that the two knobs act on DIFFERENT objects:
+#
+#   - Minimize=guess sizes the EXT4 FILESYSTEM to a tight fit around the
+#     baked content (systemd-repart populates the fs twice to measure the
+#     minimum, then formats at that size).
+#   - SizeMinBytes= sizes the GPT PARTITION SLOT (the on-disk extent the
+#     filesystem lives in).
+#
+# With BOTH set, the filesystem is minimized to ~content size while the
+# partition slot is padded out to floor+headroom -- so the extra space is
+# UNFORMATTED DEAD SPACE past the end of the filesystem, which the running
+# guest's `df` never sees. Inspecting the real buggy build (guest-2973831d.raw)
+# confirmed it: GPT root slot 1924 MiB (= 900 floor + 1024 headroom) but the
+# ext4 fs inside was only ~1041 MiB (723 used + 317 free) -- the headroom was
+# entirely inert, exactly the "root stays ~991 MB" the human observed.
+#
+# Dropping Minimize=guess makes systemd-repart size the ext4 filesystem to
+# FILL SizeMinBytes= (Format=ext4 + CopyFiles=/ with a size floor formats the
+# fs at that size and copies the content in), so the free space above the
+# content becomes REAL, guest-usable headroom -- verified by a fresh real
+# build (fs size == partition size == floor+headroom).
+#
+# ROOT_BASE_FLOOR_MB is an HONEST FIXED FLOOR, not a measurement of this
+# build. mkosi's own measured minimal ("Minimal partition size ... is 1G") is
+# printed DURING `mkosi build`, i.e. AFTER these static mkosi.repart/ files
+# are already written, so a single-pass build genuinely cannot embed the
+# measured value here (a second full build just to read it would double build
+# time). The floor is instead a conservative constant chosen to sit at or
+# above the real baked content: the real build measured ~723 MiB of used
+# content in the root fs, so 900 MiB rounds that up with margin. Its ONLY job
+# is to guarantee at least ROOT_HEADROOM_MB of free space above the content:
+# the fs is sized to (floor + headroom), and since the floor >= content, the
+# free space is >= headroom. If a future content bump ever exceeds the floor,
+# systemd-repart still cannot shrink the fs below its content (CopyFiles=/
+# must fit), so the partition grows to hold the content -- the floor only
+# under-delivers headroom in that case, it never corrupts or truncates.
+ROOT_BASE_FLOOR_MB=900
+ROOT_SIZE_MIN_MB=$((ROOT_BASE_FLOOR_MB + ROOT_HEADROOM_MB))
 mkdir -p "$STAGE/recipe/mkosi.repart"
 cat > "$STAGE/recipe/mkosi.repart/00-esp.conf" <<'ESPCONF'
 [Partition]
@@ -298,7 +319,6 @@ cat > "$STAGE/recipe/mkosi.repart/10-root.conf" <<ROOTCONF
 Type=root
 Format=ext4
 CopyFiles=/
-Minimize=guess
 SizeMinBytes=${ROOT_SIZE_MIN_MB}M
 ROOTCONF
 

@@ -1074,110 +1074,142 @@ assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" 
   '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
 
 # ---------------------------------------------------------------------
-# Test 18: guest-image variant path derivation (issue #105).
+# Test 18: two-layer image-identity segments + filename derivation (issue #106
+# redesign).
 #
-# Reproduce the launcher's derivation logic (a bare block in claude-vm.sh, not
-# a lib function) here against merged configs: explicit guest_image opts out;
-# an empty bake config shares guest.raw; a bake config derives guest-<hash>.raw;
-# and removing the override reverts to the shared guest.raw with no path churn.
+# The image identity is composed from the two config LAYERS independently
+# (global build-hash always present; a repo with build-relevant content
+# appends "+<reponame>-<repohash>"). Exercise claude_vm_image_identity_segments
+# and the filename shape the launcher derives from it: explicit guest_image
+# opts out; a config-less repo collides on guest+global<hash>.raw; a repo with
+# build-relevant config gets a two-segment name with its sanitized name.
 # ---------------------------------------------------------------------
+IMGDIR="/home/op/.config/claude-vm/images"
 derive_image_path() {
-  # Mirror claude-vm.sh's derivation: <merged-file> <default-image-dir>.
-  local merged="$1" dir="$2" explicit
+  # Mirror claude-vm.sh's derivation: <merged-file> <global> <repo> <reponame>
+  # <default-image-dir>. The merged file supplies only the guest_image opt-out;
+  # the identity is computed from the two LAYERS.
+  local merged="$1" global="$2" repo="$3" name="$4" dir="$5" explicit seg
   explicit="$(claude_vm_scalar "$merged" '.guest_image' "")"
   if [ -n "$explicit" ]; then
     printf '%s\n' "$explicit"
-  elif claude_vm_bake_config_is_empty "$merged"; then
-    printf '%s\n' "$dir/guest.raw"
   else
-    printf '%s\n' "$dir/guest-$(claude_vm_bake_hash "$merged").raw"
+    seg="$(claude_vm_image_identity_segments "$global" "$repo" "$name")"
+    printf '%s\n' "$dir/guest+${seg}.raw"
   fi
 }
-IMGDIR="/home/op/.config/claude-vm/images"
 
-# Empty bake config -> shared guest.raw.
-VP_EMPTY="$WORK/vp-empty.yml"; printf 'cpus: 4\n' > "$VP_EMPTY"
-assert_eq "variant-path: no bake overrides -> shared guest.raw" \
-  "$IMGDIR/guest.raw" "$(derive_image_path "$VP_EMPTY" "$IMGDIR")"
+# A missing repo layer -> config-less repo -> guest+global<hash>.raw.
+VP_GLOBAL="$WORK/vp-global.yml"; printf 'cpus: 4\n' > "$VP_GLOBAL"
+VP_NOREPO="$WORK/vp-norepo.yml"  # deliberately not created
+VP_GHASH="$(claude_vm_build_hash "$VP_GLOBAL")"
+assert_eq "identity: config-less repo -> global segment only" \
+  "global$VP_GHASH" "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_NOREPO" myrepo)"
+assert_eq "identity: config-less repo -> guest+global<hash>.raw" \
+  "$IMGDIR/guest+global$VP_GHASH.raw" \
+  "$(derive_image_path "$VP_GLOBAL" "$VP_GLOBAL" "$VP_NOREPO" myrepo "$IMGDIR")"
 
-# Bake config -> guest-<hash>.raw (matching the standalone hash helper).
-VP_BAKE="$WORK/vp-bake.yml"; printf 'packages:\n  bake: [git, jq]\n' > "$VP_BAKE"
-VP_BAKE_HASH="$(claude_vm_bake_hash "$VP_BAKE")"
-assert_eq "variant-path: bake overrides -> guest-<hash>.raw" \
-  "$IMGDIR/guest-$VP_BAKE_HASH.raw" "$(derive_image_path "$VP_BAKE" "$IMGDIR")"
+# A repo config with build-relevant content -> two-segment identity, repo name
+# sanitized (a name with a slash/space collapses to filename-safe chars).
+VP_REPO_BAKE="$WORK/vp-repo-bake.yml"; printf 'packages:\n  bake: [git, jq]\n' > "$VP_REPO_BAKE"
+VP_RHASH="$(claude_vm_build_hash "$VP_REPO_BAKE")"
+assert_eq "identity: repo w/ build-relevant config appends +<name>-<repohash>" \
+  "global$VP_GHASH+acme-widgets-$VP_RHASH" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" 'acme/widgets')"
 
-# Explicit guest_image opts out of variant derivation, even WITH bake items.
-VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\npackages:\n  bake: [git]\n' > "$VP_OVERRIDE"
-assert_eq "variant-path: explicit guest_image opts out (used verbatim)" \
-  "/custom/my.raw" "$(derive_image_path "$VP_OVERRIDE" "$IMGDIR")"
+# A repo config with ONLY runtime keys (no bake/apt_sources/headroom) -> no
+# repo segment (it does not change the image, so it shares the global image).
+VP_REPO_RUNTIME="$WORK/vp-repo-runtime.yml"; printf 'cpus: 8\nmem: 8192\n' > "$VP_REPO_RUNTIME"
+assert_eq "identity: runtime-only repo config -> no repo segment (shares global)" \
+  "global$VP_GHASH" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_RUNTIME" myrepo)"
 
-# Removing the bake override reverts to the SAME shared guest.raw (warm path:
-# no rebuild, since the path -- and thus the cached image + .version -- is the
-# one an unchanged empty config already resolved to).
-assert_eq "variant-path: removing bake override reverts to shared guest.raw" \
-  "$(derive_image_path "$VP_EMPTY" "$IMGDIR")" "$IMGDIR/guest.raw"
+# Explicit guest_image opts out entirely, even with a build-relevant repo config.
+VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\n' > "$VP_OVERRIDE"
+assert_eq "identity: explicit guest_image opts out (used verbatim)" \
+  "/custom/my.raw" \
+  "$(derive_image_path "$VP_OVERRIDE" "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo "$IMGDIR")"
 
-# Two configs with the SAME bake set derive the SAME variant path (share one
-# cached image), even declared in different orders.
-VP_BAKE2="$WORK/vp-bake2.yml"; printf 'packages:\n  bake: [jq, git]\n' > "$VP_BAKE2"
-assert_eq "variant-path: same bake set (reordered) derives same variant path" \
-  "$(derive_image_path "$VP_BAKE" "$IMGDIR")" "$(derive_image_path "$VP_BAKE2" "$IMGDIR")"
+# Two repos with byte-identical repo configs but DIFFERENT names get DIFFERENT
+# images (name disambiguates -- legibility over dedup, the human's choice).
+assert_ne "identity: same repo config, different names -> different images" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" repo-a)" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" repo-b)"
+
+# Same global + same repo config + same name -> same identity (warm path).
+assert_eq "identity: identical inputs -> identical identity (warm path)" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo)" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo)"
 
 # ---------------------------------------------------------------------
-# Test 19: build-guest-image.sh --print-version bake-hash segment (issue #105).
+# Test 18b: root_headroom_mb participates in the LAYER build-hash (issue #106
+# acceptance-critical). Changing headroom in a layer MUST change that layer's
+# build-hash, so the image cache key changes and a rebuild is triggered.
+# ---------------------------------------------------------------------
+VP_HR1="$WORK/vp-hr1.yml"; printf 'image:\n  root_headroom_mb: 1024\n' > "$VP_HR1"
+VP_HR2="$WORK/vp-hr2.yml"; printf 'image:\n  root_headroom_mb: 2048\n' > "$VP_HR2"
+assert_ne "identity: global headroom change flips the global build-hash" \
+  "$(claude_vm_build_hash "$VP_HR1")" "$(claude_vm_build_hash "$VP_HR2")"
+assert_ne "identity: global headroom change flips the whole identity" \
+  "$(claude_vm_image_identity_segments "$VP_HR1" "$VP_NOREPO" myrepo)" \
+  "$(claude_vm_image_identity_segments "$VP_HR2" "$VP_NOREPO" myrepo)"
+# root_headroom_mb is read RAW per layer, so its presence in the canonical
+# build-config JSON is what drives the hash.
+assert_eq "identity: build-config JSON carries root_headroom_mb (2048)" \
+  '{"bake":[],"apt_sources":[],"root_headroom_mb":"2048"}' \
+  "$(claude_vm_build_config_json "$VP_HR2")"
+assert_eq "identity: build-config JSON for a layer that omits headroom -> empty string" \
+  '{"bake":[],"apt_sources":[],"root_headroom_mb":""}' \
+  "$(claude_vm_build_config_json "$VP_GLOBAL")"
+# build_config_is_empty: a headroom-only layer is NOT build-empty.
+assert_true "identity: headroom-only layer is not build-empty" \
+  bash -c '. "$1"; ! claude_vm_build_config_is_empty "$2"' _ "$TEST_DIR/../lib/config.sh" "$VP_HR2"
+
+# ---------------------------------------------------------------------
+# Test 19: build-guest-image.sh --print-version identity segment (issue #106).
 #
-# The launcher passes the canonical bake config to build-guest-image.sh via
-# CLAUDE_VM_BAKE_CONFIG for both --print-version and --output, so the stamped
-# version and the compared version agree. Exercise --print-version directly:
-# empty/unset -> the legacy base version (share the global image, warm path);
-# non-empty -> base+bake<hash>, stable and content-sensitive.
+# The launcher passes the pre-computed identity segments to build-guest-image.sh
+# via CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS for both --print-version and --output,
+# so the stamped version and the compared version agree. Exercise
+# --print-version directly: unset -> the bare base version (a no-launcher smoke
+# test); set -> base+<segments>, appended verbatim.
 # ---------------------------------------------------------------------
 BGI="$TEST_DIR/../build-guest-image.sh"
-BASE_VER="$("$BGI" --print-version)"   # unset CLAUDE_VM_BAKE_CONFIG -> base version
-assert_eq "print-version: unset bake config -> legacy base version (no +bake)" \
-  "$BASE_VER" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' "$BGI" --print-version)"
-# A non-empty bake config appends +bake<8hex>. Check the prefix and the
-# +bake<8hex> suffix shape separately (a literal-prefix + regex-suffix check
-# avoids escaping the base version's own metacharacters into a regex).
-BGI_BAKED="$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' "$BGI" --print-version)"
-BGI_SUFFIX="${BGI_BAKED#"$BASE_VER"}"   # strip the exact base-version prefix
-if [ "$BGI_SUFFIX" != "$BGI_BAKED" ] && printf '%s' "$BGI_SUFFIX" | grep -qE '^\+bake[0-9a-f]{8}$'; then
-  assert_eq "print-version: baked config appends +bake<8hex> to base version" "ok" "ok"
-else
-  assert_eq "print-version: baked config appends +bake<8hex> to base version" "ok" "bad: [$BGI_BAKED]"
-fi
-# Same bake config -> same version (warm path: no spurious rebuild).
-assert_eq "print-version: same bake config -> same version (warm path)" \
-  "$BGI_BAKED" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' "$BGI" --print-version)"
-# Different bake config -> different version.
-assert_ne "print-version: different bake config -> different version" \
-  "$BGI_BAKED" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git"],"apt_sources":[]}' "$BGI" --print-version)"
-# The build-guest-image hash MATCHES the standalone lib hash for the same
-# canonical bytes (the two sides agree by construction).
-LIB_HASH_FOR_BAKED="$(claude_vm_bake_hash_from_json '{"bake":["git","jq"],"apt_sources":[]}')"
-assert_eq "print-version: build-guest-image version embeds the lib bake-hash" \
-  "$BASE_VER+bake$LIB_HASH_FOR_BAKED" "$BGI_BAKED"
+BASE_VER="$("$BGI" --print-version)"   # unset segments -> bare base version
+assert_eq "print-version: unset identity segments -> bare base version" \
+  "$BASE_VER" "$("$BGI" --print-version)"
+# Segments are appended verbatim as +<segments>.
+assert_eq "print-version: global-only segment appended verbatim" \
+  "$BASE_VER+global1b20dff0" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='global1b20dff0' "$BGI" --print-version)"
+assert_eq "print-version: two-segment identity appended verbatim" \
+  "$BASE_VER+global1b20dff0+acme-widgets-573e2d72" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='global1b20dff0+acme-widgets-573e2d72' "$BGI" --print-version)"
+# Same segments -> same version (warm path); different -> different version.
+assert_eq "print-version: same identity segments -> same version (warm path)" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globalabcd1234' "$BGI" --print-version)" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globalabcd1234' "$BGI" --print-version)"
+assert_ne "print-version: different identity segments -> different version" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globalabcd1234' "$BGI" --print-version)" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globaldeadbeef' "$BGI" --print-version)"
+# --print-version and the launcher-side segments agree by construction: feed
+# the SAME lib-computed segments into --print-version.
+VP_SEG_GLOBAL="$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_NOREPO" myrepo)"
+assert_eq "print-version: build-guest-image version embeds the lib identity segments" \
+  "$BASE_VER+$VP_SEG_GLOBAL" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$VP_SEG_GLOBAL" "$BGI" --print-version)"
 
 # ---------------------------------------------------------------------
-# Test 19b: root-headroom image-variant segment (issue #106 real-run fix).
+# Test 19b: root-headroom BUILD input validation (issue #106 real-run fix).
 #
-# CLAUDE_VM_ROOT_HEADROOM_MB folds into PINNED_VERSION as its OWN segment,
-# independent of the bake-hash: unset/default -> no +headroomN segment (warm
-# path, shares the legacy version); non-default -> +headroomN appended;
-# combined with a bake config -> both segments present, in order.
+# CLAUDE_VM_ROOT_HEADROOM_MB is the MERGED headroom the build forwards to the
+# provisioner as the partition size; it is validated as a positive integer so a
+# typo aborts rather than reaching the provisioner as garbage. It no longer
+# folds into the version (the identity segments own the cache key now), so a
+# valid headroom does NOT by itself change --print-version.
 # ---------------------------------------------------------------------
-assert_eq "print-version: default headroom -> no +headroom segment (warm path)" \
-  "$BASE_VER" "$(CLAUDE_VM_ROOT_HEADROOM_MB=1024 "$BGI" --print-version)"
-assert_eq "print-version: unset headroom -> same as explicit default (1024)" \
-  "$(CLAUDE_VM_ROOT_HEADROOM_MB=1024 "$BGI" --print-version)" "$("$BGI" --print-version)"
-assert_eq "print-version: non-default headroom appends +headroom<N>" \
-  "$BASE_VER+headroom2048" "$(CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)"
-assert_ne "print-version: different non-default headroom -> different version" \
-  "$(CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)" \
-  "$(CLAUDE_VM_ROOT_HEADROOM_MB=4096 "$BGI" --print-version)"
-assert_eq "print-version: bake + non-default headroom -> both segments, bake first" \
-  "$BASE_VER+bake$LIB_HASH_FOR_BAKED+headroom2048" \
-  "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)"
+assert_eq "print-version: headroom is a build input, not a version segment" \
+  "$BASE_VER" "$(CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)"
 # A non-integer headroom aborts with a clear error rather than silently
 # building an unsized (or garbage-sized) image.
 if CLAUDE_VM_ROOT_HEADROOM_MB=notanumber "$BGI" --print-version >/dev/null 2>&1; then

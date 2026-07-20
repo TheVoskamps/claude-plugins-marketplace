@@ -195,53 +195,55 @@ BASE_OS_REV="debian-12-20250601"
 # install_at_boot is nonempty and did_update is still 0, regardless of
 # whether apt_sources rendered anything. This is a BOOT-LOGIC change, so old
 # images (stamped 'launcher13') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="14"
+# Bumped 14 -> 15: root-partition sizing fix (issue #106 review, PR #174 round
+# 4). The rev 13/14 headroom feature was INERT: it kept Minimize=guess on the
+# root partition alongside SizeMinBytes=, on the theory they compose as "the
+# larger wins". A real build proved that backwards -- Minimize=guess sizes the
+# EXT4 FILESYSTEM to a tight fit (~1041 MiB) while SizeMinBytes= only padded the
+# GPT PARTITION SLOT to floor+headroom (1924 MiB), so ~883 MiB was unformatted
+# dead space the guest's df never saw (root stayed ~991 MB, headroom inert).
+# Fixed by DROPPING Minimize=guess so the ext4 filesystem is sized to FILL
+# SizeMinBytes (a fresh real build confirmed fs == partition == 1924 MiB, 1270
+# MiB free). This is a base-image CONTENT change (the root fs is materially
+# larger), so every cached image built at rev <=14 (all sized with the inert
+# headroom) must rebuild, hence the bump. See podman-mkosi.sh's 10-root.conf.
+LAUNCHER_LOGIC_REV="15"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
-# Bake-hash image variants (issue #105).
+# Image identity (issue #105 bake-hash, redesigned by issue #106).
 #
-# The base version above pins the OS + launcher logic. On top of it, the
-# guest image now bakes packages.bake (extra apt packages) and renders
-# packages.apt_sources (third-party apt repos) into the build. Two configs
-# that bake different things must produce DIFFERENT images, so the version --
-# which is the image cache key -- gains a bake-hash SEGMENT derived from the
-# bake-relevant config.
+# The base version above pins the OS + launcher logic. On top of it, the guest
+# image's CONTENT is determined by build-relevant config: packages.bake +
+# packages.apt_sources (baked into the image) and image.root_headroom_mb (root
+# partition size). Two configs whose build-relevant content differs must
+# produce DIFFERENT cached images; two that agree must share one. So the
+# version -- which is the image cache key -- gains an IMAGE-IDENTITY segment.
 #
-# The launcher passes the CANONICAL bake config (claude_vm_bake_config_json,
-# order-normalized compact JSON) in CLAUDE_VM_BAKE_CONFIG. We hash it with the
-# SAME helper the launcher uses (claude_vm_bake_hash_from_json), so
-# --print-version here and the launcher's variant derivation agree by
-# construction. When the bake config is EMPTY (the canonical
-# `{"bake":[],"apt_sources":[]}`, i.e. no bake-affecting overrides), NO segment
-# is appended -- the version stays the legacy `BASE+launcherN`, so such configs
-# share the one global image and never rebuild on this account. A non-empty
-# bake config appends `+bake<hash>`, giving that config its own cached variant.
+# The identity is computed by the launcher (claude_vm_image_identity_segments
+# in lib/config.sh) from the two config LAYERS independently, and passed here
+# via CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS. Its shape:
 #
-# CLAUDE_VM_BAKE_CONFIG unset/empty is treated as "no bake config" -- the base
-# version, unchanged. This keeps a bare `build-guest-image.sh --print-version`
-# (no launcher, e.g. a smoke test) working and pinned to the legacy version.
-CLAUDE_VM_EMPTY_BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
-
-# Root headroom (issue #106 real-run fix). image.root_headroom_mb sizes the
-# guest root partition (base usage + this many MiB of free space -- see the
-# [Content] mkosi.repart/ definition below), so it changes the CONTENT of the
-# produced image just like a bake override does, and must participate in the
-# same image cache key: two configs with different headroom must not share a
-# cached image (a smaller headroom baked into an already-built larger image
-# would just be silently ignored; a larger headroom needs an actual rebuild
-# to grow the partition). Kept as its OWN version segment -- not folded into
-# CLAUDE_VM_BAKE_CONFIG/the bake-hash -- because the bake-hash's "empty
-# config" invariant (a config with no packages.bake/apt_sources ALWAYS
-# collides on the one shared image) is load-bearing and exercised by
-# extensive existing coverage; adding an unrelated key to that canonical form
-# risks disturbing it. CLAUDE_VM_ROOT_HEADROOM_MB unset/empty defaults to the
-# launcher's own default (CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB in
-# lib/config.sh) so a bare --print-version smoke test (no launcher) still
-# resolves to a concrete value. Mirrors the bake-hash's own "no segment for
-# the common/default case" shape: only a headroom that DIFFERS from the
-# default appends a `+headroomN` segment, so the overwhelming common case
-# (nobody overrides the default) keeps sharing the one legacy-named image.
+#   - config-less repo:   global<globalhash>
+#   - repo with a config: global<globalhash>+<reponame>-<repohash>
+#
+# build-guest-image.sh does NOT recompute it -- it appends the pre-computed
+# segments verbatim, so --print-version here and the launcher's variant
+# derivation agree by construction (same string, one source). The base version
+# stays a bare `BASE+launcherN`, and the identity is appended as `+<segments>`.
+#
+# When CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS is unset (a bare
+# `build-guest-image.sh --print-version` smoke test with no launcher), NO
+# segment is appended -- the version stays the legacy `BASE+launcherN`. The
+# launcher ALWAYS sets it (the global segment is unconditional), so a real
+# launch always carries at least `+global<hash>`.
+#
+# CLAUDE_VM_BAKE_CONFIG (the MERGED bake config) and CLAUDE_VM_ROOT_HEADROOM_MB
+# (the MERGED, default-filled headroom) still flow to the provisioner to build
+# the actual image CONTENT -- they are the build inputs, distinct from the
+# identity/cache-key above (which is provenance-based, per layer). The headroom
+# is validated here as a positive integer so a typo aborts the build rather
+# than reaching the provisioner as garbage.
 CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB="$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB"
 ROOT_HEADROOM_MB="${CLAUDE_VM_ROOT_HEADROOM_MB:-$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB}"
 case "$ROOT_HEADROOM_MB" in
@@ -252,20 +254,15 @@ case "$ROOT_HEADROOM_MB" in
 esac
 
 compute_pinned_version() {
-  local bake_config="${CLAUDE_VM_BAKE_CONFIG:-}"
   local version="$BASE_PINNED_VERSION"
-  if [ -n "$bake_config" ] && [ "$bake_config" != "$CLAUDE_VM_EMPTY_BAKE_CONFIG" ]; then
-    local hash
-    hash="$(claude_vm_bake_hash_from_json "$bake_config")" || return 1
-    version="${version}+bake${hash}"
-  fi
-  if [ "$ROOT_HEADROOM_MB" != "$CLAUDE_VM_DEFAULT_ROOT_HEADROOM_MB" ]; then
-    version="${version}+headroom${ROOT_HEADROOM_MB}"
+  local segments="${CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS:-}"
+  if [ -n "$segments" ]; then
+    version="${version}+${segments}"
   fi
   printf '%s\n' "$version"
 }
 PINNED_VERSION="$(compute_pinned_version)" \
-  || { echo "build-guest-image: failed to compute bake-hash version" >&2; exit 1; }
+  || { echo "build-guest-image: failed to compute image-identity version" >&2; exit 1; }
 
 usage() {
   cat >&2 <<'EOF'
@@ -273,10 +270,19 @@ usage:
   build-guest-image.sh --print-version
   build-guest-image.sh --output <image-path>
 
-The bake-relevant config (canonical JSON from the launcher) is read from the
-CLAUDE_VM_BAKE_CONFIG environment variable; unset/empty means no baked
-packages (the legacy base image). The root-partition headroom (MiB) is read
-from CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to
+The image-identity segments (e.g. "global<hash>" or
+"global<hash>+<reponame>-<repohash>") are read from the
+CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS environment variable and appended to the
+base version as "+<segments>"; unset/empty leaves the bare base version (a
+no-launcher smoke test). The launcher computes them once
+(claude_vm_image_identity_segments, lib/config.sh) and passes them to both
+--print-version and --output so the stamped version matches by construction.
+
+The MERGED bake config (canonical JSON from the launcher) is read from the
+CLAUDE_VM_BAKE_CONFIG environment variable and forwarded to the provisioner as
+the image build CONTENT; unset/empty means no baked packages (the legacy base
+image). The root-partition headroom (MiB) is read from
+CLAUDE_VM_ROOT_HEADROOM_MB; unset/empty defaults to
 CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB (lib/config.sh).
 EOF
 }

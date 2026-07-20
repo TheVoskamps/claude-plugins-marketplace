@@ -27,30 +27,33 @@ cpus: 4
 mem: 8192
 
 # guest_image is a normal scalar; a repo may override it. When SET, it is used
-# VERBATIM -- an explicit override that OPTS OUT of image-variant derivation
+# VERBATIM -- an explicit override that OPTS OUT of image-identity derivation
 # (see packages.bake / apt_sources / image.root_headroom_mb below): you own
 # that path and its contents. When UNSET, the launcher derives the image path
-# from the bake-relevant config AND the root headroom: a config with no baked
-# packages and the default headroom shares the one global image
-# (~/.config/claude-vm/images/guest.raw), while a config that bakes packages
-# and/or sets a non-default root_headroom_mb gets its own cached variant
-# (~/.config/claude-vm/images/guest-<hash>.raw /
-# guest-headroom<N>.raw / guest-<hash>-headroom<N>.raw), built on first use.
-# Either way the image is built on demand.
+# from a self-documenting IMAGE IDENTITY built from the two config layers:
+#   - a repo WITHOUT a .claude-vm/config.yml shares one image keyed on a hash
+#     of the GLOBAL config's build-relevant content
+#     (~/.config/claude-vm/images/guest+global<hash>.raw);
+#   - a repo WITH build-relevant config appends its own segment -- the repo
+#     NAME plus a hash of the repo config -- so you can see whose override runs
+#     where (guest+global<hash>+<reponame>-<repohash>.raw).
+# "Build-relevant" is exactly what changes the built image: packages.bake,
+# packages.apt_sources, and image.root_headroom_mb. Two repos with identical
+# repo-config content still get two images (the name disambiguates) -- by
+# design, legibility over dedup. Either way the image is built on demand.
 guest_image: /path/to/guest.raw
 
-# image.root_headroom_mb: extra MiB the guest root partition is sized ABOVE
-# its measured/estimated base content (scalar, repo wins; default 1024).
-# Real-hardware testing hit ENOSPC twice in one short session on a
-# tight-fit-sized root (systemd-repart's Minimize=guess with no floor): the
-# boot-time apt working set and ordinary session growth (journald, the
-# in-guest claude's home) both eat into a root with zero margin. 1024 MB is
-# roughly 20x the observed short-session growth and covers several rounds of
-# mid-session `apt-get install` on top of the (diet-reduced) boot-time apt
-# working set -- generous by design, since the goal is that claude-vm WORKS
-# out of the box, and disk is cheap relative to a bricked session. A
-# non-default value forks its own cached image variant (see guest_image
-# above) and triggers a rebuild, exactly like a packages.bake change does.
+# image.root_headroom_mb: extra MiB of FREE SPACE the guest root filesystem is
+# sized ABOVE its base content (scalar, repo wins; default 1024). Real-hardware
+# testing hit ENOSPC twice in one short session on a tight-fit-sized root: the
+# boot-time apt working set and ordinary session growth (journald, the in-guest
+# claude's home) both eat into a root with zero margin. 1024 MB is roughly 20x
+# the observed short-session growth and covers several rounds of mid-session
+# `apt-get install` on top of the (diet-reduced) boot-time apt working set --
+# generous by design, since the goal is that claude-vm WORKS out of the box,
+# and disk is cheap relative to a bricked session. Changing this value changes
+# the image identity's build-hash and triggers a rebuild, exactly like a
+# packages.bake change does.
 image:
   root_headroom_mb: 1024
 
@@ -65,13 +68,13 @@ repo:
 # time (issue #105): the baked packages are present in the guest with no network
 # needed at boot, and packages served by a third-party apt_source (e.g. gh from
 # cli.github.com) install at build time from that repo. Because the image is a
-# shared cache, the launcher derives a bake-HASH from the (order-normalized)
-# bake + apt_sources config and stores each distinct bake set as its own image
-# variant (guest-<hash>.raw). A config with no bake/apt_sources shares the one
-# global guest.raw; adding a bake item builds+stores a separate variant on first
-# use; removing it reverts to the shared image with no rebuild. Only bake +
-# apt_sources feed the hash -- changing cpus/egress/permissions/etc. never
-# rebuilds the image.
+# shared cache, these keys are part of the per-layer IMAGE IDENTITY (see
+# guest_image above): a config with no bake/apt_sources (and default headroom)
+# shares one guest+global<hash>.raw; a repo config that bakes packages appends
+# its own segment (guest+global<hash>+<reponame>-<repohash>.raw), built+stored
+# on first use. Only bake + apt_sources + image.root_headroom_mb feed the
+# identity hashes -- changing cpus/egress/permissions/etc. never rebuilds the
+# image.
 #
 # install_at_boot / update_at_boot are BOOT-TIME instead (issue #106): they run
 # `apt-get install` / `apt-get update && upgrade` INSIDE the guest, blocking,
