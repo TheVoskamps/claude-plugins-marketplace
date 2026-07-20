@@ -173,18 +173,53 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   forms (`sed -n`, `tee /dev/null`) stay on the read-only-utility track;
   only the mutating form routes here.
 - **Dangerous git / gh / aws classifier** (`classify_command.go`,
-  `rules.go`, #64): the deny/ask half of the command classifier for the
-  three tools whose remote operations can damage or expose a remote
-  GitHub repo (`git`/`gh`) or exfil credentials/data or mutate remote
-  cloud state (`aws`). The classifiers **never defer** — every path
-  resolves to allow/ask/deny. For `git`/`gh` the **default for a
-  recognized tool is ALLOW** (containment lives in the microVM), with
-  deny/ask tiers carving out the dangerous shapes. For `aws` the
-  default is **ASK** (#124): an aws mutation is not a guest-local
-  operation — it carries the guest's credentials to a control plane
-  outside the microVM and mutates real cloud state the VM cannot roll
-  back, so containment-lives-in-the-microVM does not backstop it. Only
-  the read-only ops keep an ALLOW default; see below.
+  `rules.go`, #64, #163): the deny/ask half of the command classifier
+  for the three tools whose remote operations can damage or expose a
+  remote GitHub repo (`git`/`gh`) or exfil credentials/data or mutate
+  remote cloud state (`aws`). The classifiers **never defer** — every
+  path resolves to allow/ask/deny. The tiering rests on the **#163 "two
+  boundaries, split by visibility"** role (which replaces the earlier
+  "the hook is a filter; containment lives in the microVM" premise):
+  the microVM's egress proxy is the **network boundary** — it filters
+  on the CONNECT target host and, inside an allowed TLS session, sees
+  only ciphertext (method, path, and body are invisible to it). The
+  gate is the **semantic boundary for exactly that blind spot** — what
+  the guest's credential may do at an already-allowed host. So a
+  classifier miss on a **guest-local** effect costs nothing (the box is
+  disposable), but a miss on a **credential-carrying remote** operation
+  has no proxy backstop at all, and the two are tiered accordingly:
+  - For **`git`**, the ALLOW default covers only the guest-local
+    subcommands (commit, add, checkout, rebase, …), which the
+    disposable microVM contains and which git's content-addressed
+    objects make recoverable (#64 principle 4) — neither justification
+    involves the proxy. The remote-touching shapes (push refspecs,
+    `remote add`/`set-url` re-aim) are individually classified in the
+    deny/ask tiers, because a credential-carrying push to an allowed
+    host is the proxy's blind spot.
+  - For **`gh`**, ALLOW is **no longer a floor** (#163): it is a
+    property of an **enumerated verb** — recognized reads
+    (`isGhReadOnly`) and an enumerated recoverable-own-repo-write set
+    (`isGhRecoverableWrite`: `pr create`/`comment`/`merge`/`close`,
+    `issue create`/`comment`/`close`/`edit`, `label`, …). An
+    **unrecognized `gh` noun/verb ASKs** (fail-closed, #64 principle 2)
+    rather than the pre-#163 silent ALLOW. An enumerated write whose
+    explicit target (`-R`/`--repo`, or a `gh api` `repos/{owner}/{repo}`
+    segment) differs from the session's `origin` **ASKs** — an
+    exfil-by-write to a foreign repo (`gh issue comment -R attacker/repo
+    …`) rides inside the same allowed-host TLS the proxy cannot inspect;
+    reads stay unscoped. The companion `git remote add`/`set-url` ASK
+    closes the git version of that channel.
+  - For **`aws`** the default is **ASK** (#124): an aws mutation is not
+    a guest-local operation — it carries the guest's credentials to a
+    control plane outside the microVM and mutates real cloud state the
+    VM cannot roll back, and the egress proxy gates only host:port/SNI,
+    not the operation inside the TLS. Only the read-only ops keep an
+    ALLOW default; see below.
+  Across all three, **host redirection** (`--hostname`, inline
+  `GH_HOST=`/`GIT_SSH_COMMAND=`/`AWS_ENDPOINT_URL=`, `-c
+  core.sshCommand`) keeps its **DENY**: it is the one surface the proxy
+  genuinely owns (it changes the CONNECT target the proxy filters on),
+  so the gate DENYs it to keep that single real control intact.
   Bypass gates fire BEFORE per-command logic, since each reaches a
   dangerous outcome without the flag a naive policy keys on:
   (1) a **non-static argv** (command substitution, unresolved variable,
@@ -203,7 +238,10 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   without `--force`), `--mirror`/`--prune` **deny** (bulk remote
   delete), plain `--force`/`-f` **ask**, while `--force-with-lease`, a
   clean named-branch delete (`--delete <branch>`, `origin :branch`), and
-  an ordinary fast-forward push **allow**. For `gh`: `gh api` is routed
+  an ordinary fast-forward push **allow**; and **`git remote add`/
+  `set-url`** (which re-aim where a later ALLOWed push sends its
+  refspec) **ask** (#163) — the git version of the gh foreign-target
+  exfil channel. For `gh`: `gh api` is routed
   through a method/body/endpoint gate (#64, extended by #113 and #162).
   A REST write — a non-GET method, an implicit-POST-flipping body flag
   on a REST endpoint, or an `x-http-method-override` header — **asks**
@@ -233,16 +271,25 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   non-allowlisted endpoint **asks** (the two owner-decision deviations
   from the appendix GET-gate — a false ask costs one click, whereas a
   hard deny would recreate the no-escape-hatch wall this gate exists to
-  remove). The microVM's no-egress posture remains the real exfil
-  control for any GET. Irreparable verbs
+  remove). The egress proxy backstops a GET only against a
+  **disallowed** host; against an already-allowed host it sees
+  ciphertext and cannot distinguish a read from an exfil, so the GET
+  allowlist (not "no-egress") is the gate's own control here (#163).
+  Irreparable verbs
   (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
   `repo edit --visibility`, `release create`, and `gist create --public`
-  **ask**. The leading global-flag screen is parsed before the
-  noun/verb so a value-taking global (`-R owner/repo`) has its value
+  **ask**. Beyond those carve-outs, a recognized gh command ALLOWs only
+  when it is an enumerated read or an enumerated recoverable-own-repo
+  write (#163); an **unrecognized noun/verb asks** (fail-closed), and an
+  enumerated write whose explicit `-R`/`--repo` target differs from the
+  session `origin` **asks** (foreign-target exfil-by-write scoping —
+  reads stay unscoped). The leading global-flag screen is parsed before
+  the noun/verb so a value-taking global (`-R owner/repo`) has its value
   token consumed (otherwise `gh -R owner/repo issue delete` would read
-  the slug as the noun and slip the delete past the deny tier), and an
-  unrecognized leading global fails closed (**deny**) rather than
+  the slug as the noun and slip the delete past the deny tier) — and
+  that same parsed `-R`/`--repo` value feeds the foreign-target scoping;
+  an unrecognized leading global fails closed (**deny**) rather than
   desyncing detection. For `aws`: `--endpoint-url` **denies** (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret
   reads (`sts get-session-token`, `ecr get-login-password`,

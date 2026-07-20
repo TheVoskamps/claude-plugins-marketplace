@@ -39,22 +39,31 @@ var gitReadOnlySubcommands = map[string]bool{
 }
 
 // classifyGh classifies a `gh` invocation. Per the #64 resolved design
-// decisions this classifier NEVER defers: the catch-all for a recognized gh
-// command is ALLOW (containment lives in the microVM), with the deny/ask tiers
-// below carving out the dangerous shapes:
+// decisions this classifier NEVER defers. Under the #163 "two boundaries, split
+// by visibility" role, ALLOW is NOT a floor — it is a property of an enumerated
+// verb. The egress proxy is the network boundary (it owns only the CONNECT
+// target host); the gate is the semantic boundary for the proxy's TLS-opaque
+// blind spot — what the guest's credential may do at an already-allowed host.
+// So a classifier miss on an unrecognized gh command is NOT "one un-prompted run
+// in a trusted box" (the microVM does not backstop a credential-carrying write
+// to an allowed host); it fails closed to ASK. The tiers:
 //
 //   - DENY: identity switches (#117); irreparable destructive verbs (repo/
 //     release/issue/gist delete, secret/variable writes, repo rename/transfer,
-//     ruleset delete, release/gist publish); the #64 precondition (non-static
-//     argv, inline env-assignment); gh api --hostname (signed-request redirect)
-//     and an unclassifiable graphql document (see classifyGhAPI, #64/#113).
+//     ruleset delete); the #64 precondition (non-static argv, inline
+//     env-assignment); gh api --hostname (signed-request redirect — the one
+//     shape the egress proxy genuinely owns) and an unclassifiable graphql
+//     document (approval cannot be informed) (see classifyGhAPI, #64/#113).
 //   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
 //     graphql mutation, an unknown gh api flag, a non-allowlisted gh api REST
 //     endpoint (#113), or a gh api REST write — non-GET method, implicit-POST
-//     body flag, or method-override header (#162).
-//   - ALLOW: read-only verbs and ordinary mutations (pr create, issue comment,
-//     pr merge, …) the spec does not name as dangerous; a provably query-only
-//     gh api graphql document and an allow-listed gh api REST GET (#113).
+//     body flag, or method-override header (#162); a foreign-target enumerated
+//     write (#163); and any UNRECOGNIZED gh noun/verb (#163 fail-closed floor).
+//   - ALLOW: enumerated read-only verbs (isGhReadOnly) and enumerated
+//     recoverable own-repo write verbs (isGhRecoverableWrite: pr create/comment/
+//     merge/close, issue create/comment/close/edit, label, …); a provably
+//     query-only gh api graphql document and an allow-listed gh api REST GET
+//     (#113).
 func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("gh", sc); hit {
@@ -69,7 +78,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// (DENY) on an UNKNOWN leading global, since an unrecognized global can
 	// desync detection the same way and the cost of a false deny is one human
 	// click while a false allow is an irreparable operation.
-	cmd, early := parseGhGlobals(args)
+	cmd, early, leadingRepo := parseGhGlobals(args)
 	if early != nil {
 		return *early
 	}
@@ -161,6 +170,9 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	}
 
 	// Read-only gh subcommand — ALLOW (explicit, for the evolution-log label).
+	// Reads are NOT foreign-target-scoped (#163): a GET to a foreign repo is not
+	// the exfil channel — that is consummated only by a WRITE to an
+	// attacker-readable place, which the enumerated-write scoping below covers.
 	if isGhReadOnly(cmd) {
 		if sc.hasRedirectToFile {
 			return ask("gh redirect-to-file",
@@ -169,15 +181,163 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return allow(fmt.Sprintf("gh %s is a read-only subcommand", strings.Join(cmd, " ")))
 	}
 
-	// #64 ALLOW default: every recognized gh command not carved out above —
-	// ordinary mutations (pr create, issue comment, pr merge, release create,
-	// …) — ALLOWs; containment lives in the microVM. A real-file redirect is
-	// the residual exfil concern that ASKs (cannot defer per #64 decision 2).
-	if sc.hasRedirectToFile {
-		return ask("gh redirect-to-file",
-			"'gh' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+	// #163 ALLOW-by-enumeration: the pre-#163 ALLOW *floor* (every recognized gh
+	// command that was not carved out above) is gone. ALLOW is now a property of
+	// an ENUMERATED recoverable-own-repo write verb — the sanctioned hot-loop
+	// mutations (pr create/comment/merge/close, issue create/comment/close/edit,
+	// label, …). An UNRECOGNIZED gh noun/verb ASKs (fail-closed): #64 principle 2
+	// (unknown subcommands fail closed) applied where it is cheap — the hot loop
+	// uses only enumerated verbs, so the prompt cost is ~zero, and a gh-version
+	// -drift miss now costs one click instead of a silent auto-allow.
+	if isGhRecoverableWrite(cmd) {
+		if sc.hasRedirectToFile {
+			return ask("gh redirect-to-file",
+				"'gh' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+		}
+		// #163 foreign-target write scoping: an otherwise-ALLOWed gh write whose
+		// explicit target (`-R`/`--repo`, in either the leading-global or the
+		// post-noun position) differs from the session repo's origin is an
+		// exfil-by-write channel (`gh issue comment -R attacker/repo …`) the
+		// egress proxy — which sees only ciphertext to an allowed host — cannot
+		// distinguish from an own-repo comment. ASK so a human owns the
+		// cross-repo write. An own-repo target (or no explicit target) stays
+		// ALLOW; an undeterminable origin fails open to the pre-#163 ALLOW (the
+		// verb already passed the recoverable-write allowlist).
+		if target := ghExplicitRepoTarget(leadingRepo, cmd); target != "" {
+			if origin := sessionOriginRepo(ev.CWD); origin != "" && target != origin {
+				return ask("gh foreign-target write (#163)",
+					"'gh "+strings.Join(cmd, " ")+"' writes to '"+target+"', which differs from this session's "+
+						"origin repo ('"+origin+"'). A write to another repo is an exfil-by-write channel the egress "+
+						"proxy cannot see (it sees only ciphertext to an allowed host). Confirm this cross-repo write "+
+						"is intended.")
+			}
+		}
+		return allow(fmt.Sprintf("gh %s is an enumerated recoverable write", strings.Join(cmd, " ")))
 	}
-	return allow(fmt.Sprintf("gh %s is not a guarded dangerous operation", strings.Join(cmd, " ")))
+
+	// #163 fail-closed floor: an unrecognized gh command (neither an enumerated
+	// read nor an enumerated recoverable write) ASKs rather than the pre-#163
+	// silent ALLOW. This is the restated role — the gate is the semantic boundary
+	// for what the guest's credential may do at an allowed host, and an
+	// unrecognized shape is precisely what the gate cannot vouch for.
+	return ask("gh unrecognized command (#163)",
+		"'gh "+strings.Join(cmd, " ")+"' is not a recognized read or an enumerated recoverable write. The "+
+			"permission gate cannot classify it, so it escalates to a human (fail-closed) rather than "+
+			"auto-allowing. Confirm this is intended; if it is a routine safe operation, it can be added to the "+
+			"gate's enumerated verb set.")
+}
+
+// ghRecoverableWriteVerbs maps each gh noun to the set of write verbs that are
+// the agent's sanctioned, individually-recoverable job (#163): they land in
+// human-reviewed surfaces (PRs, issue threads) and are reversible
+// (close/reopen, comment edit, PR revert), so they ALLOW (subject to the
+// foreign-target scoping). Irreparable verbs (delete/rename/transfer/publish)
+// and identity/secret writes are NOT here — they are carved out to DENY/ASK by
+// the tiers above BEFORE this map is consulted, so listing them here would be
+// dead weight. An `api` write is likewise never here (classifyGhAPI decides it
+// before isGhRecoverableWrite is reached).
+var ghRecoverableWriteVerbs = map[string]map[string]bool{
+	"pr": {
+		"create": true, "comment": true, "merge": true, "close": true,
+		"edit": true, "ready": true, "reopen": true, "review": true,
+	},
+	"issue": {
+		"create": true, "comment": true, "close": true, "edit": true,
+		"reopen": true, "pin": true, "unpin": true, "lock": true, "unlock": true,
+		"transfer": false, // irreparable-ish cross-repo move; not a hot-loop verb → leave to fail-closed ASK
+	},
+	"release": {
+		// `create` is already routed to ASK (publish) above; `edit`/`upload` are
+		// recoverable release mutations.
+		"edit": true, "upload": true,
+	},
+	"label": {
+		"create": true, "edit": true, "clone": true,
+		// `label delete` is a recoverable re-creatable metadata delete, but it is
+		// not a hot-loop verb; leave it to fail-closed ASK.
+	},
+	"gist": {
+		// `create` (secret) is the sanctioned form; `--public` already ASKs above.
+		"create": true, "edit": true,
+	},
+	"cache": {
+		"delete": true, // CI cache is regenerated on next run — recoverable.
+	},
+}
+
+// isGhRecoverableWrite reports whether a gh command path is an enumerated
+// recoverable-own-repo write verb (#163). cmd is the flag-stripped command path
+// (noun verb …). A noun/verb pair present in ghRecoverableWriteVerbs with a
+// true value matches; everything else (unknown noun, unknown verb, or a verb
+// explicitly mapped false) does not, and falls through to the fail-closed ASK.
+func isGhRecoverableWrite(cmd []string) bool {
+	if len(cmd) < 2 {
+		return false
+	}
+	verbs, ok := ghRecoverableWriteVerbs[cmd[0]]
+	if !ok {
+		return false
+	}
+	return verbs[cmd[1]]
+}
+
+// ghExplicitRepoTarget returns the lowercased `owner/repo` target of a gh
+// write, or "" when the command carries no explicit target. It prefers the
+// leading `-R`/`--repo` global (already parsed) and otherwise scans the
+// command path / args for a post-noun `-R`/`--repo` (gh accepts it in either
+// position). Only a two-segment `owner/repo` is returned; a bare repo name or
+// an unparseable value yields "" (treated as "no explicit target" → own-repo).
+func ghExplicitRepoTarget(leadingRepo string, cmd []string) string {
+	if leadingRepo != "" {
+		return normalizeRepoSlug(leadingRepo)
+	}
+	for i := 0; i < len(cmd); i++ {
+		a := cmd[i]
+		switch {
+		case a == "-R" || a == "--repo":
+			if i+1 < len(cmd) {
+				return normalizeRepoSlug(strings.ToLower(cmd[i+1]))
+			}
+		case strings.HasPrefix(a, "-R") && len(a) > 2:
+			return normalizeRepoSlug(strings.ToLower(strings.TrimPrefix(a, "-R")))
+		case strings.HasPrefix(a, "--repo="):
+			return normalizeRepoSlug(strings.ToLower(strings.TrimPrefix(a, "--repo=")))
+		}
+	}
+	return ""
+}
+
+// normalizeRepoSlug reduces a `-R`/`--repo` value to a bare lowercased
+// `owner/repo`. gh accepts `owner/repo`, a full URL
+// (`https://github.com/owner/repo`), or `[HOST/]owner/repo`; this strips a
+// scheme/host prefix and a trailing `.git`, keeping the last two path segments.
+// Returns "" for a value that is not a two-segment owner/repo (e.g. a bare repo
+// name, which gh resolves against the current login — not a cross-repo target
+// the gate can compare).
+func normalizeRepoSlug(v string) string {
+	if v == "" {
+		return ""
+	}
+	if strings.Contains(v, "://") {
+		if idx := strings.Index(v, "://"); idx >= 0 {
+			v = v[idx+3:]
+		}
+		if slash := strings.IndexByte(v, '/'); slash >= 0 {
+			v = v[slash+1:] // drop host
+		}
+	}
+	v = strings.TrimSuffix(v, ".git")
+	v = strings.Trim(v, "/")
+	parts := strings.Split(v, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	owner := parts[len(parts)-2]
+	repo := parts[len(parts)-1]
+	if owner == "" || repo == "" {
+		return ""
+	}
+	return owner + "/" + repo
 }
 
 // denyGhNakedAppRepo is the shared #App-repo naked-gh deny (kept as a helper so
@@ -208,21 +368,26 @@ func ghIrreparableDeny(cmd []string) (Decision, bool) {
 		switch verb {
 		case "delete":
 			return d("gh repo delete (#64)",
-				"Blocked: 'gh repo delete' is irreparable — a repository is not a recoverable git object. Denied.")
+				"Blocked: 'gh repo delete' is irreparable — a repository is not a recoverable git object. Denied. "+
+					"If archiving is the intent, 'gh repo archive' is reversible; do a genuine deletion deliberately "+
+					"via the GitHub UI, not as part of automated work.")
 		case "rename":
 			return d("gh repo rename (#64)",
 				"Blocked: 'gh repo rename' changes the repository's identity and breaks every existing reference. "+
 					"Denied; rename deliberately via the GitHub UI if genuinely intended.")
 		case "transfer":
 			return d("gh repo transfer (#64)",
-				"Blocked: 'gh repo transfer' moves the repository to another owner — irreparable from here. Denied.")
+				"Blocked: 'gh repo transfer' moves the repository to another owner — irreparable from here. Denied. "+
+					"Transfer deliberately via the GitHub UI's repository settings if genuinely intended.")
 		}
 	case "release":
 		switch verb {
 		case "delete":
 			return d("gh release delete (#64)",
 				"Blocked: 'gh release delete' destroys release assets, which are NOT git objects and not "+
-					"recoverable. Denied.")
+					"recoverable. Denied. If a release should be withdrawn without destroying its assets, "+
+					"'gh release edit <tag> --draft' un-publishes it reversibly; delete deliberately via the "+
+					"GitHub UI if the assets are genuinely disposable.")
 		}
 	case "issue":
 		if verb == "delete" {
@@ -233,28 +398,31 @@ func ghIrreparableDeny(cmd []string) (Decision, bool) {
 	case "gist":
 		if verb == "delete" {
 			return d("gh gist delete (#64)",
-				"Blocked: 'gh gist delete' destroys the gist irreparably. Denied.")
+				"Blocked: 'gh gist delete' destroys the gist irreparably. Denied. If the content should just be "+
+					"withdrawn, 'gh gist edit' can empty it reversibly; delete deliberately via the GitHub UI if it "+
+					"is genuinely disposable.")
 		}
 	case "secret", "variable":
 		// Any secret/variable write (set/delete/remove) is a write-only mutation
 		// of values the gate cannot recover. Default-deny the whole noun's
-		// mutating verbs; the read verbs (list) are handled by isGhReadOnly above
-		// before this point only for known nouns — secret/variable are NOT in the
-		// read-only known-noun set, so a `gh secret list` reaches here. Allow the
-		// list/get read forms; deny everything else (fail closed).
+		// mutating verbs; the read verbs (list/get) fall through to the
+		// enumeration path (#163), where isGhReadOnly ALLOWs them (secret/variable
+		// are in its known-noun set for reads only).
 		switch verb {
 		case "list", "get":
-			return Decision{}, false // a read; fall through to ALLOW default.
+			return Decision{}, false // a read; fall through to the enumerated-read ALLOW.
 		default:
 			return d("gh "+noun+" write (#64)",
 				"Blocked: 'gh "+noun+" "+verb+"' writes or deletes a "+noun+" value the gate cannot recover. "+
-					"Denied; manage "+noun+"s deliberately, not as part of automated work.")
+					"Denied; set "+noun+"s deliberately via the GitHub UI's Settings → Secrets and variables, not "+
+					"as part of automated work.")
 		}
 	case "ruleset":
 		if verb == "delete" {
 			return d("gh ruleset delete (#64)",
 				"Blocked: 'gh ruleset delete' weakens branch-protection guardrails — it disarms the guardrail the "+
-					"rest of this policy relies on. Denied.")
+					"rest of this policy relies on. Denied. Adjust rulesets deliberately via the GitHub UI's "+
+					"Settings → Rules, or re-run the gh-repo-setup-protection skill to reconverge them.")
 		}
 	}
 	return Decision{}, false
@@ -523,6 +691,12 @@ func isGhReadOnly(cmd []string) bool {
 		"pr": true, "issue": true, "repo": true, "run": true, "release": true,
 		"project": true, "label": true, "workflow": true, "gist": true,
 		"cache": true, "browse": true, "search": true, "ruleset": true,
+		// secret/variable are here ONLY for their read verbs (list/get). Their
+		// WRITE verbs (set/delete) never reach this map — ghIrreparableDeny DENYs
+		// them before isGhReadOnly is consulted — so a `gh secret list` reads
+		// while `gh secret set` denies (#163: reads stay ALLOW as the floor moves
+		// off writes).
+		"secret": true, "variable": true,
 	}
 	// `gh api` is never classified here: classifyGh routes it to classifyGhAPI
 	// (the #64/#113 api gate) BEFORE isGhReadOnly is ever consulted, so this
@@ -964,8 +1138,15 @@ var ghGlobalBoolFlags = map[string]bool{
 //
 // On the fail-closed path the second return is a non-nil DENY Decision and the
 // caller returns it immediately. On the normal path the second return is nil.
-func parseGhGlobals(args []string) ([]string, *Decision) {
+//
+// The third return is the value of any leading `-R`/`--repo` global (in spaced,
+// glued, or `=`-joined form), lowercased — the explicit target repo used by the
+// foreign-target write scoping (#163). It is "" when no `-R`/`--repo` global was
+// given. A `-R`/`--repo` given AFTER the noun (as a normal command flag rather
+// than a leading global) is captured separately by the caller.
+func parseGhGlobals(args []string) ([]string, *Decision, string) {
 	i := 0
+	repo := ""
 	for i < len(args) {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
@@ -973,10 +1154,16 @@ func parseGhGlobals(args []string) ([]string, *Decision) {
 		}
 		switch {
 		case ghGlobalValueFlags[a]:
+			if i+1 < len(args) {
+				repo = strings.ToLower(args[i+1])
+			}
 			i += 2 // consume the flag AND its value token.
 		case ghGlobalBoolFlags[a]:
 			i++
 		case isGhKnownGluedGlobal(a):
+			if v, ok := ghGluedRepoValue(a); ok {
+				repo = strings.ToLower(v)
+			}
 			i++ // `-Rfoo` / `--repo=foo` carry their value inline.
 		default:
 			d := deny("gh unknown-global (#64)",
@@ -984,10 +1171,23 @@ func parseGhGlobals(args []string) ([]string, *Decision) {
 					"consume the following token as its value, desyncing the gate's noun/verb detection and letting an "+
 					"irreparable operation slip past the deny tier. Fail-closed (issue #64 decision 3). Run gh without "+
 					"the unrecognized global; if it is genuinely needed, surface it to the human.")
-			return nil, &d
+			return nil, &d, ""
 		}
 	}
-	return args[i:], nil
+	return args[i:], nil, repo
+}
+
+// ghGluedRepoValue extracts the value from a glued/`=`-joined `-R`/`--repo`
+// global (`-Rowner/repo`, `--repo=owner/repo`). Returns ("", false) for other
+// glued globals.
+func ghGluedRepoValue(a string) (string, bool) {
+	if strings.HasPrefix(a, "-R") && len(a) > 2 {
+		return strings.TrimPrefix(a, "-R"), true
+	}
+	if strings.HasPrefix(a, "--repo=") {
+		return strings.TrimPrefix(a, "--repo="), true
+	}
+	return "", false
 }
 
 // isGhKnownGluedGlobal reports whether a leading flag token is a recognized gh
