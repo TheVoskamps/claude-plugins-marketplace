@@ -112,8 +112,14 @@ func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
 // explicitly, then dispatch on the real subcommand.
 //
 // Per the #64 resolved design decisions this classifier NEVER defers: the
-// catch-all for a recognized git subcommand is ALLOW (containment lives in the
-// microVM), with the deny/ask tiers below carving out the dangerous shapes.
+// catch-all for a recognized git subcommand is ALLOW. For git that ALLOW rests
+// on a boundary the egress proxy DOES own: guest-local git effects are
+// contained by the disposable microVM (#163 "two boundaries, split by
+// visibility"), and git objects are content-addressed / recoverable (#64
+// principle 4). The remote-touching git shapes (push refspecs, remote re-aim)
+// are individually classified in the deny/ask tiers below — they do NOT rest on
+// containment, because a credential-carrying push to an allowed host is exactly
+// the proxy's TLS-opaque blind spot.
 func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("git", sc); hit {
@@ -154,6 +160,25 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 		return classifyGitPush(rest)
 	}
 
+	// #163: `git remote add` / `git remote set-url` re-aim a later (ALLOWed)
+	// push at a different remote. That is the git version of the gh
+	// foreign-target write channel: an ordinary `git push` is ALLOWed on its
+	// refspec without re-checking the remote's URL, so re-pointing `origin`
+	// (or adding a new remote) at an allowed-host foreign repo turns a benign
+	// push into an exfil-by-push the egress proxy — which sees only the allowed
+	// host, not the repo path inside the TLS — cannot distinguish. ASK so a
+	// human owns the remote change; a `git remote -v` / `get-url` read is not a
+	// mutation and is not caught here.
+	if sub == "remote" && len(rest) >= 1 {
+		switch rest[0] {
+		case "add", "set-url", "set-url-add", "set-branches", "set-head":
+			return ask("git remote add/set-url (#163)",
+				"'git remote "+rest[0]+"' changes where a later 'git push' sends its refspec. Re-aiming a remote "+
+					"at a different repo turns an otherwise-allowed push into an exfil-by-push channel the egress proxy "+
+					"cannot see (it filters on host, not repo path). Confirm this remote change is intended.")
+		}
+	}
+
 	// #120: subagent `git reset --hard`.
 	if sub == "reset" && containsToken(rest, "--hard") {
 		if ev.isSubagent() {
@@ -173,10 +198,15 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 
 	// --- ALLOW default (#64): every recognized git subcommand that is not a
 	// dangerous shape carved out above falls through to ALLOW. Read-only
-	// subcommands and ordinary mutations (commit, add, fetch, …) alike are
-	// allowed; containment lives in the microVM. A real-file redirect is the
-	// one residual exfil concern the gate still escalates — it cannot defer
-	// here (#64 decision 2), so it ASKs rather than auto-allowing.
+	// subcommands and ordinary guest-local mutations (commit, add, checkout,
+	// rebase, …) alike are allowed: these are contained by the disposable
+	// microVM and recoverable from content-addressed git objects (#163 — the one
+	// premise the egress proxy genuinely backstops, for guest-local effects). The
+	// credential-carrying remote shapes (push, remote re-aim) do NOT reach here —
+	// they are classified in the deny/ask tiers above, because a push to an
+	// allowed host is the proxy's TLS-opaque blind spot, not a contained effect.
+	// A real-file redirect is the one residual exfil concern the gate still
+	// escalates — it cannot defer here (#64 decision 2), so it ASKs.
 	if sc.hasRedirectToFile {
 		return ask("git redirect-to-file",
 			"'git' with stdout/stderr redirected to a real file can exfiltrate or clobber. "+

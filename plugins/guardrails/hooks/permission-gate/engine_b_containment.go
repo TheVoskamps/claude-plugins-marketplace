@@ -133,6 +133,77 @@ func isAppManagedRepo(eventCWD string) bool {
 	return strings.HasSuffix(email, "[bot]@users.noreply.github.com")
 }
 
+// sessionOriginRepo returns the `owner/repo` slug of the event repo's `origin`
+// remote, lowercased, or "" when it cannot be determined (no repo, no origin,
+// git failure, unparseable URL). It is used by the foreign-target write scoping
+// (#163): an otherwise-ALLOWed gh write aimed at a repo OTHER than this one is
+// an exfil-by-write channel (`gh issue comment -R attacker/repo …`) the egress
+// proxy cannot see, so it ASKs.
+//
+// A "" result deliberately makes the scoping fail OPEN (the write is not scoped
+// to ASK): the scoping is a refinement on top of an already-ALLOWed own-repo
+// write, and a git failure here is the same "git cannot answer" case
+// isAppManagedRepo already treats as non-blocking. The write still had to pass
+// the enumerated-recoverable-verb allowlist to reach the scoping check, so the
+// floor when origin is unknown is the pre-#163 behavior, not a silent bypass of
+// the deny tier.
+func sessionOriginRepo(eventCWD string) string {
+	if eventCWD == "" {
+		return ""
+	}
+	out, err := runGit(eventCWD, "remote", "get-url", "origin")
+	if err != nil {
+		return ""
+	}
+	return parseOwnerRepoFromRemote(strings.TrimSpace(out))
+}
+
+// parseOwnerRepoFromRemote extracts a lowercased `owner/repo` from a git remote
+// URL in either SSH (`git@github.com:owner/repo.git`,
+// `ssh://git@github.com/owner/repo.git`) or HTTPS
+// (`https://github.com/owner/repo.git`) form. A trailing `.git` and any
+// trailing slash are stripped. Returns "" when the URL does not yield a
+// two-segment `owner/repo` tail.
+func parseOwnerRepoFromRemote(url string) string {
+	if url == "" {
+		return ""
+	}
+	s := url
+	// Strip the scheme / host prefix to leave the path.
+	switch {
+	case strings.Contains(s, "://"):
+		// scheme://[user@]host/owner/repo
+		if idx := strings.Index(s, "://"); idx >= 0 {
+			s = s[idx+3:]
+		}
+		if slash := strings.IndexByte(s, '/'); slash >= 0 {
+			s = s[slash+1:] // drop host
+		} else {
+			return ""
+		}
+	case strings.Contains(s, "@") && strings.Contains(s, ":"):
+		// scp-like: [user@]host:owner/repo
+		if colon := strings.LastIndexByte(s, ':'); colon >= 0 {
+			s = s[colon+1:]
+		}
+	default:
+		// A bare path or unrecognized form; try to use the tail below.
+	}
+	s = strings.TrimSuffix(strings.TrimSuffix(s, "/"), ".git")
+	s = strings.TrimSuffix(s, ".git")
+	s = strings.Trim(s, "/")
+	parts := strings.Split(s, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	owner := parts[len(parts)-2]
+	repo := parts[len(parts)-1]
+	if owner == "" || repo == "" {
+		return ""
+	}
+	return strings.ToLower(owner + "/" + repo)
+}
+
 // canonicalize resolves symlinks and `..` to an absolute real path. If the
 // path does not exist, it canonicalizes the longest existing ancestor and
 // re-appends the non-existent tail, so a not-yet-created file still resolves
