@@ -74,9 +74,13 @@ ruleset that enforces them, so both are in scope:
    action `@vN` tags, floating Docker `:latest` tags, bare names) —
    catching the "works on main, breaks on rebase" supply-chain drift that
    slips past a green install-gate. Categorical exemptions
-   (peerDependencies carets, `file:`/`workspace:` specs,
-   `engines`/`requires-python` floors, override-value classification,
-   `tag@sha256:` digests) live in the classifier, not an allowlist file.
+   (peerDependencies carets, `file:`/`workspace:` specs, pnpm
+   `catalog:`/`catalog:<name>` references, `engines`/`requires-python`
+   floors, override-value classification, `tag@sha256:` digests) live
+   in the classifier, not an allowlist file. A `catalog:` reference is
+   exempt at the consumer manifest because it is not a version itself —
+   the referenced entry in `pnpm-workspace.yaml`'s `catalog:`/`catalogs:`
+   sections is validated for exactness instead, once at the source.
    `actions` is an always-present floor (the skill always installs
    workflows). Its aggregator is a separate required check from the
    install-gate's. See Step 5c-pinned.
@@ -1292,7 +1296,10 @@ file.** A small, fixed set of specs is *legitimately* not exact-pinnable
 and is exempt by category in the script (`dependency-pinned-gate.sh`),
 never by a maintained per-package allowlist: npm `peerDependencies`
 carets (ranges by design); `file:`/`workspace:`/`link:`/`git+`/`http(s):`
-protocol specs (no registry version to pin); npm `engines` and pip
+protocol specs (no registry version to pin); pnpm `catalog:`/
+`catalog:<name>` specs (a REFERENCE into `pnpm-workspace.yaml`'s
+`catalog:`/`catalogs:` sections, never a version itself — see "Catalog
+definitions are validated at the source" below); npm `engines` and pip
 `requires-python`/`python_requires` (runtime/toolchain floors, not
 dependency versions); npm `overrides`/`resolutions` classified on the
 override **value** (exact), never the selector **key** (whose caret is a
@@ -1302,6 +1309,17 @@ settled empirically against the strict-pinned
 `Fablegate/fablegate_quasar_fastapi` monorepo (issue #90) — every
 non-exact spec found there fell into this fixed set, so no escape-hatch
 file is needed.
+
+**Catalog definitions are validated at the source.** A member
+manifest's `catalog:`/`catalog:<name>` spec is exempt above because it
+carries no version — but the referenced catalog **entry** in
+`pnpm-workspace.yaml` must still be exact. The script checks this once,
+only when the manifest under inspection sits beside the
+`pnpm-workspace.yaml` that defines the catalogs (i.e. it IS the
+workspace root), so a non-exact catalog entry (e.g. `aws-cdk-lib:
+^2.172.0` under `catalog:`, or under a named `catalogs.<name>:` map) is
+reported once at the definition instead of once per consumer manifest
+that references it via `catalog:`.
 
 For **npm**, the depth is **direct deps + lockfile-present**: the
 human-authored specs in `package.json` must be exact, AND a lockfile must
@@ -2153,9 +2171,12 @@ mutates no server-side state, and leaves `git status` clean.
   once per surface). The two gates are **separate** (own workflow,
   script, and aggregator); do not fold them together. The pinned-gate's
   categorical exemptions (peerDependencies carets, `file:`/`workspace:`
-  specs, `engines`/`requires-python` floors, override-value
-  classification, `tag@sha256:` digests) live in the classifier script,
-  never in a maintained allowlist file.
+  specs, pnpm `catalog:`/`catalog:<name>` references, `engines`/
+  `requires-python` floors, override-value classification,
+  `tag@sha256:` digests) live in the classifier script, never in a
+  maintained allowlist file. A `catalog:` reference is exempt at the
+  consumer; the referenced entry in `pnpm-workspace.yaml` is checked
+  for exactness once, at the source.
 - **The required check per surface is its AGGREGATOR, never a per-leg
   name.** Add `codeql-required`, `install-gate-required`, and
   `pinned-gate-required` to `protect-main` **iff** each surface's

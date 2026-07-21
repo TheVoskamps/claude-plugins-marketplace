@@ -32,3 +32,19 @@ framing leaked into other docs. Sibling skill SKILL.md files
 do not describe the gate. Note: grepping for `pip` in this plugin's
 docs yields false positives from "pipe"/"pipes" (the .pem-into-`gh
 secret set` flow).
+
+**Counterexample (#177, PR #178):** the developer added a new
+categorical exemption (pnpm `catalog:` specs) to
+`dependency-pinned-gate.sh`'s classifier and kept the script's own
+header comment fully current, but did NOT touch SKILL.md — the
+exemption-family enumeration appears **three times** in that file
+(a short-form list near the gate's Step 5c-pinned description, a
+long-form paragraph in the pinned-gate deep-dive section, and a
+short-form list again in the quick-reference gotchas section near the
+end), and all three needed the new exemption added by hand. So "usually
+already current" holds for the sibling script/workflow doc comments but
+not reliably for SKILL.md's own prose — always grep SKILL.md for the
+exemption list's other members (`peerDependencies`, `file:`,
+`workspace:`) when a pinned-gate classifier PR lands, since a new
+exemption category is exactly the kind of change that needs sweeping
+across all repeated enumerations, not just adding once.
