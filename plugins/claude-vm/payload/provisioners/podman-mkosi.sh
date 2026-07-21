@@ -693,6 +693,17 @@ render_apt_source() {
       ;;
   esac
   mkdir -p "\$keyrings_dir" "\$sources_dir"
+  # keyring_write_path/keyring_runtime_path get their final EXTENSION only
+  # after the key is fetched and sniffed below (issue #106 review finding,
+  # PR #174 round 6) -- a fetched key can be ASCII-armored OR raw binary
+  # OpenPGP, and apt >= 2.x infers the format from the FILE EXTENSION rather
+  # than sniffing content itself, so a binary keyring saved under a
+  # hard-coded ".asc" name silently loads as an EMPTY keyring (apt then
+  # reports NO_PUBKEY / "repository is not signed" even though the bytes on
+  # disk are a perfectly valid key). These two are placeholders using the
+  # default ".asc" until the fetch path (below) overwrites them with the
+  # sniffed extension; Case 3 (operator-pinned signed-by=) never uses these
+  # two -- it always writes to the operator's own declared path verbatim.
   local keyring_write_path="\$keyrings_dir/\${name}.asc"
   local keyring_runtime_path="\$keyring_runtime_dir/\${name}.asc"
 
@@ -799,6 +810,38 @@ render_apt_source() {
     if ! curl -fsSL "\$key_url" -o "\$keyring_write_path"; then
       echo "podman-mkosi(inner): failed to fetch apt key for '\$name' from \$key_url" >&2
       return 1
+    fi
+    # Sniff the fetched key's content and, for the DEFAULT (non-pinned) name,
+    # rename the written file to match: apt >= 2.x infers ASCII-armored vs.
+    # binary OpenPGP FROM THE FILE EXTENSION, not from content -- a binary
+    # keyring saved as "<name>.asc" silently loads as an EMPTY keyring
+    # (verified in a live bookworm/apt-2.6.1 guest: NO_PUBKEY / "repository
+    # is not signed" with the identical bytes that gpgv -- which DOES sniff
+    # content -- accepted as a valid signature). ASCII-armored OpenPGP data
+    # always starts with the literal "-----BEGIN PGP" header; anything else
+    # fetched from a key_url is treated as a raw/binary keyring. Case 3
+    # (block_has_signed_by=1) is EXEMPT from this rename: the repo line pins
+    # an exact path verbatim, and that declared path is what the emitted
+    # signed-by= must reference -- renaming it would desync the emitted line
+    # from the file actually written.
+    if [ "\$block_has_signed_by" -ne 1 ]; then
+      local kr_ext="gpg"
+      # head -c (not the shell builtin read) to sniff the first bytes: read
+      # stops at the first embedded newline, which a binary keyring can
+      # contain well inside the first 15 bytes, truncating the comparison.
+      # head -c is binary-safe.
+      local kr_head
+      kr_head="\$(head -c 15 "\$keyring_write_path" 2>/dev/null || true)"
+      case "\$kr_head" in
+        -----BEGIN[[:space:]]PGP*) kr_ext="asc" ;;
+      esac
+      local keyring_write_path_new="\${keyrings_dir}/\${name}.\${kr_ext}"
+      local keyring_runtime_path_new="\${keyring_runtime_dir}/\${name}.\${kr_ext}"
+      if [ "\$keyring_write_path_new" != "\$keyring_write_path" ]; then
+        mv -f "\$keyring_write_path" "\$keyring_write_path_new"
+      fi
+      keyring_write_path="\$keyring_write_path_new"
+      keyring_runtime_path="\$keyring_runtime_path_new"
     fi
     have_key=1
   fi

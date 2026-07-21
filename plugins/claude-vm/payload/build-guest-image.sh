@@ -207,7 +207,23 @@ BASE_OS_REV="debian-12-20250601"
 # MiB free). This is a base-image CONTENT change (the root fs is materially
 # larger), so every cached image built at rev <=14 (all sized with the inert
 # headroom) must rebuild, hence the bump. See podman-mkosi.sh's 10-root.conf.
-LAUNCHER_LOGIC_REV="15"
+# Bumped 15 -> 16: apt keyring content-sniffing fix (issue #106 review, PR
+# #174 round 6, real-guest failure). render_apt_source_boot used to hard-name
+# the fetched key "<name>.asc" regardless of its actual content. apt >= 2.x
+# infers ASCII-armored vs. binary OpenPGP from the FILE EXTENSION, not
+# content; GitHub serves githubcli-archive-keyring.gpg as raw/binary
+# OpenPGP, so saving it under a hard-coded ".asc" name made apt silently load
+# an EMPTY keyring -- verified in a live bookworm/apt-2.6.1 guest as
+# NO_PUBKEY / "repository is not signed" on EVERY boot, permanently blocking
+# update_at_boot from ever refreshing the baked gh package, even though gpgv
+# (which DOES sniff content) accepted the identical bytes as a valid
+# signature. Fixed by sniffing the fetched bytes for the literal
+# "-----BEGIN PGP" armor header and writing/referencing ".asc" only when
+# present, ".gpg" otherwise -- ported in lockstep from podman-mkosi.sh's
+# render_apt_source (see that function's matching comment). This is a
+# BOOT-LOGIC change (the boot launcher's own apt_source rendering), so old
+# images (stamped 'launcher15') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="16"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -559,6 +575,13 @@ render_apt_source_boot() {
       ;;
   esac
   mkdir -p "$keyrings_dir" "$sources_dir"
+  # keyring_path's EXTENSION is finalized only after the key is fetched and
+  # sniffed below (issue #106 review finding, PR #174 round 6) -- see the
+  # matching comment on podman-mkosi.sh's render_apt_source for the apt
+  # extension-vs-content root cause this guards against. This default
+  # ".asc" is a placeholder for the pinned-signed-by case (which never
+  # reaches the sniff-rename below) and gets overwritten by the sniffed
+  # extension otherwise.
   local keyring_path="$keyrings_dir/${name}.asc"
 
   local is_deb_line=0 has_block=0 block_has_signed_by=0 existing_signed_by=""
@@ -630,6 +653,36 @@ render_apt_source_boot() {
     if ! curl -fsSL "$key_url" -o "$keyring_path"; then
       log "claude-vm: failed to fetch boot apt_source key for '$name' from $key_url"
       return 1
+    fi
+    # Sniff the fetched key's content and, for the DEFAULT (non-pinned) name,
+    # rename the written file to match: apt >= 2.x infers ASCII-armored vs.
+    # binary OpenPGP FROM THE FILE EXTENSION, not from content -- a binary
+    # keyring saved as "<name>.asc" silently loads as an EMPTY keyring
+    # (verified in a live bookworm/apt-2.6.1 guest: NO_PUBKEY / "repository
+    # is not signed" with the identical bytes that gpgv -- which DOES sniff
+    # content -- accepted as a valid signature). ASCII-armored OpenPGP data
+    # always starts with the literal "-----BEGIN PGP" header; anything else
+    # fetched from a key_url is treated as a raw/binary keyring. The pinned
+    # signed-by= case (existing_signed_by set above) is EXEMPT from this
+    # rename: the repo line pins an exact path verbatim, and that declared
+    # path is what the emitted signed-by= must reference -- renaming it
+    # would desync the emitted line from the file actually written.
+    if [ "$block_has_signed_by" -ne 1 ]; then
+      local kr_ext="gpg"
+      # head -c (not the shell builtin read) to sniff the first bytes: read
+      # stops at the first embedded newline, which a binary keyring can
+      # contain well inside the first 15 bytes, truncating the comparison.
+      # head -c is binary-safe.
+      local kr_head
+      kr_head="$(head -c 15 "$keyring_path" 2>/dev/null || true)"
+      case "$kr_head" in
+        -----BEGIN[[:space:]]PGP*) kr_ext="asc" ;;
+      esac
+      local keyring_path_new="${keyrings_dir}/${name}.${kr_ext}"
+      if [ "$keyring_path_new" != "$keyring_path" ]; then
+        mv -f "$keyring_path" "$keyring_path_new"
+      fi
+      keyring_path="$keyring_path_new"
     fi
     have_key=1
   fi

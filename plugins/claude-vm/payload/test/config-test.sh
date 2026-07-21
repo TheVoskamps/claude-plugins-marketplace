@@ -1447,6 +1447,135 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Test 22b: render_apt_source_boot content-sniffing (issue #106 review
+# finding, PR #174 round 6, real-guest failure -- same defect class as Test
+# 20's podman-mkosi.sh render_apt_source additions).
+#
+# render_apt_source_boot hardcodes its write dirs to the LIVE
+# /etc/apt/keyrings and /etc/apt/sources.list.d (unlike the build-time
+# function's staging-dir parameters), so Test 22 above only exercises
+# rejection paths that return before any mkdir/write. To exercise the
+# ACCEPT + sniff-rename path without touching the real /etc/apt, this test
+# extracts the function body a second time and retargets its two hardcoded
+# path locals to a WORK-scoped scratch dir via sed -- a test-harness-only
+# rewrite of the extracted copy, not a change to the shipped function's
+# behavior (the shipped function still hardcodes /etc/apt/* verbatim; only
+# this scratch copy's local defaults differ). A stub curl on PATH answers
+# the key_url fetch with content chosen by the caller so both the
+# ASCII-armored and binary shapes are exercised.
+# ---------------------------------------------------------------------
+RASB_SNIFF_ROOT="$WORK/rasb-sniff-root"
+mkdir -p "$RASB_SNIFF_ROOT/bin"
+if [ -n "${RASB_START:-}" ] && [ -n "${RASB_END:-}" ]; then
+  RASB_SNIFF_SRC="$WORK/render_apt_source_boot_sniff.sh"
+  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" \
+    | sed \
+        -e "s#local keyrings_dir=\"/etc/apt/keyrings\" sources_dir=\"/etc/apt/sources.list.d\"#local keyrings_dir=\"$RASB_SNIFF_ROOT/keyrings\" sources_dir=\"$RASB_SNIFF_ROOT/sources\"#" \
+    > "$RASB_SNIFF_SRC"
+  printf 'log() { :; }\n' > "$WORK/render_apt_source_boot_sniff_stub.sh"
+  cat "$RASB_SNIFF_SRC" >> "$WORK/render_apt_source_boot_sniff_stub.sh"
+  # shellcheck source=/dev/null
+  ( . "$WORK/render_apt_source_boot_sniff_stub.sh"; command -v render_apt_source_boot >/dev/null 2>&1 )
+  RASB_SNIFF_RC=$?
+else
+  RASB_SNIFF_RC=1
+fi
+
+# Stub curl, same URL-keyed content-shape convention as podman-mkosi-test.sh:
+# a URL containing "binary" writes raw/binary OpenPGP-shaped bytes; every
+# other URL writes ASCII-armored content starting with "-----BEGIN PGP".
+cat > "$RASB_SNIFF_ROOT/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+out=""
+prev=""
+url=""
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  case "$a" in
+    -*) : ;;
+    *) [ -n "$url" ] || url="$a" ;;
+  esac
+  prev="$a"
+done
+[ -n "$out" ] || exit 1
+case "$url" in
+  *binary*)
+    printf '\x99\x02stub-binary-key-material\n' > "$out"
+    ;;
+  *)
+    printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nstub-armored-key-material\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out"
+    ;;
+esac
+exit 0
+EOF
+chmod +x "$RASB_SNIFF_ROOT/bin/curl"
+
+if [ "$RASB_SNIFF_RC" -eq 0 ]; then
+  # call_render_boot <case-label> <name> <repo> <key_url>
+  call_render_boot() {
+    local case_label="$1" c_name="$2" c_repo="$3" c_key_url="$4"
+    rm -rf "$RASB_SNIFF_ROOT/keyrings" "$RASB_SNIFF_ROOT/sources"
+    (
+      PATH="$RASB_SNIFF_ROOT/bin:$PATH"
+      # shellcheck source=/dev/null
+      . "$WORK/render_apt_source_boot_sniff_stub.sh"
+      render_apt_source_boot "$c_name" "$c_repo" "$c_key_url"
+    )
+    local rc=$?
+    echo "EXIT:$rc"
+    local list_file="$RASB_SNIFF_ROOT/sources/${c_name}.list"
+    if [ -f "$list_file" ]; then
+      echo "RENDERED:$(cat "$list_file")"
+    else
+      echo "RENDERED:<no .list file written>"
+    fi
+    find "$RASB_SNIFF_ROOT/keyrings" -type f 2>/dev/null | while read -r f; do
+      echo "KEYFILE:${f#"$RASB_SNIFF_ROOT"/}"
+    done
+  }
+
+  # --- Bare repo line, BINARY fetched key -- must be written/referenced as
+  # .gpg, not the default .asc (the exact real-guest githubcli defect). ---
+  OUT="$(call_render_boot bin-bare boot-bin 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/binary-key.gpg')"
+  assert_eq "render_apt_source_boot: bare line, binary key: exit 0" \
+    "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+  RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+  assert_eq "render_apt_source_boot: bare line, binary key: signed-by references .gpg" \
+    "deb [signed-by=$RASB_SNIFF_ROOT/keyrings/boot-bin.gpg] https://cli.github.com/packages stable main" \
+    "$RENDERED_LINE"
+  assert_true "render_apt_source_boot: bare line, binary key: key written as .gpg" \
+    test -f "$RASB_SNIFF_ROOT/keyrings/boot-bin.gpg"
+  assert_true "render_apt_source_boot: bare line, binary key: no stray .asc" \
+    bash -c '[ ! -e "$1" ]' _ "$RASB_SNIFF_ROOT/keyrings/boot-bin.asc"
+
+  # --- Bare repo line, ARMORED fetched key -- stays .asc (content-driven,
+  # not a blanket switch). ---
+  OUT="$(call_render_boot bin-armored boot-arm 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/armored-key.asc')"
+  assert_eq "render_apt_source_boot: bare line, armored key: exit 0" \
+    "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+  RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+  assert_eq "render_apt_source_boot: bare line, armored key: signed-by references .asc" \
+    "deb [signed-by=$RASB_SNIFF_ROOT/keyrings/boot-arm.asc] https://cli.github.com/packages stable main" \
+    "$RENDERED_LINE"
+  assert_true "render_apt_source_boot: bare line, armored key: key written as .asc" \
+    test -f "$RASB_SNIFF_ROOT/keyrings/boot-arm.asc"
+
+  # NOTE: a pinned-signed-by= exemption case is intentionally NOT exercised
+  # here. For the pinned path, keyring_path becomes the LITERAL
+  # existing_signed_by string (validated to start with /etc/apt/keyrings/ or
+  # /usr/share/keyrings/) and mkdir/curl write there directly -- the
+  # keyrings_dir retargeting this test applies does not reach that branch.
+  # Driving it would write to this host's real /etc/apt/keyrings, which Test
+  # 22's own rationale above forbids. The pinned-exemption case matrix
+  # itself (same guard variable, same code shape) is covered on the
+  # build-time twin in podman-mkosi-test.sh's "real githubcli failure line"
+  # case, and the two implementations are kept in sync structurally (see the
+  # header comment on render_apt_source_boot referencing render_apt_source).
+else
+  echo "SKIP: render_apt_source_boot sniff-path extraction/retargeting failed; content-sniffing tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
 # Test 23: boot_apt_phase fallback-update hoist (issue #106 review finding,
 # PR #174 round 3).
 #
