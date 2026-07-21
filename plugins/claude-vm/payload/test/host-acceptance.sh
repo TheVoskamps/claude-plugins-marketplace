@@ -433,7 +433,12 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     $HOME/.claude.json before exec'ing claude. Unlike the credential, a
   #     MISSING seed is tolerated (logged, not fatal) -- but we still stand up a
   #     placeholder so the install path is exercised. Its content is a
-  #     non-secret placeholder; the stub claude never reads it.
+  #     non-secret placeholder; the stub claude never reads it. The SAME dir
+  #     also carries a rendered settings.json (issue #104): unlike the seed,
+  #     the boot launcher HARD-ABORTS when this is absent (it is the
+  #     security-posture deny-list backstop), so this test renders one via
+  #     the real claude_vm_render_guest_settings over a minimal merged-config
+  #     stub -- see below.
   RUNCONFIG_SHARE="$WORK/runconfig"
   REPO_SHARE="$WORK/repo"
   CLAUDEBIN_SHARE="$WORK/claudebin"
@@ -485,6 +490,22 @@ STUBCLAUDE
   printf '{"userID":"stub-user-id","oauthAccount":{"emailAddress":"stub@example.invalid"}}\n' \
     > "$CLAUDECREDS_SHARE/claude-json-seed.json"
   chmod 0600 "$CLAUDECREDS_SHARE/claude-json-seed.json"
+  # Stub rendered settings.json (issue #104): the boot launcher HARD-ABORTS
+  # (exit 1, no boot) when this file is absent -- it is the security-posture
+  # deny-list backstop, and refusing to boot without it is deliberate and
+  # must not be weakened here. Render it the SAME WAY the real launcher does
+  # (claude_vm_render_guest_settings, sourced from lib/config.sh above) over
+  # a minimal merged-config stub, rather than hand-rolling a JSON literal, so
+  # this test exercises the actual render path. Every field the renderer
+  # reads falls back gracefully on an absent key (claude_vm_scalar /
+  # `// []` / `// {}`), so an empty YAML document is a valid merged config.
+  STUB_MERGED="$(claude_vm_mktemp claude-vm-hostaccept-merged)"
+  printf '{}\n' > "$STUB_MERGED"
+  claude_vm_render_guest_settings "$STUB_MERGED" \
+    > "$CLAUDECREDS_SHARE/settings.json" \
+    || { echo "FAIL: failed to render the stub guest settings.json" >&2; exit 1; }
+  rm -f "$STUB_MERGED"
+  chmod 0600 "$CLAUDECREDS_SHARE/settings.json"
 
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
