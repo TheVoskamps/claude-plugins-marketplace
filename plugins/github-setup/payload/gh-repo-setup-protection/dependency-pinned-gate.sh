@@ -406,7 +406,8 @@ def parse_pnpm_workspace_catalogs(path):
                     continue
                 if indent_of(line) <= top_indent:
                     break
-                m = re.match(r'^([^:]+):\s*(.+?)\s*$', line.strip())
+                entry_stripped = re.split(r'\s+#', line.strip(), maxsplit=1)[0].strip()
+                m = re.match(r'^([^:]+):\s*(.+?)\s*$', entry_stripped)
                 if m:
                     entries[strip_quotes(m.group(1))] = strip_quotes(m.group(2))
                 i += 1
@@ -438,7 +439,8 @@ def parse_pnpm_workspace_catalogs(path):
                         continue
                     if indent_of(entry_line) <= name_indent:
                         break
-                    m = re.match(r'^([^:]+):\s*(.+?)\s*$', entry_line.strip())
+                    entry_stripped = re.split(r'\s+#', entry_line.strip(), maxsplit=1)[0].strip()
+                    m = re.match(r'^([^:]+):\s*(.+?)\s*$', entry_stripped)
                     if m:
                         entries[strip_quotes(m.group(1))] = strip_quotes(m.group(2))
                     i += 1

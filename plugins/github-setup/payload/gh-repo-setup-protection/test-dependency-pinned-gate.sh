@@ -424,6 +424,38 @@ JSON
 commit_all "$R"
 run_case "npm: non-exact named catalog entry (red)" 1 "$R" npm
 
+# Green: an exact catalog entry followed by a trailing YAML inline
+# comment (default `catalog:` and a named `catalogs:` entry) must not
+# be misread as part of the version -- the comment is stripped before
+# classification.
+R="$TMP/npm-catalog-trailing-comment"; git_init_repo "$R"
+writef "$R/package.json" <<'JSON'
+{
+  "name": "root",
+  "private": true
+}
+JSON
+writef "$R/pnpm-workspace.yaml" <<'YAML'
+packages:
+  - 'packages/*'
+catalog:
+  aws-cdk-lib: 2.172.0    # exact with trailing comment
+catalogs:
+  react18:
+    react: 18.3.1  # pinned
+YAML
+writef "$R/pnpm-lock.yaml" <<'YAML'
+lockfileVersion: '9.0'
+YAML
+writef "$R/packages/foo/package.json" <<'JSON'
+{
+  "name": "foo",
+  "dependencies": { "aws-cdk-lib": "catalog:", "react": "catalog:react18" }
+}
+JSON
+commit_all "$R"
+run_case "npm: catalog entry with trailing inline comment (green)" 0 "$R" npm
+
 # =====================================================================
 # pip
 # =====================================================================
