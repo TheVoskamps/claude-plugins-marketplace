@@ -46,3 +46,30 @@ Stub the one external command that would otherwise block/require
 infrastructure the sandbox doesn't have, and let the rest of the real
 script execute for real. This generalizes past claude-vm to any
 provisioner/build script in this repo.
+
+**Addendum (issue #106 PR #174, round 5)**: on this run's machine, `podman`
++ `vfkit` + `tinyproxy` were actually present (only `gvproxy` was missing
+from PATH, and `test/host-acceptance.sh` resolves it from podman's libexec
+via `claude_vm_resolve_gvproxy`, not PATH) — so no stubbing was needed at
+all; `bash plugins/claude-vm/payload/test/host-acceptance.sh` ran a fully
+real build + real vfkit boot end-to-end and printed a per-criterion
+pass/fail list. Don't assume a stub is required — check binary
+availability first (`command -v podman vfkit gvproxy tinyproxy`) and just
+run the real acceptance script if the host is equipped.
+
+Separately, this round surfaced a sibling failure mode: the acceptance
+**harness's own stub fixtures** can silently go stale when the product
+code gains a new hard requirement (issue #104 added a settings.json
+hard-abort to the boot launcher; `host-acceptance.sh`'s stub
+`claudecreds` share was never updated to include one). The harness kept
+exiting cleanly-looking but criterion (b) had actually been failing since
+#104 landed — masked across multiple PR rounds because each round's
+"real vfkit boot passed" claim in the PR body was taken at face value
+without re ­running the harness. When a PR touches a build/boot surface that has its own acceptance
+harness, sweep the harness's stub fixtures for staleness against the
+product code's current hard requirements, not just the product code
+itself — see `plugins/claude-vm/payload/test/host-acceptance.sh` for the
+concrete fixture-construction pattern that worked: mirror the real
+launcher's own render function (e.g. `claude_vm_render_guest_settings`)
+over a minimal merged-config stub, rather than hand-rolling a literal, so
+the stub exercises the actual render path instead of drifting from it.

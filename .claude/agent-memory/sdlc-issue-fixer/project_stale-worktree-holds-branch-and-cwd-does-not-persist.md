@@ -34,3 +34,16 @@ why `--force` itself is never appropriate). Then proceed with the normal
 `git fetch && git checkout <branch>` in your own worktree. If the other
 worktree is DIRTY or diverged, stop and escalate rather than removing it —
 that's someone else's uncommitted work, not routine staleness.
+
+**Don't over-trigger on this**: a spawn brief may flag a worktree at the
+target branch's old tip SHA as a possible claim to investigate. Check
+`git worktree list` output first — it prints `[branch-name]` for a real
+checkout of that branch and `(detached HEAD)` for a worktree that merely
+sits at some commit (including, coincidentally, the branch's tip prior to
+a rebase). A `(detached HEAD)` worktree at the branch's SHA is NOT a
+claim on the branch — `git checkout <branch>` from your own worktree
+succeeds fine in that case, no removal or escalation needed. Confirmed
+during issue #106 PR #174's rebase task: `.claude/worktrees/issue-106-test`
+sat `(detached HEAD)` at the branch's pre-rebase tip; `git checkout
+issue-106-boot-time-package-install-update` from a separate worktree
+succeeded immediately with no conflict.

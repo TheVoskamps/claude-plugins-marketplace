@@ -290,14 +290,24 @@ argv:
   `~/.claude/settings.json`.
 - `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
   `claude_vm_bake_hash_from_json` / `claude_vm_bake_config_is_empty` — the
-  bake-hash image-variant helpers (issue #105). `claude_vm_bake_config_json`
+  bake-config canonicalization helpers (issue #105). `claude_vm_bake_config_json`
   emits the **canonical** bake-relevant config (sorted `packages.bake`,
-  normalized `apt_sources`) as compact JSON; `claude_vm_bake_hash` hashes it
-  to 8 hex chars (via `claude_vm_bake_hash_from_json`, which
-  `build-guest-image.sh` reuses to hash the same bytes the launcher passes
-  it). An empty/absent bake config canonicalizes to a constant, so
-  `claude_vm_bake_config_is_empty` gates the launcher between the shared
-  `guest.raw` and a `guest-<hash>.raw` variant. All pure and unit-tested.
+  normalized `apt_sources`) as compact JSON that the launcher passes to the
+  provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
+  hashes canonical JSON to 8 hex chars. All pure and unit-tested.
+- `claude_vm_build_config_json` / `claude_vm_build_hash` /
+  `claude_vm_build_config_is_empty` / `claude_vm_sanitize_repo_name` /
+  `claude_vm_image_identity_segments` — the two-layer **image-identity**
+  helpers (issue #106 redesign). `claude_vm_build_config_json` emits the
+  canonical **build-relevant** config for ONE layer (bake + apt_sources +
+  `image.root_headroom_mb`); `claude_vm_build_hash` hashes it (reusing
+  `claude_vm_bake_hash_from_json`). `claude_vm_image_identity_segments`
+  composes the self-documenting identity from the two layers: always
+  `global<globalhash>`, plus `+<reponame>-<repohash>` when the repo layer has
+  build-relevant content (name sanitized by `claude_vm_sanitize_repo_name`).
+  `build-guest-image.sh` receives the pre-computed segments verbatim via
+  `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, so the stamped version and the launcher's
+  filename agree by construction. All pure and unit-tested.
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -312,7 +322,7 @@ identically and is never duplicated. Any value other than `true`/`false`
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
-build-guest-image.sh --print-version          # pinned version (base [+bake<hash>])
+build-guest-image.sh --print-version          # pinned version (base [+<identity segments>])
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
@@ -325,19 +335,37 @@ the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
-**Baked packages + image variants (issue #105).** Unlike `claude`,
-`packages.bake` (apt packages) and `packages.apt_sources` (third-party apt
-repos) ARE baked into the image. `build-guest-image.sh` reads the canonical
-bake config from the `CLAUDE_VM_BAKE_CONFIG` env var (the launcher sets it via
-`claude_vm_bake_config_json`), folds an 8-hex **bake-hash** over it into the
-pinned version (`BASE_OS_REV+launcherN+bake<hash>`; a no-bake config keeps the
-legacy base version), and passes the same config to the provisioner. Two
-configs that bake different things therefore stamp different versions and get
-different cached images; configs with no bake overrides share one `guest.raw`.
-The launcher resolves the image path to `guest-<hash>.raw` for a baked config
-and `guest.raw` otherwise (an explicit `guest_image` opts out and is used
-verbatim). An unset/empty `CLAUDE_VM_BAKE_CONFIG` means no baked packages — the
-legacy base image.
+**Baked packages + two-layer image identity (issue #105, redesigned by #106).**
+Unlike `claude`, `packages.bake` (apt packages) and `packages.apt_sources`
+(third-party apt repos) ARE baked into the image, and so is the root
+partition's size (`image.root_headroom_mb`; see the "Mid-session apt proxying,
+metadata diet, and root headroom" section below). These three keys are the
+image's **build-relevant** content; everything else is applied at boot/run.
+
+The image CONTENT is built from the MERGED config: the launcher passes the
+merged canonical bake config via `CLAUDE_VM_BAKE_CONFIG` and the merged,
+default-filled headroom via `CLAUDE_VM_ROOT_HEADROOM_MB`. The image IDENTITY
+(cache key + filename) is instead **provenance-based**, hashing each config
+LAYER independently over its build-relevant content
+(`claude_vm_image_identity_segments`). The launcher passes the pre-computed
+identity to `build-guest-image.sh` via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`,
+which appends it verbatim to the base version:
+
+- a repo **without** a `.claude-vm/config.yml` (or one with only runtime keys)
+  → `BASE_OS_REV+launcherN+global<hash>`, image `guest+global<hash>.raw`,
+  shared across every such repo;
+- a repo **with** build-relevant config →
+  `BASE_OS_REV+launcherN+global<hash>+<reponame>-<repohash>`, image
+  `guest+global<hash>+<reponame>-<repohash>.raw`, so the filename says whose
+  override runs where.
+
+Two repos with byte-identical repo configs still get two images (the name
+disambiguates) — legibility over dedup, an explicit choice. Changing any
+build-relevant key in a layer changes that layer's hash and forces a rebuild;
+changing a runtime key (cpus, egress, permissions, install_at_boot) never
+does. An explicit `guest_image` opts out of identity derivation and is used
+verbatim. An unset `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS` (a bare no-launcher
+`--print-version` smoke test) leaves the bare base version.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -374,6 +402,119 @@ produced an apt "Malformed entry (URI parse)" failure. `packages.bake`
 entries that are null or empty (e.g. a stray `-` in the YAML list) are
 stripped during canonicalization rather than passed through as a literal
 `"None"` package name, which would otherwise fail the image build.
+
+**Boot-time package install/update (issue #106).** Unlike `packages.bake`,
+`packages.install_at_boot` and `packages.update_at_boot` run **inside the
+guest at boot**, blocking, right before claude execs — not baked into the
+image. This requires `apt` itself to be present in the guest, which mkosi
+does NOT provide for free: mkosi installs packages from OUTSIDE the image
+with its own (build-container) apt, so nothing else ever pulls apt/dpkg
+tooling into the guest rootfs. `apt` is therefore baked into the base
+`Packages=` list (`provisioners/podman-mkosi.sh`) **unconditionally** — not
+gated on whether boot-time apt work is configured — because
+`update_at_boot` defaults to true (so nearly every config needs it) and the
+`always` mid-session-install mode below is only honest if apt exists to use.
+The security boundary for a hard-secure all-baked config is the egress
+allowlist (package mirrors left unreachable), not the absence of the apt
+binary. The boot launcher (`build-guest-image.sh`'s `boot_apt_phase`) runs, in
+order: (1) when `packages.update_at_boot` is true (the default),
+`apt-get update` + `apt-get -y upgrade`; (2) when `packages.install_at_boot`
+is nonempty, render any `packages.apt_sources` entries into the guest's
+**live** `/etc/apt` — reusing the exact same keyring-fetch + sources.list.d-
+write shape as the build-time `render_apt_source` (case-matrix, name/path
+validation, and all), ported to plain bash since the guest image carries no
+python3/jq to parse a manifest — then `apt-get -y install <list>`. Both
+`apt-get` calls proxy through `Acquire::http::Proxy` / `Acquire::https::Proxy`
+pointed at the same `HTTP_PROXY`/`HTTPS_PROXY` `run.env` already carries. A
+failed update/install prints a loud warning to the `hvc0` diagnostic log and
+**continues** to claude — a failed optional install must never brick an
+interactive session (per the issue's agreed failure policy). The host
+delivers the manifest (`packages.install_at_boot` names, and the
+`packages.apt_sources` TSV) as plain newline/TSV files on the same
+`runconfig` virtio-fs share `run.env` already rides, for the same "no
+python3/jq in the guest" reason.
+
+`packages.add_apt_uris_to_allowlist` (`auto`, the default, or `always`)
+controls whether the launcher adds `deb.debian.org` + `security.debian.org` +
+every `packages.apt_sources` host to the guest's egress allowlist. `auto`
+adds them **iff** boot-time apt work is actually configured
+(`install_at_boot` nonempty, or `update_at_boot` true); with no boot-time
+work configured, `auto` derives nothing — a hard-secure all-baked config
+leaves package repos genuinely unreachable from the guest. `always` keeps
+the URIs allowlisted regardless, so an in-guest `apt-get install` still
+works mid-session even with boot-time apt work turned off. The launcher
+never removes a URI that scheduled boot-time work requires (so `auto` and
+`always` never conflict), and logs every derived addition — no silent
+allowlist growth. This derivation runs in `claude-vm.sh`, after the
+warm-boot `claude.ai`/`downloads.claude.ai` tightening (issue #49) so a
+dropped entry from that step is never re-added here.
+
+**Mid-session apt proxying, metadata diet, and root headroom (issue #106
+real-run fixes).** Real-hardware testing of the boot-time apt work above
+found three more problems. First, an **interactive** `apt-get install` (run
+by the in-guest claude mid-session, not by `boot_apt_phase`) got no proxy at
+all: apt honors only lowercase `http_proxy`/`https_proxy` (never the
+uppercase forms `run.env` used to carry alone), and curl deliberately
+ignores uppercase `HTTP_PROXY` for plain `http://` URLs (the well-known
+"httpoxy" CGI-variable carve-out). `run.env` now also exports lowercase
+`http_proxy`/`https_proxy`/`no_proxy` mirrors, and the boot launcher writes
+a persistent `/etc/apt/apt.conf.d/99claude-vm-proxy` from those values (in
+addition to the `-o Acquire::...::Proxy=` flags `boot_apt_phase` already
+passed explicitly) so every apt-get for the rest of the boot — boot-time or
+later interactive — is proxied regardless of environment. Direct egress
+stays blocked by gvproxy and the proxy still enforces the allowlist, so this
+widens nothing; reachability is still governed solely by the allowlist.
+
+Second, `boot_apt_phase`'s `apt-get update` was re-materializing ~250 MB of
+apt working set on **every** boot (`update_at_boot` defaults to true):
+mkosi's own Debian installer defaults to `deb`+`deb-src` sources for FOUR
+repo stanzas (main, `debian-debug`, updates, security) plus a persistent
+`pkgcache.bin`/`srcpkgcache.bin` regenerated by every apt-get call — none of
+which this recipe needs (pre-built binary packages only, no debug symbols).
+The provisioner now pre-empts mkosi's own sources write with a binary-only,
+no-debug `mkosi.skeleton/etc/apt/sources.list.d/<suite>.sources` (main +
+updates + security only) and an `Acquire::Languages "none"` /
+`Dir::Cache::pkgcache ""` / `Dir::Cache::srcpkgcache ""` apt.conf.d drop-in,
+baked into the image from before mkosi's own package install step runs.
+`boot_apt_phase` also now ends with a defensive `apt-get clean` (verified:
+removes `/var/cache/apt/archives/*.deb` and both `.bin` cache files; leaves
+`/var/lib/apt/lists` untouched). Net effect: the per-boot apt working set
+drops from ~250 MB to ~50 MB.
+
+Third, even after that diet, the root filesystem was **tight-fit sized** with
+near-zero margin for anything the guest writes after boot. mkosi's own default
+repart definitions size the root via `Minimize=guess` (systemd-repart's
+tight-fit-to-content sizing). A new `image.root_headroom_mb` config scalar
+(default `1024`, repo overrides global) sizes the root filesystem to
+`ROOT_BASE_FLOOR_MB + headroom` (900 MiB fixed floor + the headroom) via a
+custom `mkosi.repart/10-root.conf`.
+
+The first round of this feature kept `Minimize=guess` **alongside**
+`SizeMinBytes=`, on the theory `repart.d(5)` composes them as "the larger
+wins". A real build proved that **backwards**, because the two knobs act on
+different objects: `Minimize=guess` sizes the **ext4 filesystem** to a tight
+fit (~1041 MiB), while `SizeMinBytes=` only enlarges the **GPT partition
+slot** (to 1924 MiB) around it — so ~883 MiB was unformatted dead space past
+the end of the filesystem, which the guest's `df` never saw (the root stayed
+~991 MB, headroom inert). The fix **drops `Minimize=guess`**: with only
+`SizeMinBytes=` and `Format=ext4`+`CopyFiles=/`, systemd-repart sizes the ext4
+filesystem to FILL `SizeMinBytes`, so the free space above the content is real,
+guest-usable headroom (a fresh real build confirmed fs == partition == 1924
+MiB, ~1270 MiB free). `ROOT_BASE_FLOOR_MB` is an honest fixed floor (not a
+per-build measurement — mkosi's measured minimal is only printed mid-build,
+after the static `mkosi.repart/` files are already written), chosen at/above
+the ~723 MiB of real baked content so `floor + headroom` guarantees at least
+`headroom` of free space.
+
+Providing a custom `mkosi.repart/` also requires a verbatim copy of mkosi's
+own default ESP definition (`00-esp.conf`) alongside it: once `mkosi.repart/`
+exists at all, mkosi does not layer its defaults on top — the directory must
+be a complete partition table, not an addendum. The resolved headroom is a
+BUILD input (`CLAUDE_VM_ROOT_HEADROOM_MB`, forwarded to the provisioner as the
+partition size); it also participates in the image cache key via the
+per-layer image-identity hash (`image.root_headroom_mb` is build-relevant), so
+a headroom change forces a rebuild and two configs with different headroom
+never share a cached image.
 
 The launcher attaches **two** virtio-serial consoles (issue #88). The
 first (`logFilePath`, guest `hvc0`) captures the booting guest's

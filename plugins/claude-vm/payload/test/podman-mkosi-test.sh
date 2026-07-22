@@ -138,9 +138,10 @@ chmod +x "$BOOT_LAUNCHER"
 OUT_IMAGE="$WORK/out.raw"
 
 run_provisioner() {
-  local bake_config="$1"
+  local bake_config="$1" headroom_mb="${2:-}"
   PATH="$STUB_BIN:$PATH" \
   CLAUDE_VM_BAKE_CONFIG="$bake_config" \
+  CLAUDE_VM_ROOT_HEADROOM_MB="$headroom_mb" \
   bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" >"$WORK/stdout.log" 2>"$WORK/stderr.log"
 }
 
@@ -257,22 +258,46 @@ fi
 RENDER_WORK="$WORK/render-apt-source"
 mkdir -p "$RENDER_WORK/bin"
 
-# Stub curl: succeed and write a fixed marker as the "fetched key" content,
-# regardless of URL, so no network is needed. Real fetch success/failure
-# handling (the -fsSL / -o path, the fatal-on-failure branch) is exercised
-# by the whole-provisioner run above; this stub only removes the network
-# dependency for the direct-call cases below.
+# Stub curl: succeed and write "fetched key" content that depends on the URL,
+# so no network is needed AND both content shapes (issue #106 review, PR #174
+# round 6) are exercisable:
+#   - a URL containing "binary" writes RAW/BINARY OpenPGP-shaped bytes (does
+#     NOT start with "-----BEGIN PGP") -- the shape GitHub's real
+#     githubcli-archive-keyring.gpg is served as, verified in a live guest to
+#     make apt >= 2.x silently load an EMPTY keyring when saved under a
+#     hard-coded ".asc" name (apt infers armored-vs-binary from the file
+#     EXTENSION, not content).
+#   - every other URL writes ASCII-ARMORED content starting with the literal
+#     "-----BEGIN PGP" header, matching a real armored keyring export.
+# Real fetch success/failure handling (the -fsSL / -o path, the
+# fatal-on-failure branch) is exercised by the whole-provisioner run above;
+# this stub only removes the network dependency for the direct-call cases
+# below.
 cat > "$RENDER_WORK/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 # curl -fsSL <url> -o <path>
 out=""
 prev=""
+url=""
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
+  case "$a" in
+    -*) : ;;
+    *) [ -n "$url" ] || url="$a" ;;
+  esac
   prev="$a"
 done
 [ -n "$out" ] || exit 1
-printf 'stub-key-material\n' > "$out"
+case "$url" in
+  *binary*)
+    # Raw/binary OpenPGP-shaped bytes: leading 0x99 0x02 (an OpenPGP packet
+    # header), never the "-----BEGIN PGP" armor header.
+    printf '\x99\x02stub-binary-key-material\n' > "$out"
+    ;;
+  *)
+    printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nstub-armored-key-material\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out"
+    ;;
+esac
 exit 0
 EOF
 chmod +x "$RENDER_WORK/bin/curl"
@@ -339,6 +364,68 @@ if [ -f "$CAPTURE_INNER" ]; then
     assert_contains "bare line: key written to default staging path" \
       <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-bare.asc"
 
+    # -----------------------------------------------------------------
+    # Content-sniffing regression (issue #106 review finding, PR #174 round
+    # 6, real-guest failure): render_apt_source used to hard-name the
+    # fetched key "<name>.asc" regardless of its actual content. GitHub
+    # serves githubcli-archive-keyring.gpg as RAW/BINARY OpenPGP (not
+    # ASCII-armored); apt >= 2.x infers armored-vs-binary from the FILE
+    # EXTENSION, not content, so a binary keyring saved under a ".asc" name
+    # silently loads as an EMPTY keyring -- verified in a live bookworm/apt
+    # 2.6.1 guest as NO_PUBKEY / "repository is not signed" on every boot,
+    # even though the identical bytes verify fine under gpgv (which DOES
+    # sniff content). The fix sniffs the fetched bytes for the literal
+    # "-----BEGIN PGP" armor header and writes/references ".asc" only when
+    # present; anything else (raw binary OpenPGP) is written/referenced as
+    # ".gpg" instead. The curl stub above keys off "binary" in the URL to
+    # produce non-armored bytes for exactly this case.
+    # -----------------------------------------------------------------
+
+    # --- Case: bare repo line, fetched key is BINARY (not armored) -- must
+    # be written and referenced as .gpg, not the default .asc. ---
+    OUT="$(call_render bare-binary githubcli-bin 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/binary-key.gpg')"
+    assert_eq "bare line, binary key: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "bare line, binary key: renders signed-by= referencing .gpg, not .asc" \
+      "deb [signed-by=/etc/apt/keyrings/githubcli-bin.gpg] https://cli.github.com/packages stable main" \
+      "$RENDERED_LINE"
+    assert_contains "bare line, binary key: key written to the .gpg staging path" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-bin.gpg"
+    assert_not_contains "bare line, binary key: no stray .asc file left behind" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-bin.asc"
+
+    # --- Case: bare repo line, fetched key IS armored -- must stay .asc
+    # (content-driven, not a blanket switch to .gpg). ---
+    OUT="$(call_render bare-armored githubcli-arm 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/armored-key.asc')"
+    assert_eq "bare line, armored key: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "bare line, armored key: renders signed-by= referencing .asc" \
+      "deb [signed-by=/etc/apt/keyrings/githubcli-arm.asc] https://cli.github.com/packages stable main" \
+      "$RENDERED_LINE"
+    assert_contains "bare line, armored key: key written to the .asc staging path" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-arm.asc"
+
+    # --- Case: [options] block present WITHOUT signed-by=, fetched key is
+    # BINARY -- the merged signed-by= must reference .gpg. ---
+    OUT="$(call_render optnosb-binary githubcli-optbin 'deb [arch=arm64] https://cli.github.com/packages stable main' 'https://cli.github.com/packages/binary-key.gpg')"
+    assert_eq "options-no-signed-by, binary key: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "options-no-signed-by, binary key: merges signed-by=.gpg INTO the existing block" \
+      "deb [arch=arm64 signed-by=/etc/apt/keyrings/githubcli-optbin.gpg] https://cli.github.com/packages stable main" \
+      "$RENDERED_LINE"
+    assert_contains "options-no-signed-by, binary key: key written to the .gpg staging path" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-optbin.gpg"
+
+    # --- Case: the REAL githubcli failure line, but WITHOUT a pinned
+    # signed-by= (so the default-naming/sniff path is exercised end-to-end
+    # with the real GitHub binary-keyring key_url shape). ---
+    OUT="$(call_render realfail-nopin githubcli-real 'deb [arch=arm64] https://cli.github.com/packages stable main' 'https://cli.github.com/packages/binary-key.gpg')"
+    assert_eq "real githubcli shape, no pin, binary key: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+    RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+    assert_eq "real githubcli shape, no pin, binary key: signed-by references .gpg" \
+      "deb [arch=arm64 signed-by=/etc/apt/keyrings/githubcli-real.gpg] https://cli.github.com/packages stable main" \
+      "$RENDERED_LINE"
+
     # --- Case: [options] block present, WITHOUT signed-by=. ---
     OUT="$(call_render optnosb githubcli-opt 'deb [arch=arm64] https://cli.github.com/packages stable main' 'https://cli.github.com/packages/key.gpg')"
     assert_eq "options-no-signed-by: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
@@ -364,13 +451,24 @@ if [ -f "$CAPTURE_INNER" ]; then
     assert_not_contains "existing signed-by at non-default P: key NOT written to the default <name>.asc path" \
       <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli-nd.asc"
 
-    # --- Case: the EXACT githubcli line from the real failure report. ---
+    # --- Case: the EXACT githubcli line from the real failure report, with
+    # a PINNED signed-by=...githubcli.asc AND a binary key_url. The pinned
+    # path is EXEMPT from the content-sniff rename (round 6 fix): the repo
+    # line's declared path wins verbatim regardless of what the fetched
+    # bytes look like, because renaming would desync the emitted signed-by=
+    # from the file actually written. (This means an operator who pins a
+    # ".asc" path for a key that is actually binary still gets a broken
+    # apt config -- that is the operator's own declared path, not this
+    # function's default to second-guess; the sniff-rename applies only to
+    # the DEFAULT <name>.<ext> naming this function itself chooses.) ---
     REAL_FAILURE_REPO="deb [arch=arm64 signed-by=/etc/apt/keyrings/githubcli.asc] https://cli.github.com/packages stable main"
-    OUT="$(call_render realfail githubcli "$REAL_FAILURE_REPO" 'https://cli.github.com/packages/githubcli-archive-keyring.gpg')"
+    OUT="$(call_render realfail githubcli "$REAL_FAILURE_REPO" 'https://cli.github.com/packages/binary-key.gpg')"
     assert_eq "real githubcli failure line: exit 0" "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
     RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
     assert_eq "real githubcli failure line: rendered verbatim (P == default path here, still wins verbatim)" \
       "$REAL_FAILURE_REPO" "$RENDERED_LINE"
+    assert_contains "real githubcli failure line: binary bytes still land at the PINNED .asc path (not renamed)" \
+      <(printf '%s\n' "$OUT" | grep '^KEYFILE:') "KEYFILE:sandbox/etc/apt/keyrings/githubcli.asc"
     # Structural apt-shape validation (not just substring matching): exactly
     # one '[...]' group, then a URI starting with http, matching
     # "deb <ONE bracket-group> http...". This is the shape apt's one-line
@@ -456,6 +554,97 @@ else
   FAIL=$((FAIL + 1))
   echo "FAIL - generated build-in-container.sh not found at $CAPTURE_INNER (cannot run render_apt_source cases)"
 fi
+
+# ---------------------------------------------------------------------
+# Issue #106 real-run fix: guest apt metadata diet (mkosi.skeleton/) and
+# root-partition headroom (mkosi.repart/). Re-run the provisioner with a
+# fresh capture so these assertions do not depend on state left over from
+# the render_apt_source cases above.
+# ---------------------------------------------------------------------
+run_provisioner "$BAKE_CONFIG" "2048"
+DIET_RUN_EXIT=$?
+assert_eq "diet/headroom run reaches container handoff (stub exit 42)" \
+  "42" "$DIET_RUN_EXIT"
+
+SKELETON_SOURCES="$CAPTURE_RECIPE/mkosi.skeleton/etc/apt/sources.list.d/bookworm.sources"
+if [ -f "$SKELETON_SOURCES" ]; then
+  assert_contains "skeleton sources: binary Types only (deb)" \
+    "$SKELETON_SOURCES" "Types: deb"
+  assert_not_contains "skeleton sources: no deb-src" \
+    "$SKELETON_SOURCES" "deb-src"
+  assert_not_contains "skeleton sources: no debian-debug repo" \
+    "$SKELETON_SOURCES" "debug"
+  assert_contains "skeleton sources: main suite present" \
+    "$SKELETON_SOURCES" "Suites: bookworm"
+  assert_contains "skeleton sources: updates suite present" \
+    "$SKELETON_SOURCES" "Suites: bookworm-updates"
+  assert_contains "skeleton sources: security suite present" \
+    "$SKELETON_SOURCES" "Suites: bookworm-security"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.skeleton sources file not found at $SKELETON_SOURCES"
+fi
+
+SKELETON_APTCONF="$CAPTURE_RECIPE/mkosi.skeleton/etc/apt/apt.conf.d/99claude-vm-diet.conf"
+if [ -f "$SKELETON_APTCONF" ]; then
+  assert_contains "skeleton apt.conf.d: Acquire::Languages none" \
+    "$SKELETON_APTCONF" 'Acquire::Languages "none";'
+  assert_contains "skeleton apt.conf.d: Dir::Cache::pkgcache disabled" \
+    "$SKELETON_APTCONF" 'Dir::Cache::pkgcache ""'
+  assert_contains "skeleton apt.conf.d: Dir::Cache::srcpkgcache disabled" \
+    "$SKELETON_APTCONF" 'Dir::Cache::srcpkgcache ""'
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.skeleton apt.conf.d diet file not found at $SKELETON_APTCONF"
+fi
+
+REPART_ESP="$CAPTURE_RECIPE/mkosi.repart/00-esp.conf"
+REPART_ROOT="$CAPTURE_RECIPE/mkosi.repart/10-root.conf"
+if [ -f "$REPART_ESP" ] && [ -f "$REPART_ROOT" ]; then
+  assert_contains "repart ESP: Type=esp" "$REPART_ESP" "Type=esp"
+  assert_contains "repart ESP: 512M sizing (unchanged from mkosi's own default)" \
+    "$REPART_ESP" "SizeMinBytes=512M"
+  assert_contains "repart root: Type=root" "$REPART_ROOT" "Type=root"
+  assert_contains "repart root: Format=ext4" "$REPART_ROOT" "Format=ext4"
+  # Bug 1 fix: Minimize=guess is DROPPED so the ext4 filesystem is sized to
+  # FILL SizeMinBytes (fs == partition), rather than minimized to a tight fit
+  # while SizeMinBytes only padded the GPT slot with dead space (headroom inert).
+  assert_not_contains "repart root: Minimize dropped (fs fills the partition, not minimized)" \
+    "$REPART_ROOT" "Minimize"
+  # 2048 (headroom) + 900 (ROOT_BASE_FLOOR_MB) = 2948.
+  assert_contains "repart root: SizeMinBytes reflects base-floor + headroom (2948M)" \
+    "$REPART_ROOT" "SizeMinBytes=2948M"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.repart/ definition files not found ($REPART_ESP, $REPART_ROOT)"
+fi
+
+# Default headroom (unset CLAUDE_VM_ROOT_HEADROOM_MB) resolves to 900+1024=1924M.
+run_provisioner "$BAKE_CONFIG" ""
+DEFAULT_HEADROOM_EXIT=$?
+assert_eq "default-headroom run reaches container handoff (stub exit 42)" \
+  "42" "$DEFAULT_HEADROOM_EXIT"
+DEFAULT_REPART_ROOT="$CAPTURE_RECIPE/mkosi.repart/10-root.conf"
+if [ -f "$DEFAULT_REPART_ROOT" ]; then
+  assert_contains "repart root: default headroom yields SizeMinBytes=1924M" \
+    "$DEFAULT_REPART_ROOT" "SizeMinBytes=1924M"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - mkosi.repart/10-root.conf not found for default-headroom run"
+fi
+
+# An invalid (non-integer) headroom must abort before any container handoff.
+run_provisioner "$BAKE_CONFIG" "not-a-number"
+BAD_HEADROOM_EXIT=$?
+if [ "$BAD_HEADROOM_EXIT" -ne 0 ] && [ "$BAD_HEADROOM_EXIT" -ne 42 ]; then
+  PASS=$((PASS + 1))
+  echo "ok   - non-integer CLAUDE_VM_ROOT_HEADROOM_MB aborts before container handoff"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - non-integer CLAUDE_VM_ROOT_HEADROOM_MB did not abort as expected (exit=$BAD_HEADROOM_EXIT)"
+fi
+assert_contains "non-integer headroom: actionable error on stderr" \
+  "$WORK/stderr.log" "must be a positive integer"
 
 # ---------------------------------------------------------------------
 # Summary

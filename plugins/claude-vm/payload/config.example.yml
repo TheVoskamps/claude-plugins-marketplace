@@ -5,7 +5,8 @@
 #   per-repo: <repo>/.claude-vm/config.yml      (project-specific)
 #
 # Layering:
-#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*, packages.update_at_boot,
+#   - Scalars (cpus, mem, guest_image, image.root_headroom_mb, repo.*, proxy.*,
+#     packages.update_at_boot,
 #     packages.add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot,
 #     claude.plugins.add_marketplace_uris_to_allowlist,
@@ -26,14 +27,35 @@ cpus: 4
 mem: 8192
 
 # guest_image is a normal scalar; a repo may override it. When SET, it is used
-# VERBATIM -- an explicit override that OPTS OUT of bake-hash image-variant
-# derivation (see packages.bake / apt_sources below): you own that path and its
-# contents. When UNSET, the launcher derives the image path from the
-# bake-relevant config: a config with no baked packages shares the one global
-# image (~/.config/claude-vm/images/guest.raw), while a config that bakes
-# packages gets its own cached variant (~/.config/claude-vm/images/
-# guest-<hash>.raw), built on first use. Either way the image is built on demand.
+# VERBATIM -- an explicit override that OPTS OUT of image-identity derivation
+# (see packages.bake / apt_sources / image.root_headroom_mb below): you own
+# that path and its contents. When UNSET, the launcher derives the image path
+# from a self-documenting IMAGE IDENTITY built from the two config layers:
+#   - a repo WITHOUT a .claude-vm/config.yml shares one image keyed on a hash
+#     of the GLOBAL config's build-relevant content
+#     (~/.config/claude-vm/images/guest+global<hash>.raw);
+#   - a repo WITH build-relevant config appends its own segment -- the repo
+#     NAME plus a hash of the repo config -- so you can see whose override runs
+#     where (guest+global<hash>+<reponame>-<repohash>.raw).
+# "Build-relevant" is exactly what changes the built image: packages.bake,
+# packages.apt_sources, and image.root_headroom_mb. Two repos with identical
+# repo-config content still get two images (the name disambiguates) -- by
+# design, legibility over dedup. Either way the image is built on demand.
 guest_image: /path/to/guest.raw
+
+# image.root_headroom_mb: extra MiB of FREE SPACE the guest root filesystem is
+# sized ABOVE its base content (scalar, repo wins; default 1024). Real-hardware
+# testing hit ENOSPC twice in one short session on a tight-fit-sized root: the
+# boot-time apt working set and ordinary session growth (journald, the in-guest
+# claude's home) both eat into a root with zero margin. 1024 MB is roughly 20x
+# the observed short-session growth and covers several rounds of mid-session
+# `apt-get install` on top of the (diet-reduced) boot-time apt working set --
+# generous by design, since the goal is that claude-vm WORKS out of the box,
+# and disk is cheap relative to a bricked session. Changing this value changes
+# the image identity's build-hash and triggers a rebuild, exactly like a
+# packages.bake change does.
+image:
+  root_headroom_mb: 1024
 
 repo:
   mount: clone          # clone (default) | live
@@ -46,31 +68,76 @@ repo:
 # time (issue #105): the baked packages are present in the guest with no network
 # needed at boot, and packages served by a third-party apt_source (e.g. gh from
 # cli.github.com) install at build time from that repo. Because the image is a
-# shared cache, the launcher derives a bake-HASH from the (order-normalized)
-# bake + apt_sources config and stores each distinct bake set as its own image
-# variant (guest-<hash>.raw). A config with no bake/apt_sources shares the one
-# global guest.raw; adding a bake item builds+stores a separate variant on first
-# use; removing it reverts to the shared image with no rebuild. Only bake +
-# apt_sources feed the hash -- changing cpus/egress/permissions/etc. never
-# rebuilds the image. (install_at_boot / update_at_boot are boot-time, NOT baked;
-# their consumers land in a sibling slice under #39.)
+# shared cache, these keys are part of the per-layer IMAGE IDENTITY (see
+# guest_image above): a config with no bake/apt_sources (and default headroom)
+# shares one guest+global<hash>.raw; a repo config that bakes packages appends
+# its own segment (guest+global<hash>+<reponame>-<repohash>.raw), built+stored
+# on first use. Only bake + apt_sources + image.root_headroom_mb feed the
+# identity hashes -- changing cpus/egress/permissions/etc. never rebuilds the
+# image.
+#
+# install_at_boot / update_at_boot are BOOT-TIME instead (issue #106): they run
+# `apt-get install` / `apt-get update && upgrade` INSIDE the guest, blocking,
+# right before claude starts -- through the SAME proxy the rest of the guest's
+# egress goes through. Use install_at_boot for packages that change often (the
+# AWS SDK/CLI is the motivating example) so they stay fresh without a rebuild;
+# use bake for anything stable enough to not need a fresh copy every launch. If
+# a boot-time install is too slow for your workflow, move that package to bake
+# instead. A failed boot-time update/install prints a loud warning to the
+# captured console/log and CONTINUES to claude -- it never blocks an
+# interactive session on a broken mirror. This requires `apt` itself to be
+# present in the guest -- mkosi does NOT provide it for free, since mkosi
+# installs packages from OUTSIDE the image with its own apt. `apt` is
+# therefore baked into every guest image UNCONDITIONALLY (not gated on
+# whether install_at_boot/update_at_boot are configured), since
+# update_at_boot defaults to true.
+#
+# The SAME proxy also covers apt-get run INTERACTIVELY inside the guest
+# (mid-session, by the in-guest claude, not by the boot launcher): run.env
+# carries both uppercase (HTTP_PROXY/HTTPS_PROXY/NO_PROXY) and lowercase
+# (http_proxy/https_proxy/no_proxy) forms -- apt honors only lowercase, and
+# curl ignores uppercase HTTP_PROXY for plain http:// URLs -- AND the boot
+# launcher writes a persistent /etc/apt/apt.conf.d/99claude-vm-proxy from
+# those values, so proxying does not depend on a shell re-sourcing run.env.
+# The guest's own apt sources (baked into the image) are binary-only, main +
+# security + updates, no deb-src/debug/Translations -- a metadata diet that
+# keeps the per-boot apt working set small on the (headroom-constrained,
+# see image.root_headroom_mb above) root partition; boot_apt_phase also runs
+# `apt-get clean` at the end of every boot to sweep any leftover archives/
+# pkgcache.
 packages:
   bake: []                # apt packages baked into the guest image at build
                           # time -- present with no network at boot (list, union)
   install_at_boot: []     # apt packages installed at boot, blocking, before
-                          # claude starts (list, union)
-  update_at_boot: true    # apt-get update && upgrade at boot (scalar, repo
-                          # wins; default true)
-  apt_sources: []         # third-party apt repos baked into the build so their
-                          # packages install at image-build time:
-                          # {name, repo, key_url}. key_url is fetched into a
-                          # keyring and the repo is added signed-by that key
-                          # (list, union)
-  add_apt_uris_to_allowlist: auto   # auto (default) | always -- auto adds
-                          # derived egress URIs to the proxy allowlist only
-                          # when configured boot-time work needs them;
-                          # always adds them regardless, enabling in-session
-                          # installs (scalar, repo wins)
+                          # claude starts, through the proxy (list, union)
+  update_at_boot: true    # apt-get update && upgrade at boot, through the
+                          # proxy, before claude starts (scalar, repo wins;
+                          # default true)
+  apt_sources: []         # third-party apt repos: {name, repo, key_url}.
+                          # key_url is fetched into a keyring and the repo is
+                          # added signed-by that key (list, union). Rendered
+                          # at IMAGE-BUILD time (baking whatever packages.bake
+                          # names from these repos) AND, separately, at BOOT
+                          # time into the guest's live /etc/apt whenever
+                          # install_at_boot is nonempty (so a boot-time install
+                          # can pull from the same third-party repos bake can).
+  add_apt_uris_to_allowlist: auto   # auto (default) | always -- controls this
+                          # boot-time apt egress (claude.plugins carries its
+                          # own parallel add_marketplace_uris_to_allowlist
+                          # knob for marketplace/plugin URIs, applied the same
+                          # way but independently): deb.debian.org +
+                          # security.debian.org, plus every apt_sources host,
+                          # are added to the guest's egress allowlist IFF
+                          # install_at_boot is nonempty, OR update_at_boot is
+                          # true (the default), OR this is set to "always".
+                          # "auto" with update_at_boot: false
+                          # and an empty install_at_boot derives NO apt egress
+                          # at all -- a hard-secure all-baked config leaves the
+                          # guest unable to reach any package repo. "always"
+                          # keeps the URIs allowlisted regardless, so an
+                          # in-guest `apt-get install` still works mid-session
+                          # even with boot-time apt work disabled. Every
+                          # derived addition is logged (scalar, repo wins)
 
 # Which `claude` binary to run in the guest. The HOST resolves this to a
 # concrete version, downloads that version's GPG-signed manifest, verifies

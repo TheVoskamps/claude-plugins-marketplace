@@ -53,6 +53,8 @@ cat > "$GLOBAL" <<'YML'
 cpus: 2
 mem: 4096
 guest_image: /global/guest.raw
+image:
+  root_headroom_mb: 1024
 repo:
   mount: clone
 proxy:
@@ -108,6 +110,8 @@ YML
 cat > "$REPO" <<'YML'
 cpus: 8
 guest_image: /repo/guest.raw
+image:
+  root_headroom_mb: 2048
 repo:
   mount: live
 egress:
@@ -173,6 +177,8 @@ assert_eq "scalar: nested proxy.cmd from global" \
   "global-proxy" "$(claude_vm_scalar "$MERGED" '.proxy.cmd' 'X')"
 assert_eq "scalar: nested proxy.port from global" \
   "3128" "$(claude_vm_scalar "$MERGED" '.proxy.port' 'X')"
+assert_eq "scalar: repo overrides global (image.root_headroom_mb)" \
+  "2048" "$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 2: list union -- egress.allow merged + de-duplicated
@@ -365,6 +371,8 @@ assert_eq "global-only: github.auth from global" \
   "none" "$(claude_vm_scalar "$MERGED_G" '.github.auth' 'X')"
 assert_eq "global-only: packages.bake count is 2" \
   "2" "$(claude_vm_list_items "$MERGED_G" '.packages.bake' | grep -c .)"
+assert_eq "global-only: image.root_headroom_mb from global" \
+  "1024" "$(claude_vm_scalar "$MERGED_G" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 5: repo-only (global config absent) resolves cleanly
@@ -381,6 +389,8 @@ assert_eq "repo-only: github.auth from repo (host-token)" \
   "host-token" "$(claude_vm_scalar "$MERGED_R" '.github.auth' 'X')"
 assert_eq "repo-only: packages.update_at_boot from repo (true)" \
   "true" "$(claude_vm_scalar "$MERGED_R" '.packages.update_at_boot' 'X')"
+assert_eq "repo-only: image.root_headroom_mb from repo (2048)" \
+  "2048" "$(claude_vm_scalar "$MERGED_R" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 6: neither layer present -- all scalars hit hardcoded fallbacks
@@ -419,6 +429,9 @@ assert_eq "neither: claude.permissions.allow is empty" \
   "0" "$(claude_vm_list_items "$MERGED_N" '.claude.permissions.allow' | grep -c .)"
 assert_eq "neither: claude.marketplaces is empty" \
   "0" "$(claude_vm_marketplaces "$MERGED_N" | grep -c .)"
+assert_eq "neither: image.root_headroom_mb fallback (1024)" \
+  "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB" \
+  "$(claude_vm_scalar "$MERGED_N" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
 
 # ---------------------------------------------------------------------
 # Test 6b: empty-skeleton pruning (issue #103 review finding). A list
@@ -1061,89 +1074,149 @@ assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" 
   '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
 
 # ---------------------------------------------------------------------
-# Test 18: guest-image variant path derivation (issue #105).
+# Test 18: two-layer image-identity segments + filename derivation (issue #106
+# redesign).
 #
-# Reproduce the launcher's derivation logic (a bare block in claude-vm.sh, not
-# a lib function) here against merged configs: explicit guest_image opts out;
-# an empty bake config shares guest.raw; a bake config derives guest-<hash>.raw;
-# and removing the override reverts to the shared guest.raw with no path churn.
+# The image identity is composed from the two config LAYERS independently
+# (global build-hash always present; a repo with build-relevant content
+# appends "+<reponame>-<repohash>"). Exercise claude_vm_image_identity_segments
+# and the filename shape the launcher derives from it: explicit guest_image
+# opts out; a config-less repo collides on guest+global<hash>.raw; a repo with
+# build-relevant config gets a two-segment name with its sanitized name.
 # ---------------------------------------------------------------------
+IMGDIR="/home/op/.config/claude-vm/images"
 derive_image_path() {
-  # Mirror claude-vm.sh's derivation: <merged-file> <default-image-dir>.
-  local merged="$1" dir="$2" explicit
+  # Mirror claude-vm.sh's derivation: <merged-file> <global> <repo> <reponame>
+  # <default-image-dir>. The merged file supplies only the guest_image opt-out;
+  # the identity is computed from the two LAYERS.
+  local merged="$1" global="$2" repo="$3" name="$4" dir="$5" explicit seg
   explicit="$(claude_vm_scalar "$merged" '.guest_image' "")"
   if [ -n "$explicit" ]; then
     printf '%s\n' "$explicit"
-  elif claude_vm_bake_config_is_empty "$merged"; then
-    printf '%s\n' "$dir/guest.raw"
   else
-    printf '%s\n' "$dir/guest-$(claude_vm_bake_hash "$merged").raw"
+    seg="$(claude_vm_image_identity_segments "$global" "$repo" "$name")"
+    printf '%s\n' "$dir/guest+${seg}.raw"
   fi
 }
-IMGDIR="/home/op/.config/claude-vm/images"
 
-# Empty bake config -> shared guest.raw.
-VP_EMPTY="$WORK/vp-empty.yml"; printf 'cpus: 4\n' > "$VP_EMPTY"
-assert_eq "variant-path: no bake overrides -> shared guest.raw" \
-  "$IMGDIR/guest.raw" "$(derive_image_path "$VP_EMPTY" "$IMGDIR")"
+# A missing repo layer -> config-less repo -> guest+global<hash>.raw.
+VP_GLOBAL="$WORK/vp-global.yml"; printf 'cpus: 4\n' > "$VP_GLOBAL"
+VP_NOREPO="$WORK/vp-norepo.yml"  # deliberately not created
+VP_GHASH="$(claude_vm_build_hash "$VP_GLOBAL")"
+assert_eq "identity: config-less repo -> global segment only" \
+  "global$VP_GHASH" "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_NOREPO" myrepo)"
+assert_eq "identity: config-less repo -> guest+global<hash>.raw" \
+  "$IMGDIR/guest+global$VP_GHASH.raw" \
+  "$(derive_image_path "$VP_GLOBAL" "$VP_GLOBAL" "$VP_NOREPO" myrepo "$IMGDIR")"
 
-# Bake config -> guest-<hash>.raw (matching the standalone hash helper).
-VP_BAKE="$WORK/vp-bake.yml"; printf 'packages:\n  bake: [git, jq]\n' > "$VP_BAKE"
-VP_BAKE_HASH="$(claude_vm_bake_hash "$VP_BAKE")"
-assert_eq "variant-path: bake overrides -> guest-<hash>.raw" \
-  "$IMGDIR/guest-$VP_BAKE_HASH.raw" "$(derive_image_path "$VP_BAKE" "$IMGDIR")"
+# A repo config with build-relevant content -> two-segment identity, repo name
+# sanitized (a name with a slash/space collapses to filename-safe chars).
+VP_REPO_BAKE="$WORK/vp-repo-bake.yml"; printf 'packages:\n  bake: [git, jq]\n' > "$VP_REPO_BAKE"
+VP_RHASH="$(claude_vm_build_hash "$VP_REPO_BAKE")"
+assert_eq "identity: repo w/ build-relevant config appends +<name>-<repohash>" \
+  "global$VP_GHASH+acme-widgets-$VP_RHASH" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" 'acme/widgets')"
 
-# Explicit guest_image opts out of variant derivation, even WITH bake items.
-VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\npackages:\n  bake: [git]\n' > "$VP_OVERRIDE"
-assert_eq "variant-path: explicit guest_image opts out (used verbatim)" \
-  "/custom/my.raw" "$(derive_image_path "$VP_OVERRIDE" "$IMGDIR")"
+# A repo config with ONLY runtime keys (no bake/apt_sources/headroom) -> no
+# repo segment (it does not change the image, so it shares the global image).
+VP_REPO_RUNTIME="$WORK/vp-repo-runtime.yml"; printf 'cpus: 8\nmem: 8192\n' > "$VP_REPO_RUNTIME"
+assert_eq "identity: runtime-only repo config -> no repo segment (shares global)" \
+  "global$VP_GHASH" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_RUNTIME" myrepo)"
 
-# Removing the bake override reverts to the SAME shared guest.raw (warm path:
-# no rebuild, since the path -- and thus the cached image + .version -- is the
-# one an unchanged empty config already resolved to).
-assert_eq "variant-path: removing bake override reverts to shared guest.raw" \
-  "$(derive_image_path "$VP_EMPTY" "$IMGDIR")" "$IMGDIR/guest.raw"
+# Explicit guest_image opts out entirely, even with a build-relevant repo config.
+VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\n' > "$VP_OVERRIDE"
+assert_eq "identity: explicit guest_image opts out (used verbatim)" \
+  "/custom/my.raw" \
+  "$(derive_image_path "$VP_OVERRIDE" "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo "$IMGDIR")"
 
-# Two configs with the SAME bake set derive the SAME variant path (share one
-# cached image), even declared in different orders.
-VP_BAKE2="$WORK/vp-bake2.yml"; printf 'packages:\n  bake: [jq, git]\n' > "$VP_BAKE2"
-assert_eq "variant-path: same bake set (reordered) derives same variant path" \
-  "$(derive_image_path "$VP_BAKE" "$IMGDIR")" "$(derive_image_path "$VP_BAKE2" "$IMGDIR")"
+# Two repos with byte-identical repo configs but DIFFERENT names get DIFFERENT
+# images (name disambiguates -- legibility over dedup, the human's choice).
+assert_ne "identity: same repo config, different names -> different images" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" repo-a)" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" repo-b)"
+
+# Same global + same repo config + same name -> same identity (warm path).
+assert_eq "identity: identical inputs -> identical identity (warm path)" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo)" \
+  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo)"
 
 # ---------------------------------------------------------------------
-# Test 19: build-guest-image.sh --print-version bake-hash segment (issue #105).
+# Test 18b: root_headroom_mb participates in the LAYER build-hash (issue #106
+# acceptance-critical). Changing headroom in a layer MUST change that layer's
+# build-hash, so the image cache key changes and a rebuild is triggered.
+# ---------------------------------------------------------------------
+VP_HR1="$WORK/vp-hr1.yml"; printf 'image:\n  root_headroom_mb: 1024\n' > "$VP_HR1"
+VP_HR2="$WORK/vp-hr2.yml"; printf 'image:\n  root_headroom_mb: 2048\n' > "$VP_HR2"
+assert_ne "identity: global headroom change flips the global build-hash" \
+  "$(claude_vm_build_hash "$VP_HR1")" "$(claude_vm_build_hash "$VP_HR2")"
+assert_ne "identity: global headroom change flips the whole identity" \
+  "$(claude_vm_image_identity_segments "$VP_HR1" "$VP_NOREPO" myrepo)" \
+  "$(claude_vm_image_identity_segments "$VP_HR2" "$VP_NOREPO" myrepo)"
+# root_headroom_mb is read RAW per layer, so its presence in the canonical
+# build-config JSON is what drives the hash.
+assert_eq "identity: build-config JSON carries root_headroom_mb (2048)" \
+  '{"bake":[],"apt_sources":[],"root_headroom_mb":"2048"}' \
+  "$(claude_vm_build_config_json "$VP_HR2")"
+assert_eq "identity: build-config JSON for a layer that omits headroom -> empty string" \
+  '{"bake":[],"apt_sources":[],"root_headroom_mb":""}' \
+  "$(claude_vm_build_config_json "$VP_GLOBAL")"
+# build_config_is_empty: a headroom-only layer is NOT build-empty.
+assert_true "identity: headroom-only layer is not build-empty" \
+  bash -c '. "$1"; ! claude_vm_build_config_is_empty "$2"' _ "$TEST_DIR/../lib/config.sh" "$VP_HR2"
+
+# ---------------------------------------------------------------------
+# Test 19: build-guest-image.sh --print-version identity segment (issue #106).
 #
-# The launcher passes the canonical bake config to build-guest-image.sh via
-# CLAUDE_VM_BAKE_CONFIG for both --print-version and --output, so the stamped
-# version and the compared version agree. Exercise --print-version directly:
-# empty/unset -> the legacy base version (share the global image, warm path);
-# non-empty -> base+bake<hash>, stable and content-sensitive.
+# The launcher passes the pre-computed identity segments to build-guest-image.sh
+# via CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS for both --print-version and --output,
+# so the stamped version and the compared version agree. Exercise
+# --print-version directly: unset -> the bare base version (a no-launcher smoke
+# test); set -> base+<segments>, appended verbatim.
 # ---------------------------------------------------------------------
 BGI="$TEST_DIR/../build-guest-image.sh"
-BASE_VER="$("$BGI" --print-version)"   # unset CLAUDE_VM_BAKE_CONFIG -> base version
-assert_eq "print-version: unset bake config -> legacy base version (no +bake)" \
-  "$BASE_VER" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' "$BGI" --print-version)"
-# A non-empty bake config appends +bake<8hex>. Check the prefix and the
-# +bake<8hex> suffix shape separately (a literal-prefix + regex-suffix check
-# avoids escaping the base version's own metacharacters into a regex).
-BGI_BAKED="$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' "$BGI" --print-version)"
-BGI_SUFFIX="${BGI_BAKED#"$BASE_VER"}"   # strip the exact base-version prefix
-if [ "$BGI_SUFFIX" != "$BGI_BAKED" ] && printf '%s' "$BGI_SUFFIX" | grep -qE '^\+bake[0-9a-f]{8}$'; then
-  assert_eq "print-version: baked config appends +bake<8hex> to base version" "ok" "ok"
+BASE_VER="$("$BGI" --print-version)"   # unset segments -> bare base version
+assert_eq "print-version: unset identity segments -> bare base version" \
+  "$BASE_VER" "$("$BGI" --print-version)"
+# Segments are appended verbatim as +<segments>.
+assert_eq "print-version: global-only segment appended verbatim" \
+  "$BASE_VER+global1b20dff0" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='global1b20dff0' "$BGI" --print-version)"
+assert_eq "print-version: two-segment identity appended verbatim" \
+  "$BASE_VER+global1b20dff0+acme-widgets-573e2d72" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='global1b20dff0+acme-widgets-573e2d72' "$BGI" --print-version)"
+# Same segments -> same version (warm path); different -> different version.
+assert_eq "print-version: same identity segments -> same version (warm path)" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globalabcd1234' "$BGI" --print-version)" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globalabcd1234' "$BGI" --print-version)"
+assert_ne "print-version: different identity segments -> different version" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globalabcd1234' "$BGI" --print-version)" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globaldeadbeef' "$BGI" --print-version)"
+# --print-version and the launcher-side segments agree by construction: feed
+# the SAME lib-computed segments into --print-version.
+VP_SEG_GLOBAL="$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_NOREPO" myrepo)"
+assert_eq "print-version: build-guest-image version embeds the lib identity segments" \
+  "$BASE_VER+$VP_SEG_GLOBAL" \
+  "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$VP_SEG_GLOBAL" "$BGI" --print-version)"
+
+# ---------------------------------------------------------------------
+# Test 19b: root-headroom BUILD input validation (issue #106 real-run fix).
+#
+# CLAUDE_VM_ROOT_HEADROOM_MB is the MERGED headroom the build forwards to the
+# provisioner as the partition size; it is validated as a positive integer so a
+# typo aborts rather than reaching the provisioner as garbage. It no longer
+# folds into the version (the identity segments own the cache key now), so a
+# valid headroom does NOT by itself change --print-version.
+# ---------------------------------------------------------------------
+assert_eq "print-version: headroom is a build input, not a version segment" \
+  "$BASE_VER" "$(CLAUDE_VM_ROOT_HEADROOM_MB=2048 "$BGI" --print-version)"
+# A non-integer headroom aborts with a clear error rather than silently
+# building an unsized (or garbage-sized) image.
+if CLAUDE_VM_ROOT_HEADROOM_MB=notanumber "$BGI" --print-version >/dev/null 2>&1; then
+  assert_eq "print-version: non-integer headroom is rejected" "rejected" "accepted"
 else
-  assert_eq "print-version: baked config appends +bake<8hex> to base version" "ok" "bad: [$BGI_BAKED]"
+  assert_eq "print-version: non-integer headroom is rejected" "rejected" "rejected"
 fi
-# Same bake config -> same version (warm path: no spurious rebuild).
-assert_eq "print-version: same bake config -> same version (warm path)" \
-  "$BGI_BAKED" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git","jq"],"apt_sources":[]}' "$BGI" --print-version)"
-# Different bake config -> different version.
-assert_ne "print-version: different bake config -> different version" \
-  "$BGI_BAKED" "$(CLAUDE_VM_BAKE_CONFIG='{"bake":["git"],"apt_sources":[]}' "$BGI" --print-version)"
-# The build-guest-image hash MATCHES the standalone lib hash for the same
-# canonical bytes (the two sides agree by construction).
-LIB_HASH_FOR_BAKED="$(claude_vm_bake_hash_from_json '{"bake":["git","jq"],"apt_sources":[]}')"
-assert_eq "print-version: build-guest-image version embeds the lib bake-hash" \
-  "$BASE_VER+bake$LIB_HASH_FOR_BAKED" "$BGI_BAKED"
 
 # ---------------------------------------------------------------------
 # Test 20: render_apt_source name validation (issue #105 review finding).
@@ -1214,6 +1287,378 @@ if [ -n "${RAS_START:-}" ] && [ -n "${RAS_END:-}" ] && command -v render_apt_sou
     test -f "$RAS_SOURCES/gh-cli.v2.list"
 else
   echo "SKIP: render_apt_source extraction from podman-mkosi.sh failed; name-validation tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 21: boot-time apt derived egress (issue #106).
+#
+# claude_vm_boot_apt_egress_needed (the "iff" gate) and
+# claude_vm_apt_source_hosts (per-entry host derivation) are the two pure
+# helpers claude-vm.sh's derived-egress block uses to decide whether/what to
+# add to the guest egress allowlist for boot-time apt work. Exercise both
+# directly, with no VM and no launcher run.
+# ---------------------------------------------------------------------
+DE_AUTO_QUIET="$WORK/de-auto-quiet.yml"
+cat > "$DE_AUTO_QUIET" <<'YML'
+packages:
+  install_at_boot: []
+  update_at_boot: false
+  add_apt_uris_to_allowlist: auto
+YML
+if ! claude_vm_boot_apt_egress_needed "$DE_AUTO_QUIET"; then
+  assert_eq "boot_apt_egress_needed: auto + empty install_at_boot + update_at_boot false -> NOT needed" "not-needed" "not-needed"
+else
+  assert_eq "boot_apt_egress_needed: auto + empty install_at_boot + update_at_boot false -> NOT needed" "not-needed" "needed"
+fi
+
+DE_INSTALL="$WORK/de-install.yml"
+cat > "$DE_INSTALL" <<'YML'
+packages:
+  install_at_boot:
+    - htop
+  update_at_boot: false
+  add_apt_uris_to_allowlist: auto
+YML
+if claude_vm_boot_apt_egress_needed "$DE_INSTALL"; then
+  assert_eq "boot_apt_egress_needed: nonempty install_at_boot -> needed" "needed" "needed"
+else
+  assert_eq "boot_apt_egress_needed: nonempty install_at_boot -> needed" "needed" "not-needed"
+fi
+
+DE_UPDATE_DEFAULT="$WORK/de-update-default.yml"
+printf '{}\n' > "$DE_UPDATE_DEFAULT"
+if claude_vm_boot_apt_egress_needed "$DE_UPDATE_DEFAULT"; then
+  assert_eq "boot_apt_egress_needed: unset config -> needed (update_at_boot defaults true)" "needed" "needed"
+else
+  assert_eq "boot_apt_egress_needed: unset config -> needed (update_at_boot defaults true)" "needed" "not-needed"
+fi
+
+DE_ALWAYS="$WORK/de-always.yml"
+cat > "$DE_ALWAYS" <<'YML'
+packages:
+  install_at_boot: []
+  update_at_boot: false
+  add_apt_uris_to_allowlist: always
+YML
+if claude_vm_boot_apt_egress_needed "$DE_ALWAYS"; then
+  assert_eq "boot_apt_egress_needed: add_apt_uris_to_allowlist always -> needed regardless" "needed" "needed"
+else
+  assert_eq "boot_apt_egress_needed: add_apt_uris_to_allowlist always -> needed regardless" "needed" "not-needed"
+fi
+
+# Host derivation: repo + key_url URIs (including a non-default port, which
+# must be STRIPPED -- egress allowlists in this codebase are host-only), a
+# repo line with no key_url at all, de-duplicated across entries.
+DE_HOSTS="$WORK/de-hosts.yml"
+cat > "$DE_HOSTS" <<'YML'
+packages:
+  apt_sources:
+    - name: gh-cli
+      repo: "deb https://cli.github.com/packages stable main"
+      key_url: "https://key.example.com:8443/key.gpg"
+    - name: dup-host
+      repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/x.asc] https://cli.github.com/other stable main"
+YML
+DE_HOSTS_OUT="$(claude_vm_apt_source_hosts "$DE_HOSTS" | sort | tr '\n' ',')"
+assert_eq "apt_source_hosts: repo + key_url hosts extracted, port stripped, de-duped" \
+  "cli.github.com,key.example.com," "$DE_HOSTS_OUT"
+
+DE_HOSTS_EMPTY="$WORK/de-hosts-empty.yml"
+printf '{}\n' > "$DE_HOSTS_EMPTY"
+assert_eq "apt_source_hosts: no apt_sources -> empty" \
+  "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY")"
+
+assert_eq "CLAUDE_VM_DEBIAN_MIRROR_HOSTS: pins the two Debian mirror hosts" \
+  "deb.debian.org security.debian.org" "$CLAUDE_VM_DEBIAN_MIRROR_HOSTS"
+
+# ---------------------------------------------------------------------
+# Test 22: render_apt_source_boot name validation (issue #106).
+#
+# render_apt_source_boot is defined INSIDE the <<'BOOT' heredoc in
+# build-guest-image.sh's emit_boot_launcher (it only ever runs as root at
+# guest boot, against the guest's LIVE /etc/apt), so it is not directly
+# sourceable. Extract its literal body the same way Test 20 extracts
+# podman-mkosi.sh's render_apt_source -- no `\$` un-escaping needed here
+# (this heredoc is a plain <<'BOOT', not a nested <<INNER inside another
+# heredoc) -- then source it in-process.
+#
+# Only the REJECTION paths are exercised here: render_apt_source_boot
+# hardcodes /etc/apt/keyrings and /etc/apt/sources.list.d (it writes the
+# guest's LIVE apt config, unlike the build-time function's staging-dir
+# parameters), which this host-side test process cannot write to (and must
+# not attempt to). Every rejection below returns BEFORE any mkdir/write, so
+# they are safely exercisable without touching the test host's real
+# /etc/apt -- the same "name is not fully operator-authored, so validate
+# before building any path" rationale as Test 20.
+# ---------------------------------------------------------------------
+BUILD_GUEST_IMAGE="$TEST_DIR/../build-guest-image.sh"
+RASB_START="$(grep -n '^render_apt_source_boot() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+RASB_END="$(awk -v start="$RASB_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
+RASB_SRC="$WORK/render_apt_source_boot.sh"
+if [ -n "$RASB_START" ] && [ -n "$RASB_END" ]; then
+  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" > "$RASB_SRC"
+  # render_apt_source_boot calls log(); stub it so the extracted function
+  # sources standalone without pulling in the rest of the boot launcher.
+  printf 'log() { :; }\n' > "$WORK/render_apt_source_boot_stub.sh"
+  cat "$RASB_SRC" >> "$WORK/render_apt_source_boot_stub.sh"
+  # shellcheck source=/dev/null
+  . "$WORK/render_apt_source_boot_stub.sh"
+fi
+
+if [ -n "${RASB_START:-}" ] && [ -n "${RASB_END:-}" ] && command -v render_apt_source_boot >/dev/null 2>&1; then
+  # Path-traversal name is rejected (non-zero return) BEFORE any mkdir/write.
+  if render_apt_source_boot '../../etc/evil' 'deb https://x stable main' '' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: path-traversal name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: path-traversal name is rejected" "rejected" "rejected"
+  fi
+
+  # A name containing a slash but no ".." is equally rejected -- charset
+  # allowlist, not a ".." blacklist.
+  if render_apt_source_boot 'sub/dir' 'deb https://x stable main' '' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: slash-containing name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: slash-containing name is rejected" "rejected" "rejected"
+  fi
+
+  # Missing name/repo is rejected.
+  if render_apt_source_boot '' 'deb https://x stable main' '' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: empty name is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: empty name is rejected" "rejected" "rejected"
+  fi
+
+  # A pinned signed-by outside the two allowed keyrings directories is
+  # rejected (the case-3 write-primitive guard ported from render_apt_source).
+  if render_apt_source_boot 'evil' 'deb [signed-by=/etc/cron.d/x] https://x stable main' 'https://x/key.asc' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: signed-by outside allowed keyrings dirs is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: signed-by outside allowed keyrings dirs is rejected" "rejected" "rejected"
+  fi
+
+  # A pinned signed-by with a '..' path segment is rejected.
+  if render_apt_source_boot 'evil2' 'deb [signed-by=/etc/apt/keyrings/../../cron.d/x] https://x stable main' 'https://x/key.asc' >/dev/null 2>&1; then
+    assert_eq "render_apt_source_boot: signed-by with '..' segment is rejected" "rejected" "accepted"
+  else
+    assert_eq "render_apt_source_boot: signed-by with '..' segment is rejected" "rejected" "rejected"
+  fi
+else
+  echo "SKIP: render_apt_source_boot extraction from build-guest-image.sh failed; name-validation tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 22b: render_apt_source_boot content-sniffing (issue #106 review
+# finding, PR #174 round 6, real-guest failure -- same defect class as Test
+# 20's podman-mkosi.sh render_apt_source additions).
+#
+# render_apt_source_boot hardcodes its write dirs to the LIVE
+# /etc/apt/keyrings and /etc/apt/sources.list.d (unlike the build-time
+# function's staging-dir parameters), so Test 22 above only exercises
+# rejection paths that return before any mkdir/write. To exercise the
+# ACCEPT + sniff-rename path without touching the real /etc/apt, this test
+# extracts the function body a second time and retargets its two hardcoded
+# path locals to a WORK-scoped scratch dir via sed -- a test-harness-only
+# rewrite of the extracted copy, not a change to the shipped function's
+# behavior (the shipped function still hardcodes /etc/apt/* verbatim; only
+# this scratch copy's local defaults differ). A stub curl on PATH answers
+# the key_url fetch with content chosen by the caller so both the
+# ASCII-armored and binary shapes are exercised.
+# ---------------------------------------------------------------------
+RASB_SNIFF_ROOT="$WORK/rasb-sniff-root"
+mkdir -p "$RASB_SNIFF_ROOT/bin"
+if [ -n "${RASB_START:-}" ] && [ -n "${RASB_END:-}" ]; then
+  RASB_SNIFF_SRC="$WORK/render_apt_source_boot_sniff.sh"
+  awk -v start="$RASB_START" -v end="$RASB_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE" \
+    | sed \
+        -e "s#local keyrings_dir=\"/etc/apt/keyrings\" sources_dir=\"/etc/apt/sources.list.d\"#local keyrings_dir=\"$RASB_SNIFF_ROOT/keyrings\" sources_dir=\"$RASB_SNIFF_ROOT/sources\"#" \
+    > "$RASB_SNIFF_SRC"
+  printf 'log() { :; }\n' > "$WORK/render_apt_source_boot_sniff_stub.sh"
+  cat "$RASB_SNIFF_SRC" >> "$WORK/render_apt_source_boot_sniff_stub.sh"
+  # shellcheck source=/dev/null
+  ( . "$WORK/render_apt_source_boot_sniff_stub.sh"; command -v render_apt_source_boot >/dev/null 2>&1 )
+  RASB_SNIFF_RC=$?
+else
+  RASB_SNIFF_RC=1
+fi
+
+# Stub curl, same URL-keyed content-shape convention as podman-mkosi-test.sh:
+# a URL containing "binary" writes raw/binary OpenPGP-shaped bytes; every
+# other URL writes ASCII-armored content starting with "-----BEGIN PGP".
+cat > "$RASB_SNIFF_ROOT/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+out=""
+prev=""
+url=""
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  case "$a" in
+    -*) : ;;
+    *) [ -n "$url" ] || url="$a" ;;
+  esac
+  prev="$a"
+done
+[ -n "$out" ] || exit 1
+case "$url" in
+  *binary*)
+    printf '\x99\x02stub-binary-key-material\n' > "$out"
+    ;;
+  *)
+    printf -- '-----BEGIN PGP PUBLIC KEY BLOCK-----\nstub-armored-key-material\n-----END PGP PUBLIC KEY BLOCK-----\n' > "$out"
+    ;;
+esac
+exit 0
+EOF
+chmod +x "$RASB_SNIFF_ROOT/bin/curl"
+
+if [ "$RASB_SNIFF_RC" -eq 0 ]; then
+  # call_render_boot <case-label> <name> <repo> <key_url>
+  call_render_boot() {
+    local case_label="$1" c_name="$2" c_repo="$3" c_key_url="$4"
+    rm -rf "$RASB_SNIFF_ROOT/keyrings" "$RASB_SNIFF_ROOT/sources"
+    (
+      PATH="$RASB_SNIFF_ROOT/bin:$PATH"
+      # shellcheck source=/dev/null
+      . "$WORK/render_apt_source_boot_sniff_stub.sh"
+      render_apt_source_boot "$c_name" "$c_repo" "$c_key_url"
+    )
+    local rc=$?
+    echo "EXIT:$rc"
+    local list_file="$RASB_SNIFF_ROOT/sources/${c_name}.list"
+    if [ -f "$list_file" ]; then
+      echo "RENDERED:$(cat "$list_file")"
+    else
+      echo "RENDERED:<no .list file written>"
+    fi
+    find "$RASB_SNIFF_ROOT/keyrings" -type f 2>/dev/null | while read -r f; do
+      echo "KEYFILE:${f#"$RASB_SNIFF_ROOT"/}"
+    done
+  }
+
+  # --- Bare repo line, BINARY fetched key -- must be written/referenced as
+  # .gpg, not the default .asc (the exact real-guest githubcli defect). ---
+  OUT="$(call_render_boot bin-bare boot-bin 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/binary-key.gpg')"
+  assert_eq "render_apt_source_boot: bare line, binary key: exit 0" \
+    "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+  RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+  assert_eq "render_apt_source_boot: bare line, binary key: signed-by references .gpg" \
+    "deb [signed-by=$RASB_SNIFF_ROOT/keyrings/boot-bin.gpg] https://cli.github.com/packages stable main" \
+    "$RENDERED_LINE"
+  assert_true "render_apt_source_boot: bare line, binary key: key written as .gpg" \
+    test -f "$RASB_SNIFF_ROOT/keyrings/boot-bin.gpg"
+  assert_true "render_apt_source_boot: bare line, binary key: no stray .asc" \
+    bash -c '[ ! -e "$1" ]' _ "$RASB_SNIFF_ROOT/keyrings/boot-bin.asc"
+
+  # --- Bare repo line, ARMORED fetched key -- stays .asc (content-driven,
+  # not a blanket switch). ---
+  OUT="$(call_render_boot bin-armored boot-arm 'deb https://cli.github.com/packages stable main' 'https://cli.github.com/packages/armored-key.asc')"
+  assert_eq "render_apt_source_boot: bare line, armored key: exit 0" \
+    "0" "$(printf '%s\n' "$OUT" | grep '^EXIT:' | cut -d: -f2)"
+  RENDERED_LINE="$(printf '%s\n' "$OUT" | grep '^RENDERED:' | cut -d: -f2-)"
+  assert_eq "render_apt_source_boot: bare line, armored key: signed-by references .asc" \
+    "deb [signed-by=$RASB_SNIFF_ROOT/keyrings/boot-arm.asc] https://cli.github.com/packages stable main" \
+    "$RENDERED_LINE"
+  assert_true "render_apt_source_boot: bare line, armored key: key written as .asc" \
+    test -f "$RASB_SNIFF_ROOT/keyrings/boot-arm.asc"
+
+  # NOTE: a pinned-signed-by= exemption case is intentionally NOT exercised
+  # here. For the pinned path, keyring_path becomes the LITERAL
+  # existing_signed_by string (validated to start with /etc/apt/keyrings/ or
+  # /usr/share/keyrings/) and mkdir/curl write there directly -- the
+  # keyrings_dir retargeting this test applies does not reach that branch.
+  # Driving it would write to this host's real /etc/apt/keyrings, which Test
+  # 22's own rationale above forbids. The pinned-exemption case matrix
+  # itself (same guard variable, same code shape) is covered on the
+  # build-time twin in podman-mkosi-test.sh's "real githubcli failure line"
+  # case, and the two implementations are kept in sync structurally (see the
+  # header comment on render_apt_source_boot referencing render_apt_source).
+else
+  echo "SKIP: render_apt_source_boot sniff-path extraction/retargeting failed; content-sniffing tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 23: boot_apt_phase fallback-update hoist (issue #106 review finding,
+# PR #174 round 3).
+#
+# boot_apt_phase is defined INSIDE the same <<'BOOT' heredoc as
+# render_apt_source_boot above, so it is extracted the same way: grab its
+# literal body by line range and source it in-process with log/apt-get/
+# render_apt_source_boot stubbed out. apt-get is stubbed to APPEND its argv
+# to a call-log file (rather than a no-op) so these tests can assert WHICH
+# apt-get subcommands ran, not just that the function didn't crash.
+#
+# The scenario under test: install_at_boot names only base-repo packages
+# (no apt_sources), and update_at_boot is false. Before the round-3 fix,
+# the fallback `apt-get update` for a nonempty install list was nested
+# inside the `-s "$APT_SOURCES_TSV"` branch, so this exact combination ran
+# `apt-get install` with NO index refresh this boot. The fix hoists the
+# fallback out so any nonempty install list gets a refresh whenever
+# update_at_boot didn't already provide one.
+# ---------------------------------------------------------------------
+BAP_START="$(grep -n '^boot_apt_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+BAP_END="$(awk -v start="$BAP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
+BAP_SRC="$WORK/boot_apt_phase.sh"
+if [ -n "$BAP_START" ] && [ -n "$BAP_END" ]; then
+  {
+    echo 'log() { :; }'
+    echo 'render_apt_source_boot() { :; }'
+    echo 'APT_GET_CALL_LOG="${APT_GET_CALL_LOG:-/dev/null}"'
+    echo 'apt-get() { printf "%s\n" "$*" >> "$APT_GET_CALL_LOG"; return "${APT_GET_STUB_EXIT:-0}"; }'
+    awk -v start="$BAP_START" -v end="$BAP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
+  } > "$BAP_SRC"
+  # shellcheck source=/dev/null
+  . "$BAP_SRC"
+fi
+
+if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase >/dev/null 2>&1; then
+  # Scenario: update_at_boot=false, install_at_boot nonempty (base-repo-only
+  # -- no apt_sources.tsv). Before the fix: no 'update' call at all. After
+  # the fix: exactly one 'update' call (the hoisted fallback), before the
+  # 'install' call.
+  BAP_CALLS="$WORK/boot-apt-calls.log"
+  : > "$BAP_CALLS"
+  APT_GET_CALL_LOG="$BAP_CALLS"
+  APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
+  printf 'curl\n' > "$APT_INSTALL_LIST"
+  APT_SOURCES_TSV="$WORK/apt-sources-empty.tsv"
+  : > "$APT_SOURCES_TSV"
+  APT_PROXY_OPTS=()
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+
+  UPDATE_CALLS="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
+  assert_eq "boot_apt_phase: base-repo-only install with update_at_boot=false still refreshes the index" \
+    "1" "$UPDATE_CALLS"
+
+  INSTALL_LINE_NO="$(grep -n ' install ' "$BAP_CALLS" | head -1 | cut -d: -f1)"
+  UPDATE_LINE_NO="$(grep -n '^ *update ' "$BAP_CALLS" | head -1 | cut -d: -f1)"
+  if [ -n "$INSTALL_LINE_NO" ] && [ -n "$UPDATE_LINE_NO" ] && [ "$UPDATE_LINE_NO" -lt "$INSTALL_LINE_NO" ]; then
+    assert_eq "boot_apt_phase: fallback update runs before install" "before" "before"
+  else
+    assert_eq "boot_apt_phase: fallback update runs before install" "before" "after-or-missing"
+  fi
+
+  # Scenario: update_at_boot=true. did_update is already 1, so the
+  # fallback must NOT fire a second 'update' -- only the one from the
+  # update_at_boot branch itself.
+  : > "$BAP_CALLS"
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="true"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+  UPDATE_CALLS_TRUE="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
+  assert_eq "boot_apt_phase: update_at_boot=true does not double-update for install_at_boot" \
+    "1" "$UPDATE_CALLS_TRUE"
+
+  # Scenario: update_at_boot=false and install_at_boot EMPTY -- no apt-get
+  # calls should run at all (nothing to refresh an index for).
+  : > "$BAP_CALLS"
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  APT_INSTALL_LIST="$WORK/apt-install-empty.list"
+  : > "$APT_INSTALL_LIST"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+  UPDATE_CALLS_EMPTY="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
+  assert_eq "boot_apt_phase: no install_at_boot and update_at_boot=false runs no update" \
+    "0" "$UPDATE_CALLS_EMPTY"
+else
+  echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
 fi
 
 # ---------------------------------------------------------------------

@@ -117,42 +117,82 @@ GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED" '.proxy.host_alias' "$CLAUDE_VM
 DEFAULT_PROXY_CMD="$SCRIPT_DIR/proxy/tinyproxy-launch.sh"
 PROXY_CMD="$(claude_vm_scalar "$MERGED" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 
+# Boot-time apt update flag (issue #106): resolved once here so both the
+# run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
+# below) read the SAME value the boot launcher will act on.
+PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+
 # guest_image: a normal scalar. When SET, it is used as-is -- an explicit
-# operator override that opts OUT of bake-hash variant derivation (issue #105):
-# the operator owns that path and its contents, so we neither hash nor rewrite
-# it. When UNSET, the launcher DERIVES the image path from the bake-relevant
-# config below (bake-hash variants), defaulting into the cache dir alongside
-# the global config.
+# operator override that opts OUT of variant derivation (issue #105, extended
+# by the #106 root-headroom knob): the operator owns that path and its
+# contents, so we neither hash nor rewrite it. When UNSET, the launcher
+# DERIVES the image path from the image-identity segments below, defaulting
+# into the cache dir alongside the global config.
 #
-# Bake-hash image variants (issue #105). The guest image now bakes
-# packages.bake + packages.apt_sources, so two configs that bake different
-# things need SEPARATE cached images while configs with no bake-affecting
-# overrides SHARE one. We compute the canonical bake config once (order-/
-# key-normalized JSON) and pass it to build-guest-image.sh for BOTH
-# --print-version and --output via CLAUDE_VM_BAKE_CONFIG, so the version it
-# stamps and the version we compare against are hashed from the same bytes.
-#   - No bake overrides (canonical == the empty form) -> the shared default
-#     image guest.raw (legacy name; every such config collides here and
-#     reuses one image, so removing an override reverts to it with no rebuild).
-#   - Bake overrides present -> guest-<hash>.raw, its own cached variant built
-#     on first use and stored alongside the shared image.
+# Image identity (issue #105 bake-hash, redesigned by issue #106). The image's
+# CONTENT is determined by build-relevant config -- packages.bake +
+# packages.apt_sources (baked in) and image.root_headroom_mb (root partition
+# size). Its IDENTITY (cache key + filename) is composed from the two config
+# LAYERS independently, so the filename is self-documenting:
+#
+#   - config-less repo:   guest+global<globalhash>.raw
+#   - repo with a config: guest+global<globalhash>+<reponame>-<repohash>.raw
+#
+# Every repo WITHOUT a .claude-vm/config.yml shares one image keyed on the
+# global build-hash; a repo WITH build-relevant config gets its own image,
+# disambiguated by NAME (two repos with byte-identical repo configs still get
+# two images -- legibility over dedup, the human's explicit choice). The
+# segments are computed ONCE here (claude_vm_image_identity_segments) and
+# passed to build-guest-image.sh via CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS for both
+# --print-version and --output, so the version it stamps and the version we
+# compare against are the SAME string; the MERGED bake config and MERGED
+# headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
+# as the image build CONTENT.
 DEFAULT_IMAGE_DIR="$(dirname "$GLOBAL_CONFIG")/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
+
+# image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
+# partition is sized above its base content, so a live session has room to grow
+# without hitting ENOSPC (see lib/config.sh's
+# CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB for the default's justification). A
+# normal scalar (repo overrides global), resolved once here as the MERGED,
+# default-filled value and exported so build-guest-image.sh forwards it to the
+# provisioner as the actual partition size. Validated as a positive integer up
+# front (a typo here should abort the launch, not silently fall through to
+# whatever the provisioner does with garbage). This is the BUILD input; the
+# cache key is the identity segment below, which covers headroom per LAYER.
+CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
+case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
+  ''|*[!0-9]*)
+    echo "claude-vm: image.root_headroom_mb must be a positive integer (MiB), got '$CLAUDE_VM_ROOT_HEADROOM_MB'" >&2
+    exit 1
+    ;;
+esac
+export CLAUDE_VM_ROOT_HEADROOM_MB
+
+# Compose the image-identity segments from the two config LAYERS (global +
+# repo, hashed independently over each layer's build-relevant content) plus the
+# repo name. Always yields at least "global<hash>"; a repo with build-relevant
+# config appends "+<reponame>-<repohash>". Exported so build-guest-image.sh's
+# --print-version and --output stamp the exact same version string.
+CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_CONFIG" "$REPO_CONFIG" "$(basename "$REPO_SRC")")" \
+  || { echo "claude-vm: could not compute the guest image identity segments" >&2; exit 1; }
+export CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS
+
 _explicit_guest_image="$(claude_vm_scalar "$MERGED" '.guest_image' "")"
 if [ -n "$_explicit_guest_image" ]; then
   # Explicit override: use verbatim, opting out of variant derivation.
   GUEST_IMAGE="$_explicit_guest_image"
-elif claude_vm_bake_config_is_empty "$MERGED"; then
-  # No bake-affecting overrides: share the global default image.
-  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest.raw"
 else
-  # Bake overrides present: derive a per-variant image keyed on the bake-hash.
-  _bake_hash="$(claude_vm_bake_hash "$MERGED")" \
-    || { echo "claude-vm: could not compute the bake-hash for the guest image variant" >&2; exit 1; }
-  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest-$_bake_hash.raw"
-  unset _bake_hash
+  # Derive the image filename from the identity segments, so the filename and
+  # the stamped version carry the same self-documenting identity. A config-less
+  # repo gets guest+global<hash>.raw; a repo with config gets the two-segment
+  # name. No special-casing of the "shared default": the global hash is always
+  # present, so config-less repos collide on one guest+global<hash>.raw by
+  # construction.
+  GUEST_IMAGE="$DEFAULT_IMAGE_DIR/guest+${CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS}.raw"
 fi
 unset _explicit_guest_image
 
@@ -380,12 +420,14 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # Ensure guest image exists and matches the pinned version. Build on
 # demand rather than erroring. The base is version-pinned; claude is
 # NOT baked in -- it is fetched at boot through the egress allowlist.
-# The bake-hash variant segment (issue #105) flows into BOTH the
-# --print-version below and the --output build through the exported
-# CLAUDE_VM_BAKE_CONFIG (set above), so a config with baked packages stamps
-# and compares its OWN version (BASE+launcherN+bake<hash>) and rebuilds only
-# when the bake config changes -- while a no-bake config keeps the legacy
-# base version and shares the one global guest.raw.
+# The image-identity segments (issue #106) flow into BOTH the --print-version
+# below and the --output build through the exported
+# CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS (set above), so the version stamped in
+# <img>.version and the version we compare against are the SAME string. A
+# config-less repo stamps/compares BASE+launcherN+global<hash> and shares that
+# one image; a repo with build-relevant config stamps its own
+# BASE+launcherN+global<hash>+<reponame>-<repohash> and rebuilds only when its
+# global or repo build-relevant config changes.
 # ---------------------------------------------------------------------
 PINNED_VERSION="$("$SCRIPT_DIR/build-guest-image.sh" --print-version)"
 ensure_guest_image() {
@@ -887,13 +929,16 @@ RUN_ENV="$CONFIG_DIR/run.env"
 # run.env value-quoting audit (issue #88). run.env is sourced under `set -a`
 # by the guest boot launcher, so EVERY value line must be a safe shell
 # assignment. Audited all values written below:
-#   - HTTPS_PROXY / HTTP_PROXY: built from $GVPROXY_HOST_ALIAS + $PROXY_PORT,
-#     both CONFIG scalars (proxy.host_alias / proxy.port) a user can set to an
-#     arbitrary string -> %q-quoted below (arbitrary-string carriers).
+#   - HTTPS_PROXY / HTTP_PROXY (and their lowercase mirrors https_proxy /
+#     http_proxy, issue #106 real-run fix -- apt honors only lowercase,
+#     curl's plain-http path ignores uppercase): built from
+#     $GVPROXY_HOST_ALIAS + $PROXY_PORT, both CONFIG scalars
+#     (proxy.host_alias / proxy.port) a user can set to an arbitrary string
+#     -> %q-quoted below (arbitrary-string carriers).
 #   - CLAUDE_VM_COLUMNS / CLAUDE_VM_LINES: from `stty size` (always "rows cols"
 #     numerics on a real tty; empty on a non-tty). Provably-numeric in
 #     practice, but %q-quoted defensively since they come from a subprocess.
-#   - NO_PROXY, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
+#   - NO_PROXY / no_proxy, REPO_TAG, POLICY_TAG, CLAUDEBIN_TAG, CLAUDECREDS_TAG,
 #     DISABLE_AUTOUPDATER, IS_SANDBOX, and the renderer CLAUDE_CODE_* vars:
 #     FIXED LITERALS (or emitted only for a validated enum value) -> provably
 #     safe, left as-is.
@@ -905,6 +950,20 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'HTTPS_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'HTTP_PROXY=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
     printf 'NO_PROXY=localhost,127.0.0.1\n'
+    # Lowercase mirrors of the three vars above (issue #106 real-run fix).
+    # apt-get honors ONLY lowercase http_proxy/https_proxy (never the
+    # uppercase forms), and curl deliberately ignores uppercase HTTP_PROXY
+    # for plain http:// URLs (the well-known "httpoxy" CGI-variable carve-
+    # out; it does honor HTTPS_PROXY for https:// URLs). A real guest boot
+    # confirmed: bare `apt-get install` mid-session failed to resolve
+    # deb.debian.org with only the uppercase vars in run.env; prefixing the
+    # SAME command with lowercase http_proxy/https_proxy succeeded. Same
+    # value, same %q-quoting -- this is purely an additional-name mirror of
+    # the audited HTTPS_PROXY/HTTP_PROXY/NO_PROXY lines above, so the value-
+    # quoting audit comment above covers these too.
+    printf 'https_proxy=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'http_proxy=http://%q:%q\n' "$GVPROXY_HOST_ALIAS" "$PROXY_PORT"
+    printf 'no_proxy=localhost,127.0.0.1\n'
     printf 'REPO_TAG=repo\n'
     printf 'POLICY_TAG=policy\n'
     # The host-verified claude binary is shared into the guest under this
@@ -953,6 +1012,12 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # `set -a` sourcing (value-quoting audit above). The boot launcher sources
     # run.env under `set -a`, so it exports into claude's environment for free.
     printf 'IS_SANDBOX=1\n'
+    # Boot-time apt update flag (issue #106): whether the guest boot launcher
+    # runs `apt-get update && apt-get -y upgrade` before claude starts. A
+    # plain boolean scalar (packages.update_at_boot, default true) -> a fixed
+    # 'true'/'false' literal is provably safe under the run.env `set -a`
+    # sourcing (value-quoting audit above).
+    printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
     # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced
@@ -973,6 +1038,26 @@ RUN_ENV="$CONFIG_DIR/run.env"
   } > "$RUN_ENV"
 )
 chmod 600 "$RUN_ENV"
+
+# ---------------------------------------------------------------------
+# Boot-time apt manifest (issue #106): packages.install_at_boot +
+# packages.apt_sources, delivered to the guest boot launcher via the SAME
+# runconfig share as run.env (mountTag=runconfig -- see the EXTRA_MOUNT_FLAGS
+# device list below). Plain newline/TSV files, NOT JSON: the base guest image
+# carries no python3/jq (see provisioners/podman-mkosi.sh's minimal
+# [Content] Packages= list), so the boot launcher -- plain bash -- parses
+# these the same line-oriented way build-guest-image.sh's other manifest
+# reads work. Neither file is secret, so no umask/chmod tightening beyond
+# what CONFIG_DIR already has.
+#
+#   apt-install.list  -- one package name per line (packages.install_at_boot).
+#   apt-sources.tsv   -- name<TAB>repo<TAB>key_url per line
+#                        (packages.apt_sources), reusing the SAME accessor
+#                        (claude_vm_apt_sources) and TSV shape the #105 build-
+#                        time render already consumes, so both boot-time and
+#                        bake-time renders read identically-shaped input.
+claude_vm_list_items "$MERGED" '.packages.install_at_boot' > "$CONFIG_DIR/apt-install.list"
+claude_vm_apt_sources "$MERGED" > "$CONFIG_DIR/apt-sources.tsv"
 
 # ---------------------------------------------------------------------
 # Egress allowlist -- write it where the proxy reads it. The proxy.cmd
@@ -1008,6 +1093,36 @@ case "${CLAUDE_VM_CACHE_NETWORK:-}" in
     fi
     ;;
 esac
+
+# ---------------------------------------------------------------------
+# Boot-time apt derived egress (issue #106).
+#
+# packages.install_at_boot / packages.update_at_boot run apt-get INSIDE the
+# guest at boot, through this proxy -- so the Debian mirror hosts (and any
+# packages.apt_sources hosts) must be reachable. Add them to the allowlist
+# iff boot-time apt work actually needs them (claude_vm_boot_apt_egress_needed:
+# install_at_boot nonempty, or update_at_boot true, or
+# add_apt_uris_to_allowlist: always) -- "auto" (the default) with no boot-time
+# apt work derives NOTHING, so a hard-secure all-baked config leaves package
+# repos unreachable from the guest, by design. Every derived addition is
+# logged (no silent allowlist growth). Runs AFTER the warm-boot tightening
+# above so a dropped claude.ai/downloads.claude.ai entry is never
+# re-introduced by this step.
+if claude_vm_boot_apt_egress_needed "$MERGED"; then
+  DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED" | tr '\n' ' ')"
+  EXISTING_HOSTS=" $(tr '\n' ' ' < "$EGRESS_ALLOWLIST" 2>/dev/null) "
+  for _host in $DERIVED_APT_HOSTS; do
+    case "$EXISTING_HOSTS" in
+      *" $_host "*) ;;
+      *)
+        printf '%s\n' "$_host" >> "$EGRESS_ALLOWLIST"
+        EXISTING_HOSTS="${EXISTING_HOSTS}${_host} "
+        echo "claude-vm: derived apt egress -- added '$_host' to the guest egress allowlist (boot-time apt work configured)." >&2
+        ;;
+    esac
+  done
+  unset _host
+fi
 
 export CLAUDE_VM_EGRESS_ALLOWLIST="$EGRESS_ALLOWLIST"
 # The proxy.cmd must bind the port the guest's HTTPS_PROXY points at (set
