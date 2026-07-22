@@ -88,10 +88,32 @@ claude_vm_require_yq || exit 1
 command -v git >/dev/null 2>&1 || { echo "claude-vm: git is required" >&2; exit 1; }
 
 # ---------------------------------------------------------------------
-# Resolve effective config (layer global + per-repo)
+# Resolve effective config (issue #179: FOUR bake/boot files, all optional).
+#
+#   global bake: ~/.config/claude-vm/config-bake.yml
+#   global boot: ~/.config/claude-vm/config-boot.yml
+#   repo   bake: <repo>/.claude-vm/config-bake.yml
+#   repo   boot: <repo>/.claude-vm/config-boot.yml
+#
+# A key that changes image BYTES lives in a bake file; a key applied at run
+# time lives in a boot file. Effective config = union of all four with the
+# existing merge semantics. The two BAKE files feed the image identity (whole-
+# file, raw-byte hash -- see lib/config.sh); the boot files never do.
 # ---------------------------------------------------------------------
-GLOBAL_CONFIG="$CLAUDE_VM_GLOBAL_CONFIG"
-REPO_CONFIG="${CLAUDE_VM_REPO_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
+GLOBAL_BAKE_CONFIG="$CLAUDE_VM_GLOBAL_BAKE_CONFIG"
+GLOBAL_BOOT_CONFIG="$CLAUDE_VM_GLOBAL_BOOT_CONFIG"
+REPO_BAKE_CONFIG="${CLAUDE_VM_REPO_BAKE_CONFIG:-$REPO_SRC/.claude-vm/config-bake.yml}"
+REPO_BOOT_CONFIG="${CLAUDE_VM_REPO_BOOT_CONFIG:-$REPO_SRC/.claude-vm/config-boot.yml}"
+
+# Migration guard (issue #179): a legacy single-file config.yml where a
+# bake/boot pair is now expected is NOT silently read (that would drop knobs
+# whose bake/boot placement it cannot express). Abort with a migration message
+# instead. Checked for BOTH tiers.
+claude_vm_detect_legacy_config "global" "$CLAUDE_VM_GLOBAL_LEGACY_CONFIG" "$CLAUDE_VM_GLOBAL_CONFIG_DIR" \
+  || { echo "claude-vm: aborting -- migrate your global config to the bake/boot pair (see above)." >&2; exit 1; }
+REPO_LEGACY_CONFIG="${CLAUDE_VM_REPO_LEGACY_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
+claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CONFIG" "$REPO_SRC/.claude-vm" \
+  || { echo "claude-vm: aborting -- migrate this repo's config to the bake/boot pair (see above)." >&2; exit 1; }
 
 # NOTE: the merged-config temp file is removed by cleanup() (the
 # consolidated EXIT/INT/TERM trap installed below). A narrow interim trap is
@@ -101,7 +123,8 @@ REPO_CONFIG="${CLAUDE_VM_REPO_CONFIG:-$REPO_SRC/.claude-vm/config.yml}"
 # NOT add yet another `trap ... EXIT` here -- a later trap installation would
 # replace whatever was set, leaking this file on every run.
 MERGED="$(claude_vm_mktemp claude-vm-merged)"
-claude_vm_merge_config "$GLOBAL_CONFIG" "$REPO_CONFIG" > "$MERGED" \
+claude_vm_compose_effective_config \
+    "$GLOBAL_BAKE_CONFIG" "$GLOBAL_BOOT_CONFIG" "$REPO_BAKE_CONFIG" "$REPO_BOOT_CONFIG" > "$MERGED" \
   || { echo "claude-vm: could not resolve effective config" >&2; exit 1; }
 
 VM_CPUS="$(claude_vm_scalar "$MERGED" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
@@ -148,7 +171,7 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_
 # compare against are the SAME string; the MERGED bake config and MERGED
 # headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
 # as the image build CONTENT.
-DEFAULT_IMAGE_DIR="$(dirname "$GLOBAL_CONFIG")/images"
+DEFAULT_IMAGE_DIR="$CLAUDE_VM_GLOBAL_CONFIG_DIR/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
@@ -172,12 +195,13 @@ case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
 esac
 export CLAUDE_VM_ROOT_HEADROOM_MB
 
-# Compose the image-identity segments from the two config LAYERS (global +
-# repo, hashed independently over each layer's build-relevant content) plus the
-# repo name. Always yields at least "global<hash>"; a repo with build-relevant
-# config appends "+<reponame>-<repohash>". Exported so build-guest-image.sh's
-# --print-version and --output stamp the exact same version string.
-CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_CONFIG" "$REPO_CONFIG" "$(basename "$REPO_SRC")")" \
+# Compose the image-identity segments from the two BAKE FILES (issue #179):
+# global-bake + repo-bake, hashed over their RAW BYTES (whole-file, no
+# canonicalization). Always yields at least "global<hash>"; a repo that ships a
+# config-bake.yml appends "+<reponame>-<repohash>". Boot files never enter this
+# computation. Exported so build-guest-image.sh's --print-version and --output
+# stamp the exact same version string.
+CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" "$(basename "$REPO_SRC")")" \
   || { echo "claude-vm: could not compute the guest image identity segments" >&2; exit 1; }
 export CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS
 
@@ -579,6 +603,16 @@ GUEST_CONSOLE_LOG="$RUN/guest-console.log"
 WORKTREE="$RUN/worktree"
 CONFIG_DIR="$RUN/config"
 EFISTORE="$RUN/efistore"
+# Per-run guest image clone (issue #179). The cached base $GUEST_IMAGE is
+# IMMUTABLE and is NEVER attached to a VM: each run APFS-clones it (cp -c, an
+# instant zero-copy copy-on-write clone on APFS) into this run-dir path and
+# boots the CLONE. N concurrent sessions then cost one base image plus each
+# session's own written blocks -- no cross-session leakage, no multi-writer
+# corruption on a shared ext4 image. The clone is discarded by cleanup() on a
+# CLEAN exit and RETAINED on an abnormal exit (nonzero vfkit status / signal)
+# for forensics. Set here (empty) so cleanup()'s guard is well-defined even if
+# a signal fires before the clone is created just above the vfkit launch.
+GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
 # The credential lives in its OWN dir, NOT in CONFIG_DIR: CONFIG_DIR is
 # shared into the guest under mountTag=runconfig, and the secret-bearing
 # OAuth credential must never travel in the run.env share. Its own dir is
@@ -1050,14 +1084,18 @@ chmod 600 "$RUN_ENV"
 # reads work. Neither file is secret, so no umask/chmod tightening beyond
 # what CONFIG_DIR already has.
 #
-#   apt-install.list  -- one package name per line (packages.install_at_boot).
-#   apt-sources.tsv   -- name<TAB>repo<TAB>key_url per line
-#                        (packages.apt_sources), reusing the SAME accessor
-#                        (claude_vm_apt_sources) and TSV shape the #105 build-
-#                        time render already consumes, so both boot-time and
-#                        bake-time renders read identically-shaped input.
+#   apt-install.list  -- one package name per line (packages.install_at_boot,
+#                        from the BOOT files' flattened `packages:`).
+#   apt-sources.tsv   -- name<TAB>repo<TAB>key_url per line, the BOOT-tier
+#                        apt_sources (issue #179): the merged apt_sources MINUS
+#                        any name already baked into the image (claude_vm_boot_apt_sources
+#                        filters baked names out -- a baked apt_source is already
+#                        in the image's /etc/apt, so re-rendering it at boot is
+#                        skipped). Same TSV shape the #105 build-time render
+#                        consumes, so both boot-time and bake-time renders read
+#                        identically-shaped input.
 claude_vm_list_items "$MERGED" '.packages.install_at_boot' > "$CONFIG_DIR/apt-install.list"
-claude_vm_apt_sources "$MERGED" > "$CONFIG_DIR/apt-sources.tsv"
+claude_vm_boot_apt_sources "$MERGED" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" > "$CONFIG_DIR/apt-sources.tsv"
 
 # ---------------------------------------------------------------------
 # Egress allowlist -- write it where the proxy reads it. The proxy.cmd
@@ -1174,6 +1212,13 @@ done < <(claude_vm_mount_specs "$MERGED")
 # ---------------------------------------------------------------------
 PROXY_PID=""
 GV_PID=""
+# Per-run image clone lifecycle state (issue #179). CLONE_CREATED flips to 1
+# once the clone is materialized just before vfkit; VM_EXIT_STATUS records
+# vfkit's exit code so cleanup() can decide discard (clean) vs retain
+# (abnormal). Declared here so cleanup()'s guards are well-defined if a signal
+# fires before the clone exists.
+CLONE_CREATED=""
+VM_EXIT_STATUS=""
 
 # Is the source working tree dirty (uncommitted tracked changes or
 # untracked, non-ignored files)? Returns 0 (dirty) / 1 (clean). A
@@ -1361,6 +1406,30 @@ copy_back() {
 }
 
 cleanup() {
+  # Capture the exit status AT TRAP TIME, first thing, before any command in
+  # this function overwrites $?. The `exit "$VM_EXIT_STATUS"` at the end of the
+  # script sets $? to vfkit's status for the EXIT trap; a signal (INT/TERM)
+  # leaves VM_EXIT_STATUS empty and $? reflecting the signal, both of which we
+  # treat as ABNORMAL. This status drives the per-run clone discard/retain
+  # decision (issue #179): status 0 == clean == discard the clone; anything else
+  # == abnormal == retain it for forensics.
+  local trap_status=$?
+  local clean_exit=0
+  if [ "${VM_EXIT_STATUS:-}" = "0" ] && [ "$trap_status" -eq 0 ]; then
+    clean_exit=1
+  fi
+
+  # sync BEFORE anything else that might race the forced VM stop below (issue
+  # #179). vfkit routinely logs "failed to wait for VM stop: timeout waiting for
+  # VM state, forcing stop" on session exit, so writes in flight to the attached
+  # image (now the per-run clone) can be torn by the forced kill. Flush the
+  # host's filesystem buffers -- which back the APFS clone's written blocks --
+  # so the clone on disk is as consistent as possible before the guest is
+  # force-stopped. With per-run clones the blast radius of a torn write is one
+  # throwaway session's clone (discarded on clean exit anyway), never the shared
+  # base image; this sync narrows even that window. Cheap and always safe.
+  sync 2>/dev/null || true
+
   # Restore the host terminal FIRST, before any output or the copy-back prompt
   # (issue #88). vfkit's `virtio-serial,stdio` bridge leaves the host tty in RAW
   # mode (echo off, ICANON off -- Enter sends \r not \n), and that state SURVIVES
@@ -1417,6 +1486,21 @@ cleanup() {
   if [ -n "${PROXY_LOG:-}" ]; then
     echo "claude-vm: proxy log retained at: $PROXY_LOG" >&2
   fi
+  # Per-run image clone lifecycle (issue #179). On a CLEAN exit, discard the
+  # clone -- it is throwaway and reclaiming its written blocks is the whole
+  # point of the immutable-base design. On an ABNORMAL exit (nonzero vfkit
+  # status or a signal), RETAIN it for forensics and print its path, so a torn
+  # or corrupted session's on-disk state can be inspected. Guarded on
+  # CLONE_CREATED so an early-trap fire (before the clone is materialized) is a
+  # no-op. The immutable BASE image ($GUEST_IMAGE) is never touched here either
+  # way -- only the per-run clone.
+  if [ -n "${CLONE_CREATED:-}" ] && [ -n "${GUEST_IMAGE_CLONE:-}" ]; then
+    if [ "$clean_exit" -eq 1 ]; then
+      rm -f "$GUEST_IMAGE_CLONE"
+    else
+      echo "claude-vm: abnormal exit -- per-run guest image clone RETAINED for forensics at: $GUEST_IMAGE_CLONE" >&2
+    fi
+  fi
   echo "claude-vm: run dir (persistent): $RUN" >&2
 }
 # Replace the narrow interim trap (armed right after the OAuth credential was
@@ -1470,14 +1554,45 @@ CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 #        bidirectional byte pipe that requires a real controlling tty on the
 #        host -- so claude-vm must be launched from a terminal, not a pipe.
 #
+# ---------------------------------------------------------------------
+# Per-run immutable-image clone (issue #179). The cached base $GUEST_IMAGE is
+# NEVER attached to a VM. APFS-clone it (cp -c) into the run dir and boot the
+# CLONE, so N concurrent sessions share one immutable base with no cross-session
+# leakage and no multi-writer corruption. cp -c is instant + zero-copy on APFS
+# (macOS default fs). If cp -c fails (non-APFS volume, e.g. an operator who put
+# their config dir on a case-sensitive HFS+ or exFAT volume), fall back to a
+# plain full copy with a warning -- correctness (a per-run image) over speed.
+# The .version sidecar is NOT cloned: the clone is throwaway and the base's
+# version was already checked by ensure_guest_image above.
+# ---------------------------------------------------------------------
+if cp -c "$GUEST_IMAGE" "$GUEST_IMAGE_CLONE" 2>/dev/null; then
+  CLONE_CREATED=1
+elif cp "$GUEST_IMAGE" "$GUEST_IMAGE_CLONE"; then
+  CLONE_CREATED=1
+  echo "claude-vm: WARNING -- APFS clone (cp -c) of the guest image failed; fell back to a full copy." >&2
+  echo "claude-vm: the base image volume may not be APFS. This works but is slower and uses more disk per run." >&2
+else
+  echo "claude-vm: failed to create a per-run clone of the guest image at $GUEST_IMAGE_CLONE" >&2
+  exit 1
+fi
+
 # vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
-# EXIT/INT/TERM) runs the VM-stop + copy-back + socket-dir removal when the
-# session exits or is Ctrl-C'd. Do NOT switch this to `exec vfkit` -- that
-# would replace the shell and the trap would never fire.
+# EXIT/INT/TERM) runs the VM-stop + copy-back + clone-lifecycle + socket-dir
+# removal when the session exits or is Ctrl-C'd. Do NOT switch this to
+# `exec vfkit` -- that would replace the shell and the trap would never fire.
+#
+# Capture vfkit's exit status so cleanup() can distinguish a CLEAN exit (status
+# 0 -- discard the clone) from an ABNORMAL one (nonzero -- retain the clone for
+# forensics). `set -e` is relaxed around just this call so a nonzero status is
+# recorded, not swallowed by an immediate script abort before cleanup can read
+# it; the EXIT trap then propagates the status. A signal (INT/TERM) is handled
+# by the trap directly and leaves VM_EXIT_STATUS at its abnormal default.
+VM_EXIT_STATUS=1
+set +e
 vfkit \
   --cpus "$VM_CPUS" --memory "$VM_MEM" \
   --bootloader "efi,variable-store=$EFISTORE,create" \
-  --device "virtio-blk,path=$GUEST_IMAGE" \
+  --device "virtio-blk,path=$GUEST_IMAGE_CLONE" \
   --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
   --device "virtio-fs,sharedDir=$CONFIG_DIR,mountTag=runconfig" \
   --device "virtio-fs,sharedDir=$CLAUDE_BIN_DIR,mountTag=claudebin" \
@@ -1487,3 +1602,6 @@ vfkit \
   --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
   --device "virtio-serial,stdio" \
   --device "virtio-rng"
+VM_EXIT_STATUS=$?
+set -e
+exit "$VM_EXIT_STATUS"

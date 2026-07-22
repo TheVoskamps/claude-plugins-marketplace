@@ -1074,96 +1074,107 @@ assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" 
   '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
 
 # ---------------------------------------------------------------------
-# Test 18: two-layer image-identity segments + filename derivation (issue #106
+# Test 18: WHOLE-FILE image-identity segments + filename derivation (issue #179
 # redesign).
 #
-# The image identity is composed from the two config LAYERS independently
-# (global build-hash always present; a repo with build-relevant content
-# appends "+<reponame>-<repohash>"). Exercise claude_vm_image_identity_segments
-# and the filename shape the launcher derives from it: explicit guest_image
-# opts out; a config-less repo collides on guest+global<hash>.raw; a repo with
-# build-relevant config gets a two-segment name with its sanitized name.
+# The image identity is now a WHOLE-FILE, RAW-BYTE hash of the two BAKE FILES
+# (global-bake always present via claude_vm_file_identity_hash; a repo that
+# SHIPS a config-bake.yml appends "+<reponame>-<repohash>"). No key-picking, no
+# canonicalization: the hash is over the raw bytes. Exercise
+# claude_vm_image_identity_segments and the filename shape the launcher derives:
+# explicit guest_image opts out; a repo with no repo-bake file shares
+# guest+global<hash>.raw; a repo WITH a repo-bake file gets a two-segment name.
 # ---------------------------------------------------------------------
 IMGDIR="/home/op/.config/claude-vm/images"
 derive_image_path() {
-  # Mirror claude-vm.sh's derivation: <merged-file> <global> <repo> <reponame>
-  # <default-image-dir>. The merged file supplies only the guest_image opt-out;
-  # the identity is computed from the two LAYERS.
-  local merged="$1" global="$2" repo="$3" name="$4" dir="$5" explicit seg
+  # Mirror claude-vm.sh's derivation: <boot-merged-file> <global-bake>
+  # <repo-bake> <reponame> <default-image-dir>. The boot-merged file supplies
+  # only the guest_image opt-out; the identity is computed from the two BAKE
+  # FILES.
+  local merged="$1" gbake="$2" rbake="$3" name="$4" dir="$5" explicit seg
   explicit="$(claude_vm_scalar "$merged" '.guest_image' "")"
   if [ -n "$explicit" ]; then
     printf '%s\n' "$explicit"
   else
-    seg="$(claude_vm_image_identity_segments "$global" "$repo" "$name")"
+    seg="$(claude_vm_image_identity_segments "$gbake" "$rbake" "$name")"
     printf '%s\n' "$dir/guest+${seg}.raw"
   fi
 }
 
-# A missing repo layer -> config-less repo -> guest+global<hash>.raw.
-VP_GLOBAL="$WORK/vp-global.yml"; printf 'cpus: 4\n' > "$VP_GLOBAL"
+# A missing repo-bake file -> repo shares guest+global<hash>.raw.
+VP_GBAKE="$WORK/vp-gbake.yml"; printf 'packages:\n  - jq\n' > "$VP_GBAKE"
 VP_NOREPO="$WORK/vp-norepo.yml"  # deliberately not created
-VP_GHASH="$(claude_vm_build_hash "$VP_GLOBAL")"
-assert_eq "identity: config-less repo -> global segment only" \
-  "global$VP_GHASH" "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_NOREPO" myrepo)"
-assert_eq "identity: config-less repo -> guest+global<hash>.raw" \
+VP_GHASH="$(claude_vm_file_identity_hash "$VP_GBAKE")"
+assert_eq "identity: no repo-bake file -> global segment only" \
+  "global$VP_GHASH" "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_NOREPO" myrepo)"
+assert_eq "identity: no repo-bake file -> guest+global<hash>.raw" \
   "$IMGDIR/guest+global$VP_GHASH.raw" \
-  "$(derive_image_path "$VP_GLOBAL" "$VP_GLOBAL" "$VP_NOREPO" myrepo "$IMGDIR")"
+  "$(derive_image_path "$WORK/vp-boot-empty.yml" "$VP_GBAKE" "$VP_NOREPO" myrepo "$IMGDIR")"
 
-# A repo config with build-relevant content -> two-segment identity, repo name
-# sanitized (a name with a slash/space collapses to filename-safe chars).
-VP_REPO_BAKE="$WORK/vp-repo-bake.yml"; printf 'packages:\n  bake: [git, jq]\n' > "$VP_REPO_BAKE"
-VP_RHASH="$(claude_vm_build_hash "$VP_REPO_BAKE")"
-assert_eq "identity: repo w/ build-relevant config appends +<name>-<repohash>" \
+# A missing GLOBAL bake file hashes to the fixed sentinel 00000000.
+assert_eq "identity: absent global bake file -> global00000000 sentinel" \
+  "global00000000" "$(claude_vm_image_identity_segments "$VP_NOREPO" "$VP_NOREPO" myrepo)"
+
+# A repo that SHIPS a config-bake.yml -> two-segment identity, repo name
+# sanitized (a name with a slash/space collapses to filename-safe chars). The
+# repo segment's PRESENCE is gated on the FILE existing, not on its content.
+VP_REPO_BAKE="$WORK/vp-repo-bake.yml"; printf 'packages:\n  - git\n  - jq\n' > "$VP_REPO_BAKE"
+VP_RHASH="$(claude_vm_file_identity_hash "$VP_REPO_BAKE")"
+assert_eq "identity: repo w/ a config-bake.yml appends +<name>-<repohash>" \
   "global$VP_GHASH+acme-widgets-$VP_RHASH" \
-  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" 'acme/widgets')"
+  "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_REPO_BAKE" 'acme/widgets')"
 
-# A repo config with ONLY runtime keys (no bake/apt_sources/headroom) -> no
-# repo segment (it does not change the image, so it shares the global image).
-VP_REPO_RUNTIME="$WORK/vp-repo-runtime.yml"; printf 'cpus: 8\nmem: 8192\n' > "$VP_REPO_RUNTIME"
-assert_eq "identity: runtime-only repo config -> no repo segment (shares global)" \
-  "global$VP_GHASH" \
-  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_RUNTIME" myrepo)"
-
-# Explicit guest_image opts out entirely, even with a build-relevant repo config.
+# Explicit guest_image opts out entirely, even with a repo-bake file present.
 VP_OVERRIDE="$WORK/vp-override.yml"; printf 'guest_image: /custom/my.raw\n' > "$VP_OVERRIDE"
 assert_eq "identity: explicit guest_image opts out (used verbatim)" \
   "/custom/my.raw" \
-  "$(derive_image_path "$VP_OVERRIDE" "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo "$IMGDIR")"
+  "$(derive_image_path "$VP_OVERRIDE" "$VP_GBAKE" "$VP_REPO_BAKE" myrepo "$IMGDIR")"
 
-# Two repos with byte-identical repo configs but DIFFERENT names get DIFFERENT
-# images (name disambiguates -- legibility over dedup, the human's choice).
-assert_ne "identity: same repo config, different names -> different images" \
-  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" repo-a)" \
-  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" repo-b)"
+# Two repos with byte-identical repo-bake files but DIFFERENT names get
+# DIFFERENT images (name disambiguates -- legibility over dedup, the human's
+# choice: two identical repo-bake files still get two images).
+assert_ne "identity: same repo-bake content, different names -> different images" \
+  "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_REPO_BAKE" repo-a)" \
+  "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_REPO_BAKE" repo-b)"
 
-# Same global + same repo config + same name -> same identity (warm path).
+# Same global-bake + same repo-bake + same name -> same identity (warm path).
 assert_eq "identity: identical inputs -> identical identity (warm path)" \
-  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo)" \
-  "$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_REPO_BAKE" myrepo)"
+  "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_REPO_BAKE" myrepo)" \
+  "$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_REPO_BAKE" myrepo)"
 
 # ---------------------------------------------------------------------
-# Test 18b: root_headroom_mb participates in the LAYER build-hash (issue #106
-# acceptance-critical). Changing headroom in a layer MUST change that layer's
-# build-hash, so the image cache key changes and a rebuild is triggered.
+# Test 18b: WHOLE-FILE, RAW-BYTE hashing -- the trailing-newline lever + no
+# canonicalization (issue #179 acceptance-critical). Editing ANY byte in a bake
+# file changes its identity hash; a trailing-newline toggle is the documented
+# force-rebuild lever. root_headroom_mb is a BAKE key, so it now rides in the
+# whole-file hash rather than a key-picked projection.
 # ---------------------------------------------------------------------
+# Trailing-newline toggle changes the hash (the documented force-rebuild lever).
+VP_NL_NO="$WORK/vp-nl-no.yml";  printf 'packages:\n  - jq' > "$VP_NL_NO"
+VP_NL_YES="$WORK/vp-nl-yes.yml"; printf 'packages:\n  - jq\n' > "$VP_NL_YES"
+assert_ne "identity: trailing-newline toggle changes the bake-file hash" \
+  "$(claude_vm_file_identity_hash "$VP_NL_NO")" "$(claude_vm_file_identity_hash "$VP_NL_YES")"
+# List ORDER changes the hash (raw bytes -- no order-canonicalization).
+VP_ORD_A="$WORK/vp-ord-a.yml"; printf 'packages:\n  - git\n  - jq\n' > "$VP_ORD_A"
+VP_ORD_B="$WORK/vp-ord-b.yml"; printf 'packages:\n  - jq\n  - git\n' > "$VP_ORD_B"
+assert_ne "identity: bake-file list order changes the hash (no canonicalization)" \
+  "$(claude_vm_file_identity_hash "$VP_ORD_A")" "$(claude_vm_file_identity_hash "$VP_ORD_B")"
+# root_headroom_mb lives in the bake file, so changing it changes the bake-file
+# hash and thus the identity -> a rebuild.
 VP_HR1="$WORK/vp-hr1.yml"; printf 'image:\n  root_headroom_mb: 1024\n' > "$VP_HR1"
 VP_HR2="$WORK/vp-hr2.yml"; printf 'image:\n  root_headroom_mb: 2048\n' > "$VP_HR2"
-assert_ne "identity: global headroom change flips the global build-hash" \
-  "$(claude_vm_build_hash "$VP_HR1")" "$(claude_vm_build_hash "$VP_HR2")"
-assert_ne "identity: global headroom change flips the whole identity" \
+assert_ne "identity: global bake-file headroom change flips the global hash" \
+  "$(claude_vm_file_identity_hash "$VP_HR1")" "$(claude_vm_file_identity_hash "$VP_HR2")"
+assert_ne "identity: global bake-file headroom change flips the whole identity" \
   "$(claude_vm_image_identity_segments "$VP_HR1" "$VP_NOREPO" myrepo)" \
   "$(claude_vm_image_identity_segments "$VP_HR2" "$VP_NOREPO" myrepo)"
-# root_headroom_mb is read RAW per layer, so its presence in the canonical
-# build-config JSON is what drives the hash.
-assert_eq "identity: build-config JSON carries root_headroom_mb (2048)" \
-  '{"bake":[],"apt_sources":[],"root_headroom_mb":"2048"}' \
-  "$(claude_vm_build_config_json "$VP_HR2")"
-assert_eq "identity: build-config JSON for a layer that omits headroom -> empty string" \
-  '{"bake":[],"apt_sources":[],"root_headroom_mb":""}' \
-  "$(claude_vm_build_config_json "$VP_GLOBAL")"
-# build_config_is_empty: a headroom-only layer is NOT build-empty.
-assert_true "identity: headroom-only layer is not build-empty" \
-  bash -c '. "$1"; ! claude_vm_build_config_is_empty "$2"' _ "$TEST_DIR/../lib/config.sh" "$VP_HR2"
+# The hash is exactly 8 lowercase hex chars.
+VP_ID_HASH="$(claude_vm_file_identity_hash "$VP_GBAKE")"
+if printf '%s' "$VP_ID_HASH" | grep -qE '^[0-9a-f]{8}$'; then
+  assert_eq "identity: whole-file hash is 8 lowercase hex chars" "ok" "ok"
+else
+  assert_eq "identity: whole-file hash is 8 lowercase hex chars" "ok" "bad: [$VP_ID_HASH]"
+fi
 
 # ---------------------------------------------------------------------
 # Test 19: build-guest-image.sh --print-version identity segment (issue #106).
@@ -1194,7 +1205,7 @@ assert_ne "print-version: different identity segments -> different version" \
   "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS='globaldeadbeef' "$BGI" --print-version)"
 # --print-version and the launcher-side segments agree by construction: feed
 # the SAME lib-computed segments into --print-version.
-VP_SEG_GLOBAL="$(claude_vm_image_identity_segments "$VP_GLOBAL" "$VP_NOREPO" myrepo)"
+VP_SEG_GLOBAL="$(claude_vm_image_identity_segments "$VP_GBAKE" "$VP_NOREPO" myrepo)"
 assert_eq "print-version: build-guest-image version embeds the lib identity segments" \
   "$BASE_VER+$VP_SEG_GLOBAL" \
   "$(CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$VP_SEG_GLOBAL" "$BGI" --print-version)"
@@ -1659,6 +1670,201 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
     "0" "$UPDATE_CALLS_EMPTY"
 else
   echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 24: four-file bake/boot compose + schema flattening (issue #179).
+#
+# The config is now FOUR files (global-bake, global-boot, repo-bake, repo-boot),
+# all optional. claude_vm_compose_effective_config normalizes each from the
+# flattened schema (a bake file's top-level `packages:` -> baked; a boot file's
+# top-level `packages:` -> installed at boot; each file's top-level
+# `apt_sources:` -> unioned) and merges all four with the existing semantics
+# (scalars repo-wins, lists union), producing the same-shaped effective document
+# the downstream accessors already consume.
+# ---------------------------------------------------------------------
+F_GBAKE="$WORK/f-gbake.yml"; cat > "$F_GBAKE" <<'YML'
+packages:
+  - jq
+  - ripgrep
+apt_sources:
+  - name: shared
+    repo: "deb https://ex.com/g stable main"
+    key_url: https://ex.com/g/key.asc
+image:
+  root_headroom_mb: 1024
+YML
+F_GBOOT="$WORK/f-gboot.yml"; cat > "$F_GBOOT" <<'YML'
+cpus: 2
+mem: 4096
+packages:
+  - htop
+update_at_boot: true
+egress:
+  allow:
+    - api.anthropic.com
+    - github.com
+YML
+F_RBAKE="$WORK/f-rbake.yml"; cat > "$F_RBAKE" <<'YML'
+packages:
+  - fd-find
+YML
+F_RBOOT="$WORK/f-rboot.yml"; cat > "$F_RBOOT" <<'YML'
+cpus: 8
+packages:
+  - awscli
+egress:
+  allow:
+    - cache.example.com
+YML
+F_EFF="$WORK/f-eff.yml"
+claude_vm_compose_effective_config "$F_GBAKE" "$F_GBOOT" "$F_RBAKE" "$F_RBOOT" > "$F_EFF"
+
+assert_eq "four-file: repo boot scalar wins (cpus)" \
+  "8" "$(claude_vm_scalar "$F_EFF" '.cpus' 'X')"
+assert_eq "four-file: global boot scalar fills gap (mem)" \
+  "4096" "$(claude_vm_scalar "$F_EFF" '.mem' 'X')"
+assert_eq "four-file: bake packages -> .packages.bake (union global+repo bake)" \
+  "fd-find,jq,ripgrep," "$(claude_vm_list_items "$F_EFF" '.packages.bake' | sort | tr '\n' ',')"
+assert_eq "four-file: boot packages -> .packages.install_at_boot (union global+repo boot)" \
+  "awscli,htop," "$(claude_vm_list_items "$F_EFF" '.packages.install_at_boot' | sort | tr '\n' ',')"
+assert_eq "four-file: apt_sources unioned onto internal key" \
+  "shared," "$(claude_vm_apt_sources "$F_EFF" | cut -f1 | sort | tr '\n' ',')"
+assert_eq "four-file: egress unioned across boot files" \
+  "api.anthropic.com,cache.example.com,github.com," "$(claude_vm_egress_hosts "$F_EFF" | sort | tr '\n' ',')"
+assert_eq "four-file: image.root_headroom_mb from bake file" \
+  "1024" "$(claude_vm_scalar "$F_EFF" '.image.root_headroom_mb' 'X')"
+
+# All-absent four files compose to an empty document cleanly.
+F_EFF_NONE="$WORK/f-eff-none.yml"
+claude_vm_compose_effective_config "$WORK/nope-a" "$WORK/nope-b" "$WORK/nope-c" "$WORK/nope-d" > "$F_EFF_NONE"
+assert_eq "four-file: all-absent composes to empty document" \
+  "0" "$(yq eval 'length' "$F_EFF_NONE" 2>/dev/null)"
+
+# ---------------------------------------------------------------------
+# Test 25: apt_sources union + dedupe-by-name across bake/boot (issue #179).
+#
+# Same name with IDENTICAL {repo, key_url} in two files -> one render (collapses
+# under the list union). Same name with DIFFERING content -> the composed config
+# ABORTS loudly (claude_vm_check_apt_sources_conflicts), no silent shadowing.
+# ---------------------------------------------------------------------
+# Identical name+content in bake and boot -> collapses to ONE entry, no abort.
+AS_GBAKE="$WORK/as-gbake.yml"; cat > "$AS_GBAKE" <<'YML'
+apt_sources:
+  - name: gh
+    repo: "deb https://cli.github.com/packages stable main"
+    key_url: https://cli.github.com/packages/key.gpg
+YML
+AS_GBOOT_OK="$WORK/as-gboot-ok.yml"; cat > "$AS_GBOOT_OK" <<'YML'
+apt_sources:
+  - name: gh
+    repo: "deb https://cli.github.com/packages stable main"
+    key_url: https://cli.github.com/packages/key.gpg
+YML
+AS_EFF_OK="$WORK/as-eff-ok.yml"
+if claude_vm_compose_effective_config "$AS_GBAKE" "$AS_GBOOT_OK" "" "" > "$AS_EFF_OK" 2>/dev/null; then
+  assert_eq "apt_sources: identical name+content in both files collapses to one, no abort" \
+    "1" "$(claude_vm_apt_sources "$AS_EFF_OK" | grep -c .)"
+else
+  assert_eq "apt_sources: identical name+content in both files collapses to one, no abort" \
+    "composed" "aborted"
+fi
+
+# Same name, DIFFERING content -> compose ABORTS (non-zero) with a diagnostic.
+AS_GBOOT_CONFLICT="$WORK/as-gboot-conflict.yml"; cat > "$AS_GBOOT_CONFLICT" <<'YML'
+apt_sources:
+  - name: gh
+    repo: "deb https://cli.github.com/OTHER stable main"
+    key_url: https://cli.github.com/packages/key.gpg
+YML
+if claude_vm_compose_effective_config "$AS_GBAKE" "$AS_GBOOT_CONFLICT" "" "" >/dev/null 2>"$WORK/as-conflict.err"; then
+  assert_eq "apt_sources: name conflict with differing content aborts" "aborted" "composed"
+else
+  assert_eq "apt_sources: name conflict with differing content aborts" "aborted" "aborted"
+fi
+assert_true "apt_sources: conflict abort names the conflicting entry" \
+  grep -q 'gh' "$WORK/as-conflict.err"
+
+# ---------------------------------------------------------------------
+# Test 26: boot render skips baked apt_source names (issue #179 design pt 5).
+#
+# claude_vm_boot_apt_sources emits the merged apt_sources MINUS any name already
+# declared in a BAKE file (already rendered into the image). A boot-only
+# apt_source survives; a baked one is filtered out; a trailing-empty key_url row
+# is preserved verbatim.
+# ---------------------------------------------------------------------
+BR_GBAKE="$WORK/br-gbake.yml"; cat > "$BR_GBAKE" <<'YML'
+apt_sources:
+  - name: baked-repo
+    repo: "deb https://ex.com/baked stable main"
+    key_url: https://ex.com/baked/key.asc
+YML
+BR_RBOOT="$WORK/br-rboot.yml"; cat > "$BR_RBOOT" <<'YML'
+apt_sources:
+  - name: boot-repo
+    repo: "deb https://ex.com/boot stable main"
+  - name: baked-repo
+    repo: "deb https://ex.com/baked stable main"
+    key_url: https://ex.com/baked/key.asc
+YML
+BR_EFF="$WORK/br-eff.yml"
+claude_vm_compose_effective_config "$BR_GBAKE" "" "" "$BR_RBOOT" > "$BR_EFF"
+assert_eq "boot-render: baked-repo skipped, boot-repo kept" \
+  "boot-repo" "$(claude_vm_boot_apt_sources "$BR_EFF" "$BR_GBAKE" "" | cut -f1 | sort | tr '\n' ',' | sed 's/,$//')"
+# The surviving boot-repo row has a trailing-empty key_url field preserved.
+assert_eq "boot-render: surviving row preserves trailing-empty key_url field" \
+  "boot-repo	deb https://ex.com/boot stable main	" \
+  "$(claude_vm_boot_apt_sources "$BR_EFF" "$BR_GBAKE" "")"
+
+# ---------------------------------------------------------------------
+# Test 27: legacy single-file config detection (issue #179 migration).
+#
+# claude_vm_detect_legacy_config returns 0 when NO legacy config.yml is present
+# (nothing to migrate) and non-zero (with a migration message) when a legacy
+# config.yml exists where a bake/boot pair is now expected -- the design's
+# fail-with-clear-message migration path (no silent misread).
+# ---------------------------------------------------------------------
+LEGACY_DIR="$WORK/legacy-dir"; mkdir -p "$LEGACY_DIR"
+assert_true "legacy: no config.yml present -> returns 0 (nothing to migrate)" \
+  claude_vm_detect_legacy_config "global" "$LEGACY_DIR/config.yml" "$LEGACY_DIR"
+printf 'cpus: 4\n' > "$LEGACY_DIR/config.yml"
+if claude_vm_detect_legacy_config "global" "$LEGACY_DIR/config.yml" "$LEGACY_DIR" >/dev/null 2>"$WORK/legacy.err"; then
+  assert_eq "legacy: present config.yml -> non-zero (abort with migration message)" "abort" "ok"
+else
+  assert_eq "legacy: present config.yml -> non-zero (abort with migration message)" "abort" "abort"
+fi
+assert_true "legacy: migration message names the bake/boot split" \
+  grep -q 'config-bake.yml' "$WORK/legacy.err"
+
+# ---------------------------------------------------------------------
+# Test 28: 0-byte-lists phenomenon -- RECORDED FACT ONLY (issue #179).
+#
+# RECORDED FACT (do NOT presume a mechanism): during #106's real-run
+# verification, a booted shared read-write guest image was observed with every
+# /var/lib/apt/lists Packages index file at 0 BYTES while the InRelease files
+# remained valid, so `apt-get update` reported "Hit" and knew ZERO packages --
+# unrecoverable by a plain `apt-get update`. Pristine BUILT images were verified
+# to carry no list files at all (exonerating mkosi); the corrupt state was only
+# ever observed in the era when every boot-time `apt-get update` was already
+# failing on the keyring-format bug fixed in #106. Mechanism UNDETERMINED.
+#
+# Issue #179's immutable-base + per-run-clone design removes the shared-writable
+# image that this corruption lived on: each run boots a throwaway APFS clone,
+# discarded on clean exit. This test does not (and cannot, host-side without a
+# real boot) reproduce the phenomenon; it records it next to the clone-lifecycle
+# code so a future regression around image/clone lifecycle has the context, and
+# asserts the one structurally-checkable invariant the redesign guarantees: the
+# per-run clone path is DISTINCT from the immutable base image path, so a run's
+# writes never land on the shared base. The launcher derives the clone as
+# "$RUN/guest-clone.raw" (see claude-vm.sh); assert that shape here.
+# ---------------------------------------------------------------------
+ZB_RUN="/some/run/dir"
+ZB_BASE="/cache/images/guest+globalabc12345.raw"
+ZB_CLONE="$ZB_RUN/guest-clone.raw"
+if [ "$ZB_CLONE" != "$ZB_BASE" ]; then
+  assert_eq "clone-lifecycle: per-run clone path is distinct from the immutable base" "distinct" "distinct"
+else
+  assert_eq "clone-lifecycle: per-run clone path is distinct from the immutable base" "distinct" "same"
 fi
 
 # ---------------------------------------------------------------------

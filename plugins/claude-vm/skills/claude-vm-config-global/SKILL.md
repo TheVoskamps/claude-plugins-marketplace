@@ -1,36 +1,57 @@
 ---
 name: claude-vm-config-global
-description: Interactively create the global claude-vm config at ~/.config/claude-vm/config.yml from the resolved defaults (cpus 2, mem 4096, bundled-tinyproxy proxy default, podman-mkosi provisioner, egress.allow incl. api.anthropic.com, claude.version). Idempotent — detects an existing file and offers to merge or leave rather than clobber.
+description: Interactively create the global claude-vm config PAIR at ~/.config/claude-vm/config-bake.yml + config-boot.yml from the resolved defaults (cpus 2, mem 4096, bundled-tinyproxy proxy default, podman-mkosi provisioner, egress.allow incl. api.anthropic.com, claude.version). Idempotent — detects existing files and offers to merge or leave rather than clobber.
 ---
 
 # claude-vm-config-global
 
 You are running the `/claude-vm-config-global` skill. Your job is to
-create the **global** claude-vm config file at
-`~/.config/claude-vm/config.yml` (expand `~` to the user's home
+create the **global** claude-vm config **pair** at
+`~/.config/claude-vm/config-bake.yml` and
+`~/.config/claude-vm/config-boot.yml` (expand `~` to the user's home
 directory) from the resolved defaults.
 
-This file is the machine-wide layer of claude-vm's two-tier config (the
-per-repo layer at `<repo>/.claude-vm/config.yml`, written by
-`/claude-vm-config-repo`, overrides it). The
-config surface, layering semantics, and key meanings are documented in
-the sibling `claude-vm` skill (`skills/claude-vm/SKILL.md`) and the
-annotated `payload/config.example.yml`. This skill writes the global
-layer with the resolved defaults rather than the example's illustrative
-placeholders.
+Since issue #179, claude-vm's config is split into a **bake** file and a
+**boot** file per tier (four files total, all optional):
 
-It is the first slice of the claude-vm completion work: everything
-downstream resolves against this global config, so writing it correctly
-comes first.
+- **`config-bake.yml`** — keys that change **bytes in the guest `.raw`
+  image**: `packages:` (a flat list of apt packages baked into the
+  image), `apt_sources:` (third-party apt repos rendered into the
+  image), and `image.root_headroom_mb`. The image cache key + filename
+  is a **whole-file, raw-byte hash** of the bake files, so editing a
+  bake file (including only its trailing newline) rebuilds the image.
+- **`config-boot.yml`** — keys applied at **run time** (launcher/VM
+  wiring): `cpus`, `mem`, `proxy.*`, `egress.allow`, `mounts`,
+  `repo.*`, `packages:` here means **installed at boot** (a flat list),
+  `update_at_boot`, `add_apt_uris_to_allowlist`, `claude.*`,
+  `github.*`, and `provisioner`. Boot files never affect image
+  identity.
+
+This pair is the machine-wide layer of claude-vm's four-file config (the
+per-repo pair at `<repo>/.claude-vm/config-{bake,boot}.yml`, written by
+`/claude-vm-config-repo`, overrides it). The config surface, layering
+semantics, and key meanings are documented in the sibling `claude-vm`
+skill (`skills/claude-vm/SKILL.md`) and the annotated
+`payload/config-bake.example.yml` / `payload/config-boot.example.yml`.
+This skill writes the global layer with the resolved defaults rather
+than the examples' illustrative placeholders.
+
+**Migration:** if a legacy single-file `~/.config/claude-vm/config.yml`
+exists, the launcher aborts with a migration message (it will not
+silently read it). When this skill detects that legacy file, offer to
+migrate: split its keys into the bake/boot pair per the placement rule
+above, write the pair, and tell the user to remove or rename the legacy
+`config.yml` afterward.
 
 ## Idempotent — detect and offer, never clobber
 
 This skill is **idempotent**. Before writing anything it checks whether
-`~/.config/claude-vm/config.yml` already exists:
+`~/.config/claude-vm/config-bake.yml` and
+`~/.config/claude-vm/config-boot.yml` already exist (each independently):
 
-- **If it does not exist**: this is the create path. Propose the full
-  default file, get approval, write it.
-- **If it already exists**: **do not clobber it.** Read it, show the
+- **If a file does not exist**: this is the create path for that file.
+  Propose the full default file, get approval, write it.
+- **If a file already exists**: **do not clobber it.** Read it, show the
   user what is there, and offer two choices:
   1. **Leave** the existing file untouched (the default, safe choice).
   2. **Merge** the resolved defaults in for any keys the existing file
@@ -41,34 +62,40 @@ This skill is **idempotent**. Before writing anything it checks whether
   already has every key the defaults provide, report that it is already
   complete and leave it untouched.
 
-Writing the file requires explicit user approval in every case.
+Writing either file requires explicit user approval in every case.
 
 ## Resolved defaults
 
 These are the values this skill writes, drawn from the parent issue's
 verified analysis. They deliberately **override** the illustrative
-values in `payload/config.example.yml`.
+values in `payload/config-bake.example.yml` /
+`payload/config-boot.example.yml`. The **file** column names which of
+the two global files each key is written into (its bake/boot placement):
 
-| key | default | rationale |
-|-----|---------|-----------|
-| `cpus` | `2` | RAM-bound sizing; vCPUs time-slice, 2 covers git/build/test bursts |
-| `mem` | `4096` | the real ceiling — RAM is committed, ~8–12 VMs fit at 4 GB on a 64 GB host |
-| `proxy.cmd` | omitted (bundled tinyproxy launcher is the launcher-side default) | tinyproxy is the chosen forward proxy; the launcher runs the bundled `payload/proxy/tinyproxy-launch.sh` when `proxy.cmd` is unset |
-| `proxy.port` | `3128` | matches the launcher default |
-| `proxy.host_alias` | `192.168.127.254` | the gvproxy host alias the guest reaches the proxy on |
-| `provisioner` | `podman-mkosi` | the bundled provisioner: mkosi in a throwaway rootless podman container |
-| `egress.allow` | `api.anthropic.com`, `github.com`, `claude.ai`, `downloads.claude.ai` | `api.anthropic.com` is required for Remote Control; the rest cover git + claude install/fetch |
-| `claude.version` | `stable` | which `claude` binary the host-side verified cache fetches |
-| `claude.renderer` | omitted (claude's own default) | terminal renderer on the interactive console: `classic` \| `fullscreen` \| unset |
-| `claude.remote_control` | omitted (`false`) | opt-in Remote Control: `true` adds `--remote-control` + a date-stamped `--name` default; `false`/unset passes CLI args through |
-| `packages.update_at_boot` | `true` | apt-get update && upgrade at boot |
-| `packages.add_apt_uris_to_allowlist` | `auto` | add derived egress URIs to the proxy allowlist only when boot-time package work needs them (`auto`), or always (`always`) |
-| `claude.permission_mode` | `bypassPermissions` | in-guest Claude's permission mode (`bypassPermissions` \| `default` only; any other value aborts the launch) |
-| `claude.plugins.update_at_boot` | `true` | refresh marketplaces + reinstall changed plugins at boot |
-| `claude.plugins.add_marketplace_uris_to_allowlist` | `auto` | marketplace-URI analogue of `packages.add_apt_uris_to_allowlist` |
-| `claude.plugins.enabled` | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
-| `github.auth` | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
-| `image.root_headroom_mb` | `1024` | extra MiB of FREE SPACE in the guest root filesystem above its base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
+| key | file | default | rationale |
+|-----|------|---------|-----------|
+| `cpus` | boot | `2` | RAM-bound sizing; vCPUs time-slice, 2 covers git/build/test bursts |
+| `mem` | boot | `4096` | the real ceiling — RAM is committed, ~8–12 VMs fit at 4 GB on a 64 GB host |
+| `proxy.cmd` | boot | omitted (bundled tinyproxy launcher is the launcher-side default) | tinyproxy is the chosen forward proxy; the launcher runs the bundled `payload/proxy/tinyproxy-launch.sh` when `proxy.cmd` is unset |
+| `proxy.port` | boot | `3128` | matches the launcher default |
+| `proxy.host_alias` | boot | `192.168.127.254` | the gvproxy host alias the guest reaches the proxy on |
+| `provisioner` | boot | `podman-mkosi` | the bundled provisioner: mkosi in a throwaway rootless podman container |
+| `egress.allow` | boot | `api.anthropic.com`, `github.com`, `claude.ai`, `downloads.claude.ai` | `api.anthropic.com` is required for Remote Control; the rest cover git + claude install/fetch |
+| `claude.version` | boot | `stable` | which `claude` binary the host-side verified cache fetches |
+| `claude.renderer` | boot | omitted (claude's own default) | terminal renderer on the interactive console: `classic` \| `fullscreen` \| unset |
+| `claude.remote_control` | boot | omitted (`false`) | opt-in Remote Control: `true` adds `--remote-control` + a date-stamped `--name` default; `false`/unset passes CLI args through |
+| `packages:` (boot file) | boot | `[]` | apt packages installed AT BOOT (a flat list; through the proxy, before claude starts) |
+| `update_at_boot` | boot | `true` | apt-get update && upgrade at boot |
+| `add_apt_uris_to_allowlist` | boot | `auto` | add derived egress URIs to the proxy allowlist only when boot-time package work needs them (`auto`), or always (`always`) |
+| `apt_sources` (boot file) | boot | `[]` | third-party apt repos a boot-time install pulls from (union+dedup with the bake file's) |
+| `claude.permission_mode` | boot | `bypassPermissions` | in-guest Claude's permission mode (`bypassPermissions` \| `default` only; any other value aborts the launch) |
+| `claude.plugins.update_at_boot` | boot | `true` | refresh marketplaces + reinstall changed plugins at boot |
+| `claude.plugins.add_marketplace_uris_to_allowlist` | boot | `auto` | marketplace-URI analogue of `add_apt_uris_to_allowlist` |
+| `claude.plugins.enabled` | boot | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
+| `github.auth` | boot | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
+| `packages:` (bake file) | bake | `[]` | apt packages BAKED into the guest image (a flat list; present with no network at boot) |
+| `apt_sources` (bake file) | bake | `[]` | third-party apt repos rendered into the image at build time |
+| `image.root_headroom_mb` | bake | `1024` | extra MiB of FREE SPACE in the guest root filesystem above its base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
 
 Notes on the forward-looking keys:
 
@@ -151,67 +178,102 @@ Notes on the forward-looking keys:
 Follow these in order. Do not write the file until the user has
 explicitly approved the proposed content.
 
-### Step 1: Resolve the target path
+### Step 1: Resolve the target paths
 
-Expand `~` to the user's home directory:
+Expand `~` to the user's home directory. There are TWO target files:
 
 ```text
-~/.config/claude-vm/config.yml
+~/.config/claude-vm/config-bake.yml
+~/.config/claude-vm/config-boot.yml
 ```
 
-Respect `XDG_CONFIG_HOME` if set: the path is
-`${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/config.yml`, matching the
-launcher's `CLAUDE_VM_GLOBAL_CONFIG` default in
-`payload/lib/config.sh`. The parent directory may not exist yet; the
-`Write` tool creates it.
+Respect `XDG_CONFIG_HOME` if set: the config dir is
+`${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm`, matching the launcher's
+`CLAUDE_VM_GLOBAL_CONFIG_DIR` default in `payload/lib/config.sh`. The
+parent directory may not exist yet; the `Write` tool creates it.
 
-### Step 2: Detect an existing config
+Also check for a **legacy** `${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/config.yml`.
+If it exists, tell the user the launcher no longer reads it and offer to
+migrate its keys into the bake/boot pair (splitting by the placement
+rule); after writing the pair, remind them to remove or rename the
+legacy file.
 
-Check whether the target file exists.
+### Step 2: Detect existing config files
 
-- **Absent** → create path. The proposed content is the full default
-  file from Step 3.
-- **Present** → idempotent path. Read its full contents, parse the YAML,
-  and show the user what is already there. Then ask (via
+Check each of the two target files independently.
+
+- **Absent** → create path for that file. The proposed content is the
+  full default file from Step 3.
+- **Present** → idempotent path for that file. Read its full contents,
+  parse the YAML, and show the user what is already there. Then ask (via
   `AskUserQuestion`) whether to:
   - **Leave it untouched** (recommended default), or
   - **Merge** the resolved defaults into any keys it is missing.
 
-  On "leave", stop here and report that nothing was changed. On "merge",
-  compute the gap-fill (Step 3, merge variant) and continue to Step 4.
+  On "leave", skip that file. On "merge", compute the gap-fill (Step 3,
+  merge variant) and continue to Step 4 for that file.
 
 ### Step 3: Compose the proposed content
 
-**Create variant** (no existing file): the full default file is:
+**Create variant** (no existing file). The full default **`config-bake.yml`**
+(image-bytes keys) is:
 
 ```yaml
-# claude-vm global config (machine-wide defaults).
+# claude-vm global BAKE config (machine-wide defaults).
 #
-# The per-repo layer at <repo>/.claude-vm/config.yml overrides this for
-# scalars and unions with it for lists (egress.allow, mounts). See the
-# claude-vm skill (skills/claude-vm/SKILL.md) and
-# payload/config.example.yml for the full schema and layering rules.
+# Keys here change BYTES in the guest .raw image, so the image cache key +
+# filename is a WHOLE-FILE, RAW-BYTE hash of this file. Editing it (including
+# only its trailing newline) rebuilds the image. The per-repo bake layer at
+# <repo>/.claude-vm/config-bake.yml overrides scalars and unions lists. See the
+# claude-vm skill (skills/claude-vm/SKILL.md) and payload/config-bake.example.yml.
 #
-# NO SECRETS HERE. The host claude.ai OAuth credential is mounted into
-# the guest at runtime by the launcher; it is never read from or written
-# to this file.
+# NO SECRETS HERE.
+
+# apt packages baked into the guest image (flat list of names; present with no
+# network at boot). Write entries only if the user names specific packages.
+packages: []
+
+# Third-party apt repos rendered into the image at build time:
+# {name, repo, key_url}. Also allowed in the boot file (union, dedup by name).
+# Write entries only on request.
+apt_sources: []
+
+# Extra MiB of FREE SPACE in the guest root filesystem above its base content,
+# so a live session does not hit ENOSPC (default 1024). A BAKE key: it sizes
+# the .raw, so changing it rebuilds the image.
+image:
+  root_headroom_mb: 1024
+```
+
+The full default **`config-boot.yml`** (run-time keys) is:
+
+```yaml
+# claude-vm global BOOT config (machine-wide defaults).
+#
+# Keys here are applied at run time (launcher/VM wiring) and NEVER affect the
+# image identity -- editing this file triggers no rebuild. The per-repo boot
+# layer at <repo>/.claude-vm/config-boot.yml overrides scalars and unions lists.
+# See the claude-vm skill (skills/claude-vm/SKILL.md) and
+# payload/config-boot.example.yml.
+#
+# NO SECRETS HERE. The host claude.ai OAuth credential is mounted into the guest
+# at runtime by the launcher; it is never read from or written to this file.
 
 cpus: 2
 mem: 4096
 
 proxy:
-  # proxy.cmd is intentionally OMITTED: tinyproxy is the chosen forward
-  # proxy, and the launcher defaults to the bundled tinyproxy launcher
-  # (payload/proxy/tinyproxy-launch.sh) when proxy.cmd is unset. It reads
-  # the egress allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds
+  # proxy.cmd is intentionally OMITTED: tinyproxy is the chosen forward proxy,
+  # and the launcher defaults to the bundled tinyproxy launcher
+  # (payload/proxy/tinyproxy-launch.sh) when proxy.cmd is unset. It reads the
+  # egress allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds
   # $CLAUDE_VM_PROXY_PORT. Set proxy.cmd only to override that default.
   port: 3128
   host_alias: 192.168.127.254
 
-# The bundled provisioner that produces the raw EFI-bootable Linux guest
-# image: mkosi running inside a throwaway rootless podman container.
-# build-guest-image.sh already defaults to it when
-# CLAUDE_VM_IMAGE_PROVISIONER is unset; this key documents the intent.
+# The bundled provisioner that produces the raw EFI-bootable Linux guest image:
+# mkosi in a throwaway rootless podman container. build-guest-image.sh defaults
+# to it when CLAUDE_VM_IMAGE_PROVISIONER is unset; this key documents the intent.
 provisioner: podman-mkosi
 
 egress:
@@ -221,18 +283,22 @@ egress:
     - claude.ai
     - downloads.claude.ai
 
+# apt packages installed AT BOOT (flat list; through the proxy, before claude
+# starts). Write entries only on request.
+packages: []
+update_at_boot: true    # apt-get update && upgrade at boot (default true)
+add_apt_uris_to_allowlist: auto   # auto (default) | always
+# apt_sources: third-party apt repos a boot-time install pulls from (union+dedup
+# with the bake file's). Write only on request.
+apt_sources: []
+
 claude:
-  version: stable       # which claude binary the host-side GPG-verified
-                        # cache fetches: stable (default) | latest | <pinned>
-  # renderer: classic   # terminal renderer on the interactive console:
-                        # classic (no alt-screen) | fullscreen | unset
-                        # (claude's own default). Omitted by default.
-  # remote_control: false  # opt-in Remote Control: true adds --remote-control
-                        # + a date-stamped --name default; false/unset passes
-                        # CLI args through. Omitted by default.
+  version: stable       # which claude binary the host-side GPG-verified cache
+                        # fetches: stable (default) | latest | <pinned>
+  # renderer: classic   # classic (no alt-screen) | fullscreen | unset. Omitted.
+  # remote_control: false  # opt-in Remote Control. Omitted by default.
   # permission_mode + permissions.* render into the guest settings.json's
-  # permissions (issue #104); the host's own ~/.claude/settings.json is
-  # never read.
+  # permissions (issue #104); the host's own ~/.claude/settings.json is never read.
   permission_mode: bypassPermissions   # bypassPermissions (default) | default
   permissions:
     allow: []           # write entries only if the user names specific rules
@@ -241,101 +307,83 @@ claude:
   marketplaces: []      # {name, url} entries; write only on request
   plugins:
     bake: []             # plugin@marketplace refs; rendered into
-    install_at_boot: []  # settings.json's enabledPlugins (issue #104);
-                        # actual package-manager install is a #39 sibling
-                        # slice. Write only on request.
-    update_at_boot: true # refresh marketplaces + reinstall changed plugins
-                        # at boot (default true)
+    install_at_boot: []  # settings.json's enabledPlugins. Write only on request.
+    update_at_boot: true # refresh marketplaces + reinstall changed plugins at boot
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always
     # enabled: OPTIONAL map, plugin ref -> boolean, mirroring settings.json's
-    # enabledPlugins. Every bake/install_at_boot ref defaults enabled; write
-    # an entry only to override (false = installed-but-disabled). Keys must
-    # name an installed ref, values must be boolean; a typo aborts the launch.
-    # Write only on request.
+    # enabledPlugins. Every bake/install_at_boot ref defaults enabled; write an
+    # entry only to override (false = installed-but-disabled). Write on request.
     # enabled:
     #   show-loaded-rules@thevoskamps: false
 
-# Guest software (issue #103; schema + merge only -- bake/boot-install
-# consumers land in sibling slices under #39).
-packages:
-  bake: []               # apt packages baked into the guest image
-  install_at_boot: []    # apt packages installed at boot, blocking
-  update_at_boot: true   # apt-get update && upgrade at boot (default true)
-  apt_sources: []        # third-party apt repos: {name, repo, key_url}
-  add_apt_uris_to_allowlist: auto   # auto (default) | always
-
-# Guest GitHub auth (issue #103; schema + merge only -- the token-seeding
-# consumer lands in a sibling slice under #39).
+# Guest GitHub auth.
 github:
   auth: none             # none (default) | host-token
-
-# Guest image build sizing (issue #106 real-run fix).
-image:
-  root_headroom_mb: 1024 # extra MiB of FREE SPACE in the guest root
-                        # filesystem above its base content, so a live
-                        # session does not hit ENOSPC (default 1024)
 ```
 
 > On `proxy.cmd`: the bundled tinyproxy launcher
 > (`payload/proxy/tinyproxy-launch.sh`) is the launcher-side default, so
-> the resolved global config leaves `proxy.cmd` unset. The launcher runs
-> the bundled script when `proxy.cmd` is absent; the script renders a
-> tinyproxy conf from `$CLAUDE_VM_EGRESS_ALLOWLIST` and binds
-> `$CLAUDE_VM_PROXY_PORT`. If the user wants their own forward proxy,
-> capture their `proxy.cmd` verbatim — the only hard requirement is that
-> it honor the launcher-provided allowlist (`$CLAUDE_VM_EGRESS_ALLOWLIST`)
-> rather than a baked-in one.
+> the resolved global boot config leaves `proxy.cmd` unset. If the user
+> wants their own forward proxy, capture their `proxy.cmd` verbatim into
+> the boot file — the only hard requirement is that it honor the
+> launcher-provided allowlist (`$CLAUDE_VM_EGRESS_ALLOWLIST`) rather than
+> a baked-in one.
 
 **Merge variant** (existing file): start from the existing parsed YAML
-and add **only** the keys from the default file that are absent. Keep
+and add **only** the keys from that file's default that are absent. Keep
 every existing key and value verbatim, including any the user
 customized and any this skill does not recognize. For list keys
-(`egress.allow`, `packages.bake`, `packages.install_at_boot`,
-`packages.apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
+(bake file: `packages`, `apt_sources`; boot file: `egress.allow`,
+`packages`, `apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
 `claude.marketplaces`, `claude.plugins.bake`/`.install_at_boot`), union
 the default entries in (do not drop the user's extras, do not
 duplicate). Render the merged result preserving the user's existing
 comments where practical.
 
-### Step 4: Show the proposed file and get approval
+### Step 4: Show the proposed file(s) and get approval
 
-Render the **full proposed file** exactly as it will land on disk. For
-the merge variant, also show a short summary: which keys this run adds,
+Render each **full proposed file** exactly as it will land on disk. For
+a merge variant, also show a short summary: which keys this run adds,
 which it preserves untouched.
 
-Then ask explicitly:
+Then ask explicitly, per file:
 
-> Write `~/.config/claude-vm/config.yml` as shown? (y to proceed, or
-> tell me what to change)
+> Write `~/.config/claude-vm/config-bake.yml` (and/or `config-boot.yml`)
+> as shown? (y to proceed, or tell me what to change)
 
 Wait for explicit approval. If the user asks for changes, adjust and
 re-render here.
 
-### Step 5: Write the file
+### Step 5: Write the file(s)
 
-On approval, use the `Write` tool to write the full content in one
-call. The parent directory is created if needed.
+On approval, use the `Write` tool to write each full file in one call.
+The parent directory is created if needed.
 
 ### Step 6: Verify and summarize
 
-After the `Write`, re-read the file and confirm it parses as YAML and
-contains the expected keys (`cpus: 2`, `mem: 4096`, `proxy.port`,
-`provisioner: podman-mkosi`, `egress.allow` including `api.anthropic.com`,
-`claude.version`, `claude.permission_mode`,
-`packages.update_at_boot`, `github.auth`, `image.root_headroom_mb`).
-`proxy.cmd` is intentionally
-absent — the launcher defaults to the bundled tinyproxy launcher when it
-is unset. This is content verification — `Write` already errors if the
-bytes did not land; the re-read confirms the *intended content*.
+After each `Write`, re-read the file and confirm it parses as YAML and
+contains the expected keys:
+
+- **config-bake.yml**: `packages` (list), `apt_sources` (list),
+  `image.root_headroom_mb`.
+- **config-boot.yml**: `cpus: 2`, `mem: 4096`, `proxy.port`,
+  `provisioner: podman-mkosi`, `egress.allow` including
+  `api.anthropic.com`, `claude.version`, `claude.permission_mode`,
+  `update_at_boot`, `github.auth`. `proxy.cmd` is intentionally absent —
+  the launcher defaults to the bundled tinyproxy launcher when unset.
+
+This is content verification — `Write` already errors if the bytes did
+not land; the re-read confirms the *intended content*.
 
 Report back:
 
-- The absolute path written (or "left untouched" / "already complete").
+- The absolute path(s) written (or "left untouched" / "already complete").
 - For a merge, which keys were added vs. preserved.
-- A reminder that the per-repo layer
-  (`<repo>/.claude-vm/config.yml`, written by `/claude-vm-config-repo`)
-  overrides scalars and unions lists, and that no secret is ever written
-  here.
+- A reminder that the per-repo pair
+  (`<repo>/.claude-vm/config-{bake,boot}.yml`, written by
+  `/claude-vm-config-repo`) overrides scalars and unions lists, that
+  editing a bake file rebuilds the image while editing a boot file does
+  not, and that no secret is ever written here.
 
 ## Hard constraints
 
@@ -347,6 +395,11 @@ Report back:
 - **No secrets in this file.** The host OAuth credential is mounted at
   runtime, never written to config.
 - **Never write without explicit approval** in Step 4.
-- **Write exactly one file**: `~/.config/claude-vm/config.yml`. This
-  skill touches no repo, edits no `.gitignore`, and runs no git
-  commands.
+- **Write exactly the two global files**:
+  `~/.config/claude-vm/config-bake.yml` and
+  `~/.config/claude-vm/config-boot.yml`. This skill touches no repo,
+  edits no `.gitignore`, and runs no git commands.
+- **Respect the bake/boot placement rule.** Image-bytes keys
+  (`packages` baked in, `apt_sources`, `image.root_headroom_mb`) go in
+  `config-bake.yml`; run-time keys go in `config-boot.yml`. A misplaced
+  key loudly does nothing rather than silently poisoning the image cache.

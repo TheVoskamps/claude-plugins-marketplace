@@ -38,10 +38,53 @@
 
 set -uo pipefail
 
-# Default config locations. Overridable via env for testing.
-: "${CLAUDE_VM_GLOBAL_CONFIG:=${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/config.yml}"
-# CLAUDE_VM_REPO_CONFIG is resolved per-run relative to the repo root
-# by the launcher (<repo>/.claude-vm/config.yml); tests set it directly.
+# Default config locations (issue #179 -- FOUR files, all optional). The config
+# is split into a BAKE file (changes image bytes) and a BOOT file (changes
+# launcher/VM wiring at run time) per tier. Overridable via env for testing.
+#
+#   global bake: ~/.config/claude-vm/config-bake.yml
+#   global boot: ~/.config/claude-vm/config-boot.yml
+#   repo   bake: <repo>/.claude-vm/config-bake.yml   (resolved by the launcher)
+#   repo   boot: <repo>/.claude-vm/config-boot.yml   (resolved by the launcher)
+: "${CLAUDE_VM_GLOBAL_CONFIG_DIR:=${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm}"
+: "${CLAUDE_VM_GLOBAL_BAKE_CONFIG:=$CLAUDE_VM_GLOBAL_CONFIG_DIR/config-bake.yml}"
+: "${CLAUDE_VM_GLOBAL_BOOT_CONFIG:=$CLAUDE_VM_GLOBAL_CONFIG_DIR/config-boot.yml}"
+# The legacy single-file global config, kept ONLY for migration detection (see
+# claude_vm_detect_legacy_config); it is NOT read as config anymore.
+: "${CLAUDE_VM_GLOBAL_LEGACY_CONFIG:=$CLAUDE_VM_GLOBAL_CONFIG_DIR/config.yml}"
+# CLAUDE_VM_REPO_BAKE_CONFIG / CLAUDE_VM_REPO_BOOT_CONFIG are resolved per-run
+# relative to the repo root by the launcher (<repo>/.claude-vm/config-{bake,boot}.yml);
+# tests set them directly.
+
+# Detect a legacy single-file config (config.yml) where a bake/boot pair is now
+# expected, and emit an actionable migration message. The design's chosen
+# migration path is FAIL-WITH-MESSAGE (Acceptance: "Existing single-file configs
+# either keep working through a compat path or fail with a clear migration
+# message -- no silent misreads"). We take the explicit-abort branch so a stale
+# single file is never silently ignored (which would drop every knob it set).
+#
+#   $1 -- tier label for the message ("global" or "repo <name>")
+#   $2 -- the legacy config.yml path to check
+#   $3 -- the config dir the bake/boot pair belongs in (for the message)
+# Returns 0 (exit) when NO legacy file is present (nothing to migrate); returns
+# 1 after printing the migration message when a legacy config.yml exists.
+claude_vm_detect_legacy_config() {
+  local tier="$1" legacy="$2" dir="$3"
+  [ -n "$legacy" ] && [ -f "$legacy" ] || return 0
+  echo "claude-vm: found a legacy single-file $tier config at '$legacy'." >&2
+  echo "claude-vm: claude-vm now splits config into TWO files per tier (issue #179):" >&2
+  echo "claude-vm:   $dir/config-bake.yml  -- keys that change the guest IMAGE (packages baked in," >&2
+  echo "claude-vm:                            apt_sources, image.root_headroom_mb)" >&2
+  echo "claude-vm:   $dir/config-boot.yml  -- keys applied at run time (egress, mounts, proxy, cpus," >&2
+  echo "claude-vm:                            mem, packages installed at boot, update_at_boot, claude.*," >&2
+  echo "claude-vm:                            github.*, add_apt_uris_to_allowlist)" >&2
+  echo "claude-vm: The single '$legacy' is NOT read anymore -- reading it silently would drop knobs" >&2
+  echo "claude-vm: whose bake/boot placement it cannot express. Split it into the pair above, then" >&2
+  echo "claude-vm: remove or rename '$legacy'. The /claude-vm-config-global and /claude-vm-config-repo" >&2
+  echo "claude-vm: wizards write the pair for you. See payload/config-bake.example.yml /" >&2
+  echo "claude-vm: config-boot.example.yml for the split." >&2
+  return 1
+}
 
 # Hardcoded fallbacks for scalars the user did not set in EITHER layer.
 # These mirror the reference launcher's env-var defaults.
@@ -58,8 +101,8 @@ CLAUDE_VM_DEFAULT_CLAUDE_VERSION=stable
 
 # Guest-capability schema defaults (issue #103): packages, Claude
 # permissions/marketplaces/plugins, and GitHub auth. See
-# payload/config.example.yml and skills/claude-vm/SKILL.md for the full
-# annotated schema and semantics.
+# payload/config-bake.example.yml, payload/config-boot.example.yml, and
+# skills/claude-vm/SKILL.md for the full annotated schema and semantics.
 CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT=true
 CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST=auto
 CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE=bypassPermissions
@@ -395,6 +438,209 @@ claude_vm_prune_empty_skeleton() {
   yq eval "$expr" <(printf '%s\n' "$doc") 2>/dev/null
 }
 
+# ---------------------------------------------------------------------
+# Four-file config: bake/boot split + schema flattening (issue #179).
+#
+# claude-vm's config is now FOUR files, all optional:
+#   global bake: ~/.config/claude-vm/config-bake.yml
+#   global boot: ~/.config/claude-vm/config-boot.yml
+#   repo   bake: <repo>/.claude-vm/config-bake.yml
+#   repo   boot: <repo>/.claude-vm/config-boot.yml
+#
+# Placement rule: a key that changes BYTES in the .raw image lives in a BAKE
+# file; a key that changes launcher/VM wiring at run time lives in a BOOT file.
+# The CONTAINING FILE carries the bake/boot semantics -- so the schema is
+# FLATTENED: a bake file's top-level `packages:` is a flat list of package names
+# that get BAKED into the image; a boot file's top-level `packages:` is a flat
+# list installed AT BOOT. This replaces the old single-file packages.bake /
+# packages.install_at_boot key split. `apt_sources:` is allowed in BOTH files
+# (union, deduped by name -- see claude_vm_dedup_apt_sources). image.root_headroom_mb
+# is a BAKE key; egress / update_at_boot / add_apt_uris_to_allowlist / mounts /
+# proxy / cpus / mem / claude.* / github.* are BOOT keys.
+#
+# Effective config = union of all four files with the existing merge semantics
+# (scalars: repo overrides global; lists: union). To reuse the existing,
+# well-tested two-file claude_vm_merge_config primitive without rewriting it,
+# the compose pipeline is:
+#
+#   1. NORMALIZE each of the four files from the flattened bake/boot schema into
+#      the INTERNAL schema the rest of config.sh already speaks -- a bake file's
+#      `packages:` list -> `.packages.bake`, a boot file's `packages:` list ->
+#      `.packages.install_at_boot`, and each file's top-level `apt_sources:` ->
+#      `.packages.apt_sources` (both bake and boot apt_sources land on the same
+#      internal key so the existing union+dedup covers them). All OTHER keys
+#      pass through unchanged.
+#   2. MERGE the normalized global bake+boot into one global document, and the
+#      normalized repo bake+boot into one repo document (each a two-file merge).
+#   3. MERGE the global document over the repo document (the final two-file
+#      merge), producing the effective merged config the launcher consumes --
+#      byte-compatible with what the old single-file merge produced, so every
+#      downstream accessor (claude_vm_egress_hosts, claude_vm_apt_sources,
+#      claude_vm_list_items '.packages.bake', etc.) keeps working unchanged.
+
+# Normalize ONE flattened bake/boot file into the internal schema.
+#   $1 -- file path (may be absent -> empty document)
+#   $2 -- tier: "bake" or "boot". Selects which internal packages key the
+#         top-level `packages:` list maps to (bake -> .packages.bake,
+#         boot -> .packages.install_at_boot).
+# Emits the normalized YAML document on stdout. A missing file emits `{}`.
+claude_vm_normalize_config_file() {
+  local file="$1" tier="$2"
+  local src="$file"
+  if [ -z "$file" ] || [ ! -f "$file" ]; then
+    printf '{}\n'
+    return 0
+  fi
+  local pkg_key
+  case "$tier" in
+    bake) pkg_key="bake" ;;
+    boot) pkg_key="install_at_boot" ;;
+    *)
+      echo "claude-vm: internal error: claude_vm_normalize_config_file tier must be bake|boot, got '$tier'" >&2
+      return 1
+      ;;
+  esac
+  # Move the flat top-level `packages:` list and top-level `apt_sources:` under
+  # the internal `.packages.*` shape, then drop the now-consumed top-level keys.
+  # `packages` is a flat LIST in the flattened schema; guard `// []` so a file
+  # that omits it (or sets only apt_sources) still normalizes cleanly.
+  CLAUDE_VM_NORM_PKG_KEY="$pkg_key" yq eval '
+    (.packages // []) as $pkgs
+    | (.apt_sources // []) as $srcs
+    | del(.packages) | del(.apt_sources)
+    | .packages = ({} + (.packages // {}))
+    | .packages[strenv(CLAUDE_VM_NORM_PKG_KEY)] = $pkgs
+    | .packages.apt_sources = $srcs
+  ' "$src" 2>/dev/null
+}
+
+# Compose the effective merged config from the four bake/boot files.
+#   $1 -- global bake file (may be absent)
+#   $2 -- global boot file (may be absent)
+#   $3 -- repo   bake file (may be absent)
+#   $4 -- repo   boot file (may be absent)
+# Emits the effective merged config document on stdout (same shape the old
+# claude_vm_merge_config emitted). Returns non-zero on any merge failure OR on
+# an apt_sources name conflict (see claude_vm_dedup_apt_sources).
+claude_vm_compose_effective_config() {
+  local gbake="$1" gboot="$2" rbake="$3" rboot="$4"
+  local ngbake ngboot nrbake nrboot gmerged rmerged effective rc=0
+
+  # Step 1: normalize each file into the internal schema (temp files so the
+  # two-file merge primitive has real paths to select on).
+  ngbake="$(claude_vm_mktemp claude-vm-ngbake)"
+  ngboot="$(claude_vm_mktemp claude-vm-ngboot)"
+  nrbake="$(claude_vm_mktemp claude-vm-nrbake)"
+  nrboot="$(claude_vm_mktemp claude-vm-nrboot)"
+  claude_vm_normalize_config_file "$gbake" bake > "$ngbake" || rc=1
+  claude_vm_normalize_config_file "$gboot" boot > "$ngboot" || rc=1
+  claude_vm_normalize_config_file "$rbake" bake > "$nrbake" || rc=1
+  claude_vm_normalize_config_file "$rboot" boot > "$nrboot" || rc=1
+
+  if [ "$rc" -eq 0 ]; then
+    # Step 2: merge each tier's bake+boot into one tier document.
+    gmerged="$(claude_vm_mktemp claude-vm-gmerged)"
+    rmerged="$(claude_vm_mktemp claude-vm-rmerged)"
+    claude_vm_merge_config "$ngbake" "$ngboot" > "$gmerged" || rc=1
+    claude_vm_merge_config "$nrbake" "$nrboot" > "$rmerged" || rc=1
+  fi
+
+  if [ "$rc" -eq 0 ]; then
+    # Step 3: merge the two tier documents (global fills gaps, repo wins).
+    effective="$(claude_vm_merge_config "$gmerged" "$rmerged")" || rc=1
+  fi
+
+  # Step 4: enforce the apt_sources name-conflict rule ACROSS all four files
+  # (same name + differing {repo,key_url} -> loud abort). The union+de-dupe
+  # already collapsed byte-identical duplicates; this catches conflicting ones,
+  # which the structural `unique` in the merge cannot (different content =
+  # different structural value = both survive under the same name).
+  if [ "$rc" -eq 0 ]; then
+    claude_vm_check_apt_sources_conflicts "$effective" || rc=1
+  fi
+
+  rm -f "$ngbake" "$ngboot" "$nrbake" "$nrboot" "${gmerged:-}" "${rmerged:-}"
+
+  if [ "$rc" -eq 0 ]; then
+    printf '%s\n' "$effective"
+  fi
+  return "$rc"
+}
+
+# Abort (non-zero + a claude-vm: diagnostic) when the merged apt_sources list
+# carries the SAME name twice with DIFFERING {repo, key_url} content -- a
+# silent-shadowing hazard the design forbids. Byte-identical duplicates were
+# already collapsed by the list union's structural `unique`, so any name that
+# survives more than once here has conflicting content.
+#   $1 -- effective merged config document (a file path OR read from stdin via
+#         a process-substitution the caller provides). Here: a string.
+claude_vm_check_apt_sources_conflicts() {
+  local doc="$1" dup
+  # Group apt_sources by name; a name whose entries are not all identical is a
+  # conflict. `unique` on the per-name entry list collapses identical ones; a
+  # remaining length > 1 means differing content under one name.
+  dup="$(printf '%s\n' "$doc" | yq eval '
+    [.packages.apt_sources // [] | .[] | .name] as $names
+    | (.packages.apt_sources // []) as $srcs
+    | ($names | unique)
+    | map(. as $n | {"name": $n, "n": [$srcs[] | select(.name == $n)] | unique | length})
+    | map(select(.n > 1))
+    | .[].name
+  ' 2>/dev/null)"
+  if [ -n "$dup" ]; then
+    echo "claude-vm: apt_sources name conflict -- the following name(s) appear more than once with DIFFERING repo/key_url content across your bake/boot config files:" >&2
+    printf '%s\n' "$dup" | while IFS= read -r n; do
+      [ -n "$n" ] && echo "claude-vm:   - $n" >&2
+    done
+    echo "claude-vm: give each apt_sources entry a unique name, or make the conflicting entries identical. Refusing to silently shadow one with the other." >&2
+    return 1
+  fi
+  return 0
+}
+
+# Emit the set of apt_source NAMES declared in the two BAKE files (global-bake
+# and repo-bake), one per line, de-duplicated. These names are already rendered
+# INTO the guest image at build time, so the boot-time apt_source render skips
+# them (design point 5: "the boot render skips names already baked"). A missing
+# bake file contributes nothing.
+#   $1 -- global bake file path (may be absent)
+#   $2 -- repo bake file path   (may be absent)
+claude_vm_baked_apt_source_names() {
+  local gbake="$1" rbake="$2" f
+  for f in "$gbake" "$rbake"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    yq eval '.apt_sources // [] | .[] | .name // ""' "$f" 2>/dev/null
+  done | grep -v '^$' | sort -u
+}
+
+# Emit the BOOT-tier apt_sources TSV: the merged apt_sources MINUS any name that
+# is already baked into the image (per claude_vm_baked_apt_source_names). The
+# boot launcher renders these into the guest's LIVE /etc/apt so an install_at_boot
+# can pull from a third-party repo declared in a BOOT file -- but a baked
+# apt_source is already present in the image, so re-rendering it at boot is
+# skipped. Output shape is identical to claude_vm_apt_sources (name<TAB>repo<TAB>key_url).
+#   $1 -- merged config file path
+#   $2 -- global bake file path (may be absent)
+#   $3 -- repo bake file path   (may be absent)
+claude_vm_boot_apt_sources() {
+  local merged="$1" gbake="$2" rbake="$3"
+  local baked_names
+  baked_names="$(claude_vm_baked_apt_source_names "$gbake" "$rbake")"
+  # Fast path: nothing baked -> every merged apt_source is a boot render.
+  if [ -z "$baked_names" ]; then
+    claude_vm_apt_sources "$merged"
+    return 0
+  fi
+  # Filter out rows whose first TSV field (the name) is in the baked set,
+  # preserving each surviving row's bytes VERBATIM (including a trailing empty
+  # key_url field). awk keys on $1 against the baked-name set so a partial-name
+  # collision never mis-matches; the whole line is emitted unchanged on a miss.
+  claude_vm_apt_sources "$merged" | awk -F'\t' -v baked="$baked_names" '
+    BEGIN { n = split(baked, arr, "\n"); for (i = 1; i <= n; i++) if (arr[i] != "") skip[arr[i]] = 1 }
+    { if (!($1 in skip)) print }
+  '
+}
+
 # Read a scalar from a merged-config document (on stdin or in a file),
 # applying a hardcoded fallback when the key is absent/null.
 #   $1 -- merged config file path
@@ -705,110 +951,71 @@ claude_vm_bake_config_is_empty() {
 }
 
 # ---------------------------------------------------------------------
-# Image-identity hashing (issue #106 real-run redesign).
+# Image-identity hashing -- WHOLE-FILE, RAW BYTES (issue #179 redesign).
 #
-# The bake-hash above hashes the MERGED bake config. That was enough while
-# the only build-relevant knob was packages.bake/apt_sources, but it has two
-# problems the redesign fixes: (1) it never covered image.root_headroom_mb,
-# so changing the headroom did not fork the cache; (2) it collapses global
-# and repo provenance into one merged hash, so an image filename could not
-# tell you WHOSE override produced a given variant.
+# The bake-hash / build-config-json functions above hashed a CANONICALIZED,
+# key-PICKED projection of the config (packages.bake, packages.apt_sources,
+# image.root_headroom_mb). That key-picking was a hand-maintained classification
+# every future build-affecting knob had to remember to update: a missed
+# build-affecting key silently reused a stale image; a wrongly-included runtime
+# key forced spurious multi-minute rebuilds. Nothing structural caught either
+# mistake.
 #
-# The new scheme hashes each config LAYER independently over its
-# BUILD-RELEVANT content, and composes a self-documenting image identity:
+# Issue #179 deletes the classification entirely by SPLITTING the config into
+# bake vs boot FILES (config-bake.yml / config-boot.yml, per tier) and hashing
+# the WHOLE bake FILE's raw bytes. Placement of a key in the bake file IS the
+# classification -- made once, visibly, by the operator. A knob in the wrong
+# file loudly does nothing (a boot key in the bake file changes the hash but the
+# launcher never reads it as a runtime knob; a bake key in the boot file never
+# reaches the image) instead of silently poisoning the cache.
 #
-#   - config-less repo:   <base>+global<globalhash>
-#   - repo with a config: <base>+global<globalhash>+<reponame>-<repohash>
+# Hashing is over the RAW FILE BYTES with NO canonicalization: list order, key
+# order, whitespace, and a trailing-newline toggle ALL change the hash. That is
+# deliberate -- a trailing-newline toggle is the documented force-rebuild lever.
+# Boot files never feed the identity, so editing egress/cpus/boot-packages/
+# update_at_boot never rebuilds.
 #
-# where <globalhash> is the build-hash of the GLOBAL config alone and
-# <repohash> is the build-hash of the REPO config alone. Every repo without a
-# .claude-vm/config.yml shares one image keyed on the global hash; a repo with
-# a config gets its own image, disambiguated by its NAME (so two repos with
-# byte-identical repo configs still get two images -- legibility over maximal
-# dedup, the human's explicit choice: you can see whose override runs where).
+# The composed image identity is self-documenting:
 #
-# BUILD-RELEVANT content is exactly what changes the built image: the baked
-# packages/apt_sources (as canonicalized by claude_vm_bake_config_json) PLUS
-# image.root_headroom_mb (which sizes the root partition). Everything else in
-# the config (cpus, mem, egress, proxy, permissions, marketplaces, plugins,
-# install_at_boot/update_at_boot, github.auth, ...) is applied at boot/run and
-# does NOT change the image, so it is deliberately excluded -- a change to a
-# purely-runtime key must not force an image rebuild.
+#   - repo with NO repo-bake file:  <base>+global<globalhash>
+#   - repo WITH a repo-bake file:   <base>+global<globalhash>+<reponame>-<repohash>
 #
-# root_headroom_mb is read RAW per layer (absent -> ""): a layer's build-hash
-# reflects only what THAT layer declares, so changing the global config's
-# image.root_headroom_mb changes the global hash (the default case, where
-# headroom is a global knob), and a repo that overrides headroom changes its
-# own repo hash. The EFFECTIVE headroom the build actually uses is still the
-# merged, default-filled value resolved by the launcher; these hashes track
-# provenance for the cache key, not the applied value.
+# where <globalhash> is the raw-byte hash of the GLOBAL bake file and
+# <repohash> is the raw-byte hash of the REPO bake file. Every repo without a
+# repo-bake file shares one image keyed on the global-bake hash; a repo WITH a
+# repo-bake file gets its own image, disambiguated by its NAME (two repos with
+# byte-identical repo-bake content still get two images -- legibility over
+# maximal dedup, the human's explicit choice: you can see whose override runs
+# where).
 
-# Emit the CANONICAL build-relevant config as compact JSON for ONE config
-# layer (global OR repo, NOT the merged document). Superset of
-# claude_vm_bake_config_json: same bake/apt_sources canonicalization, plus a
-# root_headroom_mb field (the raw scalar this layer declares, or "" when the
-# layer does not set it). Byte-stable and key-ordered so it can be hashed
-# directly.
+# Compute the 8-hex WHOLE-FILE identity hash of a single BAKE config file over
+# its RAW BYTES (no canonicalization). Reuses the same sha256 tool resolution as
+# claude_vm_bake_hash_from_json so tool choice + prefix length stay consistent.
 #
-#   $1 -- a SINGLE config file path (a layer, not the merged document). A
-#         missing file is treated as an empty document, yielding the canonical
-#         empty form {"bake":[],"apt_sources":[],"root_headroom_mb":""}.
-claude_vm_build_config_json() {
-  local file="$1"
-  # A missing/empty layer must still produce the stable canonical empty form.
-  # yq on a nonexistent path errors, so normalize a missing file to `{}`.
-  local src="$file"
+# A MISSING file hashes as the fixed sentinel "00000000" -- the stable
+# "no bake file present" identity. This is only ever consumed for the GLOBAL
+# bake file (a missing global bake file yields global00000000, shared by every
+# repo whose global bake file is likewise absent); a missing REPO bake file
+# contributes NO segment at all (see claude_vm_image_identity_segments), so its
+# hash is never rendered.
+#
+#   $1 -- a SINGLE bake config file path (config-bake.yml). Missing -> sentinel.
+claude_vm_file_identity_hash() {
+  local file="$1" hex
   if [ -z "$file" ] || [ ! -f "$file" ]; then
-    src="$(claude_vm_mktemp claude-vm-build-empty)"
-    printf '{}\n' > "$src"
+    printf '%s\n' "00000000"
+    return 0
   fi
-  yq eval -o=json -I=0 '
-    {
-      "bake": (.packages.bake // [] | map(select(. != null and . != "")) | unique | sort),
-      "apt_sources": (
-        .packages.apt_sources // []
-        | map({
-            "name":    (.name // ""),
-            "repo":    (.repo // ""),
-            "key_url": (.key_url // "")
-          })
-        | sort_by(.name)
-      ),
-      "root_headroom_mb": (.image.root_headroom_mb // "" | tostring)
-    }
-  ' "$src" 2>/dev/null
-  if [ "$src" != "$file" ]; then rm -f "$src"; fi
-}
-
-# Compute the 8-hex BUILD-HASH of a single config layer's build-relevant
-# content (the canonical JSON from claude_vm_build_config_json). Reuses the
-# same sha256 machinery as the bake-hash so both agree on tool resolution and
-# prefix length.
-#
-#   $1 -- a SINGLE config file path (a layer, not the merged document)
-claude_vm_build_hash() {
-  local file="$1" json
-  json="$(claude_vm_build_config_json "$file")" || return 1
-  claude_vm_bake_hash_from_json "$json"
-}
-
-# True (exit 0) when a SINGLE config layer has NO build-relevant content --
-# i.e. no packages.bake, no packages.apt_sources, and no image.root_headroom_mb.
-# A missing file counts as empty. Used to decide whether a layer contributes an
-# image-identity segment at all (an all-empty repo config file, e.g. one that
-# sets only runtime keys like cpus, produces NO repo segment -- it does not
-# change the image, so it shares the global image just like a config-less repo).
-#
-#   $1 -- a SINGLE config file path (a layer, not the merged document)
-claude_vm_build_config_is_empty() {
-  local file="$1"
-  if [ -z "$file" ] || [ ! -f "$file" ]; then return 0; fi
-  local count headroom
-  count="$(yq eval '
-    ((.packages.bake // []) | length) + ((.packages.apt_sources // []) | length)
-  ' "$file" 2>/dev/null)"
-  headroom="$(yq eval '.image.root_headroom_mb // ""' "$file" 2>/dev/null)"
-  [ "${count:-0}" = "0" ] && { [ -z "$headroom" ] || [ "$headroom" = "null" ]; }
+  if command -v shasum >/dev/null 2>&1; then
+    hex="$(shasum -a 256 < "$file" 2>/dev/null | cut -d' ' -f1)"
+  elif command -v sha256sum >/dev/null 2>&1; then
+    hex="$(sha256sum < "$file" 2>/dev/null | cut -d' ' -f1)"
+  else
+    echo "claude-vm: neither 'shasum' nor 'sha256sum' found to compute the image identity hash." >&2
+    return 1
+  fi
+  [ -n "$hex" ] || { echo "claude-vm: failed to compute the image identity hash for '$file'" >&2; return 1; }
+  printf '%s\n' "${hex:0:8}"
 }
 
 # Sanitize a repo name for use as an image-filename / version segment: keep
@@ -828,28 +1035,32 @@ claude_vm_sanitize_repo_name() {
 }
 
 # Compose the image-identity variant segment(s) appended to the base version /
-# image filename, from the two config LAYERS and the repo name.
+# image filename, from the two BAKE FILES and the repo name (issue #179).
 #
-#   $1 -- global config file path (a layer; may be absent)
-#   $2 -- repo config file path   (a layer; may be absent)
-#   $3 -- repo name (raw; sanitized internally). Only used when the repo layer
-#         contributes a segment.
+#   $1 -- global BAKE file path (config-bake.yml; may be absent)
+#   $2 -- repo BAKE file path   (config-bake.yml; may be absent)
+#   $3 -- repo name (raw; sanitized internally). Only used when a repo-bake file
+#         exists and thus contributes a segment.
 #
 # Emits (on stdout, no leading '+'):
-#   - config-less / build-empty repo: "global<globalhash>"
-#   - repo with build-relevant config: "global<globalhash>+<reponame>-<repohash>"
+#   - repo with NO repo-bake file:  "global<globalhash>"
+#   - repo WITH a repo-bake file:   "global<globalhash>+<reponame>-<repohash>"
 #
-# The GLOBAL segment is ALWAYS present (even for an empty global config, whose
-# build-hash is the stable empty-form hash) so every image name states which
-# global build it came from. The repo segment appears only when the repo layer
-# has build-relevant content (claude_vm_build_config_is_empty false).
+# The GLOBAL segment is ALWAYS present (a missing global bake file hashes to the
+# fixed "00000000" sentinel) so every image name states which global bake it
+# came from. The repo segment appears IFF a repo-bake FILE EXISTS -- its mere
+# presence (not its content) gates the segment: a repo that ships a repo-bake
+# file gets its own image even if that file is byte-identical to another repo's,
+# because the repo NAME disambiguates it (legibility over dedup). A repo with
+# only a repo-BOOT file (no repo-bake file) contributes NO segment and shares
+# the global image.
 claude_vm_image_identity_segments() {
-  local global="$1" repo="$2" repo_name="$3"
+  local global_bake="$1" repo_bake="$2" repo_name="$3"
   local ghash rhash rname out
-  ghash="$(claude_vm_build_hash "$global")" || return 1
+  ghash="$(claude_vm_file_identity_hash "$global_bake")" || return 1
   out="global${ghash}"
-  if ! claude_vm_build_config_is_empty "$repo"; then
-    rhash="$(claude_vm_build_hash "$repo")" || return 1
+  if [ -n "$repo_bake" ] && [ -f "$repo_bake" ]; then
+    rhash="$(claude_vm_file_identity_hash "$repo_bake")" || return 1
     rname="$(claude_vm_sanitize_repo_name "$repo_name")"
     out="${out}+${rname}-${rhash}"
   fi

@@ -2,8 +2,9 @@
 
 This directory ships the executable payloads for the `claude-vm`
 plugin: the config-driven launcher, the guest-image build recipe, the
-config loader library, an example config, and the config-layering unit
-test. They travel with the plugin and live at
+config loader library, the annotated example config pair
+(`config-bake.example.yml` / `config-boot.example.yml`), and the
+config-layering unit test. They travel with the plugin and live at
 `${CLAUDE_PLUGIN_ROOT}/payload/...` once installed.
 
 The plugin's user-facing entry point, `bin/claude-vm` (issue #51), lives
@@ -18,9 +19,13 @@ payload/
   README.md             # this file
   claude-vm.sh          # the launcher (config-driven; entry point)
   build-guest-image.sh  # version-pinned guest base build recipe
-  config.example.yml    # annotated example config
+  config-bake.example.yml  # annotated example: image-bytes keys (packages
+                        # baked in, apt_sources, image.root_headroom_mb)
+  config-boot.example.yml  # annotated example: run-time keys (egress, mounts,
+                        # proxy, cpus/mem, boot packages, claude.*, github.*)
   lib/
-    config.sh           # two-tier YAML loader + layering (sourced by
+    config.sh           # four-file (bake/boot per tier) YAML loader + layering
+                        # + whole-file image-identity hashing (sourced by
                         # claude-vm.sh; directly testable)
     claude-cache.sh     # host-side, GPG-manifest-verified `claude` binary
                         # cache (sourced by claude-vm.sh; directly testable)
@@ -84,11 +89,22 @@ trailing args to `payload/claude-vm.sh` below.
 ```
 
 Reads `cpus`, `mem`, `guest_image`, proxy config, `egress.allow`,
-`mounts`, `repo.mount`, and `repo.copy_back` from two-tier YAML
-(`~/.config/claude-vm/config.yml` and `<repo>/.claude-vm/config.yml`),
-layering repo-over-global for scalars and unioning lists. See the
-`claude-vm` skill (`skills/claude-vm/SKILL.md`) for the full schema and
-semantics.
+`mounts`, `repo.mount`, `repo.copy_back`, and the guest-software keys
+from **four-file YAML** (issue #179): a **bake** file and a **boot**
+file per tier —
+`~/.config/claude-vm/config-bake.yml`,
+`~/.config/claude-vm/config-boot.yml`,
+`<repo>/.claude-vm/config-bake.yml`, and
+`<repo>/.claude-vm/config-boot.yml`, all optional. A key that changes
+bytes in the guest `.raw` image lives in a **bake** file; a key applied
+at run time lives in a **boot** file. The effective config is the union
+of all four, layering repo-over-global for scalars and unioning lists.
+See the `claude-vm` skill (`skills/claude-vm/SKILL.md`) for the full
+schema and semantics.
+
+A legacy single-file `config.yml` (either tier) is **not** read anymore:
+the launcher detects it and aborts with a migration message pointing at
+the bake/boot split, rather than silently dropping the knobs it set.
 
 ## Authentication
 
@@ -335,37 +351,56 @@ the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
-**Baked packages + two-layer image identity (issue #105, redesigned by #106).**
-Unlike `claude`, `packages.bake` (apt packages) and `packages.apt_sources`
-(third-party apt repos) ARE baked into the image, and so is the root
-partition's size (`image.root_headroom_mb`; see the "Mid-session apt proxying,
-metadata diet, and root headroom" section below). These three keys are the
-image's **build-relevant** content; everything else is applied at boot/run.
+**Baked packages + whole-file image identity (issue #105, redesigned by #106,
+re-redesigned by #179).** Unlike `claude`, a **bake** file's `packages:` (apt
+packages) and `apt_sources:` (third-party apt repos) ARE baked into the image,
+and so is the root partition's size (`image.root_headroom_mb`; see the
+"Mid-session apt proxying, metadata diet, and root headroom" section below).
+These keys live in the **bake** file precisely because they change image bytes;
+everything in the **boot** file is applied at boot/run.
 
-The image CONTENT is built from the MERGED config: the launcher passes the
+The image CONTENT is built from the merged config: the launcher passes the
 merged canonical bake config via `CLAUDE_VM_BAKE_CONFIG` and the merged,
 default-filled headroom via `CLAUDE_VM_ROOT_HEADROOM_MB`. The image IDENTITY
-(cache key + filename) is instead **provenance-based**, hashing each config
-LAYER independently over its build-relevant content
-(`claude_vm_image_identity_segments`). The launcher passes the pre-computed
-identity to `build-guest-image.sh` via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`,
-which appends it verbatim to the base version:
+(cache key + filename) is a **whole-file, raw-byte hash of the BAKE files** —
+no key-picking, no canonicalization. Placement of a key in the bake file IS the
+classification, made once by the operator: a knob in the wrong file loudly does
+nothing instead of silently poisoning the cache. Because the hash is over raw
+bytes, list order, key order, whitespace, and even a **trailing-newline toggle**
+all change it — the trailing-newline toggle is the documented force-rebuild
+lever. The launcher passes the pre-computed identity to `build-guest-image.sh`
+via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, appended verbatim to the base version:
 
-- a repo **without** a `.claude-vm/config.yml` (or one with only runtime keys)
+- a repo **without** a `.claude-vm/config-bake.yml`
   → `BASE_OS_REV+launcherN+global<hash>`, image `guest+global<hash>.raw`,
-  shared across every such repo;
-- a repo **with** build-relevant config →
+  shared across every such repo (`<hash>` is the raw-byte hash of the global
+  bake file; an absent global bake file hashes to the `00000000` sentinel);
+- a repo **with** a `.claude-vm/config-bake.yml` →
   `BASE_OS_REV+launcherN+global<hash>+<reponame>-<repohash>`, image
   `guest+global<hash>+<reponame>-<repohash>.raw`, so the filename says whose
   override runs where.
 
-Two repos with byte-identical repo configs still get two images (the name
-disambiguates) — legibility over dedup, an explicit choice. Changing any
-build-relevant key in a layer changes that layer's hash and forces a rebuild;
-changing a runtime key (cpus, egress, permissions, install_at_boot) never
-does. An explicit `guest_image` opts out of identity derivation and is used
-verbatim. An unset `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS` (a bare no-launcher
-`--print-version` smoke test) leaves the bare base version.
+The repo segment's PRESENCE is gated on the bake FILE existing (not its
+content), so two repos with byte-identical repo-bake files still get two images
+(the name disambiguates) — legibility over dedup, an explicit choice. Editing a
+**boot** file never changes identity and never rebuilds; editing a **bake**
+file (including only its trailing newline) does. An explicit `guest_image` opts
+out of identity derivation and is used verbatim. An unset
+`CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS` (a bare no-launcher `--print-version` smoke
+test) leaves the bare base version.
+
+**Immutable base image + per-run clone (issue #179).** The cached base `.raw`
+is **immutable** and is NEVER attached to a VM. Each run APFS-clones it
+(`cp -c`, an instant zero-copy copy-on-write clone) into the run dir and boots
+the CLONE. N concurrent sessions cost one base image plus each session's own
+written blocks — no cross-session/cross-repo state leakage (OAuth credential,
+identity seed, transcripts, shell history, boot-installed packages), and no
+multi-writer corruption from several guests reading-writing one shared ext4
+image. The clone is discarded on a clean exit and RETAINED (path logged) on an
+abnormal exit (nonzero vfkit status or a signal) for forensics. The launcher
+also `sync`s before the VM stop so writes in flight to the clone are flushed
+before vfkit's routine `forcing stop` kill can tear them; with per-run clones
+the blast radius of any torn write is one throwaway session's clone.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -589,8 +624,9 @@ curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
 gpg --fingerprint claude-code   # confirm this matches the published value
 ```
 
-Then set the fingerprint in `~/.config/claude-vm/config.yml` (or the
-per-repo override):
+Then set the fingerprint in `~/.config/claude-vm/config-boot.yml` (or
+the per-repo boot override) — `claude.*` are run-time keys, so they
+live in the **boot** file:
 
 ```yaml
 claude:
