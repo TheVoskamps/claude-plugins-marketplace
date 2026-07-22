@@ -1242,7 +1242,7 @@ fi
 #
 # name flows unescaped into staging filenames (<dir>/<name>.asc,
 # <dir>/<name>.list); since the merged config unions the per-repo
-# .claude-vm/config.yml, name is not fully operator-authored for an
+# .claude-vm/config-bake.yml, name is not fully operator-authored for an
 # untrusted repo. A name containing e.g. "../" must be REJECTED before any
 # path is built, rather than allowed to write outside the staging dirs.
 # ---------------------------------------------------------------------

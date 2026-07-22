@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 #
-# config.sh -- two-tier YAML config loader + layering for claude-vm.
+# config.sh -- four-file (bake/boot per tier) YAML config loader + layering
+# for claude-vm.
 #
-# Sourced by claude-vm.sh. Also directly testable: the layering logic
-# is pure (two input files -> one merged YAML on stdout) with no VM,
-# no network, and no host mutation, so payload/test/config-test.sh
-# exercises it in isolation.
+# Sourced by claude-vm.sh. Also directly testable: the layering logic is pure
+# (input files -> one merged YAML on stdout) with no VM, no network, and no
+# host mutation, so payload/test/config-test.sh exercises it in isolation.
 #
-# Layering semantics (from issue #6, extended by issue #103):
+# Four files, all optional (issue #179): a bake file and a boot file per tier
+# -- global bake/boot at ~/.config/claude-vm/, repo bake/boot at
+# <repo>/.claude-vm/. A bake file's top-level `packages:` is a flat list
+# baked into the image; a boot file's top-level `packages:` is a flat list
+# installed at boot; each file's `apt_sources:` unions in. See
+# claude_vm_compose_effective_config below for how the four files are
+# normalized into the internal schema and merged.
+#
+# Layering semantics (from issue #6, extended by issue #103), applied to the
+# normalized/merged document:
 #   - Scalars (cpus, mem, guest_image, repo.mount, repo.copy_back,
 #     proxy.cmd, proxy.port, proxy.host_alias, packages.update_at_boot,
 #     packages.add_apt_uris_to_allowlist, claude.permission_mode,
@@ -25,9 +34,8 @@
 #     MERGED -- union of global + repo entries (de-duplicated, order:
 #     global entries first, then repo entries not already present).
 #
-# Both layers are OPTIONAL. A missing file is treated as `{}` (empty
-# document), so any combination of {neither, global-only, repo-only,
-# both} resolves cleanly.
+# All four files are OPTIONAL. A missing file is treated as `{}` (empty
+# document), so any combination resolves cleanly.
 #
 # Secrets are never read from or written to these files. The guest
 # authenticates with the host's claude.ai OAuth credential, which the
@@ -891,13 +899,14 @@ claude_vm_bake_config_json() {
 #
 #   $1 -- merged config file path
 #
-# NOTE: this hashes the MERGED bake config. Since issue #106 the image
-# cache key + filename is instead composed by claude_vm_image_identity_segments
-# from the two config LAYERS independently (which uses the superset
-# claude_vm_build_config_json, adding image.root_headroom_mb). This helper is
-# retained for the older callers/tests that hash the merged bake config; it no
-# longer drives the image filename. An empty bake config always yields the SAME
-# hash (the canonical `{"bake":[],"apt_sources":[]}` is constant).
+# NOTE: this hashes the MERGED bake config. Since issue #179 the image cache
+# key + filename is instead a whole-file, raw-byte hash of the two BAKE FILES
+# (claude_vm_image_identity_segments / claude_vm_file_identity_hash) -- no
+# canonicalization, no key-picking. This helper is retained for the
+# build-CONTENT canonicalization (CLAUDE_VM_BAKE_CONFIG) and for the older
+# callers/tests that hash the merged bake config; it no longer drives the
+# image filename. An empty bake config always yields the SAME hash (the
+# canonical `{"bake":[],"apt_sources":[]}` is constant).
 #
 # sha256 tool resolution: prefer `shasum -a 256` (ships with macOS, the only
 # supported host) and fall back to `sha256sum` (coreutils) so the helper works
@@ -936,10 +945,10 @@ claude_vm_bake_hash_from_json() {
 # True (exit 0) when the merged config has NO bake-affecting entries -- i.e.
 # both packages.bake and packages.apt_sources are empty/absent.
 #
-# NOTE: since issue #106 the launcher decides image identity per LAYER via
-# claude_vm_build_config_is_empty (which also considers image.root_headroom_mb),
-# not this merged-config helper. Retained for the pure-function tests that
-# still exercise the merged bake-config canonicalization.
+# NOTE: since issue #179 the launcher decides image identity via a whole-file,
+# raw-byte hash of the two BAKE FILES (claude_vm_file_identity_hash), not this
+# merged-config helper. Retained for the pure-function tests that still
+# exercise the merged bake-config canonicalization.
 #
 #   $1 -- merged config file path
 claude_vm_bake_config_is_empty() {

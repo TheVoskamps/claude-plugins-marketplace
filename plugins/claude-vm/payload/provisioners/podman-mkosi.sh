@@ -649,8 +649,8 @@ echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_P
 #
 # name VALIDATION: name flows unescaped into staging filenames
 # (<keyrings_dir>/<name>.asc, <sources_dir>/<name>.list). The merged config
-# unions the per-repo .claude-vm/config.yml into apt_sources, so name is NOT
-# fully operator-authored for an untrusted repo -- a name containing e.g.
+# unions the per-repo .claude-vm/config-bake.yml into apt_sources, so name is
+# NOT fully operator-authored for an untrusted repo -- a name containing e.g.
 # "../" could write outside the intended staging dirs. Reject anything
 # outside a conservative filename-safe charset BEFORE building any path.
 #
@@ -758,8 +758,8 @@ render_apt_source() {
       unset IFS
       # SECURITY: absolute + charset-safe + no '..' is NOT sufficient. repo
       # (and therefore existing_signed_by) is UNTRUSTED -- it flows from the
-      # merged, per-repo .claude-vm/config.yml (same untrusted-input status
-      # documented on 'name' above). Without a further constraint, a
+      # merged, per-repo .claude-vm/config-bake.yml (same untrusted-input
+      # status documented on 'name' above). Without a further constraint, a
       # malicious per-repo config could pair an attacker-served key_url with
       # e.g. signed-by=/etc/cron.d/x and this function would write
       # attacker-controlled bytes to an arbitrary path in the guest image

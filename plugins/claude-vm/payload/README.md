@@ -311,19 +311,18 @@ argv:
   normalized `apt_sources`) as compact JSON that the launcher passes to the
   provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
   hashes canonical JSON to 8 hex chars. All pure and unit-tested.
-- `claude_vm_build_config_json` / `claude_vm_build_hash` /
-  `claude_vm_build_config_is_empty` / `claude_vm_sanitize_repo_name` /
-  `claude_vm_image_identity_segments` — the two-layer **image-identity**
-  helpers (issue #106 redesign). `claude_vm_build_config_json` emits the
-  canonical **build-relevant** config for ONE layer (bake + apt_sources +
-  `image.root_headroom_mb`); `claude_vm_build_hash` hashes it (reusing
-  `claude_vm_bake_hash_from_json`). `claude_vm_image_identity_segments`
-  composes the self-documenting identity from the two layers: always
-  `global<globalhash>`, plus `+<reponame>-<repohash>` when the repo layer has
-  build-relevant content (name sanitized by `claude_vm_sanitize_repo_name`).
-  `build-guest-image.sh` receives the pre-computed segments verbatim via
-  `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, so the stamped version and the launcher's
-  filename agree by construction. All pure and unit-tested.
+- `claude_vm_file_identity_hash` / `claude_vm_sanitize_repo_name` /
+  `claude_vm_image_identity_segments` — the **image-identity** helpers
+  (issue #106 redesign, re-redesigned by issue #179 to a whole-file, raw-byte
+  hash). `claude_vm_file_identity_hash` hashes a single bake config file's raw
+  bytes (no canonicalization); a missing file hashes to the `00000000`
+  sentinel. `claude_vm_image_identity_segments` composes the self-documenting
+  identity from the two bake files: always `global<globalhash>`, plus
+  `+<reponame>-<repohash>` when a repo-bake file exists (name sanitized by
+  `claude_vm_sanitize_repo_name`). `build-guest-image.sh` receives the
+  pre-computed segments verbatim via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, so
+  the stamped version and the launcher's filename agree by construction. All
+  pure and unit-tested.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

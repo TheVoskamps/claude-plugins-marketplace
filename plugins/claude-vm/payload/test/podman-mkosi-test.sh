@@ -491,7 +491,7 @@ if [ -f "$CAPTURE_INNER" ]; then
     # carries its own signed-by=P) used to accept ANY absolute,
     # charset-safe, '..'-free P and write the fetched key there verbatim.
     # apt_sources is unioned in from the per-repo (UNTRUSTED)
-    # .claude-vm/config.yml, so a malicious config could pair
+    # .claude-vm/config-bake.yml, so a malicious config could pair
     # signed-by=/etc/cron.d/x with an attacker-served key_url to get
     # attacker-controlled bytes written to an arbitrary path in the guest
     # image staging tree, which then boots as root. render_apt_source must

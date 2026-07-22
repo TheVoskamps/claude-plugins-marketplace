@@ -4,13 +4,19 @@
 #
 # Config-driven replacement for the original env-var launcher. Every
 # non-secret operational knob (cpus, mem, guest_image, proxy, egress
-# allowlist, extra mounts, repo mount strategy) comes from layered YAML:
+# allowlist, extra mounts, repo mount strategy) comes from FOUR optional YAML
+# files (issue #179): a bake file and a boot file per tier --
 #
-#   global:   ~/.config/claude-vm/config.yml   (machine-wide defaults)
-#   per-repo: <repo>/.claude-vm/config.yml      (project-specific)
+#   global bake: ~/.config/claude-vm/config-bake.yml   (machine-wide, image bytes)
+#   global boot: ~/.config/claude-vm/config-boot.yml   (machine-wide, run time)
+#   repo   bake: <repo>/.claude-vm/config-bake.yml     (project-specific, image bytes)
+#   repo   boot: <repo>/.claude-vm/config-boot.yml     (project-specific, run time)
 #
-# Scalars: repo overrides global. Lists (egress.allow, mounts): union.
-# See payload/lib/config.sh for the layering implementation and
+# A key that changes bytes in the guest .raw image lives in a bake file; a key
+# applied at run time lives in a boot file. Scalars: repo overrides global.
+# Lists (egress.allow, mounts): union. A legacy single-file config.yml (either
+# tier) is not read -- see claude_vm_detect_legacy_config below. See
+# payload/lib/config.sh for the layering implementation and
 # skills/claude-vm/SKILL.md for the full config schema.
 #
 # AUTH: the guest authenticates with the HOST's live claude.ai OAuth
@@ -152,19 +158,21 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_
 # DERIVES the image path from the image-identity segments below, defaulting
 # into the cache dir alongside the global config.
 #
-# Image identity (issue #105 bake-hash, redesigned by issue #106). The image's
-# CONTENT is determined by build-relevant config -- packages.bake +
-# packages.apt_sources (baked in) and image.root_headroom_mb (root partition
-# size). Its IDENTITY (cache key + filename) is composed from the two config
-# LAYERS independently, so the filename is self-documenting:
+# Image identity (issue #105 bake-hash, redesigned by #106, re-redesigned by
+# #179 to a whole-file raw-byte hash). The image's CONTENT is determined by
+# build-relevant config -- a bake file's packages: + apt_sources: (baked in)
+# and image.root_headroom_mb (root partition size). Its IDENTITY (cache key +
+# filename) is a whole-file, raw-byte hash of the two BAKE FILES (no
+# key-picking, no canonicalization -- see claude_vm_file_identity_hash), so the
+# filename is self-documenting:
 #
-#   - config-less repo:   guest+global<globalhash>.raw
-#   - repo with a config: guest+global<globalhash>+<reponame>-<repohash>.raw
+#   - no repo-bake file:    guest+global<globalhash>.raw
+#   - repo with a bake file: guest+global<globalhash>+<reponame>-<repohash>.raw
 #
-# Every repo WITHOUT a .claude-vm/config.yml shares one image keyed on the
-# global build-hash; a repo WITH build-relevant config gets its own image,
-# disambiguated by NAME (two repos with byte-identical repo configs still get
-# two images -- legibility over dedup, the human's explicit choice). The
+# Every repo WITHOUT a .claude-vm/config-bake.yml shares one image keyed on the
+# global bake hash; a repo WITH a repo-bake file gets its own image,
+# disambiguated by NAME (two repos with byte-identical repo-bake files still
+# get two images -- legibility over dedup, the human's explicit choice). The
 # segments are computed ONCE here (claude_vm_image_identity_segments) and
 # passed to build-guest-image.sh via CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS for both
 # --print-version and --output, so the version it stamps and the version we
@@ -343,7 +351,7 @@ claude_vm_preflight_trust_path() {
     echo "claude-vm: the fingerprint of the claude-code key you verified out of band. Import and pin it:" >&2
     echo "claude-vm:   curl -fsSL $CLAUDE_VM_SIGNING_KEY_URL | gpg --import" >&2
     echo "claude-vm:   gpg --fingerprint claude-code   # copy the 40-hex fingerprint after verifying it" >&2
-    echo "claude-vm: then add to ~/.config/claude-vm/config.yml (or <repo>/.claude-vm/config.yml):" >&2
+    echo "claude-vm: then add to ~/.config/claude-vm/config-boot.yml (or <repo>/.claude-vm/config-boot.yml):" >&2
     echo "claude-vm:   claude:" >&2
     echo "claude-vm:     signing_key_fingerprint: \"<the fingerprint you just verified>\"" >&2
   elif command -v gpg >/dev/null 2>&1; then
@@ -1176,7 +1184,7 @@ export CLAUDE_VM_PROXY_PORT="$PROXY_PORT"
 if ! grep -q '[^[:space:]]' "$EGRESS_ALLOWLIST" 2>/dev/null; then
   echo "claude-vm: WARNING -- effective egress.allow is EMPTY (no hosts in either config layer)." >&2
   echo "claude-vm: the guest's outbound access is unconfined unless proxy.cmd fails closed on an empty allowlist." >&2
-  echo "claude-vm: set egress.allow in ~/.config/claude-vm/config.yml or <repo>/.claude-vm/config.yml to confine egress." >&2
+  echo "claude-vm: set egress.allow in ~/.config/claude-vm/config-boot.yml or <repo>/.claude-vm/config-boot.yml to confine egress." >&2
 fi
 
 if [ -z "$PROXY_CMD" ]; then
