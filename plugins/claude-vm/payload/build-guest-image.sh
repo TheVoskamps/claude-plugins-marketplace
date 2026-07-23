@@ -853,7 +853,56 @@ cd "$REPO_MNT"
 # CLAUDE_ARGS ('') yields `set -- ` -> zero argv. The two halves of this
 # contract are kept in lockstep with the claude_vm_quote_args comment.
 eval "set -- ${CLAUDE_ARGS:-}"
-exec "$CLAUDE_BIN" "$@"
+
+# ---------------------------------------------------------------------
+# Guest powers ITSELF off when claude quits deliberately (issue #179).
+#
+# claude is the ONLY workload in this disposable VM: claude exiting == the
+# session is over == the VM should terminate. There is NO host->guest shutdown
+# channel; the guest decides its own fate from claude's exit STATUS, which the
+# host launcher then observes as vfkit exiting on its own (control returns to
+# the host, which discards the per-run clone and restores the host tty).
+#
+# We deliberately do NOT `exec` claude here: exec would replace this process, so
+# claude's exit status could not be captured and acted on. Run it as a CHILD and
+# read $?. `set -e` is relaxed around the run so a nonzero claude exit is
+# recorded rather than aborting this launcher before the decision below.
+#
+# Exit-status contract (verified on a real interactive tty, issue #179):
+#   - Every DELIBERATE quit is 0: Ctrl-D Ctrl-D, /exit, and Ctrl-C Ctrl-C all
+#     exit claude 0. On 0 the guest powers off -- the clean path.
+#   - An ABNORMAL death is nonzero (e.g. SIGKILL -> 137). On nonzero the guest
+#     does NOT power off: it is left up and inspectable so a broken session is
+#     diagnosable rather than instantly vanishing into a powered-off VM.
+#
+# The getty's respawn is neutralized in the unit drop-in (provisioners/podman-
+# mkosi.sh: the agetty ExecStart no longer carries a leading `-`, so a launcher
+# exit does not auto-respawn to fight this poweroff on the clean path). On the
+# nonzero path this launcher simply returns; agetty exits and, with no respawn,
+# leaves the console idle on the still-running VM for inspection.
+set +e
+"$CLAUDE_BIN" "$@"
+CLAUDE_STATUS=$?
+set -e
+
+if [ "$CLAUDE_STATUS" -eq 0 ]; then
+  log "claude-vm: claude exited 0 (deliberate quit); powering the guest off."
+  # Prefer systemd's ordered shutdown; fall back to the raw poweroff(8) if
+  # systemctl is somehow unavailable. `exec` so this login program's final act
+  # IS the poweroff request (nothing runs after it on the clean path).
+  if command -v systemctl >/dev/null 2>&1; then
+    exec systemctl poweroff
+  else
+    exec poweroff
+  fi
+fi
+
+# Nonzero: abnormal claude death. Do NOT power off -- leave the VM up and
+# inspectable. Return this launcher's exit as claude's status; the getty's
+# respawn is disabled, so the console goes idle rather than looping, and the
+# host launcher sees vfkit still running until the operator brings it down.
+log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); leaving the guest UP for inspection (no poweroff)."
+exit "$CLAUDE_STATUS"
 BOOT
 }
 

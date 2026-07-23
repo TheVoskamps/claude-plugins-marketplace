@@ -647,6 +647,39 @@ assert_contains "non-integer headroom: actionable error on stderr" \
   "$WORK/stderr.log" "must be a positive integer"
 
 # ---------------------------------------------------------------------
+# Guest self-poweroff getty drop-in (issue #179). The redesigned shutdown model
+# makes the guest power ITSELF off when claude quits (exit 0); for that to work
+# cleanly the autologin getty must NOT unconditionally respawn the boot launcher
+# (a respawn would race the guest's own `systemctl poweroff` on the clean path
+# and re-loop claude on the abnormal path). Assert on the ACTUAL generated
+# drop-in the provisioner writes into the recipe tree: the boot-launcher
+# ExecStart carries NO leading `-`, and Restart=no is set. Regenerate a valid
+# recipe first (the prior run aborted on a bad headroom and wrote none).
+# ---------------------------------------------------------------------
+run_provisioner "$BAKE_CONFIG"
+GETTY_RUN_EXIT=$?
+assert_eq "getty-check run reaches container handoff (stub exit 42)" "42" "$GETTY_RUN_EXIT"
+GETTY_DROPIN="$CAPTURE_RECIPE/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d/10-claude-vm.conf"
+if [ -f "$GETTY_DROPIN" ]; then
+  assert_contains "getty drop-in: boot-launcher ExecStart present" \
+    "$GETTY_DROPIN" "boot-launcher.sh"
+  # NO leading `-`: a launcher exit must not auto-respawn the getty.
+  assert_not_contains "getty drop-in: ExecStart has no leading '-' (respawn neutralized)" \
+    "$GETTY_DROPIN" "ExecStart=-/sbin/agetty"
+  assert_contains "getty drop-in: agetty ExecStart with no leading '-'" \
+    "$GETTY_DROPIN" "ExecStart=/sbin/agetty"
+  # Restart=no explicit.
+  if grep -qE '^Restart=no$' "$GETTY_DROPIN"; then
+    PASS=$((PASS + 1)); echo "ok   - getty drop-in: Restart=no set"
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL - getty drop-in: Restart=no set"
+  fi
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - getty drop-in not found at $GETTY_DROPIN"
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

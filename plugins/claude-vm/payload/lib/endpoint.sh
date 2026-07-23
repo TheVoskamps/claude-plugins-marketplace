@@ -3,14 +3,16 @@
 # endpoint.sh -- per-run network/IPC endpoint acquisition for claude-vm
 # (issue #179).
 #
-# A claude-vm run owns three host endpoints that MUST be unique per run so
-# that N concurrent runs off one immutable base image do not collide:
+# A claude-vm run owns two host endpoints that MUST be unique per run so that N
+# concurrent runs off one immutable base image do not collide:
 #
 #   - an SSH-forward TCP port for gvproxy (gvproxy's -ssh-port; default 2222,
 #     which every instance would otherwise grab -> the second run fails with
 #     `bind: address already in use`);
-#   - the gvproxy<->vfkit unixgram socket (net.sock);
-#   - the vfkit REST control socket (vfkit.sock).
+#   - the gvproxy<->vfkit unixgram socket (net.sock).
+#
+# (There is no vfkit REST control socket: the guest powers itself off, so vfkit
+# needs no host->guest REST channel -- issue #179.)
 #
 # A unique PATH is necessary but NOT sufficient: a stale socket file left by a
 # dead run occupies the path with no listener, and bind() then fails
@@ -168,56 +170,10 @@ claude_vm_clear_stale_unix_sock() {
   return 0
 }
 
-# ---------------------------------------------------------------------
-# claude_vm_vfkit_request_stop <rest-sock-path>
-#
-# Ask vfkit to gracefully power off the guest via its REST control channel
-# (issue #179): POST /vm/state with body {"state":"Stop"} over the unix socket.
-# vfkit maps define.Stop -> vm.RequestStop(), which presses the guest's ACPI
-# power button; the guest's systemd then halts regardless of what is running on
-# the interactive console (so this works even though claude "is the VM" and
-# respawns under a getty -- no guest cooperation required). Contract verified
-# against vfkit v0.6.4 (pkg/rest/rest.go routes GET/POST /vm/state;
-# pkg/rest/vf/state_change.go maps Stop->RequestStop, HardStop->Stop;
-# pkg/rest/define/config.go VMState{State string `json:"state"`}).
-#
-# curl ships in the base macOS install (/usr/bin/curl) and speaks HTTP over a
-# unix socket via --unix-socket. The Host in the URL is a dummy (ignored for a
-# unix-socket connection).
-#
-# Returns 0 when the POST was accepted (HTTP 2xx), 1 otherwise (socket gone,
-# vfkit refused because the guest is not booted far enough for canRequestStop,
-# curl missing, etc.) -- the caller then falls back to HardStop / force-reap.
-# ---------------------------------------------------------------------
-claude_vm_vfkit_request_stop() {
-  local sock="$1"
-  [ -n "$sock" ] && [ -S "$sock" ] || return 1
-  [ -x /usr/bin/curl ] || return 1
-  # -f: fail (nonzero) on HTTP >=400, so a vfkit refusal (e.g. canRequestStop
-  # false before the guest is up) does not read as success. Short connect +
-  # max-time so a wedged socket cannot hang cleanup().
-  /usr/bin/curl -fsS --unix-socket "$sock" \
-    --connect-timeout 2 --max-time 5 \
-    -X POST -H 'Content-Type: application/json' \
-    -d '{"state":"Stop"}' \
-    'http://vfkit/vm/state' >/dev/null 2>&1
-}
-
-# ---------------------------------------------------------------------
-# claude_vm_vfkit_hard_stop <rest-sock-path>
-#
-# Force the VM down via the REST channel: POST {"state":"HardStop"} ->
-# vm.Stop() (issue #179). Used only as a bounded-timeout fallback when a
-# graceful RequestStop did not bring the guest down. Same success/return
-# contract as claude_vm_vfkit_request_stop.
-# ---------------------------------------------------------------------
-claude_vm_vfkit_hard_stop() {
-  local sock="$1"
-  [ -n "$sock" ] && [ -S "$sock" ] || return 1
-  [ -x /usr/bin/curl ] || return 1
-  /usr/bin/curl -fsS --unix-socket "$sock" \
-    --connect-timeout 2 --max-time 5 \
-    -X POST -H 'Content-Type: application/json' \
-    -d '{"state":"HardStop"}' \
-    'http://vfkit/vm/state' >/dev/null 2>&1
-}
+# NOTE (issue #179): there are deliberately NO vfkit REST helpers here. An
+# earlier pass drove guest shutdown from the host over vfkit's `--restful-uri`
+# REST channel (POST {"state":"Stop"}/{"state":"HardStop"}). That model was
+# replaced: the guest powers ITSELF off when claude quits (the boot launcher
+# runs `systemctl poweroff` on claude's exit 0), so vfkit needs no REST control
+# socket and the host needs no shutdown driver -- vfkit runs foreground and
+# exits on its own when the guest halts.

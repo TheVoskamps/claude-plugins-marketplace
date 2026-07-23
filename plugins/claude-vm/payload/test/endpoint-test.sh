@@ -222,71 +222,12 @@ else
 fi
 kill "$GPID" 2>/dev/null || true
 
-# ---------------------------------------------------------------------
-# claude_vm_vfkit_request_stop / claude_vm_vfkit_hard_stop
-#
-# These POST to vfkit's REST control socket. Test them against a tiny perl
-# unix-socket HTTP server that answers ONE request with a fixed status, so the
-# 2xx-vs-error contract the cleanup() fallback ladder depends on is exercised
-# without a real vfkit. (A 4xx models vfkit refusing the stop because the guest
-# is not booted far enough for canRequestStop -> caller falls back to force.)
-# ---------------------------------------------------------------------
-if [ ! -x /usr/bin/curl ]; then
-  echo "SKIP: /usr/bin/curl not available; vfkit REST-call tests skipped." >&2
-else
-  # start_http_unix <path> <status-line> -> pid. Serves exactly one connection
-  # with the given HTTP status, then exits. stdout redirected so $(...) does not
-  # block on the inherited fd.
-  start_http_unix() {
-    local path="$1" status="$2"
-    /usr/bin/perl -MIO::Socket::UNIX -e '
-      my ($p, $st) = @ARGV;
-      my $srv = IO::Socket::UNIX->new(Local => $p, Listen => 1) or exit 1;
-      my $c = $srv->accept() or exit 1;
-      # Drain the request headers (up to the blank line) so curl can send its body.
-      local $/ = "\r\n";
-      while (my $l = <$c>) { last if $l eq "\r\n"; }
-      print $c "HTTP/1.1 $st\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-      close $c;
-    ' "$path" "$status" >/dev/null 2>&1 &
-    echo $!
-  }
-
-  # Absent socket -> request_stop fails (nothing to POST to).
-  assert_false "vfkit_request_stop: absent socket -> failure" \
-    claude_vm_vfkit_request_stop "$WORK/no-vfkit.sock"
-
-  # A 200 responder -> request_stop succeeds.
-  OK_SOCK="$WORK/vfkit-ok.sock"
-  HPID="$(start_http_unix "$OK_SOCK" "200 OK")"
-  LISTENER_PIDS+=("$HPID")
-  for _ in $(seq 1 30); do [ -S "$OK_SOCK" ] && break; sleep 0.1; done
-  assert_true "vfkit_request_stop: 200 response -> success" \
-    claude_vm_vfkit_request_stop "$OK_SOCK"
-  kill "$HPID" 2>/dev/null || true
-
-  # A 400 responder (models canRequestStop false) -> request_stop FAILS, so the
-  # caller falls back to HardStop/force. This is the crucial contract.
-  BAD_SOCK="$WORK/vfkit-bad.sock"
-  BPID="$(start_http_unix "$BAD_SOCK" "400 Bad Request")"
-  LISTENER_PIDS+=("$BPID")
-  for _ in $(seq 1 30); do [ -S "$BAD_SOCK" ] && break; sleep 0.1; done
-  assert_false "vfkit_request_stop: 4xx response -> failure (caller must force)" \
-    claude_vm_vfkit_request_stop "$BAD_SOCK"
-  kill "$BPID" 2>/dev/null || true
-
-  # hard_stop honors the same 2xx contract.
-  HS_SOCK="$WORK/vfkit-hardstop.sock"
-  HSPID="$(start_http_unix "$HS_SOCK" "200 OK")"
-  LISTENER_PIDS+=("$HSPID")
-  for _ in $(seq 1 30); do [ -S "$HS_SOCK" ] && break; sleep 0.1; done
-  assert_true "vfkit_hard_stop: 200 response -> success" \
-    claude_vm_vfkit_hard_stop "$HS_SOCK"
-  kill "$HSPID" 2>/dev/null || true
-
-  assert_false "vfkit_hard_stop: absent socket -> failure" \
-    claude_vm_vfkit_hard_stop "$WORK/no-vfkit2.sock"
-fi
+# NOTE (issue #179): there are no vfkit REST-call tests here. An earlier pass
+# drove guest shutdown from the host over vfkit's REST channel and tested those
+# helpers against a fake unix-socket HTTP server. That model was replaced by the
+# guest powering ITSELF off on claude's exit 0, so the REST helpers and their
+# tests are gone. The guest-side exit-0-vs-nonzero poweroff decision is covered
+# by boot-launcher-test.sh; the host side no longer drives shutdown at all.
 
 # ---------------------------------------------------------------------
 echo ""

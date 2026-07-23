@@ -31,9 +31,10 @@ payload/
                         # cache (sourced by claude-vm.sh; directly testable)
     endpoint.sh         # per-run endpoint acquisition (issue #179): free
                         # TCP-port acquisition, TCP/unix-socket liveness (live
-                        # listener vs stale corpse), stale-corpse clearing, and
-                        # the vfkit REST stop/hard-stop calls (sourced by
-                        # claude-vm.sh; directly testable)
+                        # listener vs stale corpse), stale-corpse clearing
+                        # (sourced by claude-vm.sh; directly testable). No
+                        # vfkit REST shutdown helpers -- the guest powers itself
+                        # off, so the host drives no shutdown.
   provisioners/
     podman-mkosi.sh     # bundled DEFAULT provisioner: mkosi in a throwaway
                         # rootless podman container -> raw EFI guest image
@@ -46,6 +47,12 @@ payload/
                         # #179): free-port acquisition, TCP/unix-socket
                         # liveness vs stale corpse, corpse clearing; uses real
                         # perl listeners, host-gated on /usr/bin/perl
+    boot-launcher-test.sh
+                        # regression test for the guest self-poweroff decision
+                        # (issue #179): claude exit 0 -> systemctl poweroff,
+                        # nonzero -> leave VM up; getty respawn neutralized.
+                        # Runs the emitted launcher's real decision fragment
+                        # against stubs; needs only bash + awk
     bin-config-check-test.sh
                         # regression test for bin/claude-vm's four-file
                         # config-presence check (issue #179 defect #3): no
@@ -690,6 +697,7 @@ replacement.
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/endpoint-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/boot-launcher-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
@@ -707,7 +715,23 @@ liveness that distinguishes a LIVE listener from a stale socket-file corpse
 (the old readiness check tested mere file existence, so a corpse passed it),
 plus the stale-corpse clearing that refuses to stomp a live sibling's socket.
 Stands up genuine `perl` TCP and unix listeners so the checks run against real
-live/dead endpoints; host-gated on `/usr/bin/perl`.
+live/dead endpoints; host-gated on `/usr/bin/perl`. (There are no vfkit
+REST-shutdown helpers or tests: the guest powers itself off — see
+`boot-launcher-test.sh` — so the host drives no shutdown.)
+
+`boot-launcher-test.sh` is the regression test for issue #179's guest-side
+self-poweroff model, which replaced the earlier host-driven vfkit-REST
+shutdown. It extracts the boot launcher `build-guest-image.sh` emits, slices
+out the real exit-status decision fragment (`"$CLAUDE_BIN" "$@"` →
+capture-status → branch), and runs THAT fragment against a stubbed
+claude/systemctl/poweroff: a claude exit 0 (a deliberate quit) powers the guest
+off via `systemctl poweroff` (falling back to `poweroff(8)` when systemctl is
+absent), while a nonzero exit (137/SIGKILL, or any nonzero) takes NO shutdown
+action and returns claude's status so the VM is left up and inspectable. It
+also asserts the getty drop-in the provisioner writes neutralizes the respawn
+(no leading `-` on the boot-launcher ExecStart, `Restart=no`) — the other half
+of the clean-poweroff contract, since an unconditional respawn would race the
+guest's own poweroff. No VM, no network, no root; needs only `bash` + `awk`.
 
 `bin-config-check-test.sh` is the regression test for issue #179 real-boot
 defect #3: `bin/claude-vm`'s global-config presence check must know the

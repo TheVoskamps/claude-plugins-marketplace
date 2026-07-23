@@ -414,15 +414,27 @@ FSTAB
 #     with --login-program pointing at the boot launcher. agetty autologs in
 #     root, sets up the controlling tty + termios (which is why a fullscreen
 #     TUI renders), then execs the boot launcher AS the login program. The
-#     boot launcher in turn `exec`s claude -- so claude IS the session, with no
-#     shell in between. If claude exits, agetty respawns (a login shell on
-#     hvc1) rather than leaving a black screen.
+#     boot launcher runs claude as a CHILD and, on claude's DELIBERATE quit
+#     (exit 0), powers the guest off (issue #179) -- claude is the only
+#     workload, so its exit ends the disposable VM. On an ABNORMAL claude
+#     death (nonzero) the launcher does NOT power off; it returns, leaving the
+#     VM up and inspectable.
+#
+# Respawn neutralized (issue #179): the ExecStart carries NO leading `-`, and
+# Restart=no is set explicitly, so a boot-launcher exit does NOT auto-respawn
+# the getty. This is required by the poweroff-on-clean-exit model: an
+# unconditional respawn would race the guest's own `systemctl poweroff` on the
+# clean path (relaunching claude while the VM is halting), and on the abnormal
+# path it would re-run claude in a loop instead of leaving the failed session
+# idle for inspection. The pre-#179 model exec'd claude and relied on the
+# leading-`-` respawn to recover a black screen; the new self-poweroff model
+# supersedes it.
 #
 # This replaces the hand-rolled oneshot; the getty path is the mechanism
 # verified in the #88 spike. The boot launcher still installs the host OAuth
-# credential (#50) and execs the host-verified binary (#49); only its
-# invocation context changes (detached oneshot -> hvc1 console-getty
-# foreground).
+# credential (#50) and runs the host-verified binary (#49); only its
+# invocation context and its exit handling change (detached oneshot -> hvc1
+# console-getty foreground; exec-claude -> run-claude-then-decide-poweroff).
 #
 # Ordering: the getty's RequiresMountsFor pulls in and orders after the
 # virtio-fs mounts the launcher needs: runconfig (sourced run.env), claudebin
@@ -451,13 +463,20 @@ RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 # (hvc1) is the first positional, then the optional baud list, then $TERM
 # (expanded by systemd from the serial-getty@.service template). --autologin
 # root logs root in with no prompt; --login-program runs the boot launcher
-# instead of /bin/login, so the launcher (which execs claude) becomes the
+# instead of /bin/login, so the launcher (which runs claude) becomes the
 # session with no shell in between. --keep-baud matches the stock serial-getty
-# behavior (the vfkit virtio-console has no real baud). The leading `-` makes a
-# launcher exit non-fatal so agetty respawns to a login shell rather than a
-# black screen if claude exits.
+# behavior (the vfkit virtio-console has no real baud).
+#
+# NO leading `-` on the ExecStart, and Restart=no (issue #179): a boot-launcher
+# exit must NOT auto-respawn the getty. The boot launcher itself powers the
+# guest off on claude's deliberate quit (exit 0) and leaves the VM up on an
+# abnormal exit; an unconditional respawn would race that poweroff on the clean
+# path and re-loop claude on the abnormal path. (Pre-#179 the leading `-` made
+# a launcher exit non-fatal so agetty respawned a login shell; the self-
+# poweroff model removes that respawn.)
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --login-program /usr/local/lib/claude-vm/boot-launcher.sh --keep-baud 115200,57600,38400,9600 hvc1 $TERM
+ExecStart=/sbin/agetty --autologin root --login-program /usr/local/lib/claude-vm/boot-launcher.sh --keep-baud 115200,57600,38400,9600 hvc1 $TERM
+Restart=no
 GETTY
 
 # Enable serial-getty@hvc1 at build time by creating the getty.target.wants
