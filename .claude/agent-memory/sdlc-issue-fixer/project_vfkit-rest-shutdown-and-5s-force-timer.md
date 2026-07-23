@@ -1,6 +1,6 @@
 ---
 name: vfkit-rest-shutdown-and-5s-force-timer
-description: vfkit v0.6.4's own signal handler force-stops the guest after a HARDCODED 5s; clean claude-vm exit needs REST RequestStop + process-group isolation, not just --restful-uri
+description: vfkit v0.6.4 force-stops the guest after a HARDCODED 5s once it receives a terminating signal, so claude-vm cannot rely on a host-driven vfkit stop at all -- the guest must power itself off
 metadata:
   type: project
 ---
@@ -18,25 +18,27 @@ against vfkit v0.6.4 source (`gh api repos/crc-org/vfkit/contents/...?ref=v0.6.4
   vfkit ALWAYS force-kills.
 - vfkit's REST channel maps `POST /vm/state {"state":"Stop"}` → the SAME
   `RequestStop()` but with **NO 5s force-timer** (the REST handler just requests
-  the stop; `runVirtualMachine` then waits naturally). Routes:
-  `GET/POST /vm/state`, `GET /vm/inspect`; body is `{"state": "..."}`
-  (`VMState{State string json:"state"}`); values Stop/HardStop/Pause/Resume;
-  `unix://<path>` URI (host forbidden, path required, ≤104 bytes).
+  the stop; `runVirtualMachine` then waits naturally).
 
-**How to apply:** to get a clean claude-vm exit you must (a) launch
-`vfkit --restful-uri unix://$RUN/vfkit.sock`, AND (b) keep the terminal Ctrl-C
-OFF vfkit so its 5s force-timer never starts — done by backgrounding vfkit under
-`set -m` (own process group), then driving the stop from the launcher's cleanup
-trap: POST Stop, poll (generous timeout), POST HardStop, SIGKILL as last resort.
-`--restful-uri` alone is NOT enough; without the signal isolation vfkit's own
-handler still races and force-kills at 5s. Talk to the socket with
-`/usr/bin/curl --unix-socket <sock> -X POST -d '{"state":"Stop"}'
-http://vfkit/vm/state` (curl+perl+lsof are all base-macOS at /usr/bin,/usr/sbin).
+**REJECTED approach (do not repeat):** an earlier pass tried launching vfkit
+with `--restful-uri`, backgrounding it under `set -m` (its own process group)
+so a terminal Ctrl-C wouldn't reach vfkit's 5s-timer signal handler, then
+driving the stop from the launcher's cleanup trap (POST Stop, poll, POST
+HardStop, SIGKILL as last resort). This was **verified wrong** on a real
+interactive boot, not just risky: vfkit v0.6.4 reads the controlling terminal
+via `NewFileHandleSerialPortAttachment(os.Stdin, os.Stdout)`
+(`pkg/vf/virtio.go`) and does not ignore SIGTTIN or manage the foreground
+process group. A process in a background process group that reads the
+controlling tty gets SIGTTIN and stops — so `set -m` **freezes guest keyboard
+input**, trading the forced-stop bug for an input-freeze bug.
 
-**RESIDUAL RISK (unverified, needs real boot):** a process in a non-foreground
-process group that `read()`s the controlling tty normally gets SIGTTIN and
-stops. If vfkit's stdio-console read trips this under `set -m`, guest keyboard
-input freezes — breaking the claude-IS-the-VM model. Could not be tested in a
-headless worktree (no /dev/tty). If it manifests, hand the terminal fg group to
-vfkit's group via tcsetpgrp while still trapping Ctrl-C in the launcher. See
-[[unit-tests-are-not-real-runs]] and [[real-build-verification-not-unit-tests]].
+**Correct model (issue #179, current):** the guest powers itself off. claude
+is the only workload, so claude exiting == the session is over == the VM
+should terminate. The boot launcher captures claude's exit status: exit 0
+(deliberate quit) → guest runs `systemctl poweroff` (fallback `poweroff(8)`);
+nonzero (e.g. 137/SIGKILL) → no poweroff, VM stays up for inspection. vfkit
+then exits on its own; the host launcher reaps it and decides
+discard/retain on that real exit status. No REST channel, no `--restful-uri`,
+no `set -m`, no `vfkit_rest_uri` in `run.meta` — vfkit runs foreground,
+normally. See [[claude-vm-four-file-config-and-per-run-clone]] for the
+surrounding per-run-clone design this shutdown model integrates with.

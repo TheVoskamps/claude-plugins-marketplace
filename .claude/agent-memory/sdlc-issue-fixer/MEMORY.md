@@ -1,6 +1,6 @@
 # Memory Index
 
-- [vfkit REST shutdown & 5s force-timer](project_vfkit-rest-shutdown-and-5s-force-timer.md) — clean claude-vm exit needs REST RequestStop + set -m process-group isolation (vfkit's own signal handler force-kills at a hardcoded 5s); residual SIGTTIN risk
+- [vfkit REST shutdown & 5s force-timer](project_vfkit-rest-shutdown-and-5s-force-timer.md) — vfkit force-kills at a hardcoded 5s on any terminating signal; the REST+set-m workaround was tried and verified WRONG (SIGTTIN freezes guest input) — the guest must power itself off instead
 - [Backgrounded proc in $() hangs](project_backgrounded-proc-in-command-substitution-hangs.md) — PID="$(start_listener)" hangs unless the bg process's stdout is redirected; it holds the inherited stdout open
 - [Docs locality: packaging vs. hook-event](project_docs-locality-packaging-vs-hook-event.md) — plugin-authoring-constraints.md (packaging) vs. hook-event-notes.md (per-event runtime facts); don't conflate
 - [Commit heredoc gate](feedback_commit-heredoc-gate.md) — `git commit -m "$(cat <<EOF...)"` is blocked here; use `git commit -F <scratch-file>` for multi-line messages
