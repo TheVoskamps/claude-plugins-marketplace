@@ -29,6 +29,11 @@ payload/
                         # claude-vm.sh; directly testable)
     claude-cache.sh     # host-side, GPG-manifest-verified `claude` binary
                         # cache (sourced by claude-vm.sh; directly testable)
+    endpoint.sh         # per-run endpoint acquisition (issue #179): free
+                        # TCP-port acquisition, TCP/unix-socket liveness (live
+                        # listener vs stale corpse), stale-corpse clearing, and
+                        # the vfkit REST stop/hard-stop calls (sourced by
+                        # claude-vm.sh; directly testable)
   provisioners/
     podman-mkosi.sh     # bundled DEFAULT provisioner: mkosi in a throwaway
                         # rootless podman container -> raw EFI guest image
@@ -37,6 +42,15 @@ payload/
                         # conf from $CLAUDE_VM_EGRESS_ALLOWLIST, execs it
   test/
     config-test.sh      # unit tests for the config layering
+    endpoint-test.sh    # unit tests for per-run endpoint acquisition (issue
+                        # #179): free-port acquisition, TCP/unix-socket
+                        # liveness vs stale corpse, corpse clearing; uses real
+                        # perl listeners, host-gated on /usr/bin/perl
+    bin-config-check-test.sh
+                        # regression test for bin/claude-vm's four-file
+                        # config-presence check (issue #179 defect #3): no
+                        # false "no global config" when the bake/boot pair is
+                        # present; a leftover config.yml routes to migration
     claude-cache-test.sh
                         # unit tests for the verified claude cache
                         # (resolve/verify/checksum/abort/warm-boot; stubbed
@@ -675,6 +689,8 @@ replacement.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/endpoint-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
@@ -683,6 +699,25 @@ replacement.
 `config-test.sh` exercises the config layering (scalar override, list
 union, single-layer and no-layer fallbacks, de-duplication) with no VM
 and no network. Requires `yq` (mikefarah v4+); skips cleanly when absent.
+
+`endpoint-test.sh` exercises the per-run endpoint primitives in
+`lib/endpoint.sh` (issue #179): kernel-assigned free-TCP-port acquisition,
+TCP-port liveness, and — the core of the concurrency defect — unix-socket
+liveness that distinguishes a LIVE listener from a stale socket-file corpse
+(the old readiness check tested mere file existence, so a corpse passed it),
+plus the stale-corpse clearing that refuses to stomp a live sibling's socket.
+Stands up genuine `perl` TCP and unix listeners so the checks run against real
+live/dead endpoints; host-gated on `/usr/bin/perl`.
+
+`bin-config-check-test.sh` is the regression test for issue #179 real-boot
+defect #3: `bin/claude-vm`'s global-config presence check must know the
+four-file bake/boot schema, so it no longer prints a false "no global config
+found" when the migrated `config-bake.yml`/`config-boot.yml` pair is present,
+and routes a genuine leftover single-file `config.yml` (global OR repo tier)
+into a migration pointer instead. Drives the real `bin/claude-vm` up to — but
+not through — the launcher exec (a stubbed `security` makes the Keychain check
+exit first), asserting on the step-4 stderr for each config state. Host-gated
+on `git`.
 
 `claude-cache-test.sh` exercises the verified claude cache
 (`lib/claude-cache.sh`): channel/pin validation, version-keyed cache-path

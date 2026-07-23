@@ -748,6 +748,15 @@ exercisable without the virtualization stack; see
 verify / checksum / abort / warm-boot) in
 `payload/test/claude-cache-test.sh`.
 
+The per-run endpoint primitives (issue #179) are also exercisable
+without a VM: `payload/test/endpoint-test.sh` covers free-TCP-port
+acquisition and TCP/unix-socket liveness (a live listener vs a stale
+socket-file corpse, the exact distinction the concurrency fix turns on),
+using real `perl` listeners; `payload/test/bin-config-check-test.sh`
+regression-tests `bin/claude-vm`'s four-file bake/boot config-presence
+check so it no longer prints a false "no global config" when the
+migrated pair is present.
+
 `payload/test/podman-mkosi-test.sh` regression-tests the recipe the
 default provisioner generates (the literal `mkosi.conf` and
 `build-in-container.sh`), stubbing only `podman` at the container

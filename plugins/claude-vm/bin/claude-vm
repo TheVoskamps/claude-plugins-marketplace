@@ -116,14 +116,50 @@ if [ "$HAS_NAME" -eq 1 ]; then
 fi
 
 # ---------------------------------------------------------------------
-# 4. Verify the global config exists; offer to create it via the
-#    slice-1 config-writer skill rather than failing outright (the
-#    launcher itself works with no config -- resolved defaults apply --
-#    but an operator who has never run claude-vm likely wants one).
+# 4. Check the config presence and offer to create one via the config-writer
+#    skill rather than failing (the launcher itself works with no config --
+#    resolved defaults apply -- but an operator who has never run claude-vm
+#    likely wants one).
+#
+#    Config is a bake/boot PAIR per tier since issue #179 (config-bake.yml +
+#    config-boot.yml), NOT the pre-#179 single config.yml. There are three
+#    cases, checked in order:
+#
+#      a. A leftover single-file config.yml (global or repo) is present. This
+#         is a migration situation: the launcher's authoritative check
+#         (claude_vm_detect_legacy_config) will ABORT with the full migration
+#         message, so print a short pointer here rather than the misleading
+#         "no config" message. (Pre-#179 this branch did not exist and a
+#         migrated user got the false "no global config found" message even
+#         with the bake/boot pair present -- issue #179 real-boot defect #3.)
+#      b. Any of the four bake/boot files is present -> config exists; say
+#         nothing and proceed.
+#      c. No config of any kind -> the create-one nicety.
+#
+#    Paths mirror payload/lib/config.sh's defaults so this preflight and the
+#    launcher agree on where config lives.
 # ---------------------------------------------------------------------
-GLOBAL_CONFIG="${CLAUDE_VM_GLOBAL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/config.yml}"
-if [ ! -f "$GLOBAL_CONFIG" ]; then
-  echo "claude-vm: no global config found at '$GLOBAL_CONFIG'." >&2
+CONFIG_DIR_GLOBAL="${CLAUDE_VM_GLOBAL_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm}"
+GLOBAL_BAKE_CONFIG="${CLAUDE_VM_GLOBAL_BAKE_CONFIG:-$CONFIG_DIR_GLOBAL/config-bake.yml}"
+GLOBAL_BOOT_CONFIG="${CLAUDE_VM_GLOBAL_BOOT_CONFIG:-$CONFIG_DIR_GLOBAL/config-boot.yml}"
+GLOBAL_LEGACY_CONFIG="${CLAUDE_VM_GLOBAL_LEGACY_CONFIG:-$CONFIG_DIR_GLOBAL/config.yml}"
+REPO_BAKE_CONFIG="${CLAUDE_VM_REPO_BAKE_CONFIG:-$TOPLEVEL/.claude-vm/config-bake.yml}"
+REPO_BOOT_CONFIG="${CLAUDE_VM_REPO_BOOT_CONFIG:-$TOPLEVEL/.claude-vm/config-boot.yml}"
+REPO_LEGACY_CONFIG="${CLAUDE_VM_REPO_LEGACY_CONFIG:-$TOPLEVEL/.claude-vm/config.yml}"
+
+if [ -f "$GLOBAL_LEGACY_CONFIG" ] || [ -f "$REPO_LEGACY_CONFIG" ]; then
+  # (a) Legacy single-file config present -> migration situation.
+  echo "claude-vm: found a legacy single-file config (config.yml) where claude-vm now expects" >&2
+  echo "claude-vm: a config-bake.yml / config-boot.yml pair per tier (issue #179). The launcher" >&2
+  echo "claude-vm: will stop with migration instructions; run /claude-vm-config-global and" >&2
+  echo "claude-vm: /claude-vm-config-repo to write the pair, then remove the old config.yml." >&2
+elif [ -f "$GLOBAL_BAKE_CONFIG" ] || [ -f "$GLOBAL_BOOT_CONFIG" ] \
+  || [ -f "$REPO_BAKE_CONFIG" ] || [ -f "$REPO_BOOT_CONFIG" ]; then
+  # (b) A bake/boot config file exists -> nothing to say; proceed.
+  :
+else
+  # (c) No config of any kind -> offer to create one.
+  echo "claude-vm: no global config found in '$CONFIG_DIR_GLOBAL'." >&2
   echo "claude-vm: claude-vm runs with built-in defaults even without one, but a global" >&2
   echo "claude-vm: config lets you pin cpus/mem/egress/claude.version once for every repo." >&2
   echo "claude-vm: create it now by running /claude-vm-config-global, then re-run claude-vm." >&2

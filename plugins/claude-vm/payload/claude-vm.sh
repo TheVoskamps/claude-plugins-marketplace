@@ -67,6 +67,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/claude-cache.sh"
 # shellcheck source=lib/credential.sh
 . "$SCRIPT_DIR/lib/credential.sh"
+# shellcheck source=lib/endpoint.sh
+. "$SCRIPT_DIR/lib/endpoint.sh"
 
 # ---------------------------------------------------------------------
 # Inputs
@@ -585,6 +587,23 @@ if [ -z "${TMPDIR:-}" ]; then
 fi
 SOCK_DIR="$(claude_vm_mktemp -d claude-vm-sock)"
 GVPROXY_SOCK="$SOCK_DIR/net.sock"
+# vfkit REST control socket (issue #179). Sited in the SAME short $TMPDIR
+# SOCK_DIR as the gvproxy socket (not under $RUN) to stay under the ~104-byte
+# AF_UNIX sun_path limit -- the run dir under <repo>/.claude/tmp/<runid>/ is
+# already long enough that a socket path under it can overflow. This is the
+# host->guest shutdown channel: cleanup() POSTs {"state":"Stop"} here to ask
+# vfkit to press the ACPI power button (vm.RequestStop) so the guest's systemd
+# halts cleanly, instead of SIGTERMing vfkit and letting it time out and force-
+# kill. It is a per-run path so concurrent runs never share a control channel.
+VFKIT_REST_SOCK="$SOCK_DIR/vfkit.sock"
+VFKIT_REST_URI="unix://$VFKIT_REST_SOCK"
+# Per-run SSH-forward TCP port for gvproxy (issue #179). gvproxy ALWAYS binds
+# an -ssh-port (default 2222); if every run took 2222 a second concurrent run
+# would fail with `bind: address already in use` and never come up. Acquired
+# race-safely just before the gvproxy launch (bind :0, read assigned port) so
+# N concurrent runs each get their own free port. Declared empty here so the
+# cleanup() trap's guards are well-defined if a signal fires before it is set.
+SSH_PORT=""
 PCAP="$RUN/egress.pcap"
 # Retained log files for the two host-side background processes (issue #88).
 # Both are sited under $RUN (the persistent run dir) and their stdout+stderr
@@ -912,13 +931,30 @@ esac
 
 # Record run metadata so companion skills (diff / apply-local /
 # apply-remote) can locate the source and worktree after exit.
+#
+# This writes only the PATH fields, which are all known now. The run's
+# network/process endpoints (gvproxy_pid, gvproxy_sock, ssh_port, proxy_pid,
+# vfkit_rest_uri) do NOT exist yet -- they are created further below and
+# APPENDED to run.meta by claude_vm_run_meta_put AT THE MOMENT each is created
+# and confirmed live (issue #179), so run.meta never names an endpoint that
+# failed to materialize. run.meta is thus the single source of truth for the
+# launcher's own liveness checks and for a separate host-scoped cleanup tool.
+RUN_META="$RUN/run.meta"
 {
   printf 'run_id=%s\n' "$RUN_ID"
   printf 'repo_src=%s\n' "$REPO_SRC"
   printf 'repo_mount=%s\n' "$REPO_MOUNT"
   printf 'worktree=%s\n' "$MOUNT_SHARED_DIR"
   printf 'copy_back=%s\n' "$COPY_BACK"
-} > "$RUN/run.meta"
+} > "$RUN_META"
+
+# Append a single `key=value` line to run.meta. Used to record each per-run
+# endpoint (pid / socket / port / rest-uri) the instant it is created and
+# confirmed live, rather than batching them at the paths-write above where they
+# do not yet exist.
+claude_vm_run_meta_put() {
+  printf '%s=%s\n' "$1" "$2" >> "$RUN_META"
+}
 
 # ---------------------------------------------------------------------
 # Guest run.env -- proxy config + mount tags + claude args. It NO LONGER
@@ -1220,6 +1256,15 @@ done < <(claude_vm_mount_specs "$MERGED")
 # ---------------------------------------------------------------------
 PROXY_PID=""
 GV_PID=""
+# vfkit's pid, captured once it is backgrounded just before the wait (issue
+# #179). cleanup() uses it to drive the graceful REST shutdown and to poll for
+# the guest actually being gone. Declared empty here so cleanup()'s guards are
+# well-defined if a signal fires before vfkit is launched.
+VFKIT_PID=""
+# cleanup() idempotence guard (issue #179): set to 1 the first time cleanup()
+# runs so the EXIT trap that follows a signal-triggered INT/TERM trap does not
+# run the graceful-shutdown reap + clone-discard decision a second time.
+CLEANUP_DONE=""
 # Per-run image clone lifecycle state (issue #179). CLONE_CREATED flips to 1
 # once the clone is materialized just before vfkit; VM_EXIT_STATUS records
 # vfkit's exit code so cleanup() can decide discard (clean) vs retain
@@ -1413,30 +1458,125 @@ copy_back() {
   esac
 }
 
-cleanup() {
-  # Capture the exit status AT TRAP TIME, first thing, before any command in
-  # this function overwrites $?. The `exit "$VM_EXIT_STATUS"` at the end of the
-  # script sets $? to vfkit's status for the EXIT trap; a signal (INT/TERM)
-  # leaves VM_EXIT_STATUS empty and $? reflecting the signal, both of which we
-  # treat as ABNORMAL. This status drives the per-run clone discard/retain
-  # decision (issue #179): status 0 == clean == discard the clone; anything else
-  # == abnormal == retain it for forensics.
-  local trap_status=$?
-  local clean_exit=0
-  if [ "${VM_EXIT_STATUS:-}" = "0" ] && [ "$trap_status" -eq 0 ]; then
-    clean_exit=1
+# Drive an ORDERED, host-only guest shutdown over vfkit's REST channel (issue
+# #179), replacing the old "SIGTERM vfkit and let it time out and force-kill"
+# behavior that logged `failed to wait for VM stop ... forcing stop` on EVERY
+# exit. The guest runs claude as an auto-login getty that respawns (claude "is
+# the VM"), so there is no guest-side shutdown to cooperate with; the ACPI
+# power button (vm.RequestStop, reached via POST {"state":"Stop"}) is the
+# host-driven way to make the guest's systemd halt regardless of what runs on
+# the console. Sequence:
+#
+#   1. POST {"state":"Stop"} -> ACPI power button -> guest systemd halts ->
+#      vfkit's own stop-wait succeeds -> vfkit exits 0. Poll for vfkit to
+#      actually be gone (bounded).
+#   2. If it did not stop in time (guest not booted far enough for
+#      canRequestStop, wedged guest, etc.), POST {"state":"HardStop"} ->
+#      vm.Stop() (force), poll again (bounded).
+#   3. If STILL alive, fall through to SIGKILL as the last resort.
+#
+# Prints nothing on the happy path; the caller reaps vfkit's real status via a
+# `wait` after this returns. Guarded on VFKIT_PID (empty if a signal fired
+# before vfkit launched -> nothing to stop).
+stop_vfkit_gracefully() {
+  [ -n "${VFKIT_PID:-}" ] || return 0
+  # Already gone? Nothing to do.
+  kill -0 "$VFKIT_PID" 2>/dev/null || return 0
+
+  local waited
+  # 1. Graceful ACPI stop.
+  if [ -n "${VFKIT_REST_SOCK:-}" ] && claude_vm_vfkit_request_stop "$VFKIT_REST_SOCK"; then
+    # Poll up to ~10s for the guest to halt and vfkit to exit on its own.
+    for waited in $(seq 1 100); do
+      kill -0 "$VFKIT_PID" 2>/dev/null || return 0
+      sleep 0.1
+    done
   fi
 
-  # sync BEFORE anything else that might race the forced VM stop below (issue
-  # #179). vfkit routinely logs "failed to wait for VM stop: timeout waiting for
-  # VM state, forcing stop" on session exit, so writes in flight to the attached
-  # image (now the per-run clone) can be torn by the forced kill. Flush the
-  # host's filesystem buffers -- which back the APFS clone's written blocks --
-  # so the clone on disk is as consistent as possible before the guest is
-  # force-stopped. With per-run clones the blast radius of a torn write is one
-  # throwaway session's clone (discarded on clean exit anyway), never the shared
-  # base image; this sync narrows even that window. Cheap and always safe.
+  # 2. Still alive: force via the REST HardStop (vm.Stop()).
+  if kill -0 "$VFKIT_PID" 2>/dev/null \
+     && [ -n "${VFKIT_REST_SOCK:-}" ] \
+     && claude_vm_vfkit_hard_stop "$VFKIT_REST_SOCK"; then
+    for waited in $(seq 1 30); do
+      kill -0 "$VFKIT_PID" 2>/dev/null || return 0
+      sleep 0.1
+    done
+  fi
+
+  # 3. Last resort: signal vfkit directly (TERM then KILL). This is the old
+  # force path, reached only when the REST channel could not bring the VM down.
+  if kill -0 "$VFKIT_PID" 2>/dev/null; then
+    kill "$VFKIT_PID" 2>/dev/null || true
+    for waited in $(seq 1 20); do
+      kill -0 "$VFKIT_PID" 2>/dev/null || return 0
+      sleep 0.1
+    done
+    kill -9 "$VFKIT_PID" 2>/dev/null || true
+  fi
+}
+
+cleanup() {
+  # Run at most ONCE (issue #179). cleanup() can be reached twice: a signal
+  # (INT/TERM) fires the trap, and then the ensuing `exit` fires the EXIT trap
+  # too. The graceful-shutdown reap below must not run twice (the second `wait`
+  # would see no child), and the clone-discard decision must be made once. Guard
+  # with a done-flag; the second entry is a no-op.
+  if [ -n "${CLEANUP_DONE:-}" ]; then
+    return 0
+  fi
+  CLEANUP_DONE=1
+
+  # $? here is NOT load-bearing anymore (issue #179): the per-run clone
+  # discard/retain decision is driven by vfkit's REAL exit status, which
+  # stop_vfkit_gracefully + the reap below establish in VM_EXIT_STATUS. It is
+  # captured only so the comment trail explains why the old trap-time-status
+  # capture was removed. (Before the ordered REST stop, a signal-triggered trap
+  # would leave $? reflecting the signal and every exit looked abnormal.)
+  local trap_status=$?
+  : "$trap_status"
+
+  # sync BEFORE the VM stop below (issue #179), so writes in flight to the
+  # attached image (the per-run clone) are flushed to the host filesystem
+  # buffers that back the APFS clone's written blocks before the guest halts.
+  # With per-run clones the blast radius of a torn write is one throwaway
+  # session's clone (discarded on clean exit anyway), never the shared base
+  # image; this sync narrows even that window. Cheap and always safe.
   sync 2>/dev/null || true
+
+  # Bring the guest down via the ordered host->guest REST channel BEFORE any
+  # reap (issue #179). On a clean ACPI stop vfkit exits 0; reap its REAL status
+  # here so the clean-vs-abnormal decision reflects the actual guest shutdown
+  # rather than the signal that triggered this trap. This is what turns "every
+  # exit is abnormal (forcing stop)" into "a Ctrl-C is a CLEAN exit -> discard
+  # the clone".
+  stop_vfkit_gracefully
+  if [ -n "${VFKIT_PID:-}" ]; then
+    # vfkit is stopped (or killed) now; reap its status. `wait` returns the
+    # child's status if we have not already reaped it, else 127 -- so only
+    # trust it to LOWER the status to 0 (a clean stop), never to invent a
+    # failure. If the graceful stop succeeded and vfkit exited 0, adopt 0.
+    local reaped=1
+    # `|| reaped=$?` keeps a nonzero wait status from tripping `set -e` if this
+    # trap fires while set -e is active; on a zero wait it stays the assigned 0.
+    reaped=0
+    wait "$VFKIT_PID" 2>/dev/null || reaped=$?
+    if [ "$reaped" = "0" ]; then
+      VM_EXIT_STATUS=0
+    fi
+  fi
+
+  # Recompute clean-vs-abnormal AFTER the ordered stop (issue #179): the sole
+  # signal is now VM_EXIT_STATUS, which reflects vfkit's REAL exit status once
+  # stop_vfkit_gracefully has run. A clean ACPI power-off yields 0 even when a
+  # signal (Ctrl-C) started this trap -- so the normal Ctrl-C path is a CLEAN
+  # exit and discards the clone. Abnormal (retain the clone) means a genuinely
+  # nonzero vfkit exit or a guest we could not bring down cleanly (HardStop /
+  # SIGKILL fallback leaves VM_EXIT_STATUS nonzero). trap_status is no longer
+  # consulted: the graceful-stop reap above is authoritative.
+  local clean_exit=0
+  if [ "${VM_EXIT_STATUS:-}" = "0" ]; then
+    clean_exit=1
+  fi
 
   # Restore the host terminal FIRST, before any output or the copy-back prompt
   # (issue #88). vfkit's `virtio-serial,stdio` bridge leaves the host tty in RAW
@@ -1530,16 +1670,53 @@ trap cleanup EXIT INT TERM
 # paths are echoed in cleanup() alongside the other retained-artifact lines.
 eval "$PROXY_CMD" >"$PROXY_LOG" 2>&1 &
 PROXY_PID=$!
+# Record the forward-proxy pid the moment it is spawned (issue #179): run.meta
+# is the single source of truth a separate host-scoped cleanup tool uses to
+# find and reap this run's processes.
+claude_vm_run_meta_put proxy_pid "$PROXY_PID"
 
-"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --pcap "$PCAP" \
+# Clear any stale gvproxy socket corpse before gvproxy tries to bind it (issue
+# #179). SOCK_DIR is a fresh per-run mktemp dir so a collision here is unlikely,
+# but a unique PATH is not proof the path is bindable: a leftover socket FILE
+# with no listener makes bind() fail `address already in use` just like a busy
+# port. claude_vm_clear_stale_unix_sock removes a corpse; if a LIVE listener
+# somehow held it (a concurrent sibling), it returns 1 and we abort rather than
+# stomping the sibling.
+if ! claude_vm_clear_stale_unix_sock "$GVPROXY_SOCK"; then
+  echo "claude-vm: gvproxy socket path '$GVPROXY_SOCK' is held by a live listener; aborting" >&2
+  exit 1
+fi
+
+# Acquire a per-run FREE SSH-forward TCP port for gvproxy (issue #179). gvproxy
+# always binds -ssh-port (default 2222); passing a kernel-assigned free port
+# lets N concurrent runs coexist instead of every run fighting over 2222.
+SSH_PORT="$(claude_vm_acquire_free_tcp_port)" || {
+  echo "claude-vm: could not acquire a free SSH-forward TCP port for gvproxy" >&2
+  exit 1
+}
+
+"$GVPROXY_BIN" --listen-vfkit "unixgram://$GVPROXY_SOCK" --ssh-port "$SSH_PORT" \
+  --pcap "$PCAP" \
   >"$GVPROXY_LOG" 2>&1 &
 GV_PID=$!
 
+# Readiness: wait for a LIVE listener on the gvproxy socket, not merely for the
+# socket FILE to exist (issue #179). The old check tested `[ -S "$sock" ]`,
+# which a stale corpse from a dead run passes even though gvproxy never came up.
+# claude_vm_unix_sock_live confirms a process actually holds the socket open.
 for _ in $(seq 1 50); do
-  [ -S "$GVPROXY_SOCK" ] && break
+  claude_vm_unix_sock_live "$GVPROXY_SOCK" && break
   sleep 0.1
 done
-[ -S "$GVPROXY_SOCK" ] || { echo "claude-vm: gvproxy socket never appeared" >&2; exit 1; }
+if ! claude_vm_unix_sock_live "$GVPROXY_SOCK"; then
+  echo "claude-vm: gvproxy socket never came up (no live listener at $GVPROXY_SOCK)" >&2
+  exit 1
+fi
+# gvproxy is confirmed live: record its pid, socket, and ssh-port in run.meta
+# now (write-as-you-go), so run.meta only ever names endpoints that materialized.
+claude_vm_run_meta_put gvproxy_pid "$GV_PID"
+claude_vm_run_meta_put gvproxy_sock "$GVPROXY_SOCK"
+claude_vm_run_meta_put ssh_port "$SSH_PORT"
 
 # The verified claude binary is shared into the guest by its CONTAINING
 # DIRECTORY (virtio-fs shares a dir, not a single file) under tag
@@ -1589,16 +1766,60 @@ fi
 # removal when the session exits or is Ctrl-C'd. Do NOT switch this to
 # `exec vfkit` -- that would replace the shell and the trap would never fire.
 #
-# Capture vfkit's exit status so cleanup() can distinguish a CLEAN exit (status
-# 0 -- discard the clone) from an ABNORMAL one (nonzero -- retain the clone for
-# forensics). `set -e` is relaxed around just this call so a nonzero status is
-# recorded, not swallowed by an immediate script abort before cleanup can read
-# it; the EXIT trap then propagates the status. A signal (INT/TERM) is handled
-# by the trap directly and leaves VM_EXIT_STATUS at its abnormal default.
+# vfkit is launched in its OWN PROCESS GROUP (issue #179): `set -m` (monitor
+# mode) makes the backgrounded vfkit a separate process group, so a terminal-
+# generated Ctrl-C (SIGINT) is delivered to the LAUNCHER's process group only,
+# NOT to vfkit.
+#
+# WHY this is necessary (verified against vfkit v0.6.4 cmd/vfkit/main.go): on
+# SIGINT/SIGTERM vfkit's OWN handler (SetupExitSignalHandling -> shutdownFunc)
+# calls RequestStop() and then waitForVMState(..., time.After(5*time.Second)) --
+# a HARDCODED 5s deadline -- and on timeout logs `failed to wait for VM stop:
+# ... forcing stop` and force-Stop()s. The real guest reliably takes longer than
+# that 5s to halt on the ACPI signal, so if vfkit received the terminal SIGINT
+# it would ALWAYS force-kill (the observed defect). By keeping the signal off
+# vfkit, that 5s force-timer never starts; instead cleanup() drives the stop via
+# vfkit's REST channel (POST {"state":"Stop"} -> the SAME RequestStop(), but
+# with NO 5s force-timer -- vfkit's REST handler just requests the stop and lets
+# runVirtualMachine wait naturally) and polls with a GENEROUS bounded timeout.
+# The guest then halts cleanly -> vfkit exits 0 -> we discard the clone.
+#
+# vfkit still inherits fd 0/1/2, so its stdio console byte-pipe to the terminal
+# is wired up. CAVEAT (flagged for real-boot verification, cannot be exercised
+# in a headless CI worktree): a process in a non-foreground process group that
+# read()s the controlling terminal normally receives SIGTTIN and stops. If
+# vfkit's stdio-console read path trips SIGTTIN here, guest keyboard input would
+# freeze -- which would break the "claude IS the VM" interactive model. This
+# needs confirmation on a real boot; if it manifests, the terminal's foreground
+# process group must be handed to vfkit's group (tcsetpgrp) while still trapping
+# Ctrl-C in the launcher, or an alternative signal-isolation approach chosen.
+#
+# Capture vfkit's PID (so cleanup() can drive + poll its shutdown) and its exit
+# status so cleanup() can distinguish a CLEAN exit (status 0 -- discard the
+# clone) from an ABNORMAL one (nonzero -- retain the clone for forensics).
+# `set -e` is relaxed around the `wait` so a nonzero status is recorded, not
+# swallowed by an immediate script abort before cleanup can read it; the EXIT
+# trap then propagates the status.
+# Clear any stale vfkit REST socket corpse before vfkit binds it (issue #179),
+# same rationale as the gvproxy socket above: a leftover socket file with no
+# listener would make vfkit's REST bind fail. Abort (rather than stomp) if a
+# live listener holds it.
+if ! claude_vm_clear_stale_unix_sock "$VFKIT_REST_SOCK"; then
+  echo "claude-vm: vfkit REST socket path '$VFKIT_REST_SOCK' is held by a live listener; aborting" >&2
+  exit 1
+fi
+# Record the vfkit REST control URI in run.meta just before launch (issue #179).
+# This is the host->guest shutdown channel cleanup() uses to request a clean
+# ACPI power-off; recording it here means run.meta names it exactly when it is
+# about to exist.
+claude_vm_run_meta_put vfkit_rest_uri "$VFKIT_REST_URI"
+
 VM_EXIT_STATUS=1
 set +e
+set -m
 vfkit \
   --cpus "$VM_CPUS" --memory "$VM_MEM" \
+  --restful-uri "$VFKIT_REST_URI" \
   --bootloader "efi,variable-store=$EFISTORE,create" \
   --device "virtio-blk,path=$GUEST_IMAGE_CLONE" \
   --device "virtio-fs,sharedDir=$MOUNT_SHARED_DIR,mountTag=repo" \
@@ -1609,7 +1830,23 @@ vfkit \
   --device "virtio-net,unixSocketPath=$GVPROXY_SOCK" \
   --device "virtio-serial,logFilePath=$GUEST_CONSOLE_LOG" \
   --device "virtio-serial,stdio" \
-  --device "virtio-rng"
-VM_EXIT_STATUS=$?
+  --device "virtio-rng" &
+VFKIT_PID=$!
+set +m
+# Block on vfkit. On a terminal Ctrl-C the SIGINT hits the launcher's process
+# group (vfkit is in its own group via `set -m`), interrupting this `wait`; the
+# INT trap runs cleanup(), which drives the graceful REST shutdown while vfkit
+# is still alive. `wait` may return early (interrupted by the trapped signal);
+# a second `wait` after the trap has requested stop reaps vfkit's real status.
+wait "$VFKIT_PID"
+_vfkit_wait_status=$?
+# On a signal-triggered exit, cleanup() has already run the graceful REST stop
+# and reaped vfkit's REAL status into VM_EXIT_STATUS (0 on a clean ACPI stop).
+# Do NOT let this line clobber that with the signal-inflated `wait` status
+# (>128) -- only adopt the wait status on the normal path where cleanup() has
+# not yet run (guest ended on its own; the EXIT trap will run afterward).
+if [ -z "${CLEANUP_DONE:-}" ]; then
+  VM_EXIT_STATUS=$_vfkit_wait_status
+fi
 set -e
 exit "$VM_EXIT_STATUS"
