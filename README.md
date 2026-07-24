@@ -45,6 +45,9 @@ The marketplace currently ships these plugins (one entry each in
 - **`show-loaded-skills`** — `UserPromptExpansion` and `PreToolUse`
   (matcher `Skill`) hooks that surface a one-line message every time a
   skill loads, whether typed as a command or invoked by the model.
+- **`show-agent-calls`** — `PreToolUse` (matcher `Agent|Task`) hook
+  that surfaces the agent type, parameters, and full prompt for every
+  subagent spawn, without `--verbose`.
 - **`writing-tools`** — writing and text-editing helpers. Currently
   ships `mask-inappropriate-language`, which replaces inappropriate
   language (profanity, slurs, strong insults) in provided text or a
