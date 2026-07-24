@@ -1663,6 +1663,16 @@ else
   exit 1
 fi
 
+# Last host-side context before this terminal becomes the guest console
+# (issue #179). Once vfkit launches, the hvc1 stdio bridge owns the screen
+# until the session ends, so print the paths an operator needs to inspect the
+# LIVE run from a second terminal now -- cleanup() re-lists the retained
+# artifacts only after exit, which is too late for mid-session inspection.
+echo "claude-vm: run dir:   $RUN" >&2
+echo "claude-vm: run.env:   $RUN_ENV" >&2
+echo "claude-vm: run.meta:  $RUN_META" >&2
+echo "claude-vm: handing this terminal to the guest console (hvc1)..." >&2
+
 # vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
 # EXIT/INT/TERM) runs the copy-back + clone-lifecycle + socket-dir removal
 # when the session ends. Do NOT switch this to `exec vfkit` -- that would
