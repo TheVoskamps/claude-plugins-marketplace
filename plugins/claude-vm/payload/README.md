@@ -55,12 +55,12 @@ payload/
                         # neutralized by Restart=no; LAUNCHER_LOGIC_REV bumped.
                         # Runs the emitted launcher's real decision fragment
                         # against stubs; needs only bash + awk
-    reap-cleanup-test.sh
-                        # regression test for the host-side teardown (issue
-                        # #179): reap_vfkit returns in bounded time on EVERY
-                        # path (incl. a child that never dies), and cleanup()
-                        # restores the host tty BEFORE the reap. Runs the real
-                        # sliced reap against stub children; bash + awk only
+    launch-shape-test.sh
+                        # regression test for the vfkit launch shape (issue
+                        # #179): vfkit runs FOREGROUND -- no `&`, no
+                        # VFKIT_PID/wait, no reap machinery -- and
+                        # VM_EXIT_STATUS=$? follows the invocation directly.
+                        # Grep-level source assertions; bash + awk only
     bin-config-check-test.sh
                         # regression test for bin/claude-vm's four-file
                         # config-presence check (issue #179 defect #3): no
@@ -430,19 +430,22 @@ multi-writer corruption from several guests reading-writing one shared ext4
 image. The clone is discarded on a clean exit and RETAINED (path logged) on an
 abnormal exit (nonzero vfkit status or a signal) for forensics. There is no
 host-driven forced stop any more — the guest halts itself and vfkit exits on its
-own — so the launcher `sync`s before reaping vfkit purely to narrow the window
-in which writes in flight to the clone are still unflushed when the guest goes
-away; with per-run clones the blast radius of any torn write is one throwaway
-session's clone.
+own — so `cleanup()`'s `sync` purely narrows the window in which writes in
+flight to the clone are still unflushed when the guest goes away; with per-run
+clones the blast radius of any torn write is one throwaway session's clone.
 
-**Bounded reap, then an intact terminal (issue #179).** `cleanup()` restores the
-host tty **before** it reaps vfkit, and `reap_vfkit()` is bounded on every path:
-it polls for a grace window, escalates to `SIGTERM` then `SIGKILL` if vfkit
-outlives it, and — if vfkit survives all of that — gives up the reap, records a
-synthetic nonzero status (which routes to *retain* the clone) and returns rather
-than blocking on `wait`. So a vfkit that hangs can never strand the operator's
-terminal in raw mode, and cleanup always completes. Reclaiming a vfkit stranded
-that way is separate host-debris work, tracked on its own and out of scope here.
+**Foreground vfkit, then an intact terminal (issue #179).** vfkit runs in the
+**foreground** — no `&`, no PID capture, no reap machinery. Backgrounding it
+breaks the boot outright (a backgrounded vfkit cannot attach its
+`virtio-serial,stdio` console: `Error: operation not supported by device`), so
+foreground is load-bearing, not stylistic. Its exit status lands in the
+launcher's own `$?`, and because bash defers traps while a foreground child
+runs, `cleanup()` can only ever run after vfkit has already exited — there is
+never a live vfkit to stop or reap. `cleanup()` restores the host tty first
+(the stdio bridge leaves it in raw mode, and that state survives vfkit's
+death), then decides the clone's fate from `VM_EXIT_STATUS`. A SIGKILL of the
+launcher runs no traps at all; the stranded vfkit/clone that leaves behind is
+separate host-debris work, tracked on its own and out of scope here.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -767,22 +770,16 @@ repo name — never the launcher source — so that constant is the only thing t
 invalidates a cached image when launcher logic changes. No VM, no network, no
 root; needs only `bash` + `awk`.
 
-`reap-cleanup-test.sh` is the regression test for issue #179's host-side
-teardown. It slices the real `reap_vfkit` / `reap_vfkit_poll` out of
-`claude-vm.sh` and runs them against stub children, proving the bound is real on
-every path: a child that exits promptly yields its true status; a child that
-outlives the grace window is escalated to `SIGTERM`, then `SIGKILL`; and a child
-that survives every rung (modelled by shadowing `kill`) still returns promptly,
-with the synthetic nonzero give-up status and without ever entering the blocking
-`wait`. The earlier shape polled for a window and then fell through to an
-unconditional `wait`, which is not a bound at all — the function blocked for as
-long as vfkit lived. It also asserts `cleanup()`'s statement order: the host tty
-is restored **before** the reap (so a slow or hung vfkit cannot strand the
-terminal in raw mode), re-asserted after it, `sync` still precedes the reap, and
-the discard-vs-retain decision still reads `VM_EXIT_STATUS` after the reap so it
-is made from vfkit's real exit status. The stub lifetimes in that file are the
-test's own scripted numbers — no vfkit binary is involved, so they say nothing
-about vfkit's internal timers. No VM, no network, no root; `bash` + `awk`.
+`launch-shape-test.sh` is the regression test for issue #179's vfkit launch
+shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its
+`virtio-serial,stdio` console to the terminal — a real boot fails with
+`Error: operation not supported by device` at "Adding stdio console" — and
+that shape shipped once and never booted. The test asserts, at the source
+level (like the getty drop-in assertions): the vfkit invocation carries no
+trailing `&`; `VM_EXIT_STATUS=$?` immediately follows it; no `VFKIT_PID`,
+`reap_vfkit`, or `REAP_` machinery exists anywhere in the launcher; and
+`VM_EXIT_STATUS` is initialized to `1` so an interrupted path fails safe to
+*retain*. No VM, no network, no root; `bash` + `awk`.
 
 `bin-config-check-test.sh` is the regression test for issue #179 real-boot
 defect #3: `bin/claude-vm`'s global-config presence check must know the

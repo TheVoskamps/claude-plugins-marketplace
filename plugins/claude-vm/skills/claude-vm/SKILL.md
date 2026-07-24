@@ -533,9 +533,9 @@ Claude Code updates daily, so the guest image does **not** bake in
   and no multi-writer corruption on a shared image. The clone is
   discarded on a clean exit and retained (path logged) on an abnormal one
   for forensics. There is no host-driven forced stop: the guest halts
-  itself and vfkit exits on its own, so the launcher's `sync` before the
-  reap simply narrows the window in which writes in flight to the clone
-  are still unflushed when the guest goes away.
+  itself and vfkit (running foreground) exits on its own, so the
+  launcher's `sync` in cleanup simply narrows the window in which writes
+  in flight to the clone are still unflushed when the guest goes away.
 - **Ending a session (issue #179).** The guest decides its own fate from
   claude's exit status; there is no host→guest shutdown channel.
   - **A deliberate quit powers the guest off.** `Ctrl-D Ctrl-D`, `/exit`,
