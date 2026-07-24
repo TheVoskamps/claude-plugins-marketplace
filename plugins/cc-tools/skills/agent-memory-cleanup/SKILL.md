@@ -40,9 +40,16 @@ The argument also selects the mode:
 | PR number | autonomous | applied without asking | committed and pushed onto the PR branch |
 | none | interactive | confirmed with you one at a time | left uncommitted in the working tree |
 
-Deletions are not confirmed in either mode. In interactive mode the
-uncommitted working tree is the undo; in autonomous mode the commit
-is.
+Deletions are not confirmed in either mode. In autonomous mode the
+commit is the undo. In interactive mode the uncommitted working tree
+is the undo **only for entries git already tracks** — for an entry
+that is still untracked (a fresh capture never committed), deleting
+the file is permanent, because there is nothing in git to restore it
+from. No-argument mode routinely encounters untracked entries: a
+writer agent's memory capture that was never committed lands exactly
+in that state. See "Apply the verdicts" for how this skill stages
+untracked entries before touching them so the working-tree undo claim
+holds for every entry, not just tracked ones.
 
 ## Execution
 
@@ -167,9 +174,33 @@ consistent:
 2. In interactive mode, confirm each transfer with the human before
    writing it: show the destination file and the exact text you would
    add. In autonomous mode, write it.
-3. Delete the entry files for every scrub and every completed
+3. **In interactive mode only**, before deleting anything, check
+   whether each entry file about to be scrubbed or transferred is
+   already tracked:
+
+   ```bash
+   git status --porcelain -- <entry-file>
+   ```
+
+   An untracked entry reports `??`. For any `??` entry, run
+   `git add <entry-file>` (a full add, staging the actual content —
+   **not** `git add -N`/intent-to-add, which records only the path and
+   leaves `git checkout -- <entry-file>` restoring an empty file
+   instead of the original content) before deleting it. Staging the
+   real content makes the deletion recoverable via
+   `git checkout -- <entry-file>` (or `git restore --staged --worktree
+   <entry-file>`) the same way a tracked file's deletion is, so the
+   "uncommitted working tree is the undo" claim actually holds. The
+   file now shows staged (`git status` reports `A` then `AD` after the
+   delete) rather than fully uncommitted, but the content is fully
+   recoverable, which is what the undo claim depends on. Skip this
+   check for autonomous mode — there the commit is the undo regardless
+   of tracked state, since `git add <path>` in "Land the result" stages
+   (and thus preserves) the pre-deletion content in the commit either
+   way.
+4. Delete the entry files for every scrub and every completed
    transfer.
-4. Rewrite the entries you persisted that needed a present-tense
+5. Rewrite the entries you persisted that needed a present-tense
    restatement. Keep their frontmatter `name:` slug unchanged —
    changing it breaks every `[[wikilink]]` that points at the entry.
 
@@ -236,6 +267,22 @@ The commit message must never place a closing keyword (`close`,
 (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that pattern
 auto-closes the referenced issue.
 
+After the push, verify it actually landed on the remote rather than
+trusting `git push`'s exit code alone:
+
+```bash
+git fetch origin
+git rev-parse HEAD
+git rev-parse origin/<headRefName>
+```
+
+Report success only when these two SHAs match. `git log --oneline -1`
+plus `git status --porcelain` are **not** sufficient evidence here —
+both read clean for a commit that was made locally but never reached
+the remote, since neither command inspects the remote-tracking ref.
+A caller that treats a local-only commit as landed, then discards the
+branch, destroys the only copy of the curation.
+
 **Interactive mode** (no argument) — stage nothing and commit nothing.
 Show `git diff --stat` and stop. The working tree is the deliverable,
 and the human decides what to commit.
@@ -260,9 +307,11 @@ Indexes fixed: <agent>/MEMORY.md, ...
 Wikilinks repaired: <count>
 ```
 
-Then the tail for the mode you ran in: the pushed commit SHA in
-autonomous mode, or `git diff --stat` plus "review and commit when
-you're happy" in interactive mode.
+Then the tail for the mode you ran in: in autonomous mode, the commit
+SHA once the post-push remote-comparison check above has confirmed it
+matches `origin/<headRefName>` — never report a SHA you have not
+verified landed on the remote; in interactive mode, `git diff --stat`
+plus "review and commit when you're happy".
 
 The per-entry lines are the record of a destructive operation. Report
 all of them, including the entries you persisted only because you

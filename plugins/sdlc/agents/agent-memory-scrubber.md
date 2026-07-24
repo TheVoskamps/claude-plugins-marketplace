@@ -90,17 +90,32 @@ persist between Bash calls in a subagent context. See
    your own taste.
 
 3. Verify the result landed. The skill reports what it did; confirm
-   against the repository itself:
+   against the repository itself. `git log --oneline -1` and
+   `git status --porcelain` only prove a local commit exists — both
+   read clean even when the commit was never pushed, because neither
+   command observes the remote. Compare against the remote-tracking
+   ref instead:
 
    ```bash
-   git log --oneline -1
-   git status --porcelain
+   git fetch origin
+   git rev-parse HEAD
+   git rev-parse origin/<branch-name>
    ```
 
-   A curation commit at the tip and a clean status means the work is
-   on the PR. If the skill reported no memory to curate, there is no
-   commit and nothing to verify — that is a valid outcome, and you
-   report it as such rather than manufacturing a commit.
+   The work is on the PR only when these two SHAs match (equivalently,
+   `git log origin/<branch-name>..HEAD` prints nothing). If the skill
+   reported no memory to curate, there is no commit and nothing to
+   verify — that is a valid outcome, and you report it as such rather
+   than manufacturing a commit.
+
+   This is a hard gate, not a formality: if `HEAD` is ahead of
+   `origin/<branch-name>`, the curation commit exists locally but is
+   not on the PR. In that case you must NOT report success, and you
+   must NOT run the end-of-run `git branch -D` cleanup below — deleting
+   the branch at this point destroys the only copy of the curation.
+   Instead, retry the push (`git push`) and re-verify. If the push
+   keeps failing, stop and report the failure per "Output" below
+   instead of proceeding to cleanup.
 
 4. Report back per "Output" below.
 
@@ -117,6 +132,12 @@ Report:
   substantiated.
 
 ## End-of-run cleanup
+
+Run this only after step 3's remote-comparison check has confirmed
+`HEAD` matches `origin/<branch-name>` (or the skill reported no memory
+to curate, so there was never anything to push). If that check failed
+or was never performed, do not run this section — `git branch -D`
+would discard the only copy of any unpushed curation commit.
 
 Release the branch claim so the branch can be checked out elsewhere:
 

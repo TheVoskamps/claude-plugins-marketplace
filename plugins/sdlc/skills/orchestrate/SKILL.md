@@ -761,9 +761,12 @@ draft-first lifecycle:
    each issue-developer reports back: link the PR to its issue"). The
    `Closes #N` keyword only fires on merge to the default branch, so
    it stays inert while the PR is draft.
-3. **Stays draft through the whole review/fix loop.** doc-updater,
-   pr-reviewer, and any issue-fixer rounds all run against the draft
-   PR. Nothing in the loop flips it to ready.
+3. **Stays draft through the whole review/fix loop, and through the
+   memory scrub that follows it.** doc-updater, pr-reviewer, and any
+   issue-fixer rounds all run against the draft PR, and so does
+   `agent-memory-scrubber` once the loop settles (see "After the
+   review loop settles: curate the PR's agent memory"). Nothing in
+   that sequence flips the PR to ready.
 4. **Ready at end-of-loop, on human confirmation only.** In Phase 3,
    when the human confirms a PR is good enough to end the loop, the
    orchestrator calls `/github-prs:pr-ready <PR>` (see "End-of-loop
