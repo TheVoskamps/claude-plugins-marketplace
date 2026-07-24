@@ -461,7 +461,9 @@ RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 
 [Service]
 # Override the default agetty invocation: autologin root and run the boot
-# launcher as the login program (which execs claude). Clear ExecStart first --
+# launcher as the login program (which runs claude as a child, then decides
+# poweroff-vs-shell on its exit status -- see the block above). Clear ExecStart
+# first --
 # a drop-in APPENDS ExecStart lines, and a unit with two ExecStart entries
 # under the default Type=idle would try to run both; the empty assignment
 # resets the list so only ours runs.
