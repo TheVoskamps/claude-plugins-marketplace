@@ -50,9 +50,17 @@ payload/
     boot-launcher-test.sh
                         # regression test for the guest self-poweroff decision
                         # (issue #179): claude exit 0 -> systemctl poweroff,
-                        # nonzero -> leave VM up; getty respawn neutralized.
+                        # nonzero -> exec a root login shell on hvc1 (and NOT
+                        # the launcher, so it cannot loop); getty respawn
+                        # neutralized by Restart=no; LAUNCHER_LOGIC_REV bumped.
                         # Runs the emitted launcher's real decision fragment
                         # against stubs; needs only bash + awk
+    reap-cleanup-test.sh
+                        # regression test for the host-side teardown (issue
+                        # #179): reap_vfkit returns in bounded time on EVERY
+                        # path (incl. a child that never dies), and cleanup()
+                        # restores the host tty BEFORE the reap. Runs the real
+                        # sliced reap against stub children; bash + awk only
     bin-config-check-test.sh
                         # regression test for bin/claude-vm's four-file
                         # config-presence check (issue #179 defect #3): no
@@ -300,8 +308,11 @@ argv:
   travel to the guest as a single `CLAUDE_ARGS=` line in `run.env`. A
   flat unquoted join breaks the boot the instant an arg carries a space
   or a shell metacharacter (`--name "foo #7 micro-vm"` sourced as a bare
-  line tries to *execute* the `--name` fragment, crashing the getty into
-  an agetty respawn loop). The launcher instead %q-quotes each arg
+  line tries to *execute* the `--name` fragment, crashing the getty
+  login program — which, in the pre-#179 respawning-getty world, looped
+  forever; issue #179's `Restart=no` means that same crash now just ends
+  the session instead of looping, but the quoting is still what keeps
+  the boot correct). The launcher instead %q-quotes each arg
   (this helper) and %q-quotes the whole `CLAUDE_ARGS=` line, so sourcing
   `run.env` yields exactly the per-arg tokens; the guest boot launcher
   reverses it with `eval "set -- $CLAUDE_ARGS"`. Zero args → empty
@@ -417,10 +428,21 @@ written blocks — no cross-session/cross-repo state leakage (OAuth credential,
 identity seed, transcripts, shell history, boot-installed packages), and no
 multi-writer corruption from several guests reading-writing one shared ext4
 image. The clone is discarded on a clean exit and RETAINED (path logged) on an
-abnormal exit (nonzero vfkit status or a signal) for forensics. The launcher
-also `sync`s before the VM stop so writes in flight to the clone are flushed
-before vfkit's routine `forcing stop` kill can tear them; with per-run clones
-the blast radius of any torn write is one throwaway session's clone.
+abnormal exit (nonzero vfkit status or a signal) for forensics. There is no
+host-driven forced stop any more — the guest halts itself and vfkit exits on its
+own — so the launcher `sync`s before reaping vfkit purely to narrow the window
+in which writes in flight to the clone are still unflushed when the guest goes
+away; with per-run clones the blast radius of any torn write is one throwaway
+session's clone.
+
+**Bounded reap, then an intact terminal (issue #179).** `cleanup()` restores the
+host tty **before** it reaps vfkit, and `reap_vfkit()` is bounded on every path:
+it polls for a grace window, escalates to `SIGTERM` then `SIGKILL` if vfkit
+outlives it, and — if vfkit survives all of that — gives up the reap, records a
+synthetic nonzero status (which routes to *retain* the clone) and returns rather
+than blocking on `wait`. So a vfkit that hangs can never strand the operator's
+terminal in raw mode, and cleanup always completes. Reclaiming a vfkit stranded
+that way is separate host-debris work, tracked on its own and out of scope here.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -724,14 +746,43 @@ self-poweroff model, which replaced the earlier host-driven vfkit-REST
 shutdown. It extracts the boot launcher `build-guest-image.sh` emits, slices
 out the real exit-status decision fragment (`"$CLAUDE_BIN" "$@"` →
 capture-status → branch), and runs THAT fragment against a stubbed
-claude/systemctl/poweroff: a claude exit 0 (a deliberate quit) powers the guest
-off via `systemctl poweroff` (falling back to `poweroff(8)` when systemctl is
-absent), while a nonzero exit (137/SIGKILL, or any nonzero) takes NO shutdown
-action and returns claude's status so the VM is left up and inspectable. It
-also asserts the getty drop-in the provisioner writes neutralizes the respawn
-(no leading `-` on the boot-launcher ExecStart, `Restart=no`) — the other half
-of the clean-poweroff contract, since an unconditional respawn would race the
-guest's own poweroff. No VM, no network, no root; needs only `bash` + `awk`.
+claude/systemctl/poweroff/bash: a claude exit 0 (a deliberate quit) powers the
+guest off via `systemctl poweroff` (falling back to `poweroff(8)` when systemctl
+is absent), while a nonzero exit (137/SIGKILL, or any nonzero) takes NO shutdown
+action and instead `exec`s an interactive root **login shell** on hvc1 so the
+failed session is inspectable. The loop-sensitive assertions live here too: the
+abnormal handoff must be a plain login shell and must never re-enter the boot
+launcher (which would rerun claude and rebuild the respawn loop this redesign
+removed). It also asserts the getty drop-in the provisioner writes neutralizes
+the respawn via `Restart=no` — the other half of the clean-poweroff contract,
+since an unconditional respawn would race the guest's own poweroff. Note the
+mechanism: the respawn comes from `Restart=` in the stock
+`serial-getty@.service` template (`Restart=always`), which the drop-in overrides
+to `no`; the leading `-` on `ExecStart` is dropped as well, but that prefix only
+makes a nonzero exit be *reported* as success and never governed the respawn (it
+is asserted separately, and a `failed` getty unit is inert here because nothing
+sets `OnFailure=`/`FailureAction=`). Finally it pins `LAUNCHER_LOGIC_REV` past
+16, since the image-identity hash covers only the bake config files plus the
+repo name — never the launcher source — so that constant is the only thing that
+invalidates a cached image when launcher logic changes. No VM, no network, no
+root; needs only `bash` + `awk`.
+
+`reap-cleanup-test.sh` is the regression test for issue #179's host-side
+teardown. It slices the real `reap_vfkit` / `reap_vfkit_poll` out of
+`claude-vm.sh` and runs them against stub children, proving the bound is real on
+every path: a child that exits promptly yields its true status; a child that
+outlives the grace window is escalated to `SIGTERM`, then `SIGKILL`; and a child
+that survives every rung (modelled by shadowing `kill`) still returns promptly,
+with the synthetic nonzero give-up status and without ever entering the blocking
+`wait`. The earlier shape polled for a window and then fell through to an
+unconditional `wait`, which is not a bound at all — the function blocked for as
+long as vfkit lived. It also asserts `cleanup()`'s statement order: the host tty
+is restored **before** the reap (so a slow or hung vfkit cannot strand the
+terminal in raw mode), re-asserted after it, `sync` still precedes the reap, and
+the discard-vs-retain decision still reads `VM_EXIT_STATUS` after the reap so it
+is made from vfkit's real exit status. The stub lifetimes in that file are the
+test's own scripted numbers — no vfkit binary is involved, so they say nothing
+about vfkit's internal timers. No VM, no network, no root; `bash` + `awk`.
 
 `bin-config-check-test.sh` is the regression test for issue #179 real-boot
 defect #3: `bin/claude-vm`'s global-config presence check must know the

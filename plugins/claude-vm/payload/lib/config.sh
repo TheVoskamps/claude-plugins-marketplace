@@ -1233,8 +1233,10 @@ claude_vm_render_guest_settings() {
 # reconstructs into argv. A flat unquoted join breaks the instant any arg
 # contains whitespace, a shell metacharacter, or a `#` (comment) -- e.g.
 # `--name "foo #7 micro-vm Claude Plugins"` sourced as an unquoted line
-# tries to EXECUTE `--name` (with the `#...` stripped as a comment), the
-# getty login program dies, and agetty respawns it forever.
+# tries to EXECUTE `--name` (with the `#...` stripped as a comment) and the
+# getty login program dies. Pre-#179 that respawned forever; since #179's
+# `Restart=no` it just ends the session -- either way the boot is broken, which
+# is what this quoting prevents.
 #
 # The contract, in TWO halves that must stay in lockstep:
 #

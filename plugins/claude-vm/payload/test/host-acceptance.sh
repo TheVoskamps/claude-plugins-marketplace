@@ -580,7 +580,8 @@ STUBCLAUDE
   # preserved the boundary -- the `spaced #arg` token survived intact and the
   # `#arg` was NOT comment-stripped. A regression to the old unqualified
   # `$CLAUDE_ARGS` word-split would break this (and, on the getty login path,
-  # crash into an agetty respawn loop before the marker ever appeared).
+  # crash the login program before the marker ever appeared -- pre-#179 into an
+  # agetty respawn loop; since #179's Restart=no, into an ended session).
   ARGS_MARKER="args=[--version spaced #arg]"
   if grep -qF "$ARGS_MARKER" "$BOOT_LOG" 2>/dev/null \
      || grep -qF "$ARGS_MARKER" "$HVC1_LOG" 2>/dev/null; then

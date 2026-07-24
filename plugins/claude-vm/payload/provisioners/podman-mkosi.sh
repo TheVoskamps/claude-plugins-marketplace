@@ -417,18 +417,25 @@ FSTAB
 #     boot launcher runs claude as a CHILD and, on claude's DELIBERATE quit
 #     (exit 0), powers the guest off (issue #179) -- claude is the only
 #     workload, so its exit ends the disposable VM. On an ABNORMAL claude
-#     death (nonzero) the launcher does NOT power off; it returns, leaving the
-#     VM up and inspectable.
+#     death (nonzero) the launcher does NOT power off; it `exec`s an
+#     interactive root LOGIN SHELL on this same hvc1 tty, so the operator's
+#     already-bridged terminal lands in a shell on the still-running guest.
 #
-# Respawn neutralized (issue #179): the ExecStart carries NO leading `-`, and
-# Restart=no is set explicitly, so a boot-launcher exit does NOT auto-respawn
-# the getty. This is required by the poweroff-on-clean-exit model: an
-# unconditional respawn would race the guest's own `systemctl poweroff` on the
-# clean path (relaunching claude while the VM is halting), and on the abnormal
-# path it would re-run claude in a loop instead of leaving the failed session
-# idle for inspection. The pre-#179 model exec'd claude and relied on the
-# leading-`-` respawn to recover a black screen; the new self-poweroff model
-# supersedes it.
+# Respawn neutralized (issue #179) by `Restart=no`. The respawn is governed by
+# `Restart=` in the stock serial-getty@.service template, which the drop-in
+# below overrides to `no`, so a boot-launcher exit does NOT auto-respawn the
+# getty. This is required by the poweroff-on-clean-exit model: an unconditional
+# respawn would race the guest's own `systemctl poweroff` on the clean path
+# (relaunching claude while the VM is halting), and on the abnormal path it
+# would re-run claude in a loop instead of leaving the operator in the
+# post-mortem shell. The leading `-` is dropped from the ExecStart as well, but
+# that prefix does something DIFFERENT and is not what suppresses the respawn:
+# it only makes a nonzero exit status be reported as success. Without it a
+# nonzero launcher exit marks the unit `failed` instead -- inert here, since
+# the provisioner sets no OnFailure=/FailureAction= anywhere, so a failed getty
+# unit leaves the VM up, which is exactly what the abnormal path wants. The
+# pre-#179 model exec'd claude and relied on the getty respawn to recover a
+# black screen; the new self-poweroff model supersedes it.
 #
 # This replaces the hand-rolled oneshot; the getty path is the mechanism
 # verified in the #88 spike. The boot launcher still installs the host OAuth
@@ -467,13 +474,22 @@ RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 # session with no shell in between. --keep-baud matches the stock serial-getty
 # behavior (the vfkit virtio-console has no real baud).
 #
-# NO leading `-` on the ExecStart, and Restart=no (issue #179): a boot-launcher
-# exit must NOT auto-respawn the getty. The boot launcher itself powers the
-# guest off on claude's deliberate quit (exit 0) and leaves the VM up on an
-# abnormal exit; an unconditional respawn would race that poweroff on the clean
-# path and re-loop claude on the abnormal path. (Pre-#179 the leading `-` made
-# a launcher exit non-fatal so agetty respawned a login shell; the self-
-# poweroff model removes that respawn.)
+# Restart=no (issue #179) is what suppresses the respawn: the stock
+# serial-getty@.service template sets `Restart=always`, and a drop-in overriding
+# it to `no` is the ONLY thing that stops systemd restarting this unit when the
+# boot launcher exits. A respawn must not happen: it would race the guest's own
+# `systemctl poweroff` on the clean path (relaunching claude while the VM is
+# halting) and re-loop claude on the abnormal path instead of leaving the
+# operator in the launcher's post-mortem root shell.
+#
+# The leading `-` is ALSO dropped from the ExecStart, but do not confuse the two
+# -- the `-` prefix never controlled the respawn. It only tells systemd to treat
+# a nonzero exit status as success; without it, a nonzero launcher exit marks
+# this unit `failed`. That is inert here (no OnFailure=/FailureAction= is set
+# anywhere in this provisioner), so a failed getty unit still leaves the VM up.
+# Do NOT "restore" the `-` believing it is inert, and do NOT delete `Restart=no`
+# believing the missing `-` covers it: only `Restart=no` neutralizes the
+# respawn.
 ExecStart=
 ExecStart=/sbin/agetty --autologin root --login-program /usr/local/lib/claude-vm/boot-launcher.sh --keep-baud 115200,57600,38400,9600 hvc1 $TERM
 Restart=no

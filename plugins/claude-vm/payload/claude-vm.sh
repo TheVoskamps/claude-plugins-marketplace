@@ -1095,7 +1095,9 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
     # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced
     # as a bare line tries to EXECUTE `--name` (with the `#...` comment-
-    # stripped), the getty login program dies, and agetty respawns forever.
+    # stripped) and the getty login program dies. Pre-#179 that respawned
+    # forever; since #179's `Restart=no` it just ends the session -- either way
+    # the boot is broken, which is what this quoting prevents.
     # Fix: inner per-arg %q (claude_vm_quote_args) preserves each arg's
     # boundaries; outer %q makes the whole CLAUDE_ARGS=<...> LINE safe to
     # `source` under `set -a`. The guest reverses it with
@@ -1472,21 +1474,92 @@ copy_back() {
 # guest keyboard input) and vfkit tears the guest down; we then reap whatever
 # status it exited with. Guarded on VFKIT_PID (empty if a signal fired before
 # vfkit launched -> nothing to reap).
+#
+# cleanup() restores the host tty BEFORE calling this, so however long or badly
+# the reap goes, the operator's terminal is already back in canonical mode.
+#
+# The bound is REAL on every path (issue #179 review). An earlier shape polled
+# for a window and then fell through to an UNCONDITIONAL `wait "$VFKIT_PID"` --
+# which is not a bound at all: when the poll expired with vfkit still alive, the
+# `wait` blocked for as long as vfkit lived, and cleanup() hung with it. Here
+# every escalation rung is finite, and the blocking `wait` is entered ONLY once
+# vfkit is confirmed gone; if it is still alive after the last rung we skip the
+# `wait` entirely and record a synthetic nonzero status. So reap_vfkit() always
+# returns within roughly REAP_* seconds total, no matter what vfkit does.
+#
+# The rung durations below are OUR OWN patience budget, not a mirror of any
+# vfkit-internal timer. (Do not read them as such: a review harness that
+# reproduced the old unbounded hang used a scripted STUB child, so its observed
+# timings were the stub's scripted lifetime, with no vfkit involved.) They are
+# chosen to be generous enough that an ordinary guest halt completes in rung 1.
+REAP_GRACE_TICKS=50      # rung 1: 50 x 0.1s = 5s, no signal (vfkit exits on its own)
+REAP_TERM_TICKS=30       # rung 2: 30 x 0.1s = 3s, after SIGTERM
+REAP_KILL_TICKS=20       # rung 3: 20 x 0.1s = 2s, after SIGKILL
+# Synthetic status recorded when vfkit outlives every rung. Nonzero on purpose:
+# an unreaped vfkit is by definition an abnormal exit, so it routes to RETAIN
+# the clone (and the guest may still be writing to it -- discarding would be
+# wrong). 125 is outside the usual 0-1/128+N vfkit range, so it is legible in a
+# log as "we gave up waiting" rather than a status vfkit actually returned.
+REAP_UNREAPED_STATUS=125
+
+# reap_vfkit_poll <ticks> -- poll for vfkit's exit, at most <ticks> x 0.1s.
+# Returns 0 as soon as vfkit is gone, 1 if it is still alive when the ticks run
+# out. Never blocks longer than <ticks> x 0.1s.
+reap_vfkit_poll() {
+  local ticks="$1" i
+  for i in $(seq 1 "$ticks"); do
+    kill -0 "$VFKIT_PID" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  kill -0 "$VFKIT_PID" 2>/dev/null || return 0
+  return 1
+}
+
 reap_vfkit() {
   [ -n "${VFKIT_PID:-}" ] || return 0
-  # If vfkit is still alive here (e.g. a signal interrupted our `wait` before
-  # vfkit finished exiting), give it a brief bounded window to exit on its own
-  # rather than force-killing it -- the guest's own poweroff, or vfkit's own
-  # signal handling, is bringing it down. This is a reap, not a shutdown driver.
+
+  # Rung 1: if vfkit is still alive here (e.g. a signal interrupted our `wait`
+  # before vfkit finished exiting), give it a brief window to exit on its OWN
+  # rather than signalling it -- the guest's own poweroff, or vfkit's own signal
+  # handling, is already bringing it down. This is a reap, not a shutdown driver.
+  local vfkit_gone=0
   if kill -0 "$VFKIT_PID" 2>/dev/null; then
-    local waited
-    for waited in $(seq 1 50); do
-      kill -0 "$VFKIT_PID" 2>/dev/null || break
-      sleep 0.1
-    done
+    if reap_vfkit_poll "$REAP_GRACE_TICKS"; then
+      vfkit_gone=1
+    else
+      # Rung 2: it outlived the polite window. Escalate to SIGTERM and poll again.
+      echo "claude-vm: vfkit (pid $VFKIT_PID) still running after the grace window; sending SIGTERM." >&2
+      kill "$VFKIT_PID" 2>/dev/null || true
+      if reap_vfkit_poll "$REAP_TERM_TICKS"; then
+        vfkit_gone=1
+      else
+        # Rung 3: still alive. SIGKILL and poll one last time.
+        echo "claude-vm: vfkit (pid $VFKIT_PID) ignored SIGTERM; sending SIGKILL." >&2
+        kill -9 "$VFKIT_PID" 2>/dev/null || true
+        if reap_vfkit_poll "$REAP_KILL_TICKS"; then
+          vfkit_gone=1
+        fi
+      fi
+    fi
+  else
+    vfkit_gone=1
   fi
-  # Reap its real status. `wait` returns the child's status if we have not
-  # already reaped it; a nonzero status must not trip `set -e` inside the trap.
+
+  if [ "$vfkit_gone" -ne 1 ]; then
+    # Every rung expired with vfkit still alive. Do NOT `wait` -- that is the
+    # unbounded call this function exists to avoid. Record the synthetic status
+    # (which routes to retain) and return so cleanup() proceeds to restore the
+    # host tty. The stranded process is host debris; reclaiming it is separate,
+    # out-of-scope work tracked on its own.
+    echo "claude-vm: vfkit (pid $VFKIT_PID) did not exit within the reap window; giving up the reap and continuing cleanup (the process may still be running)." >&2
+    VM_EXIT_STATUS=$REAP_UNREAPED_STATUS
+    return 0
+  fi
+
+  # vfkit is confirmed gone, so this `wait` cannot block: it either returns the
+  # child's real status (if we have not already reaped it) or fails immediately
+  # because it was already reaped. A nonzero status must not trip `set -e`
+  # inside the trap, hence the `|| reaped=$?`.
   local reaped=0
   wait "$VFKIT_PID" 2>/dev/null || reaped=$?
   VM_EXIT_STATUS=$reaped
@@ -1511,16 +1584,46 @@ cleanup() {
   # sync narrows even that window. Cheap and always safe.
   sync 2>/dev/null || true
 
+  # Restore the host terminal BEFORE reaping vfkit (issue #179 review), not
+  # after. vfkit's `virtio-serial,stdio` bridge leaves the host tty in RAW mode
+  # (echo off, ICANON off -- Enter sends \r not \n), and that state SURVIVES
+  # vfkit's death. Without this restore the copy_back() confirmation `read -r`
+  # never completes (no newline arrives) and typed input is invisible -- observed
+  # hanging on real hardware. restore_host_tty() puts the tty back into canonical
+  # mode (operating on /dev/tty, the controlling terminal vfkit corrupted and the
+  # prompt uses).
+  #
+  # ORDERING (the fix): restoring the tty must not be downstream of reaping a
+  # process that might be slow or hung. reap_vfkit() is now bounded on every
+  # path, but it can still spend seconds escalating through its rungs, and it
+  # can give up on a vfkit that never dies -- an operator staring at a dead
+  # terminal for that whole window (or forever, under the old unbounded shape)
+  # was the repeatedly-observed symptom. So the tty goes back to canonical mode
+  # here, unconditionally, before the reap.
+  restore_host_tty
+
   # Reap vfkit and record its REAL exit status in VM_EXIT_STATUS (issue #179).
   # There is no host-driven shutdown: the guest powers itself off on claude's
   # deliberate quit, vfkit exits on its own, and reap_vfkit just collects the
   # status. A clean guest poweroff yields vfkit exit 0 -> discard the clone; a
-  # nonzero vfkit exit (guest left up on abnormal claude death, or a genuine
-  # vfkit failure) -> retain the clone for forensics. On the normal path (guest
-  # ended on its own) VM_EXIT_STATUS was already set from the `wait` after the
-  # launch; reap_vfkit is a no-op re-reap there. On a signal-triggered trap it
-  # is what establishes the status.
+  # nonzero vfkit exit (guest left up on abnormal claude death, a genuine vfkit
+  # failure, or the synthetic "never exited" status) -> retain the clone for
+  # forensics. On the normal path (guest ended on its own) VM_EXIT_STATUS was
+  # already set from the `wait` after the launch; reap_vfkit is a no-op re-reap
+  # there. On a signal-triggered trap it is what establishes the status. The
+  # discard-vs-retain decision below still keys on vfkit's real exit status --
+  # moving the tty restore above the reap changes WHEN the terminal is usable,
+  # not WHAT the status decision is made from.
   reap_vfkit
+
+  # Re-assert the restore AFTER the reap. If vfkit was still alive across the
+  # reap window it can have re-corrupted the termios state we just fixed (and on
+  # the give-up path it may still be running now). Cheap and idempotent, so run
+  # it both sides: the pre-reap call guarantees a usable terminal even if the
+  # reap is slow, and this one catches any corruption the reap window let
+  # through. copy_back() re-asserts it a third time just before its prompt, for
+  # the same reason (see the comment there).
+  restore_host_tty
 
   # Clean-vs-abnormal is driven solely by VM_EXIT_STATUS (issue #179), which
   # reflects vfkit's REAL exit status. A clean guest poweroff yields 0 ->
@@ -1530,17 +1633,6 @@ cleanup() {
     clean_exit=1
   fi
 
-  # Restore the host terminal FIRST, before any output or the copy-back prompt
-  # (issue #88). vfkit's `virtio-serial,stdio` bridge leaves the host tty in RAW
-  # mode (echo off, ICANON off -- Enter sends \r not \n), and that state SURVIVES
-  # vfkit's death. Without this restore the copy_back() confirmation `read -r`
-  # never completes (no newline arrives) and typed input is invisible -- observed
-  # hanging on real hardware. restore_host_tty() puts the tty back into canonical
-  # mode (operating on /dev/tty, the controlling terminal vfkit corrupted and the
-  # prompt uses). copy_back() re-asserts it again just before the prompt, because
-  # this early restore can be undone before the prompt runs (see the comment
-  # there).
-  restore_host_tty
   [ -n "$GV_PID" ] && kill "$GV_PID" 2>/dev/null || true
   [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
   copy_back

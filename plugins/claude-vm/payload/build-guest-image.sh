@@ -223,7 +223,25 @@ BASE_OS_REV="debian-12-20250601"
 # render_apt_source (see that function's matching comment). This is a
 # BOOT-LOGIC change (the boot launcher's own apt_source rendering), so old
 # images (stamped 'launcher15') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="16"
+# Bumped 16 -> 17: guest self-poweroff shutdown model (issue #179). The boot
+# launcher no longer `exec`s claude -- it runs claude as a CHILD, captures the
+# exit status, and decides: exit 0 (a deliberate quit) powers the guest off via
+# `systemctl poweroff`; a nonzero exit `exec`s an interactive root LOGIN SHELL
+# on hvc1 so the operator lands in the still-running guest for a post-mortem.
+# The paired getty drop-in (provisioners/podman-mkosi.sh) sets Restart=no so
+# systemd never respawns the unit behind either decision. Both halves are BOOT
+# LOGIC baked into the image, and NEITHER is covered by the image-identity hash
+# -- that hash (claude_vm_image_identity_segments in lib/config.sh) is computed
+# from the two bake CONFIG files plus the repo name and has no launcher-source
+# input at all. So this rev is the ONLY mechanism that invalidates a cached
+# image for this change: left at 16, an image already stamped 'launcher16' on
+# an operator's disk (built from `main`) would be reused carrying the OLD
+# `exec claude` launcher and the OLD respawning getty, silently defeating the
+# entire redesign. The config migration to the bake/boot pair changes the bake
+# hash and will often force a rebuild incidentally, but incidental is not a
+# guarantee -- it does not cover a re-run after the migration has settled.
+# Old images (stamped 'launcher16') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="17"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -305,9 +323,12 @@ EOF
 
 # The boot launcher baked into the guest. As of issue #88 it runs as the
 # LOGIN PROGRAM of an autologin serial-getty@hvc1 (a real controlling tty),
-# loads the run environment, then execs the host-verified `claude` binary
+# loads the run environment, then runs the host-verified `claude` binary
 # (mounted RO at /mnt/claudebin by the guest fstab) against the mounted repo
-# at /mnt/repo -- so claude IS the interactive hvc1 session. The binary is
+# at /mnt/repo -- so claude IS the interactive hvc1 session. As of issue #179
+# it runs claude as a CHILD (not `exec`) so it can read the exit status and
+# decide: 0 -> power the guest off; nonzero -> `exec` an interactive root login
+# shell on the same console for a post-mortem. The binary is
 # fetched, GPG-manifest-verified, and cached HOST-SIDE by the launcher
 # (lib/claude-cache.sh, issue #49); the guest only runs the already-verified
 # binary off the RO mount -- it never runs `install.sh | bash` on this trusted
@@ -333,9 +354,13 @@ emit_boot_launcher() {
 # the host-rendered settings.json (permissions allow/ask/deny + defaultMode +
 # enabledPlugins) into $HOME/.claude/settings.json (issue #104), seeds
 # the tty geometry from the host (issue #88), then
-# `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
+# runs the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
-# in between. claude is NEVER baked into the image and is NEVER fetched-and-run
+# in between. As of issue #179 claude runs as a CHILD rather than via `exec`,
+# so this launcher can read claude's exit STATUS and act on it: exit 0 (a
+# deliberate quit) powers the guest off, and a nonzero exit `exec`s an
+# interactive root login shell on this same console so the failed session is
+# inspectable. claude is NEVER baked into the image and is NEVER fetched-and-run
 # inside the guest: the host fetches, GPG-manifest-verifies, and caches the
 # binary, and shares it in RO. The guest only runs the already-verified binary.
 set -euo pipefail
@@ -849,7 +874,8 @@ cd "$REPO_MNT"
 # `eval set --` re-parses those tokens back into the original argv -- exactly
 # reversing the host's quoting -- so args with spaces / shell metacharacters /
 # `#` (e.g. --name "foo #7 micro-vm Claude Plugins") round-trip intact instead
-# of crashing the getty login program into an agetty respawn loop. An empty
+# of crashing the getty login program (which, pre-#179, looped forever; since
+# #179's Restart=no it just ends the session -- broken either way). An empty
 # CLAUDE_ARGS ('') yields `set -- ` -> zero argv. The two halves of this
 # contract are kept in lockstep with the claude_vm_quote_args comment.
 eval "set -- ${CLAUDE_ARGS:-}"
@@ -871,15 +897,32 @@ eval "set -- ${CLAUDE_ARGS:-}"
 # Exit-status contract (verified on a real interactive tty, issue #179):
 #   - Every DELIBERATE quit is 0: Ctrl-D Ctrl-D, /exit, and Ctrl-C Ctrl-C all
 #     exit claude 0. On 0 the guest powers off -- the clean path.
-#   - An ABNORMAL death is nonzero (e.g. SIGKILL -> 137). On nonzero the guest
-#     does NOT power off: it is left up and inspectable so a broken session is
-#     diagnosable rather than instantly vanishing into a powered-off VM.
+#   - An ABNORMAL death is nonzero (e.g. SIGKILL -> 137). On nonzero this
+#     launcher `exec`s an interactive root LOGIN SHELL on this same hvc1 tty,
+#     so the operator's already-bridged terminal lands in a shell on the
+#     still-running guest and the session is genuinely inspectable.
 #
-# The getty's respawn is neutralized in the unit drop-in (provisioners/podman-
-# mkosi.sh: the agetty ExecStart no longer carries a leading `-`, so a launcher
-# exit does not auto-respawn to fight this poweroff on the clean path). On the
-# nonzero path this launcher simply returns; agetty exits and, with no respawn,
-# leaves the console idle on the still-running VM for inspection.
+# Why a shell and not merely "do not power off": leaving the VM up without a
+# console is worse than powering it off. hvc0 is attached HOST-side to a log
+# FILE (not an interactive console), the guest ships no sshd (so gvproxy's
+# -ssh-port forward terminates at nothing), and the hvc1 getty is Restart=no --
+# so a launcher that just returns leaves a running VM holding a multi-GB clone
+# with no way in. The host-side hvc0 log records THAT claude died and roughly
+# when, but cannot show the post-mortem state: the workspace contents, how the
+# clone diverged, dmesg, whether the network wiring survived. A console shell
+# answers all of that; exiting it is cheap when the operator does not care.
+#
+# Why this CANNOT loop (the bug this redesign removed): the respawn was never
+# governed by the leading `-` on the getty ExecStart -- that prefix only makes
+# a nonzero exit be REPORTED as success. The respawn comes from `Restart=` in
+# the stock serial-getty@.service template, which the drop-in
+# (provisioners/podman-mkosi.sh) overrides to `Restart=no`. So systemd never
+# restarts this unit behind either decision. On top of that, the shell below is
+# `exec`ed from THIS launcher process: the launcher is REPLACED by the shell,
+# nothing re-enters this script, and claude is not relaunched. When the operator
+# exits the shell the unit simply terminates (and, with Restart=no, stays
+# terminated). The getty unit must therefore never independently re-exec this
+# boot launcher -- it starts it exactly once, as agetty's --login-program.
 set +e
 "$CLAUDE_BIN" "$@"
 CLAUDE_STATUS=$?
@@ -897,11 +940,26 @@ if [ "$CLAUDE_STATUS" -eq 0 ]; then
   fi
 fi
 
-# Nonzero: abnormal claude death. Do NOT power off -- leave the VM up and
-# inspectable. Return this launcher's exit as claude's status; the getty's
-# respawn is disabled, so the console goes idle rather than looping, and the
-# host launcher sees vfkit still running until the operator brings it down.
-log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); leaving the guest UP for inspection (no poweroff)."
+# Nonzero: abnormal claude death. Do NOT power off -- hand the operator an
+# interactive root login shell on this console so the guest is genuinely
+# inspectable. `exec` replaces this launcher, so claude is NOT relaunched and
+# no loop is possible (see the "Why this CANNOT loop" note above). `bash` is
+# baked into the guest unconditionally (provisioners/podman-mkosi.sh's
+# Packages= list), so the -l branch is the expected path; the /bin/sh fallback
+# exists only so a hypothetically bash-less image still yields a shell rather
+# than a dead console.
+log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); dropping to an interactive root shell on this console (guest left UP, no poweroff). Exit the shell to end the session."
+echo "claude-vm: claude exited $CLAUDE_STATUS (abnormal). You are now in a root shell inside the guest." >&2
+echo "claude-vm: the workspace is at $REPO_MNT. Exit this shell to end the session (claude will NOT be relaunched)." >&2
+export CLAUDE_VM_LAST_CLAUDE_STATUS="$CLAUDE_STATUS"
+if command -v bash >/dev/null 2>&1; then
+  exec bash -l
+else
+  exec /bin/sh -l
+fi
+# Unreachable: both branches above `exec`. Kept as a defensive terminator so a
+# shell that somehow could not be exec'd still surfaces claude's real status
+# rather than falling off the end of the script with a stale status.
 exit "$CLAUDE_STATUS"
 BOOT
 }

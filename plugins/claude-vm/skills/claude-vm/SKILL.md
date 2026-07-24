@@ -532,8 +532,28 @@ Claude Code updates daily, so the guest image does **not** bake in
   (OAuth credential, identity seed, transcripts, boot-installed packages)
   and no multi-writer corruption on a shared image. The clone is
   discarded on a clean exit and retained (path logged) on an abnormal one
-  for forensics; the launcher `sync`s before the VM stop so writes in
-  flight are flushed before vfkit's routine `forcing stop` kill.
+  for forensics. There is no host-driven forced stop: the guest halts
+  itself and vfkit exits on its own, so the launcher's `sync` before the
+  reap simply narrows the window in which writes in flight to the clone
+  are still unflushed when the guest goes away.
+- **Ending a session (issue #179).** The guest decides its own fate from
+  claude's exit status; there is no host→guest shutdown channel.
+  - **A deliberate quit powers the guest off.** `Ctrl-D Ctrl-D`, `/exit`,
+    and `Ctrl-C Ctrl-C` all exit claude 0, and on 0 the guest runs
+    `systemctl poweroff`. vfkit then exits on its own, control returns to
+    the `claude-vm` launcher on the host, your terminal is restored, the
+    per-run clone is discarded, and the copy-back step runs. This is the
+    normal way to end a session — nothing on the host needs to be killed.
+  - **An abnormal claude death drops you into a guest shell.** If claude
+    exits nonzero (a crash, an OOM kill, `SIGKILL` → 137), the guest does
+    **not** power off. Instead the boot launcher hands you an interactive
+    **root login shell on the same console you were already attached to**,
+    so you can run a post-mortem inside the still-running guest: inspect
+    `/mnt/repo`, see how the clone diverged, read `dmesg`, check whether
+    the network wiring survived. claude is **not** relaunched — the
+    launcher is replaced by the shell, so there is no respawn loop. Exit
+    that shell when you are done; the session ends and the clone is
+    retained (its path is logged) for further forensics.
 - **Boot-time package install/update (issue #106).** A **boot** file's
   `packages:` (install list) and `update_at_boot` do **not** feed the
   image-identity hash — they
