@@ -174,6 +174,6 @@ claude_vm_clear_stale_unix_sock() {
 # earlier pass drove guest shutdown from the host over vfkit's `--restful-uri`
 # REST channel (POST {"state":"Stop"}/{"state":"HardStop"}). That model was
 # replaced: the guest powers ITSELF off when claude quits (the boot launcher
-# runs `systemctl poweroff` on claude's exit 0), so vfkit needs no REST control
+# starts systemd's poweroff on claude's exit 0), so vfkit needs no REST control
 # socket and the host needs no shutdown driver -- vfkit runs foreground and
 # exits on its own when the guest halts.

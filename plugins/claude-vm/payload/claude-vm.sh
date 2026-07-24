@@ -588,7 +588,7 @@ fi
 SOCK_DIR="$(claude_vm_mktemp -d claude-vm-sock)"
 GVPROXY_SOCK="$SOCK_DIR/net.sock"
 # NO vfkit REST control socket (issue #179): the guest powers ITSELF off when
-# claude quits (the guest boot launcher runs `systemctl poweroff` on claude's
+# claude quits (the guest boot launcher starts systemd's poweroff on claude's
 # exit 0), so there is no host->guest shutdown channel to open. vfkit runs
 # foreground and exits on its own when the guest halts; its status lands in
 # the launcher's own `$?`.
@@ -1670,7 +1670,7 @@ fi
 #
 # vfkit runs FOREGROUND (issue #179): no `set -m`, no backgrounding `&`. The
 # guest powers ITSELF off when claude quits deliberately (the boot launcher
-# runs `systemctl poweroff` on claude's exit 0), so there is no host->guest
+# starts systemd's poweroff on claude's exit 0), so there is no host->guest
 # shutdown to drive -- vfkit exits on its own when the guest halts and its
 # status lands in $? right below. Backgrounding vfkit breaks the boot
 # outright: a backgrounded vfkit cannot attach its `virtio-serial,stdio`

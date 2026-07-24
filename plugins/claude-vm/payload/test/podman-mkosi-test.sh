@@ -650,7 +650,7 @@ assert_contains "non-integer headroom: actionable error on stderr" \
 # Guest self-poweroff getty drop-in (issue #179). The redesigned shutdown model
 # makes the guest power ITSELF off when claude quits (exit 0); for that to work
 # cleanly the autologin getty must NOT unconditionally respawn the boot launcher
-# (a respawn would race the guest's own `systemctl poweroff` on the clean path
+# (a respawn would race the guest's own poweroff on the clean path
 # and re-loop claude on the abnormal path, where the launcher has instead handed
 # the operator a root login shell). Assert on the ACTUAL generated drop-in the
 # provisioner writes into the recipe tree.

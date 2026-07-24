@@ -7,7 +7,9 @@
 # emit_boot_launcher) runs claude ONCE as a child, captures its exit status,
 # and decides:
 #   - claude exit 0 (a DELIBERATE quit -- Ctrl-D Ctrl-D, /exit, Ctrl-C Ctrl-C
-#     all verified 0)   -> power the guest off (systemctl poweroff / poweroff),
+#     all verified 0)   -> power the guest off via SIGRTMIN+4 to PID 1
+#                          (systemd's documented bus-less poweroff.target
+#                          path -- no systemctl, no dbus, no stderr),
 #   - claude exit nonzero (ABNORMAL, e.g. SIGKILL -> 137)
 #                        -> do NOT power off; `exec` an interactive root LOGIN
 #                           SHELL on the same hvc1 console so the operator can
@@ -24,8 +26,8 @@
 # cannot run outside a real guest, so this test exercises the DECISION FRAGMENT
 # in isolation: it extracts the emitted boot launcher, slices out the tail from
 # the `set +e ; "$CLAUDE_BIN" "$@"` run through the final decision, and runs
-# THAT real fragment against a stubbed claude / systemctl / poweroff / bash. So
-# it is the actual emitted code deciding, not a hand-copied reimplementation.
+# THAT real fragment against a stubbed claude / kill / bash. So it is the
+# actual emitted code deciding, not a hand-copied reimplementation.
 #
 # It ALSO asserts the getty drop-in the provisioner writes neutralizes the
 # respawn via `Restart=no` -- the other half of the clean-poweroff contract (an
@@ -126,8 +128,16 @@ assert_not_contains "emitted launcher no longer ends with 'exec \"\$CLAUDE_BIN\"
   "$(cat "$LAUNCHER")" 'exec "$CLAUDE_BIN"'
 assert_contains "emitted launcher captures claude's exit status" \
   "$(cat "$LAUNCHER")" 'CLAUDE_STATUS=$?'
-assert_contains "emitted launcher powers off via systemctl on the clean path" \
-  "$(cat "$LAUNCHER")" 'systemctl poweroff'
+assert_contains "emitted launcher powers off via SIGRTMIN+4 to PID 1 on the clean path" \
+  "$(cat "$LAUNCHER")" 'kill -s RTMIN+4 1'
+# The bus-touching shutdown commands must be GONE as code (the guest ships no
+# dbus, so `exec systemctl poweroff` printed "Failed to connect to bus" on the
+# operator's console on every clean exit). Prose may still mention systemctl;
+# the exec forms are the code smell.
+assert_not_contains "emitted launcher no longer execs systemctl" \
+  "$(cat "$LAUNCHER")" 'exec systemctl'
+assert_not_contains "emitted launcher no longer execs poweroff(8)" \
+  "$(cat "$LAUNCHER")" 'exec poweroff'
 assert_contains "emitted launcher execs a login shell on the abnormal path" \
   "$(cat "$LAUNCHER")" 'exec bash -l'
 
@@ -167,27 +177,25 @@ fi
 bash -n "$FRAGMENT"
 assert_eq "decision fragment is syntactically valid bash" "0" "$?"
 
-# run_decision <claude-exit-status> [has_systemctl=yes|no] -> prints the
-# action the fragment took ("systemctl-poweroff" | "poweroff" | "shell-<argv>" |
-# "none") and the fragment's own exit code on the second line. Runs in a
-# subshell so stubs are scoped.
+# run_decision <claude-exit-status> -> prints the action the fragment took
+# ("rtmin4-<argv>" | "shell-<argv>" | "none") and the fragment's own exit code
+# on the second line. Runs in a subshell so stubs are scoped.
 #
-# The fragment `exec`s its terminal action on BOTH branches (shutdown command on
-# the clean path, login shell on the abnormal path), and `exec` replaces the
-# process with an EXECUTABLE (shell functions do not apply to exec). So
-# systemctl / poweroff / bash are stubbed as real scripts on a private PATH dir
-# that record which path ran to a marker file. `command -v systemctl` and
-# `command -v bash` in the fragment then also resolve against that PATH: to
-# model "systemctl absent", we simply do not place a systemctl stub -- `command
-# -v systemctl` fails and the fragment falls through to `exec poweroff`.
+# The CLEAN path's terminal action is `kill -s RTMIN+4 1` -- `kill` is a bash
+# BUILTIN, so it is intercepted with a shell FUNCTION (functions shadow
+# builtins; the fragment is sourced into this subshell, same as the `log`
+# stub). This also keeps the test portable: macOS bash has no RTMIN signal
+# names, but the function swallows the argv before any name resolution.
 #
-# The `bash` stub is what makes the abnormal path observable: it records the
-# argv it was exec'd with (expected `-l`, i.e. a plain LOGIN SHELL) so the test
-# can assert the handoff is a shell and not a relaunch of anything. The fake
-# claude therefore uses a `/bin/sh` shebang, not `/usr/bin/env bash`, so the
-# bash stub never accidentally intercepts claude itself.
+# The ABNORMAL path `exec`s a login shell, and `exec` replaces the process
+# with an EXECUTABLE (shell functions do not apply to exec), so `bash` is
+# stubbed as a real script on a private PATH dir. It records the argv it was
+# exec'd with (expected `-l`, i.e. a plain LOGIN SHELL) so the test can assert
+# the handoff is a shell and not a relaunch of anything. The fake claude
+# therefore uses a `/bin/sh` shebang, not `/usr/bin/env bash`, so the bash
+# stub never accidentally intercepts claude itself.
 run_decision() {
-  local claude_status="$1" has_systemctl="${2:-yes}"
+  local claude_status="$1"
   local marker="$WORK/action"
   local stubdir="$WORK/stubbin"
   rm -f "$marker"
@@ -203,14 +211,6 @@ exit $claude_status
 FAKE
   chmod +x "$claude_bin"
 
-  # poweroff stub (the systemctl-absent fallback), always present.
-  cat > "$stubdir/poweroff" <<STUB
-#!/bin/sh
-printf 'poweroff\n' > "$marker"
-exit 0
-STUB
-  chmod +x "$stubdir/poweroff"
-
   # bash stub: stands in for the interactive root login shell the abnormal path
   # `exec`s. Records its argv so the test can assert it was invoked as a plain
   # login shell (`-l`) rather than as a re-entry into anything.
@@ -221,17 +221,6 @@ exit 0
 STUB
   chmod +x "$stubdir/bash"
 
-  # systemctl stub, present only when has_systemctl=yes so `command -v
-  # systemctl` models both states honestly.
-  if [ "$has_systemctl" = "yes" ]; then
-    cat > "$stubdir/systemctl" <<STUB
-#!/bin/sh
-printf 'systemctl-%s\n' "\$*" > "$marker"
-exit 0
-STUB
-    chmod +x "$stubdir/systemctl"
-  fi
-
   (
     CLAUDE_BIN="$claude_bin"
     # The abnormal path echoes the workspace path; give it a value so the
@@ -239,12 +228,13 @@ STUB
     REPO_MNT="/mnt/repo"
     # Stub log() to a no-op (the real one writes /dev/console).
     log() { :; }
-    # Prepend the stub dir so `command -v systemctl` / `command -v bash` and the
-    # `exec`s resolve our stubs first, while keeping the real system bins on
-    # PATH so the fake claude's `/bin/sh` shebang still resolves. On macOS the
-    # host has no real systemctl, so has_systemctl=no (no systemctl stub placed)
-    # faithfully models "systemctl absent" and the fragment falls back to
-    # `exec poweroff` -- our poweroff stub, first on PATH.
+    # Intercept the clean path's `kill -s RTMIN+4 1`: a function shadows the
+    # builtin, records the argv, and never sends a real signal (this test must
+    # not signal PID 1, and macOS bash could not resolve RTMIN+4 anyway).
+    kill() { printf 'rtmin4-%s\n' "$*" > "$marker"; }
+    # Prepend the stub dir so `command -v bash` and the abnormal path's `exec`
+    # resolve our bash stub first, while keeping the real system bins on PATH
+    # so the fake claude's `/bin/sh` shebang still resolves.
     PATH="$stubdir:$PATH"
     set -- # zero argv, like an empty CLAUDE_ARGS
     # shellcheck disable=SC1090
@@ -259,15 +249,14 @@ STUB
   echo "$frag_rc"
 }
 
-# --- Clean quit (exit 0): the guest powers off via systemctl. ---
+# --- Clean quit (exit 0): the guest powers off via SIGRTMIN+4 to PID 1, and
+#     the fragment itself exits 0 (the getty unit ends cleanly while systemd
+#     processes the shutdown). ---
 OUT="$(run_decision 0)"
 ACTION="$(printf '%s\n' "$OUT" | sed -n '1p')"
-assert_eq "exit 0 (deliberate quit) -> systemctl poweroff" "systemctl-poweroff" "$ACTION"
-
-# --- Clean quit with systemctl absent: falls back to poweroff(8). ---
-OUT="$(run_decision 0 no)"
-ACTION="$(printf '%s\n' "$OUT" | sed -n '1p')"
-assert_eq "exit 0 with no systemctl -> poweroff(8) fallback" "poweroff" "$ACTION"
+FRAG_RC="$(printf '%s\n' "$OUT" | sed -n '2p')"
+assert_eq "exit 0 (deliberate quit) -> SIGRTMIN+4 to PID 1" "rtmin4--s RTMIN+4 1" "$ACTION"
+assert_eq "exit 0 -> fragment itself exits 0 after signalling" "0" "$FRAG_RC"
 
 # --- Abnormal death (137, SIGKILL): NO poweroff. The fragment `exec`s an
 #     interactive root LOGIN SHELL on the same console so the operator can run
@@ -286,7 +275,7 @@ assert_eq "exit 1 (abnormal) -> execs a login shell (no poweroff)" "shell--l" "$
 #     from the positive check above so a future regression that both powers off
 #     AND spawns a shell cannot hide behind the shell marker. ---
 case "$ACTION" in
-  systemctl-*|poweroff)
+  rtmin4-*)
     FAIL=$((FAIL + 1)); echo "FAIL - abnormal exit must not power the guest off (got [$ACTION])" ;;
   *)
     PASS=$((PASS + 1)); echo "ok   - abnormal exit takes no shutdown action" ;;
@@ -368,11 +357,11 @@ fi
 REV="$(sed -n 's/^LAUNCHER_LOGIC_REV="\([0-9][0-9]*\)"$/\1/p' "$BUILD" | head -1)"
 if [ -z "$REV" ]; then
   FAIL=$((FAIL + 1)); echo "FAIL - could not read LAUNCHER_LOGIC_REV from $BUILD"
-elif [ "$REV" -gt 16 ]; then
-  PASS=$((PASS + 1)); echo "ok   - LAUNCHER_LOGIC_REV bumped past 16 (now $REV; cached launcher16 images cannot be reused)"
+elif [ "$REV" -gt 17 ]; then
+  PASS=$((PASS + 1)); echo "ok   - LAUNCHER_LOGIC_REV bumped past 17 (now $REV; cached launcher17 images cannot be reused)"
 else
   FAIL=$((FAIL + 1))
-  echo "FAIL - LAUNCHER_LOGIC_REV must be > 16 for the self-poweroff/shell-handoff launcher (got $REV)"
+  echo "FAIL - LAUNCHER_LOGIC_REV must be > 17 for the SIGRTMIN+4 bus-less poweroff launcher (got $REV)"
 fi
 # The composite the launcher compares against must be built from that rev, so a
 # bump actually reaches the cache key.

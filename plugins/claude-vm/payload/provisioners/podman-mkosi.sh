@@ -425,7 +425,7 @@ FSTAB
 # `Restart=` in the stock serial-getty@.service template, which the drop-in
 # below overrides to `no`, so a boot-launcher exit does NOT auto-respawn the
 # getty. This is required by the poweroff-on-clean-exit model: an unconditional
-# respawn would race the guest's own `systemctl poweroff` on the clean path
+# respawn would race the guest's own poweroff on the clean path
 # (relaunching claude while the VM is halting), and on the abnormal path it
 # would re-run claude in a loop instead of leaving the operator in the
 # post-mortem shell. The leading `-` is dropped from the ExecStart as well, but

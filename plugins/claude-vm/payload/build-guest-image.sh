@@ -241,7 +241,15 @@ BASE_OS_REV="debian-12-20250601"
 # hash and will often force a rebuild incidentally, but incidental is not a
 # guarantee -- it does not cover a re-run after the migration has settled.
 # Old images (stamped 'launcher16') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="17"
+# Bumped 17 -> 18: clean-exit poweroff now sends SIGRTMIN+4 to PID 1 instead
+# of exec'ing `systemctl poweroff` (issue #179). The guest ships no dbus, so
+# systemctl's first attempt (logind over the D-Bus system bus) printed
+# "Failed to connect to bus: No such file or directory" on the operator's
+# interactive console on EVERY clean exit before falling back to PID 1. The
+# signal is systemd's documented bus-less path to the same ordered
+# poweroff.target shutdown, so the red error never happens. BOOT LOGIC baked
+# into the image; old images (stamped 'launcher17') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="18"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -930,14 +938,20 @@ set -e
 
 if [ "$CLAUDE_STATUS" -eq 0 ]; then
   log "claude-vm: claude exited 0 (deliberate quit); powering the guest off."
-  # Prefer systemd's ordered shutdown; fall back to the raw poweroff(8) if
-  # systemctl is somehow unavailable. `exec` so this login program's final act
-  # IS the poweroff request (nothing runs after it on the clean path).
-  if command -v systemctl >/dev/null 2>&1; then
-    exec systemctl poweroff
-  else
-    exec poweroff
-  fi
+  # Power off via SIGRTMIN+4 to PID 1 -- systemd's documented bus-less
+  # shutdown API (systemd(1), Signals: "SIGRTMIN+4: Powers off the machine,
+  # starts the poweroff.target unit"). Same ordered shutdown as
+  # `systemctl poweroff`, but with no bus in the path: this guest ships no
+  # dbus daemon, so `systemctl poweroff` first tries logind over the absent
+  # D-Bus system bus and prints "Failed to connect to bus: No such file or
+  # directory" on the operator's interactive console before falling back to
+  # PID 1 -- a red error on every clean exit. The signal removes the failing
+  # attempt instead of suppressing its stderr (which would also hide real
+  # poweroff failures). PID 1 is always systemd in this image (it is the
+  # only init installed), we run as root, and the guest bash resolves
+  # RTMIN+4, so this cannot fail; no fallback chain.
+  kill -s RTMIN+4 1
+  exit 0
 fi
 
 # Nonzero: abnormal claude death. Do NOT power off -- hand the operator an

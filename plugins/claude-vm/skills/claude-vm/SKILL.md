@@ -539,8 +539,10 @@ Claude Code updates daily, so the guest image does **not** bake in
 - **Ending a session (issue #179).** The guest decides its own fate from
   claude's exit status; there is no host→guest shutdown channel.
   - **A deliberate quit powers the guest off.** `Ctrl-D Ctrl-D`, `/exit`,
-    and `Ctrl-C Ctrl-C` all exit claude 0, and on 0 the guest runs
-    `systemctl poweroff`. vfkit then exits on its own, control returns to
+    and `Ctrl-C Ctrl-C` all exit claude 0, and on 0 the guest starts
+    systemd's ordered poweroff (SIGRTMIN+4 to PID 1 — the bus-less path,
+    so no spurious "Failed to connect to bus" error on a guest that ships
+    no dbus). vfkit then exits on its own, control returns to
     the `claude-vm` launcher on the host, your terminal is restored, the
     per-run clone is discarded, and the copy-back step runs. This is the
     normal way to end a session — nothing on the host needs to be killed.

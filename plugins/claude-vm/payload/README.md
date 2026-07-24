@@ -49,7 +49,7 @@ payload/
                         # perl listeners, host-gated on /usr/bin/perl
     boot-launcher-test.sh
                         # regression test for the guest self-poweroff decision
-                        # (issue #179): claude exit 0 -> systemctl poweroff,
+                        # (issue #179): claude exit 0 -> SIGRTMIN+4 poweroff,
                         # nonzero -> exec a root login shell on hvc1 (and NOT
                         # the launcher, so it cannot loop); getty respawn
                         # neutralized by Restart=no; LAUNCHER_LOGIC_REV bumped.
@@ -749,9 +749,12 @@ self-poweroff model, which replaced the earlier host-driven vfkit-REST
 shutdown. It extracts the boot launcher `build-guest-image.sh` emits, slices
 out the real exit-status decision fragment (`"$CLAUDE_BIN" "$@"` →
 capture-status → branch), and runs THAT fragment against a stubbed
-claude/systemctl/poweroff/bash: a claude exit 0 (a deliberate quit) powers the
-guest off via `systemctl poweroff` (falling back to `poweroff(8)` when systemctl
-is absent), while a nonzero exit (137/SIGKILL, or any nonzero) takes NO shutdown
+claude/kill/bash: a claude exit 0 (a deliberate quit) powers the guest off by
+sending SIGRTMIN+4 to PID 1 — systemd's documented bus-less route to the same
+ordered `poweroff.target` shutdown as `systemctl poweroff`, chosen because the
+guest ships no dbus and systemctl's logind attempt printed
+`Failed to connect to bus` on the operator's console on every clean exit —
+while a nonzero exit (137/SIGKILL, or any nonzero) takes NO shutdown
 action and instead `exec`s an interactive root **login shell** on hvc1 so the
 failed session is inspectable. The loop-sensitive assertions live here too: the
 abnormal handoff must be a plain login shell and must never re-enter the boot
