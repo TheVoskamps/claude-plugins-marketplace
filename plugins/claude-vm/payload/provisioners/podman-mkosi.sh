@@ -60,7 +60,7 @@ OUTPUT_IMAGE="${2:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-pat
 # claude_vm_bake_config_json) as CLAUDE_VM_BAKE_CONFIG. Empty/unset means no
 # baked packages -- the recipe is exactly the legacy base image. When present,
 # the in-container build step (below) parses it to: (a) extend the mkosi
-# Packages= list with packages.bake, and (b) render each packages.apt_sources
+# Packages= list with the bake `packages:`, and (b) render each apt_sources
 # entry into a keyring + sources.list.d drop-in in the mkosi SANDBOX TREE, so
 # mkosi's apt can install baked packages that come from third-party repos.
 # An unset/empty value is normalized to the empty canonical form so the
@@ -166,7 +166,7 @@ mkdir -p "$STAGE/out"
 # A real guest boot hit ENOSPC twice in one session on the 991 MB root
 # (~850 MB base usage): boot_apt_phase's `apt-get update` was re-materializing
 # ~163 MB under /var/lib/apt/lists PLUS ~88 MB of pkgcache.bin/srcpkgcache.bin
-# on every boot (packages.update_at_boot defaults true). Root cause, verified
+# on every boot (update_at_boot defaults true). Root cause, verified
 # against mkosi v26's actual Debian installer (mkosi/distribution/debian.py):
 # left to its own defaults, mkosi writes a `<suite>.sources` file with
 # `Types: deb deb-src` for FOUR repo stanzas (main, debian-debug, updates,
@@ -623,7 +623,7 @@ apt-get update -qq
 # python3-venv/pip + git to install mkosi v26 from upstream. systemd-ukify,
 # cpio, zstd, xz-utils, mtools, squashfs-tools are part of the v26 toolchain
 # (issue #71). curl + ca-certificates are required by render_apt_source
-# below (issue #105), which fetches each packages.apt_sources key_url with
+# below (issue #105), which fetches each apt_sources key_url with
 # curl INSIDE this build container -- without them the fetch fails with
 # "curl: command not found" before any baked package can be installed.
 apt-get install -y -qq --no-install-recommends \\
@@ -658,10 +658,10 @@ echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_P
 # the host provisioner). Parse it here with the container's python3 (already
 # installed above) and render two things:
 #
-#   (a) packages.bake -> a mkosi.conf.d drop-in extending Packages= (same
+#   (a) the bake 'packages:' -> a mkosi.conf.d drop-in extending Packages= (same
 #       mechanism as the kernel drop-in above), so mkosi installs them into
 #       the guest image.
-#   (b) packages.apt_sources -> for each {name, repo, key_url}, fetch the key
+#   (b) the bake 'apt_sources:' -> for each {name, repo, key_url}, fetch the key
 #       into the mkosi SANDBOX TREE at /etc/apt/keyrings/<name>.asc and write
 #       /etc/apt/sources.list.d/<name>.list (signed-by that keyring), so
 #       mkosi's apt -- which reads package-manager config from the sandbox

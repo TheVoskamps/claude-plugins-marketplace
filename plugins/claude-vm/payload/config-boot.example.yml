@@ -14,8 +14,8 @@
 # NO image rebuild.
 #
 # Layering across the four files:
-#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*, packages.update_at_boot
-#     [here: `update_at_boot`], add_apt_uris_to_allowlist, claude.permission_mode,
+#   - Scalars (cpus, mem, guest_image, repo.*, proxy.*, update_at_boot,
+#     add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot, claude.plugins.add_marketplace_uris_to_allowlist,
 #     github.auth): repo overrides global; global fills gaps.
 #   - Scalar maps (claude.plugins.enabled): repo overrides global PER KEY.
@@ -149,10 +149,10 @@ proxy:
   port: 3128
   host_alias: 192.168.127.254
 
-# Guest-image provisioner. When UNSET, the launcher defaults to the bundled
-# podman-mkosi provisioner. Override via the CLAUDE_VM_IMAGE_PROVISIONER env var
-# with a script taking <boot-launcher-path> <output-image-path>.
-# provisioner: podman-mkosi
+# Guest-image provisioner selection is ENV-VAR-ONLY: build-guest-image.sh runs
+# the bundled podman-mkosi provisioner unless CLAUDE_VM_IMAGE_PROVISIONER
+# points at an alternative. There is deliberately no config key for it -- a
+# key here would parse without being read.
 
 egress:
   allow:                # outbound hosts permitted through the proxy

@@ -297,17 +297,15 @@ github:
 `claude.plugins.enabled` are **consumed** by the guest `settings.json` render
 (issue #104) — the launcher renders `/root/.claude/settings.json`
 host-side and shares it into the guest (see "Guest Claude settings.json"
-below). (Internally, the launcher normalizes the four bake/boot files onto
-merged-doc keys: a bake file's `packages:`/`apt_sources:` -> `.packages.bake`/
-`.packages.apt_sources`, a boot file's `packages:` -> `.packages.install_at_boot`,
-its `apt_sources:` unioned in, and `update_at_boot`/`add_apt_uris_to_allowlist`
-onto `.packages.*`. The downstream consumers read those internal keys.) The
-baked `.packages.bake` and `.packages.apt_sources` are **consumed** by the
-guest-image build (issue #105 — see "Guest image" below).
-`.packages.install_at_boot`, `.packages.update_at_boot`, and
-`.packages.add_apt_uris_to_allowlist` are **consumed** by the guest boot
-launcher's boot-time apt phase (issue #106 — see "Boot-time package
-install/update" in `payload/README.md`). The remaining keys (marketplace/
+below). (There is no schema translation: the launcher merges the two bake
+files into one bake document and the two boot files into one boot document,
+and every reader consumes its tier's document at the file-schema path — a
+key set per the documented schema is always read.) The bake document's
+`packages:` and `apt_sources:` are **consumed** by the guest-image build
+(issue #105 — see "Guest image" below). The boot document's `packages:`,
+`update_at_boot`, and `add_apt_uris_to_allowlist` are **consumed** by the
+guest boot launcher's boot-time apt phase (issue #106 — see "Boot-time
+package install/update" in `payload/README.md`). The remaining keys (marketplace/
 plugin seeding, GitHub token seeding) are schema + merge only as of
 issue #103 — those consumers land in sibling slices under #39. They
 resolve correctly through `payload/lib/config.sh` today; nothing
@@ -316,10 +314,10 @@ downstream reads them yet.
 - The bake file's `packages:` (baked into the image) vs. the boot file's
   `packages:` (installed at boot, blocking, before claude starts, through
   the proxy) — the containing file's tier is what makes each a build-time
-  bake or a boot-time install (this replaces the old `packages.bake` /
-  `packages.install_at_boot` key split; internally the launcher normalizes
-  them onto `.packages.bake` / `.packages.install_at_boot`, which is what
-  the build/boot consumers read). Both union global + repo entries. The
+  bake or a boot-time install (this replaces the old single-file
+  `packages.bake` / `packages.install_at_boot` key split; each tier's
+  merged document keeps its own flat `packages:` list, read as written).
+  Both union global + repo entries. The
   baked packages are present in the guest with no boot-time network, and
   the image is cached per whole-file bake hash (see "Guest image" below).
   The boot-install list runs `apt-get -y install <list>` at boot (issue

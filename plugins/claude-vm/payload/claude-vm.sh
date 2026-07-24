@@ -130,28 +130,38 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # `trap cleanup EXIT INT TERM` REPLACES it once the full run state exists. Do
 # NOT add yet another `trap ... EXIT` here -- a later trap installation would
 # replace whatever was set, leaking this file on every run.
-MERGED="$(claude_vm_mktemp claude-vm-merged)"
-claude_vm_compose_effective_config \
-    "$GLOBAL_BAKE_CONFIG" "$GLOBAL_BOOT_CONFIG" "$REPO_BAKE_CONFIG" "$REPO_BOOT_CONFIG" > "$MERGED" \
-  || { echo "claude-vm: could not resolve effective config" >&2; exit 1; }
+# Two per-tier documents, each in its FILE schema (issue #179): bake files
+# merge into MERGED_BAKE, boot files into MERGED_BOOT. There is no combined
+# cross-tier document and no schema translation -- bake consumers read
+# bake-schema paths from MERGED_BAKE, boot consumers read boot-schema paths
+# from MERGED_BOOT, exactly as documented in the example files.
+MERGED_BAKE="$(claude_vm_mktemp claude-vm-merged-bake)"
+MERGED_BOOT="$(claude_vm_mktemp claude-vm-merged-boot)"
+claude_vm_merge_config "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" > "$MERGED_BAKE" \
+  || { echo "claude-vm: could not resolve effective bake config" >&2; exit 1; }
+claude_vm_merge_config "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" > "$MERGED_BOOT" \
+  || { echo "claude-vm: could not resolve effective boot config" >&2; exit 1; }
+# Same apt_sources name with differing content anywhere across the two tiers
+# is a silent-shadowing hazard -- abort loudly instead.
+claude_vm_check_apt_sources_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
 
-VM_CPUS="$(claude_vm_scalar "$MERGED" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
-VM_MEM="$(claude_vm_scalar "$MERGED" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
-REPO_MOUNT="$(claude_vm_scalar "$MERGED" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
-COPY_BACK="$(claude_vm_scalar "$MERGED" '.repo.copy_back' "$CLAUDE_VM_DEFAULT_REPO_COPY_BACK")"
-PROXY_PORT="$(claude_vm_scalar "$MERGED" '.proxy.port' "$CLAUDE_VM_DEFAULT_PROXY_PORT")"
-GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED" '.proxy.host_alias' "$CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS")"
+VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
+VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
+REPO_MOUNT="$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
+COPY_BACK="$(claude_vm_scalar "$MERGED_BOOT" '.repo.copy_back' "$CLAUDE_VM_DEFAULT_REPO_COPY_BACK")"
+PROXY_PORT="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' "$CLAUDE_VM_DEFAULT_PROXY_PORT")"
+GVPROXY_HOST_ALIAS="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.host_alias' "$CLAUDE_VM_DEFAULT_PROXY_HOST_ALIAS")"
 # proxy.cmd: when unset in BOTH config layers, default to the bundled
 # tinyproxy launcher (the chosen forward proxy). It reads the egress
 # allowlist from $CLAUDE_VM_EGRESS_ALLOWLIST and binds $CLAUDE_VM_PROXY_PORT,
 # both exported below. An explicit proxy.cmd in config still overrides it.
 DEFAULT_PROXY_CMD="$SCRIPT_DIR/proxy/tinyproxy-launch.sh"
-PROXY_CMD="$(claude_vm_scalar "$MERGED" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
+PROXY_CMD="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 
 # Boot-time apt update flag (issue #106): resolved once here so both the
 # run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
 # below) read the SAME value the boot launcher will act on.
-PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
 
 # guest_image: a normal scalar. When SET, it is used as-is -- an explicit
 # operator override that opts OUT of variant derivation (issue #105, extended
@@ -182,7 +192,7 @@ PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED" '.packages.update_at_
 # headroom flow separately (CLAUDE_VM_BAKE_CONFIG / CLAUDE_VM_ROOT_HEADROOM_MB)
 # as the image build CONTENT.
 DEFAULT_IMAGE_DIR="$CLAUDE_VM_GLOBAL_CONFIG_DIR/images"
-CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED")" \
+CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
 
@@ -196,7 +206,7 @@ export CLAUDE_VM_BAKE_CONFIG
 # front (a typo here should abort the launch, not silently fall through to
 # whatever the provisioner does with garbage). This is the BUILD input; the
 # cache key is the identity segment below, which covers headroom per LAYER.
-CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
+CLAUDE_VM_ROOT_HEADROOM_MB="$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' "$CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB")"
 case "$CLAUDE_VM_ROOT_HEADROOM_MB" in
   ''|*[!0-9]*)
     echo "claude-vm: image.root_headroom_mb must be a positive integer (MiB), got '$CLAUDE_VM_ROOT_HEADROOM_MB'" >&2
@@ -215,7 +225,7 @@ CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS="$(claude_vm_image_identity_segments "$GLOBAL_
   || { echo "claude-vm: could not compute the guest image identity segments" >&2; exit 1; }
 export CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS
 
-_explicit_guest_image="$(claude_vm_scalar "$MERGED" '.guest_image' "")"
+_explicit_guest_image="$(claude_vm_scalar "$MERGED_BOOT" '.guest_image' "")"
 if [ -n "$_explicit_guest_image" ]; then
   # Explicit override: use verbatim, opting out of variant derivation.
   GUEST_IMAGE="$_explicit_guest_image"
@@ -233,7 +243,7 @@ unset _explicit_guest_image
 # claude.version: the channel/pin the host-side verified cache fetches
 # (stable|latest|<pinned>). The cache resolves a channel to a concrete
 # version HOST-SIDE and keys the cache on that version (see lib/claude-cache.sh).
-CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
+CLAUDE_VERSION="$(claude_vm_scalar "$MERGED_BOOT" '.claude.version' "$CLAUDE_VM_DEFAULT_CLAUDE_VERSION")"
 
 # claude.renderer: which renderer the in-guest claude uses on the byte-pipe
 # console (issue #88). The vfkit stdio console is a plain bidirectional byte
@@ -244,7 +254,7 @@ CLAUDE_VERSION="$(claude_vm_scalar "$MERGED" '.claude.version' "$CLAUDE_VM_DEFAU
 #   unset/""   -> pass nothing; claude uses its own default
 # Mapped to the matching env var(s) in run.env below. An unrecognized value
 # is rejected up front rather than silently ignored.
-CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED" '.claude.renderer' "")"
+CLAUDE_RENDERER="$(claude_vm_scalar "$MERGED_BOOT" '.claude.renderer' "")"
 case "$CLAUDE_RENDERER" in
   ""|classic|fullscreen) : ;;
   *)
@@ -261,7 +271,7 @@ esac
 # no `--name` was given, appends a date-stamped `--name` (issue #88 promises the
 # date-stamp default). Validate like the renderer knob: accept true/false/unset;
 # anything else aborts up front rather than being silently ignored.
-CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED" '.claude.remote_control' "")"
+CLAUDE_REMOTE_CONTROL="$(claude_vm_scalar "$MERGED_BOOT" '.claude.remote_control' "")"
 case "$CLAUDE_REMOTE_CONTROL" in
   ""|false) CLAUDE_REMOTE_CONTROL="false" ;;
   true)     CLAUDE_REMOTE_CONTROL="true" ;;
@@ -299,7 +309,7 @@ unset _rc_name_stamp _augmented_args _line
 # The render (claude_vm_render_guest_settings) re-reads this key with the same
 # default, but the authoritative guard is HERE so a typo aborts the launch
 # rather than writing an unexpected defaultMode into the guest.
-CLAUDE_PERMISSION_MODE="$(claude_vm_scalar "$MERGED" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
+CLAUDE_PERMISSION_MODE="$(claude_vm_scalar "$MERGED_BOOT" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
 case "$CLAUDE_PERMISSION_MODE" in
   bypassPermissions|default) : ;;
   *)
@@ -314,7 +324,7 @@ esac
 # check is not bound to "the claude-code key" (issue #49 review). Exported
 # so lib/claude-cache.sh's verify step can enforce it. Empty when unset:
 # the cache still requires a VALIDSIG but warns the key is not pinned.
-CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(claude_vm_scalar "$MERGED" '.claude.signing_key_fingerprint' "")"
+CLAUDE_VM_SIGNING_KEY_FINGERPRINT="$(claude_vm_scalar "$MERGED_BOOT" '.claude.signing_key_fingerprint' "")"
 export CLAUDE_VM_SIGNING_KEY_FINGERPRINT
 
 # ---------------------------------------------------------------------
@@ -669,7 +679,7 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # still inside the umask-077 window, so it lands 0600 like its dir-mates; the
 # chmod 600 is belt-and-braces.
 GUEST_SETTINGS="$CREDS_DIR/settings.json"
-claude_vm_render_guest_settings "$MERGED" > "$GUEST_SETTINGS" \
+claude_vm_render_guest_settings "$MERGED_BOOT" > "$GUEST_SETTINGS" \
   || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
 chmod 600 "$GUEST_SETTINGS"
 
@@ -729,14 +739,16 @@ SEC_STDERR="$RUN/.security.stderr"
 # credential dir + the merged-config temp file) rather than the full cleanup():
 # cleanup() runs copy_back, which expects $WORKTREE to exist -- but the worktree
 # is not created until the clone below, so installing the full trap here would
-# fire copy-back against a missing worktree. It still removes MERGED so the
+# fire copy-back against a missing worktree. It still removes the merged
+# config docs so the
 # merged-config-cleanup guarantee holds even if a signal fires in this window.
 # The full `trap cleanup EXIT INT TERM` REPLACES this interim trap at its
 # existing site once the worktree, proxy, and gvproxy state all exist. Guarded
-# with ${CREDS_DIR:-}/${RAW_CREDENTIAL:-}/${MERGED:-} so each rm is a no-op
+# with ${CREDS_DIR:-}/${RAW_CREDENTIAL:-}/${MERGED_BAKE:-}/${MERGED_BOOT:-} so
+# each rm is a no-op
 # under `set -u` even if the trap fires before they are set. RAW_CREDENTIAL is
 # included so a signal during the selection window does not leak the FULL blob.
-trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED:-}"' EXIT INT TERM
+trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED_BAKE:-}" "${MERGED_BOOT:-}"' EXIT INT TERM
 # Run with `set +e` around just this call so a non-zero exit does not trip
 # `set -e` before we have inspected the code. Capture stderr to a file (not
 # /dev/null) so an unexpected error can be surfaced verbatim below. The FULL
@@ -1088,7 +1100,7 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'IS_SANDBOX=1\n'
     # Boot-time apt update flag (issue #106): whether the guest boot launcher
     # runs `apt-get update && apt-get -y upgrade` before claude starts. A
-    # plain boolean scalar (packages.update_at_boot, default true) -> a fixed
+    # plain boolean scalar (the boot file's update_at_boot, default true) -> a fixed
     # 'true'/'false' literal is provably safe under the run.env `set -a`
     # sourcing (value-quoting audit above).
     printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
@@ -1116,8 +1128,8 @@ RUN_ENV="$CONFIG_DIR/run.env"
 chmod 600 "$RUN_ENV"
 
 # ---------------------------------------------------------------------
-# Boot-time apt manifest (issue #106): packages.install_at_boot +
-# packages.apt_sources, delivered to the guest boot launcher via the SAME
+# Boot-time apt manifest (issue #106): the boot files' `packages:` (install at
+# boot) + boot-tier apt_sources, delivered to the guest boot launcher via the SAME
 # runconfig share as run.env (mountTag=runconfig -- see the EXTRA_MOUNT_FLAGS
 # device list below). Plain newline/TSV files, NOT JSON: the base guest image
 # carries no python3/jq (see provisioners/podman-mkosi.sh's minimal
@@ -1126,7 +1138,7 @@ chmod 600 "$RUN_ENV"
 # reads work. Neither file is secret, so no umask/chmod tightening beyond
 # what CONFIG_DIR already has.
 #
-#   apt-install.list  -- one package name per line (packages.install_at_boot,
+#   apt-install.list  -- one package name per line (the boot files' `packages:`,
 #                        from the BOOT files' flattened `packages:`).
 #   apt-sources.tsv   -- name<TAB>repo<TAB>key_url per line, the BOOT-tier
 #                        apt_sources (issue #179): the merged apt_sources MINUS
@@ -1136,8 +1148,8 @@ chmod 600 "$RUN_ENV"
 #                        skipped). Same TSV shape the #105 build-time render
 #                        consumes, so both boot-time and bake-time renders read
 #                        identically-shaped input.
-claude_vm_list_items "$MERGED" '.packages.install_at_boot' > "$CONFIG_DIR/apt-install.list"
-claude_vm_boot_apt_sources "$MERGED" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" > "$CONFIG_DIR/apt-sources.tsv"
+claude_vm_list_items "$MERGED_BOOT" '.packages' > "$CONFIG_DIR/apt-install.list"
+claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sources.tsv"
 
 # ---------------------------------------------------------------------
 # Egress allowlist -- write it where the proxy reads it. The proxy.cmd
@@ -1145,7 +1157,7 @@ claude_vm_boot_apt_sources "$MERGED" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" >
 # host file) instead of a hand-maintained allowlist baked into the cmd.
 # ---------------------------------------------------------------------
 EGRESS_ALLOWLIST="$CONFIG_DIR/egress.allow"
-claude_vm_egress_hosts "$MERGED" > "$EGRESS_ALLOWLIST"
+claude_vm_egress_hosts "$MERGED_BOOT" > "$EGRESS_ALLOWLIST"
 
 # Warm-boot allowlist tightening (issue #49): the claude binary is fetched
 # and verified HOST-SIDE, so the GUEST never reaches claude.ai /
@@ -1177,9 +1189,9 @@ esac
 # ---------------------------------------------------------------------
 # Boot-time apt derived egress (issue #106).
 #
-# packages.install_at_boot / packages.update_at_boot run apt-get INSIDE the
+# Boot-file `packages:` / `update_at_boot` run apt-get INSIDE the
 # guest at boot, through this proxy -- so the Debian mirror hosts (and any
-# packages.apt_sources hosts) must be reachable. Add them to the allowlist
+# apt_sources hosts, bake or boot) must be reachable. Add them to the allowlist
 # iff boot-time apt work actually needs them (claude_vm_boot_apt_egress_needed:
 # install_at_boot nonempty, or update_at_boot true, or
 # add_apt_uris_to_allowlist: always) -- "auto" (the default) with no boot-time
@@ -1188,8 +1200,8 @@ esac
 # logged (no silent allowlist growth). Runs AFTER the warm-boot tightening
 # above so a dropped claude.ai/downloads.claude.ai entry is never
 # re-introduced by this step.
-if claude_vm_boot_apt_egress_needed "$MERGED"; then
-  DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED" | tr '\n' ' ')"
+if claude_vm_boot_apt_egress_needed "$MERGED_BOOT"; then
+  DERIVED_APT_HOSTS="$CLAUDE_VM_DEBIAN_MIRROR_HOSTS $(claude_vm_apt_source_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
   EXISTING_HOSTS=" $(tr '\n' ' ' < "$EGRESS_ALLOWLIST" 2>/dev/null) "
   for _host in $DERIVED_APT_HOSTS; do
     case "$EXISTING_HOSTS" in
@@ -1247,7 +1259,7 @@ while IFS=$'\t' read -r src tag mode; do
   # mode is advisory for virtio-fs share dirs; recorded for the guest
   # mount step. vfkit shares the dir; the guest mounts ro/rw per mode.
   EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$src,mountTag=$tag")
-done < <(claude_vm_mount_specs "$MERGED")
+done < <(claude_vm_mount_specs "$MERGED_BOOT")
 
 # ---------------------------------------------------------------------
 # Launch: proxy -> gvproxy -> vfkit. Copy-back on exit (clone mode).
@@ -1494,18 +1506,18 @@ cleanup() {
   [ -n "$GV_PID" ] && kill "$GV_PID" 2>/dev/null || true
   [ -n "$PROXY_PID" ] && kill "$PROXY_PID" 2>/dev/null || true
   copy_back
-  # Remove the merged-config temp file. Guarded for the case where the
-  # trap fires before MERGED is set (it is unset/empty then). Written as
+  # Remove the merged-config temp files. Guarded for the case where the
+  # trap fires before the merged docs are set (unset/empty then). Written as
   # an `if` rather than `[ -n ... ] && rm` so a false guard does not make
   # the function return non-zero and trip `set -e` before the echoes below.
-  if [ -n "${MERGED:-}" ]; then
-    rm -f "$MERGED"
+  if [ -n "${MERGED_BAKE:-}" ] || [ -n "${MERGED_BOOT:-}" ]; then
+    rm -f "${MERGED_BAKE:-}" "${MERGED_BOOT:-}"
   fi
   # The host claude.ai OAuth credential AND the identity seed (issue #88)
   # are transient secrets sharing this dir: remove it on every exit (including
   # Ctrl-C) so neither lingers after the run. The run dir itself is retained
   # for the companion diff/apply skills, but these secrets must NOT be -- they
-  # are never persisted past the live VM. Guarded like MERGED above so an early
+  # are never persisted past the live VM. Guarded like the merged docs above so an early
   # trap (before CREDS_DIR is set) is harmless.
   if [ -n "${CREDS_DIR:-}" ]; then
     rm -rf "$CREDS_DIR"

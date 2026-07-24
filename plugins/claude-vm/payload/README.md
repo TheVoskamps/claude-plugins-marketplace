@@ -295,7 +295,7 @@ present in the example config) so the in-guest `claude` can reach it.
 Pure layering logic: two YAML inputs → one merged document. Both layers
 are optional; a missing layer contributes an empty document. Scalars
 are repo-over-global; list keys (`egress.allow`, `mounts`, and — as of
-issue #103 — the guest-capability lists like `packages.bake` and
+issue #103 — the guest-capability lists like `packages` and
 `claude.permissions.allow`, including keys nested two levels deep) are
 unioned and de-duplicated. See the `claude-vm` skill
 (`skills/claude-vm/SKILL.md`) for the full schema and semantics.
@@ -339,9 +339,9 @@ argv:
 - `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
   `claude_vm_bake_hash_from_json` / `claude_vm_bake_config_is_empty` — the
   bake-config canonicalization helpers (issue #105). `claude_vm_bake_config_json`
-  emits the **canonical** bake-relevant config (sorted `packages.bake`,
-  normalized `apt_sources`) as compact JSON that the launcher passes to the
-  provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
+  emits the **canonical** bake-relevant config (the bake doc's sorted
+  `packages`, normalized `apt_sources`) as compact JSON that the launcher
+  passes to the provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
   hashes canonical JSON to 8 hex chars. All pure and unit-tested.
 - `claude_vm_file_identity_hash` / `claude_vm_sanitize_repo_name` /
   `claude_vm_image_identity_segments` — the **image-identity** helpers
@@ -458,15 +458,15 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 Requires `podman` with a started podman machine. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`. The provisioner renders
-`packages.bake` into a `mkosi.conf.d` `Packages=` drop-in and each
-`packages.apt_sources` entry into an apt keyring + `sources.list.d` drop-in in
+the bake `packages:` into a `mkosi.conf.d` `Packages=` drop-in and each
+bake `apt_sources:` entry into an apt keyring + `sources.list.d` drop-in in
 the mkosi **sandbox tree** (fetching each `key_url` inside the build container,
 which has network), so mkosi's apt can install packages served by third-party
 repos. That keyring-fetch + sources-write step is a reusable unit the
 boot-time-install slice (issue #106) reuses against the guest's live
 `/etc/apt`.
 
-A `packages.apt_sources` entry's `repo` is a raw apt one-line source string
+An `apt_sources` entry's `repo` is a raw apt one-line source string
 and may already carry its own `[options]` block (e.g. an operator-authored
 `deb [arch=arm64 signed-by=/etc/apt/keyrings/x.asc] ...`). The renderer
 adapts to whatever shape the line already has rather than unconditionally
@@ -478,13 +478,13 @@ byte-for-byte verbatim — that path wins, and the fetched key is written to
 its staging equivalent instead of the default `<name>.asc`, so the declared
 path and the actual key location never drift apart. This was a real-build
 finding (issue #105 follow-up): unconditionally appending a second block
-produced an apt "Malformed entry (URI parse)" failure. `packages.bake`
+produced an apt "Malformed entry (URI parse)" failure. Bake `packages:`
 entries that are null or empty (e.g. a stray `-` in the YAML list) are
 stripped during canonicalization rather than passed through as a literal
 `"None"` package name, which would otherwise fail the image build.
 
-**Boot-time package install/update (issue #106).** Unlike `packages.bake`,
-`packages.install_at_boot` and `packages.update_at_boot` run **inside the
+**Boot-time package install/update (issue #106).** Unlike the bake file's
+`packages:`, the boot file's `packages:` and `update_at_boot` run **inside the
 guest at boot**, blocking, right before claude execs — not baked into the
 image. This requires `apt` itself to be present in the guest, which mkosi
 does NOT provide for free: mkosi installs packages from OUTSIDE the image
@@ -497,9 +497,9 @@ gated on whether boot-time apt work is configured — because
 The security boundary for a hard-secure all-baked config is the egress
 allowlist (package mirrors left unreachable), not the absence of the apt
 binary. The boot launcher (`build-guest-image.sh`'s `boot_apt_phase`) runs, in
-order: (1) when `packages.update_at_boot` is true (the default),
-`apt-get update` + `apt-get -y upgrade`; (2) when `packages.install_at_boot`
-is nonempty, render any `packages.apt_sources` entries into the guest's
+order: (1) when `update_at_boot` is true (the default),
+`apt-get update` + `apt-get -y upgrade`; (2) when the boot `packages:` list
+is nonempty, render any boot-tier `apt_sources:` entries into the guest's
 **live** `/etc/apt` — reusing the exact same keyring-fetch + sources.list.d-
 write shape as the build-time `render_apt_source` (case-matrix, name/path
 validation, and all), ported to plain bash since the guest image carries no
@@ -509,16 +509,16 @@ pointed at the same `HTTP_PROXY`/`HTTPS_PROXY` `run.env` already carries. A
 failed update/install prints a loud warning to the `hvc0` diagnostic log and
 **continues** to claude — a failed optional install must never brick an
 interactive session (per the issue's agreed failure policy). The host
-delivers the manifest (`packages.install_at_boot` names, and the
-`packages.apt_sources` TSV) as plain newline/TSV files on the same
+delivers the manifest (the boot `packages:` names, and the boot-tier
+`apt_sources` TSV) as plain newline/TSV files on the same
 `runconfig` virtio-fs share `run.env` already rides, for the same "no
 python3/jq in the guest" reason.
 
-`packages.add_apt_uris_to_allowlist` (`auto`, the default, or `always`)
+`add_apt_uris_to_allowlist` (`auto`, the default, or `always`)
 controls whether the launcher adds `deb.debian.org` + `security.debian.org` +
-every `packages.apt_sources` host to the guest's egress allowlist. `auto`
+every apt_sources host (bake and boot tiers) to the guest's egress allowlist. `auto`
 adds them **iff** boot-time apt work is actually configured
-(`install_at_boot` nonempty, or `update_at_boot` true); with no boot-time
+(boot `packages:` nonempty, or `update_at_boot` true); with no boot-time
 work configured, `auto` derives nothing — a hard-secure all-baked config
 leaves package repos genuinely unreachable from the guest. `always` keeps
 the URIs allowlisted regardless, so an in-guest `apt-get install` still

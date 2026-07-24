@@ -152,7 +152,7 @@ BASE_OS_REV="debian-12-20250601"
 # nothing ever pulled apt/dpkg tooling INTO the guest rootfs -- the base
 # Packages= list (provisioners/podman-mkosi.sh) never named it. `apt` is now
 # baked UNCONDITIONALLY, not gated on whether boot-time apt work is
-# configured, because packages.update_at_boot defaults to true (so nearly
+# configured, because the boot file's update_at_boot defaults to true (so nearly
 # every config needs it), the security boundary for a hard-secure all-baked
 # config is the egress allowlist (mirrors left unreachable), not the absence
 # of the apt binary, and the add_apt_uris_to_allowlist: always mid-session-
@@ -256,8 +256,8 @@ BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 # Image identity (issue #105 bake-hash, redesigned by issue #106).
 #
 # The base version above pins the OS + launcher logic. On top of it, the guest
-# image's CONTENT is determined by build-relevant config: packages.bake +
-# packages.apt_sources (baked into the image) and image.root_headroom_mb (root
+# image's CONTENT is determined by build-relevant config: the bake files'
+# `packages:` + `apt_sources:` (baked into the image) and image.root_headroom_mb (root
 # partition size). Two configs whose build-relevant content differs must
 # produce DIFFERENT cached images; two that agree must share one. So the
 # version -- which is the image cache key -- gains an IMAGE-IDENTITY segment.
@@ -1001,8 +1001,8 @@ build_image() {
   # bundled default (podman-mkosi.sh). Export BASE_OS_REV so the
   # provisioner pins the same guest distro this recipe pins, rather than
   # duplicating the version. Export the CANONICAL bake config (issue #105) so
-  # the provisioner renders packages.bake into the mkosi Packages= list and
-  # packages.apt_sources into keyring + sources.list.d drop-ins -- it hashed
+  # the provisioner renders the bake `packages:` into the mkosi Packages= list
+  # and the bake `apt_sources:` into keyring + sources.list.d drop-ins -- it hashed
   # into PINNED_VERSION above, so the built image's contents and its stamped
   # version stay in lockstep. Unset/empty means no baked packages. Export the
   # resolved root headroom (issue #106 real-run fix) so the provisioner sizes

@@ -44,17 +44,20 @@ assert_eq() {
 }
 
 # ---------------------------------------------------------------------
-# Fixtures
+# Fixtures -- per-tier files in their FILE schemas (issue #179 two-doc
+# model): boot files carry runtime wiring (flat `packages:` = install at
+# boot, top-level `update_at_boot`/`add_apt_uris_to_allowlist`), bake
+# files carry image content (flat `packages:` = baked, root_headroom).
 # ---------------------------------------------------------------------
-GLOBAL="$WORK/global.yml"
-REPO="$WORK/repo.yml"
+GLOBAL_BOOT="$WORK/global-boot.yml"
+REPO_BOOT="$WORK/repo-boot.yml"
+GLOBAL_BAKE="$WORK/global-bake.yml"
+REPO_BAKE="$WORK/repo-bake.yml"
 
-cat > "$GLOBAL" <<'YML'
+cat > "$GLOBAL_BOOT" <<'YML'
 cpus: 2
 mem: 4096
 guest_image: /global/guest.raw
-image:
-  root_headroom_mb: 1024
 repo:
   mount: clone
 proxy:
@@ -70,17 +73,13 @@ mounts:
     tag: policy
     mode: ro
 packages:
-  bake:
-    - jq
-    - ripgrep
-  install_at_boot:
-    - htop
-  update_at_boot: false
-  apt_sources:
-    - name: global-repo
-      repo: "deb https://example.com/global stable main"
-      key_url: https://example.com/global/key.asc
-  add_apt_uris_to_allowlist: auto
+  - htop
+update_at_boot: false
+add_apt_uris_to_allowlist: auto
+apt_sources:
+  - name: boot-global-src
+    repo: "deb https://boot.example.com/global stable main"
+    key_url: https://boot.example.com/global/key.asc
 claude:
   permission_mode: bypassPermissions
   permissions:
@@ -107,11 +106,9 @@ github:
   auth: none
 YML
 
-cat > "$REPO" <<'YML'
+cat > "$REPO_BOOT" <<'YML'
 cpus: 8
 guest_image: /repo/guest.raw
-image:
-  root_headroom_mb: 2048
 repo:
   mount: live
 egress:
@@ -123,17 +120,13 @@ mounts:
     tag: data
     mode: ro
 packages:
-  bake:
-    - ripgrep
-    - fd-find
-  install_at_boot:
-    - build-essential
-  update_at_boot: true
-  apt_sources:
-    - name: repo-registry
-      repo: "deb https://example.com/repo stable main"
-      key_url: https://example.com/repo/key.asc
-  add_apt_uris_to_allowlist: always
+  - build-essential
+update_at_boot: true
+add_apt_uris_to_allowlist: always
+apt_sources:
+  - name: boot-repo-src
+    repo: "deb https://boot.example.com/repo stable main"
+    key_url: https://boot.example.com/repo/key.asc
 claude:
   permission_mode: default
   permissions:
@@ -159,43 +152,69 @@ github:
   auth: host-token
 YML
 
+cat > "$GLOBAL_BAKE" <<'YML'
+image:
+  root_headroom_mb: 1024
+packages:
+  - jq
+  - ripgrep
+apt_sources:
+  - name: global-repo
+    repo: "deb https://example.com/global stable main"
+    key_url: https://example.com/global/key.asc
+YML
+
+cat > "$REPO_BAKE" <<'YML'
+image:
+  root_headroom_mb: 2048
+packages:
+  - ripgrep
+  - fd-find
+apt_sources:
+  - name: repo-registry
+    repo: "deb https://example.com/repo stable main"
+    key_url: https://example.com/repo/key.asc
+YML
+
 # ---------------------------------------------------------------------
-# Test 1: scalar override -- repo wins, global fills gaps
+# Test 1: scalar override -- repo wins, global fills gaps (per tier)
 # ---------------------------------------------------------------------
-MERGED="$WORK/merged-both.yml"
-claude_vm_merge_config "$GLOBAL" "$REPO" > "$MERGED"
+MERGED_BOOT="$WORK/merged-boot.yml"
+MERGED_BAKE="$WORK/merged-bake.yml"
+claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" > "$MERGED_BOOT"
+claude_vm_merge_config "$GLOBAL_BAKE" "$REPO_BAKE" > "$MERGED_BAKE"
 
 assert_eq "scalar: repo overrides global (cpus)" \
-  "8" "$(claude_vm_scalar "$MERGED" '.cpus' 'X')"
+  "8" "$(claude_vm_scalar "$MERGED_BOOT" '.cpus' 'X')"
 assert_eq "scalar: global fills gap (mem)" \
-  "4096" "$(claude_vm_scalar "$MERGED" '.mem' 'X')"
+  "4096" "$(claude_vm_scalar "$MERGED_BOOT" '.mem' 'X')"
 assert_eq "scalar: repo overrides global (guest_image)" \
-  "/repo/guest.raw" "$(claude_vm_scalar "$MERGED" '.guest_image' 'X')"
+  "/repo/guest.raw" "$(claude_vm_scalar "$MERGED_BOOT" '.guest_image' 'X')"
 assert_eq "scalar: nested repo.mount repo wins" \
-  "live" "$(claude_vm_scalar "$MERGED" '.repo.mount' 'X')"
+  "live" "$(claude_vm_scalar "$MERGED_BOOT" '.repo.mount' 'X')"
 assert_eq "scalar: nested proxy.cmd from global" \
-  "global-proxy" "$(claude_vm_scalar "$MERGED" '.proxy.cmd' 'X')"
+  "global-proxy" "$(claude_vm_scalar "$MERGED_BOOT" '.proxy.cmd' 'X')"
 assert_eq "scalar: nested proxy.port from global" \
-  "3128" "$(claude_vm_scalar "$MERGED" '.proxy.port' 'X')"
-assert_eq "scalar: repo overrides global (image.root_headroom_mb)" \
-  "2048" "$(claude_vm_scalar "$MERGED" '.image.root_headroom_mb' 'X')"
+  "3128" "$(claude_vm_scalar "$MERGED_BOOT" '.proxy.port' 'X')"
+assert_eq "scalar: repo overrides global (bake image.root_headroom_mb)" \
+  "2048" "$(claude_vm_scalar "$MERGED_BAKE" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 2: list union -- egress.allow merged + de-duplicated
 # ---------------------------------------------------------------------
 # global: api.anthropic.com, github.com ; repo: github.com, cache.example.com
 # union (sorted by yq unique): api.anthropic.com, cache.example.com, github.com
-EGRESS="$(claude_vm_egress_hosts "$MERGED" | sort | tr '\n' ',' )"
+EGRESS="$(claude_vm_egress_hosts "$MERGED_BOOT" | sort | tr '\n' ',' )"
 assert_eq "list: egress.allow is unioned + de-duped" \
   "api.anthropic.com,cache.example.com,github.com," "$EGRESS"
 
 # ---------------------------------------------------------------------
 # Test 3: list union -- mounts merged (both global and repo entries)
 # ---------------------------------------------------------------------
-MOUNT_TAGS="$(claude_vm_mount_specs "$MERGED" | cut -f2 | sort | tr '\n' ',')"
+MOUNT_TAGS="$(claude_vm_mount_specs "$MERGED_BOOT" | cut -f2 | sort | tr '\n' ',')"
 assert_eq "list: mounts unioned (policy + data tags present)" \
   "data,policy," "$MOUNT_TAGS"
-MOUNT_COUNT="$(claude_vm_mount_specs "$MERGED" | grep -c . )"
+MOUNT_COUNT="$(claude_vm_mount_specs "$MERGED_BOOT" | grep -c . )"
 assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 
 # ---------------------------------------------------------------------
@@ -210,70 +229,74 @@ assert_eq "list: mounts has exactly 2 entries" "2" "$MOUNT_COUNT"
 # resolves to a non-empty "true" here via claude_vm_scalar; the
 # false/fallback case for claude_vm_scalar specifically is covered
 # separately for the global-only merge below.
-assert_eq "scalar: packages.update_at_boot repo wins (true)" \
-  "true" "$(claude_vm_scalar "$MERGED" '.packages.update_at_boot' 'X')"
-assert_eq "scalar: packages.add_apt_uris_to_allowlist repo wins (always)" \
-  "always" "$(claude_vm_scalar "$MERGED" '.packages.add_apt_uris_to_allowlist' 'X')"
+assert_eq "scalar: update_at_boot repo wins (true)" \
+  "true" "$(claude_vm_scalar "$MERGED_BOOT" '.update_at_boot' 'X')"
+assert_eq "scalar: add_apt_uris_to_allowlist repo wins (always)" \
+  "always" "$(claude_vm_scalar "$MERGED_BOOT" '.add_apt_uris_to_allowlist' 'X')"
 assert_eq "scalar: claude.permission_mode repo wins (default)" \
-  "default" "$(claude_vm_scalar "$MERGED" '.claude.permission_mode' 'X')"
+  "default" "$(claude_vm_scalar "$MERGED_BOOT" '.claude.permission_mode' 'X')"
 assert_eq "scalar: claude.plugins.update_at_boot repo wins (true)" \
-  "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.update_at_boot' 'X')"
+  "true" "$(claude_vm_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' 'X')"
 assert_eq "scalar: claude.plugins.add_marketplace_uris_to_allowlist repo wins (always)" \
-  "always" "$(claude_vm_scalar "$MERGED" '.claude.plugins.add_marketplace_uris_to_allowlist' 'X')"
+  "always" "$(claude_vm_scalar "$MERGED_BOOT" '.claude.plugins.add_marketplace_uris_to_allowlist' 'X')"
 # claude.plugins.enabled is a scalar MAP merged repo-over-global PER KEY.
 # global: {foo: true, bar: false}; repo: {bar: true}. Merged: foo stays true
 # (global fills the gap), bar flips to true (repo wins on its own key).
 assert_eq "map: claude.plugins.enabled[foo] from global (per-key gap fill)" \
-  "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.enabled["foo@global-mp"]' 'X')"
+  "true" "$(claude_vm_scalar "$MERGED_BOOT" '.claude.plugins.enabled["foo@global-mp"]' 'X')"
 assert_eq "map: claude.plugins.enabled[bar] repo wins (per-key override)" \
-  "true" "$(claude_vm_scalar "$MERGED" '.claude.plugins.enabled["bar@global-mp"]' 'X')"
+  "true" "$(claude_vm_scalar "$MERGED_BOOT" '.claude.plugins.enabled["bar@global-mp"]' 'X')"
 assert_eq "scalar: github.auth repo wins (host-token)" \
-  "host-token" "$(claude_vm_scalar "$MERGED" '.github.auth' 'X')"
+  "host-token" "$(claude_vm_scalar "$MERGED_BOOT" '.github.auth' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 3c: guest-capability schema (issue #103) -- nested list unions
 # ---------------------------------------------------------------------
-# packages.bake: global(jq, ripgrep) + repo(ripgrep, fd-find) -> 3 unique
-PKG_BAKE="$(claude_vm_list_items "$MERGED" '.packages.bake' | sort | tr '\n' ',')"
-assert_eq "list: packages.bake unioned + de-duped" \
+# bake packages: global(jq, ripgrep) + repo(ripgrep, fd-find) -> 3 unique
+PKG_BAKE="$(claude_vm_list_items "$MERGED_BAKE" '.packages' | sort | tr '\n' ',')"
+assert_eq "list: bake packages unioned + de-duped" \
   "fd-find,jq,ripgrep," "$PKG_BAKE"
 
-# packages.install_at_boot: global(htop) + repo(build-essential) -> 2
-PKG_INSTALL="$(claude_vm_list_items "$MERGED" '.packages.install_at_boot' | sort | tr '\n' ',')"
-assert_eq "list: packages.install_at_boot unioned" \
+# boot packages (install at boot): global(htop) + repo(build-essential) -> 2
+PKG_INSTALL="$(claude_vm_list_items "$MERGED_BOOT" '.packages' | sort | tr '\n' ',')"
+assert_eq "list: boot packages unioned" \
   "build-essential,htop," "$PKG_INSTALL"
 
-# packages.apt_sources: global(global-repo) + repo(repo-registry) -> 2
-APT_SOURCE_NAMES="$(claude_vm_apt_sources "$MERGED" | cut -f1 | sort | tr '\n' ',')"
-assert_eq "list: packages.apt_sources unioned" \
+# apt_sources union per tier: bake global(global-repo) + repo(repo-registry);
+# boot global(boot-global-src) + repo(boot-repo-src)
+APT_SOURCE_NAMES="$(claude_vm_apt_sources "$MERGED_BAKE" | cut -f1 | sort | tr '\n' ',')"
+assert_eq "list: bake apt_sources unioned" \
   "global-repo,repo-registry," "$APT_SOURCE_NAMES"
+BOOT_SOURCE_NAMES="$(claude_vm_apt_sources "$MERGED_BOOT" | cut -f1 | sort | tr '\n' ',')"
+assert_eq "list: boot apt_sources unioned" \
+  "boot-global-src,boot-repo-src," "$BOOT_SOURCE_NAMES"
 
 # claude.permissions.allow: global(Bash(git:*)) + repo(Bash(npm:*)) -> 2
-PERM_ALLOW="$(claude_vm_list_items "$MERGED" '.claude.permissions.allow' | sort | tr '\n' ',')"
+PERM_ALLOW="$(claude_vm_list_items "$MERGED_BOOT" '.claude.permissions.allow' | sort | tr '\n' ',')"
 assert_eq "list: claude.permissions.allow unioned" \
   "Bash(git:*),Bash(npm:*)," "$PERM_ALLOW"
 
 # claude.permissions.ask: identical entry in both layers -> de-dupes to 1
-PERM_ASK_COUNT="$(claude_vm_list_items "$MERGED" '.claude.permissions.ask' | grep -c .)"
+PERM_ASK_COUNT="$(claude_vm_list_items "$MERGED_BOOT" '.claude.permissions.ask' | grep -c .)"
 assert_eq "list: claude.permissions.ask de-dupes identical entry" "1" "$PERM_ASK_COUNT"
 
 # claude.permissions.deny: global(Bash(sudo:*)) + repo(Bash(curl:*)) -> 2
-PERM_DENY="$(claude_vm_list_items "$MERGED" '.claude.permissions.deny' | sort | tr '\n' ',')"
+PERM_DENY="$(claude_vm_list_items "$MERGED_BOOT" '.claude.permissions.deny' | sort | tr '\n' ',')"
 assert_eq "list: claude.permissions.deny unioned" \
   "Bash(curl:*),Bash(sudo:*)," "$PERM_DENY"
 
 # claude.marketplaces: global(global-mp) + repo(repo-mp) -> 2
-MP_NAMES="$(claude_vm_marketplaces "$MERGED" | cut -f1 | sort | tr '\n' ',')"
+MP_NAMES="$(claude_vm_marketplaces "$MERGED_BOOT" | cut -f1 | sort | tr '\n' ',')"
 assert_eq "list: claude.marketplaces unioned" \
   "global-mp,repo-mp," "$MP_NAMES"
 
 # claude.plugins.bake: global(foo@global-mp) + repo(baz@repo-mp) -> 2
-PLUGIN_BAKE="$(claude_vm_list_items "$MERGED" '.claude.plugins.bake' | sort | tr '\n' ',')"
+PLUGIN_BAKE="$(claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.bake' | sort | tr '\n' ',')"
 assert_eq "list: claude.plugins.bake unioned" \
   "baz@repo-mp,foo@global-mp," "$PLUGIN_BAKE"
 
 # claude.plugins.install_at_boot: identical entry (bar@global-mp) in both -> 1
-PLUGIN_INSTALL_COUNT="$(claude_vm_list_items "$MERGED" '.claude.plugins.install_at_boot' | grep -c .)"
+PLUGIN_INSTALL_COUNT="$(claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.install_at_boot' | grep -c .)"
 assert_eq "list: claude.plugins.install_at_boot de-dupes identical entry" \
   "1" "$PLUGIN_INSTALL_COUNT"
 
@@ -306,12 +329,12 @@ assert_eq "bool_scalar: explicit null falls back (same as absent)" \
 # booleans, with fixtures inverted (global=true / repo=false) so "repo
 # wins" resolving to "false" is a genuine round-trip proof, not an
 # artifact of the fallback also being "false".
-BOOL_G="$WORK/bool-g.yml"; printf 'packages:\n  update_at_boot: true\nclaude:\n  plugins:\n    update_at_boot: true\n' > "$BOOL_G"
-BOOL_R="$WORK/bool-r.yml"; printf 'packages:\n  update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' > "$BOOL_R"
+BOOL_G="$WORK/bool-g.yml"; printf 'update_at_boot: true\nclaude:\n  plugins:\n    update_at_boot: true\n' > "$BOOL_G"
+BOOL_R="$WORK/bool-r.yml"; printf 'update_at_boot: false\nclaude:\n  plugins:\n    update_at_boot: false\n' > "$BOOL_R"
 MERGED_BOOL="$WORK/merged-bool.yml"
 claude_vm_merge_config "$BOOL_G" "$BOOL_R" > "$MERGED_BOOL"
-assert_eq "bool_scalar: packages.update_at_boot repo-wins explicit false survives" \
-  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.packages.update_at_boot' 'FALLBACK')"
+assert_eq "bool_scalar: update_at_boot repo-wins explicit false survives" \
+  "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.update_at_boot' 'FALLBACK')"
 assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false survives" \
   "false" "$(claude_vm_bool_scalar "$MERGED_BOOL" '.claude.plugins.update_at_boot' 'FALLBACK')"
 
@@ -322,10 +345,9 @@ assert_eq "bool_scalar: claude.plugins.update_at_boot repo-wins explicit false s
 # ---------------------------------------------------------------------
 OPTIONAL_FIELD_YML="$WORK/optional-field.yml"
 cat > "$OPTIONAL_FIELD_YML" <<'YML'
-packages:
-  apt_sources:
-    - name: no-key-repo
-      repo: "deb https://example.com/nokey stable main"
+apt_sources:
+  - name: no-key-repo
+    repo: "deb https://example.com/nokey stable main"
 claude:
   marketplaces:
     - name: no-url-mp
@@ -349,36 +371,40 @@ assert_eq "marketplaces: missing url field value is empty string" \
 # Test 4: global-only (repo config absent) resolves cleanly
 # ---------------------------------------------------------------------
 MERGED_G="$WORK/merged-global.yml"
-claude_vm_merge_config "$GLOBAL" "$WORK/does-not-exist.yml" > "$MERGED_G"
+MERGED_G_BAKE="$WORK/merged-global-bake.yml"
+claude_vm_merge_config "$GLOBAL_BOOT" "$WORK/does-not-exist.yml" > "$MERGED_G"
+claude_vm_merge_config "$GLOBAL_BAKE" "$WORK/does-not-exist.yml" > "$MERGED_G_BAKE"
 assert_eq "global-only: cpus from global" \
   "2" "$(claude_vm_scalar "$MERGED_G" '.cpus' 'X')"
 assert_eq "global-only: egress count is 2" \
   "2" "$(claude_vm_egress_hosts "$MERGED_G" | grep -c .)"
-# global's packages.update_at_boot is false; the yq `// ""` quirk for
+# global's update_at_boot is false; the yq `// ""` quirk for
 # boolean false means the plain claude_vm_scalar accessor falls back to
 # the caller default here -- this is claude_vm_scalar's DOCUMENTED
 # limitation (see its header comment), not a bug in this accessor. The
-# boolean-aware claude_vm_bool_scalar accessor (Test 3d below) is the
+# boolean-aware claude_vm_bool_scalar accessor (Test 3d above) is the
 # one that must preserve explicit false; this assertion just pins
 # claude_vm_scalar's known, unchanged behavior so a future edit doesn't
 # silently "fix" it here and break the non-boolean scalar callers that
 # rely on the `// ""` idiom.
-assert_eq "global-only: packages.update_at_boot from global (false, plain scalar accessor falls back)" \
-  "X" "$(claude_vm_scalar "$MERGED_G" '.packages.update_at_boot' 'X')"
+assert_eq "global-only: update_at_boot from global (false, plain scalar accessor falls back)" \
+  "X" "$(claude_vm_scalar "$MERGED_G" '.update_at_boot' 'X')"
 assert_eq "global-only: claude.permission_mode from global" \
   "bypassPermissions" "$(claude_vm_scalar "$MERGED_G" '.claude.permission_mode' 'X')"
 assert_eq "global-only: github.auth from global" \
   "none" "$(claude_vm_scalar "$MERGED_G" '.github.auth' 'X')"
-assert_eq "global-only: packages.bake count is 2" \
-  "2" "$(claude_vm_list_items "$MERGED_G" '.packages.bake' | grep -c .)"
-assert_eq "global-only: image.root_headroom_mb from global" \
-  "1024" "$(claude_vm_scalar "$MERGED_G" '.image.root_headroom_mb' 'X')"
+assert_eq "global-only: bake packages count is 2" \
+  "2" "$(claude_vm_list_items "$MERGED_G_BAKE" '.packages' | grep -c .)"
+assert_eq "global-only: image.root_headroom_mb from global bake" \
+  "1024" "$(claude_vm_scalar "$MERGED_G_BAKE" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 5: repo-only (global config absent) resolves cleanly
 # ---------------------------------------------------------------------
 MERGED_R="$WORK/merged-repo.yml"
-claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO" > "$MERGED_R"
+MERGED_R_BAKE="$WORK/merged-repo-bake.yml"
+claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BOOT" > "$MERGED_R"
+claude_vm_merge_config "$WORK/does-not-exist.yml" "$REPO_BAKE" > "$MERGED_R_BAKE"
 assert_eq "repo-only: cpus from repo" \
   "8" "$(claude_vm_scalar "$MERGED_R" '.cpus' 'X')"
 assert_eq "repo-only: mem falls back to hardcoded default" \
@@ -387,10 +413,10 @@ assert_eq "repo-only: claude.permission_mode from repo (default)" \
   "default" "$(claude_vm_scalar "$MERGED_R" '.claude.permission_mode' 'X')"
 assert_eq "repo-only: github.auth from repo (host-token)" \
   "host-token" "$(claude_vm_scalar "$MERGED_R" '.github.auth' 'X')"
-assert_eq "repo-only: packages.update_at_boot from repo (true)" \
-  "true" "$(claude_vm_scalar "$MERGED_R" '.packages.update_at_boot' 'X')"
-assert_eq "repo-only: image.root_headroom_mb from repo (2048)" \
-  "2048" "$(claude_vm_scalar "$MERGED_R" '.image.root_headroom_mb' 'X')"
+assert_eq "repo-only: update_at_boot from repo (true)" \
+  "true" "$(claude_vm_scalar "$MERGED_R" '.update_at_boot' 'X')"
+assert_eq "repo-only: image.root_headroom_mb from repo bake (2048)" \
+  "2048" "$(claude_vm_scalar "$MERGED_R_BAKE" '.image.root_headroom_mb' 'X')"
 
 # ---------------------------------------------------------------------
 # Test 6: neither layer present -- all scalars hit hardcoded fallbacks
@@ -403,12 +429,12 @@ assert_eq "neither: repo.mount fallback is clone" \
   "$CLAUDE_VM_DEFAULT_REPO_MOUNT" "$(claude_vm_scalar "$MERGED_N" '.repo.mount' "$CLAUDE_VM_DEFAULT_REPO_MOUNT")"
 assert_eq "neither: egress allow is empty" \
   "0" "$(claude_vm_egress_hosts "$MERGED_N" | grep -c .)"
-assert_eq "neither: packages.update_at_boot fallback (true)" \
+assert_eq "neither: update_at_boot fallback (true)" \
   "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT" \
-  "$(claude_vm_scalar "$MERGED_N" '.packages.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
-assert_eq "neither: packages.add_apt_uris_to_allowlist fallback (auto)" \
+  "$(claude_vm_scalar "$MERGED_N" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+assert_eq "neither: add_apt_uris_to_allowlist fallback (auto)" \
   "$CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST" \
-  "$(claude_vm_scalar "$MERGED_N" '.packages.add_apt_uris_to_allowlist' "$CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST")"
+  "$(claude_vm_scalar "$MERGED_N" '.add_apt_uris_to_allowlist' "$CLAUDE_VM_DEFAULT_PACKAGES_ADD_APT_URIS_TO_ALLOWLIST")"
 assert_eq "neither: claude.permission_mode fallback (bypassPermissions)" \
   "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE" \
   "$(claude_vm_scalar "$MERGED_N" '.claude.permission_mode' "$CLAUDE_VM_DEFAULT_CLAUDE_PERMISSION_MODE")"
@@ -423,8 +449,8 @@ assert_eq "neither: claude.plugins.enabled absent -> empty map" \
 assert_eq "neither: github.auth fallback (none)" \
   "$CLAUDE_VM_DEFAULT_GITHUB_AUTH" \
   "$(claude_vm_scalar "$MERGED_N" '.github.auth' "$CLAUDE_VM_DEFAULT_GITHUB_AUTH")"
-assert_eq "neither: packages.bake is empty" \
-  "0" "$(claude_vm_list_items "$MERGED_N" '.packages.bake' | grep -c .)"
+assert_eq "neither: packages list is empty" \
+  "0" "$(claude_vm_list_items "$MERGED_N" '.packages' | grep -c .)"
 assert_eq "neither: claude.permissions.allow is empty" \
   "0" "$(claude_vm_list_items "$MERGED_N" '.claude.permissions.allow' | grep -c .)"
 assert_eq "neither: claude.marketplaces is empty" \
@@ -453,23 +479,23 @@ assert_eq "prune: fully-empty merge document is the empty map" \
 # keeping the scalar (proves pruning doesn't over-delete a populated
 # parent map, only ones that become genuinely empty).
 SCALAR_ONLY_G="$WORK/scalar-only-g.yml"
-printf 'packages:\n  update_at_boot: false\n' > "$SCALAR_ONLY_G"
+printf 'claude:\n  permission_mode: default\n' > "$SCALAR_ONLY_G"
 MERGED_SCALAR_ONLY="$WORK/merged-scalar-only.yml"
 claude_vm_merge_config "$SCALAR_ONLY_G" "$WORK/does-not-exist.yml" > "$MERGED_SCALAR_ONLY"
-assert_eq "prune: scalar-bearing packages map survives with only its scalar" \
-  '{"packages":{"update_at_boot":false}}' \
+assert_eq "prune: scalar-bearing claude map survives with only its scalar" \
+  '{"claude":{"permission_mode":"default"}}' \
   "$(yq eval -o=json -I=0 '.' "$MERGED_SCALAR_ONLY")"
-assert_eq "prune: scalar-only merge has no claude key (never set)" \
-  "false" "$(yq eval 'has("claude")' "$MERGED_SCALAR_ONLY")"
+assert_eq "prune: scalar-only merge has no packages key (never set)" \
+  "false" "$(yq eval 'has("packages")' "$MERGED_SCALAR_ONLY")"
 
 # The populated-both-layers fixture ($MERGED from Test 1) must be
 # UNAFFECTED by pruning -- every list key it set stays present with its
 # full unioned entry count (regression guard: pruning must not touch a
 # non-empty list).
-assert_eq "prune: populated merge still has packages.bake with entries" \
-  "3" "$(claude_vm_list_items "$MERGED" '.packages.bake' | grep -c .)"
+assert_eq "prune: populated bake merge still has packages with entries" \
+  "3" "$(claude_vm_list_items "$MERGED_BAKE" '.packages' | grep -c .)"
 assert_eq "prune: populated merge still has claude.marketplaces with entries" \
-  "2" "$(claude_vm_marketplaces "$MERGED" | grep -c .)"
+  "2" "$(claude_vm_marketplaces "$MERGED_BOOT" | grep -c .)"
 
 # ---------------------------------------------------------------------
 # Test 7: identical mount in both layers de-dupes to one entry
@@ -582,8 +608,8 @@ FAIL="$SUB_FAIL"
   OUT_A="$WORK/twice-a.yml"
   OUT_B="$WORK/twice-b.yml"
   rc=0
-  claude_vm_merge_config "$GLOBAL" "$REPO" > "$OUT_A" || rc=1
-  claude_vm_merge_config "$GLOBAL" "$REPO" > "$OUT_B" || rc=1
+  claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" > "$OUT_A" || rc=1
+  claude_vm_merge_config "$GLOBAL_BOOT" "$REPO_BOOT" > "$OUT_B" || rc=1
   assert_true "merge twice: both calls succeeded" test "$rc" -eq 0
   assert_true "merge twice: first output non-empty"  test -s "$OUT_A"
   assert_true "merge twice: second output non-empty" test -s "$OUT_B"
@@ -990,25 +1016,23 @@ assert_true "bake-hash: absent bake config is_empty" \
 # Order-insensitivity: two configs with the same bake set in different orders
 # (and a duplicate) hash identically.
 BH_A="$WORK/bake-a.yml"; cat > "$BH_A" <<'YML'
-packages:
-  bake: [git, jq, ripgrep]
-  apt_sources:
-    - name: zeta
-      repo: "deb https://z stable main"
-      key_url: https://z/key.asc
-    - name: alpha
-      repo: "deb https://a stable main"
+packages: [git, jq, ripgrep]
+apt_sources:
+  - name: zeta
+    repo: "deb https://z stable main"
+    key_url: https://z/key.asc
+  - name: alpha
+    repo: "deb https://a stable main"
 YML
 BH_B="$WORK/bake-b.yml"; cat > "$BH_B" <<'YML'
-packages:
-  bake: [ripgrep, git, jq, git]
-  apt_sources:
-    - name: alpha
-      repo: "deb https://a stable main"
-      key_url: null
-    - name: zeta
-      repo: "deb https://z stable main"
-      key_url: https://z/key.asc
+packages: [ripgrep, git, jq, git]
+apt_sources:
+  - name: alpha
+    repo: "deb https://a stable main"
+    key_url: null
+  - name: zeta
+    repo: "deb https://z stable main"
+    key_url: https://z/key.asc
 YML
 assert_eq "bake-hash: bake list order + dup does not change the hash" \
   "$(claude_vm_bake_hash "$BH_A")" "$(claude_vm_bake_hash "$BH_B")"
@@ -1023,7 +1047,7 @@ else
 fi
 
 # Different bake content -> different hash.
-BH_MORE="$WORK/bake-more.yml"; printf 'packages:\n  bake: [git, jq, ripgrep, fd-find]\n' > "$BH_MORE"
+BH_MORE="$WORK/bake-more.yml"; printf 'packages: [git, jq, ripgrep, fd-find]\n' > "$BH_MORE"
 assert_ne "bake-hash: adding a package changes the hash" \
   "$(claude_vm_bake_hash "$BH_A")" "$(claude_vm_bake_hash "$BH_MORE")"
 
@@ -1038,11 +1062,10 @@ fi
 # apt_sources-only (no bake packages) still counts as non-empty and hashes
 # distinctly from the empty form.
 BH_APTONLY="$WORK/bake-aptonly.yml"; cat > "$BH_APTONLY" <<'YML'
-packages:
-  apt_sources:
-    - name: gh
-      repo: "deb https://cli.github.com/packages stable main"
-      key_url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+apt_sources:
+  - name: gh
+    repo: "deb https://cli.github.com/packages stable main"
+    key_url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
 YML
 if claude_vm_bake_config_is_empty "$BH_APTONLY"; then
   assert_eq "bake-hash: apt_sources-only config is not empty" "not-empty" "empty"
@@ -1052,23 +1075,21 @@ fi
 assert_ne "bake-hash: apt_sources-only hashes distinctly from empty" \
   "$(claude_vm_bake_hash "$BH_APTONLY")" "$(claude_vm_bake_hash "$BH_EMPTY")"
 
-# packages.bake null/empty entries (e.g. a stray `-` in the YAML list, or a
+# Bake `packages:` null/empty entries (e.g. a stray `-` in the YAML list, or a
 # trailing comma in flow style) must be STRIPPED from the canonical form, not
 # passed through as the literal string "None"/"" -- a "None" package name
 # would fail the mkosi image build (PR #161 review finding).
 BH_NULLS="$WORK/bake-nulls.yml"; cat > "$BH_NULLS" <<'YML'
-packages:
-  bake: [null, "", git]
+packages: [null, "", git]
 YML
 assert_eq "bake-hash: null/empty bake entries are stripped from canonical JSON" \
   '{"bake":["git"],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_NULLS")"
-BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"; printf 'packages:\n  bake: [git]\n' > "$BH_NULLS_CLEAN"
+BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"; printf 'packages: [git]\n' > "$BH_NULLS_CLEAN"
 assert_eq "bake-hash: null/empty-stripped config hashes the same as the equivalent clean config" \
   "$(claude_vm_bake_hash "$BH_NULLS")" "$(claude_vm_bake_hash "$BH_NULLS_CLEAN")"
 # All-null/empty bake list canonicalizes to the same empty form as no bake key.
 BH_ALLNULL="$WORK/bake-allnull.yml"; cat > "$BH_ALLNULL" <<'YML'
-packages:
-  bake: [null, ""]
+packages: [null, ""]
 YML
 assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" \
   '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
@@ -1311,29 +1332,27 @@ fi
 # ---------------------------------------------------------------------
 DE_AUTO_QUIET="$WORK/de-auto-quiet.yml"
 cat > "$DE_AUTO_QUIET" <<'YML'
-packages:
-  install_at_boot: []
-  update_at_boot: false
-  add_apt_uris_to_allowlist: auto
+packages: []
+update_at_boot: false
+add_apt_uris_to_allowlist: auto
 YML
 if ! claude_vm_boot_apt_egress_needed "$DE_AUTO_QUIET"; then
-  assert_eq "boot_apt_egress_needed: auto + empty install_at_boot + update_at_boot false -> NOT needed" "not-needed" "not-needed"
+  assert_eq "boot_apt_egress_needed: auto + empty boot packages + update_at_boot false -> NOT needed" "not-needed" "not-needed"
 else
-  assert_eq "boot_apt_egress_needed: auto + empty install_at_boot + update_at_boot false -> NOT needed" "not-needed" "needed"
+  assert_eq "boot_apt_egress_needed: auto + empty boot packages + update_at_boot false -> NOT needed" "not-needed" "needed"
 fi
 
 DE_INSTALL="$WORK/de-install.yml"
 cat > "$DE_INSTALL" <<'YML'
 packages:
-  install_at_boot:
-    - htop
-  update_at_boot: false
-  add_apt_uris_to_allowlist: auto
+  - htop
+update_at_boot: false
+add_apt_uris_to_allowlist: auto
 YML
 if claude_vm_boot_apt_egress_needed "$DE_INSTALL"; then
-  assert_eq "boot_apt_egress_needed: nonempty install_at_boot -> needed" "needed" "needed"
+  assert_eq "boot_apt_egress_needed: nonempty boot packages -> needed" "needed" "needed"
 else
-  assert_eq "boot_apt_egress_needed: nonempty install_at_boot -> needed" "needed" "not-needed"
+  assert_eq "boot_apt_egress_needed: nonempty boot packages -> needed" "needed" "not-needed"
 fi
 
 DE_UPDATE_DEFAULT="$WORK/de-update-default.yml"
@@ -1346,10 +1365,9 @@ fi
 
 DE_ALWAYS="$WORK/de-always.yml"
 cat > "$DE_ALWAYS" <<'YML'
-packages:
-  install_at_boot: []
-  update_at_boot: false
-  add_apt_uris_to_allowlist: always
+packages: []
+update_at_boot: false
+add_apt_uris_to_allowlist: always
 YML
 if claude_vm_boot_apt_egress_needed "$DE_ALWAYS"; then
   assert_eq "boot_apt_egress_needed: add_apt_uris_to_allowlist always -> needed regardless" "needed" "needed"
@@ -1362,22 +1380,21 @@ fi
 # repo line with no key_url at all, de-duplicated across entries.
 DE_HOSTS="$WORK/de-hosts.yml"
 cat > "$DE_HOSTS" <<'YML'
-packages:
-  apt_sources:
-    - name: gh-cli
-      repo: "deb https://cli.github.com/packages stable main"
-      key_url: "https://key.example.com:8443/key.gpg"
-    - name: dup-host
-      repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/x.asc] https://cli.github.com/other stable main"
+apt_sources:
+  - name: gh-cli
+    repo: "deb https://cli.github.com/packages stable main"
+    key_url: "https://key.example.com:8443/key.gpg"
+  - name: dup-host
+    repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/x.asc] https://cli.github.com/other stable main"
 YML
-DE_HOSTS_OUT="$(claude_vm_apt_source_hosts "$DE_HOSTS" | sort | tr '\n' ',')"
+DE_HOSTS_OUT="$(claude_vm_apt_source_hosts "$WORK/de-hosts-nobake.yml" "$DE_HOSTS" | sort | tr '\n' ',')"
 assert_eq "apt_source_hosts: repo + key_url hosts extracted, port stripped, de-duped" \
   "cli.github.com,key.example.com," "$DE_HOSTS_OUT"
 
 DE_HOSTS_EMPTY="$WORK/de-hosts-empty.yml"
 printf '{}\n' > "$DE_HOSTS_EMPTY"
-assert_eq "apt_source_hosts: no apt_sources -> empty" \
-  "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY")"
+assert_eq "apt_source_hosts: no apt_sources in either tier -> empty" \
+  "" "$(claude_vm_apt_source_hosts "$DE_HOSTS_EMPTY" "$DE_HOSTS_EMPTY")"
 
 assert_eq "CLAUDE_VM_DEBIAN_MIRROR_HOSTS: pins the two Debian mirror hosts" \
   "deb.debian.org security.debian.org" "$CLAUDE_VM_DEBIAN_MIRROR_HOSTS"
@@ -1673,15 +1690,16 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# Test 24: four-file bake/boot compose + schema flattening (issue #179).
+# Test 24: two-doc bake/boot model -- one schema per file type (issue #179).
 #
-# The config is now FOUR files (global-bake, global-boot, repo-bake, repo-boot),
-# all optional. claude_vm_compose_effective_config normalizes each from the
-# flattened schema (a bake file's top-level `packages:` -> baked; a boot file's
-# top-level `packages:` -> installed at boot; each file's top-level
-# `apt_sources:` -> unioned) and merges all four with the existing semantics
-# (scalars repo-wins, lists union), producing the same-shaped effective document
-# the downstream accessors already consume.
+# The config is FOUR files (global-bake, global-boot, repo-bake, repo-boot),
+# all optional. Merging happens WITHIN a tier only: global+repo bake ->
+# MERGED_BAKE, global+repo boot -> MERGED_BOOT (scalars repo-wins, lists
+# union), and every reader consumes its tier's document at the FILE-schema
+# path -- no translation layer, no cross-tier document, no key that parses
+# without being read. Includes the regression tests for the defect that
+# forced this shape (top-level boot keys silently dropped by the old
+# normalize shim).
 # ---------------------------------------------------------------------
 F_GBAKE="$WORK/f-gbake.yml"; cat > "$F_GBAKE" <<'YML'
 packages:
@@ -1717,28 +1735,56 @@ egress:
   allow:
     - cache.example.com
 YML
-F_EFF="$WORK/f-eff.yml"
-claude_vm_compose_effective_config "$F_GBAKE" "$F_GBOOT" "$F_RBAKE" "$F_RBOOT" > "$F_EFF"
+F_BOOT="$WORK/f-boot.yml"
+F_BAKE="$WORK/f-bake.yml"
+claude_vm_merge_config "$F_GBAKE" "$F_RBAKE" > "$F_BAKE"
+claude_vm_merge_config "$F_GBOOT" "$F_RBOOT" > "$F_BOOT"
 
-assert_eq "four-file: repo boot scalar wins (cpus)" \
-  "8" "$(claude_vm_scalar "$F_EFF" '.cpus' 'X')"
-assert_eq "four-file: global boot scalar fills gap (mem)" \
-  "4096" "$(claude_vm_scalar "$F_EFF" '.mem' 'X')"
-assert_eq "four-file: bake packages -> .packages.bake (union global+repo bake)" \
-  "fd-find,jq,ripgrep," "$(claude_vm_list_items "$F_EFF" '.packages.bake' | sort | tr '\n' ',')"
-assert_eq "four-file: boot packages -> .packages.install_at_boot (union global+repo boot)" \
-  "awscli,htop," "$(claude_vm_list_items "$F_EFF" '.packages.install_at_boot' | sort | tr '\n' ',')"
-assert_eq "four-file: apt_sources unioned onto internal key" \
-  "shared," "$(claude_vm_apt_sources "$F_EFF" | cut -f1 | sort | tr '\n' ',')"
-assert_eq "four-file: egress unioned across boot files" \
-  "api.anthropic.com,cache.example.com,github.com," "$(claude_vm_egress_hosts "$F_EFF" | sort | tr '\n' ',')"
-assert_eq "four-file: image.root_headroom_mb from bake file" \
-  "1024" "$(claude_vm_scalar "$F_EFF" '.image.root_headroom_mb' 'X')"
+assert_eq "two-doc: repo boot scalar wins (cpus)" \
+  "8" "$(claude_vm_scalar "$F_BOOT" '.cpus' 'X')"
+assert_eq "two-doc: global boot scalar fills gap (mem)" \
+  "4096" "$(claude_vm_scalar "$F_BOOT" '.mem' 'X')"
+assert_eq "two-doc: bake packages union stays in the bake doc" \
+  "fd-find,jq,ripgrep," "$(claude_vm_list_items "$F_BAKE" '.packages' | sort | tr '\n' ',')"
+assert_eq "two-doc: boot packages union stays in the boot doc" \
+  "awscli,htop," "$(claude_vm_list_items "$F_BOOT" '.packages' | sort | tr '\n' ',')"
+assert_eq "two-doc: bake apt_sources read at the file-schema path" \
+  "shared," "$(claude_vm_apt_sources "$F_BAKE" | cut -f1 | sort | tr '\n' ',')"
+assert_eq "two-doc: egress unioned across boot files" \
+  "api.anthropic.com,cache.example.com,github.com," "$(claude_vm_egress_hosts "$F_BOOT" | sort | tr '\n' ',')"
+assert_eq "two-doc: image.root_headroom_mb from the bake doc" \
+  "1024" "$(claude_vm_scalar "$F_BAKE" '.image.root_headroom_mb' 'X')"
+# The two `packages:` meanings never share a document -- the bake doc's list
+# must not contain boot packages and vice versa.
+assert_eq "two-doc: bake doc carries no boot packages" \
+  "0" "$(claude_vm_list_items "$F_BAKE" '.packages' | grep -c 'htop\|awscli')"
 
-# All-absent four files compose to an empty document cleanly.
+# THE REGRESSION THIS REDESIGN EXISTS FOR (issue #179 real-boot finding):
+# a boot file's documented top-level `update_at_boot: false` /
+# `add_apt_uris_to_allowlist` MUST reach the resolvers -- under the old
+# normalize-into-internal-schema shim they parsed fine and were silently
+# ignored (no reader ever looked at the top level), so the defaults won and
+# boot-time apt ran despite an explicit false.
+REG_BOOT_G="$WORK/reg-boot-g.yml"
+printf 'update_at_boot: false\nadd_apt_uris_to_allowlist: auto\n' > "$REG_BOOT_G"
+REG_BOOT="$WORK/reg-boot.yml"
+claude_vm_merge_config "$REG_BOOT_G" "$WORK/does-not-exist.yml" > "$REG_BOOT"
+assert_eq "regression: boot-file update_at_boot: false reaches the boolean resolver" \
+  "false" "$(claude_vm_bool_scalar "$REG_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+assert_eq "regression: boot-file add_apt_uris_to_allowlist reaches the resolver" \
+  "auto" "$(claude_vm_scalar "$REG_BOOT" '.add_apt_uris_to_allowlist' 'X')"
+if ! claude_vm_boot_apt_egress_needed "$REG_BOOT"; then
+  assert_eq "regression: update_at_boot false + no boot packages -> no derived apt egress" \
+    "not-needed" "not-needed"
+else
+  assert_eq "regression: update_at_boot false + no boot packages -> no derived apt egress" \
+    "not-needed" "needed"
+fi
+
+# All-absent files merge to an empty document cleanly, per tier.
 F_EFF_NONE="$WORK/f-eff-none.yml"
-claude_vm_compose_effective_config "$WORK/nope-a" "$WORK/nope-b" "$WORK/nope-c" "$WORK/nope-d" > "$F_EFF_NONE"
-assert_eq "four-file: all-absent composes to empty document" \
+claude_vm_merge_config "$WORK/nope-a" "$WORK/nope-b" > "$F_EFF_NONE"
+assert_eq "two-doc: all-absent merges to empty document" \
   "0" "$(yq eval 'length' "$F_EFF_NONE" 2>/dev/null)"
 
 # ---------------------------------------------------------------------
@@ -1748,7 +1794,8 @@ assert_eq "four-file: all-absent composes to empty document" \
 # under the list union). Same name with DIFFERING content -> the composed config
 # ABORTS loudly (claude_vm_check_apt_sources_conflicts), no silent shadowing.
 # ---------------------------------------------------------------------
-# Identical name+content in bake and boot -> collapses to ONE entry, no abort.
+# Identical name+content in bake and boot tiers -> no conflict (an identical
+# entry present in both tiers is fine; each tier renders its own copy).
 AS_GBAKE="$WORK/as-gbake.yml"; cat > "$AS_GBAKE" <<'YML'
 apt_sources:
   - name: gh
@@ -1761,24 +1808,29 @@ apt_sources:
     repo: "deb https://cli.github.com/packages stable main"
     key_url: https://cli.github.com/packages/key.gpg
 YML
-AS_EFF_OK="$WORK/as-eff-ok.yml"
-if claude_vm_compose_effective_config "$AS_GBAKE" "$AS_GBOOT_OK" "" "" > "$AS_EFF_OK" 2>/dev/null; then
-  assert_eq "apt_sources: identical name+content in both files collapses to one, no abort" \
-    "1" "$(claude_vm_apt_sources "$AS_EFF_OK" | grep -c .)"
+AS_BAKE_OK="$WORK/as-bake-ok.yml"; AS_BOOT_OK="$WORK/as-boot-ok.yml"
+claude_vm_merge_config "$AS_GBAKE" "$WORK/does-not-exist.yml" > "$AS_BAKE_OK"
+claude_vm_merge_config "$AS_GBOOT_OK" "$WORK/does-not-exist.yml" > "$AS_BOOT_OK"
+if claude_vm_check_apt_sources_conflicts "$AS_BAKE_OK" "$AS_BOOT_OK" 2>/dev/null; then
+  assert_eq "apt_sources: identical name+content across tiers passes the conflict check" \
+    "passes" "passes"
 else
-  assert_eq "apt_sources: identical name+content in both files collapses to one, no abort" \
-    "composed" "aborted"
+  assert_eq "apt_sources: identical name+content across tiers passes the conflict check" \
+    "passes" "aborted"
 fi
 
-# Same name, DIFFERING content -> compose ABORTS (non-zero) with a diagnostic.
+# Same name, DIFFERING content across tiers -> conflict check ABORTS (non-zero)
+# with a diagnostic naming the entry.
 AS_GBOOT_CONFLICT="$WORK/as-gboot-conflict.yml"; cat > "$AS_GBOOT_CONFLICT" <<'YML'
 apt_sources:
   - name: gh
     repo: "deb https://cli.github.com/OTHER stable main"
     key_url: https://cli.github.com/packages/key.gpg
 YML
-if claude_vm_compose_effective_config "$AS_GBAKE" "$AS_GBOOT_CONFLICT" "" "" >/dev/null 2>"$WORK/as-conflict.err"; then
-  assert_eq "apt_sources: name conflict with differing content aborts" "aborted" "composed"
+AS_BOOT_CONFLICT="$WORK/as-boot-conflict.yml"
+claude_vm_merge_config "$AS_GBOOT_CONFLICT" "$WORK/does-not-exist.yml" > "$AS_BOOT_CONFLICT"
+if claude_vm_check_apt_sources_conflicts "$AS_BAKE_OK" "$AS_BOOT_CONFLICT" >/dev/null 2>"$WORK/as-conflict.err"; then
+  assert_eq "apt_sources: name conflict with differing content aborts" "aborted" "passed"
 else
   assert_eq "apt_sources: name conflict with differing content aborts" "aborted" "aborted"
 fi
@@ -1788,10 +1840,10 @@ assert_true "apt_sources: conflict abort names the conflicting entry" \
 # ---------------------------------------------------------------------
 # Test 26: boot render skips baked apt_source names (issue #179 design pt 5).
 #
-# claude_vm_boot_apt_sources emits the merged apt_sources MINUS any name already
-# declared in a BAKE file (already rendered into the image). A boot-only
-# apt_source survives; a baked one is filtered out; a trailing-empty key_url row
-# is preserved verbatim.
+# claude_vm_boot_apt_sources emits the BOOT doc's apt_sources MINUS any name
+# already declared in the BAKE doc (already rendered into the image). A
+# boot-only apt_source survives; a baked one is filtered out; a trailing-empty
+# key_url row is preserved verbatim.
 # ---------------------------------------------------------------------
 BR_GBAKE="$WORK/br-gbake.yml"; cat > "$BR_GBAKE" <<'YML'
 apt_sources:
@@ -1807,14 +1859,19 @@ apt_sources:
     repo: "deb https://ex.com/baked stable main"
     key_url: https://ex.com/baked/key.asc
 YML
-BR_EFF="$WORK/br-eff.yml"
-claude_vm_compose_effective_config "$BR_GBAKE" "" "" "$BR_RBOOT" > "$BR_EFF"
+BR_BAKE="$WORK/br-bake.yml"; BR_BOOT="$WORK/br-boot.yml"
+claude_vm_merge_config "$BR_GBAKE" "$WORK/does-not-exist.yml" > "$BR_BAKE"
+claude_vm_merge_config "$WORK/does-not-exist.yml" "$BR_RBOOT" > "$BR_BOOT"
 assert_eq "boot-render: baked-repo skipped, boot-repo kept" \
-  "boot-repo" "$(claude_vm_boot_apt_sources "$BR_EFF" "$BR_GBAKE" "" | cut -f1 | sort | tr '\n' ',' | sed 's/,$//')"
+  "boot-repo" "$(claude_vm_boot_apt_sources "$BR_BOOT" "$BR_BAKE" | cut -f1 | sort | tr '\n' ',' | sed 's/,$//')"
 # The surviving boot-repo row has a trailing-empty key_url field preserved.
 assert_eq "boot-render: surviving row preserves trailing-empty key_url field" \
   "boot-repo	deb https://ex.com/boot stable main	" \
-  "$(claude_vm_boot_apt_sources "$BR_EFF" "$BR_GBAKE" "")"
+  "$(claude_vm_boot_apt_sources "$BR_BOOT" "$BR_BAKE")"
+# The derived-egress hosts draw from BOTH tiers (boot apt still reaches baked
+# repos' hosts at update time).
+assert_eq "boot-render: apt_source_hosts unions bake + boot tier hosts" \
+  "ex.com," "$(claude_vm_apt_source_hosts "$BR_BAKE" "$BR_BOOT" | sort | tr '\n' ',')"
 
 # ---------------------------------------------------------------------
 # Test 27: legacy single-file config detection (issue #179 migration).

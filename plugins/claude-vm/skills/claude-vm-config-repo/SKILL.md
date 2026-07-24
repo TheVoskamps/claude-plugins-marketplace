@@ -87,7 +87,7 @@ file silently shadows future changes to the global default.
   is rendered into the guest `settings.json` (issue #104:
   `permission_mode` → `permissions.defaultMode`; only `bypassPermissions` /
   `default` are accepted, anything else aborts the launch). The remaining
-  guest-capability keys — `packages.update_at_boot`/`.add_apt_uris_to_allowlist`,
+  guest-capability keys — the boot file's `update_at_boot`/`add_apt_uris_to_allowlist`,
   `claude.plugins.update_at_boot`/`.add_marketplace_uris_to_allowlist`,
   `github.auth` — are schema + merge only as of issue #103; the
   consumers land in sibling slices under #39, but this repo's override

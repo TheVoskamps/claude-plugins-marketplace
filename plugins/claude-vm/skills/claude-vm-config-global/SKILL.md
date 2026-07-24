@@ -1,6 +1,6 @@
 ---
 name: claude-vm-config-global
-description: Interactively create the global claude-vm config PAIR at ~/.config/claude-vm/config-bake.yml + config-boot.yml from the resolved defaults (cpus 2, mem 4096, bundled-tinyproxy proxy default, podman-mkosi provisioner, egress.allow incl. api.anthropic.com, claude.version). Idempotent — detects existing files and offers to merge or leave rather than clobber.
+description: Interactively create the global claude-vm config PAIR at ~/.config/claude-vm/config-bake.yml + config-boot.yml from the resolved defaults (cpus 2, mem 4096, bundled-tinyproxy proxy default, egress.allow incl. api.anthropic.com, claude.version). Idempotent — detects existing files and offers to merge or leave rather than clobber.
 ---
 
 # claude-vm-config-global
@@ -23,8 +23,8 @@ Since issue #179, claude-vm's config is split into a **bake** file and a
 - **`config-boot.yml`** — keys applied at **run time** (launcher/VM
   wiring): `cpus`, `mem`, `proxy.*`, `egress.allow`, `mounts`,
   `repo.*`, `packages:` here means **installed at boot** (a flat list),
-  `update_at_boot`, `add_apt_uris_to_allowlist`, `claude.*`,
-  `github.*`, and `provisioner`. Boot files never affect image
+  `update_at_boot`, `add_apt_uris_to_allowlist`, `claude.*`, and
+  `github.*`. Boot files never affect image
   identity.
 
 This pair is the machine-wide layer of claude-vm's four-file config (the
@@ -79,7 +79,6 @@ the two global files each key is written into (its bake/boot placement):
 | `proxy.cmd` | boot | omitted (bundled tinyproxy launcher is the launcher-side default) | tinyproxy is the chosen forward proxy; the launcher runs the bundled `payload/proxy/tinyproxy-launch.sh` when `proxy.cmd` is unset |
 | `proxy.port` | boot | `3128` | matches the launcher default |
 | `proxy.host_alias` | boot | `192.168.127.254` | the gvproxy host alias the guest reaches the proxy on |
-| `provisioner` | boot | `podman-mkosi` | the bundled provisioner: mkosi in a throwaway rootless podman container |
 | `egress.allow` | boot | `api.anthropic.com`, `github.com`, `claude.ai`, `downloads.claude.ai` | `api.anthropic.com` is required for Remote Control; the rest cover git + claude install/fetch |
 | `claude.version` | boot | `stable` | which `claude` binary the host-side verified cache fetches |
 | `claude.renderer` | boot | omitted (claude's own default) | terminal renderer on the interactive console: `classic` \| `fullscreen` \| unset |
@@ -108,11 +107,6 @@ Notes on the forward-looking keys:
   `proxy.cmd` only if the user wants to override the bundled launcher;
   any override must read `$CLAUDE_VM_EGRESS_ALLOWLIST` rather than a
   hand-maintained list baked into the command.
-- **`provisioner: podman-mkosi`** names the bundled provisioner that
-  produces the raw EFI-bootable Linux guest. `build-guest-image.sh`
-  already defaults to it (`payload/provisioners/podman-mkosi.sh`) when
-  `CLAUDE_VM_IMAGE_PROVISIONER` is unset; writing the key documents the
-  intent. The env var still overrides the bundled default.
 - **`claude.version: stable`** selects which `claude` binary the
   host-side GPG-verified cache fetches. It is consumed by
   `payload/lib/claude-cache.sh`: the host resolves the channel/pin to a
@@ -142,8 +136,8 @@ Notes on the forward-looking keys:
   user's CLI args pass through unchanged. Accepts `true`/`false` (or leave
   unset); any other value aborts the launch. Ask the user whether they
   want Remote Control on by default; write the key only when they opt in.
-- **`packages.bake` / `packages.install_at_boot` / `packages.apt_sources`
-  are written empty (`[]`) by default.** Ask the user whether they want
+- **The bake file's `packages:`/`apt_sources:` and the boot file's
+  `packages:` are written empty (`[]`) by default.** Ask the user whether they want
   any apt packages baked into the image, installed at boot, or any
   third-party apt repos; write entries only if they name specific
   packages/repos. Leaving these empty is the safe default (schema +
@@ -271,11 +265,6 @@ proxy:
   port: 3128
   host_alias: 192.168.127.254
 
-# The bundled provisioner that produces the raw EFI-bootable Linux guest image:
-# mkosi in a throwaway rootless podman container. build-guest-image.sh defaults
-# to it when CLAUDE_VM_IMAGE_PROVISIONER is unset; this key documents the intent.
-provisioner: podman-mkosi
-
 egress:
   allow:                # outbound hosts permitted through the proxy
     - api.anthropic.com # REQUIRED for Remote Control (outbound 443)
@@ -367,7 +356,7 @@ contains the expected keys:
 - **config-bake.yml**: `packages` (list), `apt_sources` (list),
   `image.root_headroom_mb`.
 - **config-boot.yml**: `cpus: 2`, `mem: 4096`, `proxy.port`,
-  `provisioner: podman-mkosi`, `egress.allow` including
+  `egress.allow` including
   `api.anthropic.com`, `claude.version`, `claude.permission_mode`,
   `update_at_boot`, `github.auth`. `proxy.cmd` is intentionally absent —
   the launcher defaults to the bundled tinyproxy launcher when unset.
