@@ -86,3 +86,39 @@ First demonstrated by the `show-loaded-skills` plugin (see
 
 First demonstrated by the `show-loaded-skills` plugin (see
 [`plugins/show-loaded-skills/README.md`](../plugins/show-loaded-skills/README.md)).
+
+## `PreToolUse` (matcher `Agent|Task`)
+
+- **Fires when the model spawns a subagent** — matches the
+  subagent-spawn tool, evidenced by the existing
+  `block-background-agents` plugin, which registers this exact
+  event+matcher and demonstrably fires and reads
+  `tool_input.run_in_background` to deny background spawns. Matching
+  both `Agent` and `Task` is harmless if only one name is live on a
+  given Claude Code build.
+- **The official hooks docs do not publish a field-by-field schema for
+  the spawn tool's `tool_input`.** `tool_input.run_in_background` is
+  the only doc/empirically-confirmed field (via
+  `block-background-agents`). The remaining fields
+  (`subagent_type`, `prompt`, `model`, `description`, `isolation`) are
+  **inferred** from the Agent tool's own parameter schema, the same
+  doc-gap inference already applied to `tool_input.skill` on
+  `PreToolUse (matcher Skill)` above. If a future run observes the
+  actual field names (e.g. via `--debug` transcript output), correct
+  this note and the `show-agent-calls` script together.
+- **`SubagentStart` was considered and rejected** for surfacing spawn
+  details: per the official hooks docs it carries only `agent_id` and
+  `agent_type` — not the prompt, description, model, or spawn
+  parameters, so it cannot answer "with what parameters and what
+  prompt".
+- **`systemMessage` reaches the user on `PreToolUse`**, same as the
+  `Skill`-matcher case above. Decision control is
+  `hookSpecificOutput.permissionDecision`; a display-only hook must
+  omit `hookSpecificOutput` entirely to leave the normal permission
+  flow untouched — this matters doubly here because
+  `block-background-agents` already hooks the same event+matcher for
+  decision control, so a display-only hook on this matcher must not
+  interfere with it.
+
+First demonstrated by the `show-agent-calls` plugin (see
+[`plugins/show-agent-calls/README.md`](../plugins/show-agent-calls/README.md)).

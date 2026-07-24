@@ -19,6 +19,7 @@
     { "name": "claude-vm", "source": "./plugins/claude-vm" },
     { "name": "show-loaded-rules", "source": "./plugins/show-loaded-rules" },
     { "name": "show-loaded-skills", "source": "./plugins/show-loaded-skills" },
+    { "name": "show-agent-calls", "source": "./plugins/show-agent-calls" },
     { "name": "writing-tools", "source": "./plugins/writing-tools" }
   ]
 }

@@ -1,0 +1,6 @@
+{
+  "name": "show-agent-calls",
+  "description": "PreToolUse(Agent|Task) hook that surfaces the agent type, parameters, and full prompt for every subagent spawn, without --verbose.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
