@@ -7,3 +7,4 @@
 - [Verify mkosi claims via gh api](reference_verify-mkosi-claims-via-gh-api.md) — claude-vm PRs assert mkosi default repart/apt behavior; verify against pinned mkosi source with `gh api contents ...?ref=vNN`, write to repo `.claude/tmp/`
 - [Worktree file can be stale after checkout](reference_worktree-file-can-be-stale-after-checkout.md) — after `git checkout <branch>` a working file can be stale (blob != HEAD:path) and Read may get the primary-clone path (on main); verify blob identity before reviewing
 - [JSON payload via file, not echo](reference_json-payload-via-file-not-echo.md) — echo '{"p":"a\nb"}' mangles \n into a real newline (invalid JSON) and fakes a "script ignores all input" Critical; feed payloads from a file
+- [status --porcelain cannot prove a push](reference_status-porcelain-cannot-prove-a-push.md) — `git log -1` + `git status --porcelain` read clean on an unpushed commit; require a remote comparison in agent "verify it landed" steps
