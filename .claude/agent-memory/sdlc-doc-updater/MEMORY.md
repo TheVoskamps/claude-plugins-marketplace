@@ -42,3 +42,7 @@
   claude.plugins.add_marketplace_uris_to_allowlist are independent
   knobs with shared semantics, never one controlling the other; grep
   both names across docs when either changes.
+- [agent-memory-scrubber split off curation](project_agent-memory-scrubber-split-off-curation.md)
+  — doc-updater no longer curates `.claude/agent-memory/`;
+  agent-memory-scrubber owns that pass now, spawned once after the
+  review loop settles.
