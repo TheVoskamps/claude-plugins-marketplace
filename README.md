@@ -10,8 +10,8 @@ The marketplace currently ships these plugins (one entry each in
 
 - **`issues`** — GitHub issue tracking verbs and repo/user config.
 - **`issues-jira`** — optional Jira backend for the issue verbs.
-- **`sdlc`** — issue orchestration and the developer/fixer/reviewer/doc
-  agents.
+- **`sdlc`** — issue orchestration and the
+  developer/fixer/reviewer/doc/memory-scrubber agents.
 - **`github-prs`** — GitHub PR-operations skills: create, diff, and
   review-submit a PR; flip a PR draft/ready; and link a PR to its issue
   via a closing keyword in the PR body. GitHub-only by design.
@@ -21,7 +21,10 @@ The marketplace currently ships these plugins (one entry each in
 - **`git-tools`** — create the correctly-named issue branch off the
   right base, clean up merged branches and stale worktrees, and
   generate unit tests.
-- **`cc-tools`** — Claude Code maintenance helpers.
+- **`cc-tools`** — Claude Code meta-skills: load all global rules,
+  track Claude Code feature/bug watchlist status, and curate a repo's
+  `.claude/agent-memory/` in one acting pass
+  (`agent-memory-cleanup`).
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity. Bundles `gh_wrapper`, `git_wrapper`, and the

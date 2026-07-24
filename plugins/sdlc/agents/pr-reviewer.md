@@ -165,11 +165,9 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      own memory here. The commit message must obey the closing-keyword
      rule — never a closing keyword immediately before an issue
      reference.
-   - Note: you run after `doc-updater`, so this memory commit lands
-     on the branch too late for this PR's curation pass. It survives
-     and gets curated on the next PR that touches the repo — a known,
-     accepted one-PR lag (see the "orchestrate" skill's memory-baseline
-     paragraph).
+   - `agent-memory-scrubber` runs after you, once the review loop has
+     settled, and curates this capture along with every other agent's
+     in the same PR. Your capture is the last one it waits for.
    - If `.claude/agent-memory/` has no changes, skip this step.
 
    After this step, release the branch claim per "End-of-run cleanup"
