@@ -195,9 +195,11 @@ consistent:
    delete) rather than fully uncommitted, but the content is fully
    recoverable, which is what the undo claim depends on. Skip this
    check for autonomous mode — there the commit is the undo regardless
-   of tracked state, since `git add <path>` in "Land the result" stages
-   (and thus preserves) the pre-deletion content in the commit either
-   way.
+   of tracked state, because autonomous mode always runs on a freshly
+   checked-out branch, so every entry an autonomous run scrubs was
+   already committed on the branch before this run started; there is
+   no untracked, never-committed case for `git add <path>` to fail to
+   preserve.
 4. Delete the entry files for every scrub and every completed
    transfer.
 5. Rewrite the entries you persisted that needed a present-tense
@@ -320,10 +322,11 @@ Wikilinks repaired: <count>
 ```
 
 Then the tail for the mode you ran in: in autonomous mode, the commit
-SHA once the post-push remote-comparison check above has confirmed it
-matches `origin/<headRefName>` — never report a SHA you have not
-verified landed on the remote; in interactive mode, `git diff --stat`
-plus "review and commit when you're happy".
+SHA once the post-push check above has confirmed both that it matches
+`origin/<headRefName>` and that `git status --porcelain` is empty —
+never report a SHA you have not verified landed on the remote with a
+clean tree; in interactive mode, `git diff --stat` plus "review and
+commit when you're happy".
 
 The per-entry lines are the record of a destructive operation. Report
 all of them, including the entries you persisted only because you

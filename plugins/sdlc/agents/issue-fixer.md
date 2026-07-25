@@ -138,7 +138,10 @@ If any are missing, ask before proceeding.
     this step; there is nothing to commit.
 
 11. End-of-run cleanup — release the branch claim so subsequent
-    subagents can check out the same branch:
+    subagents can check out the same branch. Run this only if your
+    commit and push both succeeded — if either failed, `git branch -D`
+    would destroy the only copy of your work, so stop and report the
+    failure instead of proceeding to cleanup:
 
     ```bash
     git checkout --detach

@@ -128,10 +128,9 @@ persist between Bash calls in a subagent context. See
    dirty-tree case, `git worktree remove` will refuse to run on a
    dirty tree anyway). Instead: if `HEAD` is ahead, retry the push
    (`git push`) and re-verify; if the tree is dirty with HEAD matching
-   origin, the commit itself failed — do not force one through with
-   `--no-verify` or `--no-gpg-sign` (forbidden regardless), just stop.
-   If the failure persists, stop and report it per "Output" below
-   instead of proceeding to cleanup.
+   origin, the commit itself failed — just stop. If the failure
+   persists, stop and report it per "Output" below instead of
+   proceeding to cleanup.
 
 4. Report back per "Output" below.
 
