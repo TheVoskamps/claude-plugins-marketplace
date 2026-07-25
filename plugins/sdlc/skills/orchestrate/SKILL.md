@@ -322,9 +322,8 @@ for a parallel-cleanup data-loss bug.
 
 After each subagent (issue-developer, doc-updater, issue-fixer,
 agent-memory-scrubber) returns, run `git worktree list` to find the
-subagent's worktree (it
-will be the most recently added one matching the worktree-naming
-pattern; cross-check by branch or path), then:
+subagent's worktree (it will be the most recently added one matching
+the worktree-naming pattern; cross-check by branch or path), then:
 
 ```bash
 git worktree remove .claude/worktrees/<name>
@@ -645,9 +644,9 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
 - **Never spawn a Wave 2 issue concurrently with a conflicting Wave 1
   issue.**
 - **Never pass a `worktree_path` in a spawn prompt.** Every teammate
-  declares `isolation: worktree` and the harness handles
-  their working directory. Pass branch name + PR number + issue
-  number instead.
+  declares `isolation: worktree` and the harness handles their
+  working directory. Pass branch name + PR number + issue number
+  instead.
 - **Never duplicate agent runbooks in spawn prompts.** Trust the agent
   to read its own definition and the per-repo config.
 - **Never instruct a teammate to use a closing keyword adjacent to an
@@ -852,11 +851,11 @@ Two carve-outs keep this rule from being over-broad:
 ## Token Efficiency
 
 - Use `issue-developer`, `issue-fixer`, `doc-updater`, and
-  `agent-memory-scrubber` teammates
-  with their default model (`sonnet`) — they execute fully-specified
-  briefs, where a cheaper executor loses the least. For a genuinely
-  hard issue, escalate that single spawn to `opus` via the `Agent`
-  tool's per-call `model` override rather than editing front matter.
+  `agent-memory-scrubber` teammates with their default model
+  (`sonnet`) — they execute fully-specified briefs, where a cheaper
+  executor loses the least. For a genuinely hard issue, escalate
+  that single spawn to `opus` via the `Agent` tool's per-call
+  `model` override rather than editing front matter.
 - Use `pr-reviewer` with its default model (`opus`) — it is the
   verification gate, and a strictly stronger reviewer than the
   implementers gives an asymmetric check that is cheap because

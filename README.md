@@ -23,8 +23,7 @@ The marketplace currently ships these plugins (one entry each in
   generate unit tests.
 - **`cc-tools`** — Claude Code meta-skills: load all global rules,
   track Claude Code feature/bug watchlist status, and curate a repo's
-  `.claude/agent-memory/` in one acting pass
-  (`agent-memory-cleanup`).
+  `.claude/agent-memory/` in one acting pass (`agent-memory-cleanup`).
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity. Bundles `gh_wrapper`, `git_wrapper`, and the
