@@ -10,3 +10,4 @@
 - [status --porcelain cannot prove a push](reference_status-porcelain-cannot-prove-a-push.md) — `git log -1` + `git status --porcelain` read clean on an unpushed commit; require a remote comparison in agent "verify it landed" steps
 - [Skip fetch when origin ref matches](reference_skip-fetch-when-origin-ref-matches.md) — SSH fetch can time out on a biometric key; if origin/<branch> already equals the PR headRefOid, check out from it and skip the fetch entirely
 - [Read branch tip via git show](reference_read-branch-tip-via-git-show.md) — `git checkout <ref> -- .` stages the whole PR diff into the review worktree and `reset --hard` is forbidden; extract with `git show <ref>:<path>` into `.claude/tmp/`
+- [Verify doc cross-reference headings](reference_verify-doc-cross-reference-headings.md) — `file.md → "Section"` pointers in sdlc agent defs are unchecked and some dangle; grep the target's `^#` headings before accepting or flagging one
