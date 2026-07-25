@@ -36,3 +36,8 @@ a comment because GitHub blocks the PR author from approving their own
 PR)."). Still report the true verdict (APPROVED / NEEDS_CHANGES) plus
 severity counts back to the orchestrator — the comment-only post is a
 mechanical fallback, not a downgrade of the verdict.
+
+The `github-prs:pr-review-submit` skill documents this fallback only
+for the `approve` verdict ("Self-review constraint (author cannot
+`--approve`)"), so applying it to `request-changes` is on you — the
+skill will not tell you to.
