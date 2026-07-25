@@ -41,3 +41,13 @@ The `github-prs:pr-review-submit` skill documents this fallback only
 for the `approve` verdict ("Self-review constraint (author cannot
 `--approve`)"), so applying it to `request-changes` is on you — the
 skill will not tell you to.
+
+**Pass the body as a file, not a `--body` string.** A real review body
+runs to hundreds of lines of Markdown full of backticks, quotes, and
+`!`, and inlining it in `gh pr review --body "..."` invites shell
+mangling. Write it with the Write tool to the repo's own
+`.claude/tmp/review-<PR>.md` (the session scratchpad is refused as
+out-of-repo — see [[git-sandbox-via-script-file]]) and post with
+`gh pr review <n> --comment --body-file <path>`. For the self-review
+fallback, `printf 'APPROVED\n\n' > final.md && cat body.md >> final.md`
+prepends the verdict line without re-quoting anything.
