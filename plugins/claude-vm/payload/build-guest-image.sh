@@ -913,9 +913,10 @@ eval "set -- ${CLAUDE_ARGS:-}"
 #   - Every DELIBERATE quit is 0: Ctrl-D Ctrl-D, /exit, and Ctrl-C Ctrl-C all
 #     exit claude 0. On 0 the guest powers off -- the clean path.
 #   - An ABNORMAL death is nonzero (e.g. SIGKILL -> 137). On nonzero this
-#     launcher `exec`s an interactive root LOGIN SHELL on this same hvc1 tty,
-#     so the operator's already-bridged terminal lands in a shell on the
-#     still-running guest and the session is genuinely inspectable.
+#     launcher runs an interactive root LOGIN SHELL as a CHILD on this same
+#     hvc1 tty, so the operator's already-bridged terminal lands in a shell
+#     on the still-running guest and the session is genuinely inspectable --
+#     and powers the guest off when that shell exits.
 #
 # Why a shell and not merely "do not power off": leaving the VM up without a
 # console is worse than powering it off. hvc0 is attached HOST-side to a log

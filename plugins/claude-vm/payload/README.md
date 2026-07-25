@@ -50,8 +50,8 @@ payload/
     boot-launcher-test.sh
                         # regression test for the guest self-poweroff decision
                         # (issue #179): claude exit 0 -> SIGRTMIN+4 poweroff,
-                        # nonzero -> exec a root login shell on hvc1 (and NOT
-                        # the launcher, so it cannot loop); getty respawn
+                        # nonzero -> root login shell on hvc1 as a CHILD, then
+                        # poweroff when it exits (order asserted); getty respawn
                         # neutralized by Restart=no; LAUNCHER_LOGIC_REV bumped.
                         # Runs the emitted launcher's real decision fragment
                         # against stubs; needs only bash + awk

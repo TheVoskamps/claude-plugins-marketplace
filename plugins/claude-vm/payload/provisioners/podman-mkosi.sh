@@ -417,9 +417,10 @@ FSTAB
 #     boot launcher runs claude as a CHILD and, on claude's DELIBERATE quit
 #     (exit 0), powers the guest off (issue #179) -- claude is the only
 #     workload, so its exit ends the disposable VM. On an ABNORMAL claude
-#     death (nonzero) the launcher does NOT power off; it `exec`s an
-#     interactive root LOGIN SHELL on this same hvc1 tty, so the operator's
-#     already-bridged terminal lands in a shell on the still-running guest.
+#     death (nonzero) the launcher runs an interactive root LOGIN SHELL as a
+#     CHILD on this same hvc1 tty, so the operator's already-bridged terminal
+#     lands in a shell on the still-running guest -- and powers the guest off
+#     when that shell exits.
 #
 # Respawn neutralized (issue #179) by `Restart=no`. The respawn is governed by
 # `Restart=` in the stock serial-getty@.service template, which the drop-in
