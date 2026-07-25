@@ -1,6 +1,6 @@
 ---
 name: sweep-sibling-agent-guards
-description: a Critical fix to one sdlc agent's unguarded git branch -D was live in all four sibling agents too; round-3 human instruction swept it across issue-developer, issue-fixer, doc-updater, pr-reviewer with wording matched to the original fix
+description: a Critical fix to one sdlc agent's unguarded git branch -D was live in all four sibling agents too; round-3 swept the guard sentence, but round-4 found the sweep itself was incomplete — it dropped the scrubber's own carve-out for the no-commit case
 metadata:
   type: project
 ---
@@ -45,3 +45,28 @@ closing-keyword sections by design. See also
 [[no-invented-policy-in-agent-defs]] for the companion round-3 item on
 the same PR (removing invented prose, as opposed to sweeping a
 verified-necessary guard).
+
+**Round 4 sequel — the sweep dropped a carve-out, not just a
+sentence.** The scrubber's original guard (the thing being swept) had
+a second clause the four siblings' guard didn't get: "...or the skill
+reported no memory to curate, so there was never anything to push."
+Round 3 swept only the base guard sentence ("run this only if commit
+and push both succeeded") and missed that two of the four siblings
+(`pr-reviewer.md`, `doc-updater.md`) document a real no-commit path
+("If `.claude/agent-memory/` has no changes, skip this step") that the
+base sentence, read literally, forbids cleanup for — no commit means
+neither "succeeded," so the branch gets stranded on every no-op run.
+Fixed round 4 by adding "...or if you had nothing to commit" to all
+four sibling guards, matching the scrubber's carve-out in substance
+(wording adapted, not copy-pasted verbatim, since the scrubber's own
+guard has extra SHA+porcelain verification machinery the siblings
+don't).
+
+**Generalized lesson:** when the thing being swept is a guard/rule
+with an exception clause, sweep the exception too, not just the
+headline sentence. A partial sweep (rule copied, carve-out dropped) is
+worse than no sweep in one way: it looks complete, so it doesn't get
+flagged as unswept — it takes a second review round to notice the
+carve-out is missing. Before calling a guard-sweep done, diff the
+*full* structure of the source guard (every clause, every "or"
+branch) against each sibling's copy, not just the topic sentence.
