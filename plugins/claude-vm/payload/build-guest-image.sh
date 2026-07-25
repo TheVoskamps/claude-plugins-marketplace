@@ -256,7 +256,12 @@ BASE_OS_REV="debian-12-20250601"
 # guest sat alive with a dead console ("logout" and nothing else) and the
 # host never regained the terminal. BOOT LOGIC baked into the image; old
 # images (stamped 'launcher18') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="19"
+# Bumped 19 -> 20: prose-only amendments to the emitted launcher's comments
+# (stale "exec" wording retired; no behavior change). Bumped anyway because
+# rev 19 was pushed some hours before this amendment -- bumping removes any
+# ambiguity about which bytes a "launcher19" image would contain, at the cost
+# of nothing (no launcher19 image was ever built).
+LAUNCHER_LOGIC_REV="20"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -477,7 +482,7 @@ log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credenti
 # claudecreds mount (mountTag=claudecreds) as the credential above, NOT via
 # run.env, honoring the launcher's "secrets never ride in run.env" invariant.
 # machineID is NOT in the seed -- the guest mints its own on first run. Install
-# it at $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
+# it at $CLAUDE_HOME/.claude.json (mode 0600) before claude launches below.
 # /root/.claude.json does not exist on a fresh guest, so this is a plain create
 # of the object (no merge). The seed's CONTENTS are the host's business; this
 # step just copies whatever the host emitted.
@@ -537,7 +542,7 @@ log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.jso
 # ---------------------------------------------------------------------
 # Boot-time package install/update through the proxy (issue #106).
 #
-# BLOCKING, before claude execs (agreed in the issue: if a package is too
+# BLOCKING, before claude launches (agreed in the issue: if a package is too
 # slow to install at boot, the user moves it from install_at_boot to bake).
 #
 #   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, default true):
@@ -854,7 +859,7 @@ log "claude-vm: guest booted to the claude-fetch seam; running host-verified cla
 
 # Satisfy claude's startup install-health check (issue #88). claude probes for a
 # working `claude` at the native installer's location ~/.local/bin/claude; the
-# guest execs the RO-mounted binary instead, so that path is empty and the TUI
+# guest runs the RO-mounted binary instead, so that path is empty and the TUI
 # prints "claude command at /root/.local/bin/claude missing or broken · run
 # claude install to repair" warnings on startup. Point the native-install path at
 # the verified RO-mounted binary: the symlink target IS the running binary, so any

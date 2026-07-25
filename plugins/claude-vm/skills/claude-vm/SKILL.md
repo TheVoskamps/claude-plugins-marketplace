@@ -471,7 +471,7 @@ Claude Code updates daily, so the guest image does **not** bake in
 `claude`:
 
 - The baked image is a **stable base**: a pinned OS plus a boot launcher
-  that, on boot, loads the run environment and then execs the
+  that, on boot, loads the run environment and then runs the
   **host-side GPG-verified `claude` binary** mounted RO at
   `/mnt/claudebin` against the repo at `/mnt/repo`, as an interactive
   session on the `hvc1` console (issue #88). `claude` is never
@@ -701,7 +701,7 @@ using `python3`; unit-tested in `payload/test/credential-test.sh`). The
 selected credential is written to a transient, owner-only (`0600`)
 tmpfile and shared **read-only** into the guest under
 `mountTag=claudecreds`. The guest boot launcher copies it into
-`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing
+`$HOME/.claude/.credentials.json` (mode `0600`) before launching
 `claude`.
 
 The credential is a secret and is handled like one: it is **never**

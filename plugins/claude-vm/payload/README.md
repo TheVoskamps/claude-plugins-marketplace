@@ -369,7 +369,7 @@ identically and is never duplicated. Any value other than `true`/`false`
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
-build-guest-image.sh --print-version          # pinned version (base [+<identity segments>])
+build-guest-image.sh --print-version          # pinned version
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
