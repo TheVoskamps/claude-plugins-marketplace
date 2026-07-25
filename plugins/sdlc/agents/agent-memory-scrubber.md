@@ -65,8 +65,7 @@ parent agent. Each subagent starts fresh.
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
 Bash call onward. Run all commands as bare commands — `cd` does not
-persist between Bash calls in a subagent context. See
-`git-workflow.md` → "Subagent context" for the full rules.
+persist between Bash calls in a subagent context.
 
 1. Check out the PR branch:
 
@@ -167,5 +166,4 @@ Without this, git refuses to check out a branch already claimed by
 another worktree. Use `--detach` (not switching to the source branch)
 because the orchestrator's primary clone is already holding that
 branch, so a subagent worktree can't switch to it. Detaching HEAD
-releases the feature-branch claim equivalently. See `git-workflow.md`
-→ "End-of-run cleanup pattern".
+releases the feature-branch claim equivalently.

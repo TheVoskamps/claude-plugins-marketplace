@@ -30,8 +30,7 @@ capture is still required even though you didn't create the feature
 branch — see "End-of-run cleanup" below.
 
 Run all commands as bare commands — `cd` does not persist between Bash
-calls in a subagent context. See `git-workflow.md` → "Subagent
-context" for the full rules.
+calls in a subagent context.
 
 ## Read global rules and repo config first
 
@@ -165,9 +164,13 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      own memory here. The commit message must obey the closing-keyword
      rule — never a closing keyword immediately before an issue
      reference.
-   - `agent-memory-scrubber` runs after you, once the review loop has
-     settled, and curates this capture along with every other agent's
-     in the same PR. Your capture is the last one it waits for.
+   - On the `/sdlc:orchestrate` path, `agent-memory-scrubber` runs
+     after you, once the review loop has settled, and curates this
+     capture along with every other agent's in the same PR — your
+     capture is the last one it waits for. This does not hold when
+     `/sdlc:git-review-pr` spawns you standalone, outside that loop:
+     there is no scrubber run after you, and this capture sits
+     uncurated on the branch until something else curates it.
    - If `.claude/agent-memory/` has no changes, skip this step.
 
    After this step, release the branch claim per "End-of-run cleanup"
@@ -199,9 +202,8 @@ git branch -D <branch>
 Use `--detach` (not switching to the source branch) because the
 orchestrator's primary clone is already holding that branch, so a
 subagent worktree can't switch to it. Detaching HEAD releases the
-feature-branch claim equivalently. See `git-workflow.md` → "End-of-run
-cleanup pattern". If you never checked out the PR branch, there is no
-claim to release — skip this.
+feature-branch claim equivalently. If you never checked out the PR
+branch, there is no claim to release — skip this.
 
 ## Review criteria
 

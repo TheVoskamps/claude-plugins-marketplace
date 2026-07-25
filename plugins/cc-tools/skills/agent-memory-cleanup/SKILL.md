@@ -41,15 +41,23 @@ The argument also selects the mode:
 | none | interactive | confirmed with you one at a time | left uncommitted in the working tree |
 
 Deletions are not confirmed in either mode. In autonomous mode the
-commit is the undo. In interactive mode the uncommitted working tree
-is the undo **only for entries git already tracks** — for an entry
-that is still untracked (a fresh capture never committed), deleting
-the file is permanent, because there is nothing in git to restore it
-from. No-argument mode routinely encounters untracked entries: a
-writer agent's memory capture that was never committed lands exactly
-in that state. See "Apply the verdicts" for how this skill stages
-untracked entries before touching them so the working-tree undo claim
-holds for every entry, not just tracked ones.
+commit is the undo for its current caller, `agent-memory-scrubber`,
+which always runs in a fresh worktree and checks out the branch fresh
+before invoking this skill — every entry it scrubs was already
+committed on the branch before the run started, so a commit is always
+available to revert to. This skill does not itself guarantee that; a
+different autonomous-mode caller invoking this skill over a working
+tree that already holds untracked, never-committed memory entries
+would not have a commit to fall back on for those entries. In
+interactive mode the uncommitted working tree is the undo **only for
+entries git already tracks** — for an entry that is still untracked (a
+fresh capture never committed), deleting the file is permanent,
+because there is nothing in git to restore it from. No-argument mode
+routinely encounters untracked entries: a writer agent's memory
+capture that was never committed lands exactly in that state. See
+"Apply the verdicts" for how this skill stages untracked entries
+before touching them so the working-tree undo claim holds for every
+entry, not just tracked ones.
 
 ## Execution
 
@@ -263,6 +271,22 @@ directory-wide add.
 
 ```bash
 git add <each path you changed>
+git status --porcelain
+```
+
+If that status output is empty — every verdict this run was persist,
+so nothing was staged — there is nothing to commit. Report "no changes
+to curate" and stop here; do not run `git commit`, and do not report a
+commit SHA. The previous tip of the branch is not your commit, and
+claiming it would misattribute someone else's work as this run's
+output. This is a valid outcome, not a failure — distinct from the "no
+agent memory to curate" case above (an absent or empty directory):
+here entries existed and were graded, they just all happened to be
+persist.
+
+Otherwise, commit and push:
+
+```bash
 git commit -m "Curate agent memory"
 git push
 ```
@@ -272,6 +296,10 @@ The commit message must never place a closing keyword (`close`,
 `resolved`, case-insensitive) immediately before an issue reference
 (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that pattern
 auto-closes the referenced issue.
+
+A commit or push failure here is a genuine failure, not the no-op case
+above — the gate below still applies in full: do not report success,
+and do not report a SHA that was never verified on the remote.
 
 After the push, verify it actually landed on the remote rather than
 trusting `git push`'s exit code alone:
@@ -325,12 +353,14 @@ Indexes fixed: <agent>/MEMORY.md, ...
 Wikilinks repaired: <count>
 ```
 
-Then the tail for the mode you ran in: in autonomous mode, the commit
-SHA once the post-push check above has confirmed both that it matches
-`origin/<headRefName>` and that `git status --porcelain` is empty —
-never report a SHA you have not verified landed on the remote with a
-clean tree; in interactive mode, `git diff --stat` plus "review and
-commit when you're happy".
+Then the tail for the mode you ran in: in autonomous mode, either "no
+changes to curate" when every verdict was persist and nothing was
+staged, or the commit SHA once the post-push check above has confirmed
+both that it matches `origin/<headRefName>` and that `git status
+--porcelain` is empty — never report a SHA you have not verified
+landed on the remote with a clean tree, and never report the no-op
+line when a commit was in fact made; in interactive mode,
+`git diff --stat` plus "review and commit when you're happy".
 
 The per-entry lines are the record of a destructive operation. Report
 all of them, including the entries you persisted only because you

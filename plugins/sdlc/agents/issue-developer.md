@@ -20,8 +20,7 @@ issue end-to-end.
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first Bash
 call onward. Run all commands as bare commands — `cd` does not persist
-between Bash calls in a subagent context. See `git-workflow.md` →
-"Subagent context" for the full rules.
+between Bash calls in a subagent context.
 
 ## Read global rules first
 
@@ -164,8 +163,7 @@ rather than re-deriving their reads.
     another worktree. Use `--detach` (not switching to the source
     branch) because the orchestrator's primary clone is already holding
     that branch, so a subagent worktree can't switch to it. Detaching
-    HEAD releases the feature-branch claim equivalently. See
-    `git-workflow.md` → "End-of-run cleanup pattern".
+    HEAD releases the feature-branch claim equivalently.
 
 12. Report back: PR URL (or equivalent), issue number, branch name.
     (The orchestrator handles the worktree directory itself; the
