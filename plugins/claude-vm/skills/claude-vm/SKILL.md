@@ -651,7 +651,7 @@ telemetry, no `machineID`) is copied;
 `machineID` is deliberately **not** seeded — the guest mints its own. That
 object is shared into the guest under the same `claudecreds` mount, and
 the guest boot launcher installs it at `$HOME/.claude.json` (mode `0600`)
-before exec'ing `claude`, so the in-guest session comes up already
+before launching `claude`, so the in-guest session comes up already
 onboarded, logged in, folder-trusted, and with self-update disabled. The
 seed is built via `lib/credential.sh`'s `claude_vm_select_claude_json_seed`
 (using `python3`; unit-tested in `payload/test/credential-test.sh`) and

@@ -44,7 +44,7 @@
 # machineID is NOT seeded -- the guest mints its own. The resulting 6-key object
 # is delivered to the guest the SAME transient RO shred-on-exit way as the
 # keychain credential (via the claudecreds mount, NEVER via run.env). The guest
-# boot launcher installs it at /root/.claude.json before exec'ing claude. This
+# boot launcher installs it at /root/.claude.json before launching claude. This
 # seed is ADDITIVE and layered alongside the keychain credential mount above.
 #
 # Usage:
@@ -893,7 +893,7 @@ fi
 # machineID is NOT seeded -- the guest mints its own. It is NOT named
 # .credentials.json (that name is the bearer token's) -- the guest boot launcher
 # reads claude-json-seed.json and installs it at /root/.claude.json before
-# exec'ing claude (see build-guest-image.sh). The seed carries account identity,
+# launching claude (see build-guest-image.sh). The seed carries account identity,
 # so it rides the SAME secret posture as the credential (never in run.env, never
 # in the verified-binary cache). We are still inside the umask-077 window, so
 # the file is created -rw------- with no world-readable moment; the chmod 600 is
@@ -979,7 +979,7 @@ claude_vm_run_meta_put() {
 # hvc1 tty defaults to a fixed 80x24 regardless of the host window. Seed the
 # guest's tty size from the host's `stty size` so claude renders at the host
 # terminal's dimensions. The hvc1 getty runs `stty cols/rows` from these env
-# values BEFORE exec'ing claude (env alone is insufficient -- programs that
+# values BEFORE launching claude (env alone is insufficient -- programs that
 # query the tty via TIOCGWINSZ need the kernel tty geometry set). This is
 # one-time: the transport carries no live resize, so this seeds the initial
 # size only. `stty size` prints "<rows> <cols>" on the controlling tty; it
@@ -1054,7 +1054,7 @@ RUN_ENV="$CONFIG_DIR/run.env"
     printf 'POLICY_TAG=policy\n'
     # The host-verified claude binary is shared into the guest under this
     # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
-    # boot launcher execs /mnt/claudebin/claude against /mnt/repo.
+    # boot launcher runs /mnt/claudebin/claude against /mnt/repo.
     printf 'CLAUDEBIN_TAG=claudebin\n'
     # The claudecreds dir carries ALL host-rendered guest ~/.claude files --
     # not just credentials: the OAuth credential (.credentials.json, a SECRET),
@@ -1635,7 +1635,7 @@ claude_vm_run_meta_put ssh_port "$SSH_PORT"
 # The verified claude binary is shared into the guest by its CONTAINING
 # DIRECTORY (virtio-fs shares a dir, not a single file) under tag
 # 'claudebin', mounted RO at /mnt/claudebin in the guest. The guest boot
-# launcher execs /mnt/claudebin/claude against /mnt/repo.
+# launcher runs /mnt/claudebin/claude against /mnt/repo.
 CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 
 # Dual virtio-serial console topology (issue #88). Device ORDER is

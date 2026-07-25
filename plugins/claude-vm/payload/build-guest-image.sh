@@ -51,11 +51,11 @@ DEFAULT_PROVISIONER="$SCRIPT_DIR/provisioners/podman-mkosi.sh"
 # ---------------------------------------------------------------------
 BASE_OS_REV="debian-12-20250601"
 # Bumped 1 -> 2: the boot launcher now fills the claude-fetch seam, mounting
-# the host-verified binary (mountTag=claudebin) and exec'ing claude against
+# the host-verified binary (mountTag=claudebin) and launching claude against
 # /mnt/repo (issue #49). Old images stamped 'launcher1' rebuild on next run.
 # Bumped 2 -> 3: the boot launcher now installs the host's claude.ai OAuth
 # credential (mounted RO under mountTag=claudecreds) into
-# $HOME/.claude/.credentials.json (mode 0600) before exec'ing claude, so the
+# $HOME/.claude/.credentials.json (mode 0600) before launching claude, so the
 # guest authenticates as the host operator (issue #50). Replaces the dropped
 # ANTHROPIC_API_KEY/ANTHROPIC_VM_TOKEN model. Old images stamped 'launcher2'
 # rebuild on next run.
@@ -74,7 +74,7 @@ BASE_OS_REV="debian-12-20250601"
 # runs its interactive login flow, unusable on the byte-pipe console. The boot
 # launcher now reads the host's CLAUDE_CODE_OAUTH_TOKEN (from `claude
 # setup-token`) out of the shred-on-exit claudecreds mount and exports it
-# before exec'ing claude, so the guest authenticates headlessly. The
+# before launching claude, so the guest authenticates headlessly. The
 # boot-logic change requires old images (stamped 'launcher4') to rebuild.
 # Bumped 5 -> 6: identity seed auth (issue #88, pass 1). Real-hardware testing
 # established that the interactive TUI does NOT read CLAUDE_CODE_OAUTH_TOKEN
@@ -84,7 +84,7 @@ BASE_OS_REV="debian-12-20250601"
 # (already installed) PLUS identity in ~/.claude.json (`userID` +
 # `oauthAccount`). The boot launcher now installs a minimal identity seed
 # (claude-json-seed.json from the shred-on-exit claudecreds mount) at
-# /root/.claude.json before exec'ing claude, so a fresh guest comes up already
+# /root/.claude.json before launching claude, so a fresh guest comes up already
 # logged in. The boot-logic change requires old images (stamped 'launcher5')
 # to rebuild.
 # Bumped 6 -> 7: WIDENED identity seed (issue #88). Real-hardware testing found

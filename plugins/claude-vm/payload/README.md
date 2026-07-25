@@ -169,7 +169,7 @@ prompt `history`, `lastSessionId`, and `mcpServers` are deliberately
 else from `~/.claude.json` (no other `projects{}` entries, no telemetry, no
 `machineID`) is copied — `machineID` in particular is left out so the guest
 mints its own. The guest boot launcher installs the seed at
-`$HOME/.claude.json` (mode `0600`) before exec'ing `claude`, so the
+`$HOME/.claude.json` (mode `0600`) before launching `claude`, so the
 in-guest session comes up already onboarded, logged in, and folder-trusted
 — no wall, no trust prompt, no browser paste, no failed self-update. A
 **preflight** aborts with an actionable message if the host
@@ -263,7 +263,7 @@ immediately after selection.
 The selected `{"claudeAiOauth": {...}}` is written to a transient,
 owner-only (`0600`) tmpfile and shared **read-only** into the guest under
 `mountTag=claudecreds`. The guest boot launcher copies it into
-`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing `claude`,
+`$HOME/.claude/.credentials.json` (mode `0600`) before launching `claude`,
 so `claude` finds it at the path it expects.
 
 The credential is a **secret** and is handled like one:
@@ -375,7 +375,7 @@ build-guest-image.sh --output <image-path>    # build + stamp .version
 
 The image is a version-pinned stable base (OS + a boot launcher).
 `claude` is never baked in; the boot launcher boots to the
-**claude-fetch seam** and there execs the **host-verified `claude`
+**claude-fetch seam** and there runs the **host-verified `claude`
 binary** mounted RO at `/mnt/claudebin` (see "Verified claude cache"
 below) against the repo at `/mnt/repo` — as an interactive session on
 the `hvc1` console (issue #88). The launcher builds the image on demand
@@ -832,7 +832,7 @@ container, no network); that gap is covered by `host-acceptance.sh`.
 the bootable runtime. It runs the acceptance criteria end-to-end with no
 manual choreography: (a) the default provisioner builds a raw EFI image
 with no override and no loop-device step, (b) vfkit boots it and the
-guest reaches the claude-fetch seam **and execs the host-verified claude
+guest reaches the claude-fetch seam **and runs the host-verified claude
 off the `/mnt/claudebin` mount**, (c) the bundled proxy confines egress
 to the allowlist (allowlisted host permitted, non-allowlisted refused,
 empty allowlist denies all), and (d) the host-side verified cache —
