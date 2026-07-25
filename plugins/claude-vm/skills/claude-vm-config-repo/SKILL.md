@@ -306,20 +306,19 @@ plugins/claude-vm/payload/test/config-test.sh
 ```
 
 Confirm it reports `0 failed`. It exercises `payload/lib/config.sh`'s
-four-file compose, scalar-override, and list-union semantics directly —
+per-tier merge, scalar-override, and list-union semantics directly —
 the machinery that makes this per-repo pair's overrides take effect.
 
 If you want to additionally show this specific pair resolving against the
-global config, you can source the library and compose the four real
-files (read-only, no host mutation):
+global config, you can source the library and merge the real files per
+tier (read-only, no host mutation) — the boot pair here, since boot keys
+are where per-repo overrides usually live:
 
 ```bash
 . plugins/claude-vm/payload/lib/config.sh
 GD="${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm"
 RD="$(git rev-parse --show-toplevel)/.claude-vm"
-claude_vm_compose_effective_config \
-  "$GD/config-bake.yml" "$GD/config-boot.yml" \
-  "$RD/config-bake.yml" "$RD/config-boot.yml" \
+claude_vm_merge_config "$GD/config-boot.yml" "$RD/config-boot.yml" \
   | yq eval '.mem' -    # read back the key you overrode (.mem here) to
                         # see the per-repo value winning over the global one
 ```
