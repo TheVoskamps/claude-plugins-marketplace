@@ -381,7 +381,7 @@ NET
 # after it.
 #
 # nofail: a share that is absent on a given boot must not wedge the boot in
-# emergency mode; the consumer (boot launcher / claude exec) decides whether
+# emergency mode; the consumer (boot launcher / claude launch) decides whether
 # its absence is fatal. runconfig, claudebin, and claudecreds are mounted ro
 # (claudebin is a verified binary the guest must not mutate; claudecreds is
 # the secret-bearing OAuth credential -- the boot launcher copies it out to a
@@ -446,7 +446,7 @@ FSTAB
 #
 # Ordering: the getty's RequiresMountsFor pulls in and orders after the
 # virtio-fs mounts the launcher needs: runconfig (sourced run.env), claudebin
-# (the host-verified binary it execs), claudecreds (the host OAuth credential
+# (the host-verified binary it runs), claudecreds (the host OAuth credential
 # it installs -- #50), and repo (the working tree it cd's into). It also runs
 # after network-online.target so the launcher's egress-allowlisted fetch can
 # reach the proxy.
@@ -579,7 +579,7 @@ Packages=
     # depends on it directly, so pin it explicitly in the auditable recipe.
     util-linux
     # apt provides apt-get, which the boot launcher's boot_apt_phase (issue
-    # #106) execs INSIDE the guest for install_at_boot/update_at_boot. Baked
+    # #106) runs INSIDE the guest for install_at_boot/update_at_boot. Baked
     # here UNCONDITIONALLY -- not gated on whether boot-time apt work is
     # configured -- because mkosi installs packages from OUTSIDE the image
     # with its own (build-container) apt, so nothing else ever pulls apt/dpkg

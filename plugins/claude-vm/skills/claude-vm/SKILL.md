@@ -568,7 +568,7 @@ Claude Code updates daily, so the guest image does **not** bake in
 - **Boot-time package install/update (issue #106).** A **boot** file's
   `packages:` (install list) and `update_at_boot` do **not** feed the
   image-identity hash — they
-  run a blocking phase in the boot launcher itself, right before claude execs,
+  run a blocking phase in the boot launcher itself, right before claude launches,
   through the same proxy the rest of the guest's egress goes through. The
   base image DOES need one thing unconditionally to support this phase: `apt`
   itself, baked into the base `Packages=` list regardless of whether
@@ -664,7 +664,7 @@ message if the host `~/.claude.json` is missing or lacks a usable
 
 The launcher also quiets claude's startup **install-health check**
 (issue #88): claude probes for a working `claude` at the native installer's
-`~/.local/bin/claude`, but the guest execs the RO-mounted binary from
+`~/.local/bin/claude`, but the guest runs the RO-mounted binary from
 `/mnt/claudebin`, so that path is empty and the TUI prints two `claude
 command at /root/.local/bin/claude missing or broken · run claude install to
 repair` warnings. The guest boot launcher symlinks `$HOME/.local/bin/claude`
@@ -798,7 +798,7 @@ backtick-command-substitution bug corrupting `mkosi.conf`, and a missing
 the actual generated recipe files.
 
 The end-to-end acceptance test — default-provisioner build, vfkit boot
-to the claude-fetch seam (exec'ing the host-verified claude off the
+to the claude-fetch seam (running the host-verified claude off the
 mount), egress confinement, and the host-side GPG-verified cache — is
 `payload/test/host-acceptance.sh`; it is host-gated by cause: it skips
 cleanly when a required binary is absent,

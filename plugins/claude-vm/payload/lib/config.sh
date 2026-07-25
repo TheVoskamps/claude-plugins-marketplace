@@ -1165,7 +1165,7 @@ claude_vm_render_guest_settings() {
 #
 #   GUEST read (build-guest-image.sh boot launcher):
 #     eval "set -- ${CLAUDE_ARGS:-}"
-#     exec "$CLAUDE_BIN" "$@"
+#     "$CLAUDE_BIN" "$@"
 #   `eval set --` re-parses the per-arg-%q tokens back into the original
 #   argv, exactly reversing this helper.
 #

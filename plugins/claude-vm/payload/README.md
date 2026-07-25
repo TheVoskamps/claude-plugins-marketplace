@@ -183,7 +183,7 @@ cache.
 **Install-health check + auto-updater (issue #88).** Two more guest-side
 steps keep the interactive TUI quiet. First, claude runs a startup
 *install-health check* that probes for a working `claude` at the native
-installer's location `~/.local/bin/claude`; because the guest execs the
+installer's location `~/.local/bin/claude`; because the guest runs the
 RO-mounted binary from `/mnt/claudebin` instead, that path is empty and the
 TUI prints two `claude command at /root/.local/bin/claude missing or broken
 · run claude install to repair` warnings. The boot launcher therefore
@@ -489,7 +489,7 @@ stripped during canonicalization rather than passed through as a literal
 
 **Boot-time package install/update (issue #106).** Unlike the bake file's
 `packages:`, the boot file's `packages:` and `update_at_boot` run **inside the
-guest at boot**, blocking, right before claude execs — not baked into the
+guest at boot**, blocking, right before claude launches — not baked into the
 image. This requires `apt` itself to be present in the guest, which mkosi
 does NOT provide for free: mkosi installs packages from OUTSIDE the image
 with its own (build-container) apt, so nothing else ever pulls apt/dpkg

@@ -496,7 +496,7 @@ ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
 # against the operator's pinned key, checksum-verifies the downloaded
 # binary against the verified manifest, and caches it keyed on the
 # resolved version. The verified binary is then mounted RO into the guest
-# (mountTag=claudebin) and exec'd at the boot-launcher seam.
+# (mountTag=claudebin) and run at the boot-launcher seam.
 #
 # SECURITY: a failed gpg --verify or a checksum mismatch ABORTS here --
 # the launcher never boots the guest with an unverified binary. There is
