@@ -14,6 +14,15 @@ failed to create review: GraphQL: Review Can not approve your own
 pull request (addPullRequestReview)
 ```
 
+The `--request-changes` variant is blocked the same way but the message
+differs, so match on the shape (`Can not ... on your own pull request`)
+rather than one literal string:
+
+```
+failed to create review: GraphQL: Review Can not request changes on
+your own pull request (addPullRequestReview)
+```
+
 **Why:** In this repo the human (`evoskamp`) both opens issue PRs and
 runs the review flow under the same `gh` credential, so the reviewer
 identity == author identity. GitHub forbids self-approval as a policy,
