@@ -320,10 +320,11 @@ Cleanup of each subagent's worktree directory happens in this phase too,
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
 for a parallel-cleanup data-loss bug.
 
-After each subagent (issue-developer, doc-updater, issue-fixer,
-agent-memory-scrubber) returns, run `git worktree list` to find the
-subagent's worktree (it will be the most recently added one matching
-the worktree-naming pattern; cross-check by branch or path), then:
+After each subagent (issue-developer, doc-updater, pr-reviewer,
+issue-fixer, agent-memory-scrubber) returns, run `git worktree list`
+to find the subagent's worktree (it will be the most recently added
+one matching the worktree-naming pattern; cross-check by branch or
+path), then:
 
 ```bash
 git worktree remove .claude/worktrees/<name>
