@@ -274,18 +274,30 @@ trusting `git push`'s exit code alone:
 git fetch origin
 git rev-parse HEAD
 git rev-parse origin/<headRefName>
+git status --porcelain
 ```
 
-Report success only when these two SHAs match. `git log --oneline -1`
-plus `git status --porcelain` are **not** sufficient evidence here —
-both read clean for a commit that was made locally but never reached
-the remote, since neither command inspects the remote-tracking ref.
-A caller that treats a local-only commit as landed, then discards the
-branch, destroys the only copy of the curation.
+Report success only when **both** hold: the two SHAs match, **and**
+`git status --porcelain` is empty. `git log --oneline -1` alone is
+**not** sufficient evidence here — it reads clean for a commit that
+was made locally but never reached the remote, since it never inspects
+the remote-tracking ref, which is why the SHA comparison above is
+required too. The SHA comparison alone is also not sufficient: if the
+curation edits were applied to the working tree but the commit itself
+never happened (e.g. a failed commit-signing prompt), HEAD still
+equals `origin/<headRefName>` — the mismatch never occurs — while the
+working tree sits dirty with uncurated edits. `git status --porcelain`
+catches exactly that case. A caller that treats either check alone as
+landed, then discards the branch, destroys the only copy of the
+curation.
 
-**Interactive mode** (no argument) — stage nothing and commit nothing.
-Show `git diff --stat` and stop. The working tree is the deliverable,
-and the human decides what to commit.
+**Interactive mode** (no argument) — stage nothing new and commit
+nothing. Leave in place whatever "Apply the verdicts" step 3 already
+staged for formerly-untracked entries — that staging **is** their
+undo; do not `git reset` it to make the tree match "nothing staged"
+literally. Show `git diff --stat` and stop. The working tree (staged
+plus unstaged) is the deliverable, and the human decides what to
+commit.
 
 ## Output
 
