@@ -11,3 +11,5 @@
 - [Skip fetch when origin ref matches](reference_skip-fetch-when-origin-ref-matches.md) — SSH fetch can time out on a biometric key; if origin/<branch> already equals the PR headRefOid, check out from it and skip the fetch entirely
 - [Read branch tip via git show](reference_read-branch-tip-via-git-show.md) — `git checkout <ref> -- .` stages the whole PR diff into the review worktree and `reset --hard` is forbidden; extract with `git show <ref>:<path>` into `.claude/tmp/`
 - [Verify doc cross-reference headings](reference_verify-doc-cross-reference-headings.md) — `file.md → "Section"` pointers in sdlc agent defs are unchecked and some dangle; grep the target's `^#` headings before accepting or flagging one
+- [Re-review the whole diff fresh](feedback_re-review-the-whole-diff-fresh.md) — on round N read the entire diff again, not the delta; incremental rounds cannot see accumulated cross-round inconsistency
+- [Git sandbox via script file](reference_git-sandbox-via-script-file.md) — `cd && git` is gate-forbidden and subagent cwd doesn't persist; put multi-step git experiments in a `.sh` under repo `.claude/tmp/` and run `bash <script>`
