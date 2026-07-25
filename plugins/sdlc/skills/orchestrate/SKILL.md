@@ -442,7 +442,9 @@ PR <PR_N> has settled its review loop. Branch: <branch-name>
 
 Curate the PR's agent memory per your agent definition. Report back
 what was scrubbed, transferred, and persisted, where transfers landed,
-and the commit SHA you pushed.
+and the commit SHA you pushed — or, if nothing was staged, the no-op
+outcome you got instead ("no agent memory to curate" or "no changes
+to curate").
 ```
 
 Remove its worktree after it returns, the same way as any other

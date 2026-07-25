@@ -37,7 +37,7 @@ The argument also selects the mode:
 
 | Argument | Mode | Transfers | Result |
 | --- | --- | --- | --- |
-| PR number | autonomous | applied without asking | committed and pushed onto the PR branch |
+| PR number | autonomous | applied without asking | committed and pushed onto the PR branch, or left untouched with "no changes to curate" when every verdict was persist |
 | none | interactive | confirmed with you one at a time | left uncommitted in the working tree |
 
 Deletions are not confirmed in either mode. In autonomous mode the
@@ -271,18 +271,26 @@ directory-wide add.
 
 ```bash
 git add <each path you changed>
-git status --porcelain
+git diff --cached --name-only
 ```
 
-If that status output is empty — every verdict this run was persist,
-so nothing was staged — there is nothing to commit. Report "no changes
-to curate" and stop here; do not run `git commit`, and do not report a
+If that output is empty — every verdict this run was persist, so
+nothing was staged — there is nothing to commit. Report "no changes to
+curate" and stop here; do not run `git commit`, and do not report a
 commit SHA. The previous tip of the branch is not your commit, and
 claiming it would misattribute someone else's work as this run's
 output. This is a valid outcome, not a failure — distinct from the "no
 agent memory to curate" case above (an absent or empty directory):
 here entries existed and were graded, they just all happened to be
 persist.
+
+Use `git diff --cached --name-only` here, not `git status --porcelain`
+— the latter also reports untracked or unstaged changes elsewhere in
+the worktree, so an unrelated stray file would make its output
+non-empty even when nothing was actually staged, falsely skipping this
+no-op path and falling through to `git commit` with an empty index.
+`git diff --cached --name-only` reports only what is staged, which is
+the exact question this check is asking.
 
 Otherwise, commit and push:
 

@@ -105,12 +105,14 @@ persist between Bash calls in a subagent context.
    The work is on the PR only when **both** conditions hold: these two
    SHAs match (equivalently, `git log origin/<branch-name>..HEAD`
    prints nothing), **and** `git status --porcelain` is empty. If the
-   skill reported no memory to curate, there is no commit and nothing
-   to verify — that is a valid outcome, and you report it as such
-   rather than manufacturing a commit.
+   skill reported "no agent memory to curate" (the directory was empty
+   or absent) or "no changes to curate" (every verdict was persist, so
+   nothing was staged), there is no commit and nothing to verify —
+   either is a valid outcome, and you report it as such rather than
+   manufacturing a commit.
 
-   This is a hard gate, not a formality. Two distinct failure shapes
-   both fail it:
+   This is a hard gate, not a formality. These failure shapes both
+   fail it:
 
    - If `HEAD` is ahead of `origin/<branch-name>`, the curation commit
      exists locally but is not on the PR.
@@ -141,7 +143,9 @@ Report:
   per-entry lines through rather than summarizing them — they are the
   record of a destructive operation, and the human reviews them.
 - Where transfers landed (`CLAUDE.md`, or which `docs/*.md`).
-- The commit SHA pushed, or "no memory to curate".
+- The commit SHA pushed, or the no-op outcome the skill reported —
+  "no agent memory to curate" (nothing to grade) or "no changes to
+  curate" (everything graded persist).
 - Anything you left in place because the scrub check could not be
   substantiated.
 
@@ -149,11 +153,12 @@ Report:
 
 Run this only after step 3's hard gate has confirmed both conditions —
 `HEAD` matches `origin/<branch-name>` **and** `git status --porcelain`
-is empty (or the skill reported no memory to curate, so there was
-never anything to push). If that check failed or was never performed,
-do not run this section — `git branch -D` would discard the only copy
-of any unpushed curation commit, or (in the dirty-tree case) leave
-uncommitted curation edits unaccounted for.
+is empty (or the skill reported "no agent memory to curate" or "no
+changes to curate", so there was never anything to push). If that
+check failed or was never performed, do not run this section — `git
+branch -D` would discard the only copy of any unpushed curation
+commit, or (in the dirty-tree case) leave uncommitted curation edits
+unaccounted for.
 
 Release the branch claim so the branch can be checked out elsewhere:
 
