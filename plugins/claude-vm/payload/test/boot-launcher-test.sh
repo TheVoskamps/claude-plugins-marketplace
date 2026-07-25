@@ -138,15 +138,27 @@ assert_not_contains "emitted launcher no longer execs systemctl" \
   "$(cat "$LAUNCHER")" 'exec systemctl'
 assert_not_contains "emitted launcher no longer execs poweroff(8)" \
   "$(cat "$LAUNCHER")" 'exec poweroff'
-assert_contains "emitted launcher execs a login shell on the abnormal path" \
-  "$(cat "$LAUNCHER")" 'exec bash -l'
+assert_contains "emitted launcher runs a login shell on the abnormal path" \
+  "$(cat "$LAUNCHER")" 'bash -l'
+# The shell must run as a CHILD, not an exec: an exec'd shell REPLACES the
+# launcher, so nothing is left to power the guest off when the operator exits
+# it -- observed live as "logout" then a dead console and a hung host.
+assert_not_contains "emitted launcher does not exec the post-mortem shell" \
+  "$(cat "$LAUNCHER")" 'exec bash'
+assert_not_contains "emitted launcher does not exec the /bin/sh fallback" \
+  "$(cat "$LAUNCHER")" 'exec /bin/sh'
+# Exiting the post-mortem shell must power the guest off -- the launcher
+# carries a second SIGRTMIN+4 after the shell returns (one on the clean path,
+# one after the shell).
+assert_eq "emitted launcher powers off in exactly two places (clean path + after the shell)" \
+  "2" "$(grep -c 'kill -s RTMIN+4 1' "$LAUNCHER")"
 
 # NON-LOOPING (the loop-sensitive assertion). The abnormal path must hand off to
 # a plain login SHELL and must never re-enter the boot launcher itself -- an
 # `exec .../boot-launcher.sh` (or a self-re-exec via "$0") would rerun claude,
 # possibly die identically, and rebuild the respawn loop this redesign removed.
-# There is exactly one launcher process, and on the abnormal path it is REPLACED
-# by the shell, so nothing can re-enter this script.
+# Control continues past the shell only into the poweroff; the claude
+# invocation is strictly above it, so nothing can re-enter this script.
 assert_not_contains "emitted launcher never re-execs the boot launcher (no loop)" \
   "$(cat "$LAUNCHER")" 'boot-launcher.sh'
 assert_not_contains "emitted launcher never re-execs itself via \$0 (no loop)" \
@@ -154,17 +166,19 @@ assert_not_contains "emitted launcher never re-execs itself via \$0 (no loop)" \
 
 # ---------------------------------------------------------------------
 # 2. Slice the DECISION FRAGMENT (from the `set +e` that guards the claude run
-#    through the final `exit "$CLAUDE_STATUS"`) into a standalone script, and
-#    run that real fragment against stubs. `log`, `command`, `systemctl`, and
-#    `poweroff` are stubbed; `$CLAUDE_BIN`/`$@` are set so the fragment's
-#    `"$CLAUDE_BIN" "$@"` runs a fake claude that exits with a chosen status.
-#    We record which shutdown path the fragment took via a marker file.
+#    through the end of the emitted launcher -- the launcher now ends at the
+#    after-shell poweroff, so the fragment runs to EOF) into a standalone
+#    script, and run that real fragment against stubs. `log` and `kill` are
+#    stubbed as functions; `bash` as a PATH stub; `$CLAUDE_BIN`/`$@` are set so
+#    the fragment's `"$CLAUDE_BIN" "$@"` runs a fake claude that exits with a
+#    chosen status. Every action the fragment takes is APPENDED to a marker
+#    file so the SEQUENCE is visible (the abnormal path takes two actions:
+#    shell first, poweroff after the shell returns).
 # ---------------------------------------------------------------------
 FRAGMENT="$WORK/decision-fragment.sh"
 awk '
   /^set \+e$/ { cap=1 }
   cap { print }
-  cap && /^exit "\$CLAUDE_STATUS"$/ { exit }
 ' "$LAUNCHER" > "$FRAGMENT"
 
 if [ ! -s "$FRAGMENT" ]; then
@@ -177,22 +191,21 @@ fi
 bash -n "$FRAGMENT"
 assert_eq "decision fragment is syntactically valid bash" "0" "$?"
 
-# run_decision <claude-exit-status> -> prints the action the fragment took
-# ("rtmin4-<argv>" | "shell-<argv>" | "none") and the fragment's own exit code
-# on the second line. Runs in a subshell so stubs are scoped.
+# run_decision <claude-exit-status> -> prints the SEQUENCE of actions the
+# fragment took, comma-joined in order ("rtmin4-<argv>" / "shell-<argv>", e.g.
+# "shell--l,rtmin4--s RTMIN+4 1," for the abnormal path), or "none"; then the
+# fragment's own exit code on the second line. Runs in a subshell so stubs are
+# scoped. Both recorders APPEND to one marker file so ORDER is asserted, not
+# just presence -- the abnormal path must run the shell FIRST and power off
+# only after it returns.
 #
-# The CLEAN path's terminal action is `kill -s RTMIN+4 1` -- `kill` is a bash
-# BUILTIN, so it is intercepted with a shell FUNCTION (functions shadow
-# builtins; the fragment is sourced into this subshell, same as the `log`
-# stub). This also keeps the test portable: macOS bash has no RTMIN signal
-# names, but the function swallows the argv before any name resolution.
-#
-# The ABNORMAL path `exec`s a login shell, and `exec` replaces the process
-# with an EXECUTABLE (shell functions do not apply to exec), so `bash` is
-# stubbed as a real script on a private PATH dir. It records the argv it was
-# exec'd with (expected `-l`, i.e. a plain LOGIN SHELL) so the test can assert
-# the handoff is a shell and not a relaunch of anything. The fake claude
-# therefore uses a `/bin/sh` shebang, not `/usr/bin/env bash`, so the bash
+# `kill` is a bash BUILTIN, so it is intercepted with a shell FUNCTION
+# (functions shadow builtins; the fragment is sourced into this subshell, same
+# as the `log` stub). This also keeps the test portable: macOS bash has no
+# RTMIN signal names, but the function swallows the argv before any name
+# resolution. The post-mortem shell is a CHILD invocation of `bash -l`, which
+# resolves via PATH, so `bash` is stubbed as a real script on a private PATH
+# dir recording its argv. The fake claude uses a `/bin/sh` shebang so the bash
 # stub never accidentally intercepts claude itself.
 run_decision() {
   local claude_status="$1"
@@ -212,11 +225,12 @@ FAKE
   chmod +x "$claude_bin"
 
   # bash stub: stands in for the interactive root login shell the abnormal path
-  # `exec`s. Records its argv so the test can assert it was invoked as a plain
-  # login shell (`-l`) rather than as a re-entry into anything.
+  # runs as a child. Records (appends) its argv so the test can assert it was
+  # invoked as a plain login shell (`-l`) rather than as a re-entry into
+  # anything, and that it ran BEFORE the poweroff.
   cat > "$stubdir/bash" <<STUB
 #!/bin/sh
-printf 'shell-%s\n' "\$*" > "$marker"
+printf 'shell-%s\n' "\$*" >> "$marker"
 exit 0
 STUB
   chmod +x "$stubdir/bash"
@@ -228,71 +242,81 @@ STUB
     REPO_MNT="/mnt/repo"
     # Stub log() to a no-op (the real one writes /dev/console).
     log() { :; }
-    # Intercept the clean path's `kill -s RTMIN+4 1`: a function shadows the
-    # builtin, records the argv, and never sends a real signal (this test must
-    # not signal PID 1, and macOS bash could not resolve RTMIN+4 anyway).
-    kill() { printf 'rtmin4-%s\n' "$*" > "$marker"; }
-    # Prepend the stub dir so `command -v bash` and the abnormal path's `exec`
-    # resolve our bash stub first, while keeping the real system bins on PATH
-    # so the fake claude's `/bin/sh` shebang still resolves.
+    # Intercept `kill -s RTMIN+4 1` (both the clean path's and the
+    # after-shell one): a function shadows the builtin, appends the argv, and
+    # never sends a real signal (this test must not signal PID 1, and macOS
+    # bash could not resolve RTMIN+4 anyway).
+    kill() { printf 'rtmin4-%s\n' "$*" >> "$marker"; }
+    # Prepend the stub dir so `command -v bash` and the abnormal path's child
+    # `bash -l` resolve our bash stub first, while keeping the real system
+    # bins on PATH so the fake claude's `/bin/sh` shebang still resolves.
     PATH="$stubdir:$PATH"
     set -- # zero argv, like an empty CLAUDE_ARGS
     # shellcheck disable=SC1090
     . "$FRAGMENT"
   ) 2>/dev/null
   local frag_rc=$?
-  if [ -f "$marker" ]; then
-    cat "$marker"
+  if [ -s "$marker" ]; then
+    tr '\n' ',' < "$marker"
+    echo ""
   else
     echo "none"
   fi
   echo "$frag_rc"
 }
 
-# --- Clean quit (exit 0): the guest powers off via SIGRTMIN+4 to PID 1, and
-#     the fragment itself exits 0 (the getty unit ends cleanly while systemd
-#     processes the shutdown). ---
+# --- Clean quit (exit 0): the guest powers off via SIGRTMIN+4 to PID 1 -- and
+#     ONLY that (no shell) -- and the fragment itself exits 0 (the getty unit
+#     ends cleanly while systemd processes the shutdown). ---
 OUT="$(run_decision 0)"
 ACTION="$(printf '%s\n' "$OUT" | sed -n '1p')"
 FRAG_RC="$(printf '%s\n' "$OUT" | sed -n '2p')"
-assert_eq "exit 0 (deliberate quit) -> SIGRTMIN+4 to PID 1" "rtmin4--s RTMIN+4 1" "$ACTION"
+assert_eq "exit 0 (deliberate quit) -> SIGRTMIN+4 to PID 1, nothing else" \
+  "rtmin4--s RTMIN+4 1," "$ACTION"
 assert_eq "exit 0 -> fragment itself exits 0 after signalling" "0" "$FRAG_RC"
 
-# --- Abnormal death (137, SIGKILL): NO poweroff. The fragment `exec`s an
-#     interactive root LOGIN SHELL on the same console so the operator can run
-#     a post-mortem in the still-running guest. `exec bash -l` -> our bash stub
-#     records "shell--l". Crucially the handoff is a SHELL, not a relaunch. ---
+# --- Abnormal death (137, SIGKILL): shell FIRST for the post-mortem, poweroff
+#     only AFTER the shell returns. The earlier exec'd-shell shape left the
+#     guest alive with a dead console when the operator exited the shell
+#     ("logout" and nothing else); the sequence assertion pins the fix. ---
 OUT="$(run_decision 137)"
 ACTION="$(printf '%s\n' "$OUT" | sed -n '1p')"
-assert_eq "exit 137 (abnormal) -> execs a login shell (no poweroff)" "shell--l" "$ACTION"
+FRAG_RC="$(printf '%s\n' "$OUT" | sed -n '2p')"
+assert_eq "exit 137 (abnormal) -> login shell, THEN poweroff after it returns" \
+  "shell--l,rtmin4--s RTMIN+4 1," "$ACTION"
+assert_eq "exit 137 -> fragment exits 0 after the shell-exit poweroff" "0" "$FRAG_RC"
 
-# --- Another nonzero (1): same shell handoff, still no poweroff. ---
+# --- Another nonzero (1): same shell-then-poweroff sequence. ---
 OUT="$(run_decision 1)"
 ACTION="$(printf '%s\n' "$OUT" | sed -n '1p')"
-assert_eq "exit 1 (abnormal) -> execs a login shell (no poweroff)" "shell--l" "$ACTION"
+assert_eq "exit 1 (abnormal) -> login shell, THEN poweroff after it returns" \
+  "shell--l,rtmin4--s RTMIN+4 1," "$ACTION"
 
-# --- The abnormal path must never take a SHUTDOWN action. Asserted separately
-#     from the positive check above so a future regression that both powers off
-#     AND spawns a shell cannot hide behind the shell marker. ---
+# --- ORDER is load-bearing: the poweroff must never come BEFORE the shell on
+#     the abnormal path (that would kill the post-mortem the shell exists
+#     for). Asserted separately so a future reorder cannot hide behind the
+#     both-actions-present check above. ---
 case "$ACTION" in
   rtmin4-*)
-    FAIL=$((FAIL + 1)); echo "FAIL - abnormal exit must not power the guest off (got [$ACTION])" ;;
+    FAIL=$((FAIL + 1)); echo "FAIL - abnormal path must not power off before the shell (got [$ACTION])" ;;
+  shell-*)
+    PASS=$((PASS + 1)); echo "ok   - abnormal path runs the shell before any poweroff" ;;
   *)
-    PASS=$((PASS + 1)); echo "ok   - abnormal exit takes no shutdown action" ;;
+    FAIL=$((FAIL + 1)); echo "FAIL - abnormal path took no shell action at all (got [$ACTION])" ;;
 esac
 
 # --- NON-LOOPING: the handoff must be a plain login shell, never the boot
 #     launcher. If the abnormal path re-entered the launcher, claude would rerun
 #     and could die identically -- exactly the respawn loop this redesign
-#     removed. The stub records the argv it was exec'd with, so a handoff that
+#     removed. The stub records the argv it was invoked with, so a handoff that
 #     smuggled a launcher path or a `-c` re-entry in would be visible here. ---
 case "$ACTION" in
   *boot-launcher*|*-c*)
     FAIL=$((FAIL + 1)); echo "FAIL - abnormal handoff must be a plain login shell, not a relaunch (got [$ACTION])" ;;
-  shell-*)
+  shell--l,*)
     PASS=$((PASS + 1)); echo "ok   - abnormal handoff is a plain login shell (cannot loop)" ;;
   *)
-    FAIL=$((FAIL + 1)); echo "FAIL - abnormal handoff is not a shell at all (got [$ACTION])" ;;
+    FAIL=$((FAIL + 1)); echo "FAIL - abnormal handoff is not a plain login shell (got [$ACTION])" ;;
 esac
 
 # ---------------------------------------------------------------------

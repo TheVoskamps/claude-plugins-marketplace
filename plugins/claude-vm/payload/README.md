@@ -441,10 +441,14 @@ breaks the boot outright (a backgrounded vfkit cannot attach its
 foreground is load-bearing, not stylistic. Its exit status lands in the
 launcher's own `$?`, and because bash defers traps while a foreground child
 runs, `cleanup()` can only ever run after vfkit has already exited — there is
-never a live vfkit to stop or reap. `cleanup()` restores the host tty first
-(the stdio bridge leaves it in raw mode, and that state survives vfkit's
-death), then decides the clone's fate from `VM_EXIT_STATUS`. A SIGKILL of the
-launcher runs no traps at all; the stranded vfkit/clone that leaves behind is
+never a live vfkit to stop or reap. For the session's duration the launcher
+also disables `isig`/`ixon` on the host tty, so Ctrl-C (and Ctrl-Z/Ctrl-\\)
+travel to the GUEST as bytes -- claude's own two-press Ctrl-C exit works --
+instead of signalling host-side vfkit; a wedged guest is recovered with
+`kill <vfkit pid>` from another terminal. `cleanup()` restores the host tty
+first (the stdio bridge leaves it in raw mode, and that state survives
+vfkit's death), then decides the clone's fate from `VM_EXIT_STATUS`. A
+SIGKILL of the launcher runs no traps at all; the stranded vfkit/clone is
 separate host-debris work, tracked on its own and out of scope here.
 
 Provisioning the bootable raw image defaults to the bundled
@@ -754,9 +758,12 @@ sending SIGRTMIN+4 to PID 1 — systemd's documented bus-less route to the same
 ordered `poweroff.target` shutdown as `systemctl poweroff`, chosen because the
 guest ships no dbus and systemctl's logind attempt printed
 `Failed to connect to bus` on the operator's console on every clean exit —
-while a nonzero exit (137/SIGKILL, or any nonzero) takes NO shutdown
-action and instead `exec`s an interactive root **login shell** on hvc1 so the
-failed session is inspectable. The loop-sensitive assertions live here too: the
+while a nonzero exit (137/SIGKILL, or any nonzero) runs an interactive root
+**login shell** on hvc1 as a CHILD so the failed session is inspectable, and
+powers the guest off only when that shell exits (an exec'd shell left the
+guest alive with a dead console once the operator logged out -- the sequence
+shell-then-poweroff is asserted in order). The loop-sensitive assertions live
+here too: the
 abnormal handoff must be a plain login shell and must never re-enter the boot
 launcher (which would rerun claude and rebuild the respawn loop this redesign
 removed). It also asserts the getty drop-in the provisioner writes neutralizes

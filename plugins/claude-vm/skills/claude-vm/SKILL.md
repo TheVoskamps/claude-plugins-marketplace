@@ -544,16 +544,27 @@ Claude Code updates daily, so the guest image does **not** bake in
     the `claude-vm` launcher on the host, your terminal is restored, the
     per-run clone is discarded, and the copy-back step runs. This is the
     normal way to end a session — nothing on the host needs to be killed.
+  - **Ctrl-C belongs to the guest claude.** The launcher disables
+    `isig`/`ixon` on the host tty for the session, so `Ctrl-C` (and
+    `Ctrl-Z`/`Ctrl-\`/`Ctrl-S`/`Ctrl-Q`) travel to the guest as bytes
+    instead of signalling host-side vfkit — the first `Ctrl-C` shows
+    claude's press-again warning, the second exits 0 and powers off, same
+    as `Ctrl-D Ctrl-D`. Consequence: the keyboard cannot abort a *wedged*
+    guest from that terminal; the recovery path is `kill <vfkit pid>`
+    from another terminal (vfkit tears the guest down within ~5s and the
+    launcher cleans up normally). The saved tty state is restored on
+    every exit path.
   - **An abnormal claude death drops you into a guest shell.** If claude
-    exits nonzero (a crash, an OOM kill, `SIGKILL` → 137), the guest does
-    **not** power off. Instead the boot launcher hands you an interactive
-    **root login shell on the same console you were already attached to**,
-    so you can run a post-mortem inside the still-running guest: inspect
-    `/mnt/repo`, see how the clone diverged, read `dmesg`, check whether
-    the network wiring survived. claude is **not** relaunched — the
-    launcher is replaced by the shell, so there is no respawn loop. Exit
-    that shell when you are done; the session ends and the clone is
-    retained (its path is logged) for further forensics.
+    exits nonzero (a crash, an OOM kill, or declining the
+    bypass-permissions dialog — the easy way to try this path), the guest
+    does **not** power off yet. The boot launcher hands you an
+    interactive **root login shell on the same console you were already
+    attached to**, so you can run a post-mortem inside the still-running
+    guest: inspect `/mnt/repo`, see how the clone diverged, read `dmesg`,
+    check whether the network wiring survived. claude is **not**
+    relaunched — there is no respawn loop. **Exiting that shell powers
+    the guest off** and returns control to the host launcher; the clone
+    is retained (its path is logged) for further forensics.
 - **Boot-time package install/update (issue #106).** A **boot** file's
   `packages:` (install list) and `update_at_boot` do **not** feed the
   image-identity hash — they

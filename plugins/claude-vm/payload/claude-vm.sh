@@ -1685,6 +1685,26 @@ echo "claude-vm: run.env:   $RUN_ENV" >&2
 echo "claude-vm: run.meta:  $RUN_META" >&2
 echo "claude-vm: handing this terminal to the guest console (hvc1)..." >&2
 
+# Give Ctrl-C (and Ctrl-Z / Ctrl-\ / Ctrl-S / Ctrl-Q) to the GUEST for the
+# session's duration (issue #179 real-boot finding). vfkit's stdio bridge
+# leaves the host tty with ISIG ENABLED, so a Ctrl-C raised SIGINT on the
+# host -- straight into foreground vfkit, which force-stopped the guest after
+# its internal timeout -- and guest claude never saw the keystroke at all
+# (observed live: a single Ctrl-C aborted the session instantly instead of
+# starting claude's two-press exit dance). Disabling isig/ixon makes those
+# control characters plain BYTES: vfkit forwards them down the console, the
+# GUEST's line discipline turns ^C into SIGINT for claude inside, and the
+# session ends the designed way (claude exits 0 -> guest powers off).
+#
+# Deliberate consequence: the keyboard can no longer abort a WEDGED guest
+# from this terminal -- there is no host signal to send. The recovery path is
+# `kill <vfkit pid>` from another terminal (vfkit tears the guest down within
+# its own ~5s bound and cleanup() runs normally). restore_host_tty() puts the
+# full saved state (including isig/ixon) back on every exit path.
+if [ -n "${HOST_TTY_STATE:-}" ] && [ -e /dev/tty ] && [ -w /dev/tty ]; then
+  stty -isig -ixon < /dev/tty 2>/dev/null || true
+fi
+
 # vfkit runs as a CHILD here (NOT exec'd), so cleanup() (trapped on
 # EXIT/INT/TERM) runs the copy-back + clone-lifecycle + socket-dir removal
 # when the session ends. Do NOT switch this to `exec vfkit` -- that would
@@ -1700,13 +1720,12 @@ echo "claude-vm: handing this terminal to the guest console (hvc1)..." >&2
 # device` at "Adding stdio console"), which is why the `vfkit ... & / wait $!`
 # shape never booted. Foreground is load-bearing, not stylistic.
 #
-# While the console bridge is live the host tty is RAW, so Ctrl-C is not a
-# host signal -- it is a byte forwarded to guest claude (double Ctrl-C ends
-# the session because CLAUDE exits 0 and the guest powers off). Every session
-# end is claude exiting; the host handles no signals for it. And bash defers
-# traps while a foreground child runs, so cleanup() can only ever run after
-# vfkit has already exited (or before it launched) -- there is never a live
-# vfkit for cleanup() to deal with, hence no reap code exists.
+# With isig off (above), every control character is a byte forwarded to the
+# guest, so every session end is claude exiting (double Ctrl-C included) and
+# the host handles no keyboard signals for it. And bash defers traps while a
+# foreground child runs, so cleanup() can only ever run after vfkit has
+# already exited (or before it launched) -- there is never a live vfkit for
+# cleanup() to deal with, hence no reap code exists.
 #
 # VM_EXIT_STATUS is initialized to 1 (abnormal) so any interrupted path
 # decides RETAIN; the assignment below overwrites it with vfkit's real status

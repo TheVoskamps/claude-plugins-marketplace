@@ -249,7 +249,14 @@ BASE_OS_REV="debian-12-20250601"
 # signal is systemd's documented bus-less path to the same ordered
 # poweroff.target shutdown, so the red error never happens. BOOT LOGIC baked
 # into the image; old images (stamped 'launcher17') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="18"
+# Bumped 18 -> 19: the abnormal path's post-mortem shell now runs as a CHILD
+# and the launcher powers the guest off (SIGRTMIN+4) when the shell exits
+# (issue #179 real-boot finding). The previous shape `exec`'d the shell, so
+# when the operator left it there was NO launcher left to power off -- the
+# guest sat alive with a dead console ("logout" and nothing else) and the
+# host never regained the terminal. BOOT LOGIC baked into the image; old
+# images (stamped 'launcher18') must rebuild to gain it.
+LAUNCHER_LOGIC_REV="19"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -925,12 +932,12 @@ eval "set -- ${CLAUDE_ARGS:-}"
 # a nonzero exit be REPORTED as success. The respawn comes from `Restart=` in
 # the stock serial-getty@.service template, which the drop-in
 # (provisioners/podman-mkosi.sh) overrides to `Restart=no`. So systemd never
-# restarts this unit behind either decision. On top of that, the shell below is
-# `exec`ed from THIS launcher process: the launcher is REPLACED by the shell,
-# nothing re-enters this script, and claude is not relaunched. When the operator
-# exits the shell the unit simply terminates (and, with Restart=no, stays
-# terminated). The getty unit must therefore never independently re-exec this
-# boot launcher -- it starts it exactly once, as agetty's --login-program.
+# restarts this unit behind either decision. On top of that, on the abnormal
+# path control continues PAST the shell only into the poweroff below -- the
+# claude invocation is strictly above and nothing re-enters this script, so
+# claude is not relaunched. The getty unit must therefore never independently
+# re-exec this boot launcher -- it starts it exactly once, as agetty's
+# --login-program.
 set +e
 "$CLAUDE_BIN" "$@"
 CLAUDE_STATUS=$?
@@ -954,27 +961,39 @@ if [ "$CLAUDE_STATUS" -eq 0 ]; then
   exit 0
 fi
 
-# Nonzero: abnormal claude death. Do NOT power off -- hand the operator an
+# Nonzero: abnormal claude death. Do NOT power off yet -- hand the operator an
 # interactive root login shell on this console so the guest is genuinely
-# inspectable. `exec` replaces this launcher, so claude is NOT relaunched and
-# no loop is possible (see the "Why this CANNOT loop" note above). `bash` is
+# inspectable, and power off only when they LEAVE that shell. The shell runs
+# as a CHILD (not exec'd) precisely so control returns here afterward: an
+# earlier shape exec'd the shell, which REPLACED this launcher -- when the
+# operator exited the shell there was no launcher left to power off, so the
+# guest sat alive with a dead console and the host never got its terminal
+# back (observed live: Ctrl-D printed "logout" and nothing else, forever).
+# No loop is possible: control continues past the shell only into the
+# poweroff below (see the "Why this CANNOT loop" note above). `bash` is
 # baked into the guest unconditionally (provisioners/podman-mkosi.sh's
-# Packages= list), so the -l branch is the expected path; the /bin/sh fallback
-# exists only so a hypothetically bash-less image still yields a shell rather
-# than a dead console.
-log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); dropping to an interactive root shell on this console (guest left UP, no poweroff). Exit the shell to end the session."
+# Packages= list), so the bash branch is the expected path; the /bin/sh
+# fallback exists only so a hypothetically bash-less image still yields a
+# shell rather than a dead console.
+log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); dropping to an interactive root shell on this console (guest left UP, no poweroff). Exiting the shell powers the guest off."
 echo "claude-vm: claude exited $CLAUDE_STATUS (abnormal). You are now in a root shell inside the guest." >&2
-echo "claude-vm: the workspace is at $REPO_MNT. Exit this shell to end the session (claude will NOT be relaunched)." >&2
+echo "claude-vm: the workspace is at $REPO_MNT. Exiting this shell ends the session and powers the guest off (claude will NOT be relaunched)." >&2
 export CLAUDE_VM_LAST_CLAUDE_STATUS="$CLAUDE_STATUS"
+set +e
 if command -v bash >/dev/null 2>&1; then
-  exec bash -l
+  bash -l
 else
-  exec /bin/sh -l
+  /bin/sh -l
 fi
-# Unreachable: both branches above `exec`. Kept as a defensive terminator so a
-# shell that somehow could not be exec'd still surfaces claude's real status
-# rather than falling off the end of the script with a stale status.
-exit "$CLAUDE_STATUS"
+set -e
+# The operator left the post-mortem shell: the session is over. Power off the
+# same bus-less way as the clean path (SIGRTMIN+4 -> poweroff.target; see the
+# comment on the exit-0 branch). Exit 0 afterward -- ending the session from
+# the shell is a deliberate act, and the getty unit should end cleanly while
+# systemd processes the shutdown.
+log "claude-vm: post-mortem shell exited; powering the guest off."
+kill -s RTMIN+4 1
+exit 0
 BOOT
 }
 
