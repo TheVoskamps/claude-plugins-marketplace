@@ -342,8 +342,9 @@ EOF
 # (mounted RO at /mnt/claudebin by the guest fstab) against the mounted repo
 # at /mnt/repo -- so claude IS the interactive hvc1 session. As of issue #179
 # it runs claude as a CHILD (not `exec`) so it can read the exit status and
-# decide: 0 -> power the guest off; nonzero -> `exec` an interactive root login
-# shell on the same console for a post-mortem. The binary is
+# decide: 0 -> power the guest off; nonzero -> run an interactive root login
+# shell (also as a child) on the same console for a post-mortem, powering the
+# guest off when that shell exits. The binary is
 # fetched, GPG-manifest-verified, and cached HOST-SIDE by the launcher
 # (lib/claude-cache.sh, issue #49); the guest only runs the already-verified
 # binary off the RO mount -- it never runs `install.sh | bash` on this trusted
@@ -373,9 +374,10 @@ emit_boot_launcher() {
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
 # in between. As of issue #179 claude runs as a CHILD rather than via `exec`,
 # so this launcher can read claude's exit STATUS and act on it: exit 0 (a
-# deliberate quit) powers the guest off, and a nonzero exit `exec`s an
-# interactive root login shell on this same console so the failed session is
-# inspectable. claude is NEVER baked into the image and is NEVER fetched-and-run
+# deliberate quit) powers the guest off, and a nonzero exit runs an
+# interactive root login shell (as a child) on this same console so the
+# failed session is inspectable, powering the guest off when that shell
+# exits. claude is NEVER baked into the image and is NEVER fetched-and-run
 # inside the guest: the host fetches, GPG-manifest-verifies, and caches the
 # binary, and shares it in RO. The guest only runs the already-verified binary.
 set -euo pipefail

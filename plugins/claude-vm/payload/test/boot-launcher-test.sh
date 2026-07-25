@@ -11,9 +11,10 @@
 #                          (systemd's documented bus-less poweroff.target
 #                          path -- no systemctl, no dbus, no stderr),
 #   - claude exit nonzero (ABNORMAL, e.g. SIGKILL -> 137)
-#                        -> do NOT power off; `exec` an interactive root LOGIN
-#                           SHELL on the same hvc1 console so the operator can
-#                           run a post-mortem inside the still-running guest.
+#                        -> run an interactive root LOGIN SHELL as a CHILD on
+#                           the same hvc1 console so the operator can run a
+#                           post-mortem inside the still-running guest, then
+#                           power off (SIGRTMIN+4) when that shell exits.
 #
 # The nonzero branch is the loop-sensitive one: it must hand off to a PLAIN
 # LOGIN SHELL and must NOT re-enter the boot launcher (which would rerun claude,
