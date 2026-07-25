@@ -186,9 +186,10 @@ In the rest of this document, `<link-prefix>` means the resolved value.
 If you checked out the PR branch at any point (step 4's optional
 exercise, or step 7's memory capture), release the branch claim so
 subsequent subagents can check it out in their own worktrees. Run this
-only if your commit and push both succeeded — if either failed,
-`git branch -D` would destroy the only copy of your work, so stop and
-report the failure instead of proceeding to cleanup:
+only if your commit and push both succeeded, or if you had nothing to
+commit — if either the commit or the push failed, `git branch -D`
+would destroy the only copy of your work, so stop and report the
+failure instead of proceeding to cleanup:
 
 ```bash
 git checkout --detach

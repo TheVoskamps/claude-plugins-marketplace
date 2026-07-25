@@ -195,11 +195,15 @@ consistent:
    delete) rather than fully uncommitted, but the content is fully
    recoverable, which is what the undo claim depends on. Skip this
    check for autonomous mode — there the commit is the undo regardless
-   of tracked state, because autonomous mode always runs on a freshly
-   checked-out branch, so every entry an autonomous run scrubs was
-   already committed on the branch before this run started; there is
-   no untracked, never-committed case for `git add <path>` to fail to
-   preserve.
+   of tracked state. This skill does not itself guarantee a fresh
+   checkout in autonomous mode; the guarantee comes from its current
+   caller, `agent-memory-scrubber`, which always runs in a fresh
+   worktree and checks out the branch fresh before invoking this skill,
+   so every entry it scrubs was already committed on the branch before
+   the run started — there is no untracked, never-committed case for
+   `git add <path>` to fail to preserve. A different autonomous-mode
+   caller invoking this skill over a working tree that already holds
+   untracked memory entries would not have that guarantee.
 4. Delete the entry files for every scrub and every completed
    transfer.
 5. Rewrite the entries you persisted that needed a present-tense
