@@ -255,8 +255,10 @@ Repair each hit:
 - **Transferred** — the content still exists, so replace the link with
   a plain-prose reference to where it now lives (`CLAUDE.md`, or the
   doc file).
-- **Scrubbed** — the content is gone, so remove the link and reword
-  the surrounding sentence to still read correctly.
+- **Merged** — the content survives under the merge target's slug, so
+  repoint the link at that slug.
+- **Scrubbed** — the content is gone entirely, so remove the link and
+  reword the surrounding sentence to still read correctly.
 
 Repair only the links this run broke. A `[[name]]` that never had a
 target is a deliberate marker for an entry worth writing later, not a
