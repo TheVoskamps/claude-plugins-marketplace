@@ -417,10 +417,10 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     RO under mountTag=claudebin (issue #49). The real launcher caches a
   #     GPG-verified binary here; for THIS boot test we stand up a STUB
   #     `claude` that prints a recognizable marker and exits, so the seam's
-  #     `"$CLAUDE_BIN" "$@"` actually runs and we can confirm
-  #     the guest ran the mounted binary (not just reached the seam). The
-  #     stub is shell, run by the guest's /bin/sh -- adequate to prove the
-  #     mount+run path without a real linux-arm64 claude artifact.
+  #     `"$CLAUDE_BIN" "$@"` actually runs and we can confirm the guest ran
+  #     the mounted binary (not just reached the seam). The stub is shell,
+  #     run by the guest's /bin/sh -- adequate to prove the mount+run path
+  #     without a real linux-arm64 claude artifact.
   #   - claudecreds: the dir holding the host's claude.ai OAuth credential,
   #     shared RO under mountTag=claudecreds (issue #50). The real launcher
   #     extracts it from the macOS Keychain; for THIS boot test we stand up a
