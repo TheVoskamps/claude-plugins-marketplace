@@ -261,7 +261,14 @@ BASE_OS_REV="debian-12-20250601"
 # rev 19 was pushed some hours before this amendment -- bumping removes any
 # ambiguity about which bytes a "launcher19" image would contain, at the cost
 # of nothing (no launcher19 image was ever built).
-LAUNCHER_LOGIC_REV="20"
+# Bumped 20 -> 21: operator-facing wording fix on the abnormal-exit path's
+# workspace-location message (issue #179 review). The message's parenthetical
+# "(claude will NOT be relaunched)" implied relaunch was a live possibility
+# that this exit specifically forecloses, but claude runs exactly once per
+# boot on every path, clean or abnormal -- there is no relaunch to rule out.
+# Parenthetical removed; no behavior change. Old images (stamped 'launcher20')
+# print the stale parenthetical but need no functional rebuild.
+LAUNCHER_LOGIC_REV="21"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -985,7 +992,7 @@ fi
 # shell rather than a dead console.
 log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); dropping to an interactive root shell on this console (guest left UP, no poweroff). Exiting the shell powers the guest off."
 echo "claude-vm: claude exited $CLAUDE_STATUS (abnormal). You are now in a root shell inside the guest." >&2
-echo "claude-vm: the workspace is at $REPO_MNT. Exiting this shell ends the session and powers the guest off (claude will NOT be relaunched)." >&2
+echo "claude-vm: the workspace is at $REPO_MNT. Exiting this shell ends the session and powers the guest off." >&2
 export CLAUDE_VM_LAST_CLAUDE_STATUS="$CLAUDE_STATUS"
 set +e
 if command -v bash >/dev/null 2>&1; then
