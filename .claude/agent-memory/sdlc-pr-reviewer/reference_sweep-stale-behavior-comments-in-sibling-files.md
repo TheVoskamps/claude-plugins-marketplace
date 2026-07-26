@@ -45,6 +45,14 @@ edited plugin, not optional polish), even when it lives in a file the
 commit didn't touch. Provisioner-comment fixes carry NO guest-byte
 rebuild cost (host-side build script), so recommending them is cheap.
 
+`payload/README.md` and `skills/claude-vm/SKILL.md` carry large blocks
+of near-verbatim parallel prose (boot-launcher description,
+credential/seed install, install-health check). A sweep commit
+routinely converts the phrase in one and leaves the identical twin in
+the other stale -- after listing the converted phrases in the diff,
+grep the SAME phrase in BOTH files. A hit in one but not the other is
+a sweep-the-class miss regardless of an "all sites fixed" claim.
+
 **Round 6 reinforcement (commit 8ffe678, the DEDICATED sweep commit):**
 a commit whose entire job was "sweep stale exec'd-shell prose" STILL
 missed three more of the identical class. Do not assume a sweep commit

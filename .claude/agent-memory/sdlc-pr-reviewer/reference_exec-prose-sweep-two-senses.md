@@ -1,59 +1,55 @@
 ---
 name: exec-prose-sweep-two-senses
-description: claude-vm "exec" prose sweep (PR #180) has TWO senses — launcher-execs-claude (stale) vs guest-runs-RO-binary (provenance); resolved extinct at 6916ea4 via a token-exhaustive hand-classified audit
+description: claude-vm "exec" prose has TWO senses — launcher-execs-claude (stale mechanism claim) vs guest-runs-RO-binary (provenance, about WHICH binary runs); a pattern-shaped grep misses real prose and only a token-exhaustive hand-classified audit closes it
 metadata:
   type: reference
 ---
 
-When reviewing claude-vm stale-"exec"-prose sweeps (PR #180, issue #179,
-the self-poweroff redesign), the word "exec" carries two DISTINCT
-concepts and only one is the stale class:
+When reviewing claude-vm "exec"-prose for staleness, the word "exec"
+carries two DISTINCT concepts and only one is the stale class:
 
-- **Launcher-execs-claude (STALE class)**: since the redesign the boot
-  launcher runs claude as a CHILD (`"$CLAUDE_BIN" "$@"`, not `exec`) so
-  it can read `$?` and decide poweroff-vs-shell. Any current-behavior
-  prose saying the launcher/guest "execs claude" is false as mechanism.
+- **Launcher-execs-claude (STALE class)**: the boot launcher runs
+  claude as a CHILD (`"$CLAUDE_BIN" "$@"`, not `exec`) so it can read
+  `$?` and decide poweroff-vs-shell. Any current-behavior prose saying
+  the launcher/guest "execs claude" is false as mechanism.
 - **Guest-runs-RO-binary (provenance)**: "the guest runs the RO-mounted
   binary from /mnt/claudebin" is about WHICH binary runs (vs the native
-  installer path), not HOW the launcher invokes it. But the author DID
-  reword this phrase "execs -> runs" at build-guest-image.sh:862 in the
-  round-8 commit, so they treat it as in-scope for the sweep — leaving
-  the README/SKILL twins is the same twin-miss class.
+  installer path), not HOW the launcher invokes it — a distinct,
+  legitimate use of "exec" in prose that is not itself stale, though a
+  sweep that reworded one instance of it should be checked for missed
+  twins elsewhere.
 
 Legitimate survivors (NOT findings): `exec tinyproxy`, `exec 3<>`,
-`bin/claude-vm:207 exec "$LAUNCHER"` (real host-side exec), `libexec`/
+`bin/claude-vm:... exec "$LAUNCHER"` (real host-side exec), `libexec`/
 `ExecStart` (systemd), agetty exec-ing its login-program, apt-get being
-run by boot_apt_phase, negative test assertions, LAUNCHER_LOGIC_REV
+run by boot_apt_phase, negative test assertions, `LAUNCHER_LOGIC_REV`
 historical changelog stanzas, explicit "earlier shape exec'd" retros.
 
-**Resolution**: extinct as of commit `6916ea4` (round 10), which
-abandoned pattern greps and hand-classified EVERY occurrence of the
-token "exec" in the plugin. Pattern-shaped greps failed in rounds 1-9
-because real prose violates the pattern ("before claude execs", "execs
-the RO-mounted binary" — object before the verb, object not claude).
-
-**How to apply / the method that finally worked**: `grep -rniE exec`
-over the WHOLE plugin, plus `grep -rc` over every file so the zero-hit
-files are proven zero, then classify EVERY hit by hand into
-(stale-current-behavior | negative assertion | historical/retrospective
-| genuine exec). Never trust a needle-shaped grep, and never trust a
-commit's own extinction claim — it was falsely asserted twice here.
+**The method that closes this class**: a pattern-shaped grep
+("execs? claude", "claude execs?") misses real prose, because real
+prose violates the pattern (e.g. "before claude execs", "execs the
+RO-mounted binary" — object before the verb, or object not claude).
+`grep -rniE exec` over the WHOLE plugin, plus `grep -rc` over every
+file so the zero-hit files are proven zero, then classify EVERY hit by
+hand into (stale-current-behavior | negative assertion |
+historical/retrospective | genuine exec). Never trust a needle-shaped
+grep, and never trust a commit's own "all sites fixed" claim without
+re-running the grep yourself.
 
 **Changelog-stanza boundary rule**: `build-guest-image.sh`'s
 `LAUNCHER_LOGIC_REV` block is an append-only "Bumped N -> N+1" series;
 each stanza states what was true AT that rev and later stanzas
-supersede it (the 16→17 stanza's "a nonzero exit `exec`s a LOGIN SHELL"
-is corrected by 18→19). Stale-sounding "exec" inside those stanzas
-(:108, :119-124) is correctly LEFT ALONE. The identical code snippet in
-`lib/config.sh`'s `quote_args` doc WAS in scope, because it sat under a
-"GUEST read (build-guest-image.sh boot launcher):" header presenting it
-as CURRENT code. Header framing, not wording, decides.
+supersede it. Stale-sounding "exec" inside a past stanza is correctly
+LEFT ALONE. The identical code snippet quoted elsewhere as CURRENT
+code (e.g. under a "GUEST read (current boot launcher):" header) IS in
+scope. Header framing, not wording, decides whether an "exec" mention
+is historical or a live claim.
 
 **Where emitted bytes live**: `build-guest-image.sh`'s
 `emit_boot_launcher` heredoc is the only launcher-byte surface, so
-`LAUNCHER_LOGIC_REV` need not bump for comment edits elsewhere. But
-`provisioners/podman-mkosi.sh` lines ~508-605 are a heredoc writing
-`mkosi.conf` — comments edited there DO change generated-recipe bytes
-(harmless: mkosi ignores `#` lines, and image identity hashes only the
-bake config files + repo name, never the recipe). Verify heredoc
-boundaries before calling such a comment edit "host-side only".
+`LAUNCHER_LOGIC_REV` need not bump for comment edits elsewhere. But a
+provisioner heredoc that writes `mkosi.conf` also changes
+generated-recipe bytes when its comments are edited (harmless: mkosi
+ignores `#` lines, and image identity hashes only the bake config
+files + repo name, never the recipe) — verify heredoc boundaries
+before calling a comment edit "host-side only".
