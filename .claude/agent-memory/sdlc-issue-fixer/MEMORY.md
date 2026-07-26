@@ -1,5 +1,7 @@
 # Memory Index
 
+- [vfkit REST shutdown & 5s force-timer](project_vfkit-rest-shutdown-and-5s-force-timer.md) — clean claude-vm exit needs REST RequestStop + set -m process-group isolation (vfkit's own signal handler force-kills at a hardcoded 5s); residual SIGTTIN risk
+- [Backgrounded proc in $() hangs](project_backgrounded-proc-in-command-substitution-hangs.md) — PID="$(start_listener)" hangs unless the bg process's stdout is redirected; it holds the inherited stdout open
 - [Docs locality: packaging vs. hook-event](project_docs-locality-packaging-vs-hook-event.md) — plugin-authoring-constraints.md (packaging) vs. hook-event-notes.md (per-event runtime facts); don't conflate
 - [Commit heredoc gate](feedback_commit-heredoc-gate.md) — `git commit -m "$(cat <<EOF...)"` is blocked here; use `git commit -F <scratch-file>` for multi-line messages
 - [Worktree path, not main clone](feedback_worktree-path-not-main-clone.md) — Read/Edit the worktree-absolute path; main-clone path is a different checkout and gives a stale file view
