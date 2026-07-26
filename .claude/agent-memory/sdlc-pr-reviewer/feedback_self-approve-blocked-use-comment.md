@@ -14,6 +14,15 @@ failed to create review: GraphQL: Review Can not approve your own
 pull request (addPullRequestReview)
 ```
 
+The `--request-changes` variant is blocked the same way but the message
+differs, so match on the shape (`Can not ... on your own pull request`)
+rather than one literal string:
+
+```
+failed to create review: GraphQL: Review Can not request changes on
+your own pull request (addPullRequestReview)
+```
+
 **Why:** In this repo the human (`evoskamp`) both opens issue PRs and
 runs the review flow under the same `gh` credential, so the reviewer
 identity == author identity. GitHub forbids self-approval as a policy,
@@ -27,3 +36,18 @@ a comment because GitHub blocks the PR author from approving their own
 PR)."). Still report the true verdict (APPROVED / NEEDS_CHANGES) plus
 severity counts back to the orchestrator — the comment-only post is a
 mechanical fallback, not a downgrade of the verdict.
+
+The `github-prs:pr-review-submit` skill documents this fallback only
+for the `approve` verdict ("Self-review constraint (author cannot
+`--approve`)"), so applying it to `request-changes` is on you — the
+skill will not tell you to.
+
+**Pass the body as a file, not a `--body` string.** A real review body
+runs to hundreds of lines of Markdown full of backticks, quotes, and
+`!`, and inlining it in `gh pr review --body "..."` invites shell
+mangling. Write it with the Write tool to the repo's own
+`.claude/tmp/review-<PR>.md` (the session scratchpad is refused as
+out-of-repo — see [[git-sandbox-via-script-file]]) and post with
+`gh pr review <n> --comment --body-file <path>`. For the self-review
+fallback, `printf 'APPROVED\n\n' > final.md && cat body.md >> final.md`
+prepends the verdict line without re-quoting anything.

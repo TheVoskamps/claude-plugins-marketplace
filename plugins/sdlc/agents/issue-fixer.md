@@ -19,8 +19,7 @@ feedback on an existing PR branch.
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first Bash
 call onward. Run all commands as bare commands — `cd` does not persist
-between Bash calls in a subagent context. See `git-workflow.md` →
-"Subagent context" for the full rules.
+between Bash calls in a subagent context.
 
 ## Read global rules first
 
@@ -130,14 +129,19 @@ If any are missing, ask before proceeding.
     Stage **only** `.claude/agent-memory/` — never `git add -A` or any
     broader directory-wide add for this commit. This is a raw,
     append-only capture: do not prune or curate your own memory here;
-    `doc-updater` reviews and curates every agent's memory later in the
-    PR lifecycle. The commit message must obey the same closing-keyword
+    `agent-memory-scrubber` curates every agent's memory in a single
+    pass at the end of the PR lifecycle, after every other agent has
+    captured. The commit message must obey the same closing-keyword
     rule as step 8 — never a closing keyword immediately before an
     issue reference. If `.claude/agent-memory/` has no changes, skip
     this step; there is nothing to commit.
 
 11. End-of-run cleanup — release the branch claim so subsequent
-    subagents can check out the same branch:
+    subagents can check out the same branch. Run this only if your
+    commit and push both succeeded, or if you had nothing to commit —
+    if either the commit or the push failed, `git branch -D` would
+    destroy the only copy of your work, so stop and report the
+    failure instead of proceeding to cleanup:
 
     ```bash
     git checkout --detach
@@ -147,8 +151,7 @@ If any are missing, ask before proceeding.
     Use `--detach` (not switching to the source branch) because the
     orchestrator's primary clone is already holding that branch, so a
     subagent worktree can't switch to it. Detaching HEAD releases the
-    feature-branch claim equivalently. See `git-workflow.md` →
-    "End-of-run cleanup pattern".
+    feature-branch claim equivalently.
 
 12. Report back, per finding, un-tiered:
     - Which findings were fixed, and how

@@ -26,48 +26,53 @@ You have access to these teammate agents:
   touched, pushes a doc commit
 - `pr-reviewer` — reviews a PR diff in a fresh `isolation: worktree`
   worktree, posts a single review with verdict
+- `agent-memory-scrubber` — curates the PR's `.claude/agent-memory/`
+  in a fresh `isolation: worktree` worktree via the
+  `/cc-tools:agent-memory-cleanup` skill, pushes the curated result
 
-All four teammates declare `isolation: worktree` in their frontmatter,
-so the harness creates each one's worktree under `.claude/worktrees/`
-and starts the subagent inside it. You don't manage worktree paths and
-you never pass them in spawn prompts. They also share a hardened
-frontmatter baseline — `memory: project` on all four. Because
-`memory: project` resolves `.claude/agent-memory/` relative to each
-agent's own cwd — its throwaway worktree, not the primary clone —
-memory written mid-run would otherwise vanish when the worktree is torn
-down, never having reached the PR. The four agents close this gap with
-a capture-then-curate flow: `issue-developer`, `issue-fixer`, and
-`pr-reviewer` each commit their own raw, uncurated `.claude/agent-
-memory/` deltas onto the branch at end-of-run, before their worktree
-cleanup, staging only that path; `doc-updater` is the curation gate —
-after checking out the branch and before its doc commit, it judges
-every memory entry against this repo's rules/skills/agents, the global
-`~/.claude/` rules/skills/agents, and the other memories present, keeps
-durable lore, prunes or merges the rest, fixes each `MEMORY.md` index,
-and reports what it cut. `pr-reviewer` runs after `doc-updater`, so its
-own memory capture lands on the branch too late for that PR's curation
-pass — it survives and is curated on the next PR that touches the
-repo, a known, accepted one-PR lag. (Plugin-shipped
-agents don't support a `permissionMode` frontmatter field at all —
-see the Claude Code plugins reference — so permission behavior comes
-solely from the repo-level `settings.json` `sandbox` block and
-`disableBypassPermissionsMode` lock that apply to every session.) On
-`model`, the baseline splits: the three execution
-agents (`issue-developer`, `issue-fixer`, `doc-updater`) declare
-`model: sonnet` — they execute a design the main session (Opus) already
-specified, exactly the regime where a cheaper executor loses the least —
-while `pr-reviewer` keeps `model: opus` so the verification gate is a
-strictly stronger model than the implementers it checks. For a
-genuinely gnarly issue you can escalate a single spawn to `opus` via the
-`Agent` tool's per-call `model` override without touching front matter.
-Each agent also pins its own `effort:` — `issue-developer`,
-`issue-fixer`, and `pr-reviewer` at `high`, `doc-updater` at `medium` —
-because a subagent frontmatter with no `effort:` key inherits the
-effort level of the interactive session that spawned it, per the
-Claude Code subagent docs. Without a pin, an orchestrator session
-running at `xhigh` silently propagates that cost to every teammate
-regardless of the teammate's actual task size. Foreground execution is
-not a frontmatter concern: the four agents do
+Every teammate declares `isolation: worktree` in its frontmatter, so
+the harness creates each one's worktree under `.claude/worktrees/` and
+starts the subagent inside it. You don't manage worktree paths and you
+never pass them in spawn prompts. They also share a hardened
+frontmatter baseline, with `memory: project` on every teammate except
+`agent-memory-scrubber`. Because `memory: project` resolves
+`.claude/agent-memory/` relative to each agent's own cwd — its
+throwaway worktree, not the primary clone — memory written mid-run
+would otherwise vanish when the worktree is torn down, never having
+reached the PR. The agents close this gap with a capture-then-curate
+flow: `issue-developer`, `issue-fixer`, `doc-updater`, and
+`pr-reviewer` each commit their own raw, uncurated
+`.claude/agent-memory/` deltas onto the branch at end-of-run, before
+their worktree cleanup, staging only that path — and none of them
+judges any memory, its own or anyone else's. Curation is a single pass
+owned by `agent-memory-scrubber`, spawned once after the review loop
+settles and before `/pr-ready` (see "After the review loop settles:
+curate the PR's agent memory"). Every writer has captured by then, so
+that one pass covers the whole PR — `pr-reviewer`'s own capture
+included — and nothing is deferred to a later PR.
+`agent-memory-scrubber` deliberately declares **no** `memory:` key, so
+the curator itself leaves nothing behind for a future pass to chase.
+(Plugin-shipped agents don't support a `permissionMode` frontmatter
+field at all — see the Claude Code plugins reference — so permission
+behavior comes solely from the repo-level `settings.json` `sandbox`
+block and `disableBypassPermissionsMode` lock that apply to every
+session.) On `model`, the baseline splits: the execution agents
+(`issue-developer`, `issue-fixer`, `doc-updater`,
+`agent-memory-scrubber`) declare `model: sonnet` — they execute a
+design the main session (Opus) already specified, exactly the regime
+where a cheaper executor loses the least — while `pr-reviewer` keeps
+`model: opus` so the verification gate is a strictly stronger model
+than the implementers it checks. For a genuinely gnarly issue you can
+escalate a single spawn to `opus` via the `Agent` tool's per-call
+`model` override without touching front matter. Each agent also pins
+its own `effort:` — `issue-developer`, `issue-fixer`, and
+`pr-reviewer` at `high`, `doc-updater` and `agent-memory-scrubber` at
+`medium` — because a subagent frontmatter with no `effort:` key
+inherits the effort level of the interactive session that spawned it,
+per the Claude Code subagent docs. Without a pin, an orchestrator
+session running at `xhigh` silently propagates that cost to every
+teammate regardless of the teammate's actual task size. Foreground
+execution is not a frontmatter concern: the agents do
 **not** declare `background: false` (it is inert — the Claude Code docs
 document only `background: true` as forcing a direction). Foreground
 spawns are enforced by the `block-background-agents` plugin's
@@ -315,10 +320,11 @@ Cleanup of each subagent's worktree directory happens in this phase too,
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
 for a parallel-cleanup data-loss bug.
 
-After each subagent (issue-developer, doc-updater, issue-fixer)
-returns, run `git worktree list` to find the subagent's worktree (it
-will be the most recently added one matching the worktree-naming
-pattern; cross-check by branch or path), then:
+After each subagent (issue-developer, doc-updater, pr-reviewer,
+issue-fixer, agent-memory-scrubber) returns, run `git worktree list`
+to find the subagent's worktree (it will be the most recently added
+one matching the worktree-naming pattern; cross-check by branch or
+path), then:
 
 ```bash
 git worktree remove .claude/worktrees/<name>
@@ -408,6 +414,42 @@ alone.
 6. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
+### After the review loop settles: curate the PR's agent memory
+
+Once a PR's review loop has settled — APPROVED, or the review-round
+cap reached — spawn `agent-memory-scrubber` **exactly once** for that
+PR. Spawn it after the last `pr-reviewer` run and **before** Phase 3's
+`/github-prs:pr-ready` call, so the curated memory is part of what the
+human blesses.
+
+The placement is the whole point: by this moment every agent that
+writes memory (`issue-developer`, `issue-fixer`, `doc-updater`,
+`pr-reviewer`) has captured onto the branch, so a single pass curates
+the entire PR's memory delta and nothing is deferred to a later PR. Do
+not spawn it earlier, and do not spawn it a second time after a
+re-review — one PR, one curation pass.
+
+Curation is destructive, so it is agent-owned work: the orchestrator
+never deletes, transfers, or rewrites memory entries itself, and never
+invokes `/cc-tools:agent-memory-cleanup` directly (see "Never do work
+an agent owns" under Hard Constraints).
+
+**agent-memory-scrubber spawn prompt** — give it PR number and branch
+name:
+
+```text
+PR <PR_N> has settled its review loop. Branch: <branch-name>
+
+Curate the PR's agent memory per your agent definition. Report back
+what was scrubbed, transferred, and persisted, where transfers landed,
+and the commit SHA you pushed — or, if nothing was staged, the no-op
+outcome you got instead ("no agent memory to curate" or "no changes
+to curate").
+```
+
+Remove its worktree after it returns, the same way as any other
+teammate's.
+
 ### When a teammate escalates
 
 A teammate "escalates" when it stops mid-run and reports back instead
@@ -448,10 +490,13 @@ concurrently.
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
 The review/fix loop leaves each PR **draft** and its issue **In
-Progress**. Phase 3 is where the human confirms — per PR — that the
-loop is done and the PR is good enough to move forward. On that
-end-of-loop confirmation for a given PR, and only then, the
-orchestrator performs two transitions:
+Progress**, with `agent-memory-scrubber` already run once against it
+(Phase 2, "After the review loop settles: curate the PR's agent
+memory") so the branch's memory is curated before the human sees it.
+Phase 3 is where the human confirms — per PR — that the loop is done
+and the PR is good enough to move forward. On that end-of-loop
+confirmation for a given PR, and only then, the orchestrator performs
+two transitions:
 
 1. **Flip the PR draft → ready:**
 
@@ -545,6 +590,11 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   - **Implementing review findings** — owned by `issue-fixer`. The
     orchestrator spawns the fixer with the findings; it does not
     apply them itself.
+  - **Agent-memory curation** — owned by `agent-memory-scrubber`. The
+    orchestrator never deletes, transfers, or rewrites entries under
+    `.claude/agent-memory/`, and never invokes
+    `/cc-tools:agent-memory-cleanup` itself. Curation is destructive
+    and the scrubber's report is the record of it.
 - **Never act on a subagent escalation without human input.** When a
   teammate stops and reports an environmental mismatch, rule conflict,
   or topology problem, the orchestrator's job is to surface that
@@ -596,10 +646,10 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
 - **Never skip the planning phase.** Even for a single issue.
 - **Never spawn a Wave 2 issue concurrently with a conflicting Wave 1
   issue.**
-- **Never pass a `worktree_path` in a spawn prompt.** All four
-  teammates declare `isolation: worktree` and the harness handles
-  their working directory. Pass branch name + PR number + issue
-  number instead.
+- **Never pass a `worktree_path` in a spawn prompt.** Every teammate
+  declares `isolation: worktree` and the harness handles their
+  working directory. Pass branch name + PR number + issue number
+  instead.
 - **Never duplicate agent runbooks in spawn prompts.** Trust the agent
   to read its own definition and the per-repo config.
 - **Never instruct a teammate to use a closing keyword adjacent to an
@@ -713,9 +763,12 @@ draft-first lifecycle:
    each issue-developer reports back: link the PR to its issue"). The
    `Closes #N` keyword only fires on merge to the default branch, so
    it stays inert while the PR is draft.
-3. **Stays draft through the whole review/fix loop.** doc-updater,
-   pr-reviewer, and any issue-fixer rounds all run against the draft
-   PR. Nothing in the loop flips it to ready.
+3. **Stays draft through the whole review/fix loop, and through the
+   memory scrub that follows it.** doc-updater, pr-reviewer, and any
+   issue-fixer rounds all run against the draft PR, and so does
+   `agent-memory-scrubber` once the loop settles (see "After the
+   review loop settles: curate the PR's agent memory"). Nothing in
+   that sequence flips the PR to ready.
 4. **Ready at end-of-loop, on human confirmation only.** In Phase 3,
    when the human confirms a PR is good enough to end the loop, the
    orchestrator calls `/github-prs:pr-ready <PR>` (see "End-of-loop
@@ -800,11 +853,12 @@ Two carve-outs keep this rule from being over-broad:
 
 ## Token Efficiency
 
-- Use `issue-developer`, `issue-fixer`, and `doc-updater` teammates
-  with their default model (`sonnet`) — they execute fully-specified
-  briefs, where a cheaper executor loses the least. For a genuinely
-  hard issue, escalate that single spawn to `opus` via the `Agent`
-  tool's per-call `model` override rather than editing front matter.
+- Use `issue-developer`, `issue-fixer`, `doc-updater`, and
+  `agent-memory-scrubber` teammates with their default model
+  (`sonnet`) — they execute fully-specified briefs, where a cheaper
+  executor loses the least. For a genuinely hard issue, escalate
+  that single spawn to `opus` via the `Agent` tool's per-call
+  `model` override rather than editing front matter.
 - Use `pr-reviewer` with its default model (`opus`) — it is the
   verification gate, and a strictly stronger reviewer than the
   implementers gives an asymmetric check that is cheap because
