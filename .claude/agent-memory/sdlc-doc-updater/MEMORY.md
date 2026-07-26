@@ -5,9 +5,6 @@
   docs reference it by name only and stay accurate across gate changes.
   SKILL.md's own exemption-family prose repeats 3x and isn't always
   pre-updated by the developer (#177 counterexample).
-- [claude-vm two preflights](project_claude-vm-two-preflights.md) —
-  launcher has a trust-path preflight AND a dependency preflight; docs
-  must cover both, and list python3+gpg as required host tools.
 - [sdlc agent baseline docs locality](project_sdlc-agent-baseline-docs-locality.md)
   — agent model tier, tools list, permissionMode support, and
   foreground enforcement documented only in orchestrate/SKILL.md +
@@ -29,20 +26,3 @@
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
   permission-gate blocks heredoc `git commit -m`, use `commit -F`.
-- [sdlc repo-config split](project_sdlc-repo-config-split.md) — sdlc
-  agents no longer read the full repo-config contract; branch/PR
-  mechanics moved into git-tools:git-branch-create (formerly
-  gh:branch-create) / github-prs:pr-create, each doing its own inline
-  1-2 field parse.
-- [gh plugin retired into git-tools](project_gh-plugin-retired-into-git-tools.md)
-  — the standalone `gh` plugin is gone (issue #166); its sole skill
-  `branch-create` moved into `git-tools` as `git-branch-create`.
-- [claude-vm parallel allowlist knobs](project_claude-vm-parallel-allowlist-knobs.md)
-  — packages.add_apt_uris_to_allowlist and
-  claude.plugins.add_marketplace_uris_to_allowlist are independent
-  knobs with shared semantics, never one controlling the other; grep
-  both names across docs when either changes.
-- [agent-memory-scrubber split off curation](project_agent-memory-scrubber-split-off-curation.md)
-  — doc-updater no longer curates `.claude/agent-memory/`;
-  agent-memory-scrubber owns that pass now, spawned once after the
-  review loop settles.

@@ -45,11 +45,10 @@ README or /docs — they document agents by role, not by model. Parallels
 [[project_github-setup-docs-locality]] (behavior documented in one
 SKILL.md; other docs reference by name only).
 
-Confirmed again on PR #141 (issue #140, 2026-07-13): the new
-memory-capture→curate flow (raw `.claude/agent-memory/` commits from
-issue-developer/issue-fixer/pr-reviewer at end-of-run, curated by
-doc-updater before its own doc commit) is an internal agent mechanism
-of exactly this kind. The PR's own edits to `orchestrate/SKILL.md` and
+The memory-capture→curate flow (raw `.claude/agent-memory/` commits
+from each writer agent at end-of-run, curated afterwards by
+`agent-memory-scrubber`) is an internal agent mechanism of exactly this
+kind. On the PR that introduced it, its own edits to `orchestrate/SKILL.md` and
 all four agent `.md` files were already complete and consistent;
 `plugins/sdlc/README.md` doesn't exist and `docs/plugin-migration-plan.md`
 is historical/out of scope per [[project_plugin-docs-locality]] — no
