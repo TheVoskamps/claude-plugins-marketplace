@@ -491,7 +491,7 @@ if [ -f "$CAPTURE_INNER" ]; then
     # carries its own signed-by=P) used to accept ANY absolute,
     # charset-safe, '..'-free P and write the fetched key there verbatim.
     # apt_sources is unioned in from the per-repo (UNTRUSTED)
-    # .claude-vm/config.yml, so a malicious config could pair
+    # .claude-vm/config-bake.yml, so a malicious config could pair
     # signed-by=/etc/cron.d/x with an attacker-served key_url to get
     # attacker-controlled bytes written to an arbitrary path in the guest
     # image staging tree, which then boots as root. render_apt_source must
@@ -645,6 +645,56 @@ else
 fi
 assert_contains "non-integer headroom: actionable error on stderr" \
   "$WORK/stderr.log" "must be a positive integer"
+
+# ---------------------------------------------------------------------
+# Guest self-poweroff getty drop-in (issue #179). The redesigned shutdown model
+# makes the guest power ITSELF off when claude quits (exit 0); for that to work
+# cleanly the autologin getty must NOT unconditionally respawn the boot launcher
+# (a respawn would race the guest's own poweroff on the clean path
+# and re-loop claude on the abnormal path, where the launcher has instead handed
+# the operator a root login shell). Assert on the ACTUAL generated drop-in the
+# provisioner writes into the recipe tree.
+#
+# MECHANISM (do not conflate the two directives): the respawn comes from
+# `Restart=` in the stock serial-getty@.service template, which ships
+# `Restart=always`; overriding it to `Restart=no` in the drop-in is the ONLY
+# thing that stops systemd restarting the unit. The leading `-` is dropped from
+# ExecStart as well, but that prefix does something different -- it only makes a
+# nonzero exit be reported as success -- and never governed the respawn. Both
+# are asserted, separately, for their own reasons. Regenerate a valid recipe
+# first (the prior run aborted on a bad headroom and wrote none).
+# ---------------------------------------------------------------------
+run_provisioner "$BAKE_CONFIG"
+GETTY_RUN_EXIT=$?
+assert_eq "getty-check run reaches container handoff (stub exit 42)" "42" "$GETTY_RUN_EXIT"
+GETTY_DROPIN="$CAPTURE_RECIPE/mkosi.extra/etc/systemd/system/serial-getty@hvc1.service.d/10-claude-vm.conf"
+if [ -f "$GETTY_DROPIN" ]; then
+  assert_contains "getty drop-in: boot-launcher ExecStart present" \
+    "$GETTY_DROPIN" "boot-launcher.sh"
+  # Restart=no is what neutralizes the respawn (overriding the template's
+  # Restart=always).
+  if grep -qE '^Restart=no$' "$GETTY_DROPIN"; then
+    PASS=$((PASS + 1)); echo "ok   - getty drop-in: Restart=no set (this is what neutralizes the respawn)"
+  else
+    FAIL=$((FAIL + 1)); echo "FAIL - getty drop-in: Restart=no set (this is what neutralizes the respawn)"
+  fi
+  # NO leading `-`: a nonzero launcher exit marks the unit failed rather than
+  # being reported as success. Inert here (nothing sets OnFailure=), but pinned
+  # so it does not drift back.
+  assert_not_contains "getty drop-in: ExecStart has no leading '-' (nonzero exit marks the unit failed)" \
+    "$GETTY_DROPIN" "ExecStart=-/sbin/agetty"
+  assert_contains "getty drop-in: agetty ExecStart with no leading '-'" \
+    "$GETTY_DROPIN" "ExecStart=/sbin/agetty"
+  # Exactly ONE ExecStart names the boot launcher: the getty starts it once, as
+  # agetty's --login-program. A second one would be an independent re-exec path
+  # and could reintroduce the loop.
+  DROPIN_LAUNCHER_EXECSTARTS="$(grep -cE '^ExecStart=.*boot-launcher\.sh' "$GETTY_DROPIN")"
+  assert_eq "getty drop-in: starts the boot launcher exactly once (no independent re-exec)" \
+    "1" "$DROPIN_LAUNCHER_EXECSTARTS"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - getty drop-in not found at $GETTY_DROPIN"
+fi
 
 # ---------------------------------------------------------------------
 # Summary

@@ -1,5 +1,7 @@
 # Memory Index
 
+- [vfkit REST shutdown & 5s force-timer](project_vfkit-rest-shutdown-and-5s-force-timer.md) — vfkit force-kills at a hardcoded 5s on any terminating signal; the REST+set-m workaround was tried and verified WRONG (SIGTTIN freezes guest input) — the guest must power itself off instead
+- [Backgrounded proc in $() hangs](project_backgrounded-proc-in-command-substitution-hangs.md) — PID="$(start_listener)" hangs unless the bg process's stdout is redirected; it holds the inherited stdout open
 - [Docs locality: packaging vs. hook-event](project_docs-locality-packaging-vs-hook-event.md) — plugin-authoring-constraints.md (packaging) vs. hook-event-notes.md (per-event runtime facts); don't conflate
 - [Commit heredoc gate](feedback_commit-heredoc-gate.md) — `git commit -m "$(cat <<EOF...)"` is blocked here; use `git commit -F <scratch-file>` for multi-line messages
 - [Worktree path, not main clone](feedback_worktree-path-not-main-clone.md) — Read/Edit the worktree-absolute path; main-clone path is a different checkout and gives a stale file view
@@ -19,3 +21,6 @@
 - [No invented policy in agent defs](feedback_no-invented-policy-in-agent-defs.md) — never assert a rule in an agent .md unless grepped and confirmed in an actual rules file; a fixer's own prior addition can be the next round's defect
 - [Sweep sibling agent guards](project_sweep-sibling-agent-guards.md) — swept guard across 4 sdlc siblings; round 4 found the sweep itself dropped the source's carve-out clause — sweep exceptions, not just the headline rule
 - [Scope guarantee claims to actual caller](feedback_scope-guarantee-claims-to-actual-caller.md) — "autonomous mode always runs fresh" was true only of one caller's worktree habits, not the skill's own logic; name the caller, don't generalize
+- [Bounded poll + unbounded wait is unbounded](project_bounded-poll-then-unbounded-wait.md) — the give-up branch must return BEFORE any blocking wait; assert it structurally and write a negative control against the old shape
+- [Test harness holds the pipe open](project_test-harness-holds-pipe-open.md) — a long-lived stub in $(...) makes a timing test measure the pipe, not the code; redirect stub stdio and return results via a file
+- [Getty respawn is Restart=, not the leading `-`](project_getty-respawn-is-restart-not-dash.md) — stock serial-getty ships Restart=always; also, claude-vm's image identity hash never covers launcher source, so LAUNCHER_LOGIC_REV is the only cache invalidator

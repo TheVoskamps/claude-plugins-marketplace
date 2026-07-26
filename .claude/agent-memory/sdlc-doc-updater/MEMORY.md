@@ -26,3 +26,8 @@
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
   permission-gate blocks heredoc `git commit -m`, use `commit -F`.
+- [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
+  — after a claude-vm config-model redesign, grep for the OLD filename
+  and OLD deleted function names plugin-wide; a thorough README pass
+  still misses file headers, user-facing error messages, and
+  security-provenance comments elsewhere in the same/sibling files.

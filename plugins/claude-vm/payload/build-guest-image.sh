@@ -51,11 +51,11 @@ DEFAULT_PROVISIONER="$SCRIPT_DIR/provisioners/podman-mkosi.sh"
 # ---------------------------------------------------------------------
 BASE_OS_REV="debian-12-20250601"
 # Bumped 1 -> 2: the boot launcher now fills the claude-fetch seam, mounting
-# the host-verified binary (mountTag=claudebin) and exec'ing claude against
+# the host-verified binary (mountTag=claudebin) and launching claude against
 # /mnt/repo (issue #49). Old images stamped 'launcher1' rebuild on next run.
 # Bumped 2 -> 3: the boot launcher now installs the host's claude.ai OAuth
 # credential (mounted RO under mountTag=claudecreds) into
-# $HOME/.claude/.credentials.json (mode 0600) before exec'ing claude, so the
+# $HOME/.claude/.credentials.json (mode 0600) before launching claude, so the
 # guest authenticates as the host operator (issue #50). Replaces the dropped
 # ANTHROPIC_API_KEY/ANTHROPIC_VM_TOKEN model. Old images stamped 'launcher2'
 # rebuild on next run.
@@ -74,7 +74,7 @@ BASE_OS_REV="debian-12-20250601"
 # runs its interactive login flow, unusable on the byte-pipe console. The boot
 # launcher now reads the host's CLAUDE_CODE_OAUTH_TOKEN (from `claude
 # setup-token`) out of the shred-on-exit claudecreds mount and exports it
-# before exec'ing claude, so the guest authenticates headlessly. The
+# before launching claude, so the guest authenticates headlessly. The
 # boot-logic change requires old images (stamped 'launcher4') to rebuild.
 # Bumped 5 -> 6: identity seed auth (issue #88, pass 1). Real-hardware testing
 # established that the interactive TUI does NOT read CLAUDE_CODE_OAUTH_TOKEN
@@ -84,7 +84,7 @@ BASE_OS_REV="debian-12-20250601"
 # (already installed) PLUS identity in ~/.claude.json (`userID` +
 # `oauthAccount`). The boot launcher now installs a minimal identity seed
 # (claude-json-seed.json from the shred-on-exit claudecreds mount) at
-# /root/.claude.json before exec'ing claude, so a fresh guest comes up already
+# /root/.claude.json before launching claude, so a fresh guest comes up already
 # logged in. The boot-logic change requires old images (stamped 'launcher5')
 # to rebuild.
 # Bumped 6 -> 7: WIDENED identity seed (issue #88). Real-hardware testing found
@@ -152,7 +152,7 @@ BASE_OS_REV="debian-12-20250601"
 # nothing ever pulled apt/dpkg tooling INTO the guest rootfs -- the base
 # Packages= list (provisioners/podman-mkosi.sh) never named it. `apt` is now
 # baked UNCONDITIONALLY, not gated on whether boot-time apt work is
-# configured, because packages.update_at_boot defaults to true (so nearly
+# configured, because the boot file's update_at_boot defaults to true (so nearly
 # every config needs it), the security boundary for a hard-secure all-baked
 # config is the egress allowlist (mirrors left unreachable), not the absence
 # of the apt binary, and the add_apt_uris_to_allowlist: always mid-session-
@@ -223,15 +223,60 @@ BASE_OS_REV="debian-12-20250601"
 # render_apt_source (see that function's matching comment). This is a
 # BOOT-LOGIC change (the boot launcher's own apt_source rendering), so old
 # images (stamped 'launcher15') must rebuild to gain it.
-LAUNCHER_LOGIC_REV="16"
+# Bumped 16 -> 17: guest self-poweroff shutdown model (issue #179). The boot
+# launcher no longer `exec`s claude -- it runs claude as a CHILD, captures the
+# exit status, and decides: exit 0 (a deliberate quit) powers the guest off via
+# `systemctl poweroff`; a nonzero exit `exec`s an interactive root LOGIN SHELL
+# on hvc1 so the operator lands in the still-running guest for a post-mortem.
+# The paired getty drop-in (provisioners/podman-mkosi.sh) sets Restart=no so
+# systemd never respawns the unit behind either decision. Both halves are BOOT
+# LOGIC baked into the image, and NEITHER is covered by the image-identity hash
+# -- that hash (claude_vm_image_identity_segments in lib/config.sh) is computed
+# from the two bake CONFIG files plus the repo name and has no launcher-source
+# input at all. So this rev is the ONLY mechanism that invalidates a cached
+# image for this change: left at 16, an image already stamped 'launcher16' on
+# an operator's disk (built from `main`) would be reused carrying the OLD
+# `exec claude` launcher and the OLD respawning getty, silently defeating the
+# entire redesign. The config migration to the bake/boot pair changes the bake
+# hash and will often force a rebuild incidentally, but incidental is not a
+# guarantee -- it does not cover a re-run after the migration has settled.
+# Old images (stamped 'launcher16') must rebuild to gain it.
+# Bumped 17 -> 18: clean-exit poweroff now sends SIGRTMIN+4 to PID 1 instead
+# of exec'ing `systemctl poweroff` (issue #179). The guest ships no dbus, so
+# systemctl's first attempt (logind over the D-Bus system bus) printed
+# "Failed to connect to bus: No such file or directory" on the operator's
+# interactive console on EVERY clean exit before falling back to PID 1. The
+# signal is systemd's documented bus-less path to the same ordered
+# poweroff.target shutdown, so the red error never happens. BOOT LOGIC baked
+# into the image; old images (stamped 'launcher17') must rebuild to gain it.
+# Bumped 18 -> 19: the abnormal path's post-mortem shell now runs as a CHILD
+# and the launcher powers the guest off (SIGRTMIN+4) when the shell exits
+# (issue #179 real-boot finding). The previous shape `exec`'d the shell, so
+# when the operator left it there was NO launcher left to power off -- the
+# guest sat alive with a dead console ("logout" and nothing else) and the
+# host never regained the terminal. BOOT LOGIC baked into the image; old
+# images (stamped 'launcher18') must rebuild to gain it.
+# Bumped 19 -> 20: prose-only amendments to the emitted launcher's comments
+# (stale "exec" wording retired; no behavior change). Bumped anyway because
+# rev 19 was pushed some hours before this amendment -- bumping removes any
+# ambiguity about which bytes a "launcher19" image would contain, at the cost
+# of nothing (no launcher19 image was ever built).
+# Bumped 20 -> 21: operator-facing wording fix on the abnormal-exit path's
+# workspace-location message (issue #179 review). The message's parenthetical
+# "(claude will NOT be relaunched)" implied relaunch was a live possibility
+# that this exit specifically forecloses, but claude runs exactly once per
+# boot on every path, clean or abnormal -- there is no relaunch to rule out.
+# Parenthetical removed; no behavior change. Old images (stamped 'launcher20')
+# print the stale parenthetical but need no functional rebuild.
+LAUNCHER_LOGIC_REV="21"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
 # Image identity (issue #105 bake-hash, redesigned by issue #106).
 #
 # The base version above pins the OS + launcher logic. On top of it, the guest
-# image's CONTENT is determined by build-relevant config: packages.bake +
-# packages.apt_sources (baked into the image) and image.root_headroom_mb (root
+# image's CONTENT is determined by build-relevant config: the bake files'
+# `packages:` + `apt_sources:` (baked into the image) and image.root_headroom_mb (root
 # partition size). Two configs whose build-relevant content differs must
 # produce DIFFERENT cached images; two that agree must share one. So the
 # version -- which is the image cache key -- gains an IMAGE-IDENTITY segment.
@@ -305,9 +350,13 @@ EOF
 
 # The boot launcher baked into the guest. As of issue #88 it runs as the
 # LOGIN PROGRAM of an autologin serial-getty@hvc1 (a real controlling tty),
-# loads the run environment, then execs the host-verified `claude` binary
+# loads the run environment, then runs the host-verified `claude` binary
 # (mounted RO at /mnt/claudebin by the guest fstab) against the mounted repo
-# at /mnt/repo -- so claude IS the interactive hvc1 session. The binary is
+# at /mnt/repo -- so claude IS the interactive hvc1 session. As of issue #179
+# it runs claude as a CHILD (not `exec`) so it can read the exit status and
+# decide: 0 -> power the guest off; nonzero -> run an interactive root login
+# shell (also as a child) on the same console for a post-mortem, powering the
+# guest off when that shell exits. The binary is
 # fetched, GPG-manifest-verified, and cached HOST-SIDE by the launcher
 # (lib/claude-cache.sh, issue #49); the guest only runs the already-verified
 # binary off the RO mount -- it never runs `install.sh | bash` on this trusted
@@ -333,9 +382,14 @@ emit_boot_launcher() {
 # the host-rendered settings.json (permissions allow/ask/deny + defaultMode +
 # enabledPlugins) into $HOME/.claude/settings.json (issue #104), seeds
 # the tty geometry from the host (issue #88), then
-# `exec`s the host-verified `claude` binary mounted RO at /mnt/claudebin against
+# runs the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
-# in between. claude is NEVER baked into the image and is NEVER fetched-and-run
+# in between. As of issue #179 claude runs as a CHILD rather than via `exec`,
+# so this launcher can read claude's exit STATUS and act on it: exit 0 (a
+# deliberate quit) powers the guest off, and a nonzero exit runs an
+# interactive root login shell (as a child) on this same console so the
+# failed session is inspectable, powering the guest off when that shell
+# exits. claude is NEVER baked into the image and is NEVER fetched-and-run
 # inside the guest: the host fetches, GPG-manifest-verifies, and caches the
 # binary, and shares it in RO. The guest only runs the already-verified binary.
 set -euo pipefail
@@ -435,7 +489,7 @@ log "claude-vm: installed host claude.ai OAuth credential at $CRED_DIR/.credenti
 # claudecreds mount (mountTag=claudecreds) as the credential above, NOT via
 # run.env, honoring the launcher's "secrets never ride in run.env" invariant.
 # machineID is NOT in the seed -- the guest mints its own on first run. Install
-# it at $CLAUDE_HOME/.claude.json (mode 0600) before the `exec` below.
+# it at $CLAUDE_HOME/.claude.json (mode 0600) before claude launches below.
 # /root/.claude.json does not exist on a fresh guest, so this is a plain create
 # of the object (no merge). The seed's CONTENTS are the host's business; this
 # step just copies whatever the host emitted.
@@ -495,7 +549,7 @@ log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.jso
 # ---------------------------------------------------------------------
 # Boot-time package install/update through the proxy (issue #106).
 #
-# BLOCKING, before claude execs (agreed in the issue: if a package is too
+# BLOCKING, before claude launches (agreed in the issue: if a package is too
 # slow to install at boot, the user moves it from install_at_boot to bake).
 #
 #   1. CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=true (run.env, default true):
@@ -812,7 +866,7 @@ log "claude-vm: guest booted to the claude-fetch seam; running host-verified cla
 
 # Satisfy claude's startup install-health check (issue #88). claude probes for a
 # working `claude` at the native installer's location ~/.local/bin/claude; the
-# guest execs the RO-mounted binary instead, so that path is empty and the TUI
+# guest runs the RO-mounted binary instead, so that path is empty and the TUI
 # prints "claude command at /root/.local/bin/claude missing or broken · run
 # claude install to repair" warnings on startup. Point the native-install path at
 # the verified RO-mounted binary: the symlink target IS the running binary, so any
@@ -849,11 +903,112 @@ cd "$REPO_MNT"
 # `eval set --` re-parses those tokens back into the original argv -- exactly
 # reversing the host's quoting -- so args with spaces / shell metacharacters /
 # `#` (e.g. --name "foo #7 micro-vm Claude Plugins") round-trip intact instead
-# of crashing the getty login program into an agetty respawn loop. An empty
+# of crashing the getty login program (which, pre-#179, looped forever; since
+# #179's Restart=no it just ends the session -- broken either way). An empty
 # CLAUDE_ARGS ('') yields `set -- ` -> zero argv. The two halves of this
 # contract are kept in lockstep with the claude_vm_quote_args comment.
 eval "set -- ${CLAUDE_ARGS:-}"
-exec "$CLAUDE_BIN" "$@"
+
+# ---------------------------------------------------------------------
+# Guest powers ITSELF off when claude quits deliberately (issue #179).
+#
+# claude is the ONLY workload in this disposable VM: claude exiting == the
+# session is over == the VM should terminate. There is NO host->guest shutdown
+# channel; the guest decides its own fate from claude's exit STATUS, which the
+# host launcher then observes as vfkit exiting on its own (control returns to
+# the host, which discards the per-run clone and restores the host tty).
+#
+# We deliberately do NOT `exec` claude here: exec would replace this process, so
+# claude's exit status could not be captured and acted on. Run it as a CHILD and
+# read $?. `set -e` is relaxed around the run so a nonzero claude exit is
+# recorded rather than aborting this launcher before the decision below.
+#
+# Exit-status contract (verified on a real interactive tty, issue #179):
+#   - Every DELIBERATE quit is 0: Ctrl-D Ctrl-D, /exit, and Ctrl-C Ctrl-C all
+#     exit claude 0. On 0 the guest powers off -- the clean path.
+#   - An ABNORMAL death is nonzero (e.g. SIGKILL -> 137). On nonzero this
+#     launcher runs an interactive root LOGIN SHELL as a CHILD on this same
+#     hvc1 tty, so the operator's already-bridged terminal lands in a shell
+#     on the still-running guest and the session is genuinely inspectable --
+#     and powers the guest off when that shell exits.
+#
+# Why a shell and not merely "do not power off": leaving the VM up without a
+# console is worse than powering it off. hvc0 is attached HOST-side to a log
+# FILE (not an interactive console), the guest ships no sshd (so gvproxy's
+# -ssh-port forward terminates at nothing), and the hvc1 getty is Restart=no --
+# so a launcher that just returns leaves a running VM holding a multi-GB clone
+# with no way in. The host-side hvc0 log records THAT claude died and roughly
+# when, but cannot show the post-mortem state: the workspace contents, how the
+# clone diverged, dmesg, whether the network wiring survived. A console shell
+# answers all of that; exiting it is cheap when the operator does not care.
+#
+# Why this CANNOT loop (the bug this redesign removed): the respawn was never
+# governed by the leading `-` on the getty ExecStart -- that prefix only makes
+# a nonzero exit be REPORTED as success. The respawn comes from `Restart=` in
+# the stock serial-getty@.service template, which the drop-in
+# (provisioners/podman-mkosi.sh) overrides to `Restart=no`. So systemd never
+# restarts this unit behind either decision. On top of that, on the abnormal
+# path control continues PAST the shell only into the poweroff below -- the
+# claude invocation is strictly above and nothing re-enters this script, so
+# claude is not relaunched. The getty unit must therefore never independently
+# re-exec this boot launcher -- it starts it exactly once, as agetty's
+# --login-program.
+set +e
+"$CLAUDE_BIN" "$@"
+CLAUDE_STATUS=$?
+set -e
+
+if [ "$CLAUDE_STATUS" -eq 0 ]; then
+  log "claude-vm: claude exited 0 (deliberate quit); powering the guest off."
+  # Power off via SIGRTMIN+4 to PID 1 -- systemd's documented bus-less
+  # shutdown API (systemd(1), Signals: "SIGRTMIN+4: Powers off the machine,
+  # starts the poweroff.target unit"). Same ordered shutdown as
+  # `systemctl poweroff`, but with no bus in the path: this guest ships no
+  # dbus daemon, so `systemctl poweroff` first tries logind over the absent
+  # D-Bus system bus and prints "Failed to connect to bus: No such file or
+  # directory" on the operator's interactive console before falling back to
+  # PID 1 -- a red error on every clean exit. The signal removes the failing
+  # attempt instead of suppressing its stderr (which would also hide real
+  # poweroff failures). PID 1 is always systemd in this image (it is the
+  # only init installed), we run as root, and the guest bash resolves
+  # RTMIN+4, so this cannot fail; no fallback chain.
+  kill -s RTMIN+4 1
+  exit 0
+fi
+
+# Nonzero: abnormal claude death. Do NOT power off yet -- hand the operator an
+# interactive root login shell on this console so the guest is genuinely
+# inspectable, and power off only when they LEAVE that shell. The shell runs
+# as a CHILD (not exec'd) precisely so control returns here afterward: an
+# earlier shape exec'd the shell, which REPLACED this launcher -- when the
+# operator exited the shell there was no launcher left to power off, so the
+# guest sat alive with a dead console and the host never got its terminal
+# back (observed live: Ctrl-D printed "logout" and nothing else, forever).
+# No loop is possible: control continues past the shell only into the
+# poweroff below (see the "Why this CANNOT loop" note above). `bash` is
+# baked into the guest unconditionally (provisioners/podman-mkosi.sh's
+# Packages= list), so the bash branch is the expected path; the /bin/sh
+# fallback exists only so a hypothetically bash-less image still yields a
+# shell rather than a dead console.
+log "claude-vm: claude exited $CLAUDE_STATUS (abnormal); dropping to an interactive root shell on this console (guest left UP, no poweroff). Exiting the shell powers the guest off."
+echo "claude-vm: claude exited $CLAUDE_STATUS (abnormal). You are now in a root shell inside the guest." >&2
+echo "claude-vm: the workspace is at $REPO_MNT. Exiting this shell ends the session and powers the guest off." >&2
+export CLAUDE_VM_LAST_CLAUDE_STATUS="$CLAUDE_STATUS"
+set +e
+if command -v bash >/dev/null 2>&1; then
+  bash -l
+else
+  /bin/sh -l
+fi
+set -e
+# The operator left the post-mortem shell: the session is over. Power off the
+# same bus-less way as the clean path (SIGRTMIN+4 -> poweroff.target; see the
+# comment on the exit-0 branch). Exit 0 afterward -- ending the session from
+# the shell is a deliberate act, and the getty unit should end cleanly while
+# systemd processes the shutdown.
+log "claude-vm: post-mortem shell exited; powering the guest off."
+kill -s RTMIN+4 1
+exit 0
 BOOT
 }
 
@@ -880,8 +1035,8 @@ build_image() {
   # bundled default (podman-mkosi.sh). Export BASE_OS_REV so the
   # provisioner pins the same guest distro this recipe pins, rather than
   # duplicating the version. Export the CANONICAL bake config (issue #105) so
-  # the provisioner renders packages.bake into the mkosi Packages= list and
-  # packages.apt_sources into keyring + sources.list.d drop-ins -- it hashed
+  # the provisioner renders the bake `packages:` into the mkosi Packages= list
+  # and the bake `apt_sources:` into keyring + sources.list.d drop-ins -- it hashed
   # into PINNED_VERSION above, so the built image's contents and its stamped
   # version stay in lockstep. Unset/empty means no baked packages. Export the
   # resolved root headroom (issue #106 real-run fix) so the provisioner sizes

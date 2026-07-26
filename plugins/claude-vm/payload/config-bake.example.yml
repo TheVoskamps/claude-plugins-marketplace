@@ -1,0 +1,69 @@
+# claude-vm BAKE config (example) -- issue #179.
+#
+# claude-vm's config is FOUR files, all optional, split into a BAKE file and a
+# BOOT file per tier:
+#   global bake: ~/.config/claude-vm/config-bake.yml   (this file's tier)
+#   global boot: ~/.config/claude-vm/config-boot.yml
+#   per-repo bake: <repo>/.claude-vm/config-bake.yml
+#   per-repo boot: <repo>/.claude-vm/config-boot.yml
+#
+# PLACEMENT RULE: a key that changes BYTES in the guest .raw image lives in a
+# BAKE file; a key applied at run time (launcher/VM wiring) lives in a BOOT
+# file. Placement IS the classification -- a knob in the wrong file loudly does
+# nothing rather than silently poisoning the image cache.
+#
+# WHAT GOES IN A BAKE FILE:
+#   - packages:      apt packages BAKED into the guest image at build time
+#                    (a flat list of names -- present with no network at boot)
+#   - apt_sources:   third-party apt repos rendered into the image at build time
+#                    (also allowed in the boot file; union, deduped by name)
+#   - image.root_headroom_mb: extra MiB of free space in the guest root fs
+#
+# IMAGE IDENTITY: the image cache key + filename is a WHOLE-FILE, RAW-BYTE hash
+# of the BAKE files (this one, and the repo's config-bake.yml if present):
+#   - a repo with NO repo-bake file shares one image per global-bake hash
+#     (~/.config/claude-vm/images/guest+global<hash>.raw);
+#   - a repo WITH a repo-bake file gets its OWN image, its name in the filename
+#     (guest+global<hash>+<reponame>-<repohash>.raw).
+# The hash is over the RAW file bytes with NO canonicalization: list order, key
+# order, whitespace, and even a TRAILING-NEWLINE TOGGLE all change the hash. A
+# trailing-newline toggle is the documented force-rebuild lever. BOOT files
+# NEVER affect image identity -- edit egress/cpus/boot-packages freely without
+# triggering a rebuild; edit anything in a bake file (including only its
+# trailing newline) and the image rebuilds on next launch.
+#
+# Every repo without a config-bake.yml shares one image per global-bake hash; a
+# repo with a config-bake.yml gets its own image (its name disambiguates it,
+# even if the file is byte-identical to another repo's -- legibility over dedup).
+#
+# NO SECRETS HERE. The host claude.ai OAuth credential is mounted into the guest
+# at runtime by the launcher; it is never read from or written to any config file.
+
+# apt packages baked into the guest image at build time (flat list of names).
+# Present with no network at boot. Use `bake` for packages stable enough not to
+# need a fresh copy every launch; put fast-changing packages in the BOOT file's
+# `packages:` (installed at boot) instead.
+packages:
+  - jq
+  - ripgrep
+
+# Third-party apt repos rendered into the image at build time (so a baked
+# package served by one -- e.g. gh from cli.github.com -- installs at build
+# time). Each entry: {name, repo, key_url}. key_url is fetched into a keyring
+# and the repo is added signed-by that key. apt_sources is ALSO allowed in the
+# boot file (for a boot-time install pulling from a third-party repo); the two
+# are unioned and deduped by `name`. Same name with identical {repo, key_url} in
+# both -> one render (the boot render skips names already baked). Same name with
+# DIFFERING content -> loud abort at launch (no silent shadowing).
+apt_sources:
+  - name: example-repo
+    repo: "deb [arch=arm64] https://example.com/apt stable main"
+    key_url: https://example.com/apt/key.asc
+
+# Guest-image build sizing: extra MiB of FREE SPACE the guest root filesystem is
+# sized ABOVE its base content (default 1024), so a live session (boot-time apt
+# working set + ordinary growth) does not hit ENOSPC. This is a BAKE key: it
+# sizes the .raw, so changing it changes the image identity hash and triggers a
+# rebuild, exactly like a `packages:` change does.
+image:
+  root_headroom_mb: 1024

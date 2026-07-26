@@ -2,8 +2,9 @@
 
 This directory ships the executable payloads for the `claude-vm`
 plugin: the config-driven launcher, the guest-image build recipe, the
-config loader library, an example config, and the config-layering unit
-test. They travel with the plugin and live at
+config loader library, the annotated example config pair
+(`config-bake.example.yml` / `config-boot.example.yml`), and the
+config-layering unit test. They travel with the plugin and live at
 `${CLAUDE_PLUGIN_ROOT}/payload/...` once installed.
 
 The plugin's user-facing entry point, `bin/claude-vm` (issue #51), lives
@@ -18,12 +19,22 @@ payload/
   README.md             # this file
   claude-vm.sh          # the launcher (config-driven; entry point)
   build-guest-image.sh  # version-pinned guest base build recipe
-  config.example.yml    # annotated example config
+  config-bake.example.yml  # annotated example: image-bytes keys (packages
+                        # baked in, apt_sources, image.root_headroom_mb)
+  config-boot.example.yml  # annotated example: run-time keys (egress, mounts,
+                        # proxy, cpus/mem, boot packages, claude.*, github.*)
   lib/
-    config.sh           # two-tier YAML loader + layering (sourced by
+    config.sh           # four-file (bake/boot per tier) YAML loader + layering
+                        # + whole-file image-identity hashing (sourced by
                         # claude-vm.sh; directly testable)
     claude-cache.sh     # host-side, GPG-manifest-verified `claude` binary
                         # cache (sourced by claude-vm.sh; directly testable)
+    endpoint.sh         # per-run endpoint acquisition (issue #179): free
+                        # TCP-port acquisition, TCP/unix-socket liveness (live
+                        # listener vs stale corpse), stale-corpse clearing
+                        # (sourced by claude-vm.sh; directly testable). No
+                        # vfkit REST shutdown helpers -- the guest powers itself
+                        # off, so the host drives no shutdown.
   provisioners/
     podman-mkosi.sh     # bundled DEFAULT provisioner: mkosi in a throwaway
                         # rootless podman container -> raw EFI guest image
@@ -32,6 +43,29 @@ payload/
                         # conf from $CLAUDE_VM_EGRESS_ALLOWLIST, execs it
   test/
     config-test.sh      # unit tests for the config layering
+    endpoint-test.sh    # unit tests for per-run endpoint acquisition (issue
+                        # #179): free-port acquisition, TCP/unix-socket
+                        # liveness vs stale corpse, corpse clearing; uses real
+                        # perl listeners, host-gated on /usr/bin/perl
+    boot-launcher-test.sh
+                        # regression test for the guest self-poweroff decision
+                        # (issue #179): claude exit 0 -> SIGRTMIN+4 poweroff,
+                        # nonzero -> root login shell on hvc1 as a CHILD, then
+                        # poweroff when it exits (order asserted); getty respawn
+                        # neutralized by Restart=no; LAUNCHER_LOGIC_REV bumped.
+                        # Runs the emitted launcher's real decision fragment
+                        # against stubs; needs only bash + awk
+    launch-shape-test.sh
+                        # regression test for the vfkit launch shape (issue
+                        # #179): vfkit runs FOREGROUND -- no `&`, no
+                        # VFKIT_PID/wait, no reap machinery -- and
+                        # VM_EXIT_STATUS=$? follows the invocation directly.
+                        # Grep-level source assertions; bash + awk only
+    bin-config-check-test.sh
+                        # regression test for bin/claude-vm's four-file
+                        # config-presence check (issue #179 defect #3): no
+                        # false "no global config" when the bake/boot pair is
+                        # present; a leftover config.yml routes to migration
     claude-cache-test.sh
                         # unit tests for the verified claude cache
                         # (resolve/verify/checksum/abort/warm-boot; stubbed
@@ -84,11 +118,22 @@ trailing args to `payload/claude-vm.sh` below.
 ```
 
 Reads `cpus`, `mem`, `guest_image`, proxy config, `egress.allow`,
-`mounts`, `repo.mount`, and `repo.copy_back` from two-tier YAML
-(`~/.config/claude-vm/config.yml` and `<repo>/.claude-vm/config.yml`),
-layering repo-over-global for scalars and unioning lists. See the
-`claude-vm` skill (`skills/claude-vm/SKILL.md`) for the full schema and
-semantics.
+`mounts`, `repo.mount`, `repo.copy_back`, and the guest-software keys
+from **four-file YAML** (issue #179): a **bake** file and a **boot**
+file per tier —
+`~/.config/claude-vm/config-bake.yml`,
+`~/.config/claude-vm/config-boot.yml`,
+`<repo>/.claude-vm/config-bake.yml`, and
+`<repo>/.claude-vm/config-boot.yml`, all optional. A key that changes
+bytes in the guest `.raw` image lives in a **bake** file; a key applied
+at run time lives in a **boot** file. The effective config is the union
+of all four, layering repo-over-global for scalars and unioning lists.
+See the `claude-vm` skill (`skills/claude-vm/SKILL.md`) for the full
+schema and semantics.
+
+A legacy single-file `config.yml` (either tier) is **not** read anymore:
+the launcher detects it and aborts with a migration message pointing at
+the bake/boot split, rather than silently dropping the knobs it set.
 
 ## Authentication
 
@@ -124,7 +169,7 @@ prompt `history`, `lastSessionId`, and `mcpServers` are deliberately
 else from `~/.claude.json` (no other `projects{}` entries, no telemetry, no
 `machineID`) is copied — `machineID` in particular is left out so the guest
 mints its own. The guest boot launcher installs the seed at
-`$HOME/.claude.json` (mode `0600`) before exec'ing `claude`, so the
+`$HOME/.claude.json` (mode `0600`) before launching `claude`, so the
 in-guest session comes up already onboarded, logged in, and folder-trusted
 — no wall, no trust prompt, no browser paste, no failed self-update. A
 **preflight** aborts with an actionable message if the host
@@ -138,7 +183,7 @@ cache.
 **Install-health check + auto-updater (issue #88).** Two more guest-side
 steps keep the interactive TUI quiet. First, claude runs a startup
 *install-health check* that probes for a working `claude` at the native
-installer's location `~/.local/bin/claude`; because the guest execs the
+installer's location `~/.local/bin/claude`; because the guest runs the
 RO-mounted binary from `/mnt/claudebin` instead, that path is empty and the
 TUI prints two `claude command at /root/.local/bin/claude missing or broken
 · run claude install to repair` warnings. The boot launcher therefore
@@ -218,7 +263,7 @@ immediately after selection.
 The selected `{"claudeAiOauth": {...}}` is written to a transient,
 owner-only (`0600`) tmpfile and shared **read-only** into the guest under
 `mountTag=claudecreds`. The guest boot launcher copies it into
-`$HOME/.claude/.credentials.json` (mode `0600`) before exec'ing `claude`,
+`$HOME/.claude/.credentials.json` (mode `0600`) before launching `claude`,
 so `claude` finds it at the path it expects.
 
 The credential is a **secret** and is handled like one:
@@ -250,7 +295,7 @@ present in the example config) so the in-guest `claude` can reach it.
 Pure layering logic: two YAML inputs → one merged document. Both layers
 are optional; a missing layer contributes an empty document. Scalars
 are repo-over-global; list keys (`egress.allow`, `mounts`, and — as of
-issue #103 — the guest-capability lists like `packages.bake` and
+issue #103 — the guest-capability lists like `packages` and
 `claude.permissions.allow`, including keys nested two levels deep) are
 unioned and de-duplicated. See the `claude-vm` skill
 (`skills/claude-vm/SKILL.md`) for the full schema and semantics.
@@ -263,8 +308,11 @@ argv:
   travel to the guest as a single `CLAUDE_ARGS=` line in `run.env`. A
   flat unquoted join breaks the boot the instant an arg carries a space
   or a shell metacharacter (`--name "foo #7 micro-vm"` sourced as a bare
-  line tries to *execute* the `--name` fragment, crashing the getty into
-  an agetty respawn loop). The launcher instead %q-quotes each arg
+  line tries to *execute* the `--name` fragment, crashing the getty
+  login program — which, in the pre-#179 respawning-getty world, looped
+  forever; issue #179's `Restart=no` means that same crash now just ends
+  the session instead of looping, but the quoting is still what keeps
+  the boot correct). The launcher instead %q-quotes each arg
   (this helper) and %q-quotes the whole `CLAUDE_ARGS=` line, so sourcing
   `run.env` yields exactly the per-arg tokens; the guest boot launcher
   reverses it with `eval "set -- $CLAUDE_ARGS"`. Zero args → empty
@@ -291,23 +339,22 @@ argv:
 - `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
   `claude_vm_bake_hash_from_json` / `claude_vm_bake_config_is_empty` — the
   bake-config canonicalization helpers (issue #105). `claude_vm_bake_config_json`
-  emits the **canonical** bake-relevant config (sorted `packages.bake`,
-  normalized `apt_sources`) as compact JSON that the launcher passes to the
-  provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
+  emits the **canonical** bake-relevant config (the bake doc's sorted
+  `packages`, normalized `apt_sources`) as compact JSON that the launcher
+  passes to the provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
   hashes canonical JSON to 8 hex chars. All pure and unit-tested.
-- `claude_vm_build_config_json` / `claude_vm_build_hash` /
-  `claude_vm_build_config_is_empty` / `claude_vm_sanitize_repo_name` /
-  `claude_vm_image_identity_segments` — the two-layer **image-identity**
-  helpers (issue #106 redesign). `claude_vm_build_config_json` emits the
-  canonical **build-relevant** config for ONE layer (bake + apt_sources +
-  `image.root_headroom_mb`); `claude_vm_build_hash` hashes it (reusing
-  `claude_vm_bake_hash_from_json`). `claude_vm_image_identity_segments`
-  composes the self-documenting identity from the two layers: always
-  `global<globalhash>`, plus `+<reponame>-<repohash>` when the repo layer has
-  build-relevant content (name sanitized by `claude_vm_sanitize_repo_name`).
-  `build-guest-image.sh` receives the pre-computed segments verbatim via
-  `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, so the stamped version and the launcher's
-  filename agree by construction. All pure and unit-tested.
+- `claude_vm_file_identity_hash` / `claude_vm_sanitize_repo_name` /
+  `claude_vm_image_identity_segments` — the **image-identity** helpers
+  (issue #106 redesign, re-redesigned by issue #179 to a whole-file, raw-byte
+  hash). `claude_vm_file_identity_hash` hashes a single bake config file's raw
+  bytes (no canonicalization); a missing file hashes to the `00000000`
+  sentinel. `claude_vm_image_identity_segments` composes the self-documenting
+  identity from the two bake files: always `global<globalhash>`, plus
+  `+<reponame>-<repohash>` when a repo-bake file exists (name sanitized by
+  `claude_vm_sanitize_repo_name`). `build-guest-image.sh` receives the
+  pre-computed segments verbatim via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, so
+  the stamped version and the launcher's filename agree by construction. All
+  pure and unit-tested.
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -322,50 +369,87 @@ identically and is never duplicated. Any value other than `true`/`false`
 ## Guest image (`build-guest-image.sh`)
 
 ```bash
-build-guest-image.sh --print-version          # pinned version (base [+<identity segments>])
+build-guest-image.sh --print-version          # pinned version
 build-guest-image.sh --output <image-path>    # build + stamp .version
 ```
 
 The image is a version-pinned stable base (OS + a boot launcher).
 `claude` is never baked in; the boot launcher boots to the
-**claude-fetch seam** and there execs the **host-verified `claude`
+**claude-fetch seam** and there runs the **host-verified `claude`
 binary** mounted RO at `/mnt/claudebin` (see "Verified claude cache"
 below) against the repo at `/mnt/repo` — as an interactive session on
 the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
-**Baked packages + two-layer image identity (issue #105, redesigned by #106).**
-Unlike `claude`, `packages.bake` (apt packages) and `packages.apt_sources`
-(third-party apt repos) ARE baked into the image, and so is the root
-partition's size (`image.root_headroom_mb`; see the "Mid-session apt proxying,
-metadata diet, and root headroom" section below). These three keys are the
-image's **build-relevant** content; everything else is applied at boot/run.
+**Baked packages + whole-file image identity (issue #105, redesigned by #106,
+re-redesigned by #179).** Unlike `claude`, a **bake** file's `packages:` (apt
+packages) and `apt_sources:` (third-party apt repos) ARE baked into the image,
+and so is the root partition's size (`image.root_headroom_mb`; see the
+"Mid-session apt proxying, metadata diet, and root headroom" section below).
+These keys live in the **bake** file precisely because they change image bytes;
+everything in the **boot** file is applied at boot/run.
 
-The image CONTENT is built from the MERGED config: the launcher passes the
+The image CONTENT is built from the merged config: the launcher passes the
 merged canonical bake config via `CLAUDE_VM_BAKE_CONFIG` and the merged,
 default-filled headroom via `CLAUDE_VM_ROOT_HEADROOM_MB`. The image IDENTITY
-(cache key + filename) is instead **provenance-based**, hashing each config
-LAYER independently over its build-relevant content
-(`claude_vm_image_identity_segments`). The launcher passes the pre-computed
-identity to `build-guest-image.sh` via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`,
-which appends it verbatim to the base version:
+(cache key + filename) is a **whole-file, raw-byte hash of the BAKE files** —
+no key-picking, no canonicalization. Placement of a key in the bake file IS the
+classification, made once by the operator: a knob in the wrong file loudly does
+nothing instead of silently poisoning the cache. Because the hash is over raw
+bytes, list order, key order, whitespace, and even a **trailing-newline toggle**
+all change it — the trailing-newline toggle is the documented force-rebuild
+lever. The launcher passes the pre-computed identity to `build-guest-image.sh`
+via `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, appended verbatim to the base version:
 
-- a repo **without** a `.claude-vm/config.yml` (or one with only runtime keys)
+- a repo **without** a `.claude-vm/config-bake.yml`
   → `BASE_OS_REV+launcherN+global<hash>`, image `guest+global<hash>.raw`,
-  shared across every such repo;
-- a repo **with** build-relevant config →
+  shared across every such repo (`<hash>` is the raw-byte hash of the global
+  bake file; an absent global bake file hashes to the `00000000` sentinel);
+- a repo **with** a `.claude-vm/config-bake.yml` →
   `BASE_OS_REV+launcherN+global<hash>+<reponame>-<repohash>`, image
   `guest+global<hash>+<reponame>-<repohash>.raw`, so the filename says whose
   override runs where.
 
-Two repos with byte-identical repo configs still get two images (the name
-disambiguates) — legibility over dedup, an explicit choice. Changing any
-build-relevant key in a layer changes that layer's hash and forces a rebuild;
-changing a runtime key (cpus, egress, permissions, install_at_boot) never
-does. An explicit `guest_image` opts out of identity derivation and is used
-verbatim. An unset `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS` (a bare no-launcher
-`--print-version` smoke test) leaves the bare base version.
+The repo segment's PRESENCE is gated on the bake FILE existing (not its
+content), so two repos with byte-identical repo-bake files still get two images
+(the name disambiguates) — legibility over dedup, an explicit choice. Editing a
+**boot** file never changes identity and never rebuilds; editing a **bake**
+file (including only its trailing newline) does. An explicit `guest_image` opts
+out of identity derivation and is used verbatim. An unset
+`CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS` (a bare no-launcher `--print-version` smoke
+test) leaves the bare base version.
+
+**Immutable base image + per-run clone (issue #179).** The cached base `.raw`
+is **immutable** and is NEVER attached to a VM. Each run APFS-clones it
+(`cp -c`, an instant zero-copy copy-on-write clone) into the run dir and boots
+the CLONE. N concurrent sessions cost one base image plus each session's own
+written blocks — no cross-session/cross-repo state leakage (OAuth credential,
+identity seed, transcripts, shell history, boot-installed packages), and no
+multi-writer corruption from several guests reading-writing one shared ext4
+image. The clone is discarded on a clean exit and RETAINED (path logged) on an
+abnormal exit (nonzero vfkit status or a signal) for forensics. There is no
+host-driven forced stop any more — the guest halts itself and vfkit exits on its
+own — so `cleanup()`'s `sync` purely narrows the window in which writes in
+flight to the clone are still unflushed when the guest goes away; with per-run
+clones the blast radius of any torn write is one throwaway session's clone.
+
+**Foreground vfkit, then an intact terminal (issue #179).** vfkit runs in the
+**foreground** — no `&`, no PID capture, no reap machinery. Backgrounding it
+breaks the boot outright (a backgrounded vfkit cannot attach its
+`virtio-serial,stdio` console: `Error: operation not supported by device`), so
+foreground is load-bearing, not stylistic. Its exit status lands in the
+launcher's own `$?`, and because bash defers traps while a foreground child
+runs, `cleanup()` can only ever run after vfkit has already exited — there is
+never a live vfkit to stop or reap. For the session's duration the launcher
+also disables `isig`/`ixon` on the host tty, so Ctrl-C (and Ctrl-Z/Ctrl-\\)
+travel to the GUEST as bytes -- claude's own two-press Ctrl-C exit works --
+instead of signalling host-side vfkit; a wedged guest is recovered with
+`kill <vfkit pid>` from another terminal. `cleanup()` restores the host tty
+first (the stdio bridge leaves it in raw mode, and that state survives
+vfkit's death), then decides the clone's fate from `VM_EXIT_STATUS`. A
+SIGKILL of the launcher runs no traps at all; the stranded vfkit/clone is
+separate host-debris work, tracked on its own and out of scope here.
 
 Provisioning the bootable raw image defaults to the bundled
 `provisioners/podman-mkosi.sh` — mkosi run inside a throwaway rootless
@@ -378,15 +462,15 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 Requires `podman` with a started podman machine. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`. The provisioner renders
-`packages.bake` into a `mkosi.conf.d` `Packages=` drop-in and each
-`packages.apt_sources` entry into an apt keyring + `sources.list.d` drop-in in
+the bake `packages:` into a `mkosi.conf.d` `Packages=` drop-in and each
+bake `apt_sources:` entry into an apt keyring + `sources.list.d` drop-in in
 the mkosi **sandbox tree** (fetching each `key_url` inside the build container,
 which has network), so mkosi's apt can install packages served by third-party
 repos. That keyring-fetch + sources-write step is a reusable unit the
 boot-time-install slice (issue #106) reuses against the guest's live
 `/etc/apt`.
 
-A `packages.apt_sources` entry's `repo` is a raw apt one-line source string
+An `apt_sources` entry's `repo` is a raw apt one-line source string
 and may already carry its own `[options]` block (e.g. an operator-authored
 `deb [arch=arm64 signed-by=/etc/apt/keyrings/x.asc] ...`). The renderer
 adapts to whatever shape the line already has rather than unconditionally
@@ -398,14 +482,14 @@ byte-for-byte verbatim — that path wins, and the fetched key is written to
 its staging equivalent instead of the default `<name>.asc`, so the declared
 path and the actual key location never drift apart. This was a real-build
 finding (issue #105 follow-up): unconditionally appending a second block
-produced an apt "Malformed entry (URI parse)" failure. `packages.bake`
+produced an apt "Malformed entry (URI parse)" failure. Bake `packages:`
 entries that are null or empty (e.g. a stray `-` in the YAML list) are
 stripped during canonicalization rather than passed through as a literal
 `"None"` package name, which would otherwise fail the image build.
 
-**Boot-time package install/update (issue #106).** Unlike `packages.bake`,
-`packages.install_at_boot` and `packages.update_at_boot` run **inside the
-guest at boot**, blocking, right before claude execs — not baked into the
+**Boot-time package install/update (issue #106).** Unlike the bake file's
+`packages:`, the boot file's `packages:` and `update_at_boot` run **inside the
+guest at boot**, blocking, right before claude launches — not baked into the
 image. This requires `apt` itself to be present in the guest, which mkosi
 does NOT provide for free: mkosi installs packages from OUTSIDE the image
 with its own (build-container) apt, so nothing else ever pulls apt/dpkg
@@ -417,9 +501,9 @@ gated on whether boot-time apt work is configured — because
 The security boundary for a hard-secure all-baked config is the egress
 allowlist (package mirrors left unreachable), not the absence of the apt
 binary. The boot launcher (`build-guest-image.sh`'s `boot_apt_phase`) runs, in
-order: (1) when `packages.update_at_boot` is true (the default),
-`apt-get update` + `apt-get -y upgrade`; (2) when `packages.install_at_boot`
-is nonempty, render any `packages.apt_sources` entries into the guest's
+order: (1) when `update_at_boot` is true (the default),
+`apt-get update` + `apt-get -y upgrade`; (2) when the boot `packages:` list
+is nonempty, render any boot-tier `apt_sources:` entries into the guest's
 **live** `/etc/apt` — reusing the exact same keyring-fetch + sources.list.d-
 write shape as the build-time `render_apt_source` (case-matrix, name/path
 validation, and all), ported to plain bash since the guest image carries no
@@ -429,16 +513,16 @@ pointed at the same `HTTP_PROXY`/`HTTPS_PROXY` `run.env` already carries. A
 failed update/install prints a loud warning to the `hvc0` diagnostic log and
 **continues** to claude — a failed optional install must never brick an
 interactive session (per the issue's agreed failure policy). The host
-delivers the manifest (`packages.install_at_boot` names, and the
-`packages.apt_sources` TSV) as plain newline/TSV files on the same
+delivers the manifest (the boot `packages:` names, and the boot-tier
+`apt_sources` TSV) as plain newline/TSV files on the same
 `runconfig` virtio-fs share `run.env` already rides, for the same "no
 python3/jq in the guest" reason.
 
-`packages.add_apt_uris_to_allowlist` (`auto`, the default, or `always`)
+`add_apt_uris_to_allowlist` (`auto`, the default, or `always`)
 controls whether the launcher adds `deb.debian.org` + `security.debian.org` +
-every `packages.apt_sources` host to the guest's egress allowlist. `auto`
+every apt_sources host (bake and boot tiers) to the guest's egress allowlist. `auto`
 adds them **iff** boot-time apt work is actually configured
-(`install_at_boot` nonempty, or `update_at_boot` true); with no boot-time
+(boot `packages:` nonempty, or `update_at_boot` true); with no boot-time
 work configured, `auto` derives nothing — a hard-secure all-baked config
 leaves package repos genuinely unreachable from the guest. `always` keeps
 the URIs allowlisted regardless, so an in-guest `apt-get install` still
@@ -589,8 +673,9 @@ curl -fsSL https://downloads.claude.ai/keys/claude-code.asc | gpg --import
 gpg --fingerprint claude-code   # confirm this matches the published value
 ```
 
-Then set the fingerprint in `~/.config/claude-vm/config.yml` (or the
-per-repo override):
+Then set the fingerprint in `~/.config/claude-vm/config-boot.yml` (or
+the per-repo boot override) — `claude.*` are run-time keys, so they
+live in the **boot** file:
 
 ```yaml
 claude:
@@ -640,6 +725,9 @@ replacement.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/endpoint-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/boot-launcher-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
@@ -648,6 +736,70 @@ replacement.
 `config-test.sh` exercises the config layering (scalar override, list
 union, single-layer and no-layer fallbacks, de-duplication) with no VM
 and no network. Requires `yq` (mikefarah v4+); skips cleanly when absent.
+
+`endpoint-test.sh` exercises the per-run endpoint primitives in
+`lib/endpoint.sh` (issue #179): kernel-assigned free-TCP-port acquisition,
+TCP-port liveness, and — the core of the concurrency defect — unix-socket
+liveness that distinguishes a LIVE listener from a stale socket-file corpse
+(the old readiness check tested mere file existence, so a corpse passed it),
+plus the stale-corpse clearing that refuses to stomp a live sibling's socket.
+Stands up genuine `perl` TCP and unix listeners so the checks run against real
+live/dead endpoints; host-gated on `/usr/bin/perl`. (There are no vfkit
+REST-shutdown helpers or tests: the guest powers itself off — see
+`boot-launcher-test.sh` — so the host drives no shutdown.)
+
+`boot-launcher-test.sh` is the regression test for issue #179's guest-side
+self-poweroff model, which replaced the earlier host-driven vfkit-REST
+shutdown. It extracts the boot launcher `build-guest-image.sh` emits, slices
+out the real exit-status decision fragment (`"$CLAUDE_BIN" "$@"` →
+capture-status → branch), and runs THAT fragment against a stubbed
+claude/kill/bash: a claude exit 0 (a deliberate quit) powers the guest off by
+sending SIGRTMIN+4 to PID 1 — systemd's documented bus-less route to the same
+ordered `poweroff.target` shutdown as `systemctl poweroff`, chosen because the
+guest ships no dbus and systemctl's logind attempt printed
+`Failed to connect to bus` on the operator's console on every clean exit —
+while a nonzero exit (137/SIGKILL, or any nonzero) runs an interactive root
+**login shell** on hvc1 as a CHILD so the failed session is inspectable, and
+powers the guest off only when that shell exits (an exec'd shell left the
+guest alive with a dead console once the operator logged out -- the sequence
+shell-then-poweroff is asserted in order). The loop-sensitive assertions live
+here too: the
+abnormal handoff must be a plain login shell and must never re-enter the boot
+launcher (which would rerun claude and rebuild the respawn loop this redesign
+removed). It also asserts the getty drop-in the provisioner writes neutralizes
+the respawn via `Restart=no` — the other half of the clean-poweroff contract,
+since an unconditional respawn would race the guest's own poweroff. Note the
+mechanism: the respawn comes from `Restart=` in the stock
+`serial-getty@.service` template (`Restart=always`), which the drop-in overrides
+to `no`; the leading `-` on `ExecStart` is dropped as well, but that prefix only
+makes a nonzero exit be *reported* as success and never governed the respawn (it
+is asserted separately, and a `failed` getty unit is inert here because nothing
+sets `OnFailure=`/`FailureAction=`). Finally it pins `LAUNCHER_LOGIC_REV` past
+16, since the image-identity hash covers only the bake config files plus the
+repo name — never the launcher source — so that constant is the only thing that
+invalidates a cached image when launcher logic changes. No VM, no network, no
+root; needs only `bash` + `awk`.
+
+`launch-shape-test.sh` is the regression test for issue #179's vfkit launch
+shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its
+`virtio-serial,stdio` console to the terminal — a real boot fails with
+`Error: operation not supported by device` at "Adding stdio console" — and
+that shape shipped once and never booted. The test asserts, at the source
+level (like the getty drop-in assertions): the vfkit invocation carries no
+trailing `&`; `VM_EXIT_STATUS=$?` immediately follows it; no `VFKIT_PID`,
+`reap_vfkit`, or `REAP_` machinery exists anywhere in the launcher; and
+`VM_EXIT_STATUS` is initialized to `1` so an interrupted path fails safe to
+*retain*. No VM, no network, no root; `bash` + `awk`.
+
+`bin-config-check-test.sh` is the regression test for issue #179 real-boot
+defect #3: `bin/claude-vm`'s global-config presence check must know the
+four-file bake/boot schema, so it no longer prints a false "no global config
+found" when the migrated `config-bake.yml`/`config-boot.yml` pair is present,
+and routes a genuine leftover single-file `config.yml` (global OR repo tier)
+into a migration pointer instead. Drives the real `bin/claude-vm` up to — but
+not through — the launcher exec (a stubbed `security` makes the Keychain check
+exit first), asserting on the step-4 stderr for each config state. Host-gated
+on `git`.
 
 `claude-cache-test.sh` exercises the verified claude cache
 (`lib/claude-cache.sh`): channel/pin validation, version-keyed cache-path
@@ -680,7 +832,7 @@ container, no network); that gap is covered by `host-acceptance.sh`.
 the bootable runtime. It runs the acceptance criteria end-to-end with no
 manual choreography: (a) the default provisioner builds a raw EFI image
 with no override and no loop-device step, (b) vfkit boots it and the
-guest reaches the claude-fetch seam **and execs the host-verified claude
+guest reaches the claude-fetch seam **and runs the host-verified claude
 off the `/mnt/claudebin` mount**, (c) the bundled proxy confines egress
 to the allowlist (allowlisted host permitted, non-allowlisted refused,
 empty allowlist denies all), and (d) the host-side verified cache —

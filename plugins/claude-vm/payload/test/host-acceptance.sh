@@ -10,7 +10,7 @@
 #       override) builds a raw EFI guest image with no hand-run
 #       build-guest-image.sh and no loop-device step;
 #   (b) vfkit boots that image, the guest reaches the claude-fetch SEAM (the
-#       observable boot message), and execs the host-verified claude off the
+#       observable boot message), and runs the host-verified claude off the
 #       /mnt/claudebin RO mount (a STUB claude, asserted by its marker);
 #   (c) egress is confined to the allowlist by the bundled tinyproxy proxy:
 #       an allowlisted host is permitted, a non-allowlisted host is refused,
@@ -417,10 +417,10 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     RO under mountTag=claudebin (issue #49). The real launcher caches a
   #     GPG-verified binary here; for THIS boot test we stand up a STUB
   #     `claude` that prints a recognizable marker and exits, so the seam's
-  #     `exec "$CLAUDE_BIN" $CLAUDE_ARGS` actually runs and we can confirm
-  #     the guest ran the mounted binary (not just reached the seam). The
-  #     stub is shell, run by the guest's /bin/sh -- adequate to prove the
-  #     mount+exec path without a real linux-arm64 claude artifact.
+  #     `"$CLAUDE_BIN" "$@"` actually runs and we can confirm the guest ran
+  #     the mounted binary (not just reached the seam). The stub is shell,
+  #     run by the guest's /bin/sh -- adequate to prove the mount+run path
+  #     without a real linux-arm64 claude artifact.
   #   - claudecreds: the dir holding the host's claude.ai OAuth credential,
   #     shared RO under mountTag=claudecreds (issue #50). The real launcher
   #     extracts it from the macOS Keychain; for THIS boot test we stand up a
@@ -430,7 +430,7 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     never reads it. The SAME dir also carries a STUB claude-json-seed.json
   #     (issue #88): the real launcher writes the host's selected identity seed
   #     (userID + oauthAccount) here, and the boot launcher installs it at
-  #     $HOME/.claude.json before exec'ing claude. Unlike the credential, a
+  #     $HOME/.claude.json before launching claude. Unlike the credential, a
   #     MISSING seed is tolerated (logged, not fatal) -- but we still stand up a
   #     placeholder so the install path is exercised. Its content is a
   #     non-secret placeholder; the stub claude never reads it. The SAME dir
@@ -471,7 +471,7 @@ CLAUDE_VM_LINES=
 CLAUDE_ARGS=--version\ spaced\\\ #arg
 RUNENV
   # Stub claude: prints a marker the boot test asserts, proving the guest
-  # exec'd the mounted binary off /mnt/claudebin.
+  # ran the mounted binary off /mnt/claudebin.
   cat > "$CLAUDEBIN_SHARE/claude" <<'STUBCLAUDE'
 #!/bin/sh
 echo "claude-vm-stub: ran host-verified claude off the mount, args=[$*]"
@@ -556,12 +556,12 @@ STUBCLAUDE
     fail "(b) guest did not reach the claude-fetch seam within timeout" "see $BOOT_LOG"
   fi
 
-  # (b2) The seam is FILLED (issue #49): the guest should have exec'd the
+  # (b2) The seam is FILLED (issue #49): the guest should have run the
   # claude binary off the /mnt/claudebin RO mount. Our stub prints a marker;
-  # asserting it confirms the mount+exec path, not merely reaching the seam.
+  # asserting it confirms the mount+run path, not merely reaching the seam.
   #
   # Where the marker lands (issue #88): the boot launcher now runs as the
-  # autologin serial-getty@hvc1 login program and `exec`s claude with hvc1 as
+  # autologin serial-getty@hvc1 login program and runs claude (as a child) with hvc1 as
   # its controlling tty -- so the stub claude's STDOUT marker goes to hvc1
   # (HVC1_LOG), NOT to the hvc0 boot console (BOOT_LOG, where the launcher's own
   # /dev/console diagnostics go). Search BOTH logs so the assertion is robust to
@@ -569,7 +569,7 @@ STUBCLAUDE
   STUB_MARKER="claude-vm-stub: ran host-verified claude off the mount"
   if grep -q "$STUB_MARKER" "$BOOT_LOG" 2>/dev/null \
      || grep -q "$STUB_MARKER" "$HVC1_LOG" 2>/dev/null; then
-    pass "(b) guest exec'd the host-verified claude off the /mnt/claudebin mount"
+    pass "(b) guest ran the host-verified claude off the /mnt/claudebin mount"
   else
     fail "(b) guest did not run the mounted claude binary at the seam" "see $BOOT_LOG and $HVC1_LOG"
   fi
@@ -580,7 +580,8 @@ STUBCLAUDE
   # preserved the boundary -- the `spaced #arg` token survived intact and the
   # `#arg` was NOT comment-stripped. A regression to the old unqualified
   # `$CLAUDE_ARGS` word-split would break this (and, on the getty login path,
-  # crash into an agetty respawn loop before the marker ever appeared).
+  # crash the login program before the marker ever appeared -- pre-#179 into an
+  # agetty respawn loop; since #179's Restart=no, into an ended session).
   ARGS_MARKER="args=[--version spaced #arg]"
   if grep -qF "$ARGS_MARKER" "$BOOT_LOG" 2>/dev/null \
      || grep -qF "$ARGS_MARKER" "$HVC1_LOG" 2>/dev/null; then

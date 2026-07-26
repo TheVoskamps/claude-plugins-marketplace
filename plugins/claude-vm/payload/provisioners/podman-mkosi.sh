@@ -60,7 +60,7 @@ OUTPUT_IMAGE="${2:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-pat
 # claude_vm_bake_config_json) as CLAUDE_VM_BAKE_CONFIG. Empty/unset means no
 # baked packages -- the recipe is exactly the legacy base image. When present,
 # the in-container build step (below) parses it to: (a) extend the mkosi
-# Packages= list with packages.bake, and (b) render each packages.apt_sources
+# Packages= list with the bake `packages:`, and (b) render each apt_sources
 # entry into a keyring + sources.list.d drop-in in the mkosi SANDBOX TREE, so
 # mkosi's apt can install baked packages that come from third-party repos.
 # An unset/empty value is normalized to the empty canonical form so the
@@ -166,7 +166,7 @@ mkdir -p "$STAGE/out"
 # A real guest boot hit ENOSPC twice in one session on the 991 MB root
 # (~850 MB base usage): boot_apt_phase's `apt-get update` was re-materializing
 # ~163 MB under /var/lib/apt/lists PLUS ~88 MB of pkgcache.bin/srcpkgcache.bin
-# on every boot (packages.update_at_boot defaults true). Root cause, verified
+# on every boot (update_at_boot defaults true). Root cause, verified
 # against mkosi v26's actual Debian installer (mkosi/distribution/debian.py):
 # left to its own defaults, mkosi writes a `<suite>.sources` file with
 # `Types: deb deb-src` for FOUR repo stanzas (main, debian-debug, updates,
@@ -381,7 +381,7 @@ NET
 # after it.
 #
 # nofail: a share that is absent on a given boot must not wedge the boot in
-# emergency mode; the consumer (boot launcher / claude exec) decides whether
+# emergency mode; the consumer (boot launcher / claude launch) decides whether
 # its absence is fatal. runconfig, claudebin, and claudecreds are mounted ro
 # (claudebin is a verified binary the guest must not mutate; claudecreds is
 # the secret-bearing OAuth credential -- the boot launcher copies it out to a
@@ -414,19 +414,39 @@ FSTAB
 #     with --login-program pointing at the boot launcher. agetty autologs in
 #     root, sets up the controlling tty + termios (which is why a fullscreen
 #     TUI renders), then execs the boot launcher AS the login program. The
-#     boot launcher in turn `exec`s claude -- so claude IS the session, with no
-#     shell in between. If claude exits, agetty respawns (a login shell on
-#     hvc1) rather than leaving a black screen.
+#     boot launcher runs claude as a CHILD and, on claude's DELIBERATE quit
+#     (exit 0), powers the guest off (issue #179) -- claude is the only
+#     workload, so its exit ends the disposable VM. On an ABNORMAL claude
+#     death (nonzero) the launcher runs an interactive root LOGIN SHELL as a
+#     CHILD on this same hvc1 tty, so the operator's already-bridged terminal
+#     lands in a shell on the still-running guest -- and powers the guest off
+#     when that shell exits.
+#
+# Respawn neutralized (issue #179) by `Restart=no`. The respawn is governed by
+# `Restart=` in the stock serial-getty@.service template, which the drop-in
+# below overrides to `no`, so a boot-launcher exit does NOT auto-respawn the
+# getty. This is required by the poweroff-on-clean-exit model: an unconditional
+# respawn would race the guest's own poweroff on the clean path
+# (relaunching claude while the VM is halting), and on the abnormal path it
+# would re-run claude in a loop instead of leaving the operator in the
+# post-mortem shell. The leading `-` is dropped from the ExecStart as well, but
+# that prefix does something DIFFERENT and is not what suppresses the respawn:
+# it only makes a nonzero exit status be reported as success. Without it a
+# nonzero launcher exit marks the unit `failed` instead -- inert here, since
+# the provisioner sets no OnFailure=/FailureAction= anywhere, so a failed getty
+# unit leaves the VM up, which is exactly what the abnormal path wants. The
+# pre-#179 model exec'd claude and relied on the getty respawn to recover a
+# black screen; the new self-poweroff model supersedes it.
 #
 # This replaces the hand-rolled oneshot; the getty path is the mechanism
 # verified in the #88 spike. The boot launcher still installs the host OAuth
-# credential (#50) and execs the host-verified binary (#49); only its
-# invocation context changes (detached oneshot -> hvc1 console-getty
-# foreground).
+# credential (#50) and runs the host-verified binary (#49); only its
+# invocation context and its exit handling change (detached oneshot -> hvc1
+# console-getty foreground; exec-claude -> run-claude-then-decide-poweroff).
 #
 # Ordering: the getty's RequiresMountsFor pulls in and orders after the
 # virtio-fs mounts the launcher needs: runconfig (sourced run.env), claudebin
-# (the host-verified binary it execs), claudecreds (the host OAuth credential
+# (the host-verified binary it runs), claudecreds (the host OAuth credential
 # it installs -- #50), and repo (the working tree it cd's into). It also runs
 # after network-online.target so the launcher's egress-allowlisted fetch can
 # reach the proxy.
@@ -442,7 +462,9 @@ RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 
 [Service]
 # Override the default agetty invocation: autologin root and run the boot
-# launcher as the login program (which execs claude). Clear ExecStart first --
+# launcher as the login program (which runs claude as a child, then decides
+# poweroff-vs-shell on its exit status -- see the block above). Clear ExecStart
+# first --
 # a drop-in APPENDS ExecStart lines, and a unit with two ExecStart entries
 # under the default Type=idle would try to run both; the empty assignment
 # resets the list so only ours runs.
@@ -451,13 +473,29 @@ RequiresMountsFor=/mnt/runconfig /mnt/claudebin /mnt/claudecreds /mnt/repo
 # (hvc1) is the first positional, then the optional baud list, then $TERM
 # (expanded by systemd from the serial-getty@.service template). --autologin
 # root logs root in with no prompt; --login-program runs the boot launcher
-# instead of /bin/login, so the launcher (which execs claude) becomes the
+# instead of /bin/login, so the launcher (which runs claude) becomes the
 # session with no shell in between. --keep-baud matches the stock serial-getty
-# behavior (the vfkit virtio-console has no real baud). The leading `-` makes a
-# launcher exit non-fatal so agetty respawns to a login shell rather than a
-# black screen if claude exits.
+# behavior (the vfkit virtio-console has no real baud).
+#
+# Restart=no (issue #179) is what suppresses the respawn: the stock
+# serial-getty@.service template sets `Restart=always`, and a drop-in overriding
+# it to `no` is the ONLY thing that stops systemd restarting this unit when the
+# boot launcher exits. A respawn must not happen: it would race the guest's own
+# `systemctl poweroff` on the clean path (relaunching claude while the VM is
+# halting) and re-loop claude on the abnormal path instead of leaving the
+# operator in the launcher's post-mortem root shell.
+#
+# The leading `-` is ALSO dropped from the ExecStart, but do not confuse the two
+# -- the `-` prefix never controlled the respawn. It only tells systemd to treat
+# a nonzero exit status as success; without it, a nonzero launcher exit marks
+# this unit `failed`. That is inert here (no OnFailure=/FailureAction= is set
+# anywhere in this provisioner), so a failed getty unit still leaves the VM up.
+# Do NOT "restore" the `-` believing it is inert, and do NOT delete `Restart=no`
+# believing the missing `-` covers it: only `Restart=no` neutralizes the
+# respawn.
 ExecStart=
-ExecStart=-/sbin/agetty --autologin root --login-program /usr/local/lib/claude-vm/boot-launcher.sh --keep-baud 115200,57600,38400,9600 hvc1 $TERM
+ExecStart=/sbin/agetty --autologin root --login-program /usr/local/lib/claude-vm/boot-launcher.sh --keep-baud 115200,57600,38400,9600 hvc1 $TERM
+Restart=no
 GETTY
 
 # Enable serial-getty@hvc1 at build time by creating the getty.target.wants
@@ -541,7 +579,7 @@ Packages=
     # depends on it directly, so pin it explicitly in the auditable recipe.
     util-linux
     # apt provides apt-get, which the boot launcher's boot_apt_phase (issue
-    # #106) execs INSIDE the guest for install_at_boot/update_at_boot. Baked
+    # #106) runs INSIDE the guest for install_at_boot/update_at_boot. Baked
     # here UNCONDITIONALLY -- not gated on whether boot-time apt work is
     # configured -- because mkosi installs packages from OUTSIDE the image
     # with its own (build-container) apt, so nothing else ever pulls apt/dpkg
@@ -586,7 +624,7 @@ apt-get update -qq
 # python3-venv/pip + git to install mkosi v26 from upstream. systemd-ukify,
 # cpio, zstd, xz-utils, mtools, squashfs-tools are part of the v26 toolchain
 # (issue #71). curl + ca-certificates are required by render_apt_source
-# below (issue #105), which fetches each packages.apt_sources key_url with
+# below (issue #105), which fetches each apt_sources key_url with
 # curl INSIDE this build container -- without them the fetch fails with
 # "curl: command not found" before any baked package can be installed.
 apt-get install -y -qq --no-install-recommends \\
@@ -621,10 +659,10 @@ echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_P
 # the host provisioner). Parse it here with the container's python3 (already
 # installed above) and render two things:
 #
-#   (a) packages.bake -> a mkosi.conf.d drop-in extending Packages= (same
+#   (a) the bake 'packages:' -> a mkosi.conf.d drop-in extending Packages= (same
 #       mechanism as the kernel drop-in above), so mkosi installs them into
 #       the guest image.
-#   (b) packages.apt_sources -> for each {name, repo, key_url}, fetch the key
+#   (b) the bake 'apt_sources:' -> for each {name, repo, key_url}, fetch the key
 #       into the mkosi SANDBOX TREE at /etc/apt/keyrings/<name>.asc and write
 #       /etc/apt/sources.list.d/<name>.list (signed-by that keyring), so
 #       mkosi's apt -- which reads package-manager config from the sandbox
@@ -649,8 +687,8 @@ echo "podman-mkosi(inner): mkosi \$(mkosi --version), kernel package \${KERNEL_P
 #
 # name VALIDATION: name flows unescaped into staging filenames
 # (<keyrings_dir>/<name>.asc, <sources_dir>/<name>.list). The merged config
-# unions the per-repo .claude-vm/config.yml into apt_sources, so name is NOT
-# fully operator-authored for an untrusted repo -- a name containing e.g.
+# unions the per-repo .claude-vm/config-bake.yml into apt_sources, so name is
+# NOT fully operator-authored for an untrusted repo -- a name containing e.g.
 # "../" could write outside the intended staging dirs. Reject anything
 # outside a conservative filename-safe charset BEFORE building any path.
 #
@@ -758,8 +796,8 @@ render_apt_source() {
       unset IFS
       # SECURITY: absolute + charset-safe + no '..' is NOT sufficient. repo
       # (and therefore existing_signed_by) is UNTRUSTED -- it flows from the
-      # merged, per-repo .claude-vm/config.yml (same untrusted-input status
-      # documented on 'name' above). Without a further constraint, a
+      # merged, per-repo .claude-vm/config-bake.yml (same untrusted-input
+      # status documented on 'name' above). Without a further constraint, a
       # malicious per-repo config could pair an attacker-served key_url with
       # e.g. signed-by=/etc/cron.d/x and this function would write
       # attacker-controlled bytes to an arbitrary path in the guest image
