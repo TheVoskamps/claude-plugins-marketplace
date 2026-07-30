@@ -45,6 +45,22 @@ README or /docs — they document agents by role, not by model. Parallels
 [[project_github-setup-docs-locality]] (behavior documented in one
 SKILL.md; other docs reference by name only).
 
+Confirmed a second time on PR #200 (issue #197, 2026-07-30): a
+frontmatter-only model/effort bump across all five agents (sonnet→opus
+for issue-developer/issue-fixer/doc-updater/agent-memory-scrubber,
+opus→fable for pr-reviewer; high→xhigh effort on the three
+review-critical agents) landed with the developer deliberately scoped
+*out* of touching orchestrate/SKILL.md, exactly as the orchestrator
+spawn prompt predicted. Both narrated-prose spots called out in memory
+— the "hardened baseline" paragraph and the "Token Efficiency" section
+— were indeed the only stale surfaces; grepping the rest of the repo
+(`plugins/sdlc/README.md` doesn't exist, top-level README/docs/CLAUDE.md,
+`.claude/rules/*.md`) for `sonnet|opus|fable|xhigh` found zero other
+hits. The reviewer-above-doers rationale sentence needed *rewording*
+to name Fable/Opus, not deletion — the invariant (reviewer model
+strictly stronger than executor model) survived the value swap
+unchanged.
+
 The memory-capture→curate flow (raw `.claude/agent-memory/` commits
 from each writer agent at end-of-run, curated afterwards by
 `agent-memory-scrubber`) is an internal agent mechanism of exactly this
