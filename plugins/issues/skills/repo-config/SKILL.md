@@ -1142,22 +1142,11 @@ tracker-metadata content are composed in steps 1-3 above):
 ````markdown
 # Repo Config
 
-Read by the multi-issue orchestrator and its subagents at the start
-of every run. Full field reference, schema, and read contract:
-`skills/lib/repo-config.md` (front-matter fields) and
-`skills/lib/issue.md` (`github-project:` block) /
-the `/issues-jira:jira-lib` skill (`jira:` block).
-
-Hand-editing is fine for small tweaks, but `/repo-config` is a
-full-rewrite tool — re-running it replaces this entire file, carrying
-current values forward as recommended defaults.
-
-If this file is missing, the orchestrator aborts and points here.
+Never hand-edit this file — re-run `/repo-config`.
 ````
 
 The body is genericized: it does not reference any specific repo
-(such as `macos-setup`) by name, and it points at `/repo-config`
-as the way to create the file when it's missing.
+(such as `macos-setup`) by name.
 
 ### Verification
 
