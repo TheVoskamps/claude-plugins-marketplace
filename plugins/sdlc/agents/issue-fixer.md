@@ -2,8 +2,8 @@
 name: issue-fixer
 description: Addresses PR review feedback for an existing issue branch. Given a PR number, issue number, branch name, and review findings, applies fixes and pushes updates. Use this after a pr-reviewer requests changes.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
-model: sonnet
-effort: high
+model: opus
+effort: xhigh
 isolation: worktree
 memory: project
 skills:
