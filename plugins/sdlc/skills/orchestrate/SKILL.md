@@ -58,20 +58,19 @@ behavior comes solely from the repo-level `settings.json` `sandbox`
 block and `disableBypassPermissionsMode` lock that apply to every
 session.) On `model`, the baseline splits: the execution agents
 (`issue-developer`, `issue-fixer`, `doc-updater`,
-`agent-memory-scrubber`) declare `model: sonnet` — they execute a
-design the main session (Opus) already specified, exactly the regime
-where a cheaper executor loses the least — while `pr-reviewer` keeps
-`model: opus` so the verification gate is a strictly stronger model
-than the implementers it checks. For a genuinely gnarly issue you can
-escalate a single spawn to `opus` via the `Agent` tool's per-call
-`model` override without touching front matter. Each agent also pins
-its own `effort:` — `issue-developer`, `issue-fixer`, and
-`pr-reviewer` at `high`, `doc-updater` and `agent-memory-scrubber` at
-`medium` — because a subagent frontmatter with no `effort:` key
-inherits the effort level of the interactive session that spawned it,
-per the Claude Code subagent docs. Without a pin, an orchestrator
-session running at `xhigh` silently propagates that cost to every
-teammate regardless of the teammate's actual task size. Foreground
+`agent-memory-scrubber`) declare `model: opus`, while `pr-reviewer`
+declares `model: fable` so the verification gate runs on a strictly
+stronger model than the implementers it checks. For a genuinely gnarly
+issue you can escalate a single spawn to a stronger model via the
+`Agent` tool's per-call `model` override without touching front
+matter. Each agent also pins its own `effort:` — `issue-developer`,
+`issue-fixer`, and `pr-reviewer` at `xhigh`, `doc-updater` and
+`agent-memory-scrubber` at `medium` — because a subagent frontmatter
+with no `effort:` key inherits the effort level of the interactive
+session that spawned it, per the Claude Code subagent docs. Without a
+pin, an orchestrator session running at `xhigh` silently propagates
+that cost to every teammate regardless of the teammate's actual task
+size. Foreground
 execution is not a frontmatter concern: the agents do
 **not** declare `background: false` (it is inert — the Claude Code docs
 document only `background: true` as forcing a direction). Foreground
@@ -855,11 +854,11 @@ Two carve-outs keep this rule from being over-broad:
 
 - Use `issue-developer`, `issue-fixer`, `doc-updater`, and
   `agent-memory-scrubber` teammates with their default model
-  (`sonnet`) — they execute fully-specified briefs, where a cheaper
+  (`opus`) — they execute fully-specified briefs, where a cheaper
   executor loses the least. For a genuinely hard issue, escalate
-  that single spawn to `opus` via the `Agent` tool's per-call
-  `model` override rather than editing front matter.
-- Use `pr-reviewer` with its default model (`opus`) — it is the
+  that single spawn to a stronger model via the `Agent` tool's
+  per-call `model` override rather than editing front matter.
+- Use `pr-reviewer` with its default model (`fable`) — it is the
   verification gate, and a strictly stronger reviewer than the
   implementers gives an asymmetric check that is cheap because
   reviewer runs are short.
