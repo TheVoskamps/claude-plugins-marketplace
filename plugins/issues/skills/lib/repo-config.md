@@ -416,8 +416,8 @@ Keys:
   - **`kind: skip`** — the slot is explicitly unused; verbs warn and
     exit zero. Equivalent to slot-absent, mirroring the GitHub side.
 - **fields.\<slot\>.default** — optional per-slot default, resolved the
-  same way the `github-project:` `default:` is (see "fields.\*.default"
-  in `.claude/rules/repo-config.md`).
+  same way the `github-project:` `default:` is (see "Default-resolution
+  order" in `skills/lib/issue.md`).
 - **fields.\<slot\>.options** — name→name map (for `status` /
   `custom-field`) or flat list (for `label`). Name matching is
   case-insensitive; canonical capitalization comes from the key. A
