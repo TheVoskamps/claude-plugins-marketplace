@@ -6,10 +6,10 @@ description: Interactively create or fully rewrite `.claude/rules/repo-config.md
 You are running the `/repo-config` skill. Your job is to create the
 **target repo's** `.claude/rules/repo-config.md` from scratch, or to
 fully rewrite it when it already exists, by interviewing the user.
-This file is read by `/issue-address` and the `issue-developer`,
-`issue-fixer`, `doc-updater`, and `pr-reviewer` subagents at the
-start of every run, so it must be present and well formed before
-any of those flows will work.
+This file is read by the multi-issue orchestrator and the
+`issue-developer`, `issue-fixer`, `doc-updater`, and `pr-reviewer`
+subagents at the start of every run, so it must be present and well
+formed before any of those flows will work.
 
 `/repo-config` does **not** merge with the existing file or rewrite
 parts of it in place. When the file already exists, the user confirms
@@ -1142,10 +1142,10 @@ tracker-metadata content are composed in steps 1-3 above):
 ````markdown
 # Repo Config
 
-Read by `/issue-address` and by the `issue-developer`, `issue-fixer`,
-`doc-updater`, and `pr-reviewer` subagents at the start of every run.
-Do not assume values are already in context — re-read this file every
-time.
+Read by the multi-issue orchestrator and by the `issue-developer`,
+`issue-fixer`, `doc-updater`, and `pr-reviewer` subagents at the start
+of every run. Do not assume values are already in context — re-read
+this file every time.
 
 ## Fields
 
@@ -1376,14 +1376,14 @@ operations warn-and-skip rather than aborting the run.
 ## Why this file exists
 
 Different repos use different VCS, issue trackers, and branching
-strategies. The `/issue-address` orchestrator and its subagents
+strategies. The multi-issue orchestrator and its subagents
 (`issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer`)
 must not hardcode assumptions like "PR base is `main`", "use `gh`",
 or "issue link is `#NNN`". When a repo deviates, the orchestrator
 silently does the wrong thing. This file is the single source of
 truth that everything reads at the start of every run.
 
-If this file is missing, `/issue-address` aborts with an error
+If this file is missing, the orchestrator aborts with an error
 pointing at this skill (`/repo-config`) to create one
 interactively.
 ````
@@ -1428,8 +1428,8 @@ After the file is written, report back:
 - Whether the prior file (if any) was replaced. If the user
   declined the Step 2.5 overwrite prompt, this step is not reached
   — the skill exits in Step 2.5 with a "left unchanged" message.
-- Next step: the user can now run `/issue-address` and the
-  associated subagents in this repo.
+- Next step: the user can now run the multi-issue orchestrator
+  and the associated subagents in this repo.
 
 ---
 

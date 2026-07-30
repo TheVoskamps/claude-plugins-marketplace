@@ -14,9 +14,10 @@ documented here. Individual command files (`/issue-create`,
 `/issue-comment`, etc.) reference this doc rather than duplicating
 GraphQL templates or default-resolution logic inline.
 
-`/issue-address` is **not** part of this namespace and does not read
-this file — it is the higher-level multi-issue orchestrator and
-predates `skills/lib/issue.md`.
+The higher-level multi-issue orchestrator that drives end-to-end issue
+fixes is **not** part of this namespace and does not read this file —
+it lives in a different plugin/scope and predates
+`skills/lib/issue.md`.
 
 ## Repo-config parsing
 
@@ -38,11 +39,11 @@ tail.
 
 The library's read sequence resolves **two sections**:
 
-1. **Front-matter** — the six canonical keys `/issue-address` also
-   reads: `source-control`, `issues`, `issue-link-prefix`,
-   `default-issue-source-branch`, `default-pr-target-branch`,
-   `issue-branch-naming-prefix`. Used for tracker dispatch and
-   issue-link formatting.
+1. **Front-matter** — the six canonical keys the multi-issue
+   orchestrator also reads: `source-control`, `issues`,
+   `issue-link-prefix`, `default-issue-source-branch`,
+   `default-pr-target-branch`, `issue-branch-naming-prefix`. Used for
+   tracker dispatch and issue-link formatting.
 2. **`github-project:` block in the body** — optional. Parsed as YAML.
    When present, supplies the project ID, per-slot field configuration,
    and issue type IDs for the current repo. Schema:
@@ -294,7 +295,8 @@ either form when writing a new repo's config; don't add a third
 
 ## Tracker dispatch
 
-Every command opens with the same `issues:` switch as `/issue-address`:
+Every command opens with the same `issues:` switch as the
+multi-issue orchestrator:
 
 - `issues == GitHub`: continue with the GitHub code path documented
   below (the "GraphQL templates", "Field-value read by kind", and
