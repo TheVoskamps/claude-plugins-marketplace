@@ -35,8 +35,8 @@ This library covers the Jira **foundation** delivered in issue #249:
 - Metadata-application primitives the `/issue-*` operations consume.
 
 The actual `/issue-*` Jira **operations** (read, create, close,
-comment, set-type/status/priority/size, relationships) and
-`/issue-address`'s Jira path consume these primitives but are
+comment, set-type/status/priority/size, relationships) and the
+multi-issue orchestrator's Jira path consume these primitives but are
 documented in the **"Jira backend"** section of the `/issues:issue-view` skill,
 not here. That section (delivered by issue #9, built on the #249
 foundation this library provides) references the templates below by

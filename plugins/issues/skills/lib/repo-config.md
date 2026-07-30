@@ -258,10 +258,10 @@ file. Order is fixed; `schema-version` is always first.
 
 - **`issues`** — `GitHub` or `Jira`. Selects between `gh issue`
   and the Atlassian CLI (`acli`) for issue operations. Both backends
-  are implemented across `/issue-*` and `/issue-address`: the GitHub
-  path uses `gh`/GraphQL, the Jira path uses `acli` (see the "Jira
-  backend" section of `skills/lib/issue.md` and the `acli` access
-  library the `/issues-jira:jira-lib` skill).
+  are implemented across `/issue-*` and the multi-issue orchestrator:
+  the GitHub path uses `gh`/GraphQL, the Jira path uses `acli` (see
+  the "Jira backend" section of `skills/lib/issue.md` and the `acli`
+  access library the `/issues-jira:jira-lib` skill).
 
 - **`issue-link-prefix`** — string. The literal string
   concatenated with an issue number in commit messages and PR
@@ -285,8 +285,8 @@ file. Order is fixed; `schema-version` is always first.
   off `integ` but PRs target `main`).
 
 - **`issue-branch-naming-prefix`** — one of `none`, `initials`,
-  `name`. Selects the branch-name shape that `/issue-address`
-  and the developer/fixer agents use:
+  `name`. Selects the branch-name shape that the multi-issue
+  orchestrator and the developer/fixer agents use:
   - `none`     -> `issue-<N>-<slug>`
   - `initials` -> `<initials>/issue-<N>-<slug>`
   - `name`     -> `<name>/issue-<N>-<slug>`
@@ -451,9 +451,10 @@ in the body, so an un-migrated reader ignores it and a
 schema-version-6 reader still reads a schema-version-7 file. The
 four agent definitions
 (`issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer`)
-and `/issue-address`'s SKILL.md follow this contract: they pin
-schema-version 6 and defer to the canonical read sequence and abort
-messages above (migrated in #115). The user-facing `/issue-*`
+and the multi-issue orchestrator's SKILL.md follow this
+contract: they pin schema-version 6 and defer to the canonical read
+sequence and abort messages above (migrated in #115). The user-facing
+`/issue-*`
 namespace follows it too: its shared `skills/lib/issue.md`
 "Repo-config parsing" section and each `/issue-*` SKILL.md pin
 schema-version 6 and defer here (migrated in #114). Remaining reader

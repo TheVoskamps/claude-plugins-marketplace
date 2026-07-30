@@ -378,9 +378,9 @@ code or reading files in the repo.
    behavior. Heavy bias toward XS / S.
 
 2. **Estimated file count.** Scan the body for explicit "Files
-   affected" / "Files most likely affected" sections — `/issue-address`
-   produces these in its Phase 1 analysis. Count the file paths
-   listed. Mapping:
+   affected" / "Files most likely affected" sections — the
+   multi-issue orchestrator produces these in its Phase 1
+   analysis. Count the file paths listed. Mapping:
    - 0-1 files mentioned: XS
    - 2-3 files: S
    - 4-7 files: M

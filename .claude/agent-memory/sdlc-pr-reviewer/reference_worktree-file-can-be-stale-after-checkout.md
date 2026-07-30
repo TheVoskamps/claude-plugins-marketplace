@@ -31,6 +31,18 @@ absolute path makes you review the WRONG bytes — and if you assert "the
 change isn't in the file," that is a fabricated finding
 (`core-principles.md` §9: verify the territory).
 
+Hazard 2 recurred verbatim on PR #192 (`plugins/issues` docs), so treat
+it as the default, not an edge case: a Read of
+`/…/claude-plugins-marketplace/plugins/issues/skills/repo-config/SKILL.md`
+returned the OLD `/issue-address` wording, while the worktree-anchored
+`/…/.claude/worktrees/agent-XXX/plugins/…/SKILL.md` returned the
+reviewed `multi-issue orchestrator` text. Had I trusted the first read I
+would have filed a false "the rewording was missed here" finding on the
+exact line the PR fixes. The Edit tool now blocks the shared-checkout
+path outright ("This agent is isolated in the worktree … Edit the
+worktree copy instead"), but **Read is not blocked** — it silently
+returns the primary clone's bytes.
+
 **How to apply:** before reading or reviewing any changed file in a
 worktree, confirm you're on the reviewed bytes. Cheap checks:
 `readlink -f <path>` (does it resolve under `.claude/worktrees/`?),
