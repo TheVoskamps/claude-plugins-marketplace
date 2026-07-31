@@ -24,3 +24,4 @@
 - [Bounded poll + unbounded wait is unbounded](project_bounded-poll-then-unbounded-wait.md) — the give-up branch must return BEFORE any blocking wait; assert it structurally and write a negative control against the old shape
 - [Test harness holds the pipe open](project_test-harness-holds-pipe-open.md) — a long-lived stub in $(...) makes a timing test measure the pipe, not the code; redirect stub stdio and return results via a file
 - [Getty respawn is Restart=, not the leading `-`](project_getty-respawn-is-restart-not-dash.md) — stock serial-getty ships Restart=always; also, claude-vm's image identity hash never covers launcher source, so LAUNCHER_LOGIC_REV is the only cache invalidator
+- [Re-bump the plugin version every review round](project_rebump-plugin-version-every-review-round.md) — CLAUDE.md's "a PR must bump" reads as already-satisfied; practice (PR #159: 0.9.6→0.9.7→0.9.8) is one bump per fix round
