@@ -309,9 +309,8 @@ Record:
 
 This step runs the same generic interview once per conceptually-standard
 slot. The slot list is hardcoded: `status`, `priority`, `size`. Making
-the slot list user-configurable is out of scope; a repo that wants a
-different slot (e.g. `effort`) hand-edits the block after the wizard
-runs, per the schema in `skills/lib/issue.md`.
+the slot list user-configurable is out of scope — a repo that wants a
+different slot (e.g. `effort`) has no supported path to add one today.
 
 #### 3b.3.a — Enumerate project fields once
 
@@ -786,12 +785,10 @@ github-project:
 ```
 
 Slot order under `fields:` is fixed: `status`, then `priority`,
-then `size`. Because `/repo-config` is a full-rewrite tool, the
-emitted block is exactly what this run's auto-discovery produced —
-any hand-edited slot the wizard doesn't know about (e.g. a
-user-added `effort` slot) is dropped. Users who want
-to preserve hand-edited slots should decline the Step 2.5 overwrite
-prompt and hand-edit instead.
+then `size`. Because `/repo-config` is a full-rewrite tool, a run
+always emits exactly what that run's auto-discovery produced — the
+file is never edited outside a `/repo-config` run, so it never
+carries a slot (e.g. `effort`) the wizard didn't itself write.
 
 #### Conditional rendering rules
 
@@ -915,8 +912,9 @@ not auto-correct — the front-matter answer stands.
 
 Run the same generic interview once per conceptually-standard slot, in
 this order: `status`, `priority`, `size`. The slot list is hardcoded
-(matching Step 3b); a repo wanting a different slot hand-edits after
-the wizard runs.
+(matching Step 3b) — making it user-configurable is out of scope, so
+a repo wanting a different slot has no supported path to add one
+today.
 
 **Carry-over takes precedence over discovery.** When the existing file
 recorded a slot, recommend the kind and values it used. Otherwise use
