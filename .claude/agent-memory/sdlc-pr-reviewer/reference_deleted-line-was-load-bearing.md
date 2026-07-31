@@ -13,12 +13,12 @@ was silently reconciling other passages in the same file.
 removed was "Hand-editing is fine for small tweaks, but `/repo-config`
 is a full-rewrite tool", replaced with "Never hand-edit this file".
 Three other passages in the *same* SKILL.md still told users to
-hand-edit that exact file to add a non-standard slot (`effort`). On
-main those passages agreed with the old line; after the trim they
-contradict the new one. Neither a diff-hunk read nor a
-surviving-prose-about-the-template read finds this — the contradiction
-lives in passages that are not in the diff and are not *about* the
-template.
+hand-edit that exact file to add a non-standard slot (`effort`) — on
+main those passages agreed with the old line, and the trim left them
+contradicting the new one until a later round swept all three. Neither
+a diff-hunk read nor a surviving-prose-about-the-template read finds
+this class of defect — the contradiction lives in passages that are
+not in the diff and are not *about* the template.
 
 **How to apply:** for every line a trim PR deletes, ask "was this line
 asserting a policy?" If yes, grep the whole file (not just the diff
