@@ -2,6 +2,7 @@
 
 - [permission-gate is self-hosting](permission-gate-self-hosting.md) — the guardrails gate is ACTIVE while you edit it; it will block your own git/sed/mkdir; work with it, not around it
 - [Origin-aware gate rules need a real repo cwd](permission-gate-origin-aware-rules-need-real-cwd.md) — foreign-target scoping reads live git origin; the /tmp default in classifyCmd fails it open, so tests/probes need a real temp repo with an origin remote
+- [permission-gate tests can pass vacuously](permission-gate-tests-can-pass-vacuously.md) — negate the new condition and confirm the test FAILS; overlapping rules make "must not DENY" assertions pass without reaching the new code
 - [Heredoc commit blocked by sandbox gate](feedback_heredoc-commit-sandbox-gate.md) — use `git commit -F <file>` for multi-line commit messages in subagent worktrees, not `-m "$(cat <<EOF...)"`.
 - [Stale origin/main ref after fetch](feedback_stale-origin-main-ref-after-fetch.md) — verify `origin/<branch>` actually advanced before `switch -c`; fetch success ≠ ref updated in fresh worktrees
 - [Verify tool names against docs](feedback_verify-tool-names-against-docs.md) — when pruning agent tools: frontmatter, fetch live Claude Code docs rather than trusting the issue body or training priors
