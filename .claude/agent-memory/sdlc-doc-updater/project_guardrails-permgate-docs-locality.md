@@ -45,18 +45,20 @@ style count-before-list patterns while the file is open, since this
 class of defect keeps surfacing and the sweep-the-class rule applies to
 the whole file once you're editing it, not just the touched paragraph.
 
-**Lowercase count defects survive the capital-letter grep (#195, PR
-#205):** the `Two |Three |Four ` grep in "How to apply" misses the
-mid-sentence lowercase forms, which are the ones still present:
-"closed allowlist of **five** process-environment-derived variables —
-`$HOME`, `$USER`, …", "EXACTLY one of **three** command substitutions
-— `$(git rev-parse …)`, …", "for the **three** tools whose remote
-operations …(`git`/`gh`)…(`aws`)". All three fixed in PR #205 by
-dropping the numeral. Grep case-insensitively
-(`grep -inE "\b(two|three|four|five) [a-z-]+"`) and keep honoring the
+**Lowercase count defects survive the capital-letter grep:** the
+`Two |Three |Four ` grep in "How to apply" only catches
+sentence-initial forms; the ones that keep surviving are mid-sentence
+and lowercase, shaped like "closed allowlist of **five**
+process-environment-derived variables — `$HOME`, `$USER`, …",
+"EXACTLY one of **three** command substitutions — `$(git rev-parse
+…)`, …", and "for the **three** tools whose remote operations
+…(`git`/`gh`)…(`aws`)". Grep case-insensitively
+(`grep -inE "\b(two|three|four|five) [a-z-]+"`) and fix each by
+dropping the numeral. The case-insensitive grep also surfaces the
 recorded exception above — "the two owner-decision deviations" is
-deliberate and must stay; I removed it in PR #205 and reverted after
-re-reading this memory.
+deliberate and must stay, so re-read this entry before removing a hit
+that refers back to already-stated items instead of introducing a
+list.
 
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
