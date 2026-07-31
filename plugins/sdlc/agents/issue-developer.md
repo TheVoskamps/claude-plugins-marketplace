@@ -2,8 +2,8 @@
 name: issue-developer
 description: Implements a fix for a single issue, runs tests, commits, pushes, and creates a PR. Use this for initial implementation of each issue.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
-model: sonnet
-effort: high
+model: opus
+effort: xhigh
 isolation: worktree
 memory: project
 skills:

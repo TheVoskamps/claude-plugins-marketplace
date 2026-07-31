@@ -2,7 +2,7 @@
 name: agent-memory-scrubber
 description: Curates the agent memory a PR accumulated. Given a PR number and branch name, runs the agent-memory-cleanup skill over .claude/agent-memory/ on that branch — deleting entries the code or CLAUDE.md already covers, transferring durable lore into CLAUDE.md or docs, repairing the indexes — and pushes the result onto the PR. Run once, after every other agent on the PR has captured its memory.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
-model: sonnet
+model: opus
 effort: medium
 isolation: worktree
 skills:

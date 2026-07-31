@@ -2,8 +2,8 @@
 name: pr-reviewer
 description: Reviews a PR for correctness, security, and code quality. Given a PR number, fetches the diff, optionally exercises the code in its worktree, and posts a single review with a verdict. Use after an issue-developer or issue-fixer completes.
 tools: Read, Glob, Grep, Bash, Skill
-model: opus
-effort: high
+model: fable
+effort: xhigh
 isolation: worktree
 memory: project
 skills:

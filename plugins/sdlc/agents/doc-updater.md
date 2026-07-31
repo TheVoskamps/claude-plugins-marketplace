@@ -2,7 +2,7 @@
 name: doc-updater
 description: Updates project documentation to reflect code changes. Given a PR number, issue number, and branch name, updates CLAUDE.md, relevant README.md files, repo-level .claude/rules/ and .claude/skills/, anything under /docs, and in-code doc comments (TSDoc or the language equivalent) in files the PR touched. Invoke this after code changes are committed but before a PR is reviewed, or as a standalone task when docs are known to be stale.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
-model: sonnet
+model: opus
 effort: medium
 isolation: worktree
 memory: project

@@ -56,22 +56,18 @@ the curator itself leaves nothing behind for a future pass to chase.
 field at all — see the Claude Code plugins reference — so permission
 behavior comes solely from the repo-level `settings.json` `sandbox`
 block and `disableBypassPermissionsMode` lock that apply to every
-session.) On `model`, the baseline splits: the execution agents
-(`issue-developer`, `issue-fixer`, `doc-updater`,
-`agent-memory-scrubber`) declare `model: sonnet` — they execute a
-design the main session (Opus) already specified, exactly the regime
-where a cheaper executor loses the least — while `pr-reviewer` keeps
-`model: opus` so the verification gate is a strictly stronger model
-than the implementers it checks. For a genuinely gnarly issue you can
-escalate a single spawn to `opus` via the `Agent` tool's per-call
-`model` override without touching front matter. Each agent also pins
-its own `effort:` — `issue-developer`, `issue-fixer`, and
-`pr-reviewer` at `high`, `doc-updater` and `agent-memory-scrubber` at
-`medium` — because a subagent frontmatter with no `effort:` key
-inherits the effort level of the interactive session that spawned it,
-per the Claude Code subagent docs. Without a pin, an orchestrator
-session running at `xhigh` silently propagates that cost to every
-teammate regardless of the teammate's actual task size. Foreground
+session.) Each agent's frontmatter is the sole source of truth for its
+spawn-time `model` and `effort` — this skill does not restate or track
+those values, so a tier change never requires touching this file. A
+per-call `model` override via the `Agent` tool may only **raise** an
+agent above its declared frontmatter default for a single spawn,
+never lower it — the frontmatter is the floor. Each agent also pins
+its own `effort:` in frontmatter, because a subagent frontmatter with
+no `effort:` key inherits the effort level of the interactive session
+that spawned it, per the Claude Code subagent docs; without a pin, an
+orchestrator session running at a high effort level would silently
+propagate that cost to every teammate regardless of the teammate's
+actual task size. Foreground
 execution is not a frontmatter concern: the agents do
 **not** declare `background: false` (it is inert — the Claude Code docs
 document only `background: true` as forcing a direction). Foreground
@@ -853,18 +849,14 @@ Two carve-outs keep this rule from being over-broad:
 
 ## Token Efficiency
 
-- Use `issue-developer`, `issue-fixer`, `doc-updater`, and
-  `agent-memory-scrubber` teammates with their default model
-  (`sonnet`) — they execute fully-specified briefs, where a cheaper
-  executor loses the least. For a genuinely hard issue, escalate
-  that single spawn to `opus` via the `Agent` tool's per-call
-  `model` override rather than editing front matter.
-- Use `pr-reviewer` with its default model (`opus`) — it is the
-  verification gate, and a strictly stronger reviewer than the
-  implementers gives an asymmetric check that is cheap because
-  reviewer runs are short.
-- Reserve `opus` (your own model) for planning decisions and
-  synthesis only
+- Use every teammate with its own frontmatter-declared default
+  `model` and `effort` — do not override either on a routine spawn.
+  For a genuinely hard issue, escalate that single spawn to a
+  stronger model via the `Agent` tool's per-call `model` override
+  rather than editing front matter; an override may only raise a
+  teammate above its declared default, never lower it.
+- Reserve your own model (the orchestrator's) for planning decisions
+  and synthesis only
 - If the batch is large (>8 issues), split into two separate team
   sessions and note this to the human before proceeding
 - **Doing agent work — OR making decisions about an agent's
