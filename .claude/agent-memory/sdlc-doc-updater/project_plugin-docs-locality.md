@@ -48,6 +48,3 @@ first. Then route any newly demonstrated platform fact by kind:
 plugin-packaging-system fact → `plugin-authoring-constraints.md`;
 hook-event behavior fact → `docs/hook-event-notes.md`. Never touch
 `plugin-migration-plan.md` for a new-plugin PR.
-
-See also [sdlc-agent-baseline-docs-locality](project_sdlc-agent-baseline-docs-locality.md)
-for the analogous locality question on agent-roster docs.
