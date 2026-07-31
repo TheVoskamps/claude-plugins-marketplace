@@ -67,11 +67,12 @@ Why a minimum rather than an exact match:
 2. A body. Everything after the closing `---`. The body may
    contain an optional tracker-metadata block — a `github-project:`
    block under `issues: GitHub`, or a `jira:` block under
-   `issues: Jira` (both parsed as YAML at column 0) — and a prose
-   section that documents the file's own fields. The two blocks are
-   mutually exclusive: a file carries at most one, selected by the
-   `issues` front-matter value. The prose is for humans reading the
-   file directly; it is not part of the read contract.
+   `issues: Jira` (both parsed as YAML at column 0) — and a short
+   heading plus a hand-edit warning directing readers to
+   `/repo-config`. The two blocks are mutually exclusive: a file
+   carries at most one, selected by the `issues` front-matter value.
+   The heading and warning are for humans reading the file directly;
+   neither is part of the read contract.
 3. (Optional) A single-line skip marker HTML comment in place of
    the tracker-metadata block when the repo author deliberately
    omitted it. See "Skip marker" below.
