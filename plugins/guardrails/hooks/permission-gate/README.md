@@ -408,7 +408,13 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   (#127, #148) are **prescriptive** (#30): a write/edit escape names
   `<repo-root>/.claude/tmp/` as the scratch destination and warns
   against `.git/`, so an open-ended denial does not induce the model to
-  improvise a bad landing spot. See
+  improvise a bad landing spot. As of #193 they name a **second**
+  destination alongside it — the harness scratchpad,
+  `<system-tmp>/claude-<uid>/` — for a file that must outlive this repo
+  or this session, and the read-side denies name that handoff location
+  too; prescribing only the in-repo path left a genuine cross-repo
+  handoff with no legal landing spot, which is the same open-ended
+  denial in a different disguise. See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
   for the convention. (3) **reading** a non-`.git/` file that resolves
   into the primary clone / shared git dir is **contained/defer** (ALLOW
@@ -447,7 +453,32 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   `<base>/~/...` and read as `contained` — a live fail-open, caught by
   round-3 review and closed by threading the resolver's
   home-unresolvable signal through `testContainmentFrom` directly (see
-  `canonicalizeFromResolver` in `engine_b_containment.go`).
+  `canonicalizeFromResolver` in `engine_b_containment.go`). (5) a
+  target whose canonical path lands under the harness's per-session
+  scratchpad root, `<system-tmp>/claude-<uid>/`, is **deferred** rather
+  than denied (#193) — a carve-out symmetric with the `~/.claude` one.
+  The harness provisions that tree and actively directs the model to
+  put temporary files there, so treating it as an ordinary `/tmp`
+  escape made the gate fight the harness: a hook deny beats a
+  `settings.json` allow, leaving the scratchpad unusable from every
+  repo session and leaving cross-repo / cross-session handoff with no
+  sanctioned home at all. `<uid>` comes from `os.Getuid()` at runtime,
+  never hardcoded, so the carve-out is per-user and portable across
+  macOS and Linux; the root is canonicalized once, so the macOS `/tmp`
+  -> `/private/tmp` symlink is resolved and both spellings of a target
+  hit the carve-out. It covers the whole per-uid prefix rather than the
+  current session's own subdirectory, because reading back what another
+  session wrote is the point. The system temp directory is the literal
+  `/tmp` and NOT `os.TempDir()`: `os.TempDir()` honours `$TMPDIR`
+  (a `/var/folders/...` path on macOS that the harness does not use),
+  and deriving a security carve-out from an environment variable would
+  let whatever set that variable relocate it to an arbitrary directory.
+  Every other `/tmp` path — including another uid's
+  `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.
+  On the write side the carve-out withholds the in-repo-write ALLOW and
+  defers rather than blessing the write, and it deliberately does not
+  short-circuit the operand walk, so `cp <scratchpad-file>
+  <sibling-repo-path>` still denies on its destination.
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the

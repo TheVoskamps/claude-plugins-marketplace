@@ -109,6 +109,11 @@ func TestInRepoWriteEscapeDeny_32(t *testing.T) {
 		if !containsSubstr(d.Reason, ".claude/tmp/") {
 			t.Errorf("%s: deny reason should steer scratch to .claude/tmp/; got %q", tc.label, d.Reason)
 		}
+		// #193: the bash-write denies prescribe BOTH destinations — the in-repo
+		// one and the harness scratchpad for cross-repo / cross-session handoff.
+		if !containsSubstr(d.Reason, harnessScratchDisplay()) {
+			t.Errorf("%s: deny reason should also name the harness scratchpad; got %q", tc.label, d.Reason)
+		}
 	}
 }
 

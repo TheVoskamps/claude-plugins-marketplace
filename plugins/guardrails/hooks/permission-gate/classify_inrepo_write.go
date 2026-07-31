@@ -113,10 +113,12 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 // containWriteOperands runs Engine B containment on a write-class command's path
 // operands. It returns ok=true only when EVERY operand is contained inside the
-// current worktree (or is the carved-out ~/.claude tree, #247). When an operand
-// escapes, ok is false and the returned Decision is the appropriate write-side
-// deny: cross-repo (#148) or worktree-escape (#127), each carrying the
-// worktree-anchored remediation (mirroring the file-tool deny wording).
+// current worktree. A carve-out operand (~/.claude, #247; the harness
+// scratchpad, #193) is neither contained-for-allow nor an escape: it withholds
+// the ALLOW and returns a DEFER. When an operand escapes, ok is false and the
+// returned Decision is the appropriate write-side deny: cross-repo (#148) or
+// worktree-escape (#127), each carrying the worktree-anchored remediation
+// (mirroring the file-tool deny wording).
 //
 // Unlike the read side (containPathOperands), a worktree-escape here always
 // DENIES: writing into the primary clone from a subagent worktree is the
@@ -143,6 +145,12 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 	if base == "" {
 		base = ev.CWD
 	}
+	// A carve-out operand withholds the ALLOW but must NOT short-circuit the
+	// loop: `cp <scratchpad-file> <sibling-repo-path>` has to keep walking to
+	// the destination so it still earns the cross-repo DENY. Record the defer
+	// and apply it only once every operand has been checked, so a genuine
+	// escape anywhere in the command always outranks it.
+	deferForCarveOut := false
 	for _, p := range operands {
 		// A write whose canonicalized target lands under a .git/ directory is a
 		// direct write to git internals (#125, broadened by #35 Fix 3) — denied
@@ -153,9 +161,8 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			return deny("bash-write:.git tree (#125)", fmt.Sprintf(
 				"Blocked: '%s' target '%s' is inside a .git/ directory. Directly writing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
-					"repo state. Git's own commands own that tree — do not hand-write .git/. For scratch files, write "+
-					"under $(git rev-parse --show-toplevel)/.claude/tmp/ (already gitignored); never use .git/.",
-				prog, p)), false
+					"repo state. Git's own commands own that tree — do not hand-write .git/. %s",
+				prog, p, scratchDestinations("$(git rev-parse --show-toplevel)"))), false
 		}
 
 		res, real := testContainmentFrom(p, base, rc)
@@ -165,25 +172,28 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			return deny("bash-write:worktree-escape (#127)", fmt.Sprintf(
 				"Blocked: '%s' target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 					"Writes must land inside this worktree. Use the worktree-anchored path instead: %s. Anchor every "+
-					"absolute path to $(git rev-parse --show-toplevel). For scratch or temporary files, write under "+
-					"$(git rev-parse --show-toplevel)/.claude/tmp/ (already gitignored) rather than picking an arbitrary "+
-					"spot; never use .git/ for scratch.",
-				prog, p, real, rc.topLevel, correct)), false
+					"absolute path to $(git rev-parse --show-toplevel). %s",
+				prog, p, real, rc.topLevel, correct,
+				scratchDestinations("$(git rev-parse --show-toplevel)"))), false
 		case escapeRepo:
 			return deny("bash-write:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: '%s' target '%s' resolves outside the current repository (%s, repo root %s). Tool-mediated "+
 					"writes must stay within the current repo — do not write into a sibling repo or the wider "+
-					"filesystem. For scratch or temporary files, write under <repo-root>/.claude/tmp/ (already "+
-					"gitignored) instead of an out-of-repo path. Never write scratch files under .git/.",
-				prog, p, real, rc.topLevel)), false
-		case claudeConfig:
-			// The agent's own ~/.claude global config tree (#247). A WRITE here is
-			// not a clean in-repo write the gate should bless on its own — let the
+					"filesystem. %s",
+				prog, p, real, rc.topLevel, scratchDestinations("<repo-root>"))), false
+		case claudeConfig, harnessScratch:
+			// The agent's own ~/.claude global config tree (#247) and the
+			// harness's per-session scratchpad under <system-tmp>/claude-<uid>/
+			// (#193). Neither is a clean in-repo write the gate should bless on
+			// its own, and neither is an escape it should deny — let the
 			// settings.json allow-list / normal pipeline govern it. Treat as
 			// not-contained-for-allow without denying: signal a defer.
-			return deferToPipeline(), false
+			deferForCarveOut = true
 		case contained:
 		}
+	}
+	if deferForCarveOut {
+		return deferToPipeline(), false
 	}
 	return Decision{}, true
 }

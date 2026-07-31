@@ -1385,7 +1385,8 @@ func hasGlobMeta(s string) bool {
 // first path segment that itself contains a glob metacharacter), so binding
 // the loop variable to that prefix directory makes every possible match
 // share the exact same containment verdict as the prefix itself —
-// contained, escapeWorktree, escapeRepo, or claudeConfig — via the existing
+// contained, escapeWorktree, escapeRepo, claudeConfig, or harnessScratch —
+// via the existing
 // pathUnder equal-or-nested check. The returned prefix is deliberately left
 // relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
 // into the loop body, and the EXISTING containment pipeline

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -235,7 +236,8 @@ func canonicalize(p string) string {
 // escape to the user's home directory as `contained`. Expanding first makes
 // the path absolute, so it takes the correct branch below and earns
 // whatever verdict its real location deserves (contained if home happens to
-// be inside the repo, escapeRepo/escapeWorktree/claudeConfig otherwise).
+// be inside the repo, escapeRepo/escapeWorktree/claudeConfig/harnessScratch
+// otherwise).
 //
 // If the home directory cannot be determined, canonicalizeFrom discards the
 // unresolved-tilde signal from canonicalizeFromResolver (see there) and
@@ -322,6 +324,7 @@ const (
 	escapeWorktree                          // target is in the primary clone / common dir (#127)
 	escapeRepo                              // target is outside the current repo entirely (#148)
 	claudeConfig                            // target is under ~/.claude → defer to settings.json allow-list
+	harnessScratch                          // target is under <system-tmp>/claude-<uid> → defer to settings.json
 )
 
 // claudeConfigRoot returns the canonicalized $HOME/.claude directory, or "" if
@@ -335,6 +338,47 @@ func claudeConfigRoot() string {
 		return ""
 	}
 	return canonicalize(filepath.Join(home, ".claude"))
+}
+
+// harnessScratchDir is the system temp directory the Claude Code harness
+// provisions its per-session scratchpad tree under. It is deliberately the
+// LITERAL "/tmp" and not os.TempDir():
+//
+//   - os.TempDir() honours $TMPDIR, which on macOS is a per-user
+//     /var/folders/<random>/T path the harness does not use — the scratchpad
+//     is at /tmp/claude-<uid> on both macOS and Linux.
+//   - More importantly, deriving a security carve-out from an environment
+//     variable would let whatever set that variable relocate the carve-out to
+//     an arbitrary directory. A fixed path cannot be widened that way.
+const harnessScratchDir = "/tmp"
+
+// harnessScratchDisplay returns the un-canonicalized, human-facing spelling of
+// the harness scratchpad root (e.g. "/tmp/claude-501"), for use in deny
+// messages. The uid comes from os.Getuid() at runtime — never hardcoded — so
+// the prescription names the caller's OWN scratchpad and is portable across
+// macOS and Linux.
+func harnessScratchDisplay() string {
+	return filepath.Join(harnessScratchDir, "claude-"+strconv.Itoa(os.Getuid()))
+}
+
+// harnessScratchRoot returns the canonicalized <system-tmp>/claude-<uid>
+// directory — the root of the harness's per-session scratchpad tree, under
+// which it lays out <project-slug>/<session-id>/scratchpad.
+//
+// The carve-out covers the whole PER-UID prefix rather than just the current
+// session's own subdirectory: cross-session, cross-repo handoff (one session
+// writes a file, a session in a sibling repo reads it back) requires reading a
+// different <project>/<session> subpath than the one the reader owns. It stays
+// scoped to this uid, so another user's /tmp/claude-<other-uid> is NOT carved
+// out and still earns the ordinary escapeRepo verdict.
+//
+// The path is symlink-resolved the same way Engine B canonicalizes every other
+// path, so the macOS /tmp -> /private/tmp symlink is resolved once here and
+// both spellings of a target land on the same root (the carve-out therefore
+// cannot be symlink-escaped either — what matters is where a target's canonical
+// real path lands, not how it was spelled).
+func harnessScratchRoot() string {
+	return canonicalize(harnessScratchDisplay())
 }
 
 // testContainment canonicalizes the target and tests it against the resolved
@@ -388,6 +432,20 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// carve-out cannot be symlink-escaped.
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
 		return claudeConfig, real
+	}
+	// Carve-out (#193), symmetric with the ~/.claude one above: the harness
+	// provisions a per-session scratchpad under <system-tmp>/claude-<uid>/ and
+	// actively instructs the model to put temporary files there. Treating that
+	// tree as an ordinary /tmp escape made the gate fight the harness — a hook
+	// deny beats a settings.json allow, so the scratchpad was unusable from
+	// every repo session, and there was no sanctioned home for a cross-repo /
+	// cross-session handoff file. A target whose canonical path lands under
+	// this uid's scratchpad root is reported as harnessScratch → the caller
+	// DEFERS, letting settings.json allow/ask/deny govern it. Everything else
+	// under /tmp — including another uid's prefix — still falls through to the
+	// escapeRepo deny below.
+	if hs := harnessScratchRoot(); hs != "" && pathUnder(real, hs) {
+		return harnessScratch, real
 	}
 	// Not under this worktree. Is it in the primary clone / common dir? That
 	// is the #127 cross-worktree write into the shared clone.

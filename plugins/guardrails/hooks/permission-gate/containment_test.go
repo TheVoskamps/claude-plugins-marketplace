@@ -257,6 +257,113 @@ func TestClaudeConfigCarveOut_247(t *testing.T) {
 	wantBucket(t, classifyFileTool(ev2), BucketDeny, "#148 sibling node_modules still denied")
 }
 
+// #193: the harness provisions a per-session scratchpad under
+// <system-tmp>/claude-<uid>/ and instructs the model to use it for temporary
+// files. Engine B used to treat every /tmp path as a cross-repo escape, so the
+// scratchpad was unusable from any repo session (a hook deny beats a
+// settings.json allow). It is now a carve-out symmetric with the ~/.claude one:
+// the gate defers and the normal pipeline governs. Everything else under /tmp —
+// including another uid's prefix — still denies.
+func TestHarnessScratchCarveOut_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+
+	uid := os.Getuid()
+	rel := filepath.Join("proj-slug", "session-id", "scratchpad", "handoff.md")
+	// Two spellings of the SAME scratchpad file. On macOS /tmp is a symlink to
+	// /private/tmp, so harnessScratchRoot() resolves to the /private/tmp form
+	// while the literal spelling stays /tmp; both must behave identically.
+	// On Linux the two coincide, which is a harmless duplicate pass.
+	spellings := map[string]string{
+		"literal /tmp":  fmt.Sprintf("/tmp/claude-%d/%s", uid, rel),
+		"canonicalized": filepath.Join(harnessScratchRoot(), rel),
+	}
+
+	for label, target := range spellings {
+		// File tools: Read AND the mutating tools defer, never deny.
+		for _, tool := range []string{"Read", "Write", "Edit"} {
+			ev := &Event{
+				ToolName:  tool,
+				CWD:       root,
+				AgentType: "issue-developer",
+				ToolInput: []byte(`{"file_path":"` + target + `"}`),
+			}
+			d := classifyFileTool(ev)
+			if d.Bucket != BucketDefer {
+				t.Errorf("%s: %s of harness scratchpad %q should DEFER to the normal pipeline; got %q (%s)",
+					label, tool, target, d.Bucket, d.Reason)
+			}
+		}
+
+		bev := bashEvIn(t, root, "issue-developer")
+		// Bash reads on BOTH read tracks — the read-only-utility one (cat, which
+		// ALLOWs a contained-equivalent operand) and classifyPathReader (less,
+		// which defers) — must stop denying it as a cross-repo escape.
+		for _, cmd := range []string{"cat " + target, "less " + target} {
+			if d := classifyBash(cmd, bev); d.Bucket == BucketDeny || d.Bucket == BucketAsk {
+				t.Errorf("%s: %q must not deny/ask on the harness scratchpad; got %q (%s)",
+					label, cmd, d.Bucket, d.Reason)
+			}
+		}
+		// Bash writes: not a clean in-repo write the gate blesses on its own,
+		// but not an escape either — defer rather than deny.
+		for _, cmd := range []string{"tee " + target, "mkdir " + filepath.Dir(target), "touch " + target} {
+			if d := classifyBash(cmd, bev); d.Bucket == BucketDeny {
+				t.Errorf("%s: %q into the harness scratchpad must not DENY; got %q (%s)",
+					label, cmd, d.Bucket, d.Reason)
+			}
+		}
+	}
+
+	// A /tmp path OUTSIDE the claude-<uid>/ prefix still denies, and the deny
+	// now prescribes BOTH destinations plus the .git/ prohibition.
+	outside := "/tmp/loose-scratch-file.md"
+	outEv := &Event{
+		ToolName:  "Write",
+		CWD:       root,
+		AgentType: "issue-developer",
+		ToolInput: []byte(`{"file_path":"` + outside + `"}`),
+	}
+	outD := classifyFileTool(outEv)
+	wantBucket(t, outD, BucketDeny, "Write to a /tmp path outside the scratchpad prefix")
+	for _, want := range []string{".claude/tmp/", harnessScratchDisplay(), ".git/"} {
+		if !containsSubstr(outD.Reason, want) {
+			t.Errorf("#193: the /tmp escape deny must name %q; got %q", want, outD.Reason)
+		}
+	}
+	outBev := bashEvIn(t, root, "issue-developer")
+	wantBucket(t, classifyBash("cat "+outside, outBev), BucketDeny,
+		"bash read of a /tmp path outside the scratchpad prefix")
+
+	// ANOTHER uid's scratchpad prefix is not carved out — the carve-out is
+	// per-uid, derived from os.Getuid() at runtime.
+	otherUID := fmt.Sprintf("/tmp/claude-%d/%s", uid+1, rel)
+	for _, tool := range []string{"Read", "Write"} {
+		ev := &Event{
+			ToolName:  tool,
+			CWD:       root,
+			AgentType: "issue-developer",
+			ToolInput: []byte(`{"file_path":"` + otherUID + `"}`),
+		}
+		wantBucket(t, classifyFileTool(ev), BucketDeny, tool+" of another uid's scratchpad prefix")
+	}
+	otherBev := bashEvIn(t, root, "issue-developer")
+	wantBucket(t, classifyBash("cat "+otherUID, otherBev), BucketDeny,
+		"bash read of another uid's scratchpad prefix")
+
+	// The carve-out must not MASK an escape elsewhere in the same command: a
+	// copy out of the scratchpad into a sibling repo still earns the cross-repo
+	// deny for its destination.
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	src := fmt.Sprintf("/tmp/claude-%d/%s", uid, rel)
+	cpBev := bashEvIn(t, root, "issue-developer")
+	wantBucket(t, classifyBash("cp "+src+" "+filepath.Join(canonicalize(sibling), "stolen.md"), cpBev),
+		BucketDeny, "cp out of the scratchpad into a sibling repo")
+}
+
 // §10 + #125 (write half), broadened by #35 Fix 3: a direct file-tool
 // Write/Edit whose target resolves to ANYWHERE under .git/ is denied (the
 // Engine B half of the #125 write criterion, generalized to the whole .git/
@@ -381,6 +488,12 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 	if !containsSubstr(wd.Reason, ".git/") {
 		t.Errorf("#30: #148 Write deny must warn against .git/; got %q", wd.Reason)
 	}
+	// #193: prescribing ONLY the in-repo destination left a genuine cross-repo /
+	// cross-session handoff file with no legal landing spot, so the write denies
+	// now name the harness scratchpad as the second destination.
+	if !containsSubstr(wd.Reason, harnessScratchDisplay()) {
+		t.Errorf("#193: #148 Write deny must also name the harness scratchpad; got %q", wd.Reason)
+	}
 
 	// #148 cross-repo Read deny (a non-mutating tool) still forbids .git/ but
 	// does not prescribe .claude/tmp/ (the scratch hint is write-only).
@@ -394,6 +507,12 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 	wantBucket(t, rd, BucketDeny, "#148 cross-repo Read")
 	if !containsSubstr(rd.Reason, ".git/") {
 		t.Errorf("#30: #148 Read deny must forbid .git/ as a workaround; got %q", rd.Reason)
+	}
+	// #193: a read deny still prescribes no scratch destination (that hint is
+	// write-only), but it must point at the handoff location — the blocked read
+	// is often a session reaching for a file another session wrote.
+	if !containsSubstr(rd.Reason, harnessScratchDisplay()) {
+		t.Errorf("#193: #148 Read deny must name the harness scratchpad handoff location; got %q", rd.Reason)
 	}
 
 	// #127 worktree-escape Write deny steers scratch writes to the worktree's
