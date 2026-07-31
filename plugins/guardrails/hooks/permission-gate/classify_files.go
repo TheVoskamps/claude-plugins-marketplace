@@ -100,7 +100,7 @@ func classifyFileTool(ev *Event) Decision {
 					"dependency's published docs instead.%s",
 				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName)))
 		case claudeConfig, harnessScratch:
-			// Two carve-outs that both DEFER rather than deny, so the normal
+			// Carve-outs that DEFER rather than deny, so the normal
 			// settings.json pipeline governs them: the agent's own ~/.claude
 			// global config tree (#247 — required startup reading, allow-listed
 			// in settings.json), and the harness's per-session scratchpad under

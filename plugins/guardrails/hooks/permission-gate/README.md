@@ -8,8 +8,8 @@ provide (issue #247). It replaces the shell hooks
 
 ## What it does
 
-Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
-(uncertainty escalates to a human, never to allow):
+The gate's engines feed the allow/deny/ask (plus defer) decision,
+ask-defaulting (uncertainty escalates to a human, never to allow):
 
 - **Engine A — command classifier** (`engine_a_bash.go`,
   `classify_command.go`, `rules.go`, `readonly_util.go`,
@@ -403,7 +403,7 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
   can inject hooks or corrupt repo state just as a `.git/config` write
   rewrites identity). Reads of `.git/` files are not writes and are
-  unaffected. If you need a scratch file, write it under
+  unaffected. If you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   (#127, #148) are **prescriptive** (#30): a write/edit escape names
   `<repo-root>/.claude/tmp/` as the scratch destination and warns

@@ -97,8 +97,8 @@ only the in-repo destination left a genuine cross-repo handoff file
 with no legal landing spot at all, which is the same open-ended denial
 in a different disguise, so the denies now name **both** destinations
 and the read-side denies name the handoff location too. The same
-prescriptive remediation is emitted
-by the in-repo-write classifier (issue #32) when a file-mutating shell
+prescriptive remediation is emitted by the in-repo-write classifier
+(issue #32) when a file-mutating shell
 command (`cp`, `mv`, `mkdir`, `touch`, `sed -i`, `tee FILE`) targets a
 path that escapes the worktree (#127) or the repo (#148): the bash
 deny steers scratch writes here too. The policy itself is compiled
