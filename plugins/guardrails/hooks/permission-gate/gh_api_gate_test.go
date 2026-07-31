@@ -208,6 +208,49 @@ func TestGhAPIGraphQLAllowlistedMutationWithVariables_195(t *testing.T) {
 	}
 }
 
+// Fragment indirection may never reach the #195 ALLOW. topLevelSelectionFields
+// names the identifier that FOLLOWS a `...`, and the top-level walk discards
+// fragment-definition bodies, so a spread NAMED after an allow-listed mutation
+// would otherwise launder an arbitrary one: GitHub's mutation root type is
+// literally `Mutation`, so `fragment addSubIssue on Mutation { deleteIssue(…) }`
+// is a valid type condition that executes. Any fragment-bearing mutation
+// document therefore keeps its pre-#195 ASK.
+func TestGhAPIGraphQLFragmentBearingMutationAsks_195(t *testing.T) {
+	for _, cmd := range []string{
+		// The exploit: a spread named after an allow-listed field, whose
+		// definition calls an off-list one. Spread first...
+		`gh api graphql -f query='mutation { ...addSubIssue } fragment addSubIssue on Mutation { deleteIssue(input: {issueId: "I_x"}) { repository { id } } }'`,
+		// ...and fragment definition first (the walk is order-independent).
+		`gh api graphql -f query='fragment closeIssue on Mutation { deleteProjectV2(input: {projectId: "PVT_x"}) { clientMutationId } } mutation { ...closeIssue }'`,
+		// A named operation and variable definitions do not change it.
+		`gh api graphql -f query='mutation Meta($id: ID!) { ...setIssueFieldValue } fragment setIssueFieldValue on Mutation { deleteIssue(input: {issueId: $id}) { repository { id } } }'`,
+		// A genuine allow-listed field bundled with a laundering spread: the
+		// whole document is judged by its least provable part.
+		`gh api graphql -f query='mutation { closeIssue(input: {}) { issue { id } } ...reopenIssue } fragment reopenIssue on Mutation { deleteIssue(input: {}) { repository { id } } }'`,
+		// An inline fragment at the mutation root hides its fields from the
+		// scanner the same way.
+		`gh api graphql -f query='mutation { ... on Mutation { deleteIssue(input: {}) { repository { id } } } }'`,
+		// Conservative by design: even a benign fragment in an allow-listed
+		// mutation's PAYLOAD selection withholds the ALLOW. The gate does not
+		// resolve fragments, so it cannot tell this one from the exploits above;
+		// falling back to the pre-#195 ASK is the safe direction.
+		`gh api graphql -f query='mutation { addSubIssue(input: {}) { issue { ...F } } } fragment F on Issue { id }'`,
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "graphql fragment-bearing mutation: "+cmd)
+	}
+}
+
+// The sibling name-laundering shape, pinned so it cannot regress alongside the
+// fragment fix: an OPERATION named after an allow-listed field proves nothing
+// about the fields it selects, and the walk must judge the selection set.
+func TestGhAPIGraphQLAllowlistedOperationNameAsks_195(t *testing.T) {
+	d := classifyCmd(t, `gh api graphql -f query='mutation addSubIssue { deleteIssue(input: {}) { repository { id } } }'`, false)
+	wantBucket(t, d, BucketAsk, "operation named after an allow-listed field asks")
+	if !strings.Contains(d.Reason, "deleteIssue") {
+		t.Errorf("ASK reason must name the selected field deleteIssue, got: %q", d.Reason)
+	}
+}
+
 // Fail-closed graphql cases: a subscription is not a query (and names no
 // mutation field), a garbage / unbalanced document, and every non-literal query
 // source → DENY.

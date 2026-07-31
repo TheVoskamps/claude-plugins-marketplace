@@ -12,10 +12,11 @@ import (
 //
 //   - the GraphQL document scanner (Design A): a provably query-only document
 //     supplied literally via `-f query=…` / `--raw-field query=…` ALLOWs, as
-//     does a mutation document whose every top-level field is on the curated
-//     issue-metadata allowlist (#195, ghGraphQLMutationAllowlist); any other
-//     mutation-bearing document ASKs (naming the mutation fields); everything
-//     else (non-literal query source, unbalanced/garbage, subscription) DENYs.
+//     does a fragment-free mutation document whose every top-level field is on
+//     the curated issue-metadata allowlist (#195, ghGraphQLMutationAllowlist);
+//     any other mutation-bearing document ASKs (naming the mutation fields);
+//     everything else (non-literal query source, unbalanced/garbage,
+//     subscription) DENYs.
 //   - the REST GET-gate (Design B): a known-flag-only GET whose endpoint is on
 //     the path-prefix allowlist ALLOWs; an unknown flag or a non-matching
 //     endpoint ASKs; a `://`- or `..`-bearing endpoint DENYs.
@@ -328,6 +329,27 @@ type graphqlDocResult struct {
 	// a document bundling one with an allow-listed mutation must keep its
 	// pre-#195 verdict rather than riding the mutation's allowlist entry.
 	sawSubscription bool
+	// sawFragment is true when the document carries ANY fragment indirection: a
+	// `...` spread token (fragment spread or inline fragment) anywhere in the
+	// document, or a top-level `fragment` definition.
+	//
+	// It exists because mutationFields is NOT a faithful list of the root fields
+	// GitHub will execute once fragments are in play: topLevelSelectionFields
+	// names the identifier that FOLLOWS a `...`, and walkGraphQLTopLevel
+	// discards fragment-definition bodies entirely. So
+	// `mutation { ...addSubIssue } fragment addSubIssue on Mutation {
+	// deleteIssue(…) }` reports the field `addSubIssue` while GitHub executes
+	// `deleteIssue` (`__schema { mutationType { name } }` is literally
+	// `Mutation`, so `on Mutation` is a valid type condition and the shape does
+	// execute). That mislabel was harmless while EVERY mutation ASKed; the #195
+	// allowlist turns some mutations into an ALLOW, which would make the
+	// mislabel a laundering bypass. A fragment-bearing mutation document
+	// therefore may not ride the allowlist and keeps its pre-#195 ASK.
+	//
+	// The signal deliberately does not gate the #113 query-only ALLOW: a
+	// query-only document executes against the Query root type, so no fragment
+	// it spreads can reach a mutation field.
+	sawFragment bool
 }
 
 // scanGraphQLDoc conservatively classifies a GraphQL document extracted from
@@ -339,7 +361,11 @@ type graphqlDocResult struct {
 // residue, or unbalanced braces — fails closed (queryOnly=false).
 //
 // When a `mutation` operation is present, its top-level selection-set field
-// names are collected so the ASK reason can name them (e.g. `addSubIssue`).
+// names are collected so the ASK reason can name them (e.g. `addSubIssue`) and
+// so the #195 allowlist can judge them. Because those names are only as
+// faithful as the document is fragment-free, any fragment indirection in the
+// document also sets sawFragment (see that field, and
+// graphqlDocHasFragmentSpread below).
 //
 // Failing closed is the security-critical direction: the GraphQL spec requires
 // the `mutation` keyword at top level to write, and a defaulted/anonymous
@@ -350,7 +376,29 @@ func scanGraphQLDoc(doc string) graphqlDocResult {
 	if !ok {
 		return graphqlDocResult{} // unterminated string / block → fail closed
 	}
-	return walkGraphQLTopLevel(stripped)
+	res := walkGraphQLTopLevel(stripped)
+	// A spread can sit at any depth, inside any operation, so it is detected
+	// document-wide rather than by the top-level walk (which sets sawFragment
+	// for a `fragment` DEFINITION). Detecting it here also covers the shapes the
+	// walk fails closed on, which is harmless: those already DENY.
+	if graphqlDocHasFragmentSpread(stripped) {
+		res.sawFragment = true
+	}
+	return res
+}
+
+// graphqlDocHasFragmentSpread reports whether a string-and-comment-stripped
+// GraphQL document contains a `...` spread token — the sole syntax for both a
+// named fragment spread (`...Name`) and an inline fragment (`... on Type {…}`).
+// GraphQL spells the token as exactly three consecutive dots (it is a single
+// punctuator, so `. . .` is not a spread), which makes the substring test both
+// sufficient and exact.
+//
+// Callers use this only to REFUSE an ALLOW, so the one direction that could
+// matter — a false positive on a `...` that is not a spread — costs at most an
+// unnecessary ASK.
+func graphqlDocHasFragmentSpread(stripped string) bool {
+	return strings.Contains(stripped, "...")
 }
 
 // ghGraphQLMutationAllowlist is the curated set of top-level GraphQL mutation
@@ -396,6 +444,12 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 // its broadest operation. An empty list is NOT "all allowed" — it means no
 // mutation field was nameable, which is the fail-closed DENY path, not an
 // allowlist hit.
+//
+// This function judges only the names it is handed; it cannot tell whether
+// those names are the fields GitHub will actually execute. Callers MUST first
+// reject a document whose graphqlDocResult reports sawFragment or
+// sawSubscription — the names are trustworthy only for a fragment-free
+// mutation document.
 func allGraphQLMutationFieldsAllowed(fields []string) bool {
 	if len(fields) == 0 {
 		return false
@@ -481,6 +535,10 @@ func stripGraphQLStringsAndComments(doc string) (string, bool) {
 // definition. A `mutation …{…}` operation is recorded (its top-level fields
 // collected) but flips queryOnly to false. Anything else — a `subscription`,
 // an unrecognized leading keyword, or unbalanced braces — also fails closed.
+//
+// Fragment-definition bodies are discarded rather than resolved into the
+// operations that spread them, so a `fragment` sets sawFragment; scanGraphQLDoc
+// sets the same field for the `...` spread token itself.
 func walkGraphQLTopLevel(doc string) graphqlDocResult {
 	res := graphqlDocResult{queryOnly: true}
 	i := 0
@@ -538,6 +596,12 @@ func walkGraphQLTopLevel(doc string) graphqlDocResult {
 			// Fragment definition: `fragment Name on Type Directives? {…}`.
 			// Directives can themselves carry `(...)` arguments with default-value
 			// braces (`@dir(x: {a: 1})`), so use the same paren-aware skip.
+			//
+			// The body is deliberately DISCARDED — a definition executes nothing on
+			// its own — but that is exactly why it must be recorded: whatever it
+			// defines reaches the wire through a spread this walk cannot resolve,
+			// so a document containing one may not reach the #195 mutation ALLOW.
+			res.sawFragment = true
 			braceIdx := selectionSetBraceIndex(doc, after)
 			if braceIdx < 0 {
 				return graphqlDocResult{}
@@ -633,9 +697,20 @@ func extractBracedBlock(doc string, open int) (body string, next int, ok bool) {
 
 // topLevelSelectionFields returns the field names at the top level of a
 // selection-set body (the content between the outer braces), skipping nested
-// braces, arguments (…), and directives. Used to name the mutation fields in the
-// ASK reason (e.g. `addSubIssue`). A field is an identifier at brace depth 0 of
-// the body; an alias (`alias: field`) resolves to the field name after the ':'.
+// braces, arguments (…), and directives. It names the mutation fields in the
+// ASK reason (e.g. `addSubIssue`) and feeds the #195 allowlist decision. A
+// field is an identifier at brace depth 0 of the body; an alias
+// (`alias: field`) resolves to the field name after the ':'.
+//
+// LOSSY, and load-bearing since #195 — read this before trusting its output:
+// it is a token scanner, not a resolver. It reports the identifiers PRESENT in
+// the body, which equal the root fields GitHub executes only when the body is
+// fragment-free. Given `...addSubIssue` it reports `addSubIssue` — the fragment
+// NAME, not the fields that fragment's definition selects; given `... on
+// Mutation {…}` it reports `on` and `Mutation`. Anything deciding an ALLOW from
+// this list must therefore also require graphqlDocResult.sawFragment to be
+// false. Any future indirection added to GraphQL's grammar needs the same
+// treatment: a new signal on graphqlDocResult, not a new special case here.
 func topLevelSelectionFields(body string) []string {
 	var fields []string
 	i := 0

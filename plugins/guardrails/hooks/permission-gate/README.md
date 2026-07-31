@@ -257,9 +257,9 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   a document supplied literally via `-f query=…` / `--raw-field
   query=…` is scanned (string literals and `#` comments stripped) and,
   if every top-level construct is provably a `query`, the anonymous
-  `{…}` shorthand, or a `fragment`, it **allows**; a mutation document
-  whose **every** top-level mutation field is on the curated
-  issue-metadata allowlist (#195 — `setIssueFieldValue`,
+  `{…}` shorthand, or a `fragment`, it **allows**; a **fragment-free**
+  mutation document whose **every** top-level mutation field is on the
+  curated issue-metadata allowlist (#195 — `setIssueFieldValue`,
   `updateProjectV2ItemFieldValue`, `addProjectV2ItemById`,
   `updateIssueIssueType`, `addSubIssue`, `removeSubIssue`,
   `addBlockedBy`, `removeBlockedBy`, `closeIssue`, `reopenIssue`; the
@@ -270,7 +270,18 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   the reason (so the human sees `addSubIssue` vs `deleteIssue`), and a
   document bundling an allow-listed field with anything else — an
   off-list field or a subscription — asks too, because a
-  multi-operation document is judged by its broadest operation. Those
+  multi-operation document is judged by its broadest operation. The
+  fragment-free requirement is what keeps that judgement honest: the
+  scanner names the identifier that follows a `...` and never expands
+  the fragment's own body, so without it a spread named after an
+  allow-listed field would launder an arbitrary mutation past the
+  allowlist (`mutation { ...addSubIssue } fragment addSubIssue on
+  Mutation { deleteIssue(…) }` — GitHub's mutation root type is
+  literally `Mutation`, so that type condition executes). Any `...`
+  spread or `fragment` definition therefore withholds the #195 allow
+  and the document keeps its mutation **ask**, even when the fragment
+  is benign; the query-only allow above is unaffected, since a query
+  operation's fragments cannot reach a mutation field. Those
   allow-listed mutations address opaque node IDs, so (unlike the #163
   `-R` check) the gate cannot see which repo the target belongs to;
   accepted because the writes are recoverable, land on human-visible

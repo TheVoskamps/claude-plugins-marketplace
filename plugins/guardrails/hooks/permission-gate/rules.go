@@ -55,17 +55,18 @@ var gitReadOnlySubcommands = map[string]bool{
 //     shape the egress proxy genuinely owns) and an unclassifiable graphql
 //     document (approval cannot be informed) (see classifyGhAPI, #64/#113).
 //   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
-//     graphql mutation outside the curated allowlist (#113/#195), an unknown
-//     gh api flag, a non-allowlisted gh api REST endpoint (#113), or a gh api
-//     REST write — non-GET method, implicit-POST body flag, or method-override
-//     header (#162); a foreign-target enumerated write (#163); and any
-//     UNRECOGNIZED gh noun/verb (#163 fail-closed floor).
+//     graphql mutation outside the curated allowlist — or one whose document
+//     carries a fragment, whose names the scanner cannot trust (#113/#195); an
+//     unknown gh api flag, a non-allowlisted gh api REST endpoint (#113), or a
+//     gh api REST write — non-GET method, implicit-POST body flag, or
+//     method-override header (#162); a foreign-target enumerated write (#163);
+//     and any UNRECOGNIZED gh noun/verb (#163 fail-closed floor).
 //   - ALLOW: enumerated read-only verbs (isGhReadOnly) and enumerated
 //     recoverable own-repo write verbs (isGhRecoverableWrite: pr create/comment/
 //     merge/close, issue create/comment/close/edit, label, …); a provably
-//     query-only gh api graphql document, a gh api graphql document whose every
-//     mutation field is on ghGraphQLMutationAllowlist (#195), and an
-//     allow-listed gh api REST GET (#113).
+//     query-only gh api graphql document, a fragment-free gh api graphql
+//     document whose every mutation field is on ghGraphQLMutationAllowlist
+//     (#195), and an allow-listed gh api REST GET (#113).
 func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("gh", sc); hit {
@@ -480,10 +481,10 @@ func ghAPIGraphQLRedirectAsk() Decision {
 //     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no
 //     statically-present query → DENY (genuinely unclassifiable). A provably
 //     query-only document → ALLOW (subject to the redirect-to-file ASK); a
-//     mutation document whose every top-level field is on the curated
-//     issue-metadata allowlist (#195) → ALLOW (same redirect-to-file ASK); any
-//     other mutation-bearing document → ASK naming the mutation fields;
-//     anything else (subscription, garbage, unbalanced) → DENY.
+//     fragment-free mutation document whose every top-level field is on the
+//     curated issue-metadata allowlist (#195) → ALLOW (same redirect-to-file
+//     ASK); any other mutation-bearing document → ASK naming the mutation
+//     fields; anything else (subscription, garbage, unbalanced) → DENY.
 //   - REST endpoint (#113 Design B): a known-flag-only GET whose endpoint is on
 //     the path-prefix allowlist → ALLOW (subject to the redirect-to-file ASK); a
 //     `://`- or `..`-bearing endpoint → DENY; an unknown flag or a non-matching
@@ -661,8 +662,13 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 			// plugin's sanctioned, recoverable, human-visible writes, and the
 			// per-mutation prompt storm is what that issue exists to remove. A
 			// bundled subscription rides no allowlist entry, so its presence keeps
-			// the pre-#195 verdict.
-			if !res.sawSubscription && allGraphQLMutationFieldsAllowed(res.mutationFields) {
+			// the pre-#195 verdict; so does ANY fragment indirection, because the
+			// scanner names the fragment rather than the fields it expands to and
+			// a spread named after an allow-listed mutation would otherwise
+			// launder an arbitrary one (`mutation { ...addSubIssue } fragment
+			// addSubIssue on Mutation { deleteIssue(…) }`). Both signals only ever
+			// withhold the ALLOW: the document falls through to the ASK below.
+			if !res.sawSubscription && !res.sawFragment && allGraphQLMutationFieldsAllowed(res.mutationFields) {
 				if sc.hasRedirectToFile {
 					return ghAPIGraphQLRedirectAsk()
 				}
