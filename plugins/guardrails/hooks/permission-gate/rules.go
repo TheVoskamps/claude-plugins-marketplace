@@ -55,15 +55,18 @@ var gitReadOnlySubcommands = map[string]bool{
 //     shape the egress proxy genuinely owns) and an unclassifiable graphql
 //     document (approval cannot be informed) (see classifyGhAPI, #64/#113).
 //   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
-//     graphql mutation, an unknown gh api flag, a non-allowlisted gh api REST
-//     endpoint (#113), or a gh api REST write — non-GET method, implicit-POST
-//     body flag, or method-override header (#162); a foreign-target enumerated
-//     write (#163); and any UNRECOGNIZED gh noun/verb (#163 fail-closed floor).
+//     graphql mutation outside the curated allowlist — or one whose document
+//     carries a fragment, whose names the scanner cannot trust (#113/#195); an
+//     unknown gh api flag, a non-allowlisted gh api REST endpoint (#113), or a
+//     gh api REST write — non-GET method, implicit-POST body flag, or
+//     method-override header (#162); a foreign-target enumerated write (#163);
+//     and any UNRECOGNIZED gh noun/verb (#163 fail-closed floor).
 //   - ALLOW: enumerated read-only verbs (isGhReadOnly) and enumerated
 //     recoverable own-repo write verbs (isGhRecoverableWrite: pr create/comment/
 //     merge/close, issue create/comment/close/edit, label, …); a provably
-//     query-only gh api graphql document and an allow-listed gh api REST GET
-//     (#113).
+//     query-only gh api graphql document, a fragment-free gh api graphql
+//     document whose every mutation field is on ghGraphQLMutationAllowlist
+//     (#195), and an allow-listed gh api REST GET (#113).
 func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("gh", sc); hit {
@@ -447,6 +450,16 @@ func classifyghAPIDeny(reason string) Decision {
 	return deny("gh api deny (#64/#113)", reason)
 }
 
+// ghAPIGraphQLRedirectAsk is the redirect-to-file carve-out shared by both
+// `gh api graphql` ALLOW paths — the provably query-only document (#113) and
+// the allow-listed-mutations document (#195). Redirecting an allowed graphql
+// call's stdout/stderr into a real file turns a sanctioned read or metadata
+// write into an exfil channel, so it escalates to a human either way.
+func ghAPIGraphQLRedirectAsk() Decision {
+	return ask("gh api graphql redirect-to-file",
+		"'gh api graphql' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+}
+
 // classifyGhAPI gates `gh api` (#64 bypass gate 1). It walks the argv after
 // `api`, applies the --hostname DENY and the write ASK tiers first, then
 // branches on the endpoint:
@@ -468,8 +481,10 @@ func classifyghAPIDeny(reason string) Decision {
 //     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no
 //     statically-present query → DENY (genuinely unclassifiable). A provably
 //     query-only document → ALLOW (subject to the redirect-to-file ASK); a
-//     mutation-bearing document → ASK naming the mutation fields; anything else
-//     (subscription, garbage, unbalanced) → DENY.
+//     fragment-free mutation document whose every top-level field is on the
+//     curated issue-metadata allowlist (#195) → ALLOW (same redirect-to-file
+//     ASK); any other mutation-bearing document → ASK naming the mutation
+//     fields; anything else (subscription, garbage, unbalanced) → DENY.
 //   - REST endpoint (#113 Design B): a known-flag-only GET whose endpoint is on
 //     the path-prefix allowlist → ALLOW (subject to the redirect-to-file ASK); a
 //     `://`- or `..`-bearing endpoint → DENY; an unknown flag or a non-matching
@@ -637,12 +652,29 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 		res := scanGraphQLDoc(doc)
 		if res.queryOnly {
 			if sc.hasRedirectToFile {
-				return ask("gh api graphql redirect-to-file",
-					"'gh api graphql' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+				return ghAPIGraphQLRedirectAsk()
 			}
 			return allow("gh api graphql is a provably query-only (read) document")
 		}
 		if len(res.mutationFields) > 0 {
+			// #195: a document whose every top-level mutation field is on the
+			// curated issue-metadata allowlist ALLOWs — these are the issues
+			// plugin's sanctioned, recoverable, human-visible writes, and the
+			// per-mutation prompt storm is what that issue exists to remove. A
+			// bundled subscription rides no allowlist entry, so its presence keeps
+			// the pre-#195 verdict; so does ANY fragment indirection, because the
+			// scanner names the fragment rather than the fields it expands to and
+			// a spread named after an allow-listed mutation would otherwise
+			// launder an arbitrary one (`mutation { ...addSubIssue } fragment
+			// addSubIssue on Mutation { deleteIssue(…) }`). Both signals only ever
+			// withhold the ALLOW: the document falls through to the ASK below.
+			if !res.sawSubscription && !res.sawFragment && allGraphQLMutationFieldsAllowed(res.mutationFields) {
+				if sc.hasRedirectToFile {
+					return ghAPIGraphQLRedirectAsk()
+				}
+				return allow("gh api graphql carries only allow-listed issue-metadata mutations (" +
+					strings.Join(res.mutationFields, ", ") + ")")
+			}
 			return ask("gh api graphql mutation (#113)",
 				"'gh api graphql' carries a mutation operation ("+strings.Join(res.mutationFields, ", ")+"). "+
 					"Mutations write to GitHub; confirm this is intended.")

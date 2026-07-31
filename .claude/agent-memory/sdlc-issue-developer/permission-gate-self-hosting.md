@@ -35,6 +35,17 @@ and forget — it gates the very commands you use to build it.
   and REST asks. After [[gh-api-gate-113]] lands, query-only graphql
   and allow-listed REST GETs allow. Either way, plain `gh` subcommands
   (`gh issue view`, `gh pr create`, ...) are allowed.
+- A `for f in …; do …; done` loop (or any multi-construct one-liner)
+  containing a redirect → DENY with "this command is too complex to
+  verify that it stays inside the worktree; break it into plain,
+  separate commands". This bites exactly when probing the rebuilt
+  binary with several synthetic event JSONs: run one
+  `<binary> < <event>.json` per Bash call instead of looping. The
+  inline-env workaround is closed too — `PERMISSION_GATE_LOG=… <binary>`
+  and `env PERMISSION_GATE_LOG=… <binary>` are both the denied
+  inline-assignment form, so ASK/DENY probes append to the real
+  `~/.claude/logs/permission-gate.jsonl`. That is the log's normal
+  purpose; don't try to redirect it.
 
 Acceptance for permission-gate changes is verified by piping synthetic
 PreToolUse event JSON (`{"hook_event_name":"PreToolUse",
