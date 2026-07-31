@@ -1145,9 +1145,6 @@ tracker-metadata content are composed in steps 1-3 above):
 Never hand-edit this file — re-run `/repo-config`.
 ````
 
-The body is genericized: it does not reference any specific repo
-(such as `macos-setup`) by name.
-
 ### Verification
 
 After the `Write` call, re-read the file with `Read` and confirm:
