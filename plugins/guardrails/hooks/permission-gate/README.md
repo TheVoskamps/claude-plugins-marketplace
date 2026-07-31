@@ -30,7 +30,7 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   keeps escalating (fail-closed); a `VAR=x cmd` prefix sets env for
   that one command only and does not persist to later commands. A name
   absent from that in-script static-assignment map falls through to a
-  **closed allowlist of five process-environment-derived variables**
+  **closed allowlist of process-environment-derived variables**
   (#156) — `$HOME`, `$USER`, `$TMPDIR`, `$PWD`, `$OLDPWD` — each
   resolved from its own authoritative source rather than the gate's
   ambient process environment: `$HOME`/`$USER`/`$TMPDIR` from
@@ -39,7 +39,7 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   handling below already maintains — never from the hook's own process
   env, which holds the event's cwd and would be wrong after an
   in-script `cd`. An in-script static assignment always takes
-  precedence over these five when both apply (`HOME=/tmp cat
+  precedence over that allowlist when both apply (`HOME=/tmp cat
   "$HOME/x"` resolves to `/tmp`). Any other env var (`$FOO`, `$PATH`,
   …) stays unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
@@ -71,7 +71,7 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   `cd` left, not the event's cwd; before any `cd` in scope, `$OLDPWD` is
   untracked and fails closed. A sibling mechanism, the **command-substitution
   anchor allowlist** (#132), recognizes an assignment RHS that is EXACTLY one
-  of three command substitutions — `$(git rev-parse --show-toplevel)` (this
+  of the anchor command substitutions — `$(git rev-parse --show-toplevel)` (this
   worktree's root), `$(git rev-parse --git-common-dir)` (the shared git dir,
   which a later use still runs through the `.git/` deny), and `$(pwd)` /
   `` `pwd` `` (the cd-tracked running cwd, #129, not the event's raw cwd) —
@@ -174,7 +174,7 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   only the mutating form routes here.
 - **Dangerous git / gh / aws classifier** (`classify_command.go`,
   `rules.go`, #64, #163): the deny/ask half of the command classifier
-  for the three tools whose remote operations can damage or expose a
+  for the tools whose remote operations can damage or expose a
   remote GitHub repo (`git`/`gh`) or exfil credentials/data or mutate
   remote cloud state (`aws`). The classifiers **never defer** — every
   path resolves to allow/ask/deny. The tiering rests on the **#163 "two
@@ -223,7 +223,7 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   Bypass gates fire BEFORE per-command logic, since each reaches a
   dangerous outcome without the flag a naive policy keys on:
   (1) a **non-static argv** (command substitution, unresolved variable,
-  glob) on any of the three tools **denies** — the dynamic token can
+  glob) on any of those tools **denies** — the dynamic token can
   hide a dangerous op; (2) an **inline environment-assignment prefix**
   (`AWS_ENDPOINT_URL=…`, `GIT_SSH_COMMAND=…`, `GH_HOST=…`, `AWS_PAGER=…`,
   in both the bare `VAR=x cmd` and `env VAR=x cmd` forms) **denies** —
@@ -278,9 +278,9 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   subscription, unbalanced/garbage document, or a query supplied
   non-literally (`-F query=…`, which does `@file` expansion /
   coercion, or `--input`) **denies** as unclassifiable. On a REST
-  endpoint the gate runs a
-  path-prefix GET-gate (#113): a known-flag-only GET whose endpoint is
-  on the read allowlist (exact `rate_limit`/`meta`/`user`;
+  endpoint the gate runs a path-prefix GET-gate (#113): a
+  known-flag-only GET whose endpoint is on the read allowlist (exact
+  `rate_limit`/`meta`/`user`;
   segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a
   leading `/` and any `?query` suffix stripped first) **allows**; a
   `://`- or `..`-bearing endpoint **denies**; an unknown flag or a
