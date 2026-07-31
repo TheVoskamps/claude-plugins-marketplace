@@ -257,12 +257,28 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   a document supplied literally via `-f query=…` / `--raw-field
   query=…` is scanned (string literals and `#` comments stripped) and,
   if every top-level construct is provably a `query`, the anonymous
-  `{…}` shorthand, or a `fragment`, it **allows**; a mutation-bearing
-  document **asks** with the mutation field names in the reason (so the
-  human sees `addSubIssue` vs `deleteIssue`); a subscription,
-  unbalanced/garbage document, or a query supplied non-literally
-  (`-F query=…`, which does `@file` expansion / coercion, or `--input`)
-  **denies** as unclassifiable. On a REST endpoint the gate runs a
+  `{…}` shorthand, or a `fragment`, it **allows**; a mutation document
+  whose **every** top-level mutation field is on the curated
+  issue-metadata allowlist (#195 — `setIssueFieldValue`,
+  `updateProjectV2ItemFieldValue`, `addProjectV2ItemById`,
+  `updateIssueIssueType`, `addSubIssue`, `removeSubIssue`,
+  `addBlockedBy`, `removeBlockedBy`, `closeIssue`, `reopenIssue`; the
+  GraphQL spelling of the recoverable-write verbs `gh` already allows,
+  plus the issues plugin's metadata verbs) also **allows**, with
+  aliases resolved to the real field name first; any other
+  mutation-bearing document **asks** with the mutation field names in
+  the reason (so the human sees `addSubIssue` vs `deleteIssue`), and a
+  document bundling an allow-listed field with anything else — an
+  off-list field or a subscription — asks too, because a
+  multi-operation document is judged by its broadest operation. Those
+  allow-listed mutations address opaque node IDs, so (unlike the #163
+  `-R` check) the gate cannot see which repo the target belongs to;
+  accepted because the writes are recoverable, land on human-visible
+  surfaces, and need only write access the credential already holds. A
+  subscription, unbalanced/garbage document, or a query supplied
+  non-literally (`-F query=…`, which does `@file` expansion /
+  coercion, or `--input`) **denies** as unclassifiable. On a REST
+  endpoint the gate runs a
   path-prefix GET-gate (#113): a known-flag-only GET whose endpoint is
   on the read allowlist (exact `rate_limit`/`meta`/`user`;
   segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a

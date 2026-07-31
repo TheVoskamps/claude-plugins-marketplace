@@ -11,7 +11,9 @@ import (
 // classifyGhAPI in rules.go:
 //
 //   - the GraphQL document scanner (Design A): a provably query-only document
-//     supplied literally via `-f query=…` / `--raw-field query=…` ALLOWs; a
+//     supplied literally via `-f query=…` / `--raw-field query=…` ALLOWs, as
+//     does a mutation document whose every top-level field is on the curated
+//     issue-metadata allowlist (#195, ghGraphQLMutationAllowlist); any other
 //     mutation-bearing document ASKs (naming the mutation fields); everything
 //     else (non-literal query source, unbalanced/garbage, subscription) DENYs.
 //   - the REST GET-gate (Design B): a known-flag-only GET whose endpoint is on
@@ -319,6 +321,13 @@ type graphqlDocResult struct {
 	// `mutation` operation found, in source order (for the ASK reason). Non-nil
 	// and non-empty only when a mutation operation was found.
 	mutationFields []string
+	// sawSubscription is true when a top-level `subscription` operation was
+	// found. It is tracked separately from queryOnly because the mutation
+	// allowlist (#195) may only fire on a document whose every non-query
+	// operation is a mutation: a subscription names no allow-listable field, so
+	// a document bundling one with an allow-listed mutation must keep its
+	// pre-#195 verdict rather than riding the mutation's allowlist entry.
+	sawSubscription bool
 }
 
 // scanGraphQLDoc conservatively classifies a GraphQL document extracted from
@@ -342,6 +351,61 @@ func scanGraphQLDoc(doc string) graphqlDocResult {
 		return graphqlDocResult{} // unterminated string / block → fail closed
 	}
 	return walkGraphQLTopLevel(stripped)
+}
+
+// ghGraphQLMutationAllowlist is the curated set of top-level GraphQL mutation
+// FIELD names whose document ALLOWs (#195). The issues plugin's hot loop is
+// mutation-heavy — a single `/issue-create` or triage pass costs several
+// prompts under the plain "any mutation → ASK" rule of #113 — for operations
+// that are that plugin's sanctioned job.
+//
+// The principled basis is the GraphQL spelling of the verbs classifyGh already
+// ALLOWs as enumerated recoverable writes (ghRecoverableWriteVerbs), plus the
+// issues plugin's issue-metadata verbs: field/project/type/relationship sets
+// and close/reopen. `closeIssue`/`reopenIssue` mirror `gh issue close` /
+// `gh issue reopen`, which are already recoverable-write verbs.
+//
+// Recorded trade-off: these mutations address opaque node IDs, so — unlike the
+// #163 `-R`/`--repo` foreign-target check — the gate cannot see which repo the
+// target belongs to. Accepted because the writes are recoverable, land on
+// human-visible surfaces (issue threads, project boards), and require write
+// access the credential already holds. The config work (#66) later makes this
+// list repo-extendable via `repo-can-extend`.
+//
+// GraphQL names are case-sensitive, so lookups are exact-match by design.
+var ghGraphQLMutationAllowlist = map[string]bool{
+	"setIssueFieldValue":            true,
+	"updateProjectV2ItemFieldValue": true,
+	"addProjectV2ItemById":          true,
+	"updateIssueIssueType":          true,
+	"addSubIssue":                   true,
+	"removeSubIssue":                true,
+	"addBlockedBy":                  true,
+	"removeBlockedBy":               true,
+	"closeIssue":                    true,
+	"reopenIssue":                   true,
+}
+
+// allGraphQLMutationFieldsAllowed reports whether EVERY named top-level
+// mutation selection field is on ghGraphQLMutationAllowlist (#195). Aliases
+// already resolve to the real field name in topLevelSelectionFields, so an
+// aliased multi-operation document is judged on the fields it actually calls.
+//
+// All fields must pass: a document bundling an allow-listed field with
+// anything else still ASKs, because a multi-operation document is judged by
+// its broadest operation. An empty list is NOT "all allowed" — it means no
+// mutation field was nameable, which is the fail-closed DENY path, not an
+// allowlist hit.
+func allGraphQLMutationFieldsAllowed(fields []string) bool {
+	if len(fields) == 0 {
+		return false
+	}
+	for _, f := range fields {
+		if !ghGraphQLMutationAllowlist[f] {
+			return false
+		}
+	}
+	return true
 }
 
 // stripGraphQLStringsAndComments removes string literals and `#` comments from a
@@ -463,6 +527,7 @@ func walkGraphQLTopLevel(doc string) graphqlDocResult {
 			}
 			if kw == "subscription" {
 				res.queryOnly = false
+				res.sawSubscription = true
 			}
 			if kw == "mutation" {
 				res.queryOnly = false
