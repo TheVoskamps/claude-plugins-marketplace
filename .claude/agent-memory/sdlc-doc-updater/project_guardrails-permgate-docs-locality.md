@@ -60,6 +60,19 @@ deliberate and must stay, so re-read this entry before removing a hit
 that refers back to already-stated items instead of introducing a
 list.
 
+**The README's own opening line was a surviving defect (#193, PR
+#208):** "Two engines feed the allow/deny/ask (plus defer) decision…"
+sits immediately above the Engine A / Engine B bullet list — line 11,
+the first prose in the file, and it survived every earlier sweep
+because the `\b(two|three|…) [a-z-]+` grep hits it and the eye reads it
+as a definitional statement rather than a list intro. It is one
+(fixed to "The gate's engines feed…"). Treat a grep hit on line 11 as a
+real defect, not the recorded "the two owner-decision deviations"
+exception. Same class shows up in Go comments the developer writes for
+carve-out switch arms ("Two carve-outs that both DEFER…" above
+`case claudeConfig, harnessScratch:`); sweep the changed `.go` files'
+comments for it too, not just the Markdown.
+
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
 literalWord, varResolver) but did NOT touch the README, even though #156
