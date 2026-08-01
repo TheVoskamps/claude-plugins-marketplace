@@ -1,6 +1,6 @@
 ---
 name: lint-rule-can-be-inert-in-resolved-version
-description: A configured markdownlint rule can be inert in the version npx resolves (root MD060 raised nothing under markdownlint v0.41.1); a probe firing in NEITHER scope indicts the rule/version, not the config chain — prove chains with a parent-flip, and prove `extends` load-bearing by removing it against a distinctive parent setting
+description: A configured markdownlint rule can be inert — root MD060 raised nothing because `leading_and_trailing` is not in its option vocabulary at all; a probe firing in NEITHER scope indicts the rule/option, not the config chain — prove chains with a parent-flip, and prove `extends` load-bearing by removing it against a distinctive parent setting
 metadata:
   type: reference
 ---
@@ -10,10 +10,22 @@ Reviewing PR #211's nested `.claude/agent-memory/.markdownlint.jsonc`
 tracer was the root's pinned non-default
 `"MD060": { "style": "leading_and_trailing" }` — but a table probe
 violating that style raised no MD060 in *either* scope under
-markdownlint-cli2 v0.23.2 / markdownlint v0.41.1. A rule key in config
-does not mean the resolved tool version implements it; unknown keys
-are silently ignored. A tracer that fires in neither scope proves
-nothing about the chain and must be swapped, not interpreted.
+markdownlint-cli2 v0.23.2 / markdownlint v0.41.1. The cause was **not**
+version skew: MD060 is `table-column-style`, and its `style` accepts
+only `aligned`/`any`/`compact`/`tight`. `leading_and_trailing` belongs
+to MD055 `table-pipe-style` — so the pinned value was out of MD060's
+vocabulary, which silently disabled the rule outright rather than
+falling back to its default. A later round of the same PR corrected
+the key to `MD055`, at which point the probe fired in both scopes and
+became the propagation tracer this entry was hunting for.
+
+So a key that *looks* pinned can be inert for several reasons — a rule
+the resolved version does not implement, a wrong rule ID, or an
+out-of-vocabulary option value — and none of them warn. Check the
+rule's own `doc/mdNNN.md` at the resolved version's tag for its real
+name and option vocabulary before trusting it as a tracer. A tracer
+that fires in neither scope proves nothing about the chain and must be
+swapped, not interpreted.
 
 **How to apply:** two probes settle a nested-config review
 conclusively, and neither needs the happy path:
