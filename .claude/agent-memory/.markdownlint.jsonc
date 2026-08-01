@@ -2,8 +2,8 @@
   // Agent-memory markdownlint config. markdownlint-cli2 discovers
   // config per directory and the closest one wins outright, so this
   // extends the repo config rather than replacing it — every rule the
-  // root turns on stays live in this tree, minus the two below.
-  // Both reflect the agent-memory format contract, not error
+  // root turns on stays live in this tree, minus the carve-outs
+  // below. These reflect the agent-memory format contract, not error
   // suppression:
   //   - MD041: memory entries open with YAML frontmatter followed
   //     directly by prose. The contract defines no H1, so
