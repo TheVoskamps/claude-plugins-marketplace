@@ -28,9 +28,12 @@ it silently returns the other checkout's bytes. The refusal also costs a
 wasted round-trip on every slip, and the slip is easy to make even while
 knowing the rule: the worktree segment
 (`.claude/worktrees/agent-<id>/`) sits in the *middle* of a long path,
-so a path reconstructed from recall rather than copied drops it. The
-agent-memory tree is the most slip-prone destination, precisely because
-its path is long and familiar from other checkouts.
+so a path reconstructed from recall rather than copied drops it. Any
+`.claude/`-rooted destination is the most slip-prone — the agent-memory
+tree and the `.claude/tmp/<task-slug>/` scratch dir both — precisely
+because a path that already opens with `.claude/` *looks* worktree-local
+while still missing the `.claude/worktrees/agent-<id>/` prefix, and both
+are long and familiar from other checkouts.
 
 **How to apply:** the harness env block prints
 `Working directory: <worktree>`. Copy that worktree root verbatim and

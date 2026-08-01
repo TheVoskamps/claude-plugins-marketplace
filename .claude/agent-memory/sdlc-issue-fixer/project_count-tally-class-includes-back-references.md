@@ -17,6 +17,12 @@ failure shapes **both** fail it:" plus its trailing "In **either**
 case", so a later round had to name it again. The back-reference rots
 identically — add a third bullet and the prose is wrong.
 
+**Scope the grep to the whole PR, not the Markdown.** A later round of
+the same PR found the identical shape in a `.jsonc` comment ("minus the
+**two** below. / **Both** reflect …" above the list of disabled rules).
+§7 governs prose wherever it lives — config comments, code comments,
+the PR body — so sweep every file the PR touched, not just `*.md`.
+
 **How to apply:** after fixing any §7 instance,
 `grep -nE '\b(both|either|neither|two|three|four|all (three|four))\b'`
 the whole file and judge each hit. Legitimate survivors: a count that

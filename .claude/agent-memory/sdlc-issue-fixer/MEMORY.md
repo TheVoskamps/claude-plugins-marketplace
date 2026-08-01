@@ -29,3 +29,4 @@
 - [claude marketplace probe recipe](project_claude-marketplace-probe-recipe.md) — CLI rejects file:// and treats a local path as Directory (no git); roll a real clone back to an old SHA to exercise git; `marketplace update` exits 0 while doing nothing
 - [Worktree gate blocks compound bash](project_worktree-isolation-gate-blocks-compound-bash.md) — `$VAR`-path + redirect in one Bash call is refused as unverifiable even when in-bounds; build scratch files with Write, then run bare relative commands
 - [Prove a config extends-chain is live](project_prove-config-inheritance-chain-live.md) — cleared violations never prove `extends` resolved; flip a value in the PARENT to watch it propagate, and break the path to confirm it fails closed
+- [PR body is a swept surface](feedback_pr-body-is-a-swept-surface.md) — a fix round that changes a mechanism the PR body names must update its What changed / Decisions bullets that same round
