@@ -26,10 +26,6 @@
   — claude-vm feature work leaves the two config-WIZARD SKILL.md files stale;
   a wrong bake/boot placement there makes the wizard write a config that
   cannot launch; also check payload/README.md's helper-function list.
-- [scrubber lifecycle prose duplication](project_scrubber-lifecycle-prose-duplication.md)
-  — scrubber placement/frequency prose is paraphrased in every sdlc
-  agent's memory-capture step; grep plugins/sdlc/agents/ on any
-  scrubber-behavior PR, SKILL.md alone is never the whole change.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
