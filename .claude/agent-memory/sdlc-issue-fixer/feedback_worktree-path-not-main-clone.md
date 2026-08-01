@@ -27,3 +27,16 @@ values from that worktree root. If a Read's line count disagrees with
 worktree pwd), you are almost certainly reading the wrong clone — switch
 to the worktree-absolute path. See [[verify-territory-not-relay]] for the
 general map-vs-territory discipline this is an instance of.
+
+**Update (PR #211): writes now fail loudly, reads may not.** `Write`
+and `Edit` against a main-clone path are refused outright with "This
+agent is isolated in the worktree ... Edit the worktree copy of this
+file instead." So the stale-write hazard is now caught by the harness.
+Two things this does NOT solve: `Read` is still the silent-stale case
+above, and the refusal costs a wasted round-trip on every slip. The
+slip is easy to make even knowing the rule — I hit it twice in one run,
+once writing to my own agent-memory dir, because the memory path is
+long and the worktree segment (`.claude/worktrees/agent-<id>/`) sits in
+the *middle* of it, so a path reconstructed from memory rather than
+copied drops it. Copy the worktree root from the env block verbatim and
+append to it; never retype a long path from recall.
