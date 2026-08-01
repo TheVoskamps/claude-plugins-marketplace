@@ -1,0 +1,18 @@
+{
+  // Agent-memory markdownlint config. markdownlint-cli2 discovers
+  // config per directory and the closest one wins outright, so this
+  // extends the repo config rather than replacing it — every rule the
+  // root turns on stays live in this tree, minus the two below.
+  // Both reflect the agent-memory format contract, not error
+  // suppression:
+  //   - MD041: memory entries open with YAML frontmatter followed
+  //     directly by prose. The contract defines no H1, so
+  //     first-line-heading is undefined for this content.
+  //   - MD013: each MEMORY.md index carries exactly one line per
+  //     entry, and those lines cannot be wrapped without breaking the
+  //     one-line-per-entry format the index contract requires. The
+  //     entries live under the same agent-maintained contract.
+  "extends": "../../.markdownlint.jsonc",
+  "MD041": false,
+  "MD013": false
+}
