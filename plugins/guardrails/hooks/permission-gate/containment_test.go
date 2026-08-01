@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -742,6 +743,337 @@ func TestInputRedirectRecording_193(t *testing.T) {
 	}
 	if rw.hasRedirectToFile {
 		t.Error("#193: `<>` must not set the write veto, which would mask its read deny")
+	}
+}
+
+// compoundSpellings wraps one simple command in every compound construct whose
+// walk arm forwards the enclosing statement's redirects, with `redirect` (e.g.
+// "< src") attached to the COMPOUND rather than to the inner command. A redirect
+// written there applies, in bash, to every command inside — so each spelling must
+// earn the verdict the bare command earns with the same redirect.
+//
+// The scaffolding commands (`true`, `false`) are on the curated read-only track,
+// so they inherit the redirect and are graded by it too, exactly as bash grades
+// them; they never change the verdict away from the inner command's.
+//
+// The redirect is threaded through this helper rather than concatenated by the
+// caller because it does not always land last: on a backgrounded statement it
+// must precede the `&`, and `{ …; } & < f` would parse as two statements.
+func compoundSpellings(inner, redirect string) map[string]string {
+	return map[string]string{
+		"a block":              "{ " + inner + "; } " + redirect,
+		"a subshell":           "( " + inner + " ) " + redirect,
+		"an if/then":           "if true; then " + inner + "; fi " + redirect,
+		"an else branch":       "if false; then true; else " + inner + "; fi " + redirect,
+		"a for loop":           "for i in 1; do " + inner + "; done " + redirect,
+		"a while loop":         "while false; do " + inner + "; done " + redirect,
+		"a case arm":           "case x in x) " + inner + ";; esac " + redirect,
+		"a nested block":       "{ { " + inner + "; }; } " + redirect,
+		"a block in subshell":  "( { " + inner + "; } ) " + redirect,
+		"a backgrounded block": "{ " + inner + "; } " + redirect + " &",
+	}
+}
+
+// TestCompoundRedirectContained_193 pins the compound half of "every
+// input-redirect form carries the same verdict as its own operand form", and the
+// write half alongside it. Only the CallExpr arm of the walk consumed the
+// redirects it was handed; every compound arm recursed with the INNER statement's
+// redirects and discarded the enclosing statement's, so the redirect vanished
+// before any classifier saw it:
+//
+//	cat < /etc/passwd                     deny   (the simple form, graded)
+//	{ cat; } < /etc/passwd                ALLOW  (operand-less `cat` — a bypass)
+//	echo x > <out-of-repo>                defer
+//	{ echo x; } > <out-of-repo>           ALLOW  (bare `echo` — a WRITE bypass)
+//
+// The write row is the serious one: with the redirect dropped the line reduces to
+// a pure-output, non-path-bearing command that is allow-eligible on its own, and
+// an allow outranks settings.json — so the gate positively blessed an arbitrary
+// out-of-repo write it never saw.
+//
+// The equivalence assertions are the load-bearing ones: each compound spelling is
+// compared against the bare command carrying the same redirect, never against a
+// hardcoded bucket, so the two cannot drift whatever either verdict later becomes.
+func TestCompoundRedirectContained_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	uid := os.Getuid()
+	bev := bashEvIn(t, root, "issue-developer")
+
+	outOfRepo := filepath.Join(canonicalize(sibling), ".env")
+	sess := scratchTarget(uid, sessionSlug, sessionUUID, "scratchpad", "f")
+
+	// READ side. Each source is graded once in the bare form, then every compound
+	// spelling of the same read must land on that same bucket.
+	for label, src := range map[string]string{
+		"an out-of-repo source":         outOfRepo,
+		"an in-repo source":             "a.txt",
+		"a session scratchpad source":   sess,
+		"a /tmp source outside the uid": "/tmp/loose-compound-source.md",
+		"an unresolvable source":        "$UNRESOLVED_SOURCE",
+	} {
+		want := classifyBash("cat < "+src, bev)
+		for shape, spelling := range compoundSpellings("cat", "< "+src) {
+			got := classifyBash(spelling, bev)
+			if got.Bucket != want.Bucket {
+				t.Errorf("#193: %s in %s: %q must match the bare form %q; got %q vs %q (%s)",
+					label, shape, spelling, "cat < "+src, got.Bucket, want.Bucket, got.Reason)
+			}
+		}
+	}
+
+	// WRITE side.
+	for label, dst := range map[string]string{
+		"an out-of-repo destination":       outOfRepo,
+		"an in-repo destination":           "a.txt",
+		"a session scratchpad destination": sess,
+		"an unresolvable destination":      "$UNRESOLVED_DEST",
+	} {
+		want := classifyBash("echo x > "+dst, bev)
+		for shape, spelling := range compoundSpellings("echo x", "> "+dst) {
+			got := classifyBash(spelling, bev)
+			if got.Bucket != want.Bucket {
+				t.Errorf("#193: %s in %s: %q must match the bare form %q; got %q vs %q (%s)",
+					label, shape, spelling, "echo x > "+dst, got.Bucket, want.Bucket, got.Reason)
+			}
+		}
+	}
+
+	// The two headline rows asserted directly as well, so a future refactor that
+	// collapsed BOTH sides of an equivalence to `allow` would still fail here.
+	wantBucket(t, classifyBash("{ cat; } < "+outOfRepo, bev), BucketDeny,
+		"#193: a redirected read on a compound denies")
+	if d := classifyBash("{ echo x; } > "+outOfRepo, bev); d.Bucket == BucketAllow {
+		t.Errorf("#193: a redirected out-of-repo write on a compound must never ALLOW; got %q (%s)",
+			d.Bucket, d.Reason)
+	}
+	// …and the carve-out stays reachable through a compound, or the fix would
+	// have closed the hole by breaking the feature.
+	wantBucket(t, classifyBash("{ cat; } < "+sess, bev), BucketAllow,
+		"#193: a redirected scratchpad read on a compound allows")
+	wantBucket(t, classifyBash("{ echo x; } > "+sess, bev), BucketAllow,
+		"#193: a redirected scratchpad write on a compound allows")
+
+	// Nesting COMPOSES: bash performs both opens, so an inner redirect does not
+	// cancel an outer one and either escaping side denies on its own.
+	wantBucket(t, classifyBash("{ cat < "+outOfRepo+"; } < a.txt", bev), BucketDeny,
+		"#193: an inner escaping source still denies under an outer redirect")
+	wantBucket(t, classifyBash("{ cat < a.txt; } < "+outOfRepo, bev), BucketDeny,
+		"#193: an outer escaping source still denies over an inner redirect")
+
+	// A relative source on a compound resolves against the RUNNING cwd, exactly as
+	// a relative operand does — the cd tracking the same walk drives is unaffected.
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantBucket(t, classifyBash("cd sub && { cat; } < ../../sibling/.env", bev), BucketDeny,
+		"#193: a relative source on a compound resolves against the running cwd")
+
+	// Heredocs and herestrings are inline text, not file reads, on a compound too.
+	for _, cmd := range []string{"{ cat; } <<EOF\nhi\nEOF", "{ cat; } <<< hello", "{ cat; } < /dev/null"} {
+		wantBucket(t, classifyBash(cmd, bev), BucketAllow, "#193: not a file read: "+cmd)
+	}
+}
+
+// TestCompoundRedirectThreading_193 is the structural half: the verdicts above
+// could match by luck, so this asserts that the enclosing statement's redirects
+// actually REACH the inner commands, and that they reach the right ones.
+func TestCompoundRedirectThreading_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+
+	reduceAll := func(cmd string) []simpleCommand {
+		t.Helper()
+		cmds, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
+		if err != nil {
+			t.Fatalf("reduce %q: %v", cmd, err)
+		}
+		return cmds
+	}
+	sources := func(sc simpleCommand) []string { return sc.inputRedirectTargets }
+
+	// Negative control on the superseded shape: this is exactly what the walk
+	// produced before — one command, zero sources, nothing for containment to
+	// grade. If a future refactor drops the threading again, this is the assertion
+	// that catches it at the reduction level rather than via a verdict.
+	for shape, spelling := range compoundSpellings("cat", "< /etc/passwd") {
+		cmds := reduceAll(spelling)
+		if len(cmds) == 0 {
+			t.Fatalf("#193: %s reduced to no commands", shape)
+		}
+		for _, sc := range cmds {
+			if len(sources(sc)) != 1 || sources(sc)[0] != "/etc/passwd" {
+				t.Errorf("#193: %s: every command inside must inherit the source; %v got %v",
+					shape, sc.args, sources(sc))
+			}
+			if sc.hasRedirectToFile {
+				t.Errorf("#193: %s: an inherited INPUT redirect must not set the write flag", shape)
+			}
+		}
+	}
+
+	// An output redirect on a compound reaches the write side, not the read side.
+	for shape, spelling := range compoundSpellings("echo x", "> out.log") {
+		for _, sc := range reduceAll(spelling) {
+			if !sc.hasRedirectToFile || len(sc.redirectTargets) != 1 || sc.redirectTargets[0] != "out.log" {
+				t.Errorf("#193: %s: every command inside must inherit the destination; %v got %v/%v",
+					shape, sc.args, sc.hasRedirectToFile, sc.redirectTargets)
+			}
+			if len(sources(sc)) != 0 {
+				t.Errorf("#193: %s: an output redirect must not be recorded as a read source", shape)
+			}
+		}
+	}
+
+	// Nesting composes: the inner command sees BOTH files, because bash opens both.
+	inner := reduceAll("{ cat < inner.txt; } < outer.txt")
+	if len(inner) != 1 {
+		t.Fatalf("#193: expected one command; got %d", len(inner))
+	}
+	if got := sources(inner[0]); len(got) != 2 {
+		t.Errorf("#193: an inner redirect must not cancel the outer one; got %v", got)
+	}
+
+	// A command substitution does NOT inherit. Bash expands it during word
+	// expansion, BEFORE it applies the enclosing command's redirections, so the
+	// substituted command reads the shell's stdin — attributing the outer file to
+	// it would blame a read it never performs.
+	for _, sc := range reduceAll(`{ echo "$(cat)"; } < outer.txt`) {
+		if len(sc.args) > 0 && basename(sc.args[0]) == "cat" && len(sources(sc)) != 0 {
+			t.Errorf("#193: a command substitution must not inherit the enclosing redirect; got %v",
+				sources(sc))
+		}
+	}
+
+	// The cd side effect the same walk drives is unchanged: a `cd` inside a
+	// redirected block still moves the running cwd for the commands after it.
+	cds := reduceAll("{ cd sub && cat f; } < in.txt")
+	last := cds[len(cds)-1]
+	if last.cwd != filepath.Join(cwd, "sub") {
+		t.Errorf("#193: cd tracking must survive redirect threading; got cwd %q, want %q",
+			last.cwd, filepath.Join(cwd, "sub"))
+	}
+}
+
+// TestRedirectOnlyConstructGraded_193 covers the other half of the same class:
+// a statement whose redirects are attached to NO program at all. `[[ … ]]`,
+// `(( … ))`, `let`, `export A=1`, an empty `case`, a bare `A=1`, and a bare `> f`
+// each emit no command, so their redirects were graded nowhere — and a line that
+// pairs one with an ordinary allow-eligible command was therefore ALLOWed
+// outright while the shell performed the write:
+//
+//	[[ -f x ]] > <out-of-repo> && echo hi     ALLOW, and the file is created
+//
+// The gate now emits a synthetic redirect-only command for exactly these
+// statements, graded on the paths its redirects open. As everywhere else, the
+// assertion is equivalence with the operand-form spelling.
+func TestRedirectOnlyConstructGraded_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	uid := os.Getuid()
+	bev := bashEvIn(t, root, "issue-developer")
+
+	outOfRepo := filepath.Join(canonicalize(sibling), ".env")
+	sess := scratchTarget(uid, sessionSlug, sessionUUID, "scratchpad", "f")
+
+	// Every construct that runs no program. Each is paired with `&& echo hi` so a
+	// dropped redirect leaves a line that is otherwise a clean ALLOW — which is
+	// exactly the bypass, and without the pairing the line would defer anyway and
+	// the test would pass vacuously.
+	constructs := map[string]string{
+		"a bare redirect":     "",
+		"a test clause":       "[[ -f a ]]",
+		"an arithmetic":       "(( 1 + 1 ))",
+		"a let clause":        "let n=1+2",
+		"a declaration":       "export A=1",
+		"an empty case":       "case q in esac",
+		"a bare assignment":   "A=1",
+		"a redirect-only sub": "( [[ -f a ]] )",
+	}
+
+	for label, head := range constructs {
+		for _, tc := range []struct{ op, target, partner string }{
+			{">", outOfRepo, "echo x > " + outOfRepo},
+			{">", "a.txt", "echo x > a.txt"},
+			{">", sess, "echo x > " + sess},
+			{"<", outOfRepo, "cat < " + outOfRepo},
+			{"<", "a.txt", "cat < a.txt"},
+			{"<", sess, "cat < " + sess},
+		} {
+			cmd := strings.TrimSpace(head+" "+tc.op+" "+tc.target) + " && echo hi"
+			got := classifyBash(cmd, bev)
+			want := classifyBash(tc.partner, bev)
+			if got.Bucket != want.Bucket {
+				t.Errorf("#193: %s: %q must match its operand form %q; got %q vs %q (%s)",
+					label, cmd, tc.partner, got.Bucket, want.Bucket, got.Reason)
+			}
+		}
+		// The headline row, asserted directly: an out-of-repo WRITE through one of
+		// these constructs must never ride the companion command's allow.
+		cmd := strings.TrimSpace(head+" > "+outOfRepo) + " && echo hi"
+		if d := classifyBash(cmd, bev); d.Bucket == BucketAllow {
+			t.Errorf("#193: %s: %q must never ALLOW; got %s", label, cmd, d.Reason)
+		}
+	}
+
+	// Redirects that name no file must NOT cost the line a defer — the fallback
+	// fires only when there is something to grade.
+	for _, cmd := range []string{
+		"[[ -f a ]] > /dev/null && echo hi",
+		"[[ -f a ]] >&2 && echo hi",
+		"(( 1 + 1 )) < /dev/null && echo hi",
+		"[[ -f a ]] && echo hi",
+	} {
+		wantBucket(t, classifyBash(cmd, bev), BucketAllow, "#193: nothing to grade: "+cmd)
+	}
+
+	// Fail-closed on a target the gate cannot pin, matching the operand forms.
+	for _, pair := range [][2]string{
+		{"[[ -f a ]] < $UNRESOLVED && echo hi", "cat < $UNRESOLVED"},
+		{"[[ -f a ]] > $UNRESOLVED && echo hi", "echo x > $UNRESOLVED"},
+	} {
+		got, want := classifyBash(pair[0], bev), classifyBash(pair[1], bev)
+		if got.Bucket != want.Bucket {
+			t.Errorf("#193: %q must match %q; got %q vs %q", pair[0], pair[1], got.Bucket, want.Bucket)
+		}
+		if got.Bucket == BucketAllow {
+			t.Errorf("#193: %q must not ALLOW an unresolvable target", pair[0])
+		}
+	}
+
+	// Structural: the synthetic command is flagged, carries no real program, and
+	// records the paths it opens.
+	cmds, err := extractSimpleCommands(mustParse(t, "[[ -f a ]] > out.log < in.txt"), root,
+		defaultVarResolver(), nil)
+	if err != nil || len(cmds) != 1 {
+		t.Fatalf("#193: expected one synthetic command; got %d (%v)", len(cmds), err)
+	}
+	sc := cmds[0]
+	if !sc.redirectOnly {
+		t.Error("#193: a construct that runs no program must emit a redirect-only command")
+	}
+	if len(sc.args) != 1 || sc.args[0] != redirectOnlyProgram {
+		t.Errorf("#193: the synthetic command must carry only its display name; got %v", sc.args)
+	}
+	if len(sc.redirectTargets) != 1 || len(sc.inputRedirectTargets) != 1 {
+		t.Errorf("#193: both halves must be recorded; got %v / %v",
+			sc.redirectTargets, sc.inputRedirectTargets)
 	}
 }
 

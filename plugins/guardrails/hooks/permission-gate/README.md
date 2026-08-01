@@ -687,6 +687,45 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   built from an unresolved expansion fails closed on the existing
   dynamic-path `ask`.
 
+  **A redirect on a compound command is graded like one on a simple
+  command.** Redirects live on the enclosing `*syntax.Stmt`, and only
+  `walkCmd`'s `CallExpr` arm consumed the ones it was handed; every
+  compound arm recursed with the *inner* statement's redirects and
+  dropped the outer statement's. So `{ cat; } < /etc/passwd` reduced to
+  an operand-less `cat` and **allowed**, and `{ echo x; } > <out-of-repo>`
+  reduced to a bare, allow-eligible `echo` and **allowed** an arbitrary
+  out-of-repo write — a positive allow, which outranks `settings.json`.
+  Every compound arm (`Block`, `Subshell`, `IfClause` including its
+  `else`, `ForClause`, `WhileClause`, `CaseClause`, `FuncDecl`,
+  `TimeClause`, `CoprocClause`, `BinaryCmd`) now forwards the effective
+  redirect set to the statements it descends into, so the redirect
+  reaches every command inside — which is what bash does with it.
+  Nesting composes rather than shadowing: bash performs *both* opens, so
+  `{ cat < a; } < b` grades a and b. A command substitution deliberately
+  inherits **nothing**, because bash expands it before applying the
+  enclosing command's redirections, so its inner command reads the
+  shell's stdin, not the redirected file.
+
+  **Redirects with no command at all.** Some statements run no program
+  yet still perform their redirects: a bare `> f` (the truncate idiom,
+  which parses to a statement with no `Cmd`), `[[ … ]] > f`,
+  `(( … )) > f`, `let n=1 > f`, `export A=1 > f`, an empty
+  `case q in esac > f`, and a bare `A=1 > f`. None of them emitted a
+  command, so their paths were graded nowhere, and
+  `[[ -f x ]] > <out-of-repo> && echo hi` reduced to the lone
+  allow-eligible `echo hi` and **allowed** while the shell created the
+  file. Such a statement now emits a synthetic **redirect-only** command
+  (`simpleCommand.redirectOnly`), graded by `classifyRedirectOnly` on the
+  paths its redirects open — the redirect veto, then read containment,
+  then the unknown-expansion fallback, in the same order and through the
+  same helpers `classifyReadOnlyUtility` uses for a utility with no path
+  operands of its own. The result is the operand form's verdict in every
+  case: `> <out-of-repo>` defers like `echo x > <out-of-repo>`,
+  `> <scratchpad>/f` allows like `echo x > <scratchpad>/f`, and
+  `< /etc/passwd` denies like `cat < /etc/passwd`. A redirect that names
+  no file (`> /dev/null`, `>&2`, a heredoc) is not emitted at all, so it
+  costs the line nothing.
+
   **Gaps left in place deliberately.** Read containment reaches the two
   read tracks and the write track — and nothing else. It does not reach
   the credentialed-tool classifiers, which gate on `hasRedirectToFile`
