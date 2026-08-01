@@ -164,14 +164,12 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      own memory here. The commit message must obey the closing-keyword
      rule — never a closing keyword immediately before an issue
      reference.
-   - On the `/sdlc:orchestrate` path, `agent-memory-scrubber` runs
-     after you, as the last agent to touch the branch, and curates
-     this capture along with every other agent's in the same PR. If a
-     fix round or any other work lands after that pass, the scrubber
-     runs again — so your capture is covered whether or not the loop
-     ends with you. This does not hold when
-     `/sdlc:git-review-pr` spawns you standalone, outside that loop:
-     there is no scrubber run after you, and this capture sits
+   - `agent-memory-scrubber` owns curation of this capture, along with
+     every other agent's on the same PR — for when it runs, see the
+     `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
+     agent memory". That holds on the `/sdlc:orchestrate` path only.
+     When `/sdlc:git-review-pr` spawns you standalone, outside that
+     loop, there is no scrubber run after you, and this capture sits
      uncurated on the branch until something else curates it.
    - If `.claude/agent-memory/` has no changes, skip this step.
 

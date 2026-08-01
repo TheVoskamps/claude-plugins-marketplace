@@ -132,7 +132,7 @@ file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
 are file-sandboxed"). This is deliberate, not a gap: the orchestrator
 no longer does branch/PR mechanics itself — `issue-developer` now
 delegates those reads to `git-tools:git-branch-create` and
-`github-prs:pr-create` — so the orchestrator only ever needed two
+`github-prs:pr-create` — so the orchestrator only ever needed these
 things out of the old six-field contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
@@ -436,15 +436,26 @@ violation. The only wrong placement is spawning it *early*, while more
 branch work is still expected.
 
 To make last-ness a checked property rather than a coincidence, record
-the branch tip when the scrubber returns:
+the PR's head commit when the scrubber returns:
 
 ```bash
-git rev-parse origin/<branch-name>
+gh pr view <PR> --json headRefOid --jq .headRefOid
 ```
 
-Re-read that tip immediately before Phase 3's `/pr-ready` call. If it
-moved, re-spawn the scrubber and re-record before flipping the PR
-ready. Recording the tip (rather than the scrubber's own commit SHA)
+Re-read it the same way immediately before Phase 3's `/pr-ready` call.
+If it moved, re-spawn the scrubber and re-record before flipping the PR
+ready.
+
+Read the head through `gh` rather than `git rev-parse
+origin/<branch-name>`. The remote-tracking ref is this clone's cached
+copy of the branch and only moves when this clone fetches, so it
+catches every push made through the orchestrate flow and misses one
+made from another clone or the GitHub web UI — which is exactly the
+out-of-band work the check exists to notice. Asking the API is
+authoritative, and it needs no fetch, so it also never blocks on an
+SSH-credential prompt.
+
+Recording the PR head (rather than the scrubber's own commit SHA)
 keeps the check uniform across the runs where the scrubber correctly
 pushes nothing and reports "no agent memory to curate" or "no changes
 to curate".
@@ -532,12 +543,20 @@ orchestrator performs these transitions:
    by state, not just by prose. Do **not** call `/pr-ready` earlier in
    the loop.
 
-   Check the branch tip against the one you recorded when
-   `agent-memory-scrubber` returned (Phase 2, "Before `/pr-ready`:
-   curate the PR's agent memory") immediately before this call. If work
-   landed since — a late fix, an owner-directed revert, a rebase — the
-   curation is stale: re-spawn the scrubber and re-record the tip
-   first, rather than flipping the PR ready over a stale pass.
+   Immediately before this call, re-read the PR's live head and compare
+   it with the one you recorded when `agent-memory-scrubber` returned
+   (Phase 2, "Before `/pr-ready`: curate the PR's agent memory"):
+
+   ```bash
+   gh pr view <PR> --json headRefOid --jq .headRefOid
+   ```
+
+   Read it from the API, not from `origin/<branch-name>` — a
+   remote-tracking ref would miss a push made outside this flow. If the
+   head moved — a late fix, an owner-directed revert, a rebase, or
+   someone else's push — the curation is stale: re-spawn the scrubber
+   and re-record the head first, rather than flipping the PR ready over
+   a stale pass.
 
 2. **Set the issue to In Review:**
 
@@ -868,7 +887,7 @@ namespace.
 - **Updating title/body/labels/assignees** → `/issue-update <N>`
   instead of `gh issue edit`.
 
-Two carve-outs keep this rule from being over-broad:
+These carve-outs keep this rule from being over-broad:
 
 1. **Read-only planning `gh` / `git` stays.** `gh pr view`,
    `gh pr diff`, `git log`, `git diff`, and file reads have no
