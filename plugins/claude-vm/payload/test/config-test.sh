@@ -2255,6 +2255,27 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
     assert_eq "boot_plugin_phase: the add carries the configured url" "url" "missing"
   fi
 
+  # The registered-name check is LITERAL, not a regex built from the name.
+  # The name charset allows '.', which as a regex is "any character", so a
+  # configured 'foo.bar' must NOT be considered already-registered when the
+  # registry actually holds 'fooxbar' -- it must still be added.
+  : > "$CLAUDE_CALL_LOG"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-dot.tsv"
+  printf 'foo.bar\thttps://example.invalid/foo-bar.git\n' > "$PLUGIN_MARKETPLACES_TSV"
+  printf 'Configured marketplaces:\n\n  x fooxbar\n' > "$MP_LIST_FILE"
+  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: a '.' in the name is matched literally, not as a regex" \
+    "1" "$(grep -c 'marketplace add https://example.invalid/foo-bar.git' "$CLAUDE_CALL_LOG" || true)"
+  # ...and the exact same name IS recognized, so the literal check did not
+  # simply break the positive case.
+  : > "$CLAUDE_CALL_LOG"
+  printf 'Configured marketplaces:\n\n  x foo.bar\n' > "$MP_LIST_FILE"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: an exactly-matching dotted name is not re-added" \
+    "0" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp.tsv"
+
   # update_at_boot=true with an install list: marketplace update runs BEFORE
   # the install (so the install resolves against the refreshed marketplace),
   # and every installed ref is then updated (the baked-plugin freshness path).

@@ -409,7 +409,10 @@ lands in a sibling slice under #39. It resolves correctly through
     plugins: they are frozen at build time and the image-identity hash
     deliberately excludes marketplace HEAD, so a marketplace bump lands at
     the next boot with no rebuild. A failure warns loudly on the captured
-    console log and continues to claude.
+    console log and continues to claude. The guest image bakes `git`
+    unconditionally for this phase: the claude CLI shells out to **system
+    git** for every git-url marketplace operation, so without it the
+    add/update fails (fail-soft) and `update_at_boot` would be inert.
   - `.add_marketplace_uris_to_allowlist` (`auto` default | `always`) mirrors
     `add_apt_uris_to_allowlist`: under `auto`, marketplace hosts are added to
     the guest egress allowlist only when boot-side work will actually run (a

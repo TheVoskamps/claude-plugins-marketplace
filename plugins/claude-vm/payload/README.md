@@ -630,6 +630,16 @@ claude. The host delivers `plugin-marketplaces.tsv` + `plugin-install.list` on
 the same `runconfig` share as the apt manifest, for the same "no python3/jq in
 the guest" reason.
 
+The guest bakes **`git`** unconditionally for this phase, alongside `apt`
+(`Packages=` in `provisioners/podman-mkosi.sh`). The claude CLI does not bundle
+a git implementation — it *shells out to system git* for every git-url
+marketplace operation — so without it every `claude plugin marketplace
+add|update` fails with `Failed to clone marketplace repository: Command failed
+with ERR_STREAM_PREMATURE_CLOSE: git … clone --depth 1 …`, which (fail-soft)
+would leave `update_at_boot` permanently inert and any boot-added marketplace
+unreachable. Nothing else pulls git into the guest rootfs: mkosi installs
+packages from *outside* the image with the build container's own tooling.
+
 *Derived egress.* `add_marketplace_uris_to_allowlist` (`auto` default |
 `always`) mirrors `add_apt_uris_to_allowlist`. Under `auto` the marketplace
 hosts are added **iff** boot-side work will actually run: a nonempty

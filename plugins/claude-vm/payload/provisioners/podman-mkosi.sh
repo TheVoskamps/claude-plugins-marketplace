@@ -653,6 +653,26 @@ Packages=
     # it. The fail-soft failure policy (a failed apt-get warns and continues
     # to claude) is unchanged.
     apt
+    # git is what the claude CLI SHELLS OUT TO for every git-url marketplace
+    # operation, so the boot launcher's boot_plugin_phase (issue #107) needs
+    # it INSIDE the guest: 'claude plugin marketplace add' and 'claude plugin
+    # marketplace update' spawn a system git clone/fetch rather than using a
+    # bundled git implementation (a real clone leaves .git/hooks/*.sample
+    # behind, which a JS git never writes). Baked here UNCONDITIONALLY, on
+    # exactly the same reasoning as apt above: the image is built from OUTSIDE
+    # by mkosi's own (build-container) apt, and the build container installs
+    # its own git explicitly, so nothing pulls git into the guest rootfs on
+    # its own. Running the guest-platform claude binary in a git-less
+    # debian:trixie container reproduces the failure exactly -- "Failed to
+    # clone marketplace repository: Command failed with
+    # ERR_STREAM_PREMATURE_CLOSE: git ... clone --depth 1 ..." -- which would
+    # make claude.plugins.update_at_boot (default true) permanently inert and
+    # any boot-added marketplace unreachable. The security boundary for a
+    # hard-secure all-baked config (add_marketplace_uris_to_allowlist: auto,
+    # nothing to do at boot) is the egress allowlist leaving the marketplace
+    # hosts unreachable, NOT the absence of git. The fail-soft failure policy
+    # (a failed add/update warns and continues to claude) is unchanged.
+    git
 
 [Build]
 # Offline repart: build the disk without loopback devices so this runs in
@@ -1060,6 +1080,29 @@ if [ "${BAKE_PLUGINS_ACTIVE}" -eq 1 ]; then
     exit 1
   fi
 
+  # Is a marketplace with this NAME registered? The listing prints one indented
+  # "<glyph> <name>" line per marketplace, so the check is the name against each
+  # line's LAST whitespace-delimited field, compared LITERALLY. Deliberately not
+  # a grep -E pattern built from the name: grep would read the name as a
+  # REGEX, and a marketplace name may legitimately contain '.', which as a regex
+  # means "any character" -- a configured 'foo.bar' would then be accepted when
+  # the registry actually holds 'fooxbar'. read -a word-splits on IFS with no
+  # pathname expansion, so no metacharacter in the name or in the listing can
+  # change the match. Same helper shape as the guest boot launcher's
+  # plugin_marketplace_registered (build-guest-image.sh).
+  marketplace_registered() {
+    local want="\$1" line
+    local -a fields
+    while IFS= read -r line; do
+      read -r -a fields <<< "\$line"
+      [ "\${#fields[@]}" -gt 0 ] || continue
+      if [ "\${fields[\$((\${#fields[@]} - 1))]}" = "\$want" ]; then
+        return 0
+      fi
+    done < <("\$GUEST_CLAUDE" plugin marketplace list 2>/dev/null)
+    return 1
+  }
+
   # Marketplaces first: a plugin ref cannot resolve until its marketplace is
   # registered. name<TAB>url, in the canonical manifest's order.
   python3 -c '
@@ -1086,8 +1129,7 @@ for m in d.get("marketplaces",[]):
     # the url we passed. If it does not match the configured name, every
     # plugin-at-marketplace ref written against that name would fail to
     # resolve -- inside the image, where it is far more expensive to notice.
-    if ! "\$GUEST_CLAUDE" plugin marketplace list 2>/dev/null \\
-         | grep -qE "(^|[[:space:]])\${mp_name}[[:space:]]*\$"; then
+    if ! marketplace_registered "\$mp_name"; then
       echo "podman-mkosi(inner): added \$mp_url but no marketplace named '\$mp_name' is registered." >&2
       echo "podman-mkosi(inner): claude derives a marketplace's name from ITS OWN manifest; set" >&2
       echo "podman-mkosi(inner): claude.marketplaces[].name to that name so plugin refs resolve." >&2

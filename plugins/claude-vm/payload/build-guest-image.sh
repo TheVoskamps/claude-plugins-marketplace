@@ -947,14 +947,27 @@ PLUGIN_INSTALL_LIST="$RUNCONFIG_MNT/plugin-install.list"
 # Is a marketplace with this NAME already registered? Asks the CLI
 # (`claude plugin marketplace list`) rather than parsing the registry JSON --
 # the guest has no python3/jq, and the registry format is claude's to change.
-# The listing prints one indented "<glyph> <name>" line per marketplace, so an
-# anchored whole-field match on the name is the check. Names are validated
-# against a conservative charset first, so they cannot carry regex
-# metacharacters into the pattern.
+# The listing prints one indented "<glyph> <name>" line per marketplace, so the
+# check is the name against each line's LAST whitespace-delimited field.
+#
+# That comparison is LITERAL, deliberately not a `grep -E` pattern built from
+# the name: grep would read the name as a REGEX, and the marketplace-name
+# charset allows `.`, which as a regex means "any character" -- a configured
+# `foo.bar` would then be reported as already registered when the registry
+# actually holds `fooxbar`, and the boot phase would skip the add it needed to
+# make. `read -a` word-splits on IFS without pathname expansion, so no
+# metacharacter in the name or in the listing can change the match.
 plugin_marketplace_registered() {
-  local name="$1"
-  "$CLAUDE_BIN" plugin marketplace list 2>/dev/null \
-    | grep -qE "(^|[[:space:]])${name}[[:space:]]*$"
+  local name="$1" line
+  local -a fields
+  while IFS= read -r line; do
+    read -r -a fields <<< "$line"
+    [ "${#fields[@]}" -gt 0 ] || continue
+    if [ "${fields[$((${#fields[@]} - 1))]}" = "$name" ]; then
+      return 0
+    fi
+  done < <("$CLAUDE_BIN" plugin marketplace list 2>/dev/null)
+  return 1
 }
 
 boot_plugin_phase() {

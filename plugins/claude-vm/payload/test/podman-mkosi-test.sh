@@ -182,6 +182,17 @@ if [ -f "$MKOSI_CONF" ]; then
     "$MKOSI_CONF" "RootPassword=hashed:"
   assert_eq "RootPassword line appears exactly once" \
     "1" "$(grep -c '^RootPassword=hashed:$' "$MKOSI_CONF")"
+  # The two guest-side boot phases each need a binary that mkosi would
+  # otherwise never put in the rootfs (it installs baked packages from OUTSIDE
+  # the image with the build container's own tooling): boot_apt_phase needs
+  # apt-get, and boot_plugin_phase needs SYSTEM GIT, which the claude CLI
+  # shells out to for every git-url marketplace operation. Both are baked
+  # UNCONDITIONALLY, so assert them on this default (nothing configured) run:
+  # a git-less guest makes claude.plugins.update_at_boot permanently inert.
+  assert_eq "guest Packages= bakes apt unconditionally (boot_apt_phase)" \
+    "1" "$(grep -c '^ *apt$' "$MKOSI_CONF")"
+  assert_eq "guest Packages= bakes git unconditionally (boot_plugin_phase)" \
+    "1" "$(grep -c '^ *git$' "$MKOSI_CONF")"
 else
   FAIL=$((FAIL + 1))
   echo "FAIL - generated mkosi.conf not found at $MKOSI_CONF"
@@ -771,6 +782,14 @@ if [ -f "$CAPTURE_INNER" ]; then
   # them.
   assert_contains "plugins: a failed install fails the build" \
     "$CAPTURE_INNER" "Refusing to bake an image missing a"
+  # The registered-name check must compare LITERALLY, never build a grep
+  # pattern out of the configured name: a marketplace name may contain '.',
+  # which as a regex means "any character", so 'foo.bar' would be accepted
+  # against a registered 'fooxbar'.
+  assert_contains "plugins: registered-name check uses the literal helper" \
+    "$CAPTURE_INNER" 'marketplace_registered "$mp_name"'
+  assert_not_contains "plugins: registered-name check builds NO grep regex from the name" \
+    "$CAPTURE_INNER" 'grep -qE "(^|[[:space:]])${mp_name}'
 else
   FAIL=$((FAIL + 1)); echo "FAIL - plugins: build-in-container.sh not captured"
 fi
