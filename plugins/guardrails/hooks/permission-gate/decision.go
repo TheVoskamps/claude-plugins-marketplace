@@ -23,8 +23,8 @@ const (
 	// itself cannot write (the Engine A read track — a read-only git/gh/aws
 	// subcommand, a read-only utility invocation), or the target region is
 	// designated safe by construction (the current worktree for the
-	// in-repo-write classifier, #32; the harness's per-session scratchpad,
-	// #193).
+	// in-repo-write classifier, #32; the harness's per-session scratchpad, and
+	// — for a read only — its bundled-skills tree, #193).
 	//
 	// The earlier wording — "provably read-only / non-mutating operations" —
 	// is restated rather than dropped because the bucket still needs a bar,

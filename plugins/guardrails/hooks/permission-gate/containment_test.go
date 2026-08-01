@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"testing"
 )
@@ -263,8 +264,33 @@ func TestClaudeConfigCarveOut_247(t *testing.T) {
 const sessionUUID = "d7e3bba4-9f23-4713-913d-e0fa80c68cf6"
 
 // sessionSlug is a project-slug-shaped directory name: the session cwd with
-// every separator rewritten to "-", so it LEADS with "-".
+// every non-alphanumeric character rewritten to "-", so it LEADS with "-".
 const sessionSlug = "-Users-someone-Workspaces-permission-gate-fixture"
+
+// doubleDashSlug is a project slug for a cwd containing a HIDDEN directory.
+// The harness rewrites every non-alphanumeric character, so "/." becomes "--"
+// and runs of consecutive dashes are ordinary, not exotic: /Users/<u>/.claude
+// slugs to -Users-<u>--claude, which is a real session directory on the
+// author's machine with the standard scratchpad/ + tasks/ layout.
+//
+// An earlier revision of the #193 spec prescribed a single-dash-only pattern,
+// which this gate faithfully implemented and which silently excluded every
+// such session — reintroducing the very symptom #193 exists to fix. Every
+// assertion below that names this slug exists to keep that from regressing.
+const doubleDashSlug = "-Users-someone--claude"
+
+// tripleDashSlug covers a longer run (a hidden directory nested directly under
+// another separator-adjacent non-alphanumeric character), so the pattern is
+// pinned as "one or more dashes", not "one or two".
+const tripleDashSlug = "-Users-someone---hidden-config"
+
+// The bundled-skills tree the harness installs under the SAME per-uid prefix
+// as the session directories: bundled-skills/<version>/<32-lowercase-hex>/
+// <skill-name>/… . Values are the live ones observed on the author's machine.
+const (
+	bundledVersion = "2.1.220"
+	bundledHash    = "a8223552af6ad64b91742a43b735f04c"
+)
 
 // scratchTarget spells a path under the REAL <system-tmp>/claude-<uid> root.
 // Nothing is created there: the gate only stats paths, and canonicalize
@@ -315,34 +341,47 @@ func TestHarnessScratchSessionAllowed_193(t *testing.T) {
 	uid := os.Getuid()
 
 	canonRoot := harnessScratchRootResolver().root
-	for _, leaf := range []string{"scratchpad", "tasks"} {
-		rel := filepath.Join(sessionSlug, sessionUUID, leaf, "handoff.md")
-		spellings := map[string]string{
-			"literal /tmp":  scratchTarget(uid, rel),
-			"canonicalized": filepath.Join(canonRoot, rel),
-		}
-		for label, target := range spellings {
-			label = label + " " + leaf
-			for _, tool := range []string{"Read", "Write", "Edit"} {
-				d := fileToolBucket(t, tool, root, target)
-				wantBucket(t, d, BucketAllow, label+": "+tool+" of a session scratchpad file")
+	// Both session subdirectories, for a single-dash slug AND for slugs with
+	// RUNS of consecutive dashes. The doubled-dash case is the one that
+	// regressed once (an earlier spec revision pinned a single-dash-only
+	// pattern), so it is pinned end-to-end here, not only at the regexp level:
+	// every hidden-directory cwd on a real machine produces one.
+	slugs := map[string]string{
+		"single-dash slug": sessionSlug,
+		"doubled-dash slug (hidden directory in the cwd)": doubleDashSlug,
+		"tripled-dash slug": tripleDashSlug,
+	}
+	for slugLabel, slug := range slugs {
+		for _, leaf := range []string{"scratchpad", "tasks"} {
+			rel := filepath.Join(slug, sessionUUID, leaf, "handoff.md")
+			spellings := map[string]string{
+				"literal /tmp":  scratchTarget(uid, rel),
+				"canonicalized": filepath.Join(canonRoot, rel),
 			}
+			for label, target := range spellings {
+				label = slugLabel + " / " + label + " " + leaf
+				for _, tool := range []string{"Read", "Write", "Edit", "NotebookEdit"} {
+					d := fileToolBucket(t, tool, root, target)
+					wantBucket(t, d, BucketAllow, label+": "+tool+" of a session scratchpad file")
+				}
 
-			bev := bashEvIn(t, root, "issue-developer")
-			// Both bash read tracks: the read-only-utility one (cat) and
-			// classifyPathReader (less), whose contained terminal is a DEFER —
-			// a session-scratchpad operand promotes it to ALLOW.
-			for _, cmd := range []string{"cat " + target, "less " + target} {
-				wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+": "+cmd)
-			}
-			// Bash writes into a session directory ride the in-repo-write ALLOW.
-			for _, cmd := range []string{
-				"tee " + target,
-				"touch " + target,
-				"mkdir " + filepath.Join(filepath.Dir(target), "sub"),
-				"cp " + filepath.Join(root, "a.txt") + " " + target,
-			} {
-				wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+": "+cmd)
+				bev := bashEvIn(t, root, "issue-developer")
+				// Both bash read tracks: the read-only-utility one (cat) and
+				// classifyPathReader (less), whose contained terminal is a
+				// DEFER — a session-scratchpad operand promotes it to ALLOW.
+				for _, cmd := range []string{"cat " + target, "less " + target} {
+					wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+": "+cmd)
+				}
+				// Bash writes into a session directory ride the in-repo-write
+				// ALLOW.
+				for _, cmd := range []string{
+					"tee " + target,
+					"touch " + target,
+					"mkdir " + filepath.Join(filepath.Dir(target), "sub"),
+					"cp " + filepath.Join(root, "a.txt") + " " + target,
+				} {
+					wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+": "+cmd)
+				}
 			}
 		}
 	}
@@ -670,6 +709,17 @@ func TestHarnessSessionShape_193(t *testing.T) {
 		// nibble is deliberately not pinned, so a generator change cannot break
 		// the carve-out.
 		"-p/AAAAAAAA-BBBB-1111-2222-CCCCCCCCCCCC/tasks",
+		// RUNS of consecutive dashes in the project slug — produced by any
+		// hidden directory in the session cwd, and therefore ordinary. Both
+		// session subdirectories are pinned for each run length.
+		doubleDashSlug + "/" + sessionUUID + "/scratchpad/x.md",
+		doubleDashSlug + "/" + sessionUUID + "/tasks/x.json",
+		tripleDashSlug + "/" + sessionUUID + "/scratchpad/x.md",
+		tripleDashSlug + "/" + sessionUUID + "/tasks/x.json",
+		// A run at the very start (the cwd's leading "/" plus a leading dot).
+		"--claude/" + sessionUUID + "/scratchpad/x.md",
+		// A run in the MIDDLE of an otherwise ordinary slug.
+		"-Users-someone-Workspaces--config-macos-setup/" + sessionUUID + "/tasks",
 	}
 	for _, m := range matches {
 		if !harnessSessionShape.MatchString(m) {
@@ -690,6 +740,17 @@ func TestHarnessSessionShape_193(t *testing.T) {
 		"other/" + sessionSlug + "/" + sessionUUID + "/scratchpad/x",
 		// The pattern must never carry a platform-specific prefix.
 		"/tmp/claude-501/" + sessionSlug + "/" + sessionUUID + "/scratchpad/x",
+		// The `-+` widening must NOT have widened the CHARACTER CLASS. The
+		// harness's slug alphabet is exactly [A-Za-z0-9-]; anything the harness
+		// would itself have rewritten to a dash must still miss the shape.
+		"-Users-someone.claude/" + sessionUUID + "/scratchpad/x",
+		"-Users_someone/" + sessionUUID + "/scratchpad/x",
+		"-Users-some one/" + sessionUUID + "/scratchpad/x",
+		// A slug that is only dashes, or that ends in one: every dash run must
+		// be followed by at least one alphanumeric character.
+		"-/" + sessionUUID + "/scratchpad/x",
+		"---/" + sessionUUID + "/scratchpad/x",
+		"-Users-someone-/" + sessionUUID + "/scratchpad/x",
 	}
 	for _, m := range nonMatches {
 		if harnessSessionShape.MatchString(m) {
@@ -700,6 +761,329 @@ func TestHarnessSessionShape_193(t *testing.T) {
 		if containsSubstr(harnessSessionShape.String(), forbidden) {
 			t.Errorf("the session shape must not contain %q — it matches the remainder, not the full path; got %q",
 				forbidden, harnessSessionShape.String())
+		}
+	}
+
+	// Negative control for the regression this widening fixes. The superseded
+	// single-dash-only pattern is spelled out here and asserted to MISS the
+	// doubled-dash slug, so the test above cannot be satisfied by re-narrowing
+	// the shape: if someone reintroduces `(-[A-Za-z0-9]+)+`, the matches list
+	// fails AND this control documents exactly which pattern was wrong and why.
+	superseded := regexp.MustCompile(
+		`^(?:-[A-Za-z0-9]+)+/` +
+			`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/` +
+			`(?:scratchpad|tasks)(?:/|$)`)
+	for _, leaf := range []string{"scratchpad", "tasks"} {
+		rem := doubleDashSlug + "/" + sessionUUID + "/" + leaf + "/x.md"
+		if superseded.MatchString(rem) {
+			t.Fatalf("the superseded single-dash pattern was expected to MISS %q — this control is no longer "+
+				"testing anything; re-derive it from the pattern actually shipped", rem)
+		}
+		if !harnessSessionShape.MatchString(rem) {
+			t.Errorf("the shipped session shape must match the doubled-dash remainder %q that the superseded "+
+				"pattern missed", rem)
+		}
+	}
+}
+
+// #193: both shapes must match the LIVE harness layout on the machine running
+// the tests, not only the fixtures above.
+//
+// This exists because the first implementation round encoded an "observed
+// layout across 17 projects on two machines" claim from the issue and shipped a
+// pattern that missed every hidden-directory project slug — a claim that one
+// `ls` of the real prefix falsified. Fixtures can only ever restate the author's
+// belief about the layout; this walks the actual directories the harness
+// created. It SKIPS cleanly when the prefix is absent or empty (a fresh machine,
+// a Linux CI box), so it costs nothing where there is no ground truth to check.
+//
+// A failure here means the harness's real layout has drifted away from a shape
+// the gate blesses — which silently downgrades those paths from ALLOW to DEFER,
+// i.e. reintroduces #193 wherever settings.json still denies /tmp.
+func TestHarnessShapesMatchLiveLayout_193(t *testing.T) {
+	st := resolveHarnessScratchRoot()
+	if st.root == "" || st.defect != "" {
+		t.Skipf("no usable harness scratchpad root on this machine (%+v)", st)
+	}
+	entries, err := os.ReadDir(st.root)
+	if err != nil {
+		t.Skipf("harness scratchpad root %q is not readable: %v", st.root, err)
+	}
+
+	checkedSessions, checkedBundles := 0, 0
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if e.Name() == "bundled-skills" {
+			// bundled-skills/<version>/<32-hex>: assert every version/hash pair
+			// that actually exists matches the shape.
+			versions, verr := os.ReadDir(filepath.Join(st.root, e.Name()))
+			if verr != nil {
+				continue
+			}
+			for _, v := range versions {
+				hashes, herr := os.ReadDir(filepath.Join(st.root, e.Name(), v.Name()))
+				if herr != nil {
+					continue
+				}
+				for _, h := range hashes {
+					if !h.IsDir() {
+						continue
+					}
+					rem := e.Name() + "/" + v.Name() + "/" + h.Name()
+					if !harnessBundledSkillsShape.MatchString(rem) {
+						t.Errorf("#193: the LIVE bundled-skills directory %q does not match the shipped "+
+							"bundled-skills shape %q — reads of it degrade from ALLOW to DEFER",
+							rem, harnessBundledSkillsShape.String())
+					}
+					checkedBundles++
+				}
+			}
+			continue
+		}
+		// <project-slug>/<session-uuid>/{scratchpad,tasks}: assert every session
+		// subdirectory that actually exists matches the shape. Directories that
+		// do not carry a scratchpad/ or tasks/ child are not session
+		// directories and are skipped rather than asserted on.
+		sessions, serr := os.ReadDir(filepath.Join(st.root, e.Name()))
+		if serr != nil {
+			continue
+		}
+		for _, s := range sessions {
+			if !s.IsDir() {
+				continue
+			}
+			for _, leaf := range []string{"scratchpad", "tasks"} {
+				fi, ferr := os.Stat(filepath.Join(st.root, e.Name(), s.Name(), leaf))
+				if ferr != nil || !fi.IsDir() {
+					continue
+				}
+				rem := e.Name() + "/" + s.Name() + "/" + leaf
+				if !harnessSessionShape.MatchString(rem) {
+					t.Errorf("#193: the LIVE session directory %q does not match the shipped session shape "+
+						"%q — writes to it degrade from ALLOW to DEFER, which is this issue's original "+
+						"symptom wherever settings.json still denies /tmp",
+						rem, harnessSessionShape.String())
+				}
+				checkedSessions++
+			}
+		}
+	}
+	if checkedSessions == 0 && checkedBundles == 0 {
+		t.Skipf("harness scratchpad root %q holds no session or bundled-skills directories yet", st.root)
+	}
+	t.Logf("#193: checked %d live session subdirectories and %d live bundled-skills directories under %q",
+		checkedSessions, checkedBundles, st.root)
+}
+
+// #193: the bundled-skills shape — the OTHER remainder shape under the same
+// per-uid prefix, `bundled-skills/<version>/<32-lowercase-hex>/…`. Like the
+// session shape it is matched against the remainder only, so it stays platform-
+// independent by construction.
+func TestHarnessBundledSkillsShape_193(t *testing.T) {
+	base := "bundled-skills/" + bundledVersion + "/" + bundledHash
+	matches := []string{
+		// The hash directory ITSELF matches — the shape ends at (/|$) right
+		// after the 32-hex segment, so an `ls` of it is covered, not just files
+		// beneath it.
+		base,
+		base + "/",
+		base + "/claude-api",
+		base + "/claude-api/python/claude-api/SKILL.md",
+		// Any semver-shaped version, including multi-digit components.
+		"bundled-skills/10.20.30/" + bundledHash + "/x/SKILL.md",
+		"bundled-skills/0.0.1/" + bundledHash,
+	}
+	for _, m := range matches {
+		if !harnessBundledSkillsShape.MatchString(m) {
+			t.Errorf("remainder %q should match the bundled-skills shape", m)
+		}
+	}
+
+	nonMatches := []string{
+		"",
+		"bundled-skills",
+		"bundled-skills/",
+		// No version segment at all.
+		"bundled-skills/" + bundledHash + "/x",
+		// A non-semver version segment.
+		"bundled-skills/latest/" + bundledHash + "/x",
+		"bundled-skills/2.1/" + bundledHash + "/x",
+		"bundled-skills/v2.1.220/" + bundledHash + "/x",
+		// A channel-tagged version. Documented as a KNOWN miss: the evidence
+		// base is one version directory on one machine, and a miss costs a
+		// DEFER, never a denial.
+		"bundled-skills/2.1.220-beta.1/" + bundledHash + "/x",
+		// A version directory with no 32-hex child.
+		"bundled-skills/" + bundledVersion,
+		"bundled-skills/" + bundledVersion + "/",
+		"bundled-skills/" + bundledVersion + "/claude-api/SKILL.md",
+		// Hash of the wrong length, or upper-case (the harness emits lower).
+		"bundled-skills/" + bundledVersion + "/a8223552af6ad64b91742a43b735f04/x",
+		"bundled-skills/" + bundledVersion + "/a8223552af6ad64b91742a43b735f04cd/x",
+		"bundled-skills/" + bundledVersion + "/A8223552AF6AD64B91742A43B735F04C/x",
+		// Segment-boundary respected: a sibling directory whose name merely
+		// starts with "bundled-skills" must not match.
+		"bundled-skills-evil/" + bundledVersion + "/" + bundledHash + "/x",
+		// Not anchored to the start.
+		"other/" + base + "/x",
+		// A session-shaped remainder must not match this shape.
+		sessionSlug + "/" + sessionUUID + "/scratchpad/x.md",
+	}
+	for _, m := range nonMatches {
+		if harnessBundledSkillsShape.MatchString(m) {
+			t.Errorf("remainder %q should NOT match the bundled-skills shape", m)
+		}
+	}
+
+	// Same platform-independence invariant as the session shape, and the same
+	// prohibition on pinning the running Claude Code version: the pattern must
+	// carry no literal version.
+	for _, forbidden := range []string{"/tmp", "private", "claude-", bundledVersion} {
+		if containsSubstr(harnessBundledSkillsShape.String(), forbidden) {
+			t.Errorf("the bundled-skills shape must not contain %q; got %q",
+				forbidden, harnessBundledSkillsShape.String())
+		}
+	}
+}
+
+// #193 verdict-table rows 2 and 3: the bundled-skills tree is READ/WRITE-GRADED.
+// A read matching the shape is ALLOWed outright (the model legitimately reads
+// bundled skills, and a DEFER would still lose to a /tmp deny in settings.json);
+// a WRITE matching it DEFERS — the content is harness-installed, so the gate has
+// no positive grounds to bless a rewrite, but neither is it an escape to deny.
+//
+// The write case is asserted as EXACTLY BucketDefer — neither allow nor deny —
+// so a later refactor cannot quietly collapse it into the read row (an
+// allow-or-deny-agnostic assertion would pass under that collapse).
+func TestHarnessBundledSkillsReadAllowedWriteDefers_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	uid := os.Getuid()
+
+	canonRoot := harnessScratchRootResolver().root
+	rel := filepath.Join("bundled-skills", bundledVersion, bundledHash,
+		"claude-api", "python", "claude-api", "SKILL.md")
+	// The hash directory itself, which an `ls` targets.
+	hashDirRel := filepath.Join("bundled-skills", bundledVersion, bundledHash)
+
+	for label, mk := range map[string]func(string) string{
+		"literal /tmp":  func(r string) string { return scratchTarget(uid, r) },
+		"canonicalized": func(r string) string { return filepath.Join(canonRoot, r) },
+	} {
+		for _, target := range []string{mk(rel), mk(hashDirRel)} {
+			// Read class, file-tool track.
+			wantBucket(t, fileToolBucket(t, "Read", root, target), BucketAllow,
+				label+": Read of a bundled skill")
+
+			// Read class, both bash read tracks.
+			bev := bashEvIn(t, root, "issue-developer")
+			for _, cmd := range []string{"cat " + target, "less " + target, "head " + target} {
+				wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+": "+cmd)
+			}
+
+			// Write class, file-tool track → DEFER, explicitly.
+			for _, tool := range []string{"Write", "Edit", "MultiEdit", "NotebookEdit"} {
+				wantBucket(t, fileToolBucket(t, tool, root, target), BucketDefer,
+					label+": "+tool+" of a bundled skill must DEFER — neither allowed nor denied")
+			}
+
+			// Write class, bash track → DEFER, explicitly.
+			for _, cmd := range []string{
+				"tee " + target,
+				"touch " + target,
+				"cp " + filepath.Join(root, "a.txt") + " " + target,
+			} {
+				wantBucket(t, classifyBash(cmd, bev), BucketDefer,
+					label+": "+cmd+" must DEFER — neither allowed nor denied")
+			}
+		}
+	}
+
+	// Structural pin on the grading predicate itself. The end-to-end write
+	// assertions above land on DEFER, which is also the fallback bucket, so on
+	// their own they would survive a refactor that collapsed the write row into
+	// the read row somewhere else in the pipeline. This asserts the asymmetry at
+	// its single source, where a collapse cannot hide: bundled-skills is
+	// read-eligible and NOT write-eligible, while the session shape is eligible
+	// for both.
+	if !scratchAllowEligible(harnessScratchBundled, true) {
+		t.Error("#193: a READ of the bundled-skills tree must be allow-eligible")
+	}
+	if scratchAllowEligible(harnessScratchBundled, false) {
+		t.Error("#193: a WRITE to the bundled-skills tree must NOT be allow-eligible — it defers")
+	}
+	for _, readClass := range []bool{true, false} {
+		if !scratchAllowEligible(harnessScratchSession, readClass) {
+			t.Errorf("#193: the session scratchpad must be allow-eligible for both classes (readClass=%v)", readClass)
+		}
+		for _, res := range []containmentResult{contained, escapeRepo, escapeWorktree, claudeConfig,
+			harnessScratch, harnessScratchBadRoot} {
+			if scratchAllowEligible(res, readClass) {
+				t.Errorf("#193: containmentResult %d must not be allow-eligible (readClass=%v)", res, readClass)
+			}
+		}
+	}
+
+	// A mixed call cannot launder the read allow onto a write: a cp whose
+	// SOURCE is a bundled skill and whose destination is a sibling repo still
+	// earns the cross-repo deny.
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	cpBev := bashEvIn(t, root, "issue-developer")
+	wantBucket(t, classifyBash("cp "+scratchTarget(uid, rel)+" "+
+		filepath.Join(canonicalize(sibling), "stolen.md"), cpBev),
+		BucketDeny, "cp a bundled skill into a sibling repo")
+}
+
+// #193: a path under bundled-skills/ that does NOT match the shape defers for
+// BOTH read and write — it is inside the carved-out prefix, so it is never
+// denied, but it is not provably the bundled-skills tree either, so it is never
+// allowed. Pinned separately from the shape unit test because the read track's
+// terminal ALLOW is what a shape miss must fall short of.
+func TestHarnessBundledSkillsShapeMissDefers_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	uid := os.Getuid()
+
+	misses := map[string]string{
+		"non-semver version segment": scratchTarget(uid, "bundled-skills", "latest",
+			bundledHash, "claude-api", "SKILL.md"),
+		"channel-tagged version": scratchTarget(uid, "bundled-skills", "2.1.220-beta.1",
+			bundledHash, "claude-api", "SKILL.md"),
+		"version directory with no 32-hex child": scratchTarget(uid, "bundled-skills",
+			bundledVersion, "claude-api", "SKILL.md"),
+		"the bundled-skills root itself": scratchTarget(uid, "bundled-skills"),
+		"hash of the wrong length": scratchTarget(uid, "bundled-skills", bundledVersion,
+			"a8223552af6ad64b91742a43b735f04", "SKILL.md"),
+	}
+	for label, target := range misses {
+		for _, tool := range []string{"Read", "Write", "Edit", "NotebookEdit"} {
+			wantBucket(t, fileToolBucket(t, tool, root, target), BucketDefer, label+": "+tool)
+		}
+		bev := bashEvIn(t, root, "issue-developer")
+		// classifyPathReader's terminal is a DEFER, and the write track's
+		// carve-out arm is a DEFER, so both are asserted exactly.
+		for _, cmd := range []string{"less " + target, "tee " + target, "touch " + target} {
+			wantBucket(t, classifyBash(cmd, bev), BucketDefer, label+": "+cmd)
+		}
+		// `cat`/`head` run the read-only-UTILITY classifier, whose terminal for
+		// any contained-or-carved-out operand is an ALLOW — pre-existing #32
+		// behavior shared with the ~/.claude carve-out and with the rest of the
+		// scratchpad prefix, not something the bundled-skills shape decides. So
+		// the only claim the shape miss makes here is the one the verdict table
+		// makes: it is inside the prefix, therefore never denied and never
+		// escalated.
+		for _, cmd := range []string{"cat " + target, "head " + target} {
+			if d := classifyBash(cmd, bev); d.Bucket == BucketDeny || d.Bucket == BucketAsk {
+				t.Errorf("%s: %q is inside the scratchpad prefix and must not deny/ask; got %q (%s)",
+					label, cmd, d.Bucket, d.Reason)
+			}
 		}
 	}
 }

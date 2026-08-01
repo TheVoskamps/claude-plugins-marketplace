@@ -335,6 +335,18 @@ const (
 	// harness directs the model to this exact tree, and a defer would leave the
 	// feature dead until every /tmp entry is removed from settings.json.
 	harnessScratchSession
+	// harnessScratchBundled: target is under <system-tmp>/claude-<uid> AND the
+	// remainder matches the bundled-skills shape (#193). Unlike every other
+	// containmentResult this one is NOT a verdict on its own — it is
+	// read/write-GRADED by the caller, which already knows the call's class:
+	// a read is ALLOW (reading a bundled skill is exactly what that tree is
+	// for), a write is DEFER (the content is harness-installed and the model
+	// has no business rewriting it, but the classifier, not this gate, decides
+	// if some case ever needs to). The grading predicate is the one each caller
+	// already has — isMutatingFileTool on the file-tool track, operand position
+	// (containPathOperands vs. containWriteOperands) on the bash track — so no
+	// new classification concept is introduced here.
+	harnessScratchBundled
 	// harnessScratchBadRoot: the target resolves through a <system-tmp>/
 	// claude-<uid> root that is not a plain directory owned by this uid (it is
 	// a symlink, a non-directory, or another user's) → ASK, with a reason that
@@ -385,17 +397,62 @@ func harnessScratchDisplay() string {
 //
 // The observed harness layout (17 projects across two machines) is
 // <project-slug>/<session-uuid>/, with scratchpad/ and tasks/ as the only
-// session subdirectories. The project slug is the session cwd with every path
-// separator rewritten to "-", so it always LEADS with a "-".
+// session subdirectories.
+//
+// The project slug is the session's absolute cwd with EVERY non-alphanumeric
+// character rewritten to "-" (existing dashes preserved), so the slug alphabet
+// is [A-Za-z0-9-] and it always LEADS with a "-" (from the leading "/"). Runs
+// of consecutive dashes are NORMAL, not exotic: any hidden directory in the cwd
+// produces one, because both the separator and the leading dot become dashes —
+//
+//	/Users/<u>/.claude              -> -Users-<u>--claude
+//	/Users/<u>/.config/macos-setup  -> -Users-<u>--config-macos-setup
+//
+// both of which are real session directories with the standard scratchpad/
+// tasks layout. A pattern admitting only single dashes — `(-[A-Za-z0-9]+)+`,
+// which an earlier revision of the #193 spec prescribed and this code faithfully
+// implemented — silently excludes every such session and reintroduces the exact
+// symptom #193 exists to fix (in a settings.json-has-a-/tmp-deny environment,
+// the DEFER lands on that deny). Hence the `-+`. The widening stops there: the
+// character class stays [A-Za-z0-9] so the slug alphabet is exactly the one the
+// harness produces.
 //
 // <uuid> is the loose 8-4-4-4-12 hex shape; the v4 version nibble is
 // deliberately NOT pinned, so a generator change does not break the match. A
 // shape miss costs a DEFER, not a denial, which is what makes a pattern this
 // tight affordable.
 var harnessSessionShape = regexp.MustCompile(
-	`^(?:-[A-Za-z0-9]+)+/` +
+	`^(?:-+[A-Za-z0-9]+)+/` +
 		`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/` +
 		`(?:scratchpad|tasks)(?:/|$)`)
+
+// harnessBundledSkillsShape matches the OTHER remainder shape living under the
+// same <system-tmp>/claude-<uid> prefix: the harness-managed, non-session
+// bundled-skills tree,
+//
+//	bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...
+//
+// The model legitimately READS bundled skills from there, so a matching read is
+// ALLOWed; a matching WRITE is DEFERred (see harnessScratchBundled). The
+// grading is the caller's, not this pattern's.
+//
+// The version segment is SHAPE-checked (major.minor.patch) and deliberately NOT
+// pinned to the running Claude Code version: the hook event carries no version
+// field, so the only source would be CLAUDE_CODE_EXECPATH in the environment —
+// deriving a carve-out from an environment variable is the same defect that
+// rules out os.TempDir()/$TMPDIR for harnessScratchDir above. Shape-checking
+// also survives an upgrade, where the previous version's directory lingers
+// alongside the new one.
+//
+// The evidence base here is narrower than for the session shape: one version
+// directory, one hash directory, one machine. A channel-tagged version such as
+// `2.1.220-beta.1` would miss the shape — costing a read a DEFER, never a
+// denial, which is what keeps the strict shape affordable.
+//
+// The match ends at `(/|$)` right after the 32-hex segment, so an `ls` of the
+// hash directory itself is covered, not only files beneath it.
+var harnessBundledSkillsShape = regexp.MustCompile(
+	`^bundled-skills/[0-9]+\.[0-9]+\.[0-9]+/[0-9a-f]{32}(?:/|$)`)
 
 // harnessScratchRootState is the resolved state of the <system-tmp>/
 // claude-<uid> carve-out root.
@@ -569,10 +626,13 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// defer; the verdict is graded on where inside the prefix the target lands:
 	//
 	//	remainder matches the per-session shape → harnessScratchSession (ALLOW)
-	//	remainder does not match               → harnessScratch        (DEFER)
+	//	remainder matches bundled-skills        → harnessScratchBundled (read
+	//	                                          ALLOW / write DEFER — graded
+	//	                                          by the caller, see there)
+	//	remainder does not match                → harnessScratch        (DEFER)
 	//	the claude-<uid> root is not a plain,
-	//	  this-uid-owned directory             → harnessScratchBadRoot (ASK)
-	//	anything else under /tmp               → escapeRepo            (DENY)
+	//	  this-uid-owned directory              → harnessScratchBadRoot (ASK)
+	//	anything else under /tmp                → escapeRepo            (DENY)
 	//
 	// ALLOW rather than DEFER for the session shape is deliberate: writing to
 	// the scratchpad is precisely what we want to permit, and a defer would
@@ -594,8 +654,12 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 		if hs.defect != "" {
 			return harnessScratchBadRoot, real
 		}
-		if harnessSessionShape.MatchString(harnessScratchRemainder(real, hs.root)) {
+		rem := harnessScratchRemainder(real, hs.root)
+		if harnessSessionShape.MatchString(rem) {
 			return harnessScratchSession, real
+		}
+		if harnessBundledSkillsShape.MatchString(rem) {
+			return harnessScratchBundled, real
 		}
 		return harnessScratch, real
 	}

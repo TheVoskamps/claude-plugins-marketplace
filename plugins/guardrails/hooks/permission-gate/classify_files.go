@@ -23,12 +23,13 @@ import (
 // (the normal pipeline / settings.json denyRead etc. still apply).
 //
 // The one path to an outright ALLOW here is the #193 harness scratchpad
-// carve-out: when EVERY target of the call lands in a session-shaped
-// scratchpad directory, the call is allowed rather than deferred, because a
-// defer would still lose to a `/tmp` deny entry in settings.json. A call that
-// mixes a scratchpad target with any other kind falls back to the ordinary
-// defer, so the allow never rides along with a path the gate has not blessed
-// on its own terms.
+// carve-out: when EVERY target of the call lands in an allow-eligible region
+// of the harness prefix (a session-shaped scratchpad directory for any tool;
+// the bundled-skills tree for a READ — see scratchAllowEligible), the call is
+// allowed rather than deferred, because a defer would still lose to a `/tmp`
+// deny entry in settings.json. A call that mixes such a target with any other
+// kind falls back to the ordinary defer, so the allow never rides along with a
+// path the gate has not blessed on its own terms.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -51,11 +52,15 @@ func classifyFileTool(ev *Event) Decision {
 			ev.ToolName, err))
 	}
 
-	// allSession stays true only while EVERY target so far is a session-shaped
-	// harness scratchpad path (#193) — the sole ground for an outright ALLOW
-	// here. badRoot records a scratchpad-root ASK without short-circuiting the
-	// walk, so a genuine escape later in the same call still outranks it.
-	allSession := true
+	// allScratch stays true only while EVERY target so far is an allow-eligible
+	// harness-prefix path (#193) — the sole ground for an outright ALLOW here.
+	// Eligibility is read/write-graded for the bundled-skills tree, so the
+	// call's class is computed once here from isMutatingFileTool, the same
+	// predicate the .git/-tree rule below already uses. badRoot records a
+	// scratchpad-root ASK without short-circuiting the walk, so a genuine
+	// escape later in the same call still outranks it.
+	readClass := !isMutatingFileTool(ev.ToolName)
+	allScratch := true
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range paths {
@@ -78,8 +83,8 @@ func classifyFileTool(ev *Event) Decision {
 		}
 
 		res, real := testContainment(p, rc)
-		if res != harnessScratchSession {
-			allSession = false
+		if !scratchAllowEligible(res, readClass) {
+			allScratch = false
 		}
 		switch res {
 		case escapeWorktree:
@@ -127,13 +132,20 @@ func classifyFileTool(ev *Event) Decision {
 			// The harness's own per-session scratchpad directory (#193): a
 			// region designated safe by construction. Eligible for the ALLOW
 			// terminal below, which outranks a settings.json /tmp deny.
+		case harnessScratchBundled:
+			// The harness's bundled-skills tree (#193). A READ is eligible for
+			// the ALLOW terminal (scratchAllowEligible said so above); a WRITE
+			// already cleared allScratch, so it lands on the ordinary DEFER —
+			// the content is harness-installed and rewriting it is not this
+			// gate's to bless, but neither is it an escape to deny.
 		case claudeConfig, harnessScratch:
 			// Carve-outs that DEFER rather than deny, so the normal
 			// settings.json pipeline governs them: the agent's own ~/.claude
 			// global config tree (#247 — required startup reading, allow-listed
 			// in settings.json), and the part of the harness scratchpad prefix
-			// outside a session-shaped directory (#193 — in the right tree but
-			// not provably a session directory, so the gate has no opinion).
+			// matching neither the session nor the bundled-skills shape (#193 —
+			// in the right tree but not provably either, so the gate has no
+			// opinion).
 		case contained:
 			// ok; keep checking the remaining paths
 		}
@@ -141,10 +153,10 @@ func classifyFileTool(ev *Event) Decision {
 	if haveBadRoot {
 		return badRoot
 	}
-	if allSession {
+	if allScratch {
 		return allow(fmt.Sprintf(
-			"%s targets only the harness session scratchpad (%s/<project-slug>/<session-id>/{scratchpad,tasks}), "+
-				"a region designated safe by construction", ev.ToolName, harnessScratchDisplay()))
+			"%s targets only harness-owned regions under %s/ that are designated safe by construction (%s)",
+			ev.ToolName, harnessScratchDisplay(), eligibleScratchRegions(readClass)))
 	}
 	// All targets are inside this worktree — defer to the normal pipeline
 	// (settings.json denyRead, ask lists, etc. still apply).
@@ -210,8 +222,9 @@ func cdInvalidAsk(prog string, sc simpleCommand) (Decision, bool) {
 // ok=false means the returned Decision is TERMINAL — return it verbatim.
 // Usually that is a deny (#148 cross-repo, or #125 a .git/-tree read) or an
 // ask (no-repo-context fail-closed, or a defective scratchpad root, #193), but
-// it is also how the #193 session-scratchpad ALLOW is delivered: when every
-// operand lands in a session-shaped scratchpad directory, the read is allowed
+// it is also how the #193 scratchpad ALLOW is delivered: when every operand
+// lands in a read-eligible region of the harness prefix (a session-shaped
+// scratchpad directory, or the bundled-skills tree), the read is allowed
 // outright rather than left to the caller's terminal, because the DEFER
 // terminal would still lose to a `/tmp` deny entry in settings.json. A deny
 // found anywhere in the operand walk returns immediately and so always
@@ -246,16 +259,19 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 	if base == "" {
 		base = ev.CWD
 	}
-	// See the ok=false contract above: allSession drives the #193 terminal
+	// See the ok=false contract above: allScratch drives the #193 terminal
 	// ALLOW; badRoot is recorded rather than returned inline so a genuine
-	// escape later in the walk still outranks it.
-	allSession := true
+	// escape later in the walk still outranks it. Every operand reaching this
+	// function is a READ operand by construction (containWriteOperands is the
+	// write track), which is what makes the bundled-skills tree allow-eligible
+	// here and not there — hence the literal readClass=true.
+	allScratch := true
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range operands {
 		res, real := testContainmentFrom(p, base, rc)
-		if res != harnessScratchSession {
-			allSession = false
+		if !scratchAllowEligible(res, true) {
+			allScratch = false
 		}
 		switch res {
 		case escapeRepo:
@@ -284,26 +300,28 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			badRoot = harnessScratchBadRootAsk("bash-read:scratchpad-root (#193)",
 				fmt.Sprintf("'%s' operand '%s'", prog, p))
 			haveBadRoot = true
-		case harnessScratchSession:
-			// The harness's own per-session scratchpad directory (#193): a
-			// region designated safe by construction. Eligible for the terminal
-			// ALLOW below.
+		case harnessScratchSession, harnessScratchBundled:
+			// The harness's own per-session scratchpad directory and its
+			// bundled-skills tree (#193): regions designated safe by
+			// construction. Both are read-eligible for the terminal ALLOW
+			// below — this is the read track, and reading a bundled skill is
+			// exactly what that tree is provisioned for.
 		case claudeConfig, harnessScratch:
 			// The agent's own ~/.claude global config tree (#247 — required
 			// startup reading, allow-listed in settings.json) and the part of
-			// the harness scratchpad prefix outside a session-shaped directory
-			// (#193). Treat both as contained, leaving the caller's own
-			// terminal to govern.
+			// the harness scratchpad prefix matching neither the session nor
+			// the bundled-skills shape (#193). Treat both as contained, leaving
+			// the caller's own terminal to govern.
 		case contained:
 		}
 	}
 	if haveBadRoot {
 		return badRoot, false
 	}
-	if allSession {
+	if allScratch {
 		return allow(fmt.Sprintf(
-			"'%s' reads only the harness session scratchpad (%s/<project-slug>/<session-id>/{scratchpad,tasks}), "+
-				"a region designated safe by construction", prog, harnessScratchDisplay())), false
+			"'%s' reads only harness-owned regions under %s/ that are designated safe by construction (%s)",
+			prog, harnessScratchDisplay(), eligibleScratchRegions(true))), false
 	}
 	return Decision{}, true
 }
@@ -423,6 +441,51 @@ func handoffHint() string {
 		"A cross-repo or cross-session handoff file belongs under the harness scratchpad at %s/, "+
 			"which reads and writes are not blocked from.",
 		harnessScratchDisplay())
+}
+
+// scratchAllowEligible reports whether a #193 harness-prefix containmentResult
+// may ride the outright ALLOW terminal, given whether the call is read-class.
+// It is the single place the read/write grading of the carve-out lives, shared
+// by all three tracks (classifyFileTool, containPathOperands,
+// containWriteOperands) so they cannot drift apart:
+//
+//   - harnessScratchSession — always eligible. Writing to the session
+//     scratchpad is precisely the behavior the carve-out exists to permit.
+//   - harnessScratchBundled — eligible for a READ only. The bundled-skills
+//     tree is harness-installed content the model legitimately reads; a write
+//     there is not an escape to deny, but it is not something this gate has
+//     positive grounds to bless either, so it falls through to DEFER and the
+//     classifier decides.
+//
+// Everything else (including the non-shape-matching harnessScratch remainder)
+// is ineligible and defers.
+//
+// readClass is the caller's existing read/write predicate — isMutatingFileTool
+// on the file-tool track, operand position on the bash track (a
+// containPathOperands operand is read-class by construction, a
+// containWriteOperands one is not). No new classification concept is
+// introduced.
+func scratchAllowEligible(res containmentResult, readClass bool) bool {
+	switch res {
+	case harnessScratchSession:
+		return true
+	case harnessScratchBundled:
+		return readClass
+	default:
+		return false
+	}
+}
+
+// eligibleScratchRegions names, in the allow reason, exactly the #193 regions
+// that were eligible for THIS call's class — so a Write's reason does not
+// advertise the bundled-skills tree it could not have ridden. It is the prose
+// mirror of scratchAllowEligible and must be kept in step with it.
+func eligibleScratchRegions(readClass bool) string {
+	regions := "the session scratchpad, <project-slug>/<session-id>/{scratchpad,tasks}"
+	if readClass {
+		regions += ", or the bundled-skills tree"
+	}
+	return regions
 }
 
 // isMutatingFileTool reports whether the tool writes/edits files (as opposed to

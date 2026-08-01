@@ -165,7 +165,17 @@ func classifyBash(command string, ev *Event) Decision {
 		// wins only (§4 posture).
 		return deferToPipeline()
 	}
-	return allow("all command parts are provably read-only / non-mutating")
+	// Every part earned BucketAllow. The reason must state the bar that bucket
+	// actually holds (decision.go, BucketAllow) — POSITIVE GROUNDS, not
+	// "provably read-only / non-mutating". That older wording was falsified by
+	// the allow track's own write classifiers: `tee <scratchpad-file>` and an
+	// in-worktree `cp` both reach here with BucketAllow while plainly mutating,
+	// so the line claimed something the gate had not established. Restated
+	// rather than deleted, because a reason surfaced to the model should say
+	// why the call was blessed.
+	return allow("every command part has positive grounds to be safe: the operation itself cannot write, " +
+		"or its targets are confined to a region designated safe by construction (this worktree, or the " +
+		"harness scratchpad)")
 }
 
 // simpleCommand is a flattened view of one executed command: the program

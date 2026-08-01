@@ -454,7 +454,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   round-3 review and closed by threading the resolver's
   home-unresolvable signal through `testContainmentFrom` directly (see
   `canonicalizeFromResolver` in `engine_b_containment.go`). (5) a
-  target whose canonical path lands under the harness's per-session
+  target whose canonical path lands under the harness's per-uid
   scratchpad root, `<system-tmp>/claude-<uid>/`, is carved out of the
   `/tmp` deny (#193). The harness provisions that tree and actively
   directs the model to put temporary files there, so treating it as an
@@ -467,7 +467,9 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   | canonicalized target | verdict |
   | --- | --- |
   | under the prefix, remainder matches the session shape | `allow` |
-  | under the prefix, remainder does not match | `defer` |
+  | under the prefix, remainder matches the bundled-skills shape, call is **read-class** | `allow` |
+  | under the prefix, remainder matches the bundled-skills shape, call is **write-class** | `defer` |
+  | under the prefix, remainder matches neither shape | `defer` |
   | the `claude-<uid>` root is not a plain, this-uid-owned directory | `ask` |
   | anything else under `/tmp` | `deny`, as before |
 
@@ -482,13 +484,58 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   stripping the canonical root, never the full path, so the pattern is
   platform-independent by construction and contains neither `/tmp` nor
   `/private/tmp`:
-  `(-[A-Za-z0-9]+)+/<uuid>/(scratchpad|tasks)(/|$)`. `<uuid>` is the
+  `(-+[A-Za-z0-9]+)+/<uuid>/(scratchpad|tasks)(/|$)`. `<uuid>` is the
   loose `8-4-4-4-12` hex shape with the version nibble deliberately
   unpinned, so a generator change cannot break the match. A shape miss
   costs a `defer`, not a denial, which is what makes a pattern this
   tight affordable. The carve-out still covers the whole **per-uid
   prefix** rather than the current session's own subdirectory, because
   reading back what another session wrote is the point.
+
+  The `-+` in the project-slug part is load-bearing. The slug is the
+  session's absolute cwd with **every** non-alphanumeric character
+  rewritten to a dash, so any hidden directory in the path produces a
+  run of consecutive dashes — `/Users/<u>/.claude` slugs to
+  `-Users-<u>--claude`, and `/Users/<u>/.config/macos-setup` to
+  `-Users-<u>--config-macos-setup`, both ordinary session directories
+  with the standard `scratchpad`/`tasks` layout. The first
+  implementation round shipped a single-dash-only
+  `(-[A-Za-z0-9]+)+`, faithfully implementing an earlier revision of
+  #193's spec, and thereby excluded every such session — silently
+  reintroducing this issue's own symptom for them. The widening stops
+  at the quantifier: the character class stays `[A-Za-z0-9]`, which is
+  exactly the alphabet the harness emits.
+  `TestHarnessShapesMatchLiveLayout_193` walks the machine's real
+  prefix and asserts every existing session directory matches, so the
+  next such claim is checked against the filesystem rather than
+  against the issue body.
+
+  The **bundled-skills shape** covers the harness-managed, non-session
+  sibling living under the same prefix,
+  `bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...`. It is
+  the one carve-out whose verdict is **read/write-graded**: a read is
+  `allow` (reading a bundled skill is what the tree is for), a write is
+  `defer` (the content is harness-installed, so the gate has no
+  positive grounds to bless a rewrite — but neither is it an escape to
+  deny; the classifier decides). The grading uses the read/write
+  predicate each track already has — `isMutatingFileTool` on the
+  file-tool track, operand position (`containPathOperands` vs.
+  `containWriteOperands`) on the bash track — funnelled through the
+  single `scratchAllowEligible` helper so the three tracks cannot
+  drift. The match ends at `(/|$)` right after the 32-hex segment, so
+  an `ls` of the hash directory itself is covered, not only files
+  beneath it.
+
+  The version component is **shape**-checked (`major.minor.patch`) and
+  deliberately not pinned to the running Claude Code version: the hook
+  event carries no version field, so the only source would be
+  `CLAUDE_CODE_EXECPATH` in the environment — the same defect that
+  rules out `os.TempDir()`/`$TMPDIR` below. Shape-checking also
+  survives an upgrade, where the previous version's directory lingers
+  beside the new one. The evidence base here is narrower than for the
+  session shape (one version directory, one hash directory, one
+  machine), so a channel-tagged version such as `2.1.220-beta.1` is a
+  known miss — costing a read a `defer`, never a denial.
 
   `<uid>` comes from `os.Getuid()` at runtime — never hardcoded, never
   a `claude-*` glob, which would match another user's prefix
