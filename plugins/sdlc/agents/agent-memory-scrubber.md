@@ -58,7 +58,7 @@ You must be given:
 The issue number is not an input. You work from the branch's memory
 delta, not from what the issue asked for.
 
-If either input is missing, ask before proceeding.
+If any input is missing, ask before proceeding.
 
 Do not assume you inherit cwd, branch, or any other context from a
 parent agent. Each subagent starts fresh.
@@ -114,7 +114,7 @@ persist between Bash calls in a subagent context.
    either is a valid outcome, and you report it as such rather than
    manufacturing a commit.
 
-   This is a hard gate, not a formality. These failure shapes both
+   This is a hard gate, not a formality. These failure shapes each
    fail it:
 
    - If `HEAD` is ahead of `origin/<branch-name>`, the curation commit
@@ -126,7 +126,7 @@ persist between Bash calls in a subagent context.
      made, so the SHA comparison alone would misread this as "landed"
      and report the pre-existing tip as your own work.
 
-   In either case you must NOT report success, and you must NOT run
+   In each case you must NOT report success, and you must NOT run
    the end-of-run `git branch -D` cleanup below — deleting the branch
    at this point destroys the only copy of the curation (or, in the
    dirty-tree case, `git worktree remove` will refuse to run on a
