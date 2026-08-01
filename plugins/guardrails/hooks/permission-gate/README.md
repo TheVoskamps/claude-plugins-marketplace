@@ -700,6 +700,37 @@ Every ASK and DENY is appended to an evolution log
 `PERMISSION_GATE_LOG`) for promoting recurring ASKs into explicit
 rules.
 
+## Comments carry no issue references
+
+The Go comments in this package state their invariant **completely in
+place**. None of them points at an issue number, and
+`TestNoIssueRefsInComments` fails the build if one is reintroduced.
+
+The rule is that code must be authoritative and stand on its own. A
+comment reading "pre-existing #32 behavior" states no invariant: it
+makes the reader fetch a ticket to learn the rule, and the pointer that
+prompted this sweep was not even correct — it named the wrong issue.
+Provenance needs no help from the comment; `git blame` yields the line,
+the commit, the merge, the PR and the issue on demand, without every
+comment carrying a pointer that rots. Where a reference carried real
+reasoning, that reasoning was restated inline (or, when it is a design
+decision rather than a local invariant, recorded in this README)
+instead of being dropped with the number.
+
+Two surfaces are deliberately outside the rule, because neither is text
+a reader has to act on in place:
+
+- **Deny/ask labels** (the `Operation` field, e.g.
+  `bash-read:cross-repo (#148)`) keep their stable `(#N)` tag — they are
+  grep keys for the evolution log.
+- **Test failure messages** may name the issue whose acceptance
+  criterion the assertion pins.
+
+Agent-facing `Reason` text is covered by the older sibling guard,
+`trackerRefInReason` (`TestRemediationReasonsAreActionable_58`): an
+issue number tells a blocked agent nothing about what to do, so a
+Reason must be self-sufficiently actionable.
+
 ## Rules are compiled in
 
 Policy lives in the binary, not on disk — a security gate's rule set

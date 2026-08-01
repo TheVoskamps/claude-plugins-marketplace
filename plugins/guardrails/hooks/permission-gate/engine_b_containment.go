@@ -19,7 +19,7 @@ const gitRevParseTimeout = 5 * time.Second
 
 // repoContext is the resolved git context for the event's cwd. All paths are
 // already symlink-canonicalized (real-path) so containment comparisons are
-// not symlink-escapable (#12).
+// not symlink-escapable.
 type repoContext struct {
 	insideWorkTree bool
 	// topLevel is THIS working tree's root (correct for linked worktrees).
@@ -27,7 +27,7 @@ type repoContext struct {
 	topLevel string
 	// commonDir is the SHARED .git directory; used to detect targets that
 	// resolve into the primary clone / common dir rather than this worktree
-	// (the #127 discrimination).
+	// (the worktree-escape discrimination).
 	commonDir string
 	// primaryClone is the primary clone root derived from commonDir
 	// (commonDir is <primary-clone>/.git for a normal clone). Empty if it
@@ -78,13 +78,13 @@ func resolveRepoContext(eventCWD string) (*repoContext, error) {
 		common = filepath.Join(eventCWD, common)
 	}
 
-	// Canonicalize the git-derived roots (#12: canonicalize BOTH sides).
+	// Canonicalize the git-derived roots (canonicalize BOTH sides).
 	rc.topLevel = canonicalize(top)
 	if common != "" {
 		rc.commonDir = canonicalize(common)
 		// commonDir is typically <primary-clone>/.git; the primary clone is
 		// its parent. For a bare/linked layout this still yields the dir that
-		// owns the shared object store, which is what #127 guards against.
+		// owns the shared object store, which is what the worktree guard protects.
 		rc.primaryClone = canonicalize(filepath.Dir(rc.commonDir))
 	}
 	return rc, nil
@@ -138,8 +138,8 @@ func isAppManagedRepo(eventCWD string) bool {
 
 // sessionOriginRepo returns the `owner/repo` slug of the event repo's `origin`
 // remote, lowercased, or "" when it cannot be determined (no repo, no origin,
-// git failure, unparseable URL). It is used by the foreign-target write scoping
-// (#163): an otherwise-ALLOWed gh write aimed at a repo OTHER than this one is
+// git failure, unparseable URL). It is used by the foreign-target write
+// scoping: an otherwise-ALLOWed gh write aimed at a repo OTHER than this one is
 // an exfil-by-write channel (`gh issue comment -R attacker/repo …`) the egress
 // proxy cannot see, so it ASKs.
 //
@@ -148,7 +148,7 @@ func isAppManagedRepo(eventCWD string) bool {
 // write, and a git failure here is the same "git cannot answer" case
 // isAppManagedRepo already treats as non-blocking. The write still had to pass
 // the enumerated-recoverable-verb allowlist to reach the scoping check, so the
-// floor when origin is unknown is the pre-#163 behavior, not a silent bypass of
+// floor when origin is unknown is the prior behavior, not a silent bypass of
 // the deny tier.
 func sessionOriginRepo(eventCWD string) string {
 	if eventCWD == "" {
@@ -210,20 +210,20 @@ func parseOwnerRepoFromRemote(url string) string {
 // canonicalize resolves symlinks and `..` to an absolute real path. If the
 // path does not exist, it canonicalizes the longest existing ancestor and
 // re-appends the non-existent tail, so a not-yet-created file still resolves
-// through any symlinked ancestor (a one-sided canonicalization is defeatable
-// — #12). Returns a best-effort absolute path; never errors (the containment
-// comparison itself is the gate).
+// through any symlinked ancestor — a one-sided canonicalization is defeatable,
+// so both sides of every containment comparison are resolved. Returns a
+// best-effort absolute path; never errors (the comparison itself is the gate).
 //
 // A relative p is joined onto the HOOK PROCESS's own cwd via filepath.Abs.
 // Most callers have an explicit base directory to resolve against instead
 // (the event cwd, or — for a Bash command — the running cwd tracked through
-// any preceding `cd`, #129) and should call canonicalizeFrom instead.
+// any preceding `cd`) and should call canonicalizeFrom instead.
 func canonicalize(p string) string {
 	return canonicalizeFrom(p, "")
 }
 
 // canonicalizeFrom is canonicalize with an explicit base directory for the
-// relative-join step (#129). A relative p is joined onto base (via
+// relative-join step. A relative p is joined onto base (via
 // filepath.Join, so base need not itself be absolute — canonicalizeFrom
 // falls back to filepath.Abs's process-cwd behavior when base is empty).
 // This changes ONLY the base for the initial relative→absolute step; the
@@ -323,8 +323,8 @@ type containmentResult int
 
 const (
 	contained      containmentResult = iota // target is under this worktree → ok
-	escapeWorktree                          // target is in the primary clone / common dir (#127)
-	escapeRepo                              // target is outside the current repo entirely (#148)
+	escapeWorktree                          // target is in the primary clone / common dir
+	escapeRepo                              // target is outside the current repo entirely
 	// claudeConfig: target is under ~/.claude. NOT an escape — the caller falls
 	// through to its own terminal for a contained target, which is a DEFER (to
 	// the settings.json allow-list) on the file-tool and path-reader tracks and
@@ -337,14 +337,14 @@ const (
 	// write tracks, and the curated read-utility track's ordinary ALLOW.
 	harnessScratch
 	// harnessScratchSession: target is under <system-tmp>/claude-<uid> AND the
-	// remainder matches the per-session shape → ALLOW (#193) on every track,
+	// remainder matches the per-session shape → ALLOW on every track,
 	// reads and writes alike. This is the one carve-out verdict that outranks
 	// settings.json, which is deliberate: the harness directs the model to this
 	// exact tree, and a defer would leave the feature dead until every /tmp entry
 	// is removed from settings.json.
 	harnessScratchSession
 	// harnessScratchBundled: target is under <system-tmp>/claude-<uid> AND the
-	// remainder matches the bundled-skills shape (#193). Unlike every other
+	// remainder matches the bundled-skills shape. Unlike every other
 	// containmentResult this one is NOT a verdict on its own — it is
 	// read/write-GRADED by the caller, which already knows the call's class:
 	// a read is ALLOW (reading a bundled skill is exactly what that tree is
@@ -358,7 +358,7 @@ const (
 	// harnessScratchBadRoot: the target resolves through a <system-tmp>/
 	// claude-<uid> root that is not a plain directory owned by this uid (it is
 	// a symlink, a non-directory, or another user's) → ASK, with a reason that
-	// names the defect so the failure is not mistaken for the #193 bug
+	// names the defect so the failure is not mistaken for the containment bug
 	// reappearing.
 	harnessScratchBadRoot
 )
@@ -418,9 +418,9 @@ func harnessScratchDisplay() string {
 //
 // both of which are real session directories with the standard scratchpad/
 // tasks layout. A pattern admitting only single dashes — `(-[A-Za-z0-9]+)+`,
-// which an earlier revision of the #193 spec prescribed and this code faithfully
+// which an earlier revision of the carve-out spec prescribed and this code faithfully
 // implemented — silently excludes every such session and reintroduces the exact
-// symptom #193 exists to fix (in a settings.json-has-a-/tmp-deny environment,
+// symptom the carve-out exists to fix (in a settings.json-has-a-/tmp-deny environment,
 // the DEFER lands on that deny). Hence the `-+`. The widening stops there: the
 // character class stays [A-Za-z0-9] so the slug alphabet is exactly the one the
 // harness produces.
@@ -460,7 +460,7 @@ var harnessSessionShape = regexp.MustCompile(
 // The match ends at `(/|$)` right after the 32-hex segment, so an `ls` of the
 // hash directory itself is covered, not only files beneath it. That example is
 // load-bearing in both directions: `ls` reaches an ALLOW only because it is in
-// readOnlyUtilities (it was not, until #193 round 3 — which is how this comment
+// readOnlyUtilities (it was not, at first — which is how this comment
 // was caught claiming something the gate did not do). Removing `ls` from that
 // table falsifies this sentence again.
 var harnessBundledSkillsShape = regexp.MustCompile(
@@ -577,19 +577,19 @@ func harnessScratchRemainder(real, root string) string {
 }
 
 // testContainment canonicalizes the target and tests it against the resolved
-// worktree root. The target is canonicalized BEFORE comparison (#12, both
+// worktree root. The target is canonicalized BEFORE comparison (both
 // sides). Returns one of the containmentResult values.
 //
 // testContainment resolves a relative target against the process/event cwd
 // (via canonicalize). Use testContainmentFrom when the caller has tracked a
-// different base cwd for this specific target (#129 — a Bash command whose
+// different base cwd for this specific target (a Bash command whose
 // relative operand must resolve against a preceding `cd`, not ev.CWD).
 func testContainment(target string, rc *repoContext) (containmentResult, string) {
 	return testContainmentFrom(target, "", rc)
 }
 
 // testContainmentFrom is testContainment with an explicit base directory for
-// the relative-join step (#129). An empty base preserves testContainment's
+// the relative-join step. An empty base preserves testContainment's
 // existing behavior (process/event cwd).
 //
 // It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
@@ -614,21 +614,21 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	if pathUnder(real, rc.topLevel) {
 		return contained, real
 	}
-	// Carve-out (#247): the agent's own global config tree (~/.claude/CLAUDE.md,
+	// Carve-out: the agent's own global config tree (~/.claude/CLAUDE.md,
 	// ~/.claude/rules/**, etc.) lives outside every repo, yet every subagent and
 	// the main session is REQUIRED to read it at startup and settings.json
 	// allow-lists exactly those reads. A hard cross-repo deny here would override
 	// that allow-list and break the /issue-address workflow this repo depends on.
 	// So a target whose canonical path lands under the real ~/.claude is reported
 	// as claudeConfig → the caller DEFERS, letting the normal settings.json
-	// allow-list govern it. The #148 protection for genuine sibling repos is
+	// allow-list govern it. The protection for genuine sibling repos is
 	// unaffected (this is checked BEFORE the escapeRepo classification, and only
 	// matches the ~/.claude subtree). Both sides are canonicalized so the
 	// carve-out cannot be symlink-escaped.
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
 		return claudeConfig, real
 	}
-	// Carve-out (#193), a cousin of the ~/.claude one above: the harness
+	// Carve-out, a cousin of the ~/.claude one above: the harness
 	// provisions a per-session scratchpad under <system-tmp>/claude-<uid>/ and
 	// actively instructs the model to put temporary files there. Treating that
 	// tree as an ordinary /tmp escape made the gate fight the harness — a hook
@@ -683,7 +683,7 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 		return harnessScratch, real
 	}
 	// Not under this worktree. Is it in the primary clone / common dir? That
-	// is the #127 cross-worktree write into the shared clone.
+	// is the cross-worktree write into the shared clone.
 	if rc.primaryClone != "" && pathUnder(real, rc.primaryClone) {
 		return escapeWorktree, real
 	}
@@ -691,7 +691,7 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 		return escapeWorktree, real
 	}
 	// Outside this worktree and not the primary clone → a different repo /
-	// the wider filesystem (#148).
+	// the wider filesystem.
 	return escapeRepo, real
 }
 

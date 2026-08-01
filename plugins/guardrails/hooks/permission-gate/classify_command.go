@@ -11,7 +11,7 @@ import (
 //  1. A command we cannot statically pin (no program token) → ASK.
 //  2. A command with a redirect to a real file → DEFER (the normal pipeline's
 //     allow-list will not match it; we do not auto-allow exfiltration) — unless
-//     every destination is a session-shaped harness scratchpad (#193), the one
+//     every destination is a session-shaped harness scratchpad, the one
 //     region designated safe by construction. See redirectVetoesAllow.
 //  3. Program-specific DENY/ASK rules (git, gh, aws identity, etc.).
 //  4. Program-specific ALLOW rules (read-only git/gh/aws/acli).
@@ -26,7 +26,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	args := sc.args[1:]
 
 	// A command with a command substitution or unresolved expansion in ANY
-	// argument cannot be statically proven safe (#1). It must never ride the
+	// argument cannot be statically proven safe. It must never ride the
 	// allow track. DENY rules (identity writes, reset --hard, auth switch)
 	// still apply — those match on fixed flag tokens, which are present
 	// regardless of an expansion elsewhere — but the read-only ALLOW track is
@@ -44,16 +44,16 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		return classifyAcli(args, sc)
 	case "less", "more", "od", "xxd", "hexdump":
 		// Read-class pagers / binary dumpers whose path arguments must stay
-		// inside the repo (#148: do not read a sibling repo's node_modules to
+		// inside the repo (do not read a sibling repo's node_modules to
 		// verify APIs). Contained reads DEFER; only an escape denies/asks. These
-		// are deliberately NOT in the read-only-utility ALLOW set (#31) — they
-		// are interactive / binary-dump tools out of that issue's scope.
+		// are deliberately NOT in the read-only-utility ALLOW set — they
+		// are interactive / binary-dump tools, out of that track's scope.
 		return classifyPathReader(prog, args, sc, ev)
 	}
 
-	// #32: curated in-repo-write ALLOW track (cp/mv/mkdir/touch/sed -i/tee FILE).
+	// Curated in-repo-write ALLOW track (cp/mv/mkdir/touch/sed -i/tee FILE).
 	// A file-mutating program ALLOWs when every path operand it writes is
-	// contained in the current worktree; an escaping operand denies (#127/#148).
+	// contained in the current worktree; an escaping operand denies.
 	// Dual-mode programs (sed/tee) are ALSO in readOnlyUtilities: route to this
 	// classifier only for the genuinely-mutating form (mutatesFn), and let the
 	// read-only form fall through to the read-only-utility classifier below.
@@ -64,7 +64,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		}
 	}
 
-	// #31: curated read-only-utility ALLOW track (cat/head/sed -n/awk/printf/…).
+	// Curated read-only-utility ALLOW track (cat/head/sed -n/awk/printf/…).
 	// The proven read-only form of these high-frequency text/data utilities
 	// ALLOWs (no real-file redirect, no unknown expansion, no mutating flag,
 	// path operands contained); everything else defers. cat/head/tail used to
@@ -78,7 +78,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	return deferToPipeline()
 }
 
-// preconditionDeny applies the #64 precondition shared by the git/gh/aws
+// preconditionDeny applies the precondition shared by the git/gh/aws
 // classifiers BEFORE any per-command logic: every word of the command must be a
 // static literal (no command substitution / unresolved parameter expansion /
 // glob), and there must be no inline environment-assignment prefix. Either
@@ -87,7 +87,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 // subcommand), so a hit DENYs rather than allowing. Returns the deny Decision
 // and true on a hit; the zero Decision and false otherwise.
 //
-// Per the #64 resolved design decisions, these classifiers never defer:
+// Per the resolved design decisions, these classifiers never defer:
 // callers must convert this into a concrete DENY here rather than handing a
 // non-static command back to the pipeline.
 func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
@@ -110,25 +110,25 @@ func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
 
 // classifyGit parses git's option grammar from the AST tokens: global options
 // (`--no-pager`/`-P`, `-c k=v`, `-C path`, `--git-dir`, etc.) precede the
-// subcommand (#13). Positional guessing is obsolete — we consume globals
+// subcommand. Positional guessing is obsolete — we consume globals
 // explicitly, then dispatch on the real subcommand.
 //
-// Per the #64 resolved design decisions this classifier NEVER defers: the
+// Per the resolved design decisions this classifier NEVER defers: the
 // catch-all for a recognized git subcommand is ALLOW. For git that ALLOW rests
 // on a boundary the egress proxy DOES own: guest-local git effects are
-// contained by the disposable microVM (#163 "two boundaries, split by
-// visibility"), and git objects are content-addressed / recoverable (#64
-// principle 4). The remote-touching git shapes (push refspecs, remote re-aim)
+// contained by the disposable microVM ("two boundaries, split by
+// visibility"), and git objects are content-addressed / recoverable
+// (principle 4). The remote-touching git shapes (push refspecs, remote re-aim)
 // are individually classified in the deny/ask tiers below — they do NOT rest on
 // containment, because a credential-carrying push to an allowed host is exactly
 // the proxy's TLS-opaque blind spot.
 func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
-	// #64 precondition: static argv + no inline env-assignment, gated FIRST.
+	// Precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("git", sc); hit {
 		return d
 	}
 
-	// #64 bypass gate 3: `git -c …` / config-injection RCE. Scan the global
+	// Bypass gate 3: `git -c …` / config-injection RCE. Scan the global
 	// options screen BEFORE the subcommand is classified — these execute
 	// arbitrary commands regardless of the subcommand.
 	if d, hit := gitGlobalRCEDeny(args); hit {
@@ -148,21 +148,21 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 
 	// --- DENY rules ---
 
-	// #125 (write half): identity writes.
+	// Identity writes (the write half of the git-config rule).
 	if sub == "config" {
 		if d, hit := gitConfigIdentityRule(rest); hit {
 			return d
 		}
 	}
 
-	// #64 bypass gate 2 + push rules: classify `git push` on its refspec, not
+	// Bypass gate 2 + push rules: classify `git push` on its refspec, not
 	// just its flags. A `:`-bearing or empty-source refspec, --mirror/--prune,
 	// and --force all reach delete/overwrite outcomes.
 	if sub == "push" {
 		return classifyGitPush(rest)
 	}
 
-	// #163: `git remote add` / `git remote set-url` re-aim a later (ALLOWed)
+	// `git remote add` / `git remote set-url` re-aim a later (ALLOWed)
 	// push at a different remote. That is the git version of the gh
 	// foreign-target write channel: an ordinary `git push` is ALLOWed on its
 	// refspec without re-checking the remote's URL, so re-pointing `origin`
@@ -181,7 +181,7 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 		}
 	}
 
-	// #120: subagent `git reset --hard`.
+	// Subagent `git reset --hard`.
 	if sub == "reset" && containsToken(rest, "--hard") {
 		if ev.isSubagent() {
 			return deny("git reset --hard (subagent)",
@@ -198,17 +198,17 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 				"then 'git checkout --detach origin/<branch>'.")
 	}
 
-	// --- ALLOW default (#64): every recognized git subcommand that is not a
+	// --- ALLOW default: every recognized git subcommand that is not a
 	// dangerous shape carved out above falls through to ALLOW. Read-only
 	// subcommands and ordinary guest-local mutations (commit, add, checkout,
 	// rebase, …) alike are allowed: these are contained by the disposable
-	// microVM and recoverable from content-addressed git objects (#163 — the one
+	// microVM and recoverable from content-addressed git objects (the one
 	// premise the egress proxy genuinely backstops, for guest-local effects). The
 	// credential-carrying remote shapes (push, remote re-aim) do NOT reach here —
 	// they are classified in the deny/ask tiers above, because a push to an
 	// allowed host is the proxy's TLS-opaque blind spot, not a contained effect.
 	// A real-file redirect is the one residual exfil concern the gate still
-	// escalates — it cannot defer here (#64 decision 2), so it ASKs.
+	// escalates — it cannot defer here (decision 2), so it ASKs.
 	if sc.hasRedirectToFile {
 		return ask("git redirect-to-file",
 			"'git' with stdout/stderr redirected to a real file can exfiltrate or clobber. "+
@@ -218,7 +218,7 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 }
 
 // gitGlobalRCEDeny scans git's pre-subcommand global-options screen for the
-// config-injection / arbitrary-command-execution forms (#64 bypass gate 3):
+// config-injection / arbitrary-command-execution forms (bypass gate 3):
 // `-c <key>=<value>` whose key is a code-executing config knob (core.pager,
 // core.sshCommand, core.fsmonitor, core.editor, alias.*, diff.external,
 // *.textconv, *.command, sequence.editor, …), `--config-env`, and
@@ -229,7 +229,7 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 // execute code is denied. We allow a conservative allowlist of inert display
 // knobs (color.*, core.pager=cat is still denied because pager values run a
 // shell) and deny the rest of `-c`, because the cost of a false deny is one
-// human click while a false allow is arbitrary code execution (#64 principle 3).
+// human click while a false allow is arbitrary code execution (principle 3).
 func gitGlobalRCEDeny(args []string) (Decision, bool) {
 	rceDeny := func() (Decision, bool) {
 		return deny("git -c config-injection RCE (#64)",
@@ -299,7 +299,7 @@ func gitConfigKeyExecutesCode(kv string) bool {
 	return false
 }
 
-// classifyGitPush classifies `git push` arguments (#64 bypass gate 2 + the push
+// classifyGitPush classifies `git push` arguments (bypass gate 2 + the push
 // rules). rest is the args after the `push` subcommand token. The refspec — not
 // just the flags — is classified: a refspec containing `:` (delete/overwrite)
 // or whose source is empty (`:branch`, a delete) reaches a delete/overwrite
@@ -313,7 +313,7 @@ func gitConfigKeyExecutesCode(kv string) bool {
 //	ordinary fast-forward push.
 //
 // Default within the gate: an arbitrary `:`-bearing refspec that is not a clean
-// named-branch delete ASKs (it overwrites a remote ref). Never defers (#64).
+// named-branch delete ASKs (it overwrites a remote ref). Never defers.
 func classifyGitPush(rest []string) Decision {
 	// Collect flags and positional (non-flag) operands separately.
 	var positionals []string
@@ -426,7 +426,7 @@ func parseGitGlobals(args []string) (sub string, rest []string, cDir string) {
 }
 
 // gitConfigIdentityRule denies identity-mutating `git config` invocations
-// (#125 write half) while leaving identity READS alone. `git config user.name X`,
+// (the write half) while leaving identity READS alone. `git config user.name X`,
 // `git config user.email X`, `git config --global user.*`, writes routed through
 // `--file <path>` setting a user.* key (e.g.
 // `git config --file .git/config user.email X`), and explicit write verbs
@@ -435,9 +435,9 @@ func parseGitGlobals(args []string) (sub string, rest []string, cDir string) {
 // The get form `git config user.email` — a `user.*` key with NO following value
 // operand and no write verb — is a READ. It must defer (return false) so the
 // normal pipeline's `git config:*` read allow governs it. This also resolves the
-// `git -C <path> config --local user.email` false positive (#34): parseGitGlobals
+// `git -C <path> config --local user.email` false positive: parseGitGlobals
 // already consumes the `-C <path>` global before this rule sees `rest`, so the
-// get-form gap was the sole cause of the #34 repro.
+// get-form gap was the sole cause of that repro.
 //
 // The scan must look at ALL non-flag tokens, not just the first: a value-taking
 // flag like `--file <path>` puts a non-flag token (the path) BEFORE the real

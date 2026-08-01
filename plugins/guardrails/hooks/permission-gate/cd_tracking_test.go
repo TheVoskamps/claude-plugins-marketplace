@@ -24,12 +24,12 @@ func mustParse(t *testing.T, cmd string) *syntax.File {
 	return file
 }
 
-// #129: the permission-gate must track an in-command `cd` when resolving a
+// The permission-gate must track an in-command `cd` when resolving a
 // Bash command's relative path operands, instead of always resolving against
-// the event's cwd (ev.CWD). These tests cover the #125 repro and the full
-// #129 test plan.
+// the event's cwd (ev.CWD). These tests cover the original repro and the full
+// cd-tracking test plan.
 
-// TestCdTrackingContainsRelativeOperandAfterCd_129 is the #125 regression: a
+// TestCdTrackingContainsRelativeOperandAfterCd_129 is the original regression: a
 // `cd <subdir> && cmd ../x` must resolve `../x` against <subdir>, landing back
 // inside the worktree, and must NOT be treated as escaping into the primary
 // clone just because ev.CWD is higher up the tree.
@@ -38,7 +38,7 @@ func TestCdTrackingContainsRelativeOperandAfterCd_129(t *testing.T) {
 
 	// Build <worktree>/plugins/claude-vm/payload and a sibling
 	// <worktree>/plugins/claude-vm/.claude-plugin/plugin.json, matching the
-	// #125 repro shape.
+	// original repro shape.
 	claudeVM := filepath.Join(wt, "plugins", "claude-vm")
 	payload := filepath.Join(claudeVM, "payload")
 	pluginDir := filepath.Join(claudeVM, ".claude-plugin")
@@ -124,8 +124,8 @@ func TestCdTrackingAbsoluteOperandUnaffected_129(t *testing.T) {
 }
 
 // TestCdTrackingKnownVarCdTarget_129 covers `P=<known>; cd "$P"/sub && cat
-// ./x` — the cd target resolves via a knownVars literal (#60 resolution feeds
-// #129's cd tracking).
+// ./x` — the cd target resolves via a knownVars literal (assignment tracking
+// feeds cd tracking).
 func TestCdTrackingKnownVarCdTarget_129(t *testing.T) {
 	_, wt := setupWorktree(t)
 
@@ -147,7 +147,7 @@ func TestCdTrackingKnownVarCdTarget_129(t *testing.T) {
 
 // TestCdTrackingSubshellCdDoesNotPersist_129 covers `( cd <worktree>/a ) &&
 // cat ../x`: the subshell's cd must not persist; '../x' must resolve against
-// the PRE-subshell cwd (scopeDepth discipline, mirroring the #60 follow-up).
+// the PRE-subshell cwd (scopeDepth discipline, mirroring assignment tracking).
 // Asserts directly on the per-command cwd stamped by extractSimpleCommands,
 // rather than the aggregate classifyBash bucket, so the assertion pins the
 // scope discipline precisely instead of depending on how `cat`'s eventual
@@ -197,13 +197,13 @@ func TestCdTrackingDeepDotDotStillCrossRepoDeny_129(t *testing.T) {
 	}
 }
 
-// TestCdTrackingPreservedGuarantees_129 pins that the #127 cross-worktree
-// write deny, the #148 cross-repo deny, and the .git/-tree deny are all
+// TestCdTrackingPreservedGuarantees_129 pins that the cross-worktree
+// write deny, the cross-repo deny, and the .git/-tree deny are all
 // unchanged by cd-tracking.
 func TestCdTrackingPreservedGuarantees_129(t *testing.T) {
 	primary, wt := setupWorktree(t)
 
-	// #127: cd inside the worktree, then write into the primary clone by
+	// Cross-worktree: cd inside the worktree, then write into the primary clone by
 	// relative path — must still deny as a worktree escape.
 	t.Run("127-cross-worktree-write-deny", func(t *testing.T) {
 		a := filepath.Join(wt, "a")
@@ -222,7 +222,7 @@ func TestCdTrackingPreservedGuarantees_129(t *testing.T) {
 		}
 	})
 
-	// #148: cd inside the worktree, then read a sibling repo by relative
+	// Cross-repo: cd inside the worktree, then read a sibling repo by relative
 	// path — must still deny as cross-repo.
 	t.Run("148-cross-repo-deny", func(t *testing.T) {
 		base := filepath.Dir(primary)

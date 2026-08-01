@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// readOnlyUtility is the curated read-only-utility classifier (#31): it
+// readOnlyUtility is the curated read-only-utility classifier: it
 // auto-ALLOWs a fixed set of text/data utilities when their invocation is
 // provably non-mutating, instead of deferring (which then fails to match any
 // settings.json allow entry and prompts the user). These program heads are the
@@ -14,23 +14,23 @@ import (
 // Two posture invariants make the ALLOW safe, both inherited from the existing
 // allow track:
 //
-//   - No command substitution / unresolved expansion (#1, a `$(...)`-built arg
+//   - No command substitution / unresolved expansion (a `$(...)`-built arg
 //     can't be statically proven safe), and no real-file redirect — except one
-//     whose every destination is a session-shaped harness scratchpad, which
-//     #193 designates safe by construction (redirectVetoesAllow grades it; the
-//     two conditions together are sc.allowEligible() with its redirect half
-//     graded rather than absolute). Checked by the caller's gate before any
-//     per-program logic.
+//     whose every destination is a session-shaped harness scratchpad, a region
+//     the carve-out designates safe by construction (redirectVetoesAllow grades
+//     it; the two conditions together are sc.allowEligible() with its redirect
+//     half graded rather than absolute). Checked by the caller's gate before
+//     any per-program logic.
 //   - Path operands of a path-bearing utility must pass Engine B containment,
-//     so a `cat ../sibling-repo/node_modules/x` still denies (#148); a target
+//     so a `cat ../sibling-repo/node_modules/x` still denies; a target
 //     resolving into the primary clone / shared git dir is treated as
-//     contained rather than asking (#130), except under `.git/`, which still
-//     denies (#125). Reused from classifyPathReader via containPathOperands.
+//     contained rather than asking, except under `.git/`, which still
+//     denies. Reused from classifyPathReader via containPathOperands.
 //
-// Every utility in the ALLOW set carries a defersForm predicate (#31 review
-// HIGH): it reports whether the specific invocation must DEFER rather than
-// ALLOW. The predicate fires for a write-capable flag (`sed -i`, `sort -o`,
-// `awk -p`), a write-destination operand (`uniq INPUT OUTPUT`, `find -delete`),
+// Every utility in the ALLOW set carries a defersForm predicate: it reports
+// whether the specific invocation must DEFER rather than ALLOW. The predicate
+// fires for a write-capable flag (`sed -i`, `sort -o`, `awk -p`), a
+// write-destination operand (`uniq INPUT OUTPUT`, `find -delete`),
 // OR any unrecognized flag — so a new or unmodeled mutating mode fails safe
 // (criterion 4) rather than riding the ALLOW track.
 //
@@ -89,13 +89,13 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// guard beyond the table's standing fail-safe-on-unknown-flag convention,
 	// which lsDefers supplies. It was missing from this set while `find` and
 	// `grep`, both strictly more capable, were in it, so `ls <path>` deferred on
-	// every path and reached no allow track (#193): the harness scratchpad
+	// every path and reached no allow track: the harness scratchpad
 	// carve-out could not be exercised by the one command whose whole job is
 	// naming what is in a directory, which made the carve-out's own worked
 	// example — an `ls` of the bundled-skills hash directory — false.
 	//
 	// pathBearing, like every other operand-taking member: an `ls` of a path
-	// outside the repo now earns the ordinary #148 read deny instead of the
+	// outside the repo now earns the ordinary cross-repo read deny instead of the
 	// defer it used to get, exactly as `cat`/`grep`/`find`/`less` already do for
 	// the same operand. That is the point of joining the track, not a side
 	// effect of it.
@@ -154,7 +154,7 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 
 	// A real-file redirect (clobber/exfiltration) disqualifies the allow track:
 	// the bytes leave stdout for a file. Defer to the normal pipeline — unless
-	// every destination is a session-shaped harness scratchpad, which #193
+	// every destination is a session-shaped harness scratchpad, which the
 	// designates safe by construction and which `tee`/`cp` already write to
 	// under an ALLOW. redirectVetoesAllow owns that grading; see there for why
 	// the lift is exactly that narrow. (The unknown-expansion half of
@@ -183,29 +183,30 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 	if spec.pathBearing || len(readPaths) > 0 {
 		// A command substitution / unresolved expansion in a path operand or a
 		// redirect source can't be statically contained → fail closed ASK (the
-		// same posture classifyPathReader holds), not a silent defer (#1).
+		// same posture classifyPathReader holds), not a silent defer.
 		if sc.hasUnknownExpansion {
 			return ask("bash-read:dynamic-path", fmt.Sprintf(
 				"Blocked: '%s' has a path argument built from an expansion the gate cannot resolve statically; "+
 					"escalating to a human decision (fail-closed).", prog))
 		}
-		// A preceding dynamic `cd` invalidated the running cwd (#129): a
+		// A preceding dynamic `cd` invalidated the running cwd: a
 		// relative operand cannot be safely resolved. Fail closed ASK, the same
 		// posture classifyPathReader holds via cdInvalidAsk.
 		if d, hit := cdInvalidAsk(prog, sc); hit {
 			return d
 		}
 		// Engine B containment on every path it reads: a cross-repo read still
-		// denies (#148); a primary-clone/worktree-escape read is treated as
-		// contained instead of asking (#130), except a target under `.git/`,
-		// which still denies (#125). A non-contained path returns that
+		// denies; a primary-clone/worktree-escape read is treated as
+		// contained instead of asking, except a target under `.git/`,
+		// which still denies. A non-contained path returns that
 		// deny verdict; otherwise ALLOW.
 		if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {
 			return d
 		}
 	} else if sc.hasUnknownExpansion {
 		// Pure-output utility (printf/echo/seq/...) with an unresolved
-		// expansion: no path to contain, but #1 still forbids the allow track.
+		// expansion: no path to contain, but an unprovable command still may
+		// not ride the allow track.
 		// This is allowEligible()'s unknown-expansion half, spelled out: the
 		// redirect half is the graded check above, and calling allowEligible()
 		// here would re-apply the ungraded veto and undo it (`echo x >
@@ -219,7 +220,7 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 // flagScan is a reusable defersForm body for the always-read-only path-bearing
 // utilities (cat/head/wc/cut/sort/uniq/...). It walks args and reports whether
 // the invocation must DEFER. The fail-safe posture (criterion 4, generalized to
-// the always-read-only set per the #31 review HIGH finding) is: ALLOW only the
+// the always-read-only set per a review HIGH finding) is: ALLOW only the
 // recognized read-only flag grammar; anything else defers.
 //
 //   - writeFlags: a flag that writes a file (e.g. sort's `-o`/`--output`).
@@ -659,7 +660,7 @@ func grepDefers(args []string) bool {
 }
 
 // sortDefers: sort writes a file with `-o FILE` / `--output=FILE`
-// (`sort -o f f` clobbers f in place). That write form must defer (#31 review
+// (`sort -o f f` clobbers f in place). That write form must defer (a review
 // HIGH). All other sort flags are read-only; an unrecognized flag fails safe.
 func sortDefers(args []string) bool {
 	return flagScan{
@@ -692,7 +693,7 @@ func sortDefers(args []string) bool {
 
 // uniqDefers: uniq's operand grammar is `uniq [INPUT [OUTPUT]]` — the optional
 // SECOND path operand is a WRITE destination (`uniq IN OUT` writes OUT). So at
-// most ONE path operand is read-only; a second defers (#31 review HIGH). uniq
+// most ONE path operand is read-only; a second defers (a review HIGH finding). uniq
 // has no write-capable flag, but it still fails safe on an unrecognized flag.
 func uniqDefers(args []string) bool {
 	return flagScan{
@@ -778,7 +779,7 @@ func sedDefers(args []string) bool {
 //     `-o`/`--pretty-print` (writes awkprof.out). The file argument is OPTIONAL
 //     and ATTACHED (`-pFILE`, `-oFILE`, `--profile=FILE`); a bare `-p`/`-o`
 //     still writes the default awkprof.out, so the bare form ALSO defers
-//     (#31 review MEDIUM — these were previously listed as read-only boolFlags).
+//     (a review MEDIUM finding — these were previously listed as read-only boolFlags).
 //   - gawk dump-variables: `-d`/`--dump-variables` writes awkvars.out. Swept in
 //     with -p/-o per "fix the class": same default-output-file footgun.
 //

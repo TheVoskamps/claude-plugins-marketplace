@@ -2,14 +2,14 @@ package main
 
 import "testing"
 
-// Adversarial coverage for #64: dangerous git / gh / aws operations, with the
+// Adversarial coverage for dangerous git / gh / aws operations, with the
 // heaviest weight on the four bypass gates and on every spec line that reaches a
 // dangerous outcome WITHOUT the flag a naive policy keys on (the §4 test bar).
 //
 // These all run through classifyBash (the real entrypoint) in the main-session
 // context unless a subagent context is needed.
 
-// --- #64 precondition: static argv -----------------------------------------
+// --- precondition: static argv ----------------------------------------------
 
 // Non-static argv (command substitution, unresolved variable, glob) on a
 // git/gh/aws command must DENY — the dynamic token can hide a dangerous op.
@@ -26,7 +26,7 @@ func TestPrecondition_NonStaticArgv_64(t *testing.T) {
 	}
 }
 
-// --- #64 precondition: inline environment-assignment prefixes ---------------
+// --- precondition: inline environment-assignment prefixes -------------------
 
 // Inline env-assignment before git/gh/aws DENYs (egress/identity/pager redirect
 // without touching argv). Covers both the bare `VAR=x cmd` and `env VAR=x cmd`
@@ -45,7 +45,7 @@ func TestPrecondition_InlineEnvAssignment_64(t *testing.T) {
 	}
 }
 
-// --- #64 bypass gate 3: git -c / config-injection RCE ------------------------
+// --- bypass gate 3: git -c / config-injection RCE ----------------------------
 
 func TestGitConfigInjectionRCE_64(t *testing.T) {
 	for _, cmd := range []string{
@@ -68,7 +68,7 @@ func TestGitConfigInjectionRCE_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git -c color.ui=always status", false), BucketAllow, "inert -c knob")
 }
 
-// --- #64 bypass gate 2: git push refspec classification ----------------------
+// --- bypass gate 2: git push refspec classification --------------------------
 
 func TestGitPushRefspecBypass_64(t *testing.T) {
 	// ':branch' (empty source) is a delete — recoverable named-branch delete → ALLOW.
@@ -90,11 +90,11 @@ func TestGitPushRefspecBypass_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git push --force-with-lease origin main", false), BucketAllow, "push --force-with-lease")
 }
 
-// --- #64 bypass gate 1 + gh api method/body/graphql --------------------------
+// --- bypass gate 1 + gh api method/body/graphql ------------------------------
 
 func TestGhAPIGate_64(t *testing.T) {
 	// Implicit POST flip: a body-bearing flag with no explicit method → ASK
-	// (#162; was BucketDeny under #64).
+	// (it was a blanket deny before the gh-api gate).
 	for _, cmd := range []string{
 		"gh api repos/o/r/issues -f title=x",
 		"gh api repos/o/r -F a=b",
@@ -105,8 +105,8 @@ func TestGhAPIGate_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "gh api implicit POST: "+cmd)
 	}
-	// Explicit non-GET method → ASK (incl. casing / glued forms; #162, was
-	// BucketDeny under #64).
+	// Explicit non-GET method → ASK (incl. casing / glued forms; was
+	// a blanket deny before the gh-api gate).
 	for _, cmd := range []string{
 		"gh api -X DELETE repos/o/r",
 		"gh api -XDELETE repos/o/r",
@@ -115,15 +115,15 @@ func TestGhAPIGate_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "gh api non-GET: "+cmd)
 	}
-	// graphql with a mutation document → ASK naming the mutation field (#113
-	// Design A; was BucketDeny under #64's blanket graphql deny).
+	// graphql with a mutation document → ASK naming the mutation field (was
+	// a blanket graphql deny before the gh-api gate).
 	wantBucket(t, classifyCmd(t, "gh api graphql -f query='mutation{x}'", false), BucketAsk, "gh api graphql mutation")
-	// x-http-method-override header → ASK, case-insensitive (#162; was
-	// BucketDeny under #64).
+	// x-http-method-override header → ASK, case-insensitive (was
+	// a blanket deny before the gh-api gate).
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H X-HTTP-Method-Override:DELETE", false), BucketAsk, "method-override header")
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H x-http-method-override:delete", false), BucketAsk, "method-override header lc")
-	// A plain GET on an allow-listed endpoint → ALLOW (#113 Design B; was ASK
-	// under #64's every-REST-GET-asks default).
+	// A plain GET on an allow-listed endpoint → ALLOW (was ASK
+	// under the every-REST-GET-asks default).
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r", false), BucketAllow, "gh api plain GET allow-listed")
 	// -XGET -f … is a GET with params on an allow-listed endpoint → ALLOW.
 	wantBucket(t, classifyCmd(t, "gh api -XGET repos/o/r -f a=b", false), BucketAllow, "gh api -XGET -f allow-listed")
@@ -161,7 +161,7 @@ func TestGhAskTier_64(t *testing.T) {
 // --- gh ALLOW default --------------------------------------------------------
 
 func TestGhAllowDefault_64(t *testing.T) {
-	// Ordinary mutations the spec does not name as dangerous → ALLOW (#64 dec 1).
+	// Ordinary mutations the spec does not name as dangerous → ALLOW.
 	for _, cmd := range []string{
 		"gh pr create --fill",
 		"gh issue comment 5 --body hi",
@@ -176,12 +176,12 @@ func TestGhAllowDefault_64(t *testing.T) {
 	}
 }
 
-// --- gh leading-global desync bypass (#64 decision 3) ------------------------
+// --- gh leading-global desync bypass -----------------------------------------
 
 // A value-taking leading global (`-R owner/repo`) must have its VALUE token
 // consumed before the noun/verb is read. Otherwise the repo slug is mistaken
 // for the noun and an irreparable delete slips past the deny tier to the ALLOW
-// floor — the silent-auto-allow failure mode #64 decision 3 warns about.
+// floor — the silent-auto-allow failure mode the spec warns about.
 func TestGhLeadingGlobalDesyncBypass_64(t *testing.T) {
 	// -R <value> forms: the delete noun must still be found and DENIED.
 	for _, cmd := range []string{
@@ -210,7 +210,7 @@ func TestGhLeadingGlobalDesyncBypass_64(t *testing.T) {
 	}
 }
 
-// --- gh api --hostname egress redirection (#64) ------------------------------
+// --- gh api --hostname egress redirection ------------------------------------
 
 // `gh api --hostname` aims the SIGNED request (carrying the credential) at a
 // non-default host — the gh analog of `aws --endpoint-url`. DENY in both the
@@ -258,11 +258,11 @@ func TestAwsCredentialReadAsk_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "aws ssm get-parameter --name n", false), BucketAllow, "ssm get-parameter no-decryption")
 }
 
-// #97: the credential-read decision is now the WHITELIST ANCHOR for the
+// The credential-read decision is the WHITELIST ANCHOR for the
 // credential-exposure surface, not a per-(svc,op) blacklist. A
 // credential-returning `get-*` op the exact-pair switch does NOT enumerate must
 // still ASK — it must not reach the ALLOW floor via awsReadOnlyOp's `get-`
-// prefix. These are exactly the ops the pre-#97 blacklist leaked (a miss here
+// prefix. These are exactly the ops the earlier blacklist leaked (a miss here
 // costs a LEAKED SECRET, not a prompt), caught now by the structural
 // credential-material name signal (awsCredentialShapedGet).
 func TestAwsCredentialShapedGetAsk_97(t *testing.T) {
@@ -278,7 +278,7 @@ func TestAwsCredentialShapedGetAsk_97(t *testing.T) {
 	}
 }
 
-// #97 regression guard: the credential-material name signal must NOT over-block
+// Regression guard: the credential-material name signal must NOT over-block
 // the many benign `get-*` reads. A spurious ASK here is the accepted cost on the
 // allow side, but a wide false-positive would defeat the classifier's purpose
 // (not interrupting the human on safe debug reads), so these must stay ALLOW.
@@ -339,7 +339,7 @@ func TestAwsConfigureGetSecretAsk_64(t *testing.T) {
 // An unrecognized leading global flag of UNKNOWN arity must fail closed: if a
 // flag the gate doesn't know (`--totally-unknown-flag x`) is value-taking but
 // not consumed, its value becomes a stray positional and shifts svc/op by one,
-// slipping a credential read past the ASK tier to the ALLOW floor (#64 dec 3).
+// slipping a credential read past the ASK tier to the ALLOW floor.
 // awsServiceAndOp returns ok=false on an unknown leading flag → classifyAws ASKs.
 func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
 	// The exploit strings: an unknown global flag prefix in front of a
@@ -427,7 +427,7 @@ func TestAwsGlobalAbbreviation_64(t *testing.T) {
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
 // `op == "get"`/`"list"`/`"describe"` previously short-circuited to ALLOW,
 // defeating the hyphen anchor. Bare verbs the spec does not name fall to the
-// non-read-op ASK default (#124); the dangerous bare verb (`configure get`
+// non-read-op ASK default; the dangerous bare verb (`configure get`
 // secret) is caught by the credential-read ASK tier above.
 func TestAwsBareVerbNotReadAnchored_64(t *testing.T) {
 	// The hyphenated forms still ALLOW (anchor intact).
@@ -456,9 +456,9 @@ func TestAwsAllow_64(t *testing.T) {
 	}
 }
 
-// --- aws ASK: non-read-only ops (#124) ---------------------------------------
+// --- aws ASK: non-read-only ops ----------------------------------------------
 
-// #124: the aws terminal fall-through inverted from ALLOW to ASK. An aws
+// The aws terminal fall-through inverted from ALLOW to ASK. An aws
 // mutation carries the guest's credentials to a control plane outside the
 // microVM and mutates real cloud state the VM cannot roll back, so
 // containment-lives-in-the-microVM does not backstop it the way it does for
@@ -478,7 +478,7 @@ func TestAwsAskNonReadOp_124(t *testing.T) {
 	}
 }
 
-// --- classifiers never defer (#64 decision 2) --------------------------------
+// --- classifiers never defer -------------------------------------------------
 
 // Every path through classifyGit/classifyGh/classifyAws must resolve to
 // allow/ask/deny, never defer. We sample representative shapes and assert the

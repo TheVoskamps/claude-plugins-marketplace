@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// In-repo write classifier (#32).
+// In-repo write classifier.
 //
 // The agent can already mutate any in-repo file via the Write/Edit tools, which
 // Engine B lets through when the target is contained in the worktree. The
@@ -18,14 +18,14 @@ import (
 // classifyInRepoWrite auto-ALLOWs a curated set of file-mutating programs ONLY
 // when every path operand the program writes (or reads, for cp/mv sources) is
 // provably contained inside the current repository / worktree via the existing
-// Engine B containment. Any operand that escapes the repo (#148) or escapes the
-// worktree into the primary clone (#127) DENIES, reusing the worktree-anchored
+// Engine B containment. Any operand that escapes the repo, or escapes the
+// worktree into the primary clone, DENIES, reusing the worktree-anchored
 // remediation. An operand built from an unresolved expansion (`$(...)`) cannot
 // be statically contained, so the gate ASKS (matching the read side's
-// bash-read:dynamic-path posture, #1).
+// bash-read:dynamic-path posture).
 //
 // `rm` is deliberately NOT in this set: it is the highest-blast-radius mutating
-// program, and the conservative posture (per #32) keeps `rm`/`rm -rf` on the
+// program, and the conservative posture keeps `rm`/`rm -rf` on the
 // ask/defer track so a human sees each one.
 
 // inRepoWriteSpec describes how to extract the path operands of a mutating
@@ -50,7 +50,7 @@ type inRepoWriteSpec struct {
 // slip a write past containment.
 var inRepoWriters = map[string]inRepoWriteSpec{
 	// cp/mv: all non-flag operands are paths (source(s) + dest). Containment on
-	// the DEST is what makes `mv repo-file /tmp/x` deny (#32) — checking only the
+	// the DEST is what makes `mv repo-file /tmp/x` deny — checking only the
 	// source would wave an escaping destination through.
 	"cp": {operandsFn: cpMvOperands},
 	"mv": {operandsFn: cpMvOperands},
@@ -75,7 +75,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 	// A real-file redirect (`cp a b > log`) means bytes also leave for a file the
 	// operand parser does not model. Don't auto-allow — defer to the pipeline.
-	// The one exception is the #193 one the read track carries too: a redirect
+	// The one exception is the one the read track carries too: a redirect
 	// whose every destination is a session-shaped harness scratchpad writes into
 	// a region designated safe by construction, which is what this classifier's
 	// own operand track already allows `tee`/`cp` to do. redirectVetoesAllow owns
@@ -85,14 +85,14 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	}
 
 	// A command substitution / unresolved expansion in ANY argument means a path
-	// operand may be dynamically built and cannot be statically contained (#1).
+	// operand may be dynamically built and cannot be statically contained.
 	// Fail closed ASK, the same posture the read side holds for dynamic paths.
 	if sc.hasUnknownExpansion {
 		return ask("bash-write:dynamic-path", fmt.Sprintf(
 			"Blocked: '%s' has an argument built from an expansion the gate cannot resolve statically, so its "+
 				"write target cannot be proven in-repo; escalating to a human decision (fail-closed).", prog))
 	}
-	// A preceding dynamic `cd` invalidated the running cwd (#129): a relative
+	// A preceding dynamic `cd` invalidated the running cwd: a relative
 	// write target cannot be safely resolved. Fail closed ASK.
 	if sc.cwdInvalid {
 		return ask("bash-write:cd-unresolved-cwd", fmt.Sprintf(
@@ -133,7 +133,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	if !inputClean {
 		return inputEscape
 	}
-	// "a harness session scratchpad", not "THIS session's": the #193 carve-out
+	// "a harness session scratchpad", not "THIS session's": the carve-out
 	// covers the whole per-uid prefix, so a write into another session's
 	// scratchpad directory (cross-session handoff, the point of the carve-out)
 	// reaches this allow too. Naming only the current session would assert
@@ -146,30 +146,30 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // containWriteOperands runs Engine B containment on a write-class command's path
 // operands. It returns ok=true only when EVERY operand is contained inside the
 // current worktree or lands in a carve-out region scratchAllowEligible grades as
-// write-eligible (#193's session-shaped scratchpad directory) — a region
+// write-eligible (the session-shaped scratchpad directory) — a region
 // designated safe by construction, so it rides the caller's ALLOW rather than
 // withholding it. The grading is delegated to that shared predicate, not
 // restated here, so this track cannot drift from the two read tracks. A
-// carve-out operand it grades ineligible (~/.claude, #247; the rest of the
+// carve-out operand it grades ineligible (~/.claude; the rest of the
 // scratchpad prefix, including the read-only-by-policy bundled-skills tree,
-// #193) is neither contained-for-allow nor an escape: it withholds the ALLOW and
-// returns a DEFER. A defective scratchpad root (#193 — a symlinked,
+// prefix) is neither contained-for-allow nor an escape: it withholds the ALLOW and
+// returns a DEFER. A defective scratchpad root (a symlinked,
 // non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns an ASK
 // naming the defect. When an operand escapes, ok is false and the returned
-// Decision is the appropriate write-side deny: cross-repo (#148) or
-// worktree-escape (#127), each carrying the worktree-anchored remediation
+// Decision is the appropriate write-side deny: cross-repo or
+// worktree-escape, each carrying the worktree-anchored remediation
 // (mirroring the file-tool deny wording).
 //
 // Unlike the read side (containPathOperands), a worktree-escape here always
 // DENIES: writing into the primary clone from a subagent worktree is the
-// #127 escape, exactly the case classifyFileTool denies for Write/Edit. The
-// read side treats a non-.git/ primary-clone target as contained instead
-// (#130), but that relaxation is read-only and does not extend to writes. A
+// worktree escape, exactly the case classifyFileTool denies for Write/Edit. The
+// read side treats a non-.git/ primary-clone target as contained instead,
+// but that relaxation is read-only and does not extend to writes. A
 // subagent writing inside its own worktree is contained and fine; a subagent
 // writing into the primary clone still denies, because rc.topLevel is the
 // subagent's worktree root.
 //
-// baseCWD is the running cwd this command executes in (#129), tracked through
+// baseCWD is the running cwd this command executes in, tracked through
 // any preceding `cd` in the same parsed program (sc.cwd); a relative operand
 // resolves against baseCWD rather than ev.CWD, mirroring the read side. An
 // empty baseCWD falls back to ev.CWD.
@@ -196,7 +196,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 	haveBadRoot := false
 	for _, p := range operands {
 		// A write whose canonicalized target lands under a .git/ directory is a
-		// direct write to git internals (#125, broadened by #35 Fix 3) — denied
+		// direct write to git internals, broadened to the whole tree — denied
 		// independently of containment, exactly as classifyFileTool denies it for
 		// the Write/Edit tools. An in-worktree `.git/` target would otherwise be
 		// `contained` and ride the ALLOW.
@@ -234,13 +234,13 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			// what this track is: every operand reaching it is a write operand
 			// by construction.
 			//
-			// Eligible (the #193 session scratchpad) rides the caller's ALLOW
+			// Eligible (the session scratchpad) rides the caller's ALLOW
 			// exactly as an in-worktree target does; writing there is the
 			// behavior the carve-out exists to permit.
 			//
 			// Ineligible is neither a clean write the gate should bless nor an
 			// escape it should deny — the agent's own ~/.claude global config
-			// tree (#247), the part of the harness prefix matching neither #193
+			// tree, the part of the harness prefix matching neither harness
 			// shape, and the bundled-skills tree (read-eligible on the read
 			// track, but not here: rewriting harness-installed skill content is
 			// not something the gate has positive grounds to bless). Let the

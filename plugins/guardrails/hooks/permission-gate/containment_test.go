@@ -51,8 +51,8 @@ func setupWorktree(t *testing.T) (string, string) {
 	return canonicalize(primary), canonicalize(wt)
 }
 
-// §10: a subagent Write whose target resolves to the primary clone is blocked
-// (#127); the same write to the correct in-worktree path is allowed.
+// §10: a subagent Write whose target resolves to the primary clone is blocked;
+// the same write to the correct in-worktree path is allowed.
 func TestContainmentWorktreeEscape_127(t *testing.T) {
 	primary, wt := setupWorktree(t)
 
@@ -82,11 +82,11 @@ func TestContainmentWorktreeEscape_127(t *testing.T) {
 	}
 }
 
-// #130: reading a tracked, non-.git/ file in the primary clone / shared git
+// Reading a tracked, non-.git/ file in the primary clone / shared git
 // dir from a linked worktree is a legitimate, safe read (the worktree shares
 // tracked content with the primary clone) and must no longer ASK. The
-// write-side #127 deny and the .git/-tree deny (both reads and writes) must
-// survive unchanged, and #148 cross-repo reads must still deny.
+// write-side worktree-escape deny and the .git/-tree deny (both reads and writes) must
+// survive unchanged, and cross-repo reads must still deny.
 func TestPrimaryCloneReadRelaxed_130(t *testing.T) {
 	primary, wt := setupWorktree(t)
 
@@ -99,7 +99,7 @@ func TestPrimaryCloneReadRelaxed_130(t *testing.T) {
 	}
 
 	// bash-read (cat) of a primary-clone tracked file from a worktree →
-	// contained/defer, NOT ask (regression for #125's stated intent).
+	// contained/defer, NOT ask (regression guard for the rule's stated intent).
 	bev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	bd := classifyBash("cat "+pluginJSON, bev)
 	if bd.Bucket == BucketAsk || bd.Bucket == BucketDeny {
@@ -119,7 +119,7 @@ func TestPrimaryCloneReadRelaxed_130(t *testing.T) {
 	}
 
 	// Write / Edit on a primary-clone path still DENY (cross-worktree-write,
-	// #127) — the read relaxation must not touch the write side.
+	// the write side) — the read relaxation must not touch the write side.
 	for _, tool := range []string{"Write", "Edit"} {
 		wev := &Event{
 			ToolName:  tool,
@@ -147,7 +147,7 @@ func TestPrimaryCloneReadRelaxed_130(t *testing.T) {
 	gcRd := classifyFileTool(gcRev)
 	wantBucket(t, gcRd, BucketDeny, "Read of primary-clone .git/config must still be gated")
 
-	// cat <sibling-repo>/node_modules/x still cross-repo deny (#148) —
+	// cat <sibling-repo>/node_modules/x still cross-repo deny —
 	// unaffected by the primary-clone relaxation.
 	base := t.TempDir()
 	sibling := filepath.Join(base, "sibling")
@@ -164,7 +164,7 @@ func TestPrimaryCloneReadRelaxed_130(t *testing.T) {
 	wantBucket(t, siblingBd, BucketDeny, "cat sibling-repo node_modules must still cross-repo deny (#148)")
 }
 
-// §10: a Read/bash-read targeting a sibling repo is blocked (#148).
+// §10: a Read/bash-read targeting a sibling repo is blocked.
 func TestContainmentCrossRepo_148(t *testing.T) {
 	base := t.TempDir()
 	repoA := filepath.Join(base, "repoA")
@@ -204,10 +204,10 @@ func TestContainmentCrossRepo_148(t *testing.T) {
 	}
 }
 
-// #247 (HIGH): a subagent Read of the agent's own ~/.claude global config tree
+// A subagent Read of the agent's own ~/.claude global config tree
 // from inside a repo must DEFER (so the settings.json allow-list governs it),
-// NOT be hard-denied as a #148 cross-repo escape — while a genuine sibling-repo
-// node_modules read is still denied (#148 must not regress).
+// NOT be hard-denied as a cross-repo escape — while a genuine sibling-repo
+// node_modules read is still denied (that deny must not regress).
 func TestClaudeConfigCarveOut_247(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -238,7 +238,8 @@ func TestClaudeConfigCarveOut_247(t *testing.T) {
 		t.Errorf("#247: Read of ~/.claude config should DEFER to the normal pipeline; got %q", d.Bucket)
 	}
 
-	// #148 must not regress: a sibling repo's node_modules read is still denied.
+	// The cross-repo deny must not regress: a sibling repo's node_modules read
+	// is still denied.
 	sibling := filepath.Join(base, "sibling")
 	gitInit(t, sibling)
 	nm := filepath.Join(sibling, "node_modules", "pkg")
@@ -273,9 +274,9 @@ const sessionSlug = "-Users-someone-Workspaces-permission-gate-fixture"
 // slugs to -Users-<u>--claude, which is a real session directory on the
 // author's machine with the standard scratchpad/ + tasks/ layout.
 //
-// An earlier revision of the #193 spec prescribed a single-dash-only pattern,
+// An earlier revision of the carve-out spec prescribed a single-dash-only pattern,
 // which this gate faithfully implemented and which silently excluded every
-// such session — reintroducing the very symptom #193 exists to fix. Every
+// such session — reintroducing the very symptom the carve-out exists to fix. Every
 // assertion below that names this slug exists to keep that from regressing.
 const doubleDashSlug = "-Users-someone--claude"
 
@@ -322,7 +323,7 @@ func fileToolBucket(t *testing.T, tool, repoRoot, target string) Decision {
 	})
 }
 
-// #193 row 1 (ALLOW): a file-tool or bash read/write whose canonical target
+// Session row (ALLOW): a file-tool or bash read/write whose canonical target
 // lands in a session-shaped harness scratchpad directory —
 // <system-tmp>/claude-<uid>/<project-slug>/<uuid>/{scratchpad,tasks}/… — is
 // allowed OUTRIGHT, not deferred. A defer would leave the feature dead until
@@ -387,7 +388,7 @@ func TestHarnessScratchSessionAllowed_193(t *testing.T) {
 	}
 }
 
-// #193 "Reaching the carve-out from bash", gate 1: a carve-out the bash track
+// "Reaching the carve-out from bash", gate 1: a carve-out the bash track
 // cannot reach is not a carve-out. `ls` is the command whose whole job is naming
 // what is in a directory, and it was in NEITHER bash read track — not
 // readOnlyUtilities, not the classifyPathReader dispatch — so it deferred for
@@ -447,7 +448,7 @@ func TestHarnessScratchLsAllowed_193(t *testing.T) {
 	}
 }
 
-// #193 "Reaching the carve-out from bash", gate 2: the redirect form of a write
+// "Reaching the carve-out from bash", gate 2: the redirect form of a write
 // must reach the same ALLOW its argv-spelled equivalents do. allowEligible()
 // vetoes the allow track whenever hasRedirectToFile is set, so
 // `echo x > <scratchpad>/f` could never be allowed however well-contained it
@@ -488,7 +489,7 @@ func TestHarnessScratchRedirectAllowed_193(t *testing.T) {
 			// the carve-out re-imposes the veto.
 			wantBucket(t, classifyBash("echo x > "+dst+" 2> "+mk("loose.md"), bev), BucketDefer,
 				label+" "+leaf+": a mixed redirect keeps the veto")
-			// A destination the gate cannot pin statically keeps the veto (#1).
+			// A destination the gate cannot pin statically keeps the veto.
 			if d := classifyBash("echo x > $DEST", bev); d.Bucket == BucketAllow {
 				t.Errorf("%s: a dynamic redirect destination must not ALLOW; got %q", label, d.Bucket)
 			}
@@ -496,7 +497,7 @@ func TestHarnessScratchRedirectAllowed_193(t *testing.T) {
 	}
 
 	// The veto is intact for every destination the carve-out does not cover: an
-	// in-repo file (unchanged pre-#193 behavior), the unshaped remainder of the
+	// in-repo file (unchanged by the carve-out), the unshaped remainder of the
 	// prefix, the read-only-by-policy bundled-skills tree, and /tmp at large.
 	bev := bashEvIn(t, root, "issue-developer")
 	for label, dst := range map[string]string{
@@ -546,7 +547,7 @@ func TestHarnessScratchRedirectAllowed_193(t *testing.T) {
 	}
 }
 
-// #193 "Input redirects must be contained": an input redirect reads a file
+// "Input redirects must be contained": an input redirect reads a file
 // WITHOUT that file ever becoming an argv operand, so before this the read
 // containment never saw it — `cat < /etc/passwd` reached the read-only-utility
 // classifier with ZERO operands and was allowed outright. The sources are now
@@ -649,7 +650,7 @@ func TestInputRedirectContained_193(t *testing.T) {
 		"#193: the destination still faces the redirect veto")
 
 	// The running cwd governs a relative source, exactly as it governs a relative
-	// operand (#129).
+	// operand.
 	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +745,7 @@ func TestInputRedirectRecording_193(t *testing.T) {
 	}
 }
 
-// #193 unshaped-remainder row: a target under the <system-tmp>/claude-<uid>
+// Unshaped-remainder row: a target under the <system-tmp>/claude-<uid>
 // prefix whose remainder matches NEITHER shape is never denied and never
 // escalated — a shape miss costs at most a DEFER, which is what makes the tight
 // shape affordable. The verdict is a function of region × TRACK, not of region
@@ -797,10 +798,10 @@ func TestHarnessScratchShapeMissDefers_193(t *testing.T) {
 	}
 }
 
-// #193 row 3 (ASK): when the claude-<uid> root is not a plain directory owned by
-// this uid, the gate cannot prove where a path under it actually lands, so it
+// Defective-root row (ASK): when the claude-<uid> root is not a plain directory
+// owned by this uid, the gate cannot prove where a path under it lands, so it
 // escalates — with a reason that NAMES the defect, so the failure is not
-// mistaken for the #193 containment bug reappearing.
+// mistaken for the containment bug reappearing.
 func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -852,9 +853,10 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 		BucketDeny, "a cross-repo destination outranks the defective-root ask")
 }
 
-// #193 row 4 (DENY): everything else under /tmp still denies exactly as before —
-// a loose /tmp file, and another uid's claude-<other-uid> prefix. The carve-out
-// is per-uid, derived from os.Getuid() at runtime, never a claude-* glob: real
+// Outside-the-prefix row (DENY): everything else under /tmp still denies
+// exactly as before — a loose /tmp file, and another uid's
+// claude-<other-uid> prefix. The carve-out is per-uid, derived from
+// os.Getuid() at runtime, never a claude-* glob: real
 // machines host claude-501 and claude-503 side by side.
 func TestHarnessScratchOutsidePrefixStillDenies_193(t *testing.T) {
 	base := t.TempDir()
@@ -898,7 +900,7 @@ func TestHarnessScratchOutsidePrefixStillDenies_193(t *testing.T) {
 		BucketDeny, "cp out of the scratchpad into a sibling repo")
 }
 
-// #193: NOTHING below the carve-out root needs its own symlink check —
+// NOTHING below the carve-out root needs its own symlink check —
 // canonicalization already resolves every intermediate component before the
 // comparison, and produces a BETTER verdict than an Lstat refusal would (a
 // symlinked scratchpad -> ~/.ssh resolves out of the region and earns the
@@ -989,7 +991,7 @@ func TestHarnessScratchSymlinkBelowRootDenies_193(t *testing.T) {
 	}
 }
 
-// #193: the root check itself. Only the FINAL claude-<uid> component is
+// The root check itself. Only the FINAL claude-<uid> component is
 // Lstat-ed; the parent is symlink-resolved first. Lstat-ing the whole path — or
 // rejecting a symlink anywhere in it — would break macOS outright, where /tmp is
 // itself a symlink to /private/tmp, so that case is pinned here directly rather
@@ -1070,7 +1072,7 @@ func TestScratchRootCheck_193(t *testing.T) {
 	}
 }
 
-// #193: the session-shape pattern is matched against the REMAINDER after the
+// The session-shape pattern is matched against the REMAINDER after the
 // canonical root is stripped, never the full path, so it is platform-
 // independent by construction — it contains neither "/tmp" nor "/private/tmp".
 func TestHarnessSessionShape_193(t *testing.T) {
@@ -1160,7 +1162,7 @@ func TestHarnessSessionShape_193(t *testing.T) {
 	}
 }
 
-// #193: both shapes must match the LIVE harness layout on the machine running
+// Both shapes must match the LIVE harness layout on the machine running
 // the tests, not only the fixtures above.
 //
 // This exists because the first implementation round encoded an "observed
@@ -1173,7 +1175,7 @@ func TestHarnessSessionShape_193(t *testing.T) {
 //
 // A failure here means the harness's real layout has drifted away from a shape
 // the gate blesses — which silently downgrades those paths from ALLOW to DEFER,
-// i.e. reintroduces #193 wherever settings.json still denies /tmp.
+// i.e. reintroduces the original symptom wherever settings.json still denies /tmp.
 func TestHarnessShapesMatchLiveLayout_193(t *testing.T) {
 	st := resolveHarnessScratchRoot()
 	if st.root == "" || st.defect != "" {
@@ -1251,7 +1253,7 @@ func TestHarnessShapesMatchLiveLayout_193(t *testing.T) {
 		checkedSessions, checkedBundles, st.root)
 }
 
-// #193: the bundled-skills shape — the OTHER remainder shape under the same
+// The bundled-skills shape — the OTHER remainder shape under the same
 // per-uid prefix, `bundled-skills/<version>/<32-lowercase-hex>/…`. Like the
 // session shape it is matched against the remainder only, so it stays platform-
 // independent by construction.
@@ -1322,7 +1324,7 @@ func TestHarnessBundledSkillsShape_193(t *testing.T) {
 	}
 }
 
-// #193 verdict-table rows 2 and 3: the bundled-skills tree is READ/WRITE-GRADED.
+// Bundled-skills rows: the tree is READ/WRITE-GRADED.
 // A read matching the shape is ALLOWed outright (the model legitimately reads
 // bundled skills, and a DEFER would still lose to a /tmp deny in settings.json);
 // a WRITE matching it DEFERS — the content is harness-installed, so the gate has
@@ -1413,7 +1415,7 @@ func TestHarnessBundledSkillsReadAllowedWriteDefers_193(t *testing.T) {
 		BucketDeny, "cp a bundled skill into a sibling repo")
 }
 
-// #193: a path under bundled-skills/ that does NOT match the shape defers for
+// A path under bundled-skills/ that does NOT match the shape defers for
 // BOTH read and write — it is inside the carved-out prefix, so it is never
 // denied, but it is not provably the bundled-skills tree either, so it is never
 // allowed. Pinned separately from the shape unit test because the read track's
@@ -1447,7 +1449,7 @@ func TestHarnessBundledSkillsShapeMissDefers_193(t *testing.T) {
 			wantBucket(t, classifyBash(cmd, bev), BucketDefer, label+": "+cmd)
 		}
 		// `cat`/`head` run the read-only-UTILITY classifier, whose terminal for
-		// any contained-or-carved-out operand is an ALLOW — pre-existing #31
+		// any contained-or-carved-out operand is an ALLOW — the pre-existing
 		// behavior shared with the ~/.claude carve-out and with the rest of the
 		// scratchpad prefix, not something the bundled-skills shape decides. So
 		// the only claim the shape miss makes here is the one the verdict table
@@ -1462,9 +1464,9 @@ func TestHarnessBundledSkillsShapeMissDefers_193(t *testing.T) {
 	}
 }
 
-// §10 + #125 (write half), broadened by #35 Fix 3: a direct file-tool
+// §10 + the .git/-tree write rule, broadened to the whole tree: a direct file-tool
 // Write/Edit whose target resolves to ANYWHERE under .git/ is denied (the
-// Engine B half of the #125 write criterion, generalized to the whole .git/
+// Engine B half of the write criterion, generalized to the whole .git/
 // tree). Reads of .git/ files are not mutations and stay allowed/deferred.
 func TestGitTreeWriteDenied_125_35(t *testing.T) {
 	base := t.TempDir()
@@ -1491,7 +1493,7 @@ func TestGitTreeWriteDenied_125_35(t *testing.T) {
 		}
 	}
 
-	// #35 Fix 3: writes to other paths under .git/ are now denied too.
+	// Writes to other paths under .git/ are now denied too.
 	for _, rel := range []string{
 		filepath.Join(".git", "hooks", "pre-commit"),
 		filepath.Join(".git", "info", "exclude"),
@@ -1506,7 +1508,7 @@ func TestGitTreeWriteDenied_125_35(t *testing.T) {
 		wantBucket(t, classifyFileTool(ev), BucketDeny, "Write to "+rel)
 	}
 
-	// #35 Fix 3: an Edit of a submodule-style nested .git/config is denied via
+	// An Edit of a submodule-style nested .git/config is denied via
 	// the ".git" path-segment check (a literal "*/.git/..." path the
 	// containment layer would otherwise wave through).
 	sub := filepath.Join(repo, "vendor", "mod", ".git", "config")
@@ -1525,7 +1527,7 @@ func TestGitTreeWriteDenied_125_35(t *testing.T) {
 	wantBucket(t, classifyFileTool(subEv), BucketDeny, "Edit submodule .git/config")
 
 	// A READ of .git/config is not an identity write → must not be denied by
-	// the #125 rule (it is in-repo, so it defers).
+	// the .git/ rule (it is in-repo, so it defers).
 	rev := &Event{
 		ToolName:  "Read",
 		CWD:       canonicalize(repo),
@@ -1552,13 +1554,13 @@ func TestGitTreeWriteDenied_125_35(t *testing.T) {
 	}
 }
 
-// #30: the under-specified containment-escape denies must be prescriptive —
+// The under-specified containment-escape denies must be prescriptive —
 // they must name <repo-root>/.claude/tmp/ as the scratch destination for
 // mutating tools and explicitly warn against .git/ as a workaround target.
 // A guardrail that only forbids invites a workaround (writing under .git/
 // because it is gitignored and in-repo); one that prescribes prevents it.
 func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
-	// #148 cross-repo Write deny (the file-tool path) names .claude/tmp/ and
+	// Cross-repo Write deny (the file-tool path) names .claude/tmp/ and
 	// warns against .git/.
 	base := t.TempDir()
 	repoA := filepath.Join(base, "repoA")
@@ -1586,14 +1588,14 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 	if !containsSubstr(wd.Reason, ".git/") {
 		t.Errorf("#30: #148 Write deny must warn against .git/; got %q", wd.Reason)
 	}
-	// #193: prescribing ONLY the in-repo destination left a genuine cross-repo /
+	// Prescribing ONLY the in-repo destination left a genuine cross-repo /
 	// cross-session handoff file with no legal landing spot, so the write denies
 	// now name the harness scratchpad as the second destination.
 	if !containsSubstr(wd.Reason, harnessScratchDisplay()) {
 		t.Errorf("#193: #148 Write deny must also name the harness scratchpad; got %q", wd.Reason)
 	}
 
-	// #148 cross-repo Read deny (a non-mutating tool) still forbids .git/ but
+	// Cross-repo Read deny (a non-mutating tool) still forbids .git/ but
 	// does not prescribe .claude/tmp/ (the scratch hint is write-only).
 	readEv := &Event{
 		ToolName:  "Read",
@@ -1606,14 +1608,14 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 	if !containsSubstr(rd.Reason, ".git/") {
 		t.Errorf("#30: #148 Read deny must forbid .git/ as a workaround; got %q", rd.Reason)
 	}
-	// #193: a read deny still prescribes no scratch destination (that hint is
+	// A read deny still prescribes no scratch destination (that hint is
 	// write-only), but it must point at the handoff location — the blocked read
 	// is often a session reaching for a file another session wrote.
 	if !containsSubstr(rd.Reason, harnessScratchDisplay()) {
 		t.Errorf("#193: #148 Read deny must name the harness scratchpad handoff location; got %q", rd.Reason)
 	}
 
-	// #127 worktree-escape Write deny steers scratch writes to the worktree's
+	// The worktree-escape Write deny steers scratch writes to the worktree's
 	// .claude/tmp/ and warns against .git/.
 	primary, wt := setupWorktree(t)
 	wtEv := &Event{
@@ -1631,7 +1633,7 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 		t.Errorf("#30: #127 Write deny must warn against .git/; got %q", wtd.Reason)
 	}
 
-	// #148 bash-read cross-repo deny explicitly forbids the .git/ workaround.
+	// The bash-read cross-repo deny explicitly forbids the .git/ workaround.
 	bev := &Event{ToolName: "Bash", CWD: canonicalize(repoA), AgentType: "main"}
 	bd := classifyBash("cat "+target, bev)
 	wantBucket(t, bd, BucketDeny, "#148 bash-read cross-repo")
@@ -1639,8 +1641,8 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 		t.Errorf("#30: #148 bash-read deny must forbid .git/ as a workaround; got %q", bd.Reason)
 	}
 
-	// #130: a bash-read of a non-.git/ file in the primary clone is now
-	// contained/defer, not an ask — the #127 worktree-escape ask no longer
+	// A bash-read of a non-.git/ file in the primary clone is now
+	// contained/defer, not an ask — the worktree-escape ask no longer
 	// applies to reads. The .git/-tree deny is what still forbids the .git/
 	// workaround for bash-reads of the primary clone.
 	gitCfg := filepath.Join(primary, ".git", "config")
@@ -1652,8 +1654,8 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 	}
 }
 
-// §10: a symlinked target that points outside the worktree is blocked (#12 —
-// both sides canonicalized). Uses a mutating tool (Write): #130 relaxed the
+// §10: a symlinked target that points outside the worktree is blocked (both
+// sides canonicalized). Uses a mutating tool (Write): the read side relaxed the
 // primary-clone-read case to contained/defer, but a WRITE resolving through a
 // symlink into the primary clone must still be caught and denied.
 func TestContainmentSymlinkEscape_12(t *testing.T) {
@@ -1683,7 +1685,7 @@ func TestContainmentSymlinkEscape_12(t *testing.T) {
 	wantBucket(t, d, BucketDeny, "#12 symlink escaping worktree")
 }
 
-// #130: a Read through a symlink that resolves into the primary clone (a
+// A Read through a symlink that resolves into the primary clone (a
 // non-.git/ path) is now contained/defer, not denied — the relaxation must
 // apply after symlink canonicalization too, not just to literal paths.
 func TestContainmentSymlinkPrimaryCloneRead_130(t *testing.T) {
@@ -1736,7 +1738,7 @@ func TestContainmentFailClosed_NoCWD(t *testing.T) {
 	}
 }
 
-// TestCanonicalizeFromExpandsTilde pins the containment-level fix (PR #139
+// TestCanonicalizeFromExpandsTilde pins the containment-level fix (found in PR
 // follow-up review) directly at canonicalizeFrom, independent of any Bash
 // classification path. Before this fix, `~/.ssh/id_rsa` was not
 // filepath.IsAbs, so it silently fell through to the relative-join branch
@@ -1793,7 +1795,7 @@ func failingHomeDir() (string, error) {
 }
 
 // TestCanonicalizeFromResolverNoHomeUnresolvedTilde pins canonicalizeFrom
-// Resolver's no-home branch directly: PR #139 round-3 review found that the
+// Resolver's no-home branch directly: a round-3 PR review found that the
 // previous fix (TestCanonicalizeFromExpandsTilde /
 // TestContainmentTildeEscapeDenied above) only covered the home-resolvable
 // path — both of those tests t.Skip when there is no home, so the no-home
@@ -1838,7 +1840,7 @@ func TestCanonicalizeFromResolverNoHomeUnresolvedTilde(t *testing.T) {
 // os.UserHomeDir to fail on Unix (UserHomeDir reads $HOME directly) rather
 // than relying on — or skipping under — whatever the ambient test
 // environment's real home-directory resolvability happens to be. This is
-// the exact "HOME unset" scenario from the PR #139 round-3 review (cron
+// the exact "HOME unset" scenario from that round-3 PR review (cron
 // jobs, minimal containers, stripped environments): a leading-tilde operand
 // must earn a non-contained (escapeRepo) verdict, never `contained`, so
 // every caller (classifyFileTool, containPathOperands, containWriteOperands)

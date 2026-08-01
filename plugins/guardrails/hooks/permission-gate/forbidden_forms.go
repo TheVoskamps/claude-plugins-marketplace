@@ -18,7 +18,7 @@ import (
 //	        build`) is preserved — that form is explicitly allowed by
 //	        git-workflow.md and must not be denied.
 //	Form 2: `git -C <abs-path> <subcommand>` — the harness prompts on these
-//	        even when allow-listed (#78).
+//	        even when allow-listed.
 //
 // Form 3 (subshells with `;`) was a harness walker-bug workaround in the old
 // regex hook; it is left to the harness, which still mishandles that shape —

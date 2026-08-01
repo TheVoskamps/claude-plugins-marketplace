@@ -1,18 +1,82 @@
 package main
 
 import (
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
 // trackerRefInReason matches the non-actionable issue-tracker pointers that
-// must never appear in an agent-facing Reason (#58): an "issue(s) #N" pointer,
+// must never appear in an agent-facing Reason: an "issue(s) #N" pointer,
 // or a bare "(#N)" parenthetical embedded in prose. An issue number
 // tells a blocked agent nothing about what to do — the Reason must be
 // self-sufficiently actionable. Deny/ask LABELS (the Operation field) may
 // still carry a stable "(#N)" tag; only the Reason is constrained here.
 var trackerRefInReason = regexp.MustCompile(`issues? #\d+|\(#\d+\)|the #\d+ |#\d+\)\.`)
+
+// trackerRefInComment matches an issue-tracker reference in a Go comment. It is
+// the comment-side sibling of trackerRefInReason, and it is deliberately
+// stricter: a Reason is prose that legitimately contains other `#` forms, while
+// a comment has no legitimate use for one at all, so a bare `#<digits>` is
+// enough. `#` followed by a non-digit (a shell comment quoted in an example, a
+// fragment identifier) is untouched.
+var trackerRefInComment = regexp.MustCompile(`#\d+`)
+
+// TestNoIssueRefsInComments is the class-level guard for the rule that code must
+// be authoritative and stand on its own. A comment reading "pre-existing
+// <issue-number> behavior" states no invariant: it makes the reader fetch a
+// ticket to learn the rule, and the pointer that prompted this guard was not
+// even correct — it named the wrong issue. Provenance needs no help from the
+// comment: `git blame` yields the line, the commit, the merge, the PR and the
+// issue on demand, without every comment carrying a pointer that rots.
+//
+// So every invariant must be stated COMPLETELY in place, and a comment must
+// never require fetching a ticket. This walks the package's own source, so a
+// newly added file is covered the moment it lands.
+//
+// Scope note: this constrains COMMENTS. Stable deny/ask LABELS (the Operation
+// field) may still carry a "(#N)" tag — they are grep keys for the evolution
+// log, not text an agent has to act on — and a test failure message may name the
+// issue whose acceptance criterion it pins. trackerRefInReason covers the
+// agent-facing Reason text; between the two, nothing an agent reads and nothing
+// a maintainer reads in place carries a bare tracker pointer.
+func TestNoIssueRefsInComments(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	checked := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, e.Name(), nil, parser.ParseComments)
+		if err != nil {
+			t.Fatalf("parse %s: %v", e.Name(), err)
+		}
+		checked++
+		for _, cg := range f.Comments {
+			for _, c := range cg.List {
+				for _, line := range strings.Split(c.Text, "\n") {
+					if m := trackerRefInComment.FindString(line); m != "" {
+						pos := fset.Position(c.Pos())
+						t.Errorf("%s:%d: a Go comment carries the tracker reference %q; state the invariant in "+
+							"place instead (git blame has the provenance):\n\t%s",
+							pos.Filename, pos.Line, m, strings.TrimSpace(line))
+					}
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no Go files were checked — the guard would pass vacuously")
+	}
+}
 
 // TestRemediationReasonsAreActionable_58 is a class-level regression guard:
 // every deny/ask Reason an agent can receive must read as self-sufficient

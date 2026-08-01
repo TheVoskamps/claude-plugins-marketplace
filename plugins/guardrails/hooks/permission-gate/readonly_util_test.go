@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// #31: the read-only-utility classifier ALLOWs a curated set of text/data
+// The read-only-utility classifier ALLOWs a curated set of text/data
 // utilities when their invocation is provably non-mutating, and defers (or
 // denies/asks on a containment escape) otherwise. These tests pin each
 // read-only form and each mutating-form rejection from the issue's acceptance
@@ -63,7 +63,7 @@ func TestReadOnlyUtilityAllows_31(t *testing.T) {
 		`nl file`,
 		`column -t file`,
 		`rev file`,
-		// ls (#193): no write mode at all, and the operand is a path to contain.
+		// ls: no write mode at all, and the operand is a path to contain.
 		`ls`,
 		`ls file`,
 		`ls -la .`,
@@ -105,13 +105,13 @@ func TestReadOnlyUtilityPipeline_31(t *testing.T) {
 
 // TestSedInPlaceNotReadOnlyAllowed_31_32: `sed -i ...` is NOT a read-only-utility
 // ALLOW — the read-only classifier must never bless an in-place edit as
-// non-mutating. As of #32 it is instead handled by the in-repo-write classifier,
+// non-mutating. It is instead handled by the in-repo-write classifier,
 // which ALLOWs the contained form (the file is in the repo) and denies an
 // escaping target. This test pins both: a contained in-place edit ALLOWs (as a
-// write, #32), while the read-only-utility track itself does not classify it.
+// write), while the read-only-utility track itself does not classify it.
 func TestSedInPlaceNotReadOnlyAllowed_31_32(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
-	// Contained in-place edit → ALLOW via the in-repo-write classifier (#32).
+	// Contained in-place edit → ALLOW via the in-repo-write classifier.
 	for _, cmd := range []string{
 		`sed -i 's/a/b/' file`,
 		`sed --in-place 's/a/b/' file`,
@@ -121,7 +121,7 @@ func TestSedInPlaceNotReadOnlyAllowed_31_32(t *testing.T) {
 		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "contained sed in-place allows (#32): "+cmd)
 	}
 	// The read-only-utility classifier MUST NOT itself classify the in-place form
-	// as a read-only ALLOW — its defersForm predicate withholds it (the #31
+	// as a read-only ALLOW — its defersForm predicate withholds it (the
 	// safety property the in-repo-write classifier builds on).
 	if !sedDefers([]string{"-i", "s/a/b/", "file"}) {
 		t.Errorf("sedDefers must withhold the in-place form from the read-only-utility track")
@@ -164,12 +164,12 @@ func TestFindMutatingNotAllowed_31(t *testing.T) {
 }
 
 // TestTeeToRealFileNotReadOnlyAllowed_31_32: `tee FILE` (a real-file write) is
-// NOT a read-only-utility ALLOW. As of #32 it is handled by the in-repo-write
+// NOT a read-only-utility ALLOW. It is handled by the in-repo-write
 // classifier: a contained destination ALLOWs (as a write), an escaping one
 // denies. The read-only-utility track itself still withholds it (teeDefers).
 func TestTeeToRealFileNotReadOnlyAllowed_31_32(t *testing.T) {
 	ev, _ := inRepoEvent(t)
-	// Contained real-file tee → ALLOW via the in-repo-write classifier (#32).
+	// Contained real-file tee → ALLOW via the in-repo-write classifier.
 	wantBucket(t, classifyBash(`echo x | tee out.txt`, ev), BucketAllow, "contained tee FILE allows (#32)")
 	// The read-only-utility classifier must withhold a real-file tee from its track.
 	if !teeDefers([]string{"out.txt"}) {
@@ -178,7 +178,7 @@ func TestTeeToRealFileNotReadOnlyAllowed_31_32(t *testing.T) {
 }
 
 // TestReadOnlyUtilityCrossRepoDenied_31: `cat ../sibling-repo/node_modules/x`
-// still DENIES (#148 preserved through the new ALLOW path).
+// still DENIES (the cross-repo deny is preserved through the new ALLOW path).
 func TestReadOnlyUtilityCrossRepoDenied_31(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -259,7 +259,7 @@ func TestPagersStillDefer_31(t *testing.T) {
 	}
 }
 
-// TestAlwaysReadOnlyWriteFormsNotAllowed_31 covers the #31 review HIGH finding:
+// TestAlwaysReadOnlyWriteFormsNotAllowed_31 covers a review HIGH finding:
 // always-read-only path-bearing utilities that have a write-capable flag or a
 // write-destination operand must NOT ride the ALLOW track. Each form here writes
 // a file in the repo (the common case containment does NOT catch), so it must
@@ -283,7 +283,7 @@ func TestAlwaysReadOnlyWriteFormsNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestAlwaysReadOnlyUnknownFlagDefers_31 covers the #31 review HIGH finding's
+// TestAlwaysReadOnlyUnknownFlagDefers_31 covers a review HIGH finding's
 // criterion-4 generalization: an unrecognized flag on an ALWAYS-read-only
 // utility must fail safe (defer), not allow — previously these utilities carried
 // no flag inspection at all, so `sort --frobnicate file` rode the ALLOW track.
@@ -388,9 +388,9 @@ func TestLsAmbiguousShortFlagsDefer_193(t *testing.T) {
 }
 
 // TestLsCrossRepoDenied_193 pins the consequence of putting `ls` on the
-// path-bearing read track: an out-of-repo listing now earns the ordinary #148
+// path-bearing read track: an out-of-repo listing now earns the ordinary
 // read deny, exactly as `cat`/`grep`/`find`/`less` already did for the same
-// operand. Before #193 round 3 `ls` was on no track at all and deferred for
+// operand. Before that `ls` was on no track at all and deferred for
 // every path — including the carve-out ones, which is the defect this fixes.
 func TestLsCrossRepoDenied_193(t *testing.T) {
 	base := t.TempDir()
@@ -489,7 +489,7 @@ func TestClusterIsReadOnlyHelper_31(t *testing.T) {
 	}
 }
 
-// TestAwkProfileOutputDumpNotAllowed_31 covers the #31 review MEDIUM finding:
+// TestAwkProfileOutputDumpNotAllowed_31 covers a review MEDIUM finding:
 // gawk's profile/pretty-print/dump-variables flags write a file (awkprof.out /
 // awkvars.out) and must NOT ALLOW. They were previously listed as read-only
 // boolFlags. Bare, attached, and long-with-value forms all defer.
@@ -643,7 +643,7 @@ func TestReadOnlyUtilitySpecHelpers_31(t *testing.T) {
 	if !jqDefers([]string{"-i", ".foo", "file"}) {
 		t.Error("jq -i must defer")
 	}
-	// ls (#193): no write mode, so only the fail-safe convention is under test —
+	// ls: no write mode, so only the fail-safe convention is under test —
 	// the known read-only grammar allows, anything unmodelled defers.
 	for _, args := range [][]string{
 		{},
