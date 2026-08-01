@@ -237,6 +237,15 @@ type simpleCommand struct {
 // or an unresolved expansion / command substitution (#1: cannot be proven
 // safe statically) is NOT eligible and must defer to the normal pipeline
 // instead of auto-allowing.
+//
+// Its redirect half is ABSOLUTE, which is why the two path-classifier allow
+// tracks no longer call it: classifyReadOnlyUtility and classifyInRepoWrite
+// ask redirectVetoesAllow instead, so a redirect whose every destination is a
+// session-shaped harness scratchpad can still allow (#193), and they spell out
+// the unknown-expansion half themselves. Calling this helper there would
+// re-apply the ungraded veto and undo that. It remains the right gate for
+// classifyAcli, whose concern is credentialed command output rather than where
+// a scratch file lands.
 func (sc simpleCommand) allowEligible() bool {
 	return !sc.hasRedirectToFile && !sc.hasUnknownExpansion
 }

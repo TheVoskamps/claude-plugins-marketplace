@@ -164,7 +164,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   path-bearing like the rest, so an `ls` of a path outside the repo now
   earns the ordinary #148 read deny rather than a defer. Its
   fail-safe predicate models only flags that are bools in **both** GNU
-  and BSD `ls`; the three short flags whose arity diverges (`-I`, `-T`,
+  and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`,
   `-w`) are left unmodelled and defer, because modelling them as value
   flags would let the BSD spelling `ls -I <path>` swallow its only path
   operand and skip containment entirely.
@@ -431,7 +431,17 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   or this session, and the read-side denies name that handoff location
   too; prescribing only the in-repo path left a genuine cross-repo
   handoff with no legal landing spot, which is the same open-ended
-  denial in a different disguise. See
+  denial in a different disguise. The in-repo destination is emitted as
+  the **resolved** root the gate is already holding (`rc.topLevel`, the
+  same value the cross-repo deny prints as `repo root %s`), not as the
+  literal `<repo-root>` placeholder written here and not as a
+  `$(git rev-parse --show-toplevel)` incantation for the model to run —
+  a placeholder resolves to the primary clone as easily as to the
+  agent's own worktree. `scratchDestinations` is the single helper every
+  deny that names it calls, and
+  `TestScratchDestinationsNameResolvedRoot_193` guards the property
+  across its call sites (the read-side denies name only the handoff
+  location, via `handoffHint`). See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
   for the convention. (3) **reading** a non-`.git/` file that resolves
   into the primary clone / shared git dir is **contained/defer** (ALLOW
@@ -594,7 +604,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   **Reaching the carve-out from bash.** A carve-out the bash track
   cannot reach is not a carve-out, and two gates sat in front of this
   one until #193's third round. The first was the read-only-utility
-  table's missing `ls`, described above. The second is the redirect
+  table's missing `ls`, described above. The second was the redirect
   veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
   set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
   well-contained it was — while `tee <scratchpad>/f` and
@@ -608,10 +618,14 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   bundled-skills tree, the unshaped remainder of the prefix, and `/tmp`
   at large all keep the veto, as do a destination the gate cannot
   resolve statically (#1), an unresolvable running cwd (#129), and a
-  command whose *other* redirect escapes the region. The `git`/`gh`/
-  `aws`/`acli` classifiers keep their own unconditional
-  redirect-to-file `ask`: that one guards credentialed command output,
-  a different concern from where a scratch file lands.
+  command whose *other* redirect escapes the region. The lift reaches
+  exactly the two allow tracks that call `redirectVetoesAllow` — the
+  read-only-utility classifier and the in-repo-write classifier. The
+  credentialed-tool classifiers are untouched: `git`/`gh`/`aws` keep
+  their unconditional redirect-to-file **ask**, and `acli` keeps
+  gating its read-only allow on the ungraded `allowEligible()`, so a
+  redirect there still **defers**. Those guard credentialed command
+  output, a different concern from where a scratch file lands.
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.

@@ -51,10 +51,21 @@ The verdict inside that prefix is graded on where the path lands:
 
 - A path in a **session directory** — `<project-slug>/<session-id>/`
   followed by `scratchpad/` or `tasks/`, with `<session-id>` a uuid —
-  is **allowed outright**. This is the destination to use.
+  is **allowed outright**, for reads and writes alike and by every
+  spelling of each: the `Write`/`Edit` tools and the `Read` tool,
+  `cat` of a file there and `ls` of the directory, `cp`/`mv`/`tee`,
+  and a shell redirect
+  (`echo x > <scratchpad>/f`). This is the destination to use.
+- A path under `bundled-skills/` — harness-installed skill content
+  living beside the session directories, not a scratch destination —
+  is **allowed to read** and **defers** for a write.
 - A path elsewhere under the prefix **defers** to the normal
   permission pipeline: `settings.json` allow/ask/deny still governs,
   but containment no longer hard-denies.
+- If the `claude-<uid>` root itself is not a plain directory owned by
+  this user — a symlink, a non-directory, another user's — every path
+  under it **asks**, with a reason naming the defect. That is a broken
+  `/tmp`, not the carve-out failing.
 - Outside the prefix, every other `/tmp` path — including another
   user's `/tmp/claude-<other-uid>/` — is still denied as a cross-repo
   escape.

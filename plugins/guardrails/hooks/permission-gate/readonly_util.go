@@ -531,7 +531,7 @@ func revDefers(args []string) bool {
 // purely for the table's fail-safe convention (an unrecognized flag defers).
 //
 // Only flags that are BOOL in both GNU coreutils and BSD/macOS ls are listed.
-// The three short flags whose meaning DIVERGES — GNU's `-I PATTERN`, `-T COLS`
+// The short flags whose meaning DIVERGES — GNU's `-I PATTERN`, `-T COLS`
 // and `-w COLS` take a value while BSD's `-I`/`-T` are bools — are deliberately
 // left unmodelled, so they defer. Modelling them as value flags would let
 // `ls -I /etc` consume its path operand as a flag value on BSD, leaving zero
