@@ -108,15 +108,22 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	if d, ok := containWriteOperands(prog, operands, sc.cwd, ev); !ok {
 		return d
 	}
-	return allow(fmt.Sprintf("%s writes only paths contained in the current worktree (in-repo write)", prog))
+	return allow(fmt.Sprintf(
+		"%s writes only paths inside the current worktree or this session's harness scratchpad (in-repo write)",
+		prog))
 }
 
 // containWriteOperands runs Engine B containment on a write-class command's path
 // operands. It returns ok=true only when EVERY operand is contained inside the
-// current worktree. A carve-out operand (~/.claude, #247; the harness
-// scratchpad, #193) is neither contained-for-allow nor an escape: it withholds
-// the ALLOW and returns a DEFER. When an operand escapes, ok is false and the
-// returned Decision is the appropriate write-side deny: cross-repo (#148) or
+// current worktree or lands in a session-shaped harness scratchpad directory
+// (#193) — the latter is a region designated safe by construction, so it rides
+// the caller's ALLOW rather than withholding it. A carve-out operand that is
+// NOT a session directory (~/.claude, #247; the rest of the scratchpad prefix,
+// #193) is neither contained-for-allow nor an escape: it withholds the ALLOW
+// and returns a DEFER. A defective scratchpad root (#193 — a symlinked,
+// non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns an ASK
+// naming the defect. When an operand escapes, ok is false and the returned
+// Decision is the appropriate write-side deny: cross-repo (#148) or
 // worktree-escape (#127), each carrying the worktree-anchored remediation
 // (mirroring the file-tool deny wording).
 //
@@ -148,9 +155,12 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 	// A carve-out operand withholds the ALLOW but must NOT short-circuit the
 	// loop: `cp <scratchpad-file> <sibling-repo-path>` has to keep walking to
 	// the destination so it still earns the cross-repo DENY. Record the defer
-	// and apply it only once every operand has been checked, so a genuine
-	// escape anywhere in the command always outranks it.
+	// (and, likewise, a scratchpad-root ASK) and apply it only once every
+	// operand has been checked, so a genuine escape anywhere in the command
+	// always outranks it.
 	deferForCarveOut := false
+	var badRoot Decision
+	haveBadRoot := false
 	for _, p := range operands {
 		// A write whose canonicalized target lands under a .git/ directory is a
 		// direct write to git internals (#125, broadened by #35 Fix 3) — denied
@@ -162,7 +172,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 				"Blocked: '%s' target '%s' is inside a .git/ directory. Directly writing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
 					"repo state. Git's own commands own that tree — do not hand-write .git/. %s",
-				prog, p, scratchDestinations("$(git rev-parse --show-toplevel)"))), false
+				prog, p, scratchDestinations(rc.topLevel))), false
 		}
 
 		res, real := testContainmentFrom(p, base, rc)
@@ -174,23 +184,35 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 					"Writes must land inside this worktree. Use the worktree-anchored path instead: %s. Anchor every "+
 					"absolute path to $(git rev-parse --show-toplevel). %s",
 				prog, p, real, rc.topLevel, correct,
-				scratchDestinations("$(git rev-parse --show-toplevel)"))), false
+				scratchDestinations(rc.topLevel))), false
 		case escapeRepo:
 			return deny("bash-write:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: '%s' target '%s' resolves outside the current repository (%s, repo root %s). Tool-mediated "+
 					"writes must stay within the current repo — do not write into a sibling repo or the wider "+
 					"filesystem. %s",
-				prog, p, real, rc.topLevel, scratchDestinations("<repo-root>"))), false
+				prog, p, real, rc.topLevel, scratchDestinations(rc.topLevel))), false
+		case harnessScratchBadRoot:
+			badRoot = harnessScratchBadRootAsk("bash-write:scratchpad-root (#193)",
+				fmt.Sprintf("'%s' target '%s'", prog, p))
+			haveBadRoot = true
+		case harnessScratchSession:
+			// The harness's own per-session scratchpad directory (#193): a
+			// region designated safe by construction, so it rides the caller's
+			// ALLOW exactly as an in-worktree target does. Writing here is the
+			// behavior the carve-out exists to permit.
 		case claudeConfig, harnessScratch:
-			// The agent's own ~/.claude global config tree (#247) and the
-			// harness's per-session scratchpad under <system-tmp>/claude-<uid>/
-			// (#193). Neither is a clean in-repo write the gate should bless on
-			// its own, and neither is an escape it should deny — let the
+			// The agent's own ~/.claude global config tree (#247) and the part
+			// of the harness scratchpad prefix outside a session-shaped
+			// directory (#193). Neither is a clean write the gate should bless
+			// on its own, and neither is an escape it should deny — let the
 			// settings.json allow-list / normal pipeline govern it. Treat as
 			// not-contained-for-allow without denying: signal a defer.
 			deferForCarveOut = true
 		case contained:
 		}
+	}
+	if haveBadRoot {
+		return badRoot, false
 	}
 	if deferForCarveOut {
 		return deferToPipeline(), false

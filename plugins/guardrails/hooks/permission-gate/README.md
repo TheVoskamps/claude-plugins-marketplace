@@ -455,30 +455,79 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   home-unresolvable signal through `testContainmentFrom` directly (see
   `canonicalizeFromResolver` in `engine_b_containment.go`). (5) a
   target whose canonical path lands under the harness's per-session
-  scratchpad root, `<system-tmp>/claude-<uid>/`, is **deferred** rather
-  than denied (#193) — a carve-out symmetric with the `~/.claude` one.
-  The harness provisions that tree and actively directs the model to
-  put temporary files there, so treating it as an ordinary `/tmp`
-  escape made the gate fight the harness: a hook deny beats a
-  `settings.json` allow, leaving the scratchpad unusable from every
-  repo session and leaving cross-repo / cross-session handoff with no
-  sanctioned home at all. `<uid>` comes from `os.Getuid()` at runtime,
-  never hardcoded, so the carve-out is per-user and portable across
-  macOS and Linux; the root is canonicalized once, so the macOS `/tmp`
-  -> `/private/tmp` symlink is resolved and both spellings of a target
-  hit the carve-out. It covers the whole per-uid prefix rather than the
-  current session's own subdirectory, because reading back what another
-  session wrote is the point. The system temp directory is the literal
-  `/tmp` and NOT `os.TempDir()`: `os.TempDir()` honours `$TMPDIR`
-  (a `/var/folders/...` path on macOS that the harness does not use),
-  and deriving a security carve-out from an environment variable would
-  let whatever set that variable relocate it to an arbitrary directory.
+  scratchpad root, `<system-tmp>/claude-<uid>/`, is carved out of the
+  `/tmp` deny (#193). The harness provisions that tree and actively
+  directs the model to put temporary files there, so treating it as an
+  ordinary `/tmp` escape made the gate fight the harness: a hook deny
+  beats a `settings.json` allow, leaving the scratchpad unusable from
+  every repo session and leaving cross-repo / cross-session handoff
+  with no sanctioned home at all. The verdict is **graded on where
+  inside the prefix the target lands**, not a blanket defer:
+
+  | canonicalized target | verdict |
+  | --- | --- |
+  | under the prefix, remainder matches the session shape | `allow` |
+  | under the prefix, remainder does not match | `defer` |
+  | the `claude-<uid>` root is not a plain, this-uid-owned directory | `ask` |
+  | anything else under `/tmp` | `deny`, as before |
+
+  `allow` rather than `defer` for the session shape is deliberate:
+  writing to the scratchpad is precisely what we want to permit, and a
+  defer would leave the feature dead until every `/tmp` entry is
+  removed from `settings.json` — a hook allow outranks that list, a
+  defer does not. See `decision.go` for the restated bar `BucketAllow`
+  now holds.
+
+  The **session shape** is matched against the remainder left after
+  stripping the canonical root, never the full path, so the pattern is
+  platform-independent by construction and contains neither `/tmp` nor
+  `/private/tmp`:
+  `(-[A-Za-z0-9]+)+/<uuid>/(scratchpad|tasks)(/|$)`. `<uuid>` is the
+  loose `8-4-4-4-12` hex shape with the version nibble deliberately
+  unpinned, so a generator change cannot break the match. A shape miss
+  costs a `defer`, not a denial, which is what makes a pattern this
+  tight affordable. The carve-out still covers the whole **per-uid
+  prefix** rather than the current session's own subdirectory, because
+  reading back what another session wrote is the point.
+
+  `<uid>` comes from `os.Getuid()` at runtime — never hardcoded, never
+  a `claude-*` glob, which would match another user's prefix
+  (`claude-501` and `claude-503` do coexist on real machines). The
+  system temp directory is the literal `/tmp` and NOT `os.TempDir()`:
+  `os.TempDir()` honours `$TMPDIR` (a `/var/folders/...` path on macOS
+  that the harness does not use), and deriving a security carve-out
+  from an environment variable would let whatever set that variable
+  relocate it to an arbitrary directory.
+
+  **Both `/tmp` and `/private/tmp` spellings** are handled by
+  canonicalizing *both sides*, with no literal enumeration of either.
+  Enumerating the two literals would be actively wrong on Linux, where
+  there is no `/tmp` symlink and `/private/tmp` is a genuinely
+  different directory a literal allow-list would wrongly match.
+
+  **Symlinks.** The threat is Claude Code writing to a wrong path,
+  accidentally or otherwise — not a hostile local user contesting the
+  region. Only the `claude-<uid>` root gets its own check
+  (`os.Lstat` on the final component after `EvalSymlinks` on the
+  parent; `Lstat`-ing the whole path would break macOS outright, where
+  `/tmp` is itself a symlink), and a defective root yields the `ask`
+  above with a reason naming the defect, so the failure is not mistaken
+  for this bug reappearing. Nothing **below** the root needs a check:
+  canonicalization already resolves those components and produces a
+  better verdict than an `Lstat` refusal would — a symlinked
+  `scratchpad` -> `~/.ssh` resolves out of the region and earns the
+  ordinary deny. The root is the unique hole for a structural reason:
+  the root is canonicalized too, so a symlink *there* moves the
+  comparison root together with the target and `pathUnder` still
+  matches, whereas every other component moves only the target and the
+  mismatch surfaces on its own. A symlink pointing *within* the region
+  is cross-session handoff working as intended, and is allowed.
+
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.
-  On the write side the carve-out withholds the in-repo-write ALLOW and
-  defers rather than blessing the write, and it deliberately does not
-  short-circuit the operand walk, so `cp <scratchpad-file>
-  <sibling-repo-path>` still denies on its destination.
+  Neither the carve-out nor the root `ask` short-circuits the operand
+  walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
+  its destination.
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the

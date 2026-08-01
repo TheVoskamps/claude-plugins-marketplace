@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -324,7 +326,21 @@ const (
 	escapeWorktree                          // target is in the primary clone / common dir (#127)
 	escapeRepo                              // target is outside the current repo entirely (#148)
 	claudeConfig                            // target is under ~/.claude → defer to settings.json allow-list
-	harnessScratch                          // target is under <system-tmp>/claude-<uid> → defer to settings.json
+	// harnessScratch: target is under <system-tmp>/claude-<uid> but the
+	// remainder does not match the per-session shape → defer to settings.json.
+	harnessScratch
+	// harnessScratchSession: target is under <system-tmp>/claude-<uid> AND the
+	// remainder matches the per-session shape → ALLOW (#193). This is the one
+	// carve-out verdict that outranks settings.json, which is deliberate: the
+	// harness directs the model to this exact tree, and a defer would leave the
+	// feature dead until every /tmp entry is removed from settings.json.
+	harnessScratchSession
+	// harnessScratchBadRoot: the target resolves through a <system-tmp>/
+	// claude-<uid> root that is not a plain directory owned by this uid (it is
+	// a symlink, a non-directory, or another user's) → ASK, with a reason that
+	// names the defect so the failure is not mistaken for the #193 bug
+	// reappearing.
+	harnessScratchBadRoot
 )
 
 // claudeConfigRoot returns the canonicalized $HOME/.claude directory, or "" if
@@ -361,9 +377,50 @@ func harnessScratchDisplay() string {
 	return filepath.Join(harnessScratchDir, "claude-"+strconv.Itoa(os.Getuid()))
 }
 
-// harnessScratchRoot returns the canonicalized <system-tmp>/claude-<uid>
-// directory — the root of the harness's per-session scratchpad tree, under
-// which it lays out <project-slug>/<session-id>/scratchpad.
+// harnessSessionShape matches the per-session REMAINDER of a scratchpad path —
+// what is left after the canonical <system-tmp>/claude-<uid> root is stripped,
+// in slash form. Matching the remainder rather than the full path makes the
+// pattern platform-independent by construction: it never contains "/tmp" or
+// "/private/tmp", so the macOS and Linux spellings cannot diverge here.
+//
+// The observed harness layout (17 projects across two machines) is
+// <project-slug>/<session-uuid>/, with scratchpad/ and tasks/ as the only
+// session subdirectories. The project slug is the session cwd with every path
+// separator rewritten to "-", so it always LEADS with a "-".
+//
+// <uuid> is the loose 8-4-4-4-12 hex shape; the v4 version nibble is
+// deliberately NOT pinned, so a generator change does not break the match. A
+// shape miss costs a DEFER, not a denial, which is what makes a pattern this
+// tight affordable.
+var harnessSessionShape = regexp.MustCompile(
+	`^(?:-[A-Za-z0-9]+)+/` +
+		`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/` +
+		`(?:scratchpad|tasks)(?:/|$)`)
+
+// harnessScratchRootState is the resolved state of the <system-tmp>/
+// claude-<uid> carve-out root.
+type harnessScratchRootState struct {
+	// root is the path a canonicalized target is compared against with
+	// pathUnder. The PARENT is always symlink-resolved (macOS /tmp ->
+	// /private/tmp); the final claude-<uid> component is resolved only when it
+	// is itself a symlink — see defect.
+	root string
+	// defect is "" when the root is a plain directory owned by this uid. A
+	// non-empty defect names what is wrong ("a symlink", …) and turns every
+	// target under root into harnessScratchBadRoot → ASK.
+	defect string
+}
+
+// harnessScratchRootResolver is the function testContainmentFrom consults for
+// the carve-out root. It is a package var ONLY so tests can force the
+// symlinked / non-directory / foreign-owner branches deterministically,
+// without mutating the real /tmp/claude-<uid> tree the developer's own live
+// session is using. Production code never reassigns it.
+var harnessScratchRootResolver = resolveHarnessScratchRoot
+
+// resolveHarnessScratchRoot resolves <system-tmp>/claude-<uid> — the root of
+// the harness's per-session scratchpad tree, under which it lays out
+// <project-slug>/<session-id>/{scratchpad,tasks}.
 //
 // The carve-out covers the whole PER-UID prefix rather than just the current
 // session's own subdirectory: cross-session, cross-repo handoff (one session
@@ -372,13 +429,82 @@ func harnessScratchDisplay() string {
 // scoped to this uid, so another user's /tmp/claude-<other-uid> is NOT carved
 // out and still earns the ordinary escapeRepo verdict.
 //
-// The path is symlink-resolved the same way Engine B canonicalizes every other
-// path, so the macOS /tmp -> /private/tmp symlink is resolved once here and
-// both spellings of a target land on the same root (the carve-out therefore
-// cannot be symlink-escaped either — what matters is where a target's canonical
-// real path lands, not how it was spelled).
-func harnessScratchRoot() string {
-	return canonicalize(harnessScratchDisplay())
+// Symlink handling. The threat being addressed is Claude Code writing to a
+// WRONG PATH, accidentally or otherwise — not a hostile local user contesting
+// the region. The root is the unique component that needs its own check, for a
+// structural reason: the root is canonicalized too, so a symlink THERE moves
+// the comparison root together with the target and pathUnder still matches;
+// every other component moves only the target, so the mismatch surfaces on its
+// own and canonicalization produces a better verdict than an Lstat refusal
+// would (a symlinked scratchpad -> ~/.ssh resolves out of the region and earns
+// the ordinary deny). So: resolve the PARENT with EvalSymlinks and Lstat ONLY
+// the final claude-<uid> component. Lstat-ing the whole path — or rejecting a
+// symlink anywhere in it — would break macOS outright, where /tmp is itself a
+// symlink.
+//
+// When the root IS a symlink, the comparison root becomes its DESTINATION.
+// That is required for the ASK to fire at all: the target side is fully
+// canonicalized, so it lands on the destination, and comparing against the
+// un-followed root would miss it entirely — the path would fall through to the
+// ordinary /tmp deny and hide the actual cause. The cost is that unrelated
+// paths under that destination also become ASK instead of DENY while the root
+// is broken. That is a deliberate trade: an ASK never allows, and a machine
+// whose scratchpad root is a symlink is misconfigured, so a loud diagnosable
+// prompt beats a deny message that reads like this bug reappearing.
+func resolveHarnessScratchRoot() harnessScratchRootState {
+	return resolveScratchRootAt(harnessScratchDisplay())
+}
+
+// resolveScratchRootAt is resolveHarnessScratchRoot's body with the root's
+// un-canonicalized spelling passed in, so tests can exercise the parent-symlink
+// (macOS /tmp), symlinked-root, non-directory and foreign-owner branches against
+// a fixture tree instead of the developer's own live /tmp/claude-<uid>.
+func resolveScratchRootAt(display string) harnessScratchRootState {
+	parent := filepath.Dir(display)
+	if realParent, err := filepath.EvalSymlinks(parent); err == nil {
+		parent = realParent
+	}
+	root := filepath.Join(parent, filepath.Base(display))
+
+	fi, err := os.Lstat(root)
+	if err != nil {
+		// The root does not exist yet (or is unreadable). Nothing can be under
+		// it that is not also created by this session, so there is no defect to
+		// report; the ordinary pathUnder comparison applies. A not-yet-created
+		// root is the normal state on a fresh machine.
+		return harnessScratchRootState{root: root}
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		followed := root
+		if f, ferr := filepath.EvalSymlinks(root); ferr == nil {
+			followed = f
+		}
+		return harnessScratchRootState{root: followed, defect: "a symlink"}
+	}
+	if !fi.IsDir() {
+		return harnessScratchRootState{root: root, defect: "not a directory"}
+	}
+	// Ownership is cheap to check and worth checking: the carve-out is per-uid
+	// by construction, so a root this uid does not own is not the harness's.
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
+		return harnessScratchRootState{
+			root:   root,
+			defect: fmt.Sprintf("owned by uid %d rather than this process's uid %d", st.Uid, os.Getuid()),
+		}
+	}
+	return harnessScratchRootState{root: root}
+}
+
+// harnessScratchRemainder returns real's path relative to root, in slash form,
+// or "" when real IS the root. The caller has already established (via
+// pathUnder) that root is a path-segment prefix of real.
+func harnessScratchRemainder(real, root string) string {
+	if real == root {
+		return ""
+	}
+	rem := strings.TrimPrefix(real, root)
+	rem = strings.TrimPrefix(rem, string(filepath.Separator))
+	return filepath.ToSlash(rem)
 }
 
 // testContainment canonicalizes the target and tests it against the resolved
@@ -433,18 +559,44 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
 		return claudeConfig, real
 	}
-	// Carve-out (#193), symmetric with the ~/.claude one above: the harness
+	// Carve-out (#193), a cousin of the ~/.claude one above: the harness
 	// provisions a per-session scratchpad under <system-tmp>/claude-<uid>/ and
 	// actively instructs the model to put temporary files there. Treating that
 	// tree as an ordinary /tmp escape made the gate fight the harness — a hook
 	// deny beats a settings.json allow, so the scratchpad was unusable from
 	// every repo session, and there was no sanctioned home for a cross-repo /
-	// cross-session handoff file. A target whose canonical path lands under
-	// this uid's scratchpad root is reported as harnessScratch → the caller
-	// DEFERS, letting settings.json allow/ask/deny govern it. Everything else
-	// under /tmp — including another uid's prefix — still falls through to the
-	// escapeRepo deny below.
-	if hs := harnessScratchRoot(); hs != "" && pathUnder(real, hs) {
+	// cross-session handoff file. Unlike ~/.claude this is not a blanket
+	// defer; the verdict is graded on where inside the prefix the target lands:
+	//
+	//	remainder matches the per-session shape → harnessScratchSession (ALLOW)
+	//	remainder does not match               → harnessScratch        (DEFER)
+	//	the claude-<uid> root is not a plain,
+	//	  this-uid-owned directory             → harnessScratchBadRoot (ASK)
+	//	anything else under /tmp               → escapeRepo            (DENY)
+	//
+	// ALLOW rather than DEFER for the session shape is deliberate: writing to
+	// the scratchpad is precisely what we want to permit, and a defer would
+	// leave the feature dead until every /tmp entry is removed from
+	// settings.json (a hook allow outranks that list; a defer does not).
+	//
+	// BOTH the /tmp and /private/tmp spellings are handled by canonicalization
+	// of both sides, with no literal enumeration of either: on macOS the root
+	// and a target spelled either way resolve through the same /tmp ->
+	// /private/tmp symlink. Enumerating the two literals would be actively
+	// wrong on Linux, where there is no such symlink and /private/tmp is a
+	// genuinely different directory a literal allow-list would wrongly match.
+	// Targets that do not exist yet (a Write to a new file) unify too, via
+	// canonicalizeFromResolver's longest-existing-ancestor walk-up.
+	//
+	// Everything else under /tmp — including another uid's prefix — still
+	// falls through to the escapeRepo deny below.
+	if hs := harnessScratchRootResolver(); hs.root != "" && pathUnder(real, hs.root) {
+		if hs.defect != "" {
+			return harnessScratchBadRoot, real
+		}
+		if harnessSessionShape.MatchString(harnessScratchRemainder(real, hs.root)) {
+			return harnessScratchSession, real
+		}
 		return harnessScratch, real
 	}
 	// Not under this worktree. Is it in the primary clone / common dir? That

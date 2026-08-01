@@ -15,8 +15,9 @@ linked worktree that root is `$(git rev-parse --show-toplevel)`, so the
 destination is `$(git rev-parse --show-toplevel)/.claude/tmp/`.
 
 - ✅ `<repo-root>/.claude/tmp/issue-30-scratch/foo.json`
-- ✅ `/tmp/claude-<uid>/…` — the harness scratchpad, but only for a
-  cross-repo or cross-session handoff file (see below).
+- ✅ `/tmp/claude-<uid>/<project-slug>/<session-id>/scratchpad/…` — the
+  harness scratchpad, but only for a cross-repo or cross-session
+  handoff file (see below).
 - ❌ `/tmp/foo.json` — out of repo; boundaries can't be enforced and
   the artifact escapes inspection.
 - ❌ `.git/foo.json` (or anywhere under `.git/`) — git internal state.
@@ -35,6 +36,7 @@ provisions per session at:
 
 ```text
 <system-tmp>/claude-<uid>/<project-slug>/<session-id>/scratchpad
+<system-tmp>/claude-<uid>/<project-slug>/<session-id>/tasks
 ```
 
 `<uid>` is the current process's user id, so the tree is per-user
@@ -45,11 +47,22 @@ session's own subdirectory — precisely so a second session can read
 back what the first one wrote under a different
 `<project-slug>/<session-id>` subpath (issue #193).
 
-Inside that prefix the gate defers to the normal permission pipeline:
-`settings.json` allow/ask/deny still governs, but containment no
-longer hard-denies. Outside it, every other `/tmp` path — including
-another user's `/tmp/claude-<other-uid>/` — is still denied as a
-cross-repo escape.
+The verdict inside that prefix is graded on where the path lands:
+
+- A path in a **session directory** — `<project-slug>/<session-id>/`
+  followed by `scratchpad/` or `tasks/`, with `<session-id>` a uuid —
+  is **allowed outright**. This is the destination to use.
+- A path elsewhere under the prefix **defers** to the normal
+  permission pipeline: `settings.json` allow/ask/deny still governs,
+  but containment no longer hard-denies.
+- Outside the prefix, every other `/tmp` path — including another
+  user's `/tmp/claude-<other-uid>/` — is still denied as a cross-repo
+  escape.
+
+Do not hand-build a path that only approximates the shape. The right
+scratchpad path is the one the harness told this session about; write
+under its `scratchpad/` (or `tasks/`) directory rather than inventing
+a sibling.
 
 Prefer `.claude/tmp/` whenever the file is repo-scoped. The scratchpad
 is for handoff, not a way around containment: it is outside the repo,
@@ -96,7 +109,12 @@ the model's discretion. Issue #193 completes the prescription: naming
 only the in-repo destination left a genuine cross-repo handoff file
 with no legal landing spot at all, which is the same open-ended denial
 in a different disguise, so the denies now name **both** destinations
-and the read-side denies name the handoff location too. The same
+and the read-side denies name the handoff location too. They also name
+the **resolved** repository root — the absolute path the gate already
+holds — rather than a `<repo-root>` placeholder the model has to
+resolve for itself (and can resolve to the primary clone instead of
+its own worktree) or a `$(git rev-parse --show-toplevel)` incantation
+it is told to run for a value the gate is already holding. The same
 prescriptive remediation is emitted by the in-repo-write classifier
 (issue #32) when a file-mutating shell
 command (`cp`, `mv`, `mkdir`, `touch`, `sed -i`, `tee FILE`) targets a

@@ -17,8 +17,21 @@ package main
 type Bucket string
 
 const (
-	// BucketAllow bypasses all remaining permission checks. Reserved for
-	// provably read-only / non-mutating operations (Engine A allow track).
+	// BucketAllow bypasses all remaining permission checks. It is the one
+	// bucket that outranks settings.json, so it needs a stated bar, and that
+	// bar is POSITIVE GROUNDS to declare the call safe: either the operation
+	// itself cannot write (the Engine A read track — a read-only git/gh/aws
+	// subcommand, a read-only utility invocation), or the target region is
+	// designated safe by construction (the current worktree for the
+	// in-repo-write classifier, #32; the harness's per-session scratchpad,
+	// #193).
+	//
+	// The earlier wording — "provably read-only / non-mutating operations" —
+	// is restated rather than dropped because the bucket still needs a bar,
+	// but that particular bar is not decidable at classification time: proving
+	// non-mutation would require the target's current bytes, since a rewrite
+	// with identical content mutates nothing. Positive grounds are decidable
+	// from the call and the path alone, which is all the gate has.
 	BucketAllow Bucket = "allow"
 	// BucketDeny hard-blocks a known-destructive / boundary-violating call.
 	BucketDeny Bucket = "deny"

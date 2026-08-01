@@ -21,6 +21,14 @@ import (
 // are still denied for both reads and writes. The hook only DENIES on a
 // proven escape; an in-worktree (or now, primary-clone-read) path defers
 // (the normal pipeline / settings.json denyRead etc. still apply).
+//
+// The one path to an outright ALLOW here is the #193 harness scratchpad
+// carve-out: when EVERY target of the call lands in a session-shaped
+// scratchpad directory, the call is allowed rather than deferred, because a
+// defer would still lose to a `/tmp` deny entry in settings.json. A call that
+// mixes a scratchpad target with any other kind falls back to the ordinary
+// defer, so the allow never rides along with a path the gate has not blessed
+// on its own terms.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -43,6 +51,13 @@ func classifyFileTool(ev *Event) Decision {
 			ev.ToolName, err))
 	}
 
+	// allSession stays true only while EVERY target so far is a session-shaped
+	// harness scratchpad path (#193) — the sole ground for an outright ALLOW
+	// here. badRoot records a scratchpad-root ASK without short-circuiting the
+	// walk, so a genuine escape later in the same call still outranks it.
+	allSession := true
+	var badRoot Decision
+	haveBadRoot := false
 	for _, p := range paths {
 		// #125 (write half), broadened (#35 Fix 3): a file-mutating tool whose
 		// canonicalized target is anywhere under a `.git/` directory is a direct
@@ -59,10 +74,13 @@ func classifyFileTool(ev *Event) Decision {
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
 					"repo state. Git's own commands own that tree — do not hand-edit .git/. %s If a setting is "+
 					"genuinely wrong, surface it to the human rather than rewriting it.",
-				ev.ToolName, p, scratchDestinations("<repo-root>")))
+				ev.ToolName, p, scratchDestinations(rc.topLevel)))
 		}
 
 		res, real := testContainment(p, rc)
+		if res != harnessScratchSession {
+			allSession = false
+		}
 		switch res {
 		case escapeWorktree:
 			if !isMutatingFileTool(ev.ToolName) {
@@ -91,24 +109,42 @@ func classifyFileTool(ev *Event) Decision {
 					"Writes and edits must land inside this worktree. Use the worktree-anchored path instead: %s. "+
 					"Anchor every absolute path to $(git rev-parse --show-toplevel). %s",
 				ev.ToolName, p, real, rc.topLevel, correct,
-				scratchDestinations("$(git rev-parse --show-toplevel)")))
+				scratchDestinations(rc.topLevel)))
 		case escapeRepo:
 			return deny("containment:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves outside the current repository (%s, repo root %s). "+
 					"Tool-mediated reads and writes must stay within the current repo — do not reach into a sibling "+
 					"repo (e.g. another project's node_modules). If you need third-party API details, consult the "+
 					"dependency's published docs instead.%s",
-				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName)))
+				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName, rc.topLevel)))
+		case harnessScratchBadRoot:
+			// Record, do not return: a later target may be a genuine escape,
+			// and a deny must outrank this ask.
+			badRoot = harnessScratchBadRootAsk("file:scratchpad-root (#193)",
+				fmt.Sprintf("%s target '%s'", ev.ToolName, p))
+			haveBadRoot = true
+		case harnessScratchSession:
+			// The harness's own per-session scratchpad directory (#193): a
+			// region designated safe by construction. Eligible for the ALLOW
+			// terminal below, which outranks a settings.json /tmp deny.
 		case claudeConfig, harnessScratch:
 			// Carve-outs that DEFER rather than deny, so the normal
 			// settings.json pipeline governs them: the agent's own ~/.claude
 			// global config tree (#247 — required startup reading, allow-listed
-			// in settings.json), and the harness's per-session scratchpad under
-			// <system-tmp>/claude-<uid>/ (#193 — the harness itself directs the
-			// model there for temporary and cross-session handoff files).
+			// in settings.json), and the part of the harness scratchpad prefix
+			// outside a session-shaped directory (#193 — in the right tree but
+			// not provably a session directory, so the gate has no opinion).
 		case contained:
 			// ok; keep checking the remaining paths
 		}
+	}
+	if haveBadRoot {
+		return badRoot
+	}
+	if allSession {
+		return allow(fmt.Sprintf(
+			"%s targets only the harness session scratchpad (%s/<project-slug>/<session-id>/{scratchpad,tasks}), "+
+				"a region designated safe by construction", ev.ToolName, harnessScratchDisplay()))
 	}
 	// All targets are inside this worktree — defer to the normal pipeline
 	// (settings.json denyRead, ask lists, etc. still apply).
@@ -167,11 +203,19 @@ func cdInvalidAsk(prog string, sc simpleCommand) (Decision, bool) {
 // current worktree, is a non-.git/ read of the primary clone / shared git dir
 // (#130 — a linked worktree shares tracked content with the primary clone, so
 // this is not a disclosure), or is one of the carve-outs (the ~/.claude tree,
-// #247; the harness scratchpad, #193), so the caller may proceed to its
+// #247; the harness scratchpad prefix, #193), so the caller may proceed to its
 // contained-path terminal (ALLOW for the read-only-utility classifier, DEFER
-// for classifyPathReader). When an operand escapes, ok is false and the
-// returned Decision is the appropriate deny (#148 cross-repo, or #125 a
-// .git/-tree read) / ask (no-repo-context fail-closed) to return verbatim.
+// for classifyPathReader).
+//
+// ok=false means the returned Decision is TERMINAL — return it verbatim.
+// Usually that is a deny (#148 cross-repo, or #125 a .git/-tree read) or an
+// ask (no-repo-context fail-closed, or a defective scratchpad root, #193), but
+// it is also how the #193 session-scratchpad ALLOW is delivered: when every
+// operand lands in a session-shaped scratchpad directory, the read is allowed
+// outright rather than left to the caller's terminal, because the DEFER
+// terminal would still lose to a `/tmp` deny entry in settings.json. A deny
+// found anywhere in the operand walk returns immediately and so always
+// outranks both the ask and the allow.
 //
 // With no operands there is nothing to contain, so ok=true and the caller's
 // own terminal applies. The caller is responsible for the hasUnknownExpansion
@@ -202,8 +246,17 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 	if base == "" {
 		base = ev.CWD
 	}
+	// See the ok=false contract above: allSession drives the #193 terminal
+	// ALLOW; badRoot is recorded rather than returned inline so a genuine
+	// escape later in the walk still outranks it.
+	allSession := true
+	var badRoot Decision
+	haveBadRoot := false
 	for _, p := range operands {
 		res, real := testContainmentFrom(p, base, rc)
+		if res != harnessScratchSession {
+			allSession = false
+		}
 		switch res {
 		case escapeRepo:
 			return deny("bash-read:cross-repo (#148)", fmt.Sprintf(
@@ -227,14 +280,30 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			}
 			// Not under .git/: a legitimate shared-content read (#125's stated
 			// intent). Treat as contained rather than escalating.
+		case harnessScratchBadRoot:
+			badRoot = harnessScratchBadRootAsk("bash-read:scratchpad-root (#193)",
+				fmt.Sprintf("'%s' operand '%s'", prog, p))
+			haveBadRoot = true
+		case harnessScratchSession:
+			// The harness's own per-session scratchpad directory (#193): a
+			// region designated safe by construction. Eligible for the terminal
+			// ALLOW below.
 		case claudeConfig, harnessScratch:
 			// The agent's own ~/.claude global config tree (#247 — required
-			// startup reading, allow-listed in settings.json) and the harness's
-			// per-session scratchpad under <system-tmp>/claude-<uid>/ (#193 —
-			// where the harness itself directs temporary and cross-session
-			// handoff files). Treat both as contained.
+			// startup reading, allow-listed in settings.json) and the part of
+			// the harness scratchpad prefix outside a session-shaped directory
+			// (#193). Treat both as contained, leaving the caller's own
+			// terminal to govern.
 		case contained:
 		}
+	}
+	if haveBadRoot {
+		return badRoot, false
+	}
+	if allSession {
+		return allow(fmt.Sprintf(
+			"'%s' reads only the harness session scratchpad (%s/<project-slug>/<session-id>/{scratchpad,tasks}), "+
+				"a region designated safe by construction", prog, harnessScratchDisplay())), false
 	}
 	return Decision{}, true
 }
@@ -277,9 +346,13 @@ func pathOperands(args []string) []string {
 // the handoff LOCATION is (the model may be reaching for a file another session
 // wrote), so the read hint names that plus the .git/ prohibition. Returns a
 // leading-space-prefixed sentence (or "") so callers can append it inline.
-func scratchHint(toolName string) string {
+//
+// repoRoot is the RESOLVED repository root (rc.topLevel), forwarded to
+// scratchDestinations — see there for why the gate names the real path rather
+// than a placeholder.
+func scratchHint(toolName string, repoRoot string) string {
 	if isMutatingFileTool(toolName) {
-		return " " + scratchDestinations("<repo-root>")
+		return " " + scratchDestinations(repoRoot)
 	}
 	return " " + handoffHint() + " Do not work around this by reading or writing under .git/."
 }
@@ -295,16 +368,49 @@ func scratchHint(toolName string) string {
 //   - repo-scoped scratch  -> <repo-root>/.claude/tmp/ (already gitignored)
 //   - cross-repo/-session  -> the harness scratchpad, <system-tmp>/claude-<uid>/
 //
-// rootExpr is how the repo root should be spelled for this message's audience:
-// "<repo-root>" for a file-tool deny, "$(git rev-parse --show-toplevel)" for a
-// bash deny, where a shell expression is directly usable as typed.
-func scratchDestinations(rootExpr string) string {
+// repoRoot is the RESOLVED repository root — rc.topLevel, the same value the
+// adjacent cross-repo deny already prints as `repo root %s`. Every call site
+// has it in scope, so the message names a real, directly-usable absolute path.
+// It is deliberately neither a literal `<repo-root>` placeholder (which the
+// model then has to resolve for itself, and can resolve to the primary clone
+// rather than its own worktree) nor a `$(git rev-parse --show-toplevel)`
+// incantation the model is told to run for a value the gate is already
+// holding. A caller without a resolved root would have to pass a placeholder,
+// but there is none — do not add one without revisiting this comment.
+func scratchDestinations(repoRoot string) string {
 	return fmt.Sprintf(
 		"For repo-scoped scratch or temporary files, write under %s/.claude/tmp/ (already gitignored) "+
 			"instead of an out-of-repo path. For a file that must outlive this repo or this session (a "+
 			"cross-repo or cross-session handoff), use the harness scratchpad under %s/ instead. "+
 			"Never write scratch files under .git/.",
-		rootExpr, harnessScratchDisplay())
+		repoRoot, harnessScratchDisplay())
+}
+
+// harnessScratchBadRootAsk builds the ASK for a target that resolves through a
+// harness scratchpad root (<system-tmp>/claude-<uid>) that is not a plain
+// directory owned by this uid (#193). The root is the one component of the
+// scratchpad path that needs its own check — see resolveHarnessScratchRoot for
+// why nothing below it does.
+//
+// The reason NAMES the defect (a symlink, a non-directory, another user's
+// directory) rather than reading as a containment escape, so an operator who
+// hits it diagnoses their own broken /tmp instead of concluding that the #193
+// carve-out has regressed.
+//
+// lead identifies the offending call in the caller's own voice, e.g.
+// `Write target '/tmp/claude-501/…'` or `'cat' operand '…'`.
+func harnessScratchBadRootAsk(op string, lead string) Decision {
+	defect := harnessScratchRootResolver().defect
+	if defect == "" {
+		// The root recovered between the containment test and this message.
+		defect = "not in the state the carve-out requires"
+	}
+	return ask(op, fmt.Sprintf(
+		"Blocked: %s resolves through the harness scratchpad root %s, which is %s rather than a plain directory "+
+			"owned by this user. The scratchpad carve-out needs a real directory to prove where a path under it "+
+			"actually lands, so this escalates to a human decision (fail-closed). This is the scratchpad-root "+
+			"check, NOT a containment escape — inspect %s (`ls -ld`) before re-running.",
+		lead, harnessScratchDisplay(), defect, harnessScratchDisplay()))
 }
 
 // handoffHint names the sanctioned cross-repo / cross-session handoff location
