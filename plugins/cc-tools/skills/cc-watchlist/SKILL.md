@@ -10,13 +10,13 @@ argument-hint: [extra-issue-numbers]
 ## A. Session display / CLI flags
 
 | # | Topic | Last known state |
-|---|---|---|
+| --- | --- | --- |
 | 40393 | `--color`/`--title` CLI flags | Open |
 
 ## B. Compound bash parsing & permissions harness
 
 | # | Topic | Last known state |
-|---|---|---|
+| --- | --- | --- |
 | 16561 | Parse compound bash commands; match each component against permissions (canonical umbrella) | Open |
 | 46363 | Skill or setting to skip permission prompts for esoteric/low-risk commands | Open |
 | 31523 | Permission UX: compound blocking, rule accumulation, undiscoverable `Bash(*)` fix | Open |
@@ -30,27 +30,33 @@ argument-hint: [extra-issue-numbers]
 ## C. `isolation: worktree` subagent isolation
 
 | # | Topic | Last known state |
-|---|---|---|
+| --- | --- | --- |
 | 62547 | Subagents silently write outside worktree via absolute `file_path` (Edit/Write hit primary clone, not worktree) | Open |
 | 52958 | Subagent `isolation: worktree` leaks cwd into parent checkout mid-session, destroying untracked files | Open |
 | 47548 | `isolation: worktree` switches parent worktree's branch instead of creating isolated worktree | Open |
 
-If `$ARGUMENTS` contains additional issue numbers (space-separated), append them to the list for this run.
+If `$ARGUMENTS` contains additional issue numbers (space-separated),
+append them to the list for this run.
 
 ## Execution rules
 
-Every Bash command MUST be single-token: no `&&`, no `||`, no `;`, no `|`, no `>` / `2>`. Compound forms hit the parser issues we're tracking (#16561 et al.) and prompt even with matching `Bash(cmd:*)` allow rules.
+Every Bash command MUST be single-token: no `&&`, no `||`, no `;`, no
+`|`, no `>` / `2>`. Compound forms hit the parser issues we're tracking
+(#16561 et al.) and prompt even with matching `Bash(cmd:*)` allow
+rules.
 
 ## Steps
 
 1. **For each issue number**, one Bash call:
-   ```
+
+   ```bash
    gh issue view <num> --repo anthropics/claude-code --json number,title,state,stateReason,closedAt
    ```
 
 2. **Classify** each result into one bucket:
    - `OPEN` (or `CLOSED` + `reopened`) → **Open**.
-   - `CLOSED` + `completed` → **Shipped**. Take the first 10 characters of `closedAt` (the `YYYY-MM-DD`) as the closure date.
+   - `CLOSED` + `completed` → **Shipped**. Take the first 10 characters
+     of `closedAt` (the `YYYY-MM-DD`) as the closure date.
    - `CLOSED` + `not_planned` → **Won't ship** (footer only).
    - `CLOSED` + `duplicate` → **Cleanup** (footer only).
 
@@ -58,7 +64,7 @@ Every Bash command MUST be single-token: no `&&`, no `||`, no `;`, no `|`, no `>
 
 Use this structure exactly. No PR references, no progress narration, no extra commentary.
 
-```
+```text
 ## A. Session display / CLI flags
 
 Open:
@@ -93,7 +99,7 @@ Summary: N open, M shipped.
 
 After both sections, if and only if non-empty:
 
-```
+```text
 Cleanup (consider removing from watch list):
 - #<num> closed as duplicate
 
@@ -101,10 +107,13 @@ Won't ship:
 - #<num> closed as not_planned
 ```
 
-Omit any subheading whose list is empty. Don't write "none" or "no shipped issues" — just leave the heading out.
+Omit any subheading whose list is empty. Don't write "none" or "no
+shipped issues" — just leave the heading out.
 
 ## Notes
 
 - Don't speculate about issue progress beyond what `gh` reports.
 - If `gh` fails, report the error verbatim and stop.
-- #28240 is labeled `platform:windows` by the reporter but the underlying compound-command matcher is platform-agnostic; treat fixes as relevant to macOS/Linux too.
+- #28240 is labeled `platform:windows` by the reporter but the
+  underlying compound-command matcher is platform-agnostic; treat fixes
+  as relevant to macOS/Linux too.
