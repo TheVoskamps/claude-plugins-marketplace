@@ -212,19 +212,22 @@ image:
 # Placement here (not in the boot file) is what puts these under the whole-file
 # image-identity hash; writing `claude.plugins.bake` into a boot file aborts the
 # launch. Prefer an explicit https:// url over the `owner/repo` shorthand so the
-# launcher can derive the marketplace's egress host.
-claude:
-  marketplaces:
-    - name: thevoskamps
-      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
-  plugins:
-    bake:
-      - block-background-agents@thevoskamps
-      # COMPILED-HOOK PAIRING (not auto-derived): the guardrails
-      # permission-gate builds its hook from Go source at load time, so baking
-      # it requires a sufficiently new `golang` in this file's `packages:`.
-      # Enable both halves in the same edit or the gate never adjudicates.
-      # - guardrails@thevoskamps
+# launcher can derive the marketplace's egress host. Shown commented out, like
+# the bake `packages:`/`apt_sources:` above, because the boot file's own
+# `claude:` map follows below and one document cannot carry both.
+#
+# claude:
+#   marketplaces:
+#     - name: thevoskamps
+#       url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
+#   plugins:
+#     bake:
+#       - block-background-agents@thevoskamps
+#       # COMPILED-HOOK PAIRING (not auto-derived): the guardrails
+#       # permission-gate builds its hook from Go source at load time, so baking
+#       # it requires a sufficiently new `golang` in this file's `packages:`.
+#       # Enable both halves in the same edit or the gate never adjudicates.
+#       # - guardrails@thevoskamps
 
 # --- BOOT file keys, continued ---
 claude:
@@ -245,7 +248,7 @@ claude:
                                   # types (like apt_sources); `name` must match
                                   # the marketplace's OWN manifest name.
   plugins:
-    # bake: lives in the BAKE file -- see the bake-file block below.
+    # bake: lives in the BAKE file -- see the bake-file block above.
     install_at_boot: []           # plugin@marketplace refs installed at boot
     update_at_boot: true          # refresh marketplaces + update the installed
                                   # plugins at boot (default true). This is the

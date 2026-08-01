@@ -6,10 +6,17 @@
 # on every boot, runs the host-verified `claude` (mounted RO at
 # /mnt/claudebin) against the mounted repo as an interactive session on the
 # hvc1 console (issue #88).
-# Claude Code updates daily, so `claude` is deliberately NOT baked into
-# the image -- only the base OS and the launcher logic are. The base
-# changes only when the OS pin or the launcher logic version changes,
-# never when claude does.
+# Claude Code updates daily, so the `claude` BINARY is deliberately NOT baked
+# into the image. The base changes only when the OS pin or the launcher logic
+# version changes, never when claude does -- its identity carries no claude
+# version.
+#
+# What the build DOES bake, beyond the OS and the launcher logic: the bake
+# file's apt packages/sources (issue #105) and, since issue #107, the
+# configured marketplaces plus claude.plugins.bake, installed into the image's
+# /root/.claude/plugins by running the host-verified guest-platform claude
+# binary inside the build container. Those inputs are bake-file keys, so the
+# whole-file image-identity hash already covers them.
 #
 # The launcher (claude-vm.sh) calls this on demand:
 #   - `--print-version`  : print the pinned base version and exit. Used

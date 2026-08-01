@@ -1311,7 +1311,7 @@ claude_vm_bake_plugins_json() {
 # plugins.install_at_boot, plugins.enabled -- is a BOOT key and still comes
 # from the boot document.
 #
-# The rendered document has exactly two top-level keys:
+# The rendered document's top-level keys are:
 #
 #   permissions:
 #     allow | ask | deny  -- verbatim from merged claude.permissions.*
