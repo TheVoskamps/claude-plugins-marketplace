@@ -325,15 +325,23 @@ const (
 	contained      containmentResult = iota // target is under this worktree → ok
 	escapeWorktree                          // target is in the primary clone / common dir (#127)
 	escapeRepo                              // target is outside the current repo entirely (#148)
-	claudeConfig                            // target is under ~/.claude → defer to settings.json allow-list
+	// claudeConfig: target is under ~/.claude. NOT an escape — the caller falls
+	// through to its own terminal for a contained target, which is a DEFER (to
+	// the settings.json allow-list) on the file-tool and path-reader tracks and
+	// the curated read-utility track's ordinary ALLOW.
+	claudeConfig
 	// harnessScratch: target is under <system-tmp>/claude-<uid> but the
-	// remainder does not match the per-session shape → defer to settings.json.
+	// remainder matches neither harness shape. Like claudeConfig it is neither an
+	// escape nor grounds for the carve-out's own ALLOW, so the caller's terminal
+	// for a contained target governs: DEFER on the file-tool, path-reader and
+	// write tracks, and the curated read-utility track's ordinary ALLOW.
 	harnessScratch
 	// harnessScratchSession: target is under <system-tmp>/claude-<uid> AND the
-	// remainder matches the per-session shape → ALLOW (#193). This is the one
-	// carve-out verdict that outranks settings.json, which is deliberate: the
-	// harness directs the model to this exact tree, and a defer would leave the
-	// feature dead until every /tmp entry is removed from settings.json.
+	// remainder matches the per-session shape → ALLOW (#193) on every track,
+	// reads and writes alike. This is the one carve-out verdict that outranks
+	// settings.json, which is deliberate: the harness directs the model to this
+	// exact tree, and a defer would leave the feature dead until every /tmp entry
+	// is removed from settings.json.
 	harnessScratchSession
 	// harnessScratchBundled: target is under <system-tmp>/claude-<uid> AND the
 	// remainder matches the bundled-skills shape (#193). Unlike every other
@@ -627,13 +635,20 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// deny beats a settings.json allow, so the scratchpad was unusable from
 	// every repo session, and there was no sanctioned home for a cross-repo /
 	// cross-session handoff file. Unlike ~/.claude this is not a blanket
-	// defer; the verdict is graded on where inside the prefix the target lands:
+	// defer; the verdict is graded on where inside the prefix the target lands.
+	// This function's job is only the REGION — the verdict is a function of
+	// region × track, and each caller applies its own terminal to the region
+	// this returns:
 	//
-	//	remainder matches the per-session shape → harnessScratchSession (ALLOW)
-	//	remainder matches bundled-skills        → harnessScratchBundled (read
-	//	                                          ALLOW / write DEFER — graded
-	//	                                          by the caller, see there)
-	//	remainder does not match                → harnessScratch        (DEFER)
+	//	remainder matches the per-session shape → harnessScratchSession
+	//	  (ALLOW on every track, read and write alike)
+	//	remainder matches bundled-skills        → harnessScratchBundled
+	//	  (read ALLOW / write DEFER — graded by the caller, see there)
+	//	remainder does not match                → harnessScratch
+	//	  (not an escape and not carve-out grounds for an ALLOW: the caller's
+	//	  terminal for a contained target governs, which is a DEFER on the
+	//	  file-tool, path-reader and write tracks and the curated read-utility
+	//	  track's ordinary ALLOW)
 	//	the claude-<uid> root is not a plain,
 	//	  this-uid-owned directory              → harnessScratchBadRoot (ASK)
 	//	anything else under /tmp                → escapeRepo            (DENY)

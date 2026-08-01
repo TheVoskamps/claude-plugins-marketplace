@@ -147,7 +147,11 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
   utility enumerates its read-only flag grammar, and anything outside it
   defers. The read still **denies/asks** when a path operand escapes
-  containment (#148 cross-repo, #127 worktree). Pure-
+  containment (#148 cross-repo, #127 worktree) — and an **input
+  redirect source** (`cat < f`) is graded by that same containment,
+  including for a utility whose own operands are not paths, so
+  `tee /dev/null < ../sibling-repo/.env` cannot copy an out-of-repo
+  file to stdout under an allow. Pure-
   output utilities (`printf`, `echo`, `seq`, `true`/`false`, `yes`,
   `basename`, `dirname`) take no path operand and so ALLOW without a
   `git rev-parse` fork of their own. Pagers / binary dumpers (`less`,
@@ -164,10 +168,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   path-bearing like the rest, so an `ls` of a path outside the repo now
   earns the ordinary #148 read deny rather than a defer. Its
   fail-safe predicate models only flags that are bools in **both** GNU
-  and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`,
-  `-w`) are left unmodelled and defer, because modelling them as value
-  flags would let the BSD spelling `ls -I <path>` swallow its only path
-  operand and skip containment entirely.
+  and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`, `-w`)
+  are left unmodelled and defer. That gap holds no hole shut: the flag
+  model decides allow-*eligibility* only, while `pathOperands` keeps
+  every non-`-` token without consulting it, so `ls -I /etc` yields the
+  operand `/etc` either way — modelling those flags as value-taking
+  would make the verdict `deny` (eligible, then containment), i.e.
+  **stricter** than the current `defer`. They stay unmodelled because a
+  model must not assert an arity that is wrong on one of the two
+  platforms: as value flags the predicate misreads BSD's `ls -I .`, and
+  as bools it misreads GNU's `ls -w 80 .`.
 - **In-repo-write classifier** (`classify_inrepo_write.go`, #32): the
   write-side counterpart to the read-only-utility classifier. The agent
   can already mutate any in-repo file via the Write/Edit tools (Engine B
@@ -183,7 +193,11 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   target under `.git/` **denies** (#125); an operand built from an
   unresolved expansion **asks** (#1); a real-file redirect **defers**
   unless every destination is a session-shaped harness scratchpad
-  (#193), the same graded veto the read track carries.
+  (#193), the same graded veto the read track carries. An **input
+  redirect source** is graded by the *read* containment, so
+  `tee f.md < ../sibling-repo/.env` denies even though every operand
+  the parser sees is in-repo; a read source can only withhold this
+  classifier's allow, never earn it.
   `rm` is deliberately **excluded** (the conservative #32 posture): the
   highest-blast-radius mutating program stays on the ask/defer track so a
   human sees each one. `sed` and `tee` are dual-mode — their read-only
@@ -489,16 +503,32 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   beats a `settings.json` allow, leaving the scratchpad unusable from
   every repo session and leaving cross-repo / cross-session handoff
   with no sanctioned home at all. The verdict is **graded on where
-  inside the prefix the target lands**, not a blanket defer:
+  inside the prefix the target lands**, not a blanket defer — and it is
+  a function of **region × track**, not of region alone. The three
+  tracks are the **path-reader** track (the `Read` file tool, and the
+  bash pagers / dumpers `less`, `more`, `od`, `xxd`, `hexdump`); the
+  **curated read-utility** track (`cat`, `head`, `grep`, `find`, `ls`,
+  … — the `readOnlyUtilities` table); and the **write** track
+  (`Write`/`Edit`/`NotebookEdit`, and bash write operands such as
+  `tee`, `cp`/`mv` destinations, and output redirects):
 
-  | canonicalized target | verdict |
-  | --- | --- |
-  | under the prefix, remainder matches the session shape | `allow` |
-  | under the prefix, remainder matches the bundled-skills shape, call is **read-class** | `allow` |
-  | under the prefix, remainder matches the bundled-skills shape, call is **write-class** | `defer` |
-  | under the prefix, remainder matches neither shape | `defer` |
-  | the `claude-<uid>` root is not a plain, this-uid-owned directory | `ask` |
-  | anything else under `/tmp` | `deny`, as before |
+  | region (canonicalized) | path-reader | curated read utility | write |
+  | --- | --- | --- | --- |
+  | remainder matches the session shape | `allow` | `allow` | `allow` |
+  | remainder matches the bundled-skills shape | `allow` | `allow` | `defer` |
+  | under the prefix, remainder matches neither | `defer` | `allow` | `defer` |
+  | the `claude-<uid>` root is not a plain, this-uid-owned directory | `ask` | `ask` | `ask` |
+  | anything else under `/tmp` | `deny` | `deny` | `deny` |
+
+  The curated read-utility column's `allow` on the unshaped-remainder
+  row is **pre-existing behavior of that track**, not something the
+  scratchpad carve-out decides: that classifier's terminal for any
+  contained-or-carved-out operand is an `allow`, which it already
+  returned for an in-repo operand and for the `~/.claude` carve-out
+  (#247). The row is recorded because the table has to describe what
+  the gate does, not what this carve-out chose. An earlier revision of
+  this table gave one verdict per region and was wrong about exactly
+  that row.
 
   `allow` rather than `defer` for the session shape is deliberate:
   writing to the scratchpad is precisely what we want to permit, and a
@@ -626,6 +656,33 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   gating its read-only allow on the ungraded `allowEligible()`, so a
   redirect there still **defers**. Those guard credentialed command
   output, a different concern from where a scratch file lands.
+
+  **Input redirects are contained like operands.** A carve-out is only
+  meaningful if the surrounding denial holds, and it did not: an input
+  redirect reads a file without that file ever becoming an argv
+  operand, so `reduceCallExpr` — which switched on `r.Op` over the
+  output ops only — recorded nothing, and `cat < /etc/passwd` reached
+  the read-only-utility classifier with **zero** operands to contain
+  and was allowed outright. `syntax.RdrIn` targets are now recorded in
+  `inputRedirectTargets`, a field deliberately distinct from
+  `redirectTargets`: a read is not a write, and one list for both would
+  either veto reads with the write veto or let a read-eligible region
+  authorize a write. The read tracks merge those sources into the same
+  containment walk that grades their operands (`readTargets`), so the
+  two spellings of one read cannot carry two verdicts —
+  `cat < ../sibling-repo/.env` denies exactly as
+  `cat ../sibling-repo/.env` does, an in-repo source behaves exactly as
+  the operand form, and a session-scratchpad source allows. The write
+  track grades them too (`containInputRedirects`), because
+  `tee f.md < ../sibling-repo/.env` copies an out-of-repo file into the
+  repo while every operand it parses is contained; there the read
+  source can only lose the ALLOW, never earn one. Heredocs and
+  herestrings (`<<`, `<<-`, `<<<`) are inline text, not file reads, and
+  are deliberately not swept in; `<>` is graded for its read half but
+  sets no write flag, since `hasRedirectToFile` is checked *before*
+  containment and would replace this deny with a defer. An input source
+  built from an unresolved expansion fails closed on the existing
+  dynamic-path `ask`.
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.

@@ -358,11 +358,15 @@ func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
 
 // TestLsAmbiguousShortFlagsDefer_193 pins the deliberate gap in lsDefers: the
 // short flags whose arity DIVERGES between GNU and BSD ls (`-I`, `-T`, `-w`) are
-// unmodelled, so they defer. Modelling them as value flags would let the BSD
-// spelling `ls -I <path>` swallow its only path operand as a flag value, leaving
-// nothing for containment to check and allowing an out-of-repo listing outright;
-// modelling them as bools would misparse the GNU form. A defer costs a prompt,
-// which is the cheaper of the two errors.
+// unmodelled, so they hit the unknown-flag arm and defer.
+//
+// The gap is not holding a containment hole shut, and the assertion must not be
+// read as if it were: pathOperands keeps every non-`-` token without consulting
+// the flag model, so `ls -I /etc` yields the operand `/etc` either way, and
+// modelling these as value flags would make the verdict DENY (allow-eligible,
+// then containment) rather than this DEFER. They stay unmodelled because a model
+// must not assert an arity that is wrong on one of the two platforms — see
+// lsDefers for the full statement.
 //
 // Note the assertion's own limit: DEFER is also the fallback bucket, so these
 // cases would pass identically if `ls` left readOnlyUtilities altogether. It is

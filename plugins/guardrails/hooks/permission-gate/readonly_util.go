@@ -170,10 +170,20 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		return deferToPipeline()
 	}
 
+	// Everything this invocation READS, in one list: the path operands of a
+	// path-bearing utility, plus the sources of any input redirect. The input
+	// redirects are graded even for a utility whose OPERANDS are not paths —
+	// `tee /dev/null < /etc/passwd` copies the file to stdout without ever taking
+	// it as an operand, so leaving it ungraded would disclose it under an ALLOW.
+	readPaths := sc.inputRedirectTargets
 	if spec.pathBearing {
-		// A command substitution / unresolved expansion in a path operand can't
-		// be statically contained → fail closed ASK (the same posture
-		// classifyPathReader holds), not a silent defer (#1).
+		readPaths = readTargets(args, sc)
+	}
+
+	if spec.pathBearing || len(readPaths) > 0 {
+		// A command substitution / unresolved expansion in a path operand or a
+		// redirect source can't be statically contained → fail closed ASK (the
+		// same posture classifyPathReader holds), not a silent defer (#1).
 		if sc.hasUnknownExpansion {
 			return ask("bash-read:dynamic-path", fmt.Sprintf(
 				"Blocked: '%s' has a path argument built from an expansion the gate cannot resolve statically; "+
@@ -185,12 +195,12 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		if d, hit := cdInvalidAsk(prog, sc); hit {
 			return d
 		}
-		// Engine B containment on every path operand: a cross-repo read still
+		// Engine B containment on every path it reads: a cross-repo read still
 		// denies (#148); a primary-clone/worktree-escape read is treated as
 		// contained instead of asking (#130), except a target under `.git/`,
-		// which still denies (#125). A non-contained operand returns that
+		// which still denies (#125). A non-contained path returns that
 		// deny verdict; otherwise ALLOW.
-		if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
+		if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {
 			return d
 		}
 	} else if sc.hasUnknownExpansion {
@@ -531,19 +541,32 @@ func revDefers(args []string) bool {
 // purely for the table's fail-safe convention (an unrecognized flag defers).
 //
 // Only flags that are BOOL in both GNU coreutils and BSD/macOS ls are listed.
-// The short flags whose meaning DIVERGES — GNU's `-I PATTERN`, `-T COLS`
-// and `-w COLS` take a value while BSD's `-I`/`-T` are bools — are deliberately
-// left unmodelled, so they defer. Modelling them as value flags would let
-// `ls -I /etc` consume its path operand as a flag value on BSD, leaving zero
-// operands to contain and allowing an out-of-repo listing outright; modelling
-// them as bools would misparse the GNU form. A defer costs a prompt; either
-// mismodelling costs a containment check.
+// The short flags whose meaning DIVERGES — GNU's `-I PATTERN`, `-T COLS` and
+// `-w COLS` take a value while BSD's `-I`/`-T` are bools — are deliberately left
+// unmodelled, so they hit the unknown-flag arm and defer.
+//
+// What that choice does NOT do is hold a containment hole shut. The flag model
+// decides allow-ELIGIBILITY only; it has no say in which tokens are contained.
+// pathOperands does that, and it keeps every token that does not begin with `-`
+// without ever consulting this model — so `ls -I /etc` yields the operand `/etc`
+// either way. The two outcomes are:
+//
+//	unmodelled          → unknown flag → this predicate defers → DEFER
+//	modelled as a value → allow-eligible → containment runs    → DENY
+//
+// Modelling them would therefore be STRICTER than leaving them out, not laxer.
+// They stay out because a model must not assert an arity that is wrong on one of
+// the two platforms: as value flags this predicate would misread the BSD form
+// `ls -I .` (consuming `.` as a pattern), and as bools it would misread the GNU
+// form `ls -w 80 .` (treating the column count `80` as a path). A defer costs a
+// prompt on a rare form, which is cheaper than either mismodel — and it is the
+// same fail-safe-on-unknown-flag convention the rest of this table follows.
 //
 // The GNU long forms of those same options are unambiguous (long flags do not
 // exist in BSD ls), so they ARE modelled as value flags. `--color`/`--colour`
 // are bools instead, because their value is optional (`ls --color` is legal and
-// means `=always`): as value flags they would swallow the following path operand
-// the same way.
+// means `=always`), so consuming the following token would misread the path
+// operand in `ls --color .` as the flag's value.
 func lsDefers(args []string) bool {
 	return flagScan{
 		valueFlags: map[string]bool{

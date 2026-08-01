@@ -546,10 +546,214 @@ func TestHarnessScratchRedirectAllowed_193(t *testing.T) {
 	}
 }
 
-// #193 row 2 (DEFER): a target under the <system-tmp>/claude-<uid> prefix whose
-// remainder does NOT match the session shape is handed back to the normal
-// pipeline — neither blessed nor denied. A shape miss costs a DEFER, not a
-// denial, which is what makes the tight shape affordable.
+// #193 "Input redirects must be contained": an input redirect reads a file
+// WITHOUT that file ever becoming an argv operand, so before this the read
+// containment never saw it — `cat < /etc/passwd` reached the read-only-utility
+// classifier with ZERO operands and was allowed outright. The sources are now
+// merged into the same containment walk that grades operands, so the two
+// spellings of one read cannot carry two verdicts.
+//
+// The equivalence assertions are the load-bearing ones: each redirect form is
+// compared against its own operand form rather than against a hardcoded bucket,
+// so the two can never drift apart, whatever either verdict later becomes.
+func TestInputRedirectContained_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	uid := os.Getuid()
+	bev := bashEvIn(t, root, "issue-developer")
+
+	// The headline acceptance row: an out-of-repo source DENIES, with the same
+	// message the operand form emits.
+	outOfRepo := filepath.Join(canonicalize(sibling), ".env")
+	dRedirect := classifyBash("cat < "+outOfRepo, bev)
+	dOperand := classifyBash("cat "+outOfRepo, bev)
+	wantBucket(t, dRedirect, BucketDeny, "#193: `cat < <out-of-repo>` must deny")
+	if dRedirect.Reason != dOperand.Reason || dRedirect.Operation != dOperand.Operation {
+		t.Errorf("#193: the redirect form must emit the operand form's message;\n got %q / %q\nwant %q / %q",
+			dRedirect.Operation, dRedirect.Reason, dOperand.Operation, dOperand.Reason)
+	}
+
+	// Every other source: the redirect form must land on exactly the operand
+	// form's verdict. `~/.claude` and the unresolved expansion are listed for the
+	// same reason as the rest — whatever the operand form does, the redirect form
+	// does. (Measured today: the curated read-utility track ALLOWs a ~/.claude
+	// operand, and an unresolvable path ASKs rather than defers, because a
+	// path-bearing utility fails closed on a dynamic path.)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, src := range map[string]string{
+		"an in-repo file":                "a.txt",
+		"an absolute in-repo file":       filepath.Join(root, "a.txt"),
+		"a session scratchpad file":      scratchTarget(uid, sessionSlug, sessionUUID, "scratchpad", "f"),
+		"a tasks file":                   scratchTarget(uid, sessionSlug, sessionUUID, "tasks", "f"),
+		"a bundled skill":                scratchTarget(uid, "bundled-skills", bundledVersion, bundledHash, "SKILL.md"),
+		"the unshaped prefix remainder":  scratchTarget(uid, "loose.md"),
+		"the ~/.claude carve-out":        filepath.Join(home, ".claude", "CLAUDE.md"),
+		"an unresolvable expansion":      "$UNRESOLVED_SOURCE",
+		"a /tmp path outside the prefix": "/tmp/loose-input-source.md",
+	} {
+		for _, prog := range []string{"cat", "less"} {
+			red := classifyBash(prog+" < "+src, bev)
+			op := classifyBash(prog+" "+src, bev)
+			if red.Bucket != op.Bucket {
+				t.Errorf("#193: %s: %q must match its operand form %q; got %q vs %q",
+					label, prog+" < "+src, prog+" "+src, red.Bucket, op.Bucket)
+			}
+		}
+	}
+
+	// The session scratchpad row of the verdict table, asserted directly rather
+	// than only by equivalence: a redirected read of the carve-out ALLOWs.
+	sess := scratchTarget(uid, sessionSlug, sessionUUID, "scratchpad", "f")
+	for _, cmd := range []string{"cat < " + sess, "less < " + sess, "wc -l < " + sess} {
+		wantBucket(t, classifyBash(cmd, bev), BucketAllow, "#193: a session-scratchpad source allows: "+cmd)
+	}
+
+	// A utility whose own operands are NOT paths still has its source contained:
+	// `tee /dev/null` copies stdin to stdout, so an ungraded source would
+	// disclose the file under an ALLOW.
+	wantBucket(t, classifyBash("tee /dev/null < "+outOfRepo, bev), BucketDeny,
+		"#193: a non-path-bearing utility's input source is contained too")
+
+	// The WRITE track: every operand `tee`/`cp` parses is in-repo, and the file
+	// being copied in comes from outside the repo entirely.
+	for _, cmd := range []string{"tee f.md < " + outOfRepo, "cp a.txt b.txt < " + outOfRepo} {
+		wantBucket(t, classifyBash(cmd, bev), BucketDeny,
+			"#193: the write track contains its input source: "+cmd)
+	}
+	// …but a read source can only LOSE that track's allow, never earn one: the
+	// bundled-skills tree is read-eligible, so it does not disturb an in-repo
+	// write, and it does not authorize a write into the tree either.
+	wantBucket(t, classifyBash("tee f.md < "+scratchTarget(uid, "bundled-skills", bundledVersion,
+		bundledHash, "SKILL.md"), bev), BucketAllow,
+		"#193: a read-eligible source leaves an in-repo write allowed")
+	wantBucket(t, classifyBash("tee "+scratchTarget(uid, "bundled-skills", bundledVersion,
+		bundledHash, "SKILL.md")+" < a.txt", bev), BucketDefer,
+		"#193: a read-eligible region is still not write-eligible")
+
+	// An input and an output redirect are graded independently.
+	wantBucket(t, classifyBash("cat < "+outOfRepo+" > "+sess, bev), BucketDeny,
+		"#193: the input source is graded even when the destination is carved out")
+	wantBucket(t, classifyBash("cat < a.txt > "+sess, bev), BucketAllow,
+		"#193: an in-repo source with a carved-out destination allows")
+	wantBucket(t, classifyBash("cat < a.txt > /tmp/nope/f", bev), BucketDefer,
+		"#193: the destination still faces the redirect veto")
+
+	// The running cwd governs a relative source, exactly as it governs a relative
+	// operand (#129).
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantBucket(t, classifyBash("cd sub && cat < ../../sibling/.env", bev), BucketDeny,
+		"#193: a relative input source resolves against the running cwd")
+
+	// Heredocs and herestrings are inline text, not file reads: unaffected.
+	for _, cmd := range []string{"cat <<EOF\nhi\nEOF", "cat <<-EOF\nhi\nEOF", "cat <<< hello"} {
+		wantBucket(t, classifyBash(cmd, bev), BucketAllow, "#193: heredoc/herestring unaffected: "+cmd)
+	}
+	// /dev/null discloses nothing and must not be graded as an out-of-repo path.
+	wantBucket(t, classifyBash("cat < /dev/null", bev), BucketAllow,
+		"#193: a /dev/null source is not a containment escape")
+	// `<>` opens the file for reading too, so its read half is graded the same.
+	wantBucket(t, classifyBash("cat <> "+outOfRepo, bev), BucketDeny,
+		"#193: the read half of `<>` is contained like `<`")
+}
+
+// TestInputRedirectRecording_193 is the structural half of the fix: the sources
+// must be recorded in a field DISTINCT from redirectTargets (a read is not a
+// write) and must not set hasRedirectToFile, or a redirected read would face the
+// write veto and a read-eligible region would authorize a write. It also pins
+// which ops are swept in, since the defect was an op falling through a switch.
+func TestInputRedirectRecording_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+
+	reduce := func(cmd string) simpleCommand {
+		t.Helper()
+		cmds, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
+		if err != nil || len(cmds) != 1 {
+			t.Fatalf("reduce %q: %d commands, err %v", cmd, len(cmds), err)
+		}
+		return cmds[0]
+	}
+
+	sc := reduce("cat < /etc/passwd")
+	if len(sc.inputRedirectTargets) != 1 || sc.inputRedirectTargets[0] != "/etc/passwd" {
+		t.Errorf("#193: `<` must record its source; got %v", sc.inputRedirectTargets)
+	}
+	if sc.hasRedirectToFile || len(sc.redirectTargets) != 0 {
+		t.Errorf("#193: an input redirect must not be recorded as a write destination; got %v / %v",
+			sc.hasRedirectToFile, sc.redirectTargets)
+	}
+	// Negative control on the superseded shape: before the fix the source was
+	// recorded nowhere, so the read tracks had nothing to contain. readTargets is
+	// what merges it into the operand walk — pathOperands alone still does not
+	// see it, which is precisely why the source had to be recorded separately.
+	if got := pathOperands(sc.args[1:]); len(got) != 0 {
+		t.Errorf("#193: the source is not an argv operand; pathOperands returned %v", got)
+	}
+	if got := readTargets(sc.args[1:], sc); len(got) != 1 || got[0] != "/etc/passwd" {
+		t.Errorf("#193: readTargets must merge the input source into the read walk; got %v", got)
+	}
+
+	// The output ops keep their existing recording, unchanged.
+	out := reduce("echo x > out.log")
+	if !out.hasRedirectToFile || len(out.redirectTargets) != 1 {
+		t.Errorf("#193: an output redirect must still set the write flag; got %v / %v",
+			out.hasRedirectToFile, out.redirectTargets)
+	}
+	if len(out.inputRedirectTargets) != 0 {
+		t.Errorf("#193: an output redirect must not be recorded as a read source; got %v",
+			out.inputRedirectTargets)
+	}
+
+	// Heredocs, herestrings, descriptor duplications and /dev/null are not file
+	// reads and must not be swept in.
+	for _, cmd := range []string{
+		"cat <<EOF\nhi\nEOF",
+		"cat <<-EOF\nhi\nEOF",
+		"cat <<< hello",
+		"cat <&3",
+		"cat < /dev/null",
+	} {
+		if got := reduce(cmd).inputRedirectTargets; len(got) != 0 {
+			t.Errorf("#193: %q must record no input source; got %v", cmd, got)
+		}
+	}
+
+	// `<>` opens for reading as well, so its target IS graded as a read — but it
+	// must not set hasRedirectToFile, which is checked BEFORE containment and
+	// would replace the read's deny with the veto's defer.
+	rw := reduce("cat <> /etc/passwd")
+	if len(rw.inputRedirectTargets) != 1 {
+		t.Errorf("#193: `<>` must record its read half; got %v", rw.inputRedirectTargets)
+	}
+	if rw.hasRedirectToFile {
+		t.Error("#193: `<>` must not set the write veto, which would mask its read deny")
+	}
+}
+
+// #193 unshaped-remainder row: a target under the <system-tmp>/claude-<uid>
+// prefix whose remainder matches NEITHER shape is never denied and never
+// escalated — a shape miss costs at most a DEFER, which is what makes the tight
+// shape affordable. The verdict is a function of region × TRACK, not of region
+// alone: the path-reader and write tracks defer, while the curated
+// read-utility track ALLOWs, which is that track's pre-existing terminal for any
+// contained-or-carved-out operand (the same one it returns for an in-repo
+// operand and for the ~/.claude carve-out) and not something this carve-out
+// decides. An earlier revision of the verdict table asserted one verdict per
+// region and was wrong about exactly this row.
 func TestHarnessScratchShapeMissDefers_193(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -578,6 +782,17 @@ func TestHarnessScratchShapeMissDefers_193(t *testing.T) {
 				t.Errorf("%s: %q is inside the scratchpad prefix and must not deny/ask; got %q (%s)",
 					label, cmd, d.Bucket, d.Reason)
 			}
+		}
+		// The row, per track, asserted exactly — so a refactor cannot collapse
+		// the three columns back into one verdict.
+		for _, cmd := range []string{"less " + target, "od " + target, "tee " + target, "touch " + target,
+			"cp a.txt " + target} {
+			wantBucket(t, classifyBash(cmd, bev), BucketDefer,
+				label+": the path-reader and write tracks defer: "+cmd)
+		}
+		for _, cmd := range []string{"cat " + target, "head " + target, "ls " + target} {
+			wantBucket(t, classifyBash(cmd, bev), BucketAllow,
+				label+": the curated read-utility track's pre-existing contained terminal is an allow: "+cmd)
 		}
 	}
 }
@@ -1232,7 +1447,7 @@ func TestHarnessBundledSkillsShapeMissDefers_193(t *testing.T) {
 			wantBucket(t, classifyBash(cmd, bev), BucketDefer, label+": "+cmd)
 		}
 		// `cat`/`head` run the read-only-UTILITY classifier, whose terminal for
-		// any contained-or-carved-out operand is an ALLOW — pre-existing #32
+		// any contained-or-carved-out operand is an ALLOW — pre-existing #31
 		// behavior shared with the ~/.claude carve-out and with the rest of the
 		// scratchpad prefix, not something the bundled-skills shape decides. So
 		// the only claim the shape miss makes here is the one the verdict table

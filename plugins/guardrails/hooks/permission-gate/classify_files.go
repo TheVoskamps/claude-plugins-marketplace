@@ -183,7 +183,7 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 		return d
 	}
 
-	if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
+	if d, ok := containPathOperands(prog, readTargets(args, sc), sc, ev); !ok {
 		return d
 	}
 	return deferToPipeline()
@@ -311,7 +311,10 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// startup reading, allow-listed in settings.json) and the part of
 			// the harness scratchpad prefix matching neither the session nor
 			// the bundled-skills shape (#193). Treat both as contained, leaving
-			// the caller's own terminal to govern.
+			// the caller's own terminal to govern — which differs by track, and
+			// is the read-only-utility classifier's ALLOW for the two callers
+			// here that hold one. That is this track's pre-existing terminal for
+			// any contained operand, not a verdict either carve-out chose.
 		case contained:
 		}
 	}
@@ -349,6 +352,50 @@ func pathOperands(args []string) []string {
 		out = append(out, a)
 	}
 	return out
+}
+
+// readTargets returns every path a read-class command reads: its path operands
+// (pathOperands) plus the sources of its input redirects (`cat < f`), which are
+// not argv operands and so appear in no arg list.
+//
+// The two are merged into ONE containment walk on purpose. A redirected read and
+// an operand read are the same read spelled two ways, so they must earn the same
+// verdict: `cat < ../sibling-repo/.env` denies exactly as
+// `cat ../sibling-repo/.env` does, an in-repo source behaves exactly as the
+// operand form, and a source in a read-eligible carve-out region rides the same
+// terminal ALLOW. Grading them anywhere else would let one spelling drift from
+// the other, which is the defect this closes: before, an input redirect was
+// graded nowhere at all, so `cat < /etc/passwd` reached the read-only-utility
+// classifier with zero operands to contain and was allowed outright.
+func readTargets(args []string, sc simpleCommand) []string {
+	// pathOperands returns a fresh slice, so appending to it aliases nothing.
+	return append(pathOperands(args), sc.inputRedirectTargets...)
+}
+
+// containInputRedirects grades the input-redirect sources of a WRITE-class
+// command (`tee f.md < /etc/passwd`) through the same read containment that
+// grades read operands, and reports ok=false with a TERMINAL deny/ask when one
+// of them escapes.
+//
+// The read tracks do not need this: they merge their input sources straight into
+// their operand walk via readTargets. A write command cannot, because
+// containPathOperands can also return an outright ALLOW (every operand landed in
+// a read-eligible carve-out region), and a read source is no grounds at all to
+// bless the command's WRITE. So the allow is discarded here and only the escape
+// verdicts are forwarded — an input redirect on the write track can lose the
+// ALLOW but never earn one.
+//
+// The caller is responsible for the hasUnknownExpansion / cwdInvalid fail-closed
+// checks, exactly as it is for its own operands.
+func containInputRedirects(prog string, sc simpleCommand, ev *Event) (Decision, bool) {
+	if len(sc.inputRedirectTargets) == 0 {
+		return Decision{}, true
+	}
+	d, ok := containPathOperands(prog, sc.inputRedirectTargets, sc, ev)
+	if ok || d.Bucket == BucketAllow {
+		return Decision{}, true
+	}
+	return d, false
 }
 
 // scratchHint returns the prescriptive scratch-destination guidance to append
@@ -461,7 +508,12 @@ func handoffHint() string {
 //     classifier decides.
 //
 // Everything else (including the non-shape-matching harnessScratch remainder)
-// is ineligible and defers.
+// is ineligible for THIS terminal. What happens then is the caller's own
+// terminal for a contained target, which is not one verdict across the board: a
+// DEFER on the file-tool, path-reader and write tracks, and the curated
+// read-utility track's ordinary ALLOW — the terminal that track already returns
+// for an in-repo operand and for the ~/.claude carve-out (#247), decided long
+// before this carve-out existed.
 //
 // readClass is the caller's existing read/write predicate — isMutatingFileTool
 // on the file-tool track, operand position on the bash track (a

@@ -110,8 +110,28 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 		return deferToPipeline()
 	}
 
+	// An input redirect is a READ this track's operand parser never sees:
+	// `tee f.md < ../sibling-repo/.env` copies a file from outside the repo into
+	// one inside it, and every operand it does see is contained. Grade those
+	// sources through the read containment (containInputRedirects), which yields
+	// escape verdicts only — a read source can never earn this classifier's
+	// write ALLOW.
+	//
+	// A DENY from either side is a genuine escape, so whichever fires wins; the
+	// deny is taken FIRST here so it outranks the DEFER containWriteOperands
+	// returns for a merely-ineligible carve-out operand. An input-side ASK (a
+	// defective scratchpad root, an unresolvable repo boundary) is held back
+	// until after the write walk, so a write escape still outranks it — the same
+	// ordering containWriteOperands applies to its own recorded ask.
+	inputEscape, inputClean := containInputRedirects(prog, sc, ev)
+	if !inputClean && inputEscape.Bucket == BucketDeny {
+		return inputEscape
+	}
 	if d, ok := containWriteOperands(prog, operands, sc.cwd, ev); !ok {
 		return d
+	}
+	if !inputClean {
+		return inputEscape
 	}
 	// "a harness session scratchpad", not "THIS session's": the #193 carve-out
 	// covers the whole per-uid prefix, so a write into another session's

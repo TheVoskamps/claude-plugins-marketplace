@@ -123,8 +123,9 @@ func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 // for the #159 $HOME/$PWD env-var read-side resolution: $HOME must keep
 // resolving (this issue's remaining #HOME work is only to confirm the
 // existing behavior, not re-implement it). A $HOME-anchored path under
-// ~/.claude/ hits the claudeConfig carve-out (defer to settings.json),
-// distinct from the DENY a $HOME/.ssh/id_rsa path gets.
+// ~/.claude/ hits the claudeConfig carve-out — not an escape, so the calling
+// track's own terminal for a contained target governs — distinct from the DENY
+// a $HOME/.ssh/id_rsa path gets.
 func TestHomeAnchorStillDefersToClaudeConfigCarveOut_132(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

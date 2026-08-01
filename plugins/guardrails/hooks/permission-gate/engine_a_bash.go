@@ -201,6 +201,19 @@ type simpleCommand struct {
 	// instead of vetoing on the bare bool (#193). A `/dev/null` target is not
 	// recorded — it does not set hasRedirectToFile either.
 	redirectTargets []string
+	// inputRedirectTargets holds the files an INPUT redirect opens for reading
+	// (`cmd < f`, and the read half of `cmd <> f`), verbatim, in the order they
+	// appeared. Deliberately a separate field from redirectTargets: a read is not
+	// a write, and conflating the two would either wrongly veto reads (an input
+	// redirect is not the exfiltration/clobber risk the write veto guards) or
+	// wrongly permit writes (a read-eligible carve-out region is not
+	// write-eligible). An input redirect reads a file WITHOUT that file ever
+	// becoming an argv operand, so neither operand walk sees it either; recording
+	// it is what lets the read tracks put it through the same containment that
+	// grades their operands, so `cat < ../sibling-repo/.env` earns the same deny
+	// as `cat ../sibling-repo/.env`. A `/dev/null` source is not recorded (it
+	// discloses nothing, and containment would read it as an out-of-repo path).
+	inputRedirectTargets []string
 	// hasInlineAssignment is true when the command carried an inline
 	// environment-assignment prefix (`AWS_ENDPOINT_URL=… aws …`,
 	// `GIT_SSH_COMMAND=… git …`, `GH_HOST=… gh …`). Such a prefix can redirect
@@ -758,7 +771,33 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 				// and redirectVetoesAllow refuses to lift on that.
 				sc.redirectTargets = append(sc.redirectTargets, target)
 			}
+		case syntax.RdrIn:
+			// `cmd < f` READS f, and f never becomes an argv operand, so without
+			// this the operand walk has nothing to contain and a read-only
+			// utility allows the line outright — `cat < /etc/passwd` reached the
+			// classifier with ZERO operands. Recorded on the read side only: it
+			// sets no write flag, because an input redirect writes nothing.
+			if target != "/dev/null" {
+				sc.inputRedirectTargets = append(sc.inputRedirectTargets, target)
+			}
+		case syntax.RdrInOut:
+			// `cmd <> f` opens f for reading and writing on the same fd. Its READ
+			// half is the same disclosure `<` is, so the target is graded here
+			// exactly like an input redirect. It deliberately does NOT set
+			// hasRedirectToFile: that flag is checked BEFORE containment on the
+			// allow tracks, so setting it would replace this read's DENY with the
+			// veto's defer — strictly worse than the pre-#193 status quo, in which
+			// `<>` was ungraded on both axes. Its write half stays where it
+			// already was: unmodelled, and unreachable without a further
+			// fd-duplication redirect (`>&0`) the gate does not model either.
+			if target != "/dev/null" {
+				sc.inputRedirectTargets = append(sc.inputRedirectTargets, target)
+			}
 		}
+		// Heredocs and herestrings (`<<`, `<<-`, `<<<`) are deliberately absent:
+		// their word is inline text (or a delimiter), not a file the command
+		// reads, so grading it as a path would deny ordinary `cat <<EOF` scripts.
+		// Descriptor duplications (`<&`, `>&`) name a descriptor, not a file.
 	}
 
 	// An inline environment-assignment prefix on the CallExpr itself
@@ -1426,8 +1465,8 @@ func hasGlobMeta(s string) bool {
 // here, because the shape is closed under descent — a remainder that matches
 // keeps matching with more segments appended, so a session-shaped prefix
 // implies session-shaped matches, while a prefix that stops short of a session
-// directory earns the more conservative DEFER even though its matches might
-// individually have earned the ALLOW.
+// directory earns the more conservative unshaped-remainder region (never the
+// carve-out ALLOW its matches might individually have earned).
 //
 // The returned prefix is deliberately left
 // relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
