@@ -212,10 +212,10 @@ missing doc comments.
 
 You do not judge, prune, or edit anything under
 `.claude/agent-memory/`. That is the `agent-memory-scrubber` agent's
-sole job, and it runs after every other agent on the PR has captured
-its memory — including you and `pr-reviewer` — so it sees the whole
-delta in one pass. Curating here would only reach the captures that
-happened to land before you.
+sole job, and it runs as the last agent to touch the branch —
+after you and `pr-reviewer` have captured — so it sees the whole
+delta, and it runs again if later work lands after its pass. Curating
+here would only reach the captures that happened to land before you.
 
 You may still *write* your own memory during the run as any agent
 does; the scrubber catches it later. What you must not do is stage,

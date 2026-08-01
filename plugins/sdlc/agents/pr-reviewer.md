@@ -165,9 +165,11 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      rule — never a closing keyword immediately before an issue
      reference.
    - On the `/sdlc:orchestrate` path, `agent-memory-scrubber` runs
-     after you, once the review loop has settled, and curates this
-     capture along with every other agent's in the same PR — your
-     capture is the last one it waits for. This does not hold when
+     after you, as the last agent to touch the branch, and curates
+     this capture along with every other agent's in the same PR. If a
+     fix round or any other work lands after that pass, the scrubber
+     runs again — so your capture is covered whether or not the loop
+     ends with you. This does not hold when
      `/sdlc:git-review-pr` spawns you standalone, outside that loop:
      there is no scrubber run after you, and this capture sits
      uncurated on the branch until something else curates it.
