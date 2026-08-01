@@ -24,3 +24,4 @@
 - [Bounded poll + unbounded wait is unbounded](project_bounded-poll-then-unbounded-wait.md) — the give-up branch must return BEFORE any blocking wait; assert it structurally and write a negative control against the old shape
 - [Test harness holds the pipe open](project_test-harness-holds-pipe-open.md) — a long-lived stub in $(...) makes a timing test measure the pipe, not the code; redirect stub stdio and return results via a file
 - [Getty respawn is Restart=, not the leading `-`](project_getty-respawn-is-restart-not-dash.md) — stock serial-getty ships Restart=always; also, claude-vm's image identity hash never covers launcher source, so LAUNCHER_LOGIC_REV is the only cache invalidator
+- [claude marketplace probe recipe](project_claude-marketplace-probe-recipe.md) — CLI rejects file:// and treats a local path as Directory (no git); roll a real clone back to an old SHA to exercise git; `marketplace update` exits 0 while doing nothing

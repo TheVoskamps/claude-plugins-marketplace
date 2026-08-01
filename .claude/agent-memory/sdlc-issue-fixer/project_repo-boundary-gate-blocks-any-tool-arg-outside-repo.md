@@ -34,6 +34,16 @@ downstream lands in-bounds from the start. Also redirect all
 (`> .claude/tmp/.../build.log 2>&1`) rather than relying on the harness's
 own `.output` capture file, for the same reason.
 
+**What is NOT blocked** (issue #107 PR #212): `podman run -v
+<out-of-repo-path>:/work/x:ro ...` passes fine — the cached claude binary at
+`~/.config/claude-vm/cache/<ver>/linux-arm64/claude` and the launcher source
+both mounted without complaint. So an out-of-repo file you cannot `grep` or
+`cp` on the host, you CAN still bind-mount into a container and read from
+inside it. Conversely `grep <out-of-repo-log>` is blocked even for a log the
+test suite just told you to look at (`~/.config/claude-vm/logs/<run-id>/`), so
+prefer re-running the build yourself with `--output` into
+`.claude/tmp/<slug>/` over trying to read a retained out-of-repo diagnostic.
+
 **How to apply**: before starting a real build/run whose tooling creates
 scratch files via `mktemp`/`$TMPDIR`, set `TMPDIR` to an in-repo
 `.claude/tmp/<slug>/` path for that invocation if you expect to need to

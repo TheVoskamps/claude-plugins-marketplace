@@ -60,3 +60,20 @@ branch changed heredoc quoting") should be verified against
 and the actual defect can be older and unrelated to the branch under
 review. See [[real-build-verification-not-unit-tests]] for the broader
 verification-method lesson.
+
+**Recurrence, issue #107 PR #212 (this memory's own author re-committed the
+bug).** Adding a new package to the mkosi `Packages=` list means writing a
+justification comment INSIDE that same `<<CONF` heredoc — and prose about a
+CLI naturally wants markdown code-quoting (`` `claude plugin marketplace
+add|update` ``, `` `apt` ``, a quoted error string). Three backtick pairs
+went in; `podman-mkosi-test.sh` failed immediately with
+`update: command not found` / `apt: command not found` / `Failed: command
+not found` on stderr. So: the existing assertion
+`assert_not_contains "no 'command not found' at all on stderr"` IS the
+regression net for this class and it works — but knowing the rule is not
+enough, because the pull toward backticks comes from writing *about*
+commands, which is exactly what a Packages= justification is. Before
+editing anything inside `<<CONF` or `<<INNER` in that file, decide up
+front to use `'single quotes'` or `"double quotes"` for every command name
+and error string. Escaping (`` \` ``) also works but is one more thing to
+miscount.
