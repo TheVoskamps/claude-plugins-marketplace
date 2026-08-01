@@ -18,6 +18,9 @@
 #   - apt_sources:   third-party apt repos rendered into the image at build time
 #                    (also allowed in the boot file; union, deduped by name)
 #   - image.root_headroom_mb: extra MiB of free space in the guest root fs
+#   - claude.marketplaces:    plugin marketplaces registered in the image
+#                    (also allowed in the boot file; union, deduped by name)
+#   - claude.plugins.bake:    plugin@marketplace refs INSTALLED into the image
 #
 # IMAGE IDENTITY: the image cache key + filename is a WHOLE-FILE, RAW-BYTE hash
 # of the BAKE files (this one, and the repo's config-bake.yml if present):
@@ -67,3 +70,53 @@ apt_sources:
 # rebuild, exactly like a `packages:` change does.
 image:
   root_headroom_mb: 1024
+
+# Claude marketplaces + BAKED plugins.
+#
+# The image build runs the host-verified guest `claude` binary inside the build
+# container, with HOME pointed at the image root, and drives its own CLI:
+# `claude plugin marketplace add` for every marketplace below, then
+# `claude plugin install` for every `bake:` ref -- so the image ships a real
+# /root/.claude/plugins that claude loads with NO marketplace egress at boot.
+# A failed add/install FAILS THE BUILD rather than quietly shipping an image
+# without the plugin you asked for.
+#
+# The guest's Claude surface comes from THESE configs only -- the host's
+# ~/.claude/settings.json and the host's own installed plugins are never copied
+# in. That is deliberate: inside the VM you may want to run a plugin or hook you
+# would not enable on the host.
+#
+# WHY HERE AND NOT IN THE BOOT FILE: baked plugins change the guest image's
+# BYTES, so placement in a bake file is what puts them under the whole-file
+# image-identity hash -- edit either key and the next launch rebuilds. Writing
+# `claude.plugins.bake` into a boot file is REJECTED at launch with a message
+# pointing here, rather than parsing and silently baking nothing.
+#
+# marketplaces is allowed in BOTH files (like apt_sources) and unions, deduped
+# by `name`; the same name with a DIFFERING url anywhere aborts the launch. Put
+# a marketplace here when a `bake:` ref needs it; put it in the boot file when
+# only an install_at_boot ref does, so it does not force an image rebuild.
+#
+# `name` MUST match the marketplace's OWN name (the `name` in its
+# .claude-plugin/marketplace.json) -- claude derives the registered name from
+# the source, not from what you write here, and a mismatch would leave every
+# `plugin@marketplace` ref unresolvable. The build checks this and aborts.
+#
+# Prefer an explicit https:// url over the `owner/repo` GitHub shorthand: the
+# launcher derives the guest's marketplace egress from the url's host, and a
+# shorthand yields no host to derive (it resolves against github.com, which you
+# then have to keep in the boot file's egress.allow yourself).
+claude:
+  marketplaces:
+    - name: thevoskamps
+      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
+  plugins:
+    bake:
+      - block-background-agents@thevoskamps
+      # COMPILED-HOOK PAIRING (NOT auto-derived -- you must do both halves):
+      # the guardrails permission-gate builds its hook from Go source at load
+      # time, so baking it requires a sufficiently new `golang` in this file's
+      # `packages:` above. Without the toolchain the plugin installs fine and
+      # its gate simply never adjudicates. If you enable the line below, add
+      # `golang` to `packages:` in the same edit.
+      # - guardrails@thevoskamps

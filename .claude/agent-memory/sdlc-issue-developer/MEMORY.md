@@ -13,3 +13,5 @@
 - [mikefarah yq comma-expression drops branches](mikefarah-yq-comma-expression-drops-branches.md) — `.[] | (a), (b)` can silently drop a branch across array elements when a later element's branch is empty; use `[(a), (b)] | .[]` instead
 - [claude plugin validate is silent on pass](claude-plugin-validate-silent-on-pass.md) — it does check skill frontmatter; the "Validating skill:" line only prints on failure, so a clean run is real evidence
 - [claude-vm four-file config + per-run clone](claude-vm-four-file-config-and-per-run-clone.md) — #179 replaced single config.yml with bake/boot pair per tier, whole-file raw-byte image-identity hash, and APFS per-run clone of the immutable base
+- [claude-vm real build+boot IS doable](claude-vm-real-build-and-boot-is-doable.md) — start podman machine yourself and verify container network first (a stopped-ish machine looks like a broken diff); inspect the .raw with debugfs, not mount
+- [Worktree agent cannot set HOME](worktree-agent-cannot-set-home.md) — the gate refuses `HOME=` and compound probes; run HOME-redirected experiments inside a container instead of giving up on them

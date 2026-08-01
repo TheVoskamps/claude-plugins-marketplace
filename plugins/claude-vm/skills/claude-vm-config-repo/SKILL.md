@@ -16,8 +16,10 @@ Since issue #179, claude-vm's config is split into a **bake** file and a
 lands in follows the placement rule:
 
 - **`config-bake.yml`** — image-bytes keys: `packages:` (a flat list of
-  apt packages baked into the image), `apt_sources:`, and
-  `image.root_headroom_mb`. A repo that ships a `config-bake.yml` gets
+  apt packages baked into the image), `apt_sources:`,
+  `image.root_headroom_mb`, `claude.marketplaces`, and
+  `claude.plugins.bake` (the `plugin@marketplace` refs installed into the
+  image). A repo that ships a `config-bake.yml` gets
   its **own** image (its name in the filename); its content is
   whole-file, raw-byte hashed.
 - **`config-boot.yml`** — run-time keys: `cpus`, `mem`, `proxy.*`,
@@ -28,10 +30,11 @@ lands in follows the placement rule:
 This pair is the project-specific layer of claude-vm's four-file config.
 At runtime, `payload/lib/config.sh` composes all four files (global
 bake+boot, repo bake+boot): **scalars** in a repo file win over the
-global value, and **lists** (bake file: `packages`, `apt_sources`; boot
+global value, and **lists** (bake file: `packages`, `apt_sources`,
+`claude.marketplaces`, `claude.plugins.bake`; boot
 file: `egress.allow`, `mounts`, `packages`, `apt_sources`,
 `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
-`claude.plugins.bake`/`.install_at_boot`) are unioned with the global
+`claude.plugins.install_at_boot`) are unioned with the global
 lists. The config surface, layering semantics, and key meanings are
 documented in the sibling `claude-vm` skill
 (`skills/claude-vm/SKILL.md`) and the annotated
@@ -87,11 +90,14 @@ file silently shadows future changes to the global default.
   is rendered into the guest `settings.json` (issue #104:
   `permission_mode` → `permissions.defaultMode`; only `bypassPermissions` /
   `default` are accepted, anything else aborts the launch). The remaining
-  guest-capability keys — the boot file's `update_at_boot`/`add_apt_uris_to_allowlist`,
-  `claude.plugins.update_at_boot`/`.add_marketplace_uris_to_allowlist`,
-  `github.auth` — are schema + merge only as of issue #103; the
-  consumers land in sibling slices under #39, but this repo's override
-  still resolves correctly through the layering library today.)
+  guest-capability keys are consumed as follows: the boot file's
+  `update_at_boot`/`add_apt_uris_to_allowlist` drive the guest's boot-time
+  apt phase (issue #106) and
+  `claude.plugins.update_at_boot`/`.add_marketplace_uris_to_allowlist` its
+  boot-time plugin phase and derived marketplace egress (issue #107).
+  `github.auth` is schema + merge only as of issue #103 — its consumer
+  lands in a sibling slice under #39, but this repo's override still
+  resolves correctly through the layering library today.)
 - **Scalar maps** (`claude.plugins.enabled`): a map of plugin ref →
   boolean that merges repo-over-global **per key**, so this repo can flip
   one plugin's enabled state (e.g. `false` = installed-but-disabled)
@@ -100,10 +106,11 @@ file silently shadows future changes to the global default.
   `claude.plugins.bake`/`.install_at_boot` and values must be boolean, or
   the launch aborts.
 - **Lists.** In `config-bake.yml`: `packages` (baked into the image),
-  `apt_sources`. In `config-boot.yml`: `egress.allow`, `mounts`,
+  `apt_sources`, `claude.marketplaces`, `claude.plugins.bake` (installed
+  into the image). In `config-boot.yml`: `egress.allow`, `mounts`,
   `packages` (installed at boot), `apt_sources`,
   `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
-  `claude.plugins.bake`/`.install_at_boot`. Write only the
+  `claude.plugins.install_at_boot`. Write only the
   **additional** entries this repo needs. The runtime union keeps the
   global entries; the per-repo file does not need to restate them. (The
   library cannot *remove* a global entry from a list — the union only
@@ -112,10 +119,15 @@ file silently shadows future changes to the global default.
   global entry, explain that lists union and the removal must happen in
   the global config. `claude.permissions.*` and `claude.plugins.bake`/
   `.install_at_boot` feed the rendered guest `settings.json`
-  (issue #104) after the union resolves. `apt_sources` may appear in
-  BOTH the bake and boot files — union, deduped by `name`; the same name
-  with DIFFERING `{repo, key_url}` content aborts the launch, so keep
-  each name's content identical across files or give it a unique name.)
+  (issue #104) after the union resolves. `apt_sources` and
+  `claude.marketplaces` may each appear in BOTH the bake and boot
+  files — union, deduped by `name`; the same name with DIFFERING content
+  (`{repo, key_url}` / `url`) aborts the launch, so keep each name's
+  content identical across files or give it a unique name. A
+  `claude.plugins` sub-key written into the wrong file type aborts the
+  launch too: `bake` belongs in the bake file, `install_at_boot` /
+  `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` in
+  the boot file.)
 
 ## Idempotent — detect and offer, never clobber
 
@@ -201,9 +213,11 @@ repo use?" The common cases:
   baked into the image (bake file `packages:`) or installed at boot
   (boot file `packages:`), plus any third-party `apt_sources` (either
   file). These union with the global lists.
-- Extra `claude.permissions.allow`/`.ask`/`.deny` rules,
-  `claude.marketplaces`, or `claude.plugins.bake`/`.install_at_boot`
-  entries this repo needs. These union with the global lists.
+- Extra `claude.permissions.allow`/`.ask`/`.deny` rules (boot file),
+  `claude.marketplaces` (either file), `claude.plugins.bake` entries
+  (bake file — baked into this repo's own image), or
+  `claude.plugins.install_at_boot` entries (boot file) this repo needs.
+  These union with the global lists.
 - A `claude.permission_mode`, a `claude.plugins.enabled` per-plugin
   toggle, or a `github.auth` override this repo needs that differs from
   global.
@@ -259,9 +273,10 @@ defeats the layering.
 parsed YAML and add **only** the new override keys that are absent. Keep
 every existing key and value verbatim, including any the user customized
 and any this skill does not recognize. For list keys (bake file:
-`packages`, `apt_sources`; boot file: `egress.allow`, `mounts`,
+`packages`, `apt_sources`, `claude.marketplaces`,
+`claude.plugins.bake`; boot file: `egress.allow`, `mounts`,
 `packages`, `apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
-`claude.marketplaces`, `claude.plugins.bake`/`.install_at_boot`), union
+`claude.marketplaces`, `claude.plugins.install_at_boot`), union
 the new entries in (do not drop the existing extras, do not duplicate).
 Render the merged result preserving the user's existing comments where
 practical.
@@ -356,10 +371,11 @@ Report back:
   If the user wants to drop a global entry, that edit belongs in the
   global config.
 - **Respect the bake/boot placement rule.** Image-bytes overrides
-  (`packages` baked in, `apt_sources`, `image.root_headroom_mb`) go in
-  `config-bake.yml`; run-time overrides go in `config-boot.yml`. A
-  misplaced key loudly does nothing rather than silently poisoning the
-  image cache.
+  (`packages` baked in, `apt_sources`, `image.root_headroom_mb`,
+  `claude.plugins.bake`) go in `config-bake.yml`; run-time overrides go
+  in `config-boot.yml`. A misplaced key loudly does nothing rather than
+  silently poisoning the image cache, and a misplaced `claude.plugins`
+  sub-key aborts the launch outright.
 - **Write at most the two per-repo files**:
   `<repo>/.claude-vm/config-bake.yml` and
   `<repo>/.claude-vm/config-boot.yml` (only the tier(s) with overrides).

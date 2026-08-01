@@ -114,15 +114,20 @@ bake+boot, then merge global under repo):
   **per key** — each plugin-ref → boolean entry follows the scalar
   repo-wins rule independently, so a repo can flip one plugin's enabled
   state without restating the global map.
-- **Lists** (bake file: `packages`, `apt_sources`; boot file:
-  `egress.allow`, `mounts`, `packages`, `apt_sources`,
-  `claude.permissions.allow`, `claude.permissions.ask`,
-  `claude.permissions.deny`, `claude.marketplaces`,
-  `claude.plugins.bake`, `claude.plugins.install_at_boot`): **merged** —
-  the union of global + repo entries, de-duplicated. `apt_sources` from
-  the bake and boot files are unioned and deduped by `name`; the same
-  name with DIFFERING `{repo, key_url}` content aborts the launch (no
-  silent shadowing).
+- **Lists** (bake file: `packages`, `apt_sources`, `claude.marketplaces`,
+  `claude.plugins.bake`; boot file: `egress.allow`, `mounts`, `packages`,
+  `apt_sources`, `claude.marketplaces`, `claude.permissions.allow`,
+  `claude.permissions.ask`, `claude.permissions.deny`,
+  `claude.plugins.install_at_boot`): **merged** —
+  the union of global + repo entries, de-duplicated. `apt_sources` and
+  `claude.marketplaces` are allowed in **both** file types; each is unioned
+  and deduped by `name`, and the same name with DIFFERING content
+  (`{repo, key_url}` / `url`) aborts the launch (no silent shadowing).
+- **Placement guard**: `claude.plugins` is the one map that legitimately
+  appears in both file types, so a sub-key in the wrong file aborts the
+  launch with a message naming the right file — `bake` belongs in the bake
+  file (it changes image bytes), and `install_at_boot` / `update_at_boot` /
+  `add_marketplace_uris_to_allowlist` / `enabled` belong in the boot file.
 
 ### Keys
 
@@ -198,6 +203,33 @@ add_apt_uris_to_allowlist: auto   # auto (default) | always -- adds
 image:
   root_headroom_mb: 1024
 
+# Marketplaces + BAKED plugins (BAKE file). The image build runs the
+# host-verified guest `claude` binary inside the build container with HOME
+# pointed at the image root and drives its own CLI (`claude plugin marketplace
+# add` / `claude plugin install`), so the image ships a real
+# /root/.claude/plugins that loads with NO marketplace egress at boot. A failed
+# add/install FAILS THE BUILD rather than shipping an image without them.
+# Placement here (not in the boot file) is what puts these under the whole-file
+# image-identity hash; writing `claude.plugins.bake` into a boot file aborts the
+# launch. Prefer an explicit https:// url over the `owner/repo` shorthand so the
+# launcher can derive the marketplace's egress host. Shown commented out, like
+# the bake `packages:`/`apt_sources:` above, because the boot file's own
+# `claude:` map follows below and one document cannot carry both.
+#
+# claude:
+#   marketplaces:
+#     - name: thevoskamps
+#       url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
+#   plugins:
+#     bake:
+#       - block-background-agents@thevoskamps
+#       # COMPILED-HOOK PAIRING (not auto-derived): the guardrails
+#       # permission-gate builds its hook from Go source at load time, so baking
+#       # it requires a sufficiently new `golang` in this file's `packages:`.
+#       # Enable both halves in the same edit or the gate never adjudicates.
+#       # - guardrails@thevoskamps
+
+# --- BOOT file keys, continued ---
 claude:
   version: stable                 # stable (default) | latest | <pinned>
                                   # host-side GPG-verified cache key
@@ -212,13 +244,19 @@ claude:
     allow: []
     ask: []
     deny: []
-  marketplaces: []                # {name, url} entries
+  marketplaces: []                # {name, url} entries. Allowed in BOTH file
+                                  # types (like apt_sources); `name` must match
+                                  # the marketplace's OWN manifest name.
   plugins:
-    bake: []                      # plugin@marketplace refs baked into the
-                                  # image
+    # bake: lives in the BAKE file -- see the bake-file block above.
     install_at_boot: []           # plugin@marketplace refs installed at boot
-    update_at_boot: true          # refresh marketplaces + reinstall changed
-                                  # plugins at boot (default true)
+    update_at_boot: true          # refresh marketplaces + update the installed
+                                  # plugins at boot (default true). This is the
+                                  # freshness path for BAKED plugins: they are
+                                  # frozen at build time and the image-identity
+                                  # hash excludes marketplace HEAD, so a
+                                  # marketplace bump lands at the next boot with
+                                  # no rebuild.
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always
     enabled:                      # OPTIONAL map, plugin ref -> boolean,
                                   # mirroring settings.json's enabledPlugins.
@@ -305,11 +343,15 @@ key set per the documented schema is always read.) The bake document's
 (issue #105 — see "Guest image" below). The boot document's `packages:`,
 `update_at_boot`, and `add_apt_uris_to_allowlist` are **consumed** by the
 guest boot launcher's boot-time apt phase (issue #106 — see "Boot-time
-package install/update" in `payload/README.md`). The remaining keys (marketplace/
-plugin seeding, GitHub token seeding) are schema + merge only as of
-issue #103 — those consumers land in sibling slices under #39. They
-resolve correctly through `payload/lib/config.sh` today; nothing
-downstream reads them yet.
+package install/update" in `payload/README.md`). The bake document's
+`claude.marketplaces` + `claude.plugins.bake` are **consumed** by the
+image build's plugin bake step, and the boot document's
+`claude.plugins.install_at_boot` / `.update_at_boot` /
+`.add_marketplace_uris_to_allowlist` by the guest boot launcher's plugin
+phase (issue #107 — see "Marketplaces and plugins" below). The remaining key
+(GitHub token seeding) is schema + merge only as of issue #103 — that consumer
+lands in a sibling slice under #39. It resolves correctly through
+`payload/lib/config.sh` today; nothing downstream reads it yet.
 
 - The bake file's `packages:` (baked into the image) vs. the boot file's
   `packages:` (installed at boot, blocking, before claude starts, through
@@ -348,13 +390,43 @@ downstream reads them yet.
   unconditionally so in-session `apt-get install` also works. The knob
   never removes URIs that scheduled boot-time work requires, and every
   derived addition is logged.
-- `claude.marketplaces` (union of `{name, url}` entries) and
-  `claude.plugins.update_at_boot` (default `true`) / `.add_marketplace_uris_to_allowlist`
-  (`auto` default | `always`) control which marketplaces the guest has
-  available and how plugin refresh/allowlisting works at boot.
-  (`claude.plugins.bake` / `.install_at_boot` are consumed by the
-  settings.json render below as `enabledPlugins`; the actual plugin
-  installation is still a #39 sibling slice.)
+- **Marketplaces and plugins** (issue #107). `claude.marketplaces` (union of
+  `{name, url}`, allowed in both file types, deduped by `name`, conflicting
+  urls under one name abort) declares the marketplaces the guest knows.
+  `claude.plugins.bake` (BAKE file) is installed **into the image** at build
+  time; `claude.plugins.install_at_boot` (BOOT file) is installed **at boot**,
+  blocking, before claude starts.
+  - The bake path runs the host-verified guest `claude` binary inside the
+    build container with `HOME` pointed at the image root and drives its own
+    CLI (`claude plugin marketplace add` / `claude plugin install`) — the
+    registry format is claude's and is never hand-written. A failed
+    add/install **fails the build**, so a cached image never silently lacks a
+    configured plugin.
+  - The boot path ensures any marketplace the image does not already carry,
+    then (when `update_at_boot` is `true`, the default) refreshes the
+    marketplaces and updates the installed plugins, then installs the
+    `install_at_boot` refs. This is the freshness mechanism for **baked**
+    plugins: they are frozen at build time and the image-identity hash
+    deliberately excludes marketplace HEAD, so a marketplace bump lands at
+    the next boot with no rebuild. A failure warns loudly on the captured
+    console log and continues to claude. The guest image bakes `git`
+    unconditionally for this phase: the claude CLI shells out to **system
+    git** for every git-url marketplace operation, so without it the
+    add/update fails (fail-soft) and `update_at_boot` would be inert.
+  - `.add_marketplace_uris_to_allowlist` (`auto` default | `always`) mirrors
+    `add_apt_uris_to_allowlist`: under `auto`, marketplace hosts are added to
+    the guest egress allowlist only when boot-side work will actually run (a
+    nonempty `install_at_boot`, a marketplace not already baked, or
+    `update_at_boot` true with at least one marketplace configured).
+    Everything baked + `update_at_boot: false` + `auto` derives **nothing** —
+    and the guest still has working plugins, because the baked ones need no
+    marketplace. Every derived addition is logged. A `owner/repo` shorthand
+    url yields no derivable host (keep `github.com` in `egress.allow`
+    yourself); the launcher says so rather than guessing.
+  - **Compiled-hook pairing** (not auto-derived): the guardrails
+    permission-gate builds its hook from Go source at load time, so baking
+    `guardrails@…` requires a sufficiently new `golang` in the bake file's
+    `packages:`. Both halves are the operator's to set, in one edit.
 - `github.auth` (`none` default | `host-token`) selects whether the
   guest is seeded with a GitHub auth token derived from the host.
 
@@ -390,6 +462,19 @@ posture:
   around a specific issue). The map is validated **once**: every value must
   be boolean and every key must name an installed ref — an unknown key is a
   typo and **aborts the launch**.
+- `extraKnownMarketplaces` maps every configured marketplace name (the
+  effective bake ++ boot set) to its source, in the shape claude itself
+  writes: an `https://` url renders as `{"source":"git","url":…}`, an
+  `owner/repo` shorthand as `{"source":"github","repo":…}`. This key is
+  rendered because `claude plugin install` was observed writing it into
+  `~/.claude/settings.json` alongside `enabledPlugins` — and the boot
+  launcher copies the host-rendered file over whatever the image baked, so
+  omitting it would drop the marketplace declarations the bake step's own
+  CLI run wrote. Rendering it from the same effective set the bake and boot
+  paths use keeps the three from drifting. It does **not** make claude
+  self-install a missing plugin (tested directly: a home dir with only this
+  settings.json and no `~/.claude/plugins` tree installs nothing), which is
+  why the guest's explicit ensure/install/update phase is load-bearing.
 
 claude-vm has **no** own CLI flags: every post-repo argument is forwarded
 to the guest `claude` verbatim. Plugin enable/disable state is set through

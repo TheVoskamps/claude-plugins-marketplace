@@ -88,12 +88,16 @@ the two global files each key is written into (its bake/boot placement):
 | `add_apt_uris_to_allowlist` | boot | `auto` | add derived egress URIs to the proxy allowlist only when boot-time package work needs them (`auto`), or always (`always`) |
 | `apt_sources` (boot file) | boot | `[]` | third-party apt repos a boot-time install pulls from (union+dedup with the bake file's) |
 | `claude.permission_mode` | boot | `bypassPermissions` | in-guest Claude's permission mode (`bypassPermissions` \| `default` only; any other value aborts the launch) |
-| `claude.plugins.update_at_boot` | boot | `true` | refresh marketplaces + reinstall changed plugins at boot |
+| `claude.plugins.install_at_boot` | boot | `[]` | `plugin@marketplace` refs the guest installs at boot, blocking, before claude starts |
+| `claude.plugins.update_at_boot` | boot | `true` | refresh the marketplaces and update the installed plugins at boot — the freshness path for BAKED plugins |
 | `claude.plugins.add_marketplace_uris_to_allowlist` | boot | `auto` | marketplace-URI analogue of `add_apt_uris_to_allowlist` |
 | `claude.plugins.enabled` | boot | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
+| `claude.marketplaces` (boot file) | boot | `[]` | marketplaces only an `install_at_boot` ref needs (union+dedup with the bake file's, by `name`) |
 | `github.auth` | boot | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
 | `packages:` (bake file) | bake | `[]` | apt packages BAKED into the guest image (a flat list; present with no network at boot) |
 | `apt_sources` (bake file) | bake | `[]` | third-party apt repos rendered into the image at build time |
+| `claude.marketplaces` (bake file) | bake | `[]` | marketplaces registered INTO the image at build time (union+dedup with the boot file's, by `name`) |
+| `claude.plugins.bake` | bake | `[]` | `plugin@marketplace` refs INSTALLED into the image at build time; a BAKE key because they change the image's bytes |
 | `image.root_headroom_mb` | bake | `1024` | extra MiB of FREE SPACE in the guest root filesystem above its base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
 
 Notes on the forward-looking keys:
@@ -140,19 +144,34 @@ Notes on the forward-looking keys:
   `packages:` are written empty (`[]`) by default.** Ask the user whether they want
   any apt packages baked into the image, installed at boot, or any
   third-party apt repos; write entries only if they name specific
-  packages/repos. Leaving these empty is the safe default (schema +
-  merge only as of issue #103 — the bake/boot-install consumers land in
-  sibling slices under #39).
+  packages/repos. Leaving these empty is the safe default — the bake
+  file's entries are baked into the image (issue #105) and the boot
+  file's are installed at boot through the proxy (issue #106).
 - **`claude.permissions.allow` / `.ask` / `.deny` and
   `claude.marketplaces` / `claude.plugins.bake` /
   `.plugins.install_at_boot` are written empty by default.** Same
   reasoning: ask whether the user wants specific permission rules,
   marketplaces, or plugins baked/installed; write entries only on
   request. `claude.permission_mode` and `claude.permissions.*` are
-  rendered into the guest `settings.json` (issue #104); `claude.plugins.bake`
-  / `.install_at_boot` are rendered into that same file's
-  `enabledPlugins`, but the actual package-manager install of those
-  plugins is still a #39 sibling slice.
+  rendered into the guest `settings.json` (issue #104). `claude.plugins.bake`
+  refs are installed **into the image** by the build's plugin bake step
+  and `.install_at_boot` refs by the guest boot launcher's plugin phase
+  (issue #107); both are also rendered into `settings.json`'s
+  `enabledPlugins`.
+- **Placement is enforced for `claude.plugins`.** `bake` belongs in
+  `config-bake.yml` (baked plugins change the image's bytes, so they must
+  live where the whole-file image-identity hash sees them);
+  `install_at_boot`, `update_at_boot`,
+  `add_marketplace_uris_to_allowlist`, and `enabled` belong in
+  `config-boot.yml`. A sub-key written into the wrong file **aborts the
+  launch** with a message naming the right file, rather than parsing and
+  being silently ignored. `claude.marketplaces` is the exception: allowed
+  in both files, unioned and deduped by `name`, with the same name under
+  two differing urls aborting the launch.
+- **Prefer an explicit `https://` marketplace url.** The launcher derives
+  the guest's marketplace egress hosts from the url; the `owner/repo`
+  GitHub shorthand yields no derivable host, so it needs `github.com`
+  kept in `egress.allow` by hand.
 - **`claude.plugins.enabled` is omitted by default.** It is an optional
   map of plugin ref → boolean that mirrors `settings.json`'s own
   `enabledPlugins` vocabulary and is rendered straight into the guest
@@ -237,6 +256,16 @@ apt_sources: []
 # the .raw, so changing it rebuilds the image.
 image:
   root_headroom_mb: 1024
+
+# Plugin marketplaces registered INTO the image, and the plugin@marketplace refs
+# installed into it, at build time. BAKE keys: baked plugins change the image's
+# bytes. `name` must match the marketplace's OWN manifest name; prefer an
+# explicit https:// url so the launcher can derive its egress host. Write
+# entries only on request.
+claude:
+  marketplaces: []
+  plugins:
+    bake: []
 ```
 
 The full default **`config-boot.yml`** (run-time keys) is:
@@ -293,11 +322,15 @@ claude:
     allow: []           # write entries only if the user names specific rules
     ask: []
     deny: []
-  marketplaces: []      # {name, url} entries; write only on request
+  marketplaces: []      # {name, url} entries a boot-time install needs (union+
+                        # dedup by name with the bake file's). Write on request.
   plugins:
-    bake: []             # plugin@marketplace refs; rendered into
-    install_at_boot: []  # settings.json's enabledPlugins. Write only on request.
-    update_at_boot: true # refresh marketplaces + reinstall changed plugins at boot
+    # bake: is a BAKE key -- it lives in config-bake.yml. Writing it here aborts
+    # the launch.
+    install_at_boot: []  # plugin@marketplace refs installed at boot, blocking,
+                         # before claude starts. Write only on request.
+    update_at_boot: true # refresh the marketplaces and update the installed
+                         # plugins at boot; the freshness path for BAKED plugins
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always
     # enabled: OPTIONAL map, plugin ref -> boolean, mirroring settings.json's
     # enabledPlugins. Every bake/install_at_boot ref defaults enabled; write an
@@ -322,9 +355,10 @@ github:
 and add **only** the keys from that file's default that are absent. Keep
 every existing key and value verbatim, including any the user
 customized and any this skill does not recognize. For list keys
-(bake file: `packages`, `apt_sources`; boot file: `egress.allow`,
+(bake file: `packages`, `apt_sources`, `claude.marketplaces`,
+`claude.plugins.bake`; boot file: `egress.allow`,
 `packages`, `apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
-`claude.marketplaces`, `claude.plugins.bake`/`.install_at_boot`), union
+`claude.marketplaces`, `claude.plugins.install_at_boot`), union
 the default entries in (do not drop the user's extras, do not
 duplicate). Render the merged result preserving the user's existing
 comments where practical.
@@ -354,7 +388,8 @@ After each `Write`, re-read the file and confirm it parses as YAML and
 contains the expected keys:
 
 - **config-bake.yml**: `packages` (list), `apt_sources` (list),
-  `image.root_headroom_mb`.
+  `image.root_headroom_mb`, `claude.marketplaces` (list),
+  `claude.plugins.bake` (list).
 - **config-boot.yml**: `cpus: 2`, `mem: 4096`, `proxy.port`,
   `egress.allow` including
   `api.anthropic.com`, `claude.version`, `claude.permission_mode`,
@@ -389,6 +424,8 @@ Report back:
   `~/.config/claude-vm/config-boot.yml`. This skill touches no repo,
   edits no `.gitignore`, and runs no git commands.
 - **Respect the bake/boot placement rule.** Image-bytes keys
-  (`packages` baked in, `apt_sources`, `image.root_headroom_mb`) go in
-  `config-bake.yml`; run-time keys go in `config-boot.yml`. A misplaced
-  key loudly does nothing rather than silently poisoning the image cache.
+  (`packages` baked in, `apt_sources`, `image.root_headroom_mb`,
+  `claude.plugins.bake`) go in `config-bake.yml`; run-time keys go in
+  `config-boot.yml`. A misplaced key loudly does nothing rather than
+  silently poisoning the image cache, and a misplaced `claude.plugins`
+  sub-key aborts the launch outright.

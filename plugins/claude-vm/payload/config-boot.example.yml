@@ -21,8 +21,8 @@
 #   - Scalar maps (claude.plugins.enabled): repo overrides global PER KEY.
 #   - Lists (egress.allow, mounts, `packages` here [installed at boot],
 #     apt_sources, claude.permissions.allow/ask/deny, claude.marketplaces,
-#     claude.plugins.bake, claude.plugins.install_at_boot): merged -- union of
-#     global + repo.
+#     claude.plugins.install_at_boot): merged -- union of global + repo.
+#     (claude.plugins.bake is a BAKE key; see config-bake.example.yml.)
 #
 # NO SECRETS HERE. The host claude.ai OAuth credential is mounted into the guest
 # at runtime by the launcher; it is never read from or written to any config file.
@@ -119,18 +119,54 @@ claude:
     ask: []               # list, union
     deny: []              # list, union -- enforced even under bypassPermissions
 
-  # Marketplaces + plugins available to the guest.
+  # Marketplaces + plugins available to the guest. The guest's plugin set comes
+  # from THESE configs only -- the host's own installed plugins and its
+  # ~/.claude/settings.json are never copied in, so the VM can deliberately run
+  # a plugin or hook you would not enable on the host.
+  #
+  # marketplaces is allowed in BOTH file types (like apt_sources) and unions,
+  # deduped by `name`; the same name with a DIFFERING url anywhere aborts the
+  # launch. Declare a marketplace HERE when only an install_at_boot ref needs
+  # it -- boot files never affect image identity, so it costs no rebuild. A
+  # marketplace a BAKED plugin needs belongs in config-bake.yml instead.
+  # `name` must match the marketplace's own manifest name; prefer an explicit
+  # https:// url over the `owner/repo` GitHub shorthand so the launcher can
+  # derive its egress host (see add_marketplace_uris_to_allowlist below).
   marketplaces: []        # {name, url} entries (list, union)
   plugins:
-    bake: []              # plugin@marketplace refs baked into the image
-                          # (list, union)
+    # NOTE: `bake:` is NOT a boot key -- baked plugins change the image's bytes,
+    # so they live in config-bake.yml where the image-identity hash sees them.
+    # Writing `claude.plugins.bake` here ABORTS the launch with a message
+    # pointing at the bake file, rather than parsing and silently baking
+    # nothing.
     install_at_boot: []   # plugin@marketplace refs installed at boot
-                          # (list, union)
-    update_at_boot: true  # refresh marketplaces + reinstall changed plugins
-                          # at boot (scalar; default true)
+                          # (list, union). Installed BLOCKING, before claude
+                          # starts, by the guest's own `claude plugin install`.
+                          # A failed install warns loudly on the captured
+                          # console log and CONTINUES to claude -- it never
+                          # blocks an interactive session.
+    update_at_boot: true  # refresh the marketplaces and update the installed
+                          # plugins at boot (scalar; default true). This is the
+                          # FRESHNESS mechanism for BAKED plugins: they are
+                          # frozen at image-build time and the image-identity
+                          # hash deliberately excludes marketplace HEAD, so with
+                          # this on, a marketplace bump lands at the next boot
+                          # with NO image rebuild. Set false for a hard-secure,
+                          # fully-frozen guest.
     add_marketplace_uris_to_allowlist: auto   # auto (default) | always --
                           # same auto/always semantics as add_apt_uris_to_allowlist,
-                          # applied to marketplace URIs (scalar)
+                          # applied to marketplace URIs (scalar). Under "auto" the
+                          # marketplace hosts are added to the guest egress
+                          # allowlist IFF boot-side marketplace work will actually
+                          # run: install_at_boot is nonempty, OR a marketplace
+                          # declared here is not already baked into the image, OR
+                          # update_at_boot is true and at least one marketplace is
+                          # configured. Everything baked + update_at_boot: false +
+                          # "auto" derives NOTHING -- and the guest still has
+                          # working plugins, because the baked ones need no
+                          # marketplace at all. "always" keeps the URIs allowlisted
+                          # so an in-guest `claude plugin install` still works
+                          # mid-session. Every derived addition is logged.
 
     # enabled: OPTIONAL map of plugin ref -> boolean mirroring settings.json's
     # enabledPlugins. Every bake/install_at_boot ref defaults enabled; list an

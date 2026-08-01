@@ -70,6 +70,56 @@ if [ -z "$BAKE_CONFIG" ]; then
   BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
 fi
 
+# Baked marketplaces + plugins (issue #107). build-guest-image.sh exports the
+# canonical manifest (from claude_vm_bake_plugins_json) as
+# CLAUDE_VM_BAKE_PLUGINS: {"marketplaces":[{name,url}...],"bake":[refs...]}.
+# Empty/unset normalizes to the empty canonical form so the in-container parser
+# always sees valid JSON, and an empty manifest means the plugin bake step is
+# skipped entirely -- the recipe is then exactly the pre-#107 image.
+BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}"
+if [ -z "$BAKE_PLUGINS" ]; then
+  BAKE_PLUGINS='{"marketplaces":[],"bake":[]}'
+fi
+
+# The host-verified GUEST-PLATFORM (linux-arm64) claude binary (issue #107).
+# The bake step runs THIS binary inside the build container -- `claude plugin
+# marketplace add` / `claude plugin install` with HOME=/root -- to populate the
+# image's /root/.claude/plugins. Using the guest binary (not a container-fetched
+# one) keeps the single trusted path intact: the host already GPG-verified this
+# exact file, and the image is populated by the same claude version the guest
+# will run. The launcher exports it; a bare build without one simply skips the
+# plugin bake step.
+GUEST_CLAUDE_BIN="${CLAUDE_VM_GUEST_CLAUDE_BIN:-}"
+
+# Does this build have any plugin work to do? Decided HOST-side so the
+# in-container script can branch on a plain flag and the whole
+# claude-in-container apparatus stays absent from a no-plugin build. No JSON
+# parser is needed and none is available here (this provisioner does not source
+# lib/config.sh, so it can be driven standalone): the manifest is EMPTY exactly
+# when BOTH lists are empty, and `"<key>":[]` is a substring only an empty list
+# produces. Testing the two substrings independently -- rather than comparing
+# the whole document to one literal -- keeps this working if the canonical key
+# ORDER ever changes.
+BAKE_PLUGINS_ACTIVE=1
+case "$BAKE_PLUGINS" in
+  *'"marketplaces":[]'*)
+    case "$BAKE_PLUGINS" in
+      *'"bake":[]'*) BAKE_PLUGINS_ACTIVE=0 ;;
+    esac
+    ;;
+esac
+if [ "$BAKE_PLUGINS_ACTIVE" -eq 1 ] && [ -z "$GUEST_CLAUDE_BIN" ]; then
+  echo "podman-mkosi: claude.marketplaces / claude.plugins.bake are configured, but no verified guest" >&2
+  echo "podman-mkosi: claude binary was provided (CLAUDE_VM_GUEST_CLAUDE_BIN is empty). The bake step runs" >&2
+  echo "podman-mkosi: that binary inside the build container to install the plugins; refusing to build an" >&2
+  echo "podman-mkosi: image that silently carries none. This indicates a launcher fault." >&2
+  exit 1
+fi
+if [ "$BAKE_PLUGINS_ACTIVE" -eq 1 ] && [ ! -f "$GUEST_CLAUDE_BIN" ]; then
+  echo "podman-mkosi: the verified guest claude binary was not found at '$GUEST_CLAUDE_BIN'." >&2
+  exit 1
+fi
+
 # Root partition headroom (issue #106 real-run fix). build-guest-image.sh
 # resolves image.root_headroom_mb (default 1024, see
 # lib/config.sh's CLAUDE_VM_DEFAULT_IMAGE_ROOT_HEADROOM_MB) and exports it as
@@ -336,6 +386,16 @@ printf '%s\n' "$BAKE_CONFIG" > "$STAGE/recipe/bake-config.json"
 mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/sources.list.d"
 mkdir -p "$STAGE/recipe/mkosi.sandbox/etc/apt/keyrings"
 
+# Bake plugins (issue #107): the marketplaces/plugins manifest, plus the
+# verified guest claude binary that installs them. Both land in the recipe tree
+# so the in-container step can reach them at /work/recipe/. The binary is
+# staged as a COPY rather than bind-mounted separately so the existing single
+# `-v $STAGE/recipe:/work/recipe` mount carries everything the build needs.
+printf '%s\n' "$BAKE_PLUGINS" > "$STAGE/recipe/bake-plugins.json"
+if [ "$BAKE_PLUGINS_ACTIVE" -eq 1 ]; then
+  install -m 0755 "$GUEST_CLAUDE_BIN" "$STAGE/recipe/guest-claude"
+fi
+
 # Install the boot launcher into the guest filesystem tree (mkosi.extra is
 # copied verbatim into the rootfs).
 install -m 0755 "$BOOT_LAUNCHER" \
@@ -593,6 +653,26 @@ Packages=
     # it. The fail-soft failure policy (a failed apt-get warns and continues
     # to claude) is unchanged.
     apt
+    # git is what the claude CLI SHELLS OUT TO for every git-url marketplace
+    # operation, so the boot launcher's boot_plugin_phase (issue #107) needs
+    # it INSIDE the guest: 'claude plugin marketplace add' and 'claude plugin
+    # marketplace update' spawn a system git clone/fetch rather than using a
+    # bundled git implementation (a real clone leaves .git/hooks/*.sample
+    # behind, which a JS git never writes). Baked here UNCONDITIONALLY, on
+    # exactly the same reasoning as apt above: the image is built from OUTSIDE
+    # by mkosi's own (build-container) apt, and the build container installs
+    # its own git explicitly, so nothing pulls git into the guest rootfs on
+    # its own. Running the guest-platform claude binary in a git-less
+    # debian:trixie container reproduces the failure exactly -- "Failed to
+    # clone marketplace repository: Command failed with
+    # ERR_STREAM_PREMATURE_CLOSE: git ... clone --depth 1 ..." -- which would
+    # make claude.plugins.update_at_boot (default true) permanently inert and
+    # any boot-added marketplace unreachable. The security boundary for a
+    # hard-secure all-baked config (add_marketplace_uris_to_allowlist: auto,
+    # nothing to do at boot) is the egress allowlist leaving the marketplace
+    # hosts unreachable, NOT the absence of git. The fail-soft failure policy
+    # (a failed add/update warns and continues to claude) is unchanged.
+    git
 
 [Build]
 # Offline repart: build the disk without loopback devices so this runs in
@@ -958,6 +1038,145 @@ for s in d.get("apt_sources",[]):
   render_apt_source "\$as_name" "\$as_repo" "\$as_key_url" \\
     "\$SANDBOX_KEYRINGS" "\$SANDBOX_SOURCES" "\$APT_KEYRINGS_RT"
 done
+# -------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
+# Baked marketplaces + plugins (issue #107).
+#
+# The design's PRIMARY approach, taken here: run the host-verified
+# GUEST-PLATFORM claude binary INSIDE this build container (arm64, has network)
+# with HOME pointed at the image root, and let its own CLI do the work --
+# 'claude plugin marketplace add' then 'claude plugin install'. The plugin
+# registry format is claude's; we never reverse-engineer or hand-write
+# known_marketplaces.json / installed_plugins.json / cache/.
+#
+# HOME=/root is what makes the recorded paths correct. Both registry files
+# store ABSOLUTE paths (installLocation / installPath). The container runs as
+# root, so its own /root IS the guest's future /root -- installing there
+# records /root/.claude/plugins/... verbatim, and no path rewriting is needed
+# when the tree is copied into the image. Pointing HOME at a staging dir
+# instead would bake unresolvable /work/... paths into the registry.
+#
+# Only /root/.claude/PLUGINS is copied into the image -- deliberately not the
+# rest of /root/.claude or /root/.claude.json. Running the CLI can leave
+# onboarding/telemetry/identity state behind, and the guest's identity comes
+# from the host launcher's per-run seed, never from the image.
+#
+# FAIL HARD, unlike the guest's boot-time phase. At boot a failed install must
+# not brick an interactive session, so it warns and continues. At BUILD time
+# the opposite is right: a silently plugin-less image would be cached under a
+# version stamp claiming it has them, and every later launch would reuse it.
+if [ "${BAKE_PLUGINS_ACTIVE}" -eq 1 ]; then
+  echo "podman-mkosi(inner): baking marketplaces + plugins into the image root..." >&2
+  export HOME=/root
+  # Keep the CLI quiet and self-contained: no self-update against a binary we
+  # will not ship writable, no nonessential traffic from a build container.
+  export DISABLE_AUTOUPDATER=1
+  export DISABLE_TELEMETRY=1
+  export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+  GUEST_CLAUDE=/work/recipe/guest-claude
+  if [ ! -x "\$GUEST_CLAUDE" ]; then
+    echo "podman-mkosi(inner): verified guest claude binary missing or not executable at \$GUEST_CLAUDE" >&2
+    exit 1
+  fi
+
+  # Is a marketplace with this NAME registered? The listing prints one indented
+  # "<glyph> <name>" line per marketplace, so the check is the name against each
+  # line's LAST whitespace-delimited field, compared LITERALLY. Deliberately not
+  # a grep -E pattern built from the name: grep would read the name as a
+  # REGEX, and a marketplace name may legitimately contain '.', which as a regex
+  # means "any character" -- a configured 'foo.bar' would then be accepted when
+  # the registry actually holds 'fooxbar'. read -a word-splits on IFS with no
+  # pathname expansion, so no metacharacter in the name or in the listing can
+  # change the match. Same helper shape as the guest boot launcher's
+  # plugin_marketplace_registered (build-guest-image.sh).
+  marketplace_registered() {
+    local want="\$1" line
+    local -a fields
+    while IFS= read -r line; do
+      read -r -a fields <<< "\$line"
+      [ "\${#fields[@]}" -gt 0 ] || continue
+      if [ "\${fields[\$((\${#fields[@]} - 1))]}" = "\$want" ]; then
+        return 0
+      fi
+    done < <("\$GUEST_CLAUDE" plugin marketplace list 2>/dev/null)
+    return 1
+  }
+
+  # Marketplaces first: a plugin ref cannot resolve until its marketplace is
+  # registered. name<TAB>url, in the canonical manifest's order.
+  python3 -c '
+import json
+d=json.load(open("/work/recipe/bake-plugins.json"))
+for m in d.get("marketplaces",[]):
+    print("\t".join([m.get("name","") or "", m.get("url","") or ""]))
+' > /work/recipe/.bake-marketplaces.tsv
+  while IFS=\$'\t' read -r mp_name mp_url; do
+    [ -n "\$mp_name" ] || continue
+    if [ -z "\$mp_url" ]; then
+      echo "podman-mkosi(inner): marketplace '\$mp_name' has no url; cannot register it in the image." >&2
+      exit 1
+    fi
+    echo "podman-mkosi(inner): adding marketplace '\$mp_name' from \$mp_url" >&2
+    if ! "\$GUEST_CLAUDE" plugin marketplace add "\$mp_url"; then
+      echo "podman-mkosi(inner): 'claude plugin marketplace add \$mp_url' FAILED." >&2
+      echo "podman-mkosi(inner): the build container has network, so this is most likely a bad url or an" >&2
+      echo "podman-mkosi(inner): unreachable/private marketplace source. Refusing to bake an image whose" >&2
+      echo "podman-mkosi(inner): configured marketplace is absent." >&2
+      exit 1
+    fi
+    # The registered NAME comes from the marketplace's own manifest, not from
+    # the url we passed. If it does not match the configured name, every
+    # plugin-at-marketplace ref written against that name would fail to
+    # resolve -- inside the image, where it is far more expensive to notice.
+    if ! marketplace_registered "\$mp_name"; then
+      echo "podman-mkosi(inner): added \$mp_url but no marketplace named '\$mp_name' is registered." >&2
+      echo "podman-mkosi(inner): claude derives a marketplace's name from ITS OWN manifest; set" >&2
+      echo "podman-mkosi(inner): claude.marketplaces[].name to that name so plugin refs resolve." >&2
+      "\$GUEST_CLAUDE" plugin marketplace list >&2 || true
+      exit 1
+    fi
+  done < /work/recipe/.bake-marketplaces.tsv
+
+  # Then the plugins.bake refs, into the same /root/.claude/plugins tree.
+  python3 -c '
+import json
+d=json.load(open("/work/recipe/bake-plugins.json"))
+for p in d.get("bake",[]):
+    print(p)
+' > /work/recipe/.bake-plugins.list
+  while IFS= read -r plugin_ref; do
+    [ -n "\$plugin_ref" ] || continue
+    echo "podman-mkosi(inner): installing plugin '\$plugin_ref'" >&2
+    if ! "\$GUEST_CLAUDE" plugin install "\$plugin_ref"; then
+      echo "podman-mkosi(inner): 'claude plugin install \$plugin_ref' FAILED." >&2
+      echo "podman-mkosi(inner): check that the ref is spelled plugin@marketplace and that its marketplace" >&2
+      echo "podman-mkosi(inner): is listed in claude.marketplaces. Refusing to bake an image missing a" >&2
+      echo "podman-mkosi(inner): configured plugin." >&2
+      exit 1
+    fi
+  done < /work/recipe/.bake-plugins.list
+
+  # Copy ONLY the plugins tree into the image. mkosi.extra is copied verbatim
+  # into the rootfs after package installation, which is fine here -- plugins
+  # need no package manager.
+  if [ ! -d /root/.claude/plugins ]; then
+    echo "podman-mkosi(inner): expected /root/.claude/plugins after the plugin installs, but it does not exist." >&2
+    exit 1
+  fi
+  #
+  # Moved with a tar PIPE, deliberately NOT 'cp -a'. mkosi.extra lives under
+  # /work/recipe, a bind mount from the macOS host, and that mount cannot hold
+  # security.* xattrs -- the same EOPNOTSUPP that forced the output copy off
+  # 'cp --preserve=...,xattr' (issue #71, Bug 3). GNU tar does not carry xattrs
+  # unless asked, and extracting as root preserves the exact modes, which
+  # matters: plugin hooks are executable files.
+  mkdir -p /work/recipe/mkosi.extra/root/.claude/plugins
+  tar -C /root/.claude/plugins -cf - . \\
+    | tar -C /work/recipe/mkosi.extra/root/.claude/plugins -xf -
+  echo "podman-mkosi(inner): baked plugin tree -> /root/.claude/plugins (\$(du -sh /root/.claude/plugins | cut -f1))" >&2
+  rm -f /work/recipe/.bake-marketplaces.tsv /work/recipe/.bake-plugins.list
+fi
 # -------------------------------------------------------------------------
 
 cd /work/recipe

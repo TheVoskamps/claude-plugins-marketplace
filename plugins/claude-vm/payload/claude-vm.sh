@@ -144,6 +144,15 @@ claude_vm_merge_config "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" > "$MERGED_BOOT
 # Same apt_sources name with differing content anywhere across the two tiers
 # is a silent-shadowing hazard -- abort loudly instead.
 claude_vm_check_apt_sources_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
+# Same guard for claude.marketplaces (issue #107): one name with two urls would
+# silently decide which code a `plugin@marketplace` ref resolves to.
+claude_vm_check_marketplace_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
+# claude.plugins is the one map that legitimately appears in BOTH file types
+# (bake refs in a bake file; install_at_boot/update_at_boot/enabled in a boot
+# file), which makes a misplaced sub-key easy to write and -- absent this guard
+# -- silently ignored. Abort loudly instead (issue #107).
+claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
+  || { echo "claude-vm: aborting -- move the misplaced claude.plugins key(s) as described above." >&2; exit 1; }
 
 VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
 VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
@@ -162,6 +171,15 @@ PROXY_CMD="$(claude_vm_scalar "$MERGED_BOOT" '.proxy.cmd' "$DEFAULT_PROXY_CMD")"
 # run.env write and the derived-egress gate (claude_vm_boot_apt_egress_needed,
 # below) read the SAME value the boot launcher will act on.
 PACKAGES_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.update_at_boot' "$CLAUDE_VM_DEFAULT_PACKAGES_UPDATE_AT_BOOT")"
+
+# Boot-time plugin update flag (issue #107): the plugin-side sibling of
+# PACKAGES_UPDATE_AT_BOOT above. Baked plugins are frozen at image-build time
+# and the image-identity hash deliberately excludes marketplace HEAD, so this
+# knob is the freshness mechanism for baked plugins -- with it true, a
+# marketplace bump is picked up at the next boot with no image rebuild.
+# Resolved once here so the run.env write and the derived-egress gate
+# (claude_vm_boot_marketplace_egress_needed) act on the same value.
+PLUGINS_UPDATE_AT_BOOT="$(claude_vm_bool_scalar "$MERGED_BOOT" '.claude.plugins.update_at_boot' "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
 
 # guest_image: a normal scalar. When SET, it is used as-is -- an explicit
 # operator override that opts OUT of variant derivation (issue #105, extended
@@ -195,6 +213,20 @@ DEFAULT_IMAGE_DIR="$CLAUDE_VM_GLOBAL_CONFIG_DIR/images"
 CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
   || { echo "claude-vm: could not canonicalize the bake config" >&2; exit 1; }
 export CLAUDE_VM_BAKE_CONFIG
+
+# Baked marketplaces + plugins (issue #107). The build CONTENT sibling of
+# CLAUDE_VM_BAKE_CONFIG: the marketplaces the image must register and the
+# claude.plugins.bake refs it must install into /root/.claude/plugins. Like
+# CLAUDE_VM_BAKE_CONFIG this is CONTENT, not the cache key -- the cache key is
+# the whole-file raw-byte hash of the BAKE FILES, which already covers
+# claude.marketplaces + claude.plugins.bake now that issue #107 places them
+# there. That placement IS the "extend the bake-hash with marketplace/plugin
+# refs" the issue asks for; it costs no new key-picked hash and it means the
+# one-time rebuild lands the moment an operator moves the keys into their bake
+# file.
+CLAUDE_VM_BAKE_PLUGINS="$(claude_vm_bake_plugins_json "$MERGED_BAKE" "$MERGED_BOOT")" \
+  || { echo "claude-vm: could not canonicalize the bake plugin manifest" >&2; exit 1; }
+export CLAUDE_VM_BAKE_PLUGINS
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized above its base content, so a live session has room to grow
@@ -461,34 +493,6 @@ claude_vm_preflight_toolchain "$PREFLIGHT_PROXY_MODE" \
 GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 
 # ---------------------------------------------------------------------
-# Ensure guest image exists and matches the pinned version. Build on
-# demand rather than erroring. The base is version-pinned; claude is
-# NOT baked in -- it is fetched at boot through the egress allowlist.
-# The image-identity segments (issue #106) flow into BOTH the --print-version
-# below and the --output build through the exported
-# CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS (set above), so the version stamped in
-# <img>.version and the version we compare against are the SAME string. A
-# config-less repo stamps/compares BASE+launcherN+global<hash> and shares that
-# one image; a repo with build-relevant config stamps its own
-# BASE+launcherN+global<hash>+<reponame>-<repohash> and rebuilds only when its
-# global or repo build-relevant config changes.
-# ---------------------------------------------------------------------
-PINNED_VERSION="$("$SCRIPT_DIR/build-guest-image.sh" --print-version)"
-ensure_guest_image() {
-  local img="$1" want="$2" have=""
-  if [ -f "$img" ] && [ -f "$img.version" ]; then
-    have="$(cat "$img.version" 2>/dev/null || true)"
-  fi
-  if [ "$have" = "$want" ]; then
-    return 0
-  fi
-  echo "claude-vm: guest image missing or version-mismatched (have='${have:-none}', want='$want'); building..." >&2
-  mkdir -p "$(dirname "$img")"
-  "$SCRIPT_DIR/build-guest-image.sh" --output "$img"
-}
-ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
-
-# ---------------------------------------------------------------------
 # Resolve `claude` via the host-side, GPG-verified cache (issue #49).
 #
 # The host resolves the requested channel/pin to a concrete version,
@@ -544,6 +548,46 @@ echo "claude-vm: using verified claude binary: $CLAUDE_BIN_HOST (fetch=${CLAUDE_
 # otherwise-bootable guest.
 CLAUDE_VERSION_RESOLVED="$(claude_cache_resolve_version "$CLAUDE_VERSION" 2>/dev/null || true)"
 [ -n "$CLAUDE_VERSION_RESOLVED" ] || CLAUDE_VERSION_RESOLVED="$CLAUDE_VERSION"
+
+# ---------------------------------------------------------------------
+# Ensure guest image exists and matches the pinned version. Build on
+# demand rather than erroring. The base is version-pinned; claude is
+# NOT baked in -- it is fetched at boot through the egress allowlist.
+# The image-identity segments (issue #106) flow into BOTH the --print-version
+# below and the --output build through the exported
+# CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS (set above), so the version stamped in
+# <img>.version and the version we compare against are the SAME string. A
+# config-less repo stamps/compares BASE+launcherN+global<hash> and shares that
+# one image; a repo with build-relevant config stamps its own
+# BASE+launcherN+global<hash>+<reponame>-<repohash> and rebuilds only when its
+# global or repo build-relevant config changes.
+#
+# ORDERED AFTER the verified-cache block above (issue #107). The bake path now
+# runs the GUEST-PLATFORM (linux-arm64) `claude` binary inside the build
+# container to install claude.plugins.bake -- `claude plugin marketplace add` /
+# `claude plugin install` with HOME pointed at the image root -- so the
+# verified binary must already exist when the build starts. It is passed in via
+# CLAUDE_VM_GUEST_CLAUDE_BIN below. Two happy side effects of the reorder: a
+# signature/checksum failure now aborts BEFORE a multi-minute image build
+# rather than after it, and the build reuses the exact binary the guest will
+# run, so bake-time and boot-time plugin handling can never be done by two
+# different claude versions.
+# ---------------------------------------------------------------------
+export CLAUDE_VM_GUEST_CLAUDE_BIN="$CLAUDE_BIN_HOST"
+PINNED_VERSION="$("$SCRIPT_DIR/build-guest-image.sh" --print-version)"
+ensure_guest_image() {
+  local img="$1" want="$2" have=""
+  if [ -f "$img" ] && [ -f "$img.version" ]; then
+    have="$(cat "$img.version" 2>/dev/null || true)"
+  fi
+  if [ "$have" = "$want" ]; then
+    return 0
+  fi
+  echo "claude-vm: guest image missing or version-mismatched (have='${have:-none}', want='$want'); building..." >&2
+  mkdir -p "$(dirname "$img")"
+  "$SCRIPT_DIR/build-guest-image.sh" --output "$img"
+}
+ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
 
 # ---------------------------------------------------------------------
 # Run directory + repo mount strategy
@@ -664,7 +708,9 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # permission allow/ask/deny lists, the permission defaultMode
 # (claude.permission_mode, default bypassPermissions, enum-guarded above), and
 # the enabledPlugins object (every ref in claude.plugins.bake ++ install_at_boot
-# defaults true, then claude.plugins.enabled overrides per key). The permissions
+# defaults true, then claude.plugins.enabled overrides per key). BOTH merged
+# documents are passed since issue #107 (bake refs live in the BAKE file, every
+# other key it reads is a BOOT key). The permissions
 # come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
 # NEVER read, so the guest's Claude surface is defined entirely by claude-vm, per
 # the issue's product intent. The render also VALIDATES claude.plugins.enabled
@@ -679,7 +725,7 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # still inside the umask-077 window, so it lands 0600 like its dir-mates; the
 # chmod 600 is belt-and-braces.
 GUEST_SETTINGS="$CREDS_DIR/settings.json"
-claude_vm_render_guest_settings "$MERGED_BOOT" > "$GUEST_SETTINGS" \
+claude_vm_render_guest_settings "$MERGED_BOOT" "$MERGED_BAKE" > "$GUEST_SETTINGS" \
   || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
 chmod 600 "$GUEST_SETTINGS"
 
@@ -1104,6 +1150,12 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # 'true'/'false' literal is provably safe under the run.env `set -a`
     # sourcing (value-quoting audit above).
     printf 'CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=%s\n' "$PACKAGES_UPDATE_AT_BOOT"
+    # Boot-time plugin update flag (issue #107): whether the guest boot
+    # launcher refreshes the marketplaces and updates the installed plugins
+    # before claude starts. Same shape and safety argument as the apt flag
+    # above -- a plain boolean scalar resolves to a fixed 'true'/'false'
+    # literal, provably safe under the run.env `set -a` sourcing.
+    printf 'CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=%s\n' "$PLUGINS_UPDATE_AT_BOOT"
     # CLAUDE_ARGS shell-quoting round-trip (issue #88). A flat unquoted join
     # (`${CLAUDE_ARGS[*]}`) breaks the guest boot the instant any arg carries
     # whitespace or a shell metacharacter: e.g. `--name "foo #7 ..."` sourced
@@ -1150,6 +1202,30 @@ chmod 600 "$RUN_ENV"
 #                        identically-shaped input.
 claude_vm_list_items "$MERGED_BOOT" '.packages' > "$CONFIG_DIR/apt-install.list"
 claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sources.tsv"
+
+# ---------------------------------------------------------------------
+# Boot-time plugin manifest (issue #107): the plugin-side sibling of the apt
+# manifest above, delivered over the SAME runconfig share, in the same plain
+# newline/TSV shape (the guest has no python3/jq -- see the [Content]
+# Packages= list in provisioners/podman-mkosi.sh -- so the boot launcher parses
+# these line-by-line in plain bash).
+#
+#   plugin-marketplaces.tsv -- name<TAB>url per line: the EFFECTIVE marketplace
+#                              set (bake ++ boot, deduped by name). The image
+#                              already registered these at build time, so at
+#                              boot the launcher only ADDS the ones missing
+#                              from the image -- which is exactly the
+#                              boot-only-marketplace case, and the reason a
+#                              boot-only marketplace still needs egress.
+#   plugin-install.list     -- one `plugin@marketplace` ref per line, from the
+#                              BOOT document's claude.plugins.install_at_boot.
+#                              The BAKE document's claude.plugins.bake is NOT
+#                              here: those are already inside the image, and
+#                              re-installing them at boot would defeat the
+#                              whole point of baking (and need egress a
+#                              hard-secure config deliberately withholds).
+claude_vm_effective_marketplaces "$MERGED_BAKE" "$MERGED_BOOT" > "$CONFIG_DIR/plugin-marketplaces.tsv"
+claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.install_at_boot' > "$CONFIG_DIR/plugin-install.list"
 
 # ---------------------------------------------------------------------
 # Egress allowlist -- write it where the proxy reads it. The proxy.cmd
@@ -1214,6 +1290,58 @@ if claude_vm_boot_apt_egress_needed "$MERGED_BOOT"; then
     esac
   done
   unset _host
+fi
+
+# ---------------------------------------------------------------------
+# Boot-time marketplace derived egress (issue #107).
+#
+# The plugin-side sibling of the apt derivation above, with the same auto/always
+# semantics. Marketplace URL hosts are added to the allowlist IFF a boot-side
+# ensure/install/update will actually run (claude_vm_boot_marketplace_egress_needed:
+# a boot-only marketplace to add, a nonempty install_at_boot, or update_at_boot
+# true with at least one marketplace configured) OR the operator opted in with
+# claude.plugins.add_marketplace_uris_to_allowlist: always.
+#
+# "auto" (the default) with everything baked and updates off derives NOTHING --
+# and the guest STILL has working plugins, because the baked ones are inside
+# the image and need no marketplace at all. That is the hard-secure posture the
+# issue's first acceptance criterion names. Every derived addition is logged, so
+# the allowlist never grows silently. Runs AFTER the warm-boot tightening so a
+# dropped claude.ai/downloads.claude.ai entry is never re-introduced here.
+#
+# A marketplace whose `url` is not an http(s) URI (the `owner/repo` GitHub
+# shorthand, or a local path) derives no host -- claude_vm_marketplace_hosts
+# degrades quietly rather than guessing. The shorthand resolves to github.com,
+# which the example egress allowlist already carries; a config that uses it
+# with github.com removed from egress.allow gets a marketplace add that cannot
+# reach its source, so warn once when that combination is actually in play
+# rather than silently letting the boot phase fail.
+if claude_vm_boot_marketplace_egress_needed "$MERGED_BOOT" "$MERGED_BAKE"; then
+  DERIVED_MP_HOSTS="$(claude_vm_marketplace_hosts "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
+  EXISTING_HOSTS=" $(tr '\n' ' ' < "$EGRESS_ALLOWLIST" 2>/dev/null) "
+  for _host in $DERIVED_MP_HOSTS; do
+    case "$EXISTING_HOSTS" in
+      *" $_host "*) ;;
+      *)
+        printf '%s\n' "$_host" >> "$EGRESS_ALLOWLIST"
+        EXISTING_HOSTS="${EXISTING_HOSTS}${_host} "
+        echo "claude-vm: derived marketplace egress -- added '$_host' to the guest egress allowlist (boot-time marketplace/plugin work configured)." >&2
+        ;;
+    esac
+  done
+  unset _host
+  # Name the entries whose url yields no derivable host. Counted PER ENTRY (see
+  # claude_vm_marketplaces_without_host) -- comparing marketplace-count against
+  # host-count would misfire whenever two marketplaces share a host, which two
+  # github.com urls routinely do.
+  _mp_nohost="$(claude_vm_marketplaces_without_host "$MERGED_BAKE" "$MERGED_BOOT" | tr '\n' ' ')"
+  if [ -n "${_mp_nohost// /}" ]; then
+    echo "claude-vm: NOTE -- these claude.marketplaces entries have no http(s) url (e.g. an 'owner/repo' GitHub" >&2
+    echo "claude-vm: shorthand), so no egress host could be derived for them: ${_mp_nohost% }" >&2
+    echo "claude-vm: such a source resolves against github.com; keep github.com in egress.allow, or give the entry" >&2
+    echo "claude-vm: an explicit https:// url so its host is derived automatically." >&2
+  fi
+  unset _mp_nohost
 fi
 
 export CLAUDE_VM_EGRESS_ALLOWLIST="$EGRESS_ALLOWLIST"
