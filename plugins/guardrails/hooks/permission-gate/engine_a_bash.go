@@ -194,6 +194,13 @@ type simpleCommand struct {
 	// real file (not /dev/null). Such a command can exfiltrate/clobber and
 	// must not ride an allow-listed prefix.
 	hasRedirectToFile bool
+	// redirectTargets holds those real-file redirect destinations, verbatim, in
+	// the order they appeared. They are NOT argv operands, so neither Engine B
+	// operand walk (containPathOperands / containWriteOperands) ever sees them;
+	// recording them is what lets redirectVetoesAllow grade the destination
+	// instead of vetoing on the bare bool (#193). A `/dev/null` target is not
+	// recorded — it does not set hasRedirectToFile either.
+	redirectTargets []string
 	// hasInlineAssignment is true when the command carried an inline
 	// environment-assignment prefix (`AWS_ENDPOINT_URL=… aws …`,
 	// `GIT_SSH_COMMAND=… git …`, `GH_HOST=… gh …`). Such a prefix can redirect
@@ -734,6 +741,13 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
 			if target != "/dev/null" {
 				sc.hasRedirectToFile = true
+				// Record the destination so a classifier can GRADE it (#193)
+				// rather than only knowing that some redirect exists. A
+				// non-exact target is recorded too, so a caller that walks the
+				// list still sees every destination; it can never widen
+				// anything, because !exact has already set hasUnknownExpansion
+				// and redirectVetoesAllow refuses to lift on that.
+				sc.redirectTargets = append(sc.redirectTargets, target)
 			}
 		}
 	}

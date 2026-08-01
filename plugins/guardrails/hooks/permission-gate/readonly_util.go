@@ -14,10 +14,13 @@ import (
 // Two posture invariants make the ALLOW safe, both inherited from the existing
 // allow track:
 //
-//   - sc.allowEligible() must hold: no real-file redirect (exfiltration /
-//     clobber) and no command substitution / unresolved expansion (#1, a
-//     `$(...)`-built arg can't be statically proven safe). Checked by the
-//     caller's gate before any per-program logic.
+//   - No command substitution / unresolved expansion (#1, a `$(...)`-built arg
+//     can't be statically proven safe), and no real-file redirect — except one
+//     whose every destination is a session-shaped harness scratchpad, which
+//     #193 designates safe by construction (redirectVetoesAllow grades it; the
+//     two conditions together are sc.allowEligible() with its redirect half
+//     graded rather than absolute). Checked by the caller's gate before any
+//     per-program logic.
 //   - Path operands of a path-bearing utility must pass Engine B containment,
 //     so a `cat ../sibling-repo/node_modules/x` still denies (#148); a target
 //     resolving into the primary clone / shared git dir is treated as
@@ -40,8 +43,10 @@ type utilitySpec struct {
 	// pathBearing is true when the utility's operands are filesystem paths that
 	// must pass Engine B containment before the ALLOW. Pure-output utilities
 	// (printf, echo, seq, true/false, yes, basename, dirname) take no path
-	// operands, so they ALLOW on allowEligible() alone and never fork
-	// git rev-parse for a containment check.
+	// operands, so they ALLOW on the two posture invariants above alone and
+	// never fork git rev-parse for a containment check of their own. (A
+	// redirect destination is not an operand; when one is present it is graded
+	// separately, by redirectVetoesAllow, which does resolve repo context.)
 	pathBearing bool
 	// defersForm reports whether THIS invocation must defer instead of allow.
 	// nil means the utility is unconditionally read-only with no flags worth
@@ -80,6 +85,22 @@ var readOnlyUtilities = map[string]utilitySpec{
 	"rev":      {pathBearing: true, defersForm: revDefers},
 	"realpath": {pathBearing: true, defersForm: realpathDefers},
 
+	// ls lists a directory to stdout and has no write mode at all — nothing to
+	// guard beyond the table's standing fail-safe-on-unknown-flag convention,
+	// which lsDefers supplies. It was missing from this set while `find` and
+	// `grep`, both strictly more capable, were in it, so `ls <path>` deferred on
+	// every path and reached no allow track (#193): the harness scratchpad
+	// carve-out could not be exercised by the one command whose whole job is
+	// naming what is in a directory, which made the carve-out's own worked
+	// example — an `ls` of the bundled-skills hash directory — false.
+	//
+	// pathBearing, like every other operand-taking member: an `ls` of a path
+	// outside the repo now earns the ordinary #148 read deny instead of the
+	// defer it used to get, exactly as `cat`/`grep`/`find`/`less` already do for
+	// the same operand. That is the point of joining the track, not a side
+	// effect of it.
+	"ls": {pathBearing: true, defersForm: lsDefers},
+
 	// sort writes a file with `-o`/`--output` (`sort -o f f` clobbers in place).
 	// uniq's optional second path operand is an OUTPUT file (`uniq IN OUT`).
 	// Both must defer when the write form is present; both also fail safe on an
@@ -100,7 +121,9 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// Pure-output, no path operands and no write mode at all: nil defersForm.
 	// printf/echo/seq/true/false/yes/basename/dirname write only to stdout and
 	// have no flag that could change that, so there is nothing for a predicate to
-	// guard. They ALLOW on allowEligible() alone (no containment fork).
+	// guard. They ALLOW on the posture invariants alone (no containment fork for
+	// operands — `echo x > <scratchpad>/f` reaches its ALLOW through the graded
+	// redirect check, not through this table).
 	"printf":   {pathBearing: false},
 	"echo":     {pathBearing: false},
 	"basename": {pathBearing: false},
@@ -130,11 +153,14 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 	spec := readOnlyUtilities[prog]
 
 	// A real-file redirect (clobber/exfiltration) disqualifies the allow track:
-	// the bytes leave stdout for a file. Defer to the normal pipeline. (The
-	// unknown-expansion half of allowEligible is handled below: a path-bearing
-	// utility fails closed ASK on a dynamic path operand, a stronger posture
-	// than defer.)
-	if sc.hasRedirectToFile {
+	// the bytes leave stdout for a file. Defer to the normal pipeline — unless
+	// every destination is a session-shaped harness scratchpad, which #193
+	// designates safe by construction and which `tee`/`cp` already write to
+	// under an ALLOW. redirectVetoesAllow owns that grading; see there for why
+	// the lift is exactly that narrow. (The unknown-expansion half of
+	// allowEligible is handled below: a path-bearing utility fails closed ASK on
+	// a dynamic path operand, a stronger posture than defer.)
+	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}
 
@@ -167,9 +193,13 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
 			return d
 		}
-	} else if !sc.allowEligible() {
+	} else if sc.hasUnknownExpansion {
 		// Pure-output utility (printf/echo/seq/...) with an unresolved
 		// expansion: no path to contain, but #1 still forbids the allow track.
+		// This is allowEligible()'s unknown-expansion half, spelled out: the
+		// redirect half is the graded check above, and calling allowEligible()
+		// here would re-apply the ungraded veto and undo it (`echo x >
+		// <scratchpad>/f` is exactly this branch).
 		return deferToPipeline()
 	}
 
@@ -494,6 +524,64 @@ func columnDefers(args []string) bool {
 // flags; any flag defers (fail-safe).
 func revDefers(args []string) bool {
 	return flagScan{maxPathOperands: -1}.defers(args)
+}
+
+// lsDefers: ls lists directory entries on stdout and has no write mode in any
+// implementation, so there is no write flag to enumerate — the predicate exists
+// purely for the table's fail-safe convention (an unrecognized flag defers).
+//
+// Only flags that are BOOL in both GNU coreutils and BSD/macOS ls are listed.
+// The three short flags whose meaning DIVERGES — GNU's `-I PATTERN`, `-T COLS`
+// and `-w COLS` take a value while BSD's `-I`/`-T` are bools — are deliberately
+// left unmodelled, so they defer. Modelling them as value flags would let
+// `ls -I /etc` consume its path operand as a flag value on BSD, leaving zero
+// operands to contain and allowing an out-of-repo listing outright; modelling
+// them as bools would misparse the GNU form. A defer costs a prompt; either
+// mismodelling costs a containment check.
+//
+// The GNU long forms of those same options are unambiguous (long flags do not
+// exist in BSD ls), so they ARE modelled as value flags. `--color`/`--colour`
+// are bools instead, because their value is optional (`ls --color` is legal and
+// means `=always`): as value flags they would swallow the following path operand
+// the same way.
+func lsDefers(args []string) bool {
+	return flagScan{
+		valueFlags: map[string]bool{
+			"--block-size": true, "--format": true, "--time": true,
+			"--time-style": true, "--sort": true, "--indicator-style": true,
+			"--quoting-style": true, "--ignore": true, "--hide": true,
+			"--width": true, "--tabsize": true,
+		},
+		boolFlags: map[string]bool{
+			"-a": true, "--all": true, "-A": true, "--almost-all": true,
+			"-b": true, "--escape": true, "-B": true, "--ignore-backups": true,
+			"-c": true, "-C": true, "-d": true, "--directory": true,
+			"-D": true, "--dired": true, "-f": true, "-F": true, "--classify": true,
+			"--file-type": true, "-g": true, "-G": true, "--no-group": true,
+			"-h": true, "--human-readable": true, "--si": true,
+			"-H": true, "--dereference-command-line": true,
+			"--dereference-command-line-symlink-to-dir": true,
+			"-i": true, "--inode": true, "-k": true, "--kibibytes": true,
+			"-l": true, "-L": true, "--dereference": true, "-m": true,
+			"-n": true, "--numeric-uid-gid": true, "-N": true, "--literal": true,
+			"-o": true, "-p": true, "-q": true, "--hide-control-chars": true,
+			"--show-control-chars": true, "-Q": true, "--quote-name": true,
+			"-r": true, "--reverse": true, "-R": true, "--recursive": true,
+			"-s": true, "--size": true, "-S": true, "-t": true,
+			"-u": true, "-U": true, "-v": true, "-x": true, "-X": true,
+			"-Z": true, "--context": true, "-1": true,
+			"--author": true, "--full-time": true, "--group-directories-first": true,
+			"--color": true, "--colour": true, "--zero": true,
+			// BSD/macOS-only bools.
+			"-@": true, "-e": true, "-O": true, "-P": true, "-W": true,
+		},
+		maxPathOperands: -1, // every operand is a directory/file to list
+		// clusterable: `ls -la`, `ls -lrt` are the overwhelmingly common forms.
+		// ls has no write flag, and none of the modelled short flags takes a
+		// value, so a cluster ALLOWs only when every character is a known bool —
+		// `ls -lT` defers on the unmodelled `T`.
+		clusterable: true,
+	}.defers(args)
 }
 
 // realpathDefers: realpath resolves paths to stdout; no write flag. -e/-m/-s/-z/-q

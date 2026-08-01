@@ -450,7 +450,11 @@ var harnessSessionShape = regexp.MustCompile(
 // denial, which is what keeps the strict shape affordable.
 //
 // The match ends at `(/|$)` right after the 32-hex segment, so an `ls` of the
-// hash directory itself is covered, not only files beneath it.
+// hash directory itself is covered, not only files beneath it. That example is
+// load-bearing in both directions: `ls` reaches an ALLOW only because it is in
+// readOnlyUtilities (it was not, until #193 round 3 — which is how this comment
+// was caught claiming something the gate did not do). Removing `ls` from that
+// table falsifies this sentence again.
 var harnessBundledSkillsShape = regexp.MustCompile(
 	`^bundled-skills/[0-9]+\.[0-9]+\.[0-9]+/[0-9a-f]{32}(?:/|$)`)
 

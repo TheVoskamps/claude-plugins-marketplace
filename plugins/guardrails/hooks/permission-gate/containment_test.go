@@ -387,6 +387,165 @@ func TestHarnessScratchSessionAllowed_193(t *testing.T) {
 	}
 }
 
+// #193 "Reaching the carve-out from bash", gate 1: a carve-out the bash track
+// cannot reach is not a carve-out. `ls` is the command whose whole job is naming
+// what is in a directory, and it was in NEITHER bash read track — not
+// readOnlyUtilities, not the classifyPathReader dispatch — so it deferred for
+// every path, carve-out or not, while `find` and `grep` (both strictly more
+// capable) allowed. That gap made the spec's own worked example — an `ls` of the
+// bundled-skills hash directory, which the shape's trailing `(/|$)` exists to
+// cover — false.
+//
+// Both regions are asserted, because they are graded differently everywhere else
+// (bundled-skills is read-eligible only) and `ls` is a read.
+func TestHarnessScratchLsAllowed_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	uid := os.Getuid()
+
+	canonRoot := harnessScratchRootResolver().root
+	hashDirRel := filepath.Join("bundled-skills", bundledVersion, bundledHash)
+
+	for label, mk := range map[string]func(string) string{
+		"literal /tmp":  func(r string) string { return scratchTarget(uid, r) },
+		"canonicalized": func(r string) string { return filepath.Join(canonRoot, r) },
+	} {
+		targets := map[string]string{
+			"session scratchpad":     mk(filepath.Join(sessionSlug, sessionUUID, "scratchpad")),
+			"session tasks":          mk(filepath.Join(sessionSlug, sessionUUID, "tasks")),
+			"doubled-dash slug":      mk(filepath.Join(doubleDashSlug, sessionUUID, "scratchpad")),
+			"bundled-skills hashdir": mk(hashDirRel),
+		}
+		for what, target := range targets {
+			bev := bashEvIn(t, root, "issue-developer")
+			for _, cmd := range []string{"ls " + target, "ls -la " + target} {
+				wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+" / "+what+": "+cmd)
+			}
+			// The table's fail-safe convention survives the addition: an `ls`
+			// carrying a flag lsDefers does not model defers even though the
+			// operand is squarely inside the carve-out.
+			wantBucket(t, classifyBash("ls --frobnicate "+target, bev), BucketDefer,
+				label+" / "+what+": an unrecognized ls flag defers")
+		}
+	}
+
+	// Structural pin: `ls` is on the read-only-utility ALLOW track (path-bearing,
+	// with a fail-safe predicate), not on the DEFER-terminal pager dispatch. The
+	// end-to-end assertions above would also pass if some future refactor moved
+	// `ls` somewhere else that happened to allow; this names the requirement.
+	spec, ok := readOnlyUtilities["ls"]
+	if !ok {
+		t.Fatal("#193: `ls` must be in readOnlyUtilities, or the bundled-skills `ls` example is false again")
+	}
+	if !spec.pathBearing {
+		t.Error("#193: `ls` must be pathBearing — its operands are paths Engine B has to contain")
+	}
+	if spec.defersForm == nil {
+		t.Error("#193: `ls` must carry a defersForm so an unrecognized flag fails safe")
+	}
+}
+
+// #193 "Reaching the carve-out from bash", gate 2: the redirect form of a write
+// must reach the same ALLOW its argv-spelled equivalents do. allowEligible()
+// vetoes the allow track whenever hasRedirectToFile is set, so
+// `echo x > <scratchpad>/f` could never be allowed however well-contained it
+// was — while `tee <scratchpad>/f` and `cp <src> <scratchpad>/f` write the same
+// bytes to the same region under an ALLOW. The veto now grades its destination
+// (redirectVetoesAllow) and lifts for the session shape ONLY.
+func TestHarnessScratchRedirectAllowed_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	uid := os.Getuid()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	canonRoot := harnessScratchRootResolver().root
+	for label, mk := range map[string]func(string) string{
+		"literal /tmp":  func(r string) string { return scratchTarget(uid, r) },
+		"canonicalized": func(r string) string { return filepath.Join(canonRoot, r) },
+	} {
+		for _, leaf := range []string{"scratchpad", "tasks"} {
+			dst := mk(filepath.Join(sessionSlug, sessionUUID, leaf, "f"))
+			bev := bashEvIn(t, root, "issue-developer")
+			// The acceptance criterion: the redirect and the two argv spellings
+			// of the same write all land on the same verdict.
+			for _, cmd := range []string{
+				"echo x > " + dst,
+				"echo x >> " + dst,
+				"echo x 2> " + dst,
+				"cat a.txt > " + dst,
+				"tee " + dst,
+				"cp a.txt " + dst,
+			} {
+				wantBucket(t, classifyBash(cmd, bev), BucketAllow, label+" "+leaf+": "+cmd)
+			}
+			// Every destination must qualify — a second redirect that escapes
+			// the carve-out re-imposes the veto.
+			wantBucket(t, classifyBash("echo x > "+dst+" 2> "+mk("loose.md"), bev), BucketDefer,
+				label+" "+leaf+": a mixed redirect keeps the veto")
+			// A destination the gate cannot pin statically keeps the veto (#1).
+			if d := classifyBash("echo x > $DEST", bev); d.Bucket == BucketAllow {
+				t.Errorf("%s: a dynamic redirect destination must not ALLOW; got %q", label, d.Bucket)
+			}
+		}
+	}
+
+	// The veto is intact for every destination the carve-out does not cover: an
+	// in-repo file (unchanged pre-#193 behavior), the unshaped remainder of the
+	// prefix, the read-only-by-policy bundled-skills tree, and /tmp at large.
+	bev := bashEvIn(t, root, "issue-developer")
+	for label, dst := range map[string]string{
+		"an in-repo file":      "out.log",
+		"the prefix remainder": scratchTarget(uid, "loose.md"),
+		"the bundled-skills tree": scratchTarget(uid, "bundled-skills", bundledVersion,
+			bundledHash, "SKILL.md"),
+		"a /tmp path outside the prefix": "/tmp/loose-redirect-target.md",
+	} {
+		wantBucket(t, classifyBash("echo x > "+dst, bev), BucketDefer,
+			"the redirect veto stays intact for "+label)
+	}
+
+	// Structural pin on the graded veto itself, so a refactor cannot widen it by
+	// accident: the lift is keyed to scratchAllowEligible's WRITE grading, which
+	// admits the session shape and nothing else.
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: root, AgentType: "issue-developer"}
+	sessionDst := scratchTarget(uid, sessionSlug, sessionUUID, "scratchpad", "f")
+	if redirectVetoesAllow(simpleCommand{cwd: root}, ev) {
+		t.Error("#193: a command with no redirect at all must not be vetoed")
+	}
+	if redirectVetoesAllow(simpleCommand{
+		hasRedirectToFile: true, redirectTargets: []string{sessionDst}, cwd: root,
+	}, ev) {
+		t.Error("#193: a redirect whose only destination is a session scratchpad must not be vetoed")
+	}
+	for label, sc := range map[string]simpleCommand{
+		"an unresolvable expansion anywhere in the command": {
+			hasRedirectToFile: true, hasUnknownExpansion: true,
+			redirectTargets: []string{sessionDst}, cwd: root,
+		},
+		"an unresolvable running cwd (#129)": {
+			hasRedirectToFile: true, cwdInvalid: true,
+			redirectTargets: []string{sessionDst}, cwd: root,
+		},
+		"a destination that was not recorded": {
+			hasRedirectToFile: true, cwd: root,
+		},
+		"a second destination outside the carve-out": {
+			hasRedirectToFile: true, cwd: root,
+			redirectTargets: []string{sessionDst, scratchTarget(uid, "loose.md")},
+		},
+	} {
+		if !redirectVetoesAllow(sc, ev) {
+			t.Errorf("#193: the redirect veto must hold for %s", label)
+		}
+	}
+}
+
 // #193 row 2 (DEFER): a target under the <system-tmp>/claude-<uid> prefix whose
 // remainder does NOT match the session shape is handed back to the normal
 // pipeline — neither blessed nor denied. A shape miss costs a DEFER, not a

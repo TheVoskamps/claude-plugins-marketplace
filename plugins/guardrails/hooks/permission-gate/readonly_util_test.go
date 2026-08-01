@@ -63,6 +63,10 @@ func TestReadOnlyUtilityAllows_31(t *testing.T) {
 		`nl file`,
 		`column -t file`,
 		`rev file`,
+		// ls (#193): no write mode at all, and the operand is a path to contain.
+		`ls`,
+		`ls file`,
+		`ls -la .`,
 		// tee to /dev/null is the read-only swallow idiom.
 		`tee /dev/null`,
 	} {
@@ -301,6 +305,7 @@ func TestAlwaysReadOnlyUnknownFlagDefers_31(t *testing.T) {
 		`rev --frobnicate file`,
 		`realpath --frobnicate file`,
 		`grep --frobnicate x file`,
+		`ls --frobnicate file`,
 	} {
 		d := classifyBash(cmd, ev)
 		if d.Bucket == BucketAllow {
@@ -339,10 +344,61 @@ func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
 		`realpath -e file`,
 		`grep -i -n needle file`,
 		`grep -e needle -e other file`,
+		`ls -l file`,
+		`ls -lrt .`,    // clustered bool flags
+		`ls --color .`, // optional-value flag in its bare form
+		`ls --color=auto .`,
+		`ls --ignore=x .`, // long value flag, attached
+		`ls --ignore x .`, // long value flag, space-separated
 	} {
 		d := classifyBash(cmd, ev)
 		wantBucket(t, d, BucketAllow, "read-only form still allows: "+cmd)
 	}
+}
+
+// TestLsAmbiguousShortFlagsDefer_193 pins the deliberate gap in lsDefers: the
+// short flags whose arity DIVERGES between GNU and BSD ls (`-I`, `-T`, `-w`) are
+// unmodelled, so they defer. Modelling them as value flags would let the BSD
+// spelling `ls -I <path>` swallow its only path operand as a flag value, leaving
+// nothing for containment to check and allowing an out-of-repo listing outright;
+// modelling them as bools would misparse the GNU form. A defer costs a prompt,
+// which is the cheaper of the two errors.
+//
+// Note the assertion's own limit: DEFER is also the fallback bucket, so these
+// cases would pass identically if `ls` left readOnlyUtilities altogether. It is
+// TestHarnessScratchLsAllowed_193 and the ALLOW rows below that pin membership.
+func TestLsAmbiguousShortFlagsDefer_193(t *testing.T) {
+	ev, _ := inRepoEvent(t, "file")
+	for _, cmd := range []string{
+		`ls -I file .`,
+		`ls -T .`,
+		`ls -w 80 .`,
+		`ls -lT .`, // the ambiguous char inside an otherwise-bool cluster
+	} {
+		d := classifyBash(cmd, ev)
+		if d.Bucket == BucketAllow {
+			t.Errorf("an ls flag with divergent GNU/BSD arity must not ALLOW: %q got %q", cmd, d.Bucket)
+		}
+		wantBucket(t, d, BucketDefer, "ambiguous ls flag defers: "+cmd)
+	}
+}
+
+// TestLsCrossRepoDenied_193 pins the consequence of putting `ls` on the
+// path-bearing read track: an out-of-repo listing now earns the ordinary #148
+// read deny, exactly as `cat`/`grep`/`find`/`less` already did for the same
+// operand. Before #193 round 3 `ls` was on no track at all and deferred for
+// every path — including the carve-out ones, which is the defect this fixes.
+func TestLsCrossRepoDenied_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	root := canonicalize(repo)
+
+	ev := bashEvIn(t, root, "issue-developer")
+	wantBucket(t, classifyBash("ls "+canonicalize(sibling), ev), BucketDeny,
+		"ls of a sibling repo is the #148 cross-repo read deny")
 }
 
 // TestClusteredReadOnlyShortFlagsAllow_31 covers the round-2 review MEDIUM
@@ -582,5 +638,33 @@ func TestReadOnlyUtilitySpecHelpers_31(t *testing.T) {
 	}
 	if !jqDefers([]string{"-i", ".foo", "file"}) {
 		t.Error("jq -i must defer")
+	}
+	// ls (#193): no write mode, so only the fail-safe convention is under test —
+	// the known read-only grammar allows, anything unmodelled defers.
+	for _, args := range [][]string{
+		{},
+		{"."},
+		{"-la", "."},
+		{"-1", "."},
+		{"--color", "."},
+		{"--color=never", "."},
+		{"--ignore", "x", "."},
+		{"--sort=size", "."},
+		{"--", "-weird-name"},
+	} {
+		if lsDefers(args) {
+			t.Errorf("ls %v is a known read-only form and must not defer", args)
+		}
+	}
+	for _, args := range [][]string{
+		{"--frobnicate", "."},
+		{"-I", "x", "."},
+		{"-T", "."},
+		{"-w", "80", "."},
+		{"-lT", "."},
+	} {
+		if !lsDefers(args) {
+			t.Errorf("ls %v is unmodelled and must defer (fail-safe)", args)
+		}
 	}
 }

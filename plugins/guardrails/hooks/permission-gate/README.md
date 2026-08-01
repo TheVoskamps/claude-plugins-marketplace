@@ -127,12 +127,15 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
   `comm`, `paste`, `nl`, `fold`, `fmt`, `column`, `rev`, `realpath`,
-  `grep`, `printf`, `echo`, `basename`, `dirname`, `true`, `false`,
-  `seq`, `yes`, plus the conditionally-read-only `sed`, `awk`, `jq`,
-  `find`, and `tee` — **ALLOWs** the provably non-mutating form instead
-  of deferring (a defer then matches no `settings.json` allow entry and
-  prompts the user, the single largest prompt source). The ALLOW is
-  withheld — the line **defers** — when a real-file redirect or a
+  `ls`, `grep`, `printf`, `echo`, `basename`, `dirname`, `true`,
+  `false`, `seq`, `yes`, plus the conditionally-read-only `sed`, `awk`,
+  `jq`, `find`, and `tee` — **ALLOWs** the provably non-mutating form
+  instead of deferring (a defer then matches no `settings.json` allow
+  entry and prompts the user, the single largest prompt source). The
+  ALLOW is
+  withheld — the line **defers** — when a real-file redirect (other
+  than one whose every destination is a session-shaped harness
+  scratchpad, #193) or a
   command substitution / unresolved expansion is present (#1); when a
   utility is invoked in a **file-writing form** — a write-capable flag
   (`sed -i`, gawk `-i inplace`/`-p`/`-o`/`-d`, `sort -o`/`--output`,
@@ -147,12 +150,24 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   containment (#148 cross-repo, #127 worktree). Pure-
   output utilities (`printf`, `echo`, `seq`, `true`/`false`, `yes`,
   `basename`, `dirname`) take no path operand and so ALLOW without a
-  `git rev-parse` fork. Pagers / binary dumpers (`less`, `more`, `od`,
+  `git rev-parse` fork of their own. Pagers / binary dumpers (`less`,
+  `more`, `od`,
   `xxd`, `hexdump`) are deliberately out of this ALLOW set: they keep
   the prior path-reader posture (contained → defer, escape →
   deny/ask). A redirect target built from a process substitution or
   unresolved expansion (`wc < <(grep x f)`, `cmd > "$DYNAMIC"`) marks
   the command unprovable so it cannot ride the allow track.
+  `ls` joined the set in #193: it was in neither bash read track, so it
+  deferred for every path while `find` and `grep` — both strictly more
+  capable — allowed, and the scratchpad carve-out's own worked example
+  (an `ls` of the bundled-skills hash directory) was false. It is
+  path-bearing like the rest, so an `ls` of a path outside the repo now
+  earns the ordinary #148 read deny rather than a defer. Its
+  fail-safe predicate models only flags that are bools in **both** GNU
+  and BSD `ls`; the three short flags whose arity diverges (`-I`, `-T`,
+  `-w`) are left unmodelled and defer, because modelling them as value
+  flags would let the BSD spelling `ls -I <path>` swallow its only path
+  operand and skip containment entirely.
 - **In-repo-write classifier** (`classify_inrepo_write.go`, #32): the
   write-side counterpart to the read-only-utility classifier. The agent
   can already mutate any in-repo file via the Write/Edit tools (Engine B
@@ -166,7 +181,9 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   operand that escapes the repo (#148) or the worktree into the primary
   clone (#127) **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies** (#125); an operand built from an
-  unresolved expansion **asks** (#1); a real-file redirect **defers**.
+  unresolved expansion **asks** (#1); a real-file redirect **defers**
+  unless every destination is a session-shaped harness scratchpad
+  (#193), the same graded veto the read track carries.
   `rm` is deliberately **excluded** (the conservative #32 posture): the
   highest-blast-radius mutating program stays on the ask/defer track so a
   human sees each one. `sed` and `tee` are dual-mode — their read-only
@@ -520,11 +537,15 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   deny; the classifier decides). The grading uses the read/write
   predicate each track already has — `isMutatingFileTool` on the
   file-tool track, operand position (`containPathOperands` vs.
-  `containWriteOperands`) on the bash track — funnelled through the
-  single `scratchAllowEligible` helper so the three tracks cannot
-  drift. The match ends at `(/|$)` right after the 32-hex segment, so
-  an `ls` of the hash directory itself is covered, not only files
-  beneath it.
+  `containWriteOperands`) on the bash track — and every track asks the
+  single `scratchAllowEligible` helper for the verdict rather than
+  restating it in its own switch, so they cannot drift. The redirect
+  grading below asks the same helper, passing `readClass=false`,
+  because a redirect destination is a write. The match ends at `(/|$)`
+  right after the 32-hex segment, so an `ls` of the hash directory
+  itself is covered, not only files beneath it — an example that is
+  true only because `ls` is on the read-only-utility ALLOW track; it
+  was not until #193's third round, and the claim was false until then.
 
   The version component is **shape**-checked (`major.minor.patch`) and
   deliberately not pinned to the running Claude Code version: the hook
@@ -569,6 +590,28 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   matches, whereas every other component moves only the target and the
   mismatch surfaces on its own. A symlink pointing *within* the region
   is cross-session handoff working as intended, and is allowed.
+
+  **Reaching the carve-out from bash.** A carve-out the bash track
+  cannot reach is not a carve-out, and two gates sat in front of this
+  one until #193's third round. The first was the read-only-utility
+  table's missing `ls`, described above. The second is the redirect
+  veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
+  set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
+  well-contained it was — while `tee <scratchpad>/f` and
+  `cp <src> <scratchpad>/f` write the same bytes to the same region
+  under an ALLOW, via `containWriteOperands`. The veto's stated
+  rationale is exfiltration / clobber risk, which is exactly what this
+  region is designated safe against by construction, and two spellings
+  of one write cannot carry two verdicts. So `redirectVetoesAllow`
+  grades the destination instead of vetoing on the bare bool, and lifts
+  **only** for the session shape: an in-repo destination, the
+  bundled-skills tree, the unshaped remainder of the prefix, and `/tmp`
+  at large all keep the veto, as do a destination the gate cannot
+  resolve statically (#1), an unresolvable running cwd (#129), and a
+  command whose *other* redirect escapes the region. The `git`/`gh`/
+  `aws`/`acli` classifiers keep their own unconditional
+  redirect-to-file `ask`: that one guards credentialed command output,
+  a different concern from where a scratch file lands.
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.

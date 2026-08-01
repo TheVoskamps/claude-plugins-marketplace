@@ -445,9 +445,12 @@ func handoffHint() string {
 
 // scratchAllowEligible reports whether a #193 harness-prefix containmentResult
 // may ride the outright ALLOW terminal, given whether the call is read-class.
-// It is the single place the read/write grading of the carve-out lives, shared
-// by all three tracks (classifyFileTool, containPathOperands,
-// containWriteOperands) so they cannot drift apart:
+// It is the single place the read/write grading of the carve-out lives, and
+// every track calls it rather than restating the grading: classifyFileTool and
+// containPathOperands drive their allScratch flag from it, containWriteOperands
+// drives its deferForCarveOut flag from it, and redirectVetoesAllow grades a
+// redirect destination through it as a write operand. Keeping them on one
+// predicate is what stops them drifting apart:
 //
 //   - harnessScratchSession — always eligible. Writing to the session
 //     scratchpad is precisely the behavior the carve-out exists to permit.
@@ -463,8 +466,8 @@ func handoffHint() string {
 // readClass is the caller's existing read/write predicate — isMutatingFileTool
 // on the file-tool track, operand position on the bash track (a
 // containPathOperands operand is read-class by construction, a
-// containWriteOperands one is not). No new classification concept is
-// introduced.
+// containWriteOperands one is not, and a redirect destination is a write by
+// definition). No new classification concept is introduced.
 func scratchAllowEligible(res containmentResult, readClass bool) bool {
 	switch res {
 	case harnessScratchSession:
@@ -474,6 +477,59 @@ func scratchAllowEligible(res containmentResult, readClass bool) bool {
 	default:
 		return false
 	}
+}
+
+// redirectVetoesAllow reports whether a command's real-file redirect
+// disqualifies it from the allow track (#193).
+//
+// Before #193 the veto was unconditional: sc.allowEligible() is false whenever
+// hasRedirectToFile is set, so `echo x > <scratchpad>/f` could never reach an
+// ALLOW no matter where the bytes landed — while `tee <scratchpad>/f` and
+// `cp <src> <scratchpad>/f`, the same write to the same region spelled through
+// argv, both allow via containWriteOperands. The redirect's stated rationale is
+// exfiltration / clobber risk, which is precisely what the session scratchpad
+// is designated safe against by construction; two spellings of one write cannot
+// have two verdicts, so the veto lifts for that destination and stays intact for
+// every other one (an in-repo file, a sibling repo, the bundled-skills tree, the
+// unshaped remainder of the prefix, /tmp at large).
+//
+// The lift is deliberately narrow, and fails closed on every axis:
+//
+//   - The destination is graded through scratchAllowEligible as a WRITE operand
+//     (readClass=false), the same predicate the three operand tracks use, so a
+//     redirect can never reach a region a `tee` to the same path could not.
+//   - Any unresolved expansion anywhere in the command (including in the
+//     redirect word itself, which sets hasUnknownExpansion) keeps the veto: a
+//     destination the gate cannot pin statically is not a destination it can
+//     bless (#1).
+//   - An unresolvable running cwd (#129) keeps the veto, since a relative
+//     destination cannot then be resolved at all.
+//   - EVERY real-file destination must qualify: `cmd > <scratchpad>/f 2> ../x`
+//     still vetoes on the second one.
+func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
+	if !sc.hasRedirectToFile {
+		return false
+	}
+	if sc.hasUnknownExpansion || sc.cwdInvalid || len(sc.redirectTargets) == 0 {
+		return true
+	}
+	rc, err := resolveRepoContext(ev.CWD)
+	if err != nil {
+		// The boundary could not be established, so nothing can be proven to
+		// land inside the carve-out. Keep the veto.
+		return true
+	}
+	base := sc.cwd
+	if base == "" {
+		base = ev.CWD
+	}
+	for _, t := range sc.redirectTargets {
+		res, _ := testContainmentFrom(t, base, rc)
+		if !scratchAllowEligible(res, false) {
+			return true
+		}
+	}
+	return false
 }
 
 // eligibleScratchRegions names, in the allow reason, exactly the #193 regions

@@ -10,7 +10,9 @@ import (
 //
 //  1. A command we cannot statically pin (no program token) → ASK.
 //  2. A command with a redirect to a real file → DEFER (the normal pipeline's
-//     allow-list will not match it; we do not auto-allow exfiltration).
+//     allow-list will not match it; we do not auto-allow exfiltration) — unless
+//     every destination is a session-shaped harness scratchpad (#193), the one
+//     region designated safe by construction. See redirectVetoesAllow.
 //  3. Program-specific DENY/ASK rules (git, gh, aws identity, etc.).
 //  4. Program-specific ALLOW rules (read-only git/gh/aws/acli).
 //  5. Path-bearing read/write programs → Engine B containment.

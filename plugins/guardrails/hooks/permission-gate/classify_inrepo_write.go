@@ -75,7 +75,12 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 	// A real-file redirect (`cp a b > log`) means bytes also leave for a file the
 	// operand parser does not model. Don't auto-allow — defer to the pipeline.
-	if sc.hasRedirectToFile {
+	// The one exception is the #193 one the read track carries too: a redirect
+	// whose every destination is a session-shaped harness scratchpad writes into
+	// a region designated safe by construction, which is what this classifier's
+	// own operand track already allows `tee`/`cp` to do. redirectVetoesAllow owns
+	// that grading.
+	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}
 
@@ -120,13 +125,15 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 // containWriteOperands runs Engine B containment on a write-class command's path
 // operands. It returns ok=true only when EVERY operand is contained inside the
-// current worktree or lands in a session-shaped harness scratchpad directory
-// (#193) — the latter is a region designated safe by construction, so it rides
-// the caller's ALLOW rather than withholding it. A carve-out operand that is
-// NOT a session directory (~/.claude, #247; the rest of the scratchpad prefix,
-// including the read-only-by-policy bundled-skills tree, #193) is neither
-// contained-for-allow nor an escape: it withholds the ALLOW and returns a
-// DEFER. A defective scratchpad root (#193 — a symlinked,
+// current worktree or lands in a carve-out region scratchAllowEligible grades as
+// write-eligible (#193's session-shaped scratchpad directory) — a region
+// designated safe by construction, so it rides the caller's ALLOW rather than
+// withholding it. The grading is delegated to that shared predicate, not
+// restated here, so this track cannot drift from the two read tracks. A
+// carve-out operand it grades ineligible (~/.claude, #247; the rest of the
+// scratchpad prefix, including the read-only-by-policy bundled-skills tree,
+// #193) is neither contained-for-allow nor an escape: it withholds the ALLOW and
+// returns a DEFER. A defective scratchpad root (#193 — a symlinked,
 // non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns an ASK
 // naming the defect. When an operand escapes, ok is false and the returned
 // Decision is the appropriate write-side deny: cross-repo (#148) or
@@ -201,23 +208,27 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			badRoot = harnessScratchBadRootAsk("bash-write:scratchpad-root (#193)",
 				fmt.Sprintf("'%s' target '%s'", prog, p))
 			haveBadRoot = true
-		case harnessScratchSession:
-			// The harness's own per-session scratchpad directory (#193): a
-			// region designated safe by construction, so it rides the caller's
-			// ALLOW exactly as an in-worktree target does. Writing here is the
+		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch:
+			// The carve-out regions, graded by the SHARED predicate rather than
+			// by this switch's arm membership — the literal readClass=false says
+			// what this track is: every operand reaching it is a write operand
+			// by construction.
+			//
+			// Eligible (the #193 session scratchpad) rides the caller's ALLOW
+			// exactly as an in-worktree target does; writing there is the
 			// behavior the carve-out exists to permit.
-		case claudeConfig, harnessScratch, harnessScratchBundled:
-			// The agent's own ~/.claude global config tree (#247); the part of
-			// the harness scratchpad prefix matching neither #193 shape; and
-			// the bundled-skills tree, which is read-eligible on the read track
-			// but NOT here — this is the write track, and rewriting
-			// harness-installed skill content is not something the gate has
-			// positive grounds to bless (scratchAllowEligible states the rule).
-			// None of the three is a clean write the gate should bless on its
-			// own, and none is an escape it should deny — let the settings.json
-			// allow-list / normal pipeline govern it. Treat as
-			// not-contained-for-allow without denying: signal a defer.
-			deferForCarveOut = true
+			//
+			// Ineligible is neither a clean write the gate should bless nor an
+			// escape it should deny — the agent's own ~/.claude global config
+			// tree (#247), the part of the harness prefix matching neither #193
+			// shape, and the bundled-skills tree (read-eligible on the read
+			// track, but not here: rewriting harness-installed skill content is
+			// not something the gate has positive grounds to bless). Let the
+			// settings.json allow-list / normal pipeline govern those: signal a
+			// defer without denying.
+			if !scratchAllowEligible(res, false) {
+				deferForCarveOut = true
+			}
 		case contained:
 		}
 	}
