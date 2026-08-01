@@ -879,6 +879,13 @@ step aside — so a platform with no committed binary is unusable rather
 than silently ungated, and the remedy is to add that platform to the
 cross-compile recipe above.
 
+The test is `[ -x ]`, not `[ -e ]`, so it fails the same way on a binary
+that is present but not executable. Every binary must therefore be
+committed with its executable bit set — git mode `100755`, verifiable
+with `git ls-files -s plugins/guardrails/hooks/bin/`. Committing one as
+`100644` denies every gated tool call on that platform, which reads as a
+total lockout rather than as a mode problem.
+
 ## Deferred
 
 The per-`(session, cwd)` `git rev-parse` cache (§8 of the design)
