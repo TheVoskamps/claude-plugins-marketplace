@@ -19,7 +19,7 @@ degrades into exactly the observation you were about to accept as
 success. The child's own keys still apply; only the inherited ones
 vanish, and you cannot see inherited keys you never violate.
 
-**How to apply:** three controls, all cheap.
+**How to apply:** the controls are all cheap.
 
 1. **Propagation (positive).** Temporarily add a setting to the
    **parent** that would visibly change results in the child scope

@@ -65,10 +65,11 @@ hard-abort to the boot launcher; `host-acceptance.sh`'s stub
 exiting cleanly-looking but criterion (b) had actually been failing
 since #104 landed — masked across multiple PR rounds because each round's
 "real vfkit boot passed" claim in the PR body was taken at face value
-without re ­running the harness. When a PR touches a build/boot surface that has its own acceptance
-harness, sweep the harness's stub fixtures for staleness against the
-product code's current hard requirements, not just the product code
-itself — see `plugins/claude-vm/payload/test/host-acceptance.sh` for the
+without rerunning the harness. When a PR touches a build/boot surface
+that has its own acceptance harness, sweep the harness's stub fixtures
+for staleness against the product code's current hard requirements, not
+just the product code itself — see
+`plugins/claude-vm/payload/test/host-acceptance.sh` for the
 concrete fixture-construction pattern that worked: mirror the real
 launcher's own render function (e.g. `claude_vm_render_guest_settings`)
 over a minimal merged-config stub, rather than hand-rolling a literal, so
