@@ -697,6 +697,108 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Baked marketplaces + plugins (issue #107).
+#
+# The bake step runs the host-verified GUEST-PLATFORM claude binary inside the
+# build container -- 'claude plugin marketplace add' / 'claude plugin install'
+# with HOME=/root -- and copies the resulting /root/.claude/plugins into the
+# image. These assertions exercise the REAL generated artifacts (as the tests
+# above do) rather than running a container: the staged manifest and binary,
+# and the literal content of the generated in-container step.
+# ---------------------------------------------------------------------
+FAKE_GUEST_CLAUDE="$WORK/fake-guest-claude"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$FAKE_GUEST_CLAUDE"
+chmod +x "$FAKE_GUEST_CLAUDE"
+
+# run_provisioner_plugins <bake-plugins-json> [guest-claude-bin]
+run_provisioner_plugins() {
+  local bake_plugins="$1" guest_bin="${2-$FAKE_GUEST_CLAUDE}"
+  PATH="$STUB_BIN:$PATH" \
+  CLAUDE_VM_BAKE_CONFIG='{"bake":[],"apt_sources":[]}' \
+  CLAUDE_VM_BAKE_PLUGINS="$bake_plugins" \
+  CLAUDE_VM_GUEST_CLAUDE_BIN="$guest_bin" \
+  bash "$PROVISIONER" "$BOOT_LAUNCHER" "$OUT_IMAGE" \
+    >"$WORK/plugins-stdout.log" 2>"$WORK/plugins-stderr.log"
+}
+
+BAKE_PLUGINS='{"marketplaces":[{"name":"thevoskamps","url":"https://github.com/TheVoskamps/claude-plugins-marketplace.git"}],"bake":["block-background-agents@thevoskamps"]}'
+run_provisioner_plugins "$BAKE_PLUGINS"
+PLUGINS_EXIT=$?
+assert_eq "plugins: provisioner reaches container handoff (stub exit 42)" \
+  "42" "$PLUGINS_EXIT"
+assert_not_contains "plugins: no stray command execution on stderr" \
+  "$WORK/plugins-stderr.log" "command not found"
+
+# The manifest and the verified binary are staged into the recipe tree so the
+# single existing -v $STAGE/recipe:/work/recipe mount carries both.
+if [ -f "$CAPTURE_RECIPE/bake-plugins.json" ]; then
+  assert_contains "plugins: bake-plugins.json staged into the recipe tree" \
+    "$CAPTURE_RECIPE/bake-plugins.json" "block-background-agents@thevoskamps"
+  assert_contains "plugins: staged manifest carries the marketplace url" \
+    "$CAPTURE_RECIPE/bake-plugins.json" "TheVoskamps/claude-plugins-marketplace.git"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL - plugins: bake-plugins.json not staged"
+fi
+if [ -x "$CAPTURE_RECIPE/guest-claude" ]; then
+  PASS=$((PASS + 1)); echo "ok   - plugins: verified guest claude binary staged executable"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL - plugins: verified guest claude binary staged executable"
+fi
+
+if [ -f "$CAPTURE_INNER" ]; then
+  assert_contains "plugins: in-container step points HOME at the image root" \
+    "$CAPTURE_INNER" "export HOME=/root"
+  assert_contains "plugins: in-container step adds each marketplace" \
+    "$CAPTURE_INNER" 'plugin marketplace add'
+  assert_contains "plugins: in-container step installs each bake ref" \
+    "$CAPTURE_INNER" 'plugin install'
+  # The plugin tree must move with a tar PIPE, not 'cp -a': mkosi.extra lives
+  # on the macOS bind mount, which cannot hold security.* xattrs (issue #71,
+  # Bug 3) and 'cp -a' would try to preserve them.
+  assert_contains "plugins: tree is moved with a tar pipe (bind-mount xattr safety)" \
+    "$CAPTURE_INNER" "tar -C /root/.claude/plugins -cf -"
+  assert_not_contains "plugins: tree is NOT moved with 'cp -a' (would preserve xattrs)" \
+    "$CAPTURE_INNER" "cp -a /root/.claude/plugins"
+  # ONLY the plugins tree is baked. The CLI also writes ~/.claude/settings.json
+  # and ~/.claude.json; both are host-rendered per run, so copying the build
+  # container's copies in would fight the launcher.
+  assert_contains "plugins: only the plugins tree is copied into mkosi.extra" \
+    "$CAPTURE_INNER" "mkosi.extra/root/.claude/plugins"
+  assert_not_contains "plugins: the build container's .claude.json is NOT baked" \
+    "$CAPTURE_INNER" "mkosi.extra/root/.claude.json"
+  # Build-time failures are HARD (unlike the guest's fail-soft boot phase): a
+  # silently plugin-less image would be cached under a version claiming it has
+  # them.
+  assert_contains "plugins: a failed install fails the build" \
+    "$CAPTURE_INNER" "Refusing to bake an image missing a"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL - plugins: build-in-container.sh not captured"
+fi
+
+# No plugins configured -> the whole apparatus is inert and no binary is
+# needed, so a plugin-less build is byte-identical to the pre-#107 recipe.
+run_provisioner_plugins '{"marketplaces":[],"bake":[]}' ""
+assert_eq "plugins: unconfigured build still reaches container handoff" \
+  "42" "$?"
+if [ -f "$CAPTURE_INNER" ]; then
+  assert_contains "plugins: unconfigured build renders the bake block inert" \
+    "$CAPTURE_INNER" 'if [ "0" -eq 1 ]; then'
+fi
+if [ -e "$CAPTURE_RECIPE/guest-claude" ]; then
+  FAIL=$((FAIL + 1)); echo "FAIL - plugins: unconfigured build must not stage a claude binary"
+else
+  PASS=$((PASS + 1)); echo "ok   - plugins: unconfigured build stages no claude binary"
+fi
+
+# Plugins configured but NO verified binary -> abort BEFORE the container, so
+# the operator never gets a cached image that silently lacks them.
+run_provisioner_plugins "$BAKE_PLUGINS" ""
+assert_eq "plugins: configured-but-no-binary aborts before the container" \
+  "1" "$?"
+assert_contains "plugins: the abort explains the missing verified binary" \
+  "$WORK/plugins-stderr.log" "no verified guest"
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

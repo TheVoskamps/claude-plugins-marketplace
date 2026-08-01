@@ -268,7 +268,23 @@ BASE_OS_REV="debian-12-20250601"
 # boot on every path, clean or abnormal -- there is no relaunch to rule out.
 # Parenthetical removed; no behavior change. Old images (stamped 'launcher20')
 # print the stale parenthetical but need no functional rebuild.
-LAUNCHER_LOGIC_REV="21"
+# Bumped 21 -> 22: config-driven marketplaces + plugins (issue #107). TWO
+# changes, both of which must invalidate every cached image:
+#   (a) BOOT LOGIC -- the boot launcher gains boot_plugin_phase, a new BLOCKING
+#       phase between the claude-fetch seam and the claude launch: it ensures
+#       every configured marketplace is registered, and (when
+#       CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=true, the run.env default) refreshes
+#       the marketplaces and updates the installed plugins, then installs
+#       claude.plugins.install_at_boot. It runs AFTER the seam because it needs
+#       the verified claude binary, and it fails soft (loud hvc0 warning,
+#       continue to claude) for the same reason boot_apt_phase does.
+#   (b) BASE IMAGE CONTENT -- the build now bakes claude.plugins.bake (and the
+#       marketplace registrations) into the image's /root/.claude/plugins via
+#       the guest-platform claude binary run inside the build container. An
+#       image stamped 'launcher21' has NO baked plugins, so reusing it would
+#       silently produce a guest whose baked plugins are simply absent.
+# Old images (stamped 'launcher21') must rebuild to gain both.
+LAUNCHER_LOGIC_REV="22"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -380,7 +396,9 @@ emit_boot_launcher() {
 # /mnt/repo projects entry that skips the trust dialog) into $HOME/.claude.json
 # so the interactive TUI comes up already onboarded + logged in (issue #88) AND
 # the host-rendered settings.json (permissions allow/ask/deny + defaultMode +
-# enabledPlugins) into $HOME/.claude/settings.json (issue #104), seeds
+# enabledPlugins) into $HOME/.claude/settings.json (issue #104), ensures/updates/
+# installs the configured marketplaces + plugins against the image's baked
+# /root/.claude/plugins (issue #107), seeds
 # the tty geometry from the host (issue #88), then
 # runs the host-verified `claude` binary mounted RO at /mnt/claudebin against
 # the repo at /mnt/repo -- so claude IS the interactive session, with no shell
@@ -878,6 +896,150 @@ mkdir -p "$CLAUDE_HOME/.local/bin"
 ln -sf "$CLAUDE_BIN" "$CLAUDE_HOME/.local/bin/claude"
 log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CLAUDE_BIN (install-health check)."
 
+# ---------------------------------------------------------------------
+# Boot-time marketplace/plugin ensure + update + install (issue #107).
+#
+# BLOCKING, before claude launches -- the same bargain boot_apt_phase strikes
+# (if it is too slow at boot, move the plugin from install_at_boot to bake),
+# and far cheaper than apt: a git fetch plus a copy.
+#
+# Ordered AFTER the claude-fetch seam because every step here IS the claude
+# CLI: `claude plugin marketplace add|update` / `claude plugin install|update`,
+# with HOME already pointing at this guest user's home, so the CLI operates on
+# the very /root/.claude/plugins tree the image baked. We deliberately drive
+# the CLI rather than touching known_marketplaces.json / installed_plugins.json
+# by hand -- the registry format is claude's, not ours, and hand-writing it
+# would rot the moment the format moves.
+#
+#   plugin-marketplaces.tsv -- name<TAB>url, the EFFECTIVE marketplace set.
+#   plugin-install.list     -- claude.plugins.install_at_boot refs.
+#   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT -- run.env, default true.
+#
+# Steps, in this order (each skipped when it has nothing to do):
+#   1. ENSURE: add any configured marketplace the image does not already carry.
+#      A baked marketplace is already registered, so the common case adds
+#      nothing and needs no network at all.
+#   2. UPDATE marketplaces: `claude plugin marketplace update` refreshes every
+#      registered marketplace from its source. This is the freshness mechanism
+#      for BAKED plugins -- they are frozen at image-build time and the image
+#      identity hash deliberately excludes marketplace HEAD, so without this a
+#      marketplace bump would need a rebuild.
+#   3. INSTALL install_at_boot refs (against the just-refreshed marketplaces).
+#   4. UPDATE the installed plugins, so a marketplace bump in step 2 actually
+#      reaches the baked plugins on disk. Ordered after step 3 so a ref that is
+#      in BOTH lists is updated once, at the end, either way.
+#
+# FAILURE POLICY: identical to boot_apt_phase -- a failed add/update/install
+# prints a loud warning to the hvc0 diagnostic log and CONTINUES to claude. A
+# missing optional plugin must never brick an interactive session, and the
+# operator sees exactly which step failed in the captured console log.
+# `set -e` is relaxed inside so no CLI exit status escapes.
+PLUGIN_MARKETPLACES_TSV="$RUNCONFIG_MNT/plugin-marketplaces.tsv"
+PLUGIN_INSTALL_LIST="$RUNCONFIG_MNT/plugin-install.list"
+
+# Is a marketplace with this NAME already registered? Asks the CLI
+# (`claude plugin marketplace list`) rather than parsing the registry JSON --
+# the guest has no python3/jq, and the registry format is claude's to change.
+# The listing prints one indented "<glyph> <name>" line per marketplace, so an
+# anchored whole-field match on the name is the check. Names are validated
+# against a conservative charset first, so they cannot carry regex
+# metacharacters into the pattern.
+plugin_marketplace_registered() {
+  local name="$1"
+  "$CLAUDE_BIN" plugin marketplace list 2>/dev/null \
+    | grep -qE "(^|[[:space:]])${name}[[:space:]]*$"
+}
+
+boot_plugin_phase() {
+  local have_marketplaces=0 have_installs=0
+  if [ -s "$PLUGIN_MARKETPLACES_TSV" ]; then
+    have_marketplaces=1
+  fi
+  if [ -s "$PLUGIN_INSTALL_LIST" ]; then
+    have_installs=1
+  fi
+  local do_update="${CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT:-true}"
+
+  # Nothing configured at all -> no work, no log noise, no network.
+  if [ "$have_marketplaces" -eq 0 ] && [ "$have_installs" -eq 0 ]; then
+    return 0
+  fi
+
+  # Step 1: ensure every configured marketplace is registered.
+  local mp_name mp_url
+  if [ "$have_marketplaces" -eq 1 ]; then
+    while IFS=$'\t' read -r mp_name mp_url; do
+      [ -n "$mp_name" ] || continue
+      case "$mp_name" in
+        *[!A-Za-z0-9._-]*)
+          log "claude-vm: marketplace name '$mp_name' contains characters outside [A-Za-z0-9._-]; skipping."
+          continue
+          ;;
+      esac
+      if plugin_marketplace_registered "$mp_name"; then
+        continue
+      fi
+      if [ -z "$mp_url" ]; then
+        log "claude-vm: WARNING -- marketplace '$mp_name' is not registered in the image and has no url to add it from; plugins from it will not resolve."
+        continue
+      fi
+      log "claude-vm: boot-time plugins: adding marketplace '$mp_name' from $mp_url."
+      if ! "$CLAUDE_BIN" plugin marketplace add "$mp_url" >/dev/null 2>&1; then
+        log "claude-vm: WARNING -- 'claude plugin marketplace add $mp_url' failed; plugins from '$mp_name' will not resolve. Is its host in egress.allow?"
+      elif ! plugin_marketplace_registered "$mp_name"; then
+        log "claude-vm: WARNING -- added $mp_url but no marketplace named '$mp_name' appeared; the configured name must match the marketplace's own name."
+      fi
+    done < "$PLUGIN_MARKETPLACES_TSV"
+  fi
+
+  # Step 2: refresh every registered marketplace (the baked-plugin freshness
+  # mechanism -- see the block comment above).
+  if [ "$do_update" = "true" ] && [ "$have_marketplaces" -eq 1 ]; then
+    log "claude-vm: boot-time plugins: refreshing marketplaces (claude.plugins.update_at_boot)."
+    if ! "$CLAUDE_BIN" plugin marketplace update >/dev/null 2>&1; then
+      log "claude-vm: WARNING -- 'claude plugin marketplace update' failed; continuing with the marketplaces as baked."
+    fi
+  fi
+
+  # Step 3: install the install_at_boot refs.
+  local ref
+  if [ "$have_installs" -eq 1 ]; then
+    while IFS= read -r ref; do
+      [ -n "$ref" ] || continue
+      log "claude-vm: boot-time plugins: installing '$ref' (claude.plugins.install_at_boot)."
+      if ! "$CLAUDE_BIN" plugin install "$ref" >/dev/null 2>&1; then
+        log "claude-vm: WARNING -- 'claude plugin install $ref' failed; continuing to claude without it."
+      fi
+    done < "$PLUGIN_INSTALL_LIST"
+  fi
+
+  # Step 4: update the installed plugins so a marketplace bump from step 2
+  # actually lands on disk. `claude plugin list` is the authority on what is
+  # installed (baked refs included), so this covers the baked set without the
+  # guest needing its own copy of claude.plugins.bake. The listing prints one
+  # indented "<glyph> <plugin>@<marketplace>" line per plugin; select those.
+  if [ "$do_update" = "true" ]; then
+    local installed_refs
+    installed_refs="$("$CLAUDE_BIN" plugin list 2>/dev/null \
+      | grep -oE '[A-Za-z0-9._-]+@[A-Za-z0-9._-]+' || true)"
+    if [ -n "$installed_refs" ]; then
+      log "claude-vm: boot-time plugins: updating installed plugins (claude.plugins.update_at_boot)."
+      while IFS= read -r ref; do
+        [ -n "$ref" ] || continue
+        if ! "$CLAUDE_BIN" plugin update "$ref" >/dev/null 2>&1; then
+          log "claude-vm: WARNING -- 'claude plugin update $ref' failed; continuing with the version already on disk."
+        fi
+      done <<< "$installed_refs"
+    fi
+  fi
+}
+# Invoked as the left operand of `||` so `set -e` is suspended for the whole
+# function body -- the fail-soft policy in one place, with no bare `set +e`
+# (which would also be the first `set +e` in the emitted launcher and so would
+# capture the exit-status decision fragment the boot-launcher test slices out).
+boot_plugin_phase \
+  || log "claude-vm: WARNING -- the boot-time plugin phase ended early; continuing to claude."
+
 # Seed the interactive tty geometry from the host (issue #88). The vfkit stdio
 # console is a byte pipe with no out-of-band window-size channel, so the guest
 # hvc1 tty comes up at a fixed 80x24 regardless of the host window. The host
@@ -1056,8 +1218,17 @@ build_image() {
     rm -rf "$stage"
     return 1
   fi
+  # CLAUDE_VM_BAKE_PLUGINS + CLAUDE_VM_GUEST_CLAUDE_BIN (issue #107) are the
+  # plugin-side build inputs: the canonical marketplaces/plugins.bake manifest,
+  # and the host-verified GUEST-PLATFORM (linux-arm64) claude binary the
+  # provisioner runs inside the build container to install them. Both are
+  # optional here -- unset/empty means "no baked plugins", exactly the pre-#107
+  # image -- so a bare `build-guest-image.sh --output` smoke test with no
+  # launcher still builds.
   CLAUDE_VM_BASE_OS_REV="$BASE_OS_REV" \
   CLAUDE_VM_BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}" \
+  CLAUDE_VM_BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}" \
+  CLAUDE_VM_GUEST_CLAUDE_BIN="${CLAUDE_VM_GUEST_CLAUDE_BIN:-}" \
   CLAUDE_VM_ROOT_HEADROOM_MB="$ROOT_HEADROOM_MB" \
     "$provisioner" "$stage/boot-launcher.sh" "$output"
   # ----------------------------------------------------------------------

@@ -89,12 +89,7 @@ claude:
       - "Bash(rm:*)"
     deny:
       - "Bash(sudo:*)"
-  marketplaces:
-    - name: global-mp
-      url: https://example.com/global-mp
   plugins:
-    bake:
-      - foo@global-mp
     install_at_boot:
       - bar@global-mp
     update_at_boot: false
@@ -136,12 +131,7 @@ claude:
       - "Bash(rm:*)"
     deny:
       - "Bash(curl:*)"
-  marketplaces:
-    - name: repo-mp
-      url: https://example.com/repo-mp
   plugins:
-    bake:
-      - baz@repo-mp
     install_at_boot:
       - bar@global-mp
     update_at_boot: true
@@ -162,6 +152,13 @@ apt_sources:
   - name: global-repo
     repo: "deb https://example.com/global stable main"
     key_url: https://example.com/global/key.asc
+claude:
+  marketplaces:
+    - name: global-mp
+      url: https://example.com/global-mp
+  plugins:
+    bake:
+      - foo@global-mp
 YML
 
 cat > "$REPO_BAKE" <<'YML'
@@ -174,6 +171,13 @@ apt_sources:
   - name: repo-registry
     repo: "deb https://example.com/repo stable main"
     key_url: https://example.com/repo/key.asc
+claude:
+  marketplaces:
+    - name: repo-mp
+      url: https://example.com/repo-mp
+  plugins:
+    bake:
+      - baz@repo-mp
 YML
 
 # ---------------------------------------------------------------------
@@ -285,13 +289,15 @@ PERM_DENY="$(claude_vm_list_items "$MERGED_BOOT" '.claude.permissions.deny' | so
 assert_eq "list: claude.permissions.deny unioned" \
   "Bash(curl:*),Bash(sudo:*)," "$PERM_DENY"
 
-# claude.marketplaces: global(global-mp) + repo(repo-mp) -> 2
-MP_NAMES="$(claude_vm_marketplaces "$MERGED_BOOT" | cut -f1 | sort | tr '\n' ',')"
+# claude.marketplaces: global(global-mp) + repo(repo-mp) -> 2. A BAKE-file key
+# (also allowed in a boot file) since issue #107 -- read from the bake doc.
+MP_NAMES="$(claude_vm_marketplaces "$MERGED_BAKE" | cut -f1 | sort | tr '\n' ',')"
 assert_eq "list: claude.marketplaces unioned" \
   "global-mp,repo-mp," "$MP_NAMES"
 
-# claude.plugins.bake: global(foo@global-mp) + repo(baz@repo-mp) -> 2
-PLUGIN_BAKE="$(claude_vm_list_items "$MERGED_BOOT" '.claude.plugins.bake' | sort | tr '\n' ',')"
+# claude.plugins.bake: global(foo@global-mp) + repo(baz@repo-mp) -> 2. A
+# BAKE-file-only key since issue #107, so it unions inside the bake document.
+PLUGIN_BAKE="$(claude_vm_list_items "$MERGED_BAKE" '.claude.plugins.bake' | sort | tr '\n' ',')"
 assert_eq "list: claude.plugins.bake unioned" \
   "baz@repo-mp,foo@global-mp," "$PLUGIN_BAKE"
 
@@ -495,7 +501,7 @@ assert_eq "prune: scalar-only merge has no packages key (never set)" \
 assert_eq "prune: populated bake merge still has packages with entries" \
   "3" "$(claude_vm_list_items "$MERGED_BAKE" '.packages' | grep -c .)"
 assert_eq "prune: populated merge still has claude.marketplaces with entries" \
-  "2" "$(claude_vm_marketplaces "$MERGED_BOOT" | grep -c .)"
+  "2" "$(claude_vm_marketplaces "$MERGED_BAKE" | grep -c .)"
 
 # ---------------------------------------------------------------------
 # Test 7: identical mount in both layers de-dupes to one entry
@@ -803,13 +809,18 @@ fi
 # ---------------------------------------------------------------------
 # Test 14: guest settings.json render (issue #104).
 #
-# claude_vm_render_guest_settings is pure (merged-config file -> settings.json
+# claude_vm_render_guest_settings is pure (merged-config files -> settings.json
 # on stdout). Cover the acceptance criteria that are verifiable host-side:
 # config-only permissions, defaultMode from permission_mode, enabledPlugins from
 # bake ++ install_at_boot (all default true), the claude.plugins.enabled
 # per-key overrides, and the validation (boolean values, keys must be installed
 # refs) that aborts on a typo. A tiny JSON reader (yq) inspects the emitted
 # document.
+#
+# TWO documents since issue #107: claude.plugins.bake is a BAKE key (it changes
+# image bytes, so it lives where the whole-file image-identity hash sees it) and
+# everything else here is a BOOT key. The render is called
+# <boot-doc> <bake-doc>, mirroring the launcher.
 # ---------------------------------------------------------------------
 S_FULL="$WORK/settings-full.yml"
 cat > "$S_FULL" <<'YML'
@@ -823,13 +834,18 @@ claude:
     deny:
       - "Bash(ssh-keygen:*)"
   plugins:
-    bake:
-      - guardrails@thevoskamps
-      - show-loaded-rules@thevoskamps
     install_at_boot:
       - issues@thevoskamps
     enabled:
       show-loaded-rules@thevoskamps: false
+YML
+S_FULL_BAKE="$WORK/settings-full-bake.yml"
+cat > "$S_FULL_BAKE" <<'YML'
+claude:
+  plugins:
+    bake:
+      - guardrails@thevoskamps
+      - show-loaded-rules@thevoskamps
 YML
 
 # get_json <settings-json> <yq-json-path> -- read one scalar from rendered JSON.
@@ -842,7 +858,7 @@ get_json() {
 
 # Full config: permissions verbatim, defaultMode bypassPermissions, every
 # installed plugin defaults true, and the one enabled: false override applies.
-R_FULL="$(claude_vm_render_guest_settings "$S_FULL")"
+R_FULL="$(claude_vm_render_guest_settings "$S_FULL" "$S_FULL_BAKE")"
 assert_eq "render: defaultMode from permission_mode (bypassPermissions)" \
   "bypassPermissions" "$(get_json "$R_FULL" '.permissions.defaultMode')"
 assert_eq "render: permissions.allow verbatim from config" \
@@ -881,10 +897,13 @@ R_NOMODE="$(claude_vm_render_guest_settings "$S_NOMODE")"
 assert_eq "render: absent permission_mode defaults to bypassPermissions" \
   "bypassPermissions" "$(get_json "$R_NOMODE" '.permissions.defaultMode')"
 
-# A ref in BOTH bake and install_at_boot collapses to one enabledPlugins entry.
+# A ref in BOTH bake and install_at_boot collapses to one enabledPlugins entry
+# (bake in the bake doc, install_at_boot in the boot doc -- issue #107).
 S_DUP="$WORK/settings-dup.yml"
-printf 'claude:\n  plugins:\n    bake:\n      - dup@mp\n    install_at_boot:\n      - dup@mp\n' > "$S_DUP"
-R_DUP="$(claude_vm_render_guest_settings "$S_DUP")"
+S_DUP_BAKE="$WORK/settings-dup-bake.yml"
+printf 'claude:\n  plugins:\n    install_at_boot:\n      - dup@mp\n' > "$S_DUP"
+printf 'claude:\n  plugins:\n    bake:\n      - dup@mp\n' > "$S_DUP_BAKE"
+R_DUP="$(claude_vm_render_guest_settings "$S_DUP" "$S_DUP_BAKE")"
 assert_eq "render: ref in both lists de-duplicates to one entry" \
   "1" "$(get_json "$R_DUP" '.enabledPlugins | length')"
 assert_eq "render: de-duplicated ref is enabled" \
@@ -901,17 +920,22 @@ assert_eq "render: de-duplicated ref is enabled" \
 
 # Accept: a valid enabled map (all keys installed, all boolean values) renders.
 S_ENA_OK="$WORK/settings-enabled-ok.yml"
+S_ENA_BAKE="$WORK/settings-enabled-bake.yml"
 cat > "$S_ENA_OK" <<'YML'
+claude:
+  plugins:
+    enabled:
+      a@mp: false
+      b@mp: true
+YML
+cat > "$S_ENA_BAKE" <<'YML'
 claude:
   plugins:
     bake:
       - a@mp
       - b@mp
-    enabled:
-      a@mp: false
-      b@mp: true
 YML
-if R_ENA_OK="$(claude_vm_render_guest_settings "$S_ENA_OK" 2>/dev/null)"; then
+if R_ENA_OK="$(claude_vm_render_guest_settings "$S_ENA_OK" "$S_ENA_BAKE" 2>/dev/null)"; then
   assert_eq "enabled-validate: valid map renders (accept)" "accept" "accept"
   assert_eq "enabled-validate: a@mp disabled via false override" \
     "false" "$(get_json "$R_ENA_OK" '.enabledPlugins["a@mp"]')"
@@ -921,15 +945,15 @@ fi
 
 # Reject: an unknown key (names a plugin not in bake/install_at_boot) aborts.
 S_ENA_BADKEY="$WORK/settings-enabled-badkey.yml"
+S_ENA_ONE_BAKE="$WORK/settings-enabled-one-bake.yml"
 cat > "$S_ENA_BADKEY" <<'YML'
 claude:
   plugins:
-    bake:
-      - a@mp
     enabled:
       typo@mp: false
 YML
-if claude_vm_render_guest_settings "$S_ENA_BADKEY" >/dev/null 2>&1; then
+printf 'claude:\n  plugins:\n    bake:\n      - a@mp\n' > "$S_ENA_ONE_BAKE"
+if claude_vm_render_guest_settings "$S_ENA_BADKEY" "$S_ENA_ONE_BAKE" >/dev/null 2>&1; then
   assert_eq "enabled-validate: unknown key aborts (reject)" "reject" "accept"
 else
   assert_eq "enabled-validate: unknown key aborts (reject)" "reject" "reject"
@@ -940,12 +964,10 @@ S_ENA_BADVAL="$WORK/settings-enabled-badval.yml"
 cat > "$S_ENA_BADVAL" <<'YML'
 claude:
   plugins:
-    bake:
-      - a@mp
     enabled:
       a@mp: maybe
 YML
-if claude_vm_render_guest_settings "$S_ENA_BADVAL" >/dev/null 2>&1; then
+if claude_vm_render_guest_settings "$S_ENA_BADVAL" "$S_ENA_ONE_BAKE" >/dev/null 2>&1; then
   assert_eq "enabled-validate: non-boolean value aborts (reject)" "reject" "accept"
 else
   assert_eq "enabled-validate: non-boolean value aborts (reject)" "reject" "reject"
@@ -1922,6 +1944,353 @@ if [ "$ZB_CLONE" != "$ZB_BASE" ]; then
   assert_eq "clone-lifecycle: per-run clone path is distinct from the immutable base" "distinct" "distinct"
 else
   assert_eq "clone-lifecycle: per-run clone path is distinct from the immutable base" "distinct" "same"
+fi
+
+# ---------------------------------------------------------------------
+# Test 29: config-driven marketplaces + plugins (issue #107).
+#
+# Covers the pure, host-side-verifiable half of the slice: the bake/boot
+# placement guard, the marketplace name-conflict guard, the effective
+# marketplace union, the canonical bake-plugin manifest, the derived-egress
+# gate (including the hard-secure "derives nothing" case, acceptance criterion
+# 1), and the extraKnownMarketplaces render.
+#
+# The other half -- the image actually carrying the plugins, and the guest boot
+# phase installing/updating them -- needs a real build + boot and is verified
+# there, not here.
+# ---------------------------------------------------------------------
+MP_BAKE="$WORK/mp-bake.yml"
+MP_BOOT="$WORK/mp-boot.yml"
+cat > "$MP_BAKE" <<'YML'
+claude:
+  marketplaces:
+    - name: thevoskamps
+      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
+  plugins:
+    bake:
+      - guardrails@thevoskamps
+      - block-background-agents@thevoskamps
+YML
+cat > "$MP_BOOT" <<'YML'
+claude:
+  marketplaces:
+    - name: official
+      url: https://github.com/anthropics/claude-plugins-official.git
+  plugins:
+    install_at_boot:
+      - cc-tools@thevoskamps
+    update_at_boot: true
+    add_marketplace_uris_to_allowlist: auto
+YML
+
+# Effective set: BAKE entries first, then boot entries not already present.
+assert_eq "mp: effective marketplaces union is bake-first" \
+  "thevoskamps,official," \
+  "$(claude_vm_effective_marketplaces "$MP_BAKE" "$MP_BOOT" | cut -f1 | tr '\n' ',')"
+assert_eq "mp: baked marketplace names are only the bake doc's" \
+  "thevoskamps," "$(claude_vm_baked_marketplace_names "$MP_BAKE" | tr '\n' ',')"
+assert_eq "mp: hosts derived from both docs' urls, de-duplicated" \
+  "github.com," "$(claude_vm_marketplace_hosts "$MP_BAKE" "$MP_BOOT" | tr '\n' ',')"
+
+# An identical entry in both docs collapses to ONE effective marketplace.
+MP_BOOT_DUP="$WORK/mp-boot-dup.yml"
+cat > "$MP_BOOT_DUP" <<'YML'
+claude:
+  marketplaces:
+    - name: thevoskamps
+      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
+YML
+assert_eq "mp: identical entry in both docs de-dupes to one" \
+  "1" "$(claude_vm_effective_marketplaces "$MP_BAKE" "$MP_BOOT_DUP" | grep -c .)"
+if claude_vm_check_marketplace_conflicts "$MP_BAKE" "$MP_BOOT_DUP" 2>/dev/null; then
+  assert_eq "mp: identical name+url across docs passes the conflict check" "pass" "pass"
+else
+  assert_eq "mp: identical name+url across docs passes the conflict check" "pass" "abort"
+fi
+
+# Same name, DIFFERENT url anywhere -> loud abort (never silently pick one).
+MP_BOOT_CONFLICT="$WORK/mp-boot-conflict.yml"
+cat > "$MP_BOOT_CONFLICT" <<'YML'
+claude:
+  marketplaces:
+    - name: thevoskamps
+      url: https://example.com/impostor.git
+YML
+MP_CONFLICT_ERR="$WORK/mp-conflict.err"
+if claude_vm_check_marketplace_conflicts "$MP_BAKE" "$MP_BOOT_CONFLICT" 2>"$MP_CONFLICT_ERR"; then
+  assert_eq "mp: name conflict with differing url aborts" "abort" "pass"
+else
+  assert_eq "mp: name conflict with differing url aborts" "abort" "abort"
+fi
+if grep -q 'thevoskamps' "$MP_CONFLICT_ERR"; then
+  assert_eq "mp: conflict abort names the conflicting marketplace" "named" "named"
+else
+  assert_eq "mp: conflict abort names the conflicting marketplace" "named" "unnamed"
+fi
+
+# Placement guard: a BAKE key in a boot file (and vice versa) aborts LOUDLY
+# rather than parsing and being silently ignored.
+if claude_vm_check_plugin_key_placement "$MP_BAKE" "$MP_BOOT" 2>/dev/null; then
+  assert_eq "placement: correctly-placed keys pass" "pass" "pass"
+else
+  assert_eq "placement: correctly-placed keys pass" "pass" "abort"
+fi
+PLACE_BOOT_BAD="$WORK/place-boot-bad.yml"
+printf 'claude:\n  plugins:\n    bake:\n      - oops@mp\n' > "$PLACE_BOOT_BAD"
+PLACE_ERR="$WORK/place.err"
+if claude_vm_check_plugin_key_placement "$MP_BAKE" "$PLACE_BOOT_BAD" 2>"$PLACE_ERR"; then
+  assert_eq "placement: claude.plugins.bake in a boot file aborts" "abort" "pass"
+else
+  assert_eq "placement: claude.plugins.bake in a boot file aborts" "abort" "abort"
+fi
+if grep -q 'config-bake.yml' "$PLACE_ERR"; then
+  assert_eq "placement: the abort points at the right file" "pointed" "pointed"
+else
+  assert_eq "placement: the abort points at the right file" "pointed" "unpointed"
+fi
+PLACE_BAKE_BAD="$WORK/place-bake-bad.yml"
+printf 'claude:\n  plugins:\n    install_at_boot:\n      - oops@mp\n' > "$PLACE_BAKE_BAD"
+if claude_vm_check_plugin_key_placement "$PLACE_BAKE_BAD" "$MP_BOOT" 2>/dev/null; then
+  assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" "abort" "pass"
+else
+  assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" "abort" "abort"
+fi
+
+# Canonical bake-plugin manifest: marketplaces = effective set (bake-first),
+# bake = the BAKE doc's refs only, de-duplicated and sorted.
+BP_JSON="$(claude_vm_bake_plugins_json "$MP_BAKE" "$MP_BOOT")"
+assert_eq "bake-manifest: bake refs are the bake doc's, sorted" \
+  "block-background-agents@thevoskamps,guardrails@thevoskamps," \
+  "$(printf '%s' "$BP_JSON" | yq -p=json eval '.bake | join(",")' - 2>/dev/null),"
+assert_eq "bake-manifest: marketplaces carry the effective set" \
+  "2" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces | length' - 2>/dev/null)"
+assert_eq "bake-manifest: install_at_boot refs are NOT baked" \
+  "false" "$(printf '%s' "$BP_JSON" | yq -p=json eval '[.bake[] == "cc-tools@thevoskamps"] | any' - 2>/dev/null)"
+# Empty config -> the stable empty canonical form the provisioner tests for.
+EMPTY_DOC="$WORK/mp-empty.yml"
+printf '{}\n' > "$EMPTY_DOC"
+assert_eq "bake-manifest: no plugins configured -> stable empty form" \
+  '{"marketplaces":[],"bake":[]}' \
+  "$(claude_vm_bake_plugins_json "$EMPTY_DOC" "$EMPTY_DOC")"
+
+# Derived egress gate. The HARD-SECURE case is acceptance criterion 1:
+# everything baked, updates off, "auto" -> derives NOTHING.
+MP_BOOT_HARD="$WORK/mp-boot-hard.yml"
+printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: auto\n' > "$MP_BOOT_HARD"
+if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_HARD" "$MP_BAKE"; then
+  assert_eq "egress: hard-secure (all baked, updates off, auto) derives nothing" "no" "yes"
+else
+  assert_eq "egress: hard-secure (all baked, updates off, auto) derives nothing" "no" "no"
+fi
+# ... and each individual trigger flips it back on.
+if claude_vm_boot_marketplace_egress_needed "$MP_BOOT" "$MP_BAKE"; then
+  assert_eq "egress: boot-only marketplace needs a boot-side add" "yes" "yes"
+else
+  assert_eq "egress: boot-only marketplace needs a boot-side add" "yes" "no"
+fi
+MP_BOOT_INSTALL="$WORK/mp-boot-install.yml"
+printf 'claude:\n  plugins:\n    install_at_boot:\n      - x@thevoskamps\n    update_at_boot: false\n' > "$MP_BOOT_INSTALL"
+if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_INSTALL" "$MP_BAKE"; then
+  assert_eq "egress: nonempty install_at_boot triggers derivation" "yes" "yes"
+else
+  assert_eq "egress: nonempty install_at_boot triggers derivation" "yes" "no"
+fi
+MP_BOOT_ALWAYS="$WORK/mp-boot-always.yml"
+printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: always\n' > "$MP_BOOT_ALWAYS"
+if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_ALWAYS" "$MP_BAKE"; then
+  assert_eq "egress: 'always' derives even with nothing boot-side to do" "yes" "yes"
+else
+  assert_eq "egress: 'always' derives even with nothing boot-side to do" "yes" "no"
+fi
+MP_BOOT_UPD="$WORK/mp-boot-upd.yml"
+printf 'claude:\n  plugins:\n    update_at_boot: true\n' > "$MP_BOOT_UPD"
+if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_UPD" "$MP_BAKE"; then
+  assert_eq "egress: update_at_boot with a configured marketplace derives" "yes" "yes"
+else
+  assert_eq "egress: update_at_boot with a configured marketplace derives" "yes" "no"
+fi
+# update_at_boot defaults TRUE, so the no-marketplace case must still derive
+# nothing -- otherwise every plugin-less config would allowlist hosts.
+if claude_vm_boot_marketplace_egress_needed "$EMPTY_DOC" "$EMPTY_DOC"; then
+  assert_eq "egress: no marketplaces at all derives nothing (default update on)" "no" "yes"
+else
+  assert_eq "egress: no marketplaces at all derives nothing (default update on)" "no" "no"
+fi
+
+# extraKnownMarketplaces render. Shape mirrors what `claude plugin install`
+# itself was observed writing into ~/.claude/settings.json, so the host render
+# does not clobber it with a file that omits the key.
+R_MP="$(claude_vm_render_guest_settings "$MP_BOOT" "$MP_BAKE")"
+assert_eq "render: extraKnownMarketplaces carries the effective set" \
+  "2" "$(get_json "$R_MP" '.extraKnownMarketplaces | length')"
+assert_eq "render: an https url renders as a git source" \
+  "git" "$(get_json "$R_MP" '.extraKnownMarketplaces["thevoskamps"].source.source')"
+assert_eq "render: the git source carries the configured url" \
+  "https://github.com/TheVoskamps/claude-plugins-marketplace.git" \
+  "$(get_json "$R_MP" '.extraKnownMarketplaces["thevoskamps"].source.url')"
+assert_eq "render: baked plugin refs are enabled by default" \
+  "true" "$(get_json "$R_MP" '.enabledPlugins["guardrails@thevoskamps"]')"
+# An owner/repo shorthand renders as a github source instead.
+MP_BAKE_SHORT="$WORK/mp-bake-short.yml"
+printf 'claude:\n  marketplaces:\n    - name: short\n      url: owner/repo\n' > "$MP_BAKE_SHORT"
+R_SHORT="$(claude_vm_render_guest_settings "$EMPTY_DOC" "$MP_BAKE_SHORT")"
+assert_eq "render: an owner/repo shorthand renders as a github source" \
+  "github" "$(get_json "$R_SHORT" '.extraKnownMarketplaces["short"].source.source')"
+assert_eq "render: the github source carries the repo shorthand" \
+  "owner/repo" "$(get_json "$R_SHORT" '.extraKnownMarketplaces["short"].source.repo')"
+# A shorthand yields NO derivable egress host -- the launcher warns rather than
+# guessing github.com.
+assert_eq "egress: an owner/repo shorthand derives no host" \
+  "0" "$(claude_vm_marketplace_hosts "$MP_BAKE_SHORT" "$EMPTY_DOC" | grep -c .)"
+assert_eq "egress: the hostless entry is named for the warning" \
+  "short," "$(claude_vm_marketplaces_without_host "$MP_BAKE_SHORT" "$EMPTY_DOC" | tr '\n' ',')"
+# Regression: two marketplaces sharing ONE host must NOT look hostless. A
+# count comparison (marketplaces vs. derived hosts) would misfire here, since
+# both github.com urls collapse to a single derived host.
+assert_eq "egress: two marketplaces on one host are not flagged as hostless" \
+  "0" "$(claude_vm_marketplaces_without_host "$MP_BAKE" "$MP_BOOT" | grep -c .)"
+assert_eq "egress: ... even though they derive only one host between them" \
+  "1" "$(claude_vm_marketplace_hosts "$MP_BAKE" "$MP_BOOT" | grep -c .)"
+# No marketplaces configured -> the key renders as an empty object, not null.
+R_NOMP="$(claude_vm_render_guest_settings "$EMPTY_DOC" "$EMPTY_DOC")"
+assert_eq "render: no marketplaces -> empty extraKnownMarketplaces object" \
+  "0" "$(get_json "$R_NOMP" '.extraKnownMarketplaces | length')"
+
+# ---------------------------------------------------------------------
+# Test 30: the guest boot launcher's boot_plugin_phase (issue #107).
+#
+# Extracted from the <<'BOOT' heredoc in build-guest-image.sh the same way
+# boot_apt_phase is (Test 23): grab the literal function bodies by line range
+# and source them in-process with `log` stubbed and $CLAUDE_BIN pointed at a
+# stub that APPENDS its argv to a call log -- so these tests assert WHICH claude
+# CLI calls the phase makes, in what order, not merely that it does not crash.
+#
+# The behaviors that matter and are checkable host-side:
+#   - nothing configured        -> no CLI calls at all (no network, no noise)
+#   - everything already baked  -> no marketplace ADD (the common warm case)
+#   - a marketplace the image lacks -> exactly one add for it
+#   - update_at_boot: false     -> no marketplace update, no plugin update
+#   - update_at_boot: true      -> marketplace update BEFORE the installs, and
+#                                  a plugin update for each installed ref
+#   - a failing CLI             -> the phase still returns 0 (fail-soft: a
+#                                  failed plugin must never brick the session)
+# ---------------------------------------------------------------------
+BPP_START="$(grep -n '^plugin_marketplace_registered() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+BPP_END="$(grep -n '^boot_plugin_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+if [ -n "$BPP_END" ]; then
+  BPP_END="$(awk -v start="$BPP_END" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
+fi
+BPP_SRC="$WORK/boot_plugin_phase.sh"
+if [ -n "$BPP_START" ] && [ -n "$BPP_END" ]; then
+  {
+    echo 'log() { :; }'
+    awk -v start="$BPP_START" -v end="$BPP_END" 'NR >= start && NR <= end' "$BUILD_GUEST_IMAGE"
+  } > "$BPP_SRC"
+  # shellcheck source=/dev/null
+  . "$BPP_SRC"
+fi
+
+# The claude stub: logs every argv, and answers `plugin marketplace list` /
+# `plugin list` from files the tests control, so "already registered" and
+# "already installed" are settable states.
+BPP_CLI="$WORK/stub-claude"
+cat > "$BPP_CLI" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAUDE_CALL_LOG"
+if [ "${1:-}" = "plugin" ] && [ "${2:-}" = "marketplace" ] && [ "${3:-}" = "list" ]; then
+  cat "$MP_LIST_FILE" 2>/dev/null
+  exit 0
+fi
+if [ "${1:-}" = "plugin" ] && [ "${2:-}" = "list" ]; then
+  cat "$PLUGIN_LIST_FILE" 2>/dev/null
+  exit 0
+fi
+exit "${CLAUDE_STUB_EXIT:-0}"
+STUB
+chmod +x "$BPP_CLI"
+
+if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_phase >/dev/null 2>&1; then
+  CLAUDE_BIN="$BPP_CLI"
+  export CLAUDE_CALL_LOG MP_LIST_FILE PLUGIN_LIST_FILE CLAUDE_STUB_EXIT
+  CLAUDE_CALL_LOG="$WORK/claude-calls.log"
+  MP_LIST_FILE="$WORK/mp-list.txt"
+  PLUGIN_LIST_FILE="$WORK/plugin-list.txt"
+  CLAUDE_STUB_EXIT=0
+
+  # Nothing configured at all -> zero CLI calls.
+  : > "$CLAUDE_CALL_LOG"
+  : > "$MP_LIST_FILE"
+  : > "$PLUGIN_LIST_FILE"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-empty.tsv"; : > "$PLUGIN_MARKETPLACES_TSV"
+  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"; : > "$PLUGIN_INSTALL_LIST"
+  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: nothing configured runs no claude calls" \
+    "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
+
+  # Everything baked (marketplace already registered), updates OFF -> the
+  # hard-secure warm case: no add, no update, no install.
+  : > "$CLAUDE_CALL_LOG"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp.tsv"
+  printf 'thevoskamps\thttps://github.com/TheVoskamps/claude-plugins-marketplace.git\n' > "$PLUGIN_MARKETPLACES_TSV"
+  printf 'Configured marketplaces:\n\n  x thevoskamps\n' > "$MP_LIST_FILE"
+  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: already-baked marketplace is not re-added" \
+    "0" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
+  assert_eq "boot_plugin_phase: update_at_boot=false runs no marketplace update" \
+    "0" "$(grep -c 'marketplace update' "$CLAUDE_CALL_LOG" || true)"
+  assert_eq "boot_plugin_phase: update_at_boot=false runs no plugin update" \
+    "0" "$(grep -c '^plugin update ' "$CLAUDE_CALL_LOG" || true)"
+
+  # A marketplace the image does NOT carry -> exactly one add, with its url.
+  : > "$CLAUDE_CALL_LOG"
+  printf 'No marketplaces configured\n' > "$MP_LIST_FILE"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: an unregistered marketplace is added exactly once" \
+    "1" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
+  if grep -q 'marketplace add https://github.com/TheVoskamps/claude-plugins-marketplace.git' "$CLAUDE_CALL_LOG"; then
+    assert_eq "boot_plugin_phase: the add carries the configured url" "url" "url"
+  else
+    assert_eq "boot_plugin_phase: the add carries the configured url" "url" "missing"
+  fi
+
+  # update_at_boot=true with an install list: marketplace update runs BEFORE
+  # the install (so the install resolves against the refreshed marketplace),
+  # and every installed ref is then updated (the baked-plugin freshness path).
+  : > "$CLAUDE_CALL_LOG"
+  printf 'Configured marketplaces:\n\n  x thevoskamps\n' > "$MP_LIST_FILE"
+  printf 'Installed plugins:\n\n  x baked@thevoskamps\n    Version: 1.0.0\n' > "$PLUGIN_LIST_FILE"
+  PLUGIN_INSTALL_LIST="$WORK/bpp-install.list"
+  printf 'cc-tools@thevoskamps\n' > "$PLUGIN_INSTALL_LIST"
+  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="true"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  MP_UPD_LINE="$(grep -n 'marketplace update' "$CLAUDE_CALL_LOG" | head -1 | cut -d: -f1)"
+  INS_LINE="$(grep -n 'plugin install ' "$CLAUDE_CALL_LOG" | head -1 | cut -d: -f1)"
+  if [ -n "$MP_UPD_LINE" ] && [ -n "$INS_LINE" ] && [ "$MP_UPD_LINE" -lt "$INS_LINE" ]; then
+    assert_eq "boot_plugin_phase: marketplace refresh runs before the installs" "before" "before"
+  else
+    assert_eq "boot_plugin_phase: marketplace refresh runs before the installs" "before" "after-or-missing"
+  fi
+  assert_eq "boot_plugin_phase: install_at_boot ref is installed" \
+    "1" "$(grep -c 'plugin install cc-tools@thevoskamps' "$CLAUDE_CALL_LOG" || true)"
+  # The baked ref is discovered from `claude plugin list`, so the guest needs
+  # no copy of claude.plugins.bake to keep baked plugins fresh.
+  assert_eq "boot_plugin_phase: a baked ref found via plugin list is updated" \
+    "1" "$(grep -c 'plugin update baked@thevoskamps' "$CLAUDE_CALL_LOG" || true)"
+
+  # Fail-soft: every CLI call failing must NOT make the phase fail -- a broken
+  # marketplace can never block an interactive session.
+  : > "$CLAUDE_CALL_LOG"
+  CLAUDE_STUB_EXIT=1
+  if ( boot_plugin_phase >/dev/null 2>&1 ); then
+    assert_eq "boot_plugin_phase: a failing CLI is fail-soft (phase still succeeds)" "soft" "soft"
+  else
+    assert_eq "boot_plugin_phase: a failing CLI is fail-soft (phase still succeeds)" "soft" "hard"
+  fi
+  CLAUDE_STUB_EXIT=0
+else
+  echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; plugin-phase tests skipped." >&2
 fi
 
 # ---------------------------------------------------------------------

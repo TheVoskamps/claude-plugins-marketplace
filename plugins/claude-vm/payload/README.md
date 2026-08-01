@@ -533,6 +533,87 @@ allowlist growth. This derivation runs in `claude-vm.sh`, after the
 warm-boot `claude.ai`/`downloads.claude.ai` tightening (issue #49) so a
 dropped entry from that step is never re-added here.
 
+**Marketplaces and plugins (issue #107).** Plugins follow the same bake /
+install-at-boot split as packages, with explicit boot-time updating instead of
+relying on marketplace autoUpdate. The guest's plugin set comes from the
+claude-vm configs **only** — never the host's `settings.json` or the host's own
+installed plugins — because inside the VM one may deliberately run a plugin or
+hook that is not enabled on the host.
+
+*Placement.* `claude.plugins.bake` lives in the **bake** file and
+`claude.plugins.install_at_boot` / `.update_at_boot` /
+`.add_marketplace_uris_to_allowlist` / `.enabled` in the **boot** file;
+`claude.marketplaces` is allowed in both and unions, deduped by `name` (a name
+with two different urls aborts the launch, like `apt_sources`). Baked plugins
+change the image's bytes, so putting them in a bake file is what places them
+under the whole-file image-identity hash — issue #107's "extend the bake-hash
+with marketplace/plugin refs" achieved by placement rather than by a new
+key-picked hash. Because `claude.plugins` is the one map that legitimately
+appears in both file types, `claude_vm_check_plugin_key_placement` turns a
+misplaced sub-key into a loud abort instead of a silent no-op.
+
+*Bake path.* The provisioner runs the host-verified **guest-platform**
+(`linux-arm64`) `claude` binary inside the Trixie build container with
+`HOME=/root` and drives its own CLI: `claude plugin marketplace add <url>` for
+every configured marketplace, then `claude plugin install <ref>` for every
+`claude.plugins.bake` ref. The registry format is claude's and is never
+hand-written. `HOME=/root` is what makes the recorded absolute paths correct —
+the container runs as root, so its `/root` **is** the guest's future `/root`,
+and `known_marketplaces.json` / `installed_plugins.json` record
+`/root/.claude/plugins/...` verbatim with no rewriting. Only
+`/root/.claude/plugins` is copied into the image (via `mkosi.extra`, moved with
+a `tar` pipe rather than `cp -a`, since the macOS bind mount cannot hold
+`security.*` xattrs); the `settings.json` and `.claude.json` the CLI also
+writes are deliberately left behind, because both are host-rendered per run.
+Unlike the guest's boot phase, a failed add/install **fails the build** — a
+silently plugin-less image would be cached under a version stamp claiming it
+has them. The launcher therefore resolves the verified binary **before** the
+image build (an ordering change from #49's original sequence), which also means
+a signature/checksum failure now aborts before a multi-minute build.
+
+*Boot path.* `build-guest-image.sh`'s `boot_plugin_phase` runs after the
+claude-fetch seam (it needs the verified binary) and before claude launches,
+blocking, in this order: (1) add any configured marketplace the image does not
+already carry; (2) when `update_at_boot` is true (the default),
+`claude plugin marketplace update`; (3) `claude plugin install` each
+`install_at_boot` ref; (4) when `update_at_boot` is true,
+`claude plugin update` each ref reported by `claude plugin list`. Step (4) is
+the **freshness mechanism for baked plugins**: they are frozen at image-build
+time and the image-identity hash deliberately excludes marketplace HEAD, so
+without it a marketplace bump would need a rebuild. Failure policy matches
+`boot_apt_phase` — a loud warning on the `hvc0` diagnostic log, then continue to
+claude. The host delivers `plugin-marketplaces.tsv` + `plugin-install.list` on
+the same `runconfig` share as the apt manifest, for the same "no python3/jq in
+the guest" reason.
+
+*Derived egress.* `add_marketplace_uris_to_allowlist` (`auto` default |
+`always`) mirrors `add_apt_uris_to_allowlist`. Under `auto` the marketplace
+hosts are added **iff** boot-side work will actually run: a nonempty
+`install_at_boot`, a marketplace declared in a boot file that is not already
+baked, or `update_at_boot` true with at least one marketplace configured.
+Everything baked + `update_at_boot: false` + `auto` therefore derives
+**nothing** — and the guest still has working plugins, because the baked ones
+need no marketplace at all. Every derived addition is logged. A marketplace
+whose `url` is an `owner/repo` GitHub shorthand yields no derivable host; the
+launcher says so rather than guessing `github.com`.
+
+*Why the boot path does not collapse into the settings render.* Issue #107 left
+open whether rendering `extraKnownMarketplaces` + `enabledPlugins` (issue #104)
+would make claude self-install missing plugins at first launch. Tested
+directly: a home dir carrying only that `settings.json`, with no
+`~/.claude/plugins` tree, left `claude plugin marketplace list` reporting "No
+marketplaces configured" and installed nothing. So the explicit
+ensure/install/update phase is load-bearing. The render **does** now emit
+`extraKnownMarketplaces` — `claude plugin install` was observed writing that
+key into `~/.claude/settings.json` itself, and the boot launcher copies the
+host-rendered file over whatever the image baked, so omitting it would drop the
+declarations the bake step's own CLI run wrote.
+
+*Compiled hooks.* The guardrails permission-gate builds its hook from Go source
+at load time, so listing `guardrails@…` in a plugin list requires a
+sufficiently new `golang` in the bake file's `packages:`. This is a documented
+pairing in `config-bake.example.yml`, deliberately **not** auto-derived.
+
 **Mid-session apt proxying, metadata diet, and root headroom (issue #106
 real-run fixes).** Real-hardware testing of the boot-time apt work above
 found three more problems. First, an **interactive** `apt-get install` (run

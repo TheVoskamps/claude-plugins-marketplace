@@ -1005,14 +1005,311 @@ claude_vm_marketplaces() {
 }
 
 # ---------------------------------------------------------------------
+# Config-driven marketplaces + plugins (issue #107).
+#
+# BAKE/BOOT PLACEMENT. Issue #107's design predates the #179 four-file split,
+# so it still speaks of "extending the #105 bake-hash with marketplace/plugin
+# refs". Under #179 that extension is not a new hash input at all -- PLACEMENT
+# is the classification, and the image identity is already a whole-file
+# raw-byte hash of the BAKE files. So the keys land like this, mirroring the
+# `packages:` / `apt_sources:` precedent exactly:
+#
+#   claude.plugins.bake              -> BAKE file ONLY. It changes image bytes
+#                                       (plugins are installed into the image's
+#                                       /root/.claude/plugins), so the
+#                                       whole-file bake hash covers it for
+#                                       free: edit it and the image rebuilds.
+#   claude.plugins.install_at_boot   -> BOOT file ONLY (run-time install).
+#   claude.plugins.update_at_boot    -> BOOT file ONLY (run-time freshness).
+#   claude.plugins.add_marketplace_uris_to_allowlist
+#                                    -> BOOT file ONLY (run-time egress).
+#   claude.plugins.enabled           -> BOOT file ONLY (settings.json toggle;
+#                                       no reinstall, so no image change).
+#   claude.marketplaces              -> BOTH files, unioned + deduped by name,
+#                                       exactly like apt_sources. A marketplace
+#                                       is needed at BAKE time (to install the
+#                                       bake set) AND at BOOT time (to install
+#                                       install_at_boot and to update), and a
+#                                       boot-only marketplace must not force an
+#                                       image rebuild.
+#
+# A key in the WRONG file would otherwise parse fine and never be read -- the
+# exact silent no-op #179 set out to make impossible. `claude.plugins` is the
+# one map that legitimately appears in BOTH file types, which makes a
+# misplaced sub-key unusually easy to write, so
+# claude_vm_check_plugin_key_placement (below) turns each misplacement into a
+# LOUD abort rather than a silent drop.
+
+# The claude.plugins sub-keys that belong in the BAKE file, and those that
+# belong in the BOOT file. Used by claude_vm_check_plugin_key_placement to
+# reject a misplaced key. Kept as data so a future key joins the guard by
+# being listed once.
+CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS=(
+  'bake'
+)
+CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=(
+  'install_at_boot'
+  'update_at_boot'
+  'add_marketplace_uris_to_allowlist'
+  'enabled'
+)
+
+# Abort (non-zero + a claude-vm: diagnostic) when a claude.plugins sub-key
+# appears in the file type that never reads it. Without this the key parses,
+# merges, and is silently ignored -- e.g. `claude.plugins.bake` written into
+# config-boot.yml would leave the operator with an image that bakes NO plugins
+# and no indication why.
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+claude_vm_check_plugin_key_placement() {
+  local bake_doc="$1" boot_doc="$2" key present bad=0
+  for key in "${CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS[@]}"; do
+    present="$(yq eval "(.claude.plugins.${key} != null)" "$bake_doc" 2>/dev/null)"
+    if [ "$present" = "true" ]; then
+      echo "claude-vm: 'claude.plugins.${key}' is a BOOT key but was found in a config-bake.yml." >&2
+      echo "claude-vm:   move it to config-boot.yml -- the bake files only feed the image build," >&2
+      echo "claude-vm:   so it would parse here and never be read." >&2
+      bad=1
+    fi
+  done
+  for key in "${CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS[@]}"; do
+    present="$(yq eval "(.claude.plugins.${key} != null)" "$boot_doc" 2>/dev/null)"
+    if [ "$present" = "true" ]; then
+      echo "claude-vm: 'claude.plugins.${key}' is a BAKE key but was found in a config-boot.yml." >&2
+      echo "claude-vm:   move it to config-bake.yml -- baked plugins change the guest image's bytes," >&2
+      echo "claude-vm:   so they must live where the image-identity hash can see them." >&2
+      bad=1
+    fi
+  done
+  [ "$bad" -eq 0 ]
+}
+
+# Abort when the SAME marketplace name appears with a DIFFERING url across the
+# bake and boot documents. Byte-identical duplicates already collapsed under
+# each tier merge's structural `unique`; a name whose de-duplicated entry list
+# is longer than one carries conflicting content, and silently picking one url
+# over the other would decide which code a `plugin@marketplace` ref resolves
+# to. Same shape and rationale as claude_vm_check_apt_sources_conflicts.
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+claude_vm_check_marketplace_conflicts() {
+  local bake_doc="$1" boot_doc="$2" dup
+  dup="$(yq eval-all '
+    ([select(fileIndex == 0) | .claude.marketplaces // [] | .[]]
+      + [select(fileIndex == 1) | .claude.marketplaces // [] | .[]]) as $mps
+    | ($mps | map(.name) | unique)
+    | map(. as $n | {"name": $n, "n": [$mps[] | select(.name == $n)] | unique | length})
+    | map(select(.n > 1))
+    | .[].name
+  ' "$bake_doc" "$boot_doc" 2>/dev/null)"
+  if [ -n "$dup" ]; then
+    echo "claude-vm: claude.marketplaces name conflict -- the following name(s) appear more than once with DIFFERING url across your bake/boot config files:" >&2
+    printf '%s\n' "$dup" | while IFS= read -r n; do
+      [ -n "$n" ] && echo "claude-vm:   - $n" >&2
+    done
+    echo "claude-vm: give each marketplace a unique name, or make the conflicting entries identical. Refusing to silently pick one url over the other." >&2
+    return 1
+  fi
+  return 0
+}
+
+# Emit the EFFECTIVE marketplace set as "name<TAB>url" lines: the union of both
+# documents' claude.marketplaces, BAKE entries first, de-duplicated by NAME
+# (conflicting urls under one name already aborted in
+# claude_vm_check_marketplace_conflicts, so a later duplicate name here is
+# byte-identical and safely dropped). Both the image build and the guest boot
+# consume this same set, so a plugin ref resolves identically in either place.
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+claude_vm_effective_marketplaces() {
+  local bake_doc="$1" boot_doc="$2" f seen="" name url
+  for f in "$bake_doc" "$boot_doc"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    while IFS=$'\t' read -r name url; do
+      [ -n "$name" ] || continue
+      case " $seen " in
+        *" $name "*) continue ;;
+      esac
+      seen="$seen $name"
+      printf '%s\t%s\n' "$name" "$url"
+    done < <(claude_vm_marketplaces "$f")
+  done
+}
+
+# Emit the marketplace NAMES declared in the merged BAKE document, one per
+# line, de-duplicated. These are already registered inside the image, so the
+# boot path only has to ADD the ones this set does not cover -- which is also
+# what decides whether a boot-side marketplace add (and therefore marketplace
+# egress) is needed at all.
+#   $1 -- merged BAKE document file path
+claude_vm_baked_marketplace_names() {
+  local bake_doc="$1"
+  [ -n "$bake_doc" ] && [ -f "$bake_doc" ] || return 0
+  yq eval '.claude.marketplaces // [] | .[] | .name // ""' "$bake_doc" 2>/dev/null \
+    | grep -v '^$' | sort -u
+}
+
+# Emit the hostnames parsed out of both documents' claude.marketplaces urls,
+# one per line, de-duplicated. Used to derive the egress hosts a boot-side
+# marketplace add/update/install needs.
+#
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+#
+# Parsing is the SAME permissive extraction claude_vm_apt_source_hosts uses:
+# find an http(s):// URI, strip the scheme, drop any userinfo@ prefix, then
+# drop a :port suffix (allowlists here are host-only). A source with NO
+# parseable http(s) URI -- notably `claude plugin marketplace add`'s
+# `owner/repo` GitHub shorthand, or a local path -- contributes NOTHING rather
+# than aborting, matching this file's "missing input -> empty, not an error"
+# convention. That shorthand resolves to github.com, which the example egress
+# allowlist already carries; the example configs document the pairing so an
+# operator using the shorthand knows to keep github.com allowlisted.
+claude_vm_marketplace_hosts() {
+  local bake_doc="$1" boot_doc="$2" f
+  for f in "$bake_doc" "$boot_doc"; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    yq eval '.claude.marketplaces // [] | .[] | .url // ""' "$f" 2>/dev/null
+  done \
+    | grep -oE 'https?://[^/[:space:]]+' \
+    | sed -E 's#^https?://##; s/^[^@]*@//; s/:.*$//' \
+    | sort -u
+}
+
+# Emit the NAME of every effective marketplace whose url yields NO derivable
+# egress host -- i.e. is not an http(s) URI (the `owner/repo` GitHub shorthand,
+# a local path, or an empty url). The launcher warns about exactly these, so the
+# operator knows which entry needs github.com kept in egress.allow by hand.
+#
+# Counted PER ENTRY rather than by comparing marketplace-count against
+# host-count: several marketplaces routinely share one host (two github.com
+# urls derive one `github.com`), so a count comparison would flag a perfectly
+# well-formed config.
+#
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+claude_vm_marketplaces_without_host() {
+  local bake_doc="$1" boot_doc="$2" name url
+  while IFS=$'\t' read -r name url; do
+    [ -n "$name" ] || continue
+    case "$url" in
+      http://*|https://*) ;;
+      *) printf '%s\n' "$name" ;;
+    esac
+  done < <(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")
+}
+
+# True (exit 0) when a BOOT-SIDE marketplace ensure/install/update will run and
+# therefore needs the marketplace hosts reachable from the guest. False means
+# "auto, and nothing boot-side to do" -- the hard-secure config (everything
+# baked, updates off, `auto`) derives NOTHING and still has working plugins,
+# because the baked ones are already inside the image.
+#
+#   $1 -- merged BOOT document file path
+#   $2 -- merged BAKE document file path
+#
+# True iff ANY of:
+#   - claude.plugins.add_marketplace_uris_to_allowlist is "always"
+#   - claude.plugins.install_at_boot is nonempty      (a boot-side install)
+#   - a marketplace is configured in the BOOT doc that is NOT already baked
+#     (the boot path must ADD it before anything can resolve against it)
+#   - claude.plugins.update_at_boot is true AND at least one marketplace is
+#     configured anywhere (with no marketplaces there is nothing to update, so
+#     the default-true knob must not allowlist hosts for a config that has none)
+claude_vm_boot_marketplace_egress_needed() {
+  local boot_doc="$1" bake_doc="$2"
+  local mode
+  mode="$(claude_vm_scalar "$boot_doc" '.claude.plugins.add_marketplace_uris_to_allowlist' \
+            "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST")"
+  if [ "$mode" = "always" ]; then
+    return 0
+  fi
+  if [ -n "$(claude_vm_list_items "$boot_doc" '.claude.plugins.install_at_boot')" ]; then
+    return 0
+  fi
+  # A boot-declared marketplace the image does not already carry must be added
+  # at boot, which is itself marketplace egress.
+  local baked_names name
+  baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
+  while IFS=$'\t' read -r name _; do
+    [ -n "$name" ] || continue
+    case "
+$baked_names
+" in
+      *"
+$name
+"*) ;;
+      *) return 0 ;;
+    esac
+  done < <(claude_vm_marketplaces "$boot_doc")
+  local update_at_boot
+  update_at_boot="$(claude_vm_bool_scalar "$boot_doc" '.claude.plugins.update_at_boot' \
+                     "$CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT")"
+  [ "$update_at_boot" = "true" ] \
+    && [ -n "$(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")" ]
+}
+
+# Emit the CANONICAL bake-plugin manifest as compact JSON on stdout: the
+# marketplaces the image build must register and the plugin refs it must
+# install. This is what the launcher hands build-guest-image.sh (and it, the
+# provisioner) as build CONTENT -- the sibling of claude_vm_bake_config_json
+# for packages/apt_sources.
+#
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+#
+# `marketplaces` is the EFFECTIVE set (bake ++ boot, deduped by name): the
+# image registers every configured marketplace, not only the bake-declared
+# ones, so a boot-side install has its marketplace already present and needs no
+# network to add it. Only the marketplace REGISTRATION is baked that way -- a
+# boot-only marketplace still contributes no plugin to the bake set, and,
+# because it lives in a boot file, still never moves the image-identity hash.
+# `bake` is claude.plugins.bake from the BAKE doc only, with null/empty entries
+# stripped (same hazard as a stray `-` in a package list) and sorted for a
+# stable canonical form.
+#
+# NOTE ON IDENTITY: this JSON is build CONTENT, not the cache key. Since #179
+# the cache key is the whole-file raw-byte hash of the BAKE FILES, which
+# already covers claude.marketplaces + claude.plugins.bake now that they live
+# there -- that IS the "extend the bake-hash with marketplace/plugin refs" the
+# issue asks for, achieved by placement instead of by a new key-picked hash.
+# A boot-file-only marketplace deliberately does NOT rebuild the image; its
+# registration is added at boot instead.
+claude_vm_bake_plugins_json() {
+  local bake_doc="$1" boot_doc="$2" mps name url first=1
+  mps=""
+  while IFS=$'\t' read -r name url; do
+    [ -n "$name" ] || continue
+    if [ "$first" -eq 1 ]; then first=0; else mps="${mps},"; fi
+    mps="${mps}$(CLAUDE_VM_MP_NAME="$name" CLAUDE_VM_MP_URL="$url" yq eval -o=json -I=0 -n '
+      {"name": strenv(CLAUDE_VM_MP_NAME), "url": strenv(CLAUDE_VM_MP_URL)}
+    ' 2>/dev/null)"
+  done < <(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")
+  CLAUDE_VM_MPS="[${mps}]" yq eval -o=json -I=0 '
+    {
+      "marketplaces": (strenv(CLAUDE_VM_MPS) | from_yaml),
+      "bake": (.claude.plugins.bake // [] | map(select(. != null and . != "")) | unique | sort)
+    }
+  ' "$bake_doc" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------
 # Guest Claude settings.json render (issue #104).
 #
 # Render the guest's ~/.claude/settings.json (installed at
 # /root/.claude/settings.json by the guest boot launcher) from the merged
-# config -- PURE (merged-config file in -> settings.json on stdout), so it
+# config -- PURE (merged-config files in -> settings.json on stdout), so it
 # is host-side unit-testable with no VM, no network, and no host mutation.
 #
-#   $1 -- merged config file path
+#   $1 -- merged BOOT document file path
+#   $2 -- merged BAKE document file path (optional; omitted/missing means no
+#         baked plugin refs, which is exactly the pre-#107 behavior)
+#
+# TWO documents since issue #107 moved claude.plugins.bake into the BAKE file
+# (see the placement note above claude_vm_check_plugin_key_placement). Every
+# other key this render reads -- permissions, permission_mode,
+# plugins.install_at_boot, plugins.enabled -- is a BOOT key and still comes
+# from the boot document.
 #
 # The rendered document has exactly two top-level keys:
 #
@@ -1041,6 +1338,36 @@ claude_vm_marketplaces() {
 #     toggles debug plugins like show-loaded-rules / show-loaded-skills
 #     around specific issues), `true` is redundant with the default but
 #     accepted.
+#   extraKnownMarketplaces:
+#     an object mapping every configured marketplace name (the EFFECTIVE set,
+#     bake ++ boot) to its source, in the shape claude itself writes.
+#
+#     WHY THIS KEY IS HERE (issue #107, established by observation, not by
+#     guesswork). Running `claude plugin install` was observed writing BOTH
+#     `enabledPlugins` AND `extraKnownMarketplaces` into ~/.claude/settings.json
+#     -- so the marketplace declaration lives in settings.json, alongside the
+#     separate on-disk registry (~/.claude/plugins/known_marketplaces.json).
+#     The guest's settings.json is a full host-side RENDER that the boot
+#     launcher copies over whatever the image baked; without this key that copy
+#     would DROP the extraKnownMarketplaces the bake step's own CLI run wrote,
+#     leaving the guest's settings.json declaring plugins whose marketplaces it
+#     never mentions. Rendering it from config keeps the file self-consistent
+#     and, being derived from the same effective set the bake/boot paths use,
+#     cannot drift from them.
+#
+#     Source shape is chosen per entry from the configured url, matching what
+#     the CLI writes for each kind of source: an http(s) url renders as
+#     {"source":"git","url":...}; a bare `owner/repo` shorthand renders as
+#     {"source":"github","repo":...}. An entry with no url is skipped -- there
+#     is nothing to declare.
+#
+#     NOTE this key does NOT make claude self-install a missing plugin. Tested
+#     directly (issue #107's "settle in-slice" question): a home dir carrying
+#     ONLY a settings.json with extraKnownMarketplaces + enabledPlugins and no
+#     ~/.claude/plugins tree left `claude plugin marketplace list` reporting
+#     "No marketplaces configured" and installed nothing. So the boot path does
+#     NOT collapse into this render -- the explicit ensure/install/update phase
+#     in the guest boot launcher is load-bearing.
 #
 # VALIDATION (done here, once, on the merged config -- this is the single
 # reader/render path): every claude.plugins.enabled VALUE must be a boolean,
@@ -1050,7 +1377,7 @@ claude_vm_marketplaces() {
 # stderr) so the launcher stops rather than rendering a settings.json that
 # silently drops or misspells a plugin toggle.
 claude_vm_render_guest_settings() {
-  local file="$1"
+  local file="$1" bake_doc="${2:-}"
   local permission_mode
 
   # Resolve permission_mode with the same default as the schema
@@ -1072,7 +1399,11 @@ claude_vm_render_guest_settings() {
     seen="$seen $ref"
     installed+=("$ref")
   done < <(
-    claude_vm_list_items "$file" '.claude.plugins.bake'
+    # Baked refs come from the BAKE document (issue #107 placement); a missing
+    # bake doc simply contributes none.
+    if [ -n "$bake_doc" ] && [ -f "$bake_doc" ]; then
+      claude_vm_list_items "$bake_doc" '.claude.plugins.bake'
+    fi
     claude_vm_list_items "$file" '.claude.plugins.install_at_boot'
   )
 
@@ -1123,11 +1454,36 @@ claude_vm_render_guest_settings() {
   # are configured.
   [ -n "$plugins_yaml" ] || plugins_yaml="{}"
 
+  # Build the extraKnownMarketplaces object (issue #107) over the EFFECTIVE
+  # marketplace set -- the same bake ++ boot union the bake step and the guest
+  # boot phase use, so the three can never disagree about which marketplaces
+  # the guest knows. Per-entry source shape is chosen from the url, matching
+  # what claude itself writes: an http(s) url -> {"source":"git","url":...};
+  # anything else is treated as the `owner/repo` GitHub shorthand ->
+  # {"source":"github","repo":...}. A urlless entry contributes nothing.
+  local mp_yaml="" mp_name mp_url mp_src
+  while IFS=$'\t' read -r mp_name mp_url; do
+    [ -n "$mp_name" ] && [ -n "$mp_url" ] || continue
+    case "$mp_url" in
+      http://*|https://*)
+        mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
+          '{"source": "git", "url": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)" ;;
+      *)
+        mp_src="$(CLAUDE_VM_MP_URL="$mp_url" yq eval -o=json -I=0 -n \
+          '{"source": "github", "repo": strenv(CLAUDE_VM_MP_URL)}' 2>/dev/null)" ;;
+    esac
+    mp_yaml="${mp_yaml}$(printf '%s' "$mp_name" | yq -o=json eval '.' - 2>/dev/null): {\"source\": ${mp_src}}"$'\n'
+  done < <(claude_vm_effective_marketplaces "$bake_doc" "$file")
+  # Same empty-fragment guard as enabledPlugins above: `"" | from_yaml` errors.
+  [ -n "$mp_yaml" ] || mp_yaml="{}"
+
   # Compose the final document: permissions.{allow,ask,deny} verbatim from
   # the merged config (// [] so an unset list renders as []), the resolved
-  # defaultMode, and the enabledPlugins fragment injected as parsed YAML.
+  # defaultMode, and the enabledPlugins / extraKnownMarketplaces fragments
+  # injected as parsed YAML.
   CLAUDE_VM_PERMISSION_MODE="$permission_mode" \
   CLAUDE_VM_ENABLED_PLUGINS="$plugins_yaml" \
+  CLAUDE_VM_EXTRA_MARKETPLACES="$mp_yaml" \
     yq eval -o=json '
       {
         "permissions": {
@@ -1136,7 +1492,8 @@ claude_vm_render_guest_settings() {
           "deny":  (.claude.permissions.deny  // []),
           "defaultMode": strenv(CLAUDE_VM_PERMISSION_MODE)
         },
-        "enabledPlugins": (strenv(CLAUDE_VM_ENABLED_PLUGINS) | from_yaml // {})
+        "enabledPlugins": (strenv(CLAUDE_VM_ENABLED_PLUGINS) | from_yaml // {}),
+        "extraKnownMarketplaces": (strenv(CLAUDE_VM_EXTRA_MARKETPLACES) | from_yaml // {})
       }
     ' "$file" 2>/dev/null
 }
