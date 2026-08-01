@@ -5,8 +5,8 @@ metadata:
   type: project
 ---
 
-Creating a lint probe file during PR #211 with a single Bash call of
-the shape:
+In a worktree-isolated agent, a single Bash call of this shape is
+refused outright:
 
 ```text
 R=<worktree-root>
@@ -15,11 +15,10 @@ printf '...' > $R/.claude/agent-memory/probe.md
 npx markdownlint-cli2 '...'
 ```
 
-was refused outright: "this command is too complex to verify that it
-stays inside the worktree; break it into plain, separate commands.
-Refusing to run it." Every path in that command was inside the
-worktree — the block is about *static verifiability*, not an actual
-boundary violation.
+The refusal reads "this command is too complex to verify that it stays
+inside the worktree; break it into plain, separate commands. Refusing to
+run it." Every path in that command is inside the worktree — the block
+is about *static verifiability*, not an actual boundary violation.
 
 **Why:** this is a different gate from the repo-boundary one in
 [[repo-boundary-gate-blocks-any-tool-arg-outside-repo]]. That gate
@@ -37,4 +36,4 @@ with a worktree-absolute literal `file_path` (see
 separate bare Bash call using a *relative* path — pwd is already the
 worktree root, so relative paths are both correct and statically
 in-bounds. `rm -f`/`rm -rf` cleanup with literal absolute paths is
-fine; it was only the assignment-plus-redirect shape that was refused.
+fine; only the assignment-plus-redirect shape is refused.

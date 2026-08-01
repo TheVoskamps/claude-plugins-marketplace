@@ -5,10 +5,11 @@ metadata:
   type: project
 ---
 
-Adding `.claude/agent-memory/.markdownlint.jsonc` with
-`"extends": "../../.markdownlint.jsonc"` (PR #211), the obvious check —
-"the violations I carved out disappeared" — is **not** evidence the
-`extends` resolved. Turning a rule off in the child works identically
+When a nested config inherits from a parent — e.g.
+`.claude/agent-memory/.markdownlint.jsonc` carrying
+`"extends": "../../.markdownlint.jsonc"` — the obvious check, "the
+violations I carved out disappeared", is **not** evidence the `extends`
+resolved. Turning a rule off in the child works identically
 whether the parent was merged in or silently dropped, and defaults like
 markdownlint's `"default": true` are implicit anyway, so the parent's
 own settings are invisible in the happy path.

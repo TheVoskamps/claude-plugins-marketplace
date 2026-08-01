@@ -9,7 +9,7 @@ Building issue #106's `claude_vm_apt_source_hosts` (deriving egress
 hostnames from `packages.apt_sources` entries), a bare comma-expression
 per array element —
 
-```
+```text
 .packages.apt_sources // [] | .[] | (.repo // ""), (.key_url // "")
 ```
 
@@ -32,7 +32,7 @@ behavior. Related to but distinct from [[mikefarah-yq-unique-does-not-sort]]
 `.[]`-iterated array element when any might be legitimately empty. Wrap
 the branches in an array constructor and flatten instead:
 
-```
+```text
 .packages.apt_sources // [] | .[] | [(.repo // ""), (.key_url // "")] | .[]
 ```
 

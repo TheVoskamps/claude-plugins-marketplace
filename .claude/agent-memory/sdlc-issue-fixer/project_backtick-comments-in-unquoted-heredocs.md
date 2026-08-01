@@ -40,7 +40,7 @@ blocks a full run (`podman`, to intercept right before `podman run` hands
 off to the container) and let the REAL script run to completion on that
 path with `bash -x`. The trace immediately showed `++ cp
 --preserve=...,xattr` / `++ hashed:` as actual double-`+` (command
-substitution) executions, at which point `grep -n '`' <heredoc-body-range>`
+substitution) executions, at which point ``grep -n '`' <heredoc-body-range>``
 found the two backtick-paired comment lines instantly.
 
 **The fix**: replace paired backticks with single quotes in the two

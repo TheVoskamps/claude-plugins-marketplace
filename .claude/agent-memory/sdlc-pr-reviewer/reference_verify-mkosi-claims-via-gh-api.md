@@ -17,7 +17,7 @@ the PR body.
 **How to fetch** (plain curl to github.com returns nothing in this
 sandbox; `gh api` works):
 
-```
+```bash
 gh api "repos/systemd/mkosi/contents/mkosi/__init__.py?ref=v26" \
   --jq '.content' | base64 -d > <repo>/.claude/tmp/<slug>/mkosi_init.py
 ```

@@ -9,7 +9,7 @@ When posting a PR review, `gh pr review <n> --approve` (and
 `--request-changes`) fails if the authenticated `gh` user is the PR's
 own author:
 
-```
+```text
 failed to create review: GraphQL: Review Can not approve your own
 pull request (addPullRequestReview)
 ```
@@ -18,7 +18,7 @@ The `--request-changes` variant is blocked the same way but the message
 differs, so match on the shape (`Can not ... on your own pull request`)
 rather than one literal string:
 
-```
+```text
 failed to create review: GraphQL: Review Can not request changes on
 your own pull request (addPullRequestReview)
 ```

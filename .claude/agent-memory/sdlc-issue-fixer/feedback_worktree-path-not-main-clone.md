@@ -12,31 +12,31 @@ worktree subagent.
 
 **Why:** the orchestrator's primary clone has the DEFAULT branch checked
 out; the worktree has the PR branch. The same relative file resolves to
-two different byte-contents. On issue #104 I Read the main-clone
-absolute path for `payload/lib/config.sh` and got a 605-line view (the
-main-branch version, missing the render function this PR added), while
-`wc -l`/`git show` on the worktree copy showed 834 lines. That stale map
-would have made every Edit match against the wrong content. Bash
-commands with *relative* paths correctly hit the worktree (pwd is the
-worktree root), which is what exposed the discrepancy.
+two different byte-contents — a main-clone `Read` of a file this PR
+extends returns the main-branch version, missing the PR's additions,
+while `wc -l` / `git show` run through Bash report the worktree copy's
+real length. That stale map makes every subsequent Edit match against
+the wrong content. Bash commands with *relative* paths correctly hit the
+worktree (pwd is the worktree root), which is what exposes the
+discrepancy.
+
+**Writes fail loudly; reads do not.** `Write` and `Edit` against a
+main-clone path are refused outright with "This agent is isolated in the
+worktree ... Edit the worktree copy of this file instead", so the
+stale-write hazard is caught by the harness. `Read` has no such guard —
+it silently returns the other checkout's bytes. The refusal also costs a
+wasted round-trip on every slip, and the slip is easy to make even while
+knowing the rule: the worktree segment
+(`.claude/worktrees/agent-<id>/`) sits in the *middle* of a long path,
+so a path reconstructed from recall rather than copied drops it. The
+agent-memory tree is the most slip-prone destination, precisely because
+its path is long and familiar from other checkouts.
 
 **How to apply:** the harness env block prints
-`Working directory: <worktree>`. Build all Read/Edit/Write `file_path`
-values from that worktree root. If a Read's line count disagrees with
-`wc -l` / `git show HEAD:<file> | wc -l` run via Bash (which uses the
-worktree pwd), you are almost certainly reading the wrong clone — switch
-to the worktree-absolute path. See [[verify-territory-not-relay]] for the
-general map-vs-territory discipline this is an instance of.
-
-**Update (PR #211): writes now fail loudly, reads may not.** `Write`
-and `Edit` against a main-clone path are refused outright with "This
-agent is isolated in the worktree ... Edit the worktree copy of this
-file instead." So the stale-write hazard is now caught by the harness.
-Two things this does NOT solve: `Read` is still the silent-stale case
-above, and the refusal costs a wasted round-trip on every slip. The
-slip is easy to make even knowing the rule — I hit it twice in one run,
-once writing to my own agent-memory dir, because the memory path is
-long and the worktree segment (`.claude/worktrees/agent-<id>/`) sits in
-the *middle* of it, so a path reconstructed from memory rather than
-copied drops it. Copy the worktree root from the env block verbatim and
-append to it; never retype a long path from recall.
+`Working directory: <worktree>`. Copy that worktree root verbatim and
+append to it; never retype a long path from recall. Build all
+Read/Edit/Write `file_path` values that way. If a Read's line count
+disagrees with `wc -l` / `git show HEAD:<file> | wc -l` run via Bash
+(which uses the worktree pwd), you are reading the wrong clone — switch
+to the worktree-absolute path. See [[verify-territory-not-relay]] for
+the general map-vs-territory discipline this is an instance of.

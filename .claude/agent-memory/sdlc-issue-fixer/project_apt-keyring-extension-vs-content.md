@@ -24,10 +24,11 @@ read the first 15 bytes with `head -c` (not the `read` builtin — `read`
 stops at the first embedded newline, which lands well inside 15 bytes for
 binary data) and `case` on whether they start with the literal
 `-----BEGIN PGP` header (bracket-expression `[[:space:]]` for the space, not
-a backslash-escape — a `\\ ` double-escape is required inside
-podman-mkosi.sh's unquoted `<<INNER` heredoc, but the existing Test 20
-extraction harness (`sed 's/\\\$/$/g'`) only unescapes `\$`, not `\\`, so a
-literal `\\ ` broke that extraction as invalid case-pattern syntax
+a backslash-escape — a `\\` double-escape before the space is required
+inside podman-mkosi.sh's unquoted `<<INNER` heredoc, but the existing
+Test 20 extraction harness (`sed 's/\\\$/$/g'`) only unescapes `\$`, not
+`\\`, so a literal `\\` before a space broke that extraction as invalid
+case-pattern syntax
 standalone — `[[:space:]]` sidesteps needing any backslash escaping at
 all and is portable across both the escaped and unescaped heredoc twins).
 Armored → keep/rename to `.asc`; anything else → rename to `.gpg`. The

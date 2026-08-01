@@ -40,13 +40,13 @@ list, so it stayed.
 **How to apply:** on a future guardrails/permission-gate PR, don't
 assume the README needs new prose — check first whether the developer
 already rewrote the relevant paragraph (grep the PR diff for the
-README path). Do re-grep the whole README for `\(1\)|Two |Three |Four `
+README path). Do re-grep the whole README for `\(1\)|(Two|Three|Four)[ ]`
 style count-before-list patterns while the file is open, since this
 class of defect keeps surfacing and the sweep-the-class rule applies to
 the whole file once you're editing it, not just the touched paragraph.
 
 **Lowercase count defects survive the capital-letter grep:** the
-`Two |Three |Four ` grep in "How to apply" only catches
+`(Two|Three|Four)[ ]` grep in "How to apply" only catches
 sentence-initial forms; the ones that keep surviving are mid-sentence
 and lowercase, shaped like "closed allowlist of **five**
 process-environment-derived variables — `$HOME`, `$USER`, …",
@@ -62,8 +62,8 @@ list.
 
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
-literalWord, varResolver) but did NOT touch the README, even though
-#156 widened literalWord's variable-resolution semantics (adding a
+literalWord, varResolver) but did NOT touch the README, even though #156
+widened literalWord's variable-resolution semantics (adding a
 closed $HOME/$USER/$TMPDIR/$PWD/$OLDPWD allowlist) in a way that made
 an existing README sentence — "an undefined / environment variable...
 stays inexact" — actively false. So the "usually already current"

@@ -34,7 +34,7 @@ headroom becomes real free space the guest can use.
 
 **How to verify:** parse the GPT (partition slot size) AND the ext4
 superblock (s_blocks_count * block_size = fs size) SEPARATELY from the
-built `.raw`. They must now AGREE (fs fills partition). Pure-python GPT
-+ ext4 superblock parse works on macOS with no mount — see the fixer's
-scratch scripts. `debugfs`/mount is unavailable on the macOS host, so
+built `.raw`. They must now AGREE (fs fills partition). Pure-python
+GPT + ext4 superblock parse works on macOS with no mount — see the
+fixer's scratch scripts. `debugfs`/mount is unavailable on the macOS host, so
 this offset-parse is the portable inspection path.
