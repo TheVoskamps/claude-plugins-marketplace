@@ -1,39 +1,51 @@
 ---
 name: flagscan-value-flag-swallows-path-operand
-description: In the permission-gate's flagScan, marking a short flag as a valueFlag makes it consume the FOLLOWING token — so a flag whose arity differs between GNU and BSD (ls -I/-T/-w) can eat the only path operand and skip containment entirely; leave such flags unmodelled so they defer
+description: CORRECTION — in the permission-gate, flagScan's valueFlags do NOT decide which tokens get contained; pathOperands keeps every non-dash token without consulting the flag model, so mismodelling a flag as value-taking makes the verdict STRICTER (deny), never fail-open. Verified against a real binary.
 metadata:
   type: project
 ---
 
-`flagScan.defers` treats a `valueFlags` entry as consuming the next
-token. That is a **fail-open** lever, not a neutral one: if the flag is
-a bool in the implementation the user actually runs, the token it eats
-is the command's only path operand, `pathOps` stays 0,
-`containPathOperands` gets an empty operand list and returns
-`ok=true` — an outright ALLOW with no containment check at all.
+**This memory previously asserted the opposite, and was wrong.** It
+claimed that marking a short flag as a `valueFlags` entry lets it eat
+the command's only path operand so containment never runs (an outright
+ALLOW). That is inverted. The same inverted claim shipped in the gate's
+own `lsDefers` comment, its README and a test comment before it was
+caught.
 
-**Why it bites:** several short flags differ in arity between GNU
-coreutils and BSD/macOS. `ls -I PATTERN` / `-T COLS` / `-w COLS` take
-values in GNU; BSD's `-I` and `-T` are plain bools. Model them as value
-flags and `ls -I /etc` allows an out-of-repo listing on macOS; model
-them as bools and the GNU form misparses.
+**The actual mechanism.** Two independent functions:
 
-**How to apply:** when adding a utility to `readOnlyUtilities`,
-enumerate as `boolFlags` only what is a bool in BOTH implementations,
-put ambiguous short flags in NEITHER map (an unmodelled flag hits the
-`return true` fail-safe and defers, costing one prompt), and prefer the
-GNU **long** spelling for value flags — long flags don't exist in BSD
-`ls`, so `--ignore`/`--width` are unambiguous. An optional-value flag
-(`--color`, legal bare) must be a bool: the `--flag=VALUE` branch checks
-both maps, so the attached form still parses.
+- `flagScan.defers(args)` decides only allow-ELIGIBILITY. Its internal
+  `pathOps` counter exists solely to enforce `maxPathOperands`, and for
+  `ls` that cap is `-1` (unlimited), so consuming a token changes
+  nothing.
+- `pathOperands(args)` builds the list actually put through Engine B
+  containment, and it keeps **every token that does not begin with
+  `-`** — it never consults the flag model at all.
 
-Also note, for anything that reads a memory about probing this gate:
-**as of #193 / PR #208 round 3, `ls` IS on the read-only-utility ALLOW
-track and a `>` redirect destination IS graded** (via
-`redirectVetoesAllow`). Memories asserting that `ls` reaches no allow
-track, or that a redirect target never reaches an Engine B containment
-check, describe the pre-round-3 gate — the pr-reviewer's
-`probe-forms-that-cannot-prove-gate-carve-outs` is one of them.
+So `ls -I /etc` yields the operand `/etc` either way. The two outcomes:
+
+    unmodelled          -> unknown flag -> lsDefers -> DEFER
+    modelled as a value -> allow-eligible -> containment runs -> DENY
+
+**Verified, not reasoned:** temporarily adding `-I`/`-T`/`-w` to
+`lsDefers`'s `valueFlags`, rebuilding the darwin-arm64 binary and piping
+real `PreToolUse` events gave `ls -I /etc -> deny`,
+`ls -w 80 /etc -> deny`, `ls -I README.md -> allow`.
+
+**Why they still stay unmodelled:** not to hold a hole shut, but because
+a flag model must not assert an arity that is wrong on one of the two
+platforms — as value flags the predicate misreads BSD's `ls -I .`, and
+as bools it misreads GNU's `ls -w 80 .`. A defer costs one prompt, which
+is cheaper than either mismodel. An optional-value flag (`--color`,
+legal bare) must stay a bool for the same reason.
+
+**How to apply:** when reasoning about whether a permission-gate flag
+model can fail OPEN, find the function that builds the operand list
+before assuming the flag scanner feeds it. And treat "a guard whose
+comment inverts its own rationale" as a live defect class here: the next
+maintainer avoids a correct change believing they are holding a hole
+shut.
 
 Related: [[permission-gate-read-only-utility-allow-hides-carve-outs]],
-[[pin-a-specs-empirical-premise-with-a-live-test]].
+[[pin-a-specs-empirical-premise-with-a-live-test]],
+[[verify-a-predicted-verdict-before-implementing-it]].
