@@ -150,9 +150,9 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // designated safe by construction, so it rides the caller's ALLOW rather than
 // withholding it. The grading is delegated to that shared predicate, not
 // restated here, so this track cannot drift from the two read tracks. A
-// carve-out operand it grades ineligible (~/.claude; the rest of the
-// scratchpad prefix, including the read-only-by-policy bundled-skills tree,
-// prefix) is neither contained-for-allow nor an escape: it withholds the ALLOW and
+// carve-out operand it grades ineligible (~/.claude; the rest of the scratchpad
+// prefix, including the read-only-by-policy bundled-skills tree) is neither
+// contained-for-allow nor an escape: it withholds the ALLOW and
 // returns a DEFER. A defective scratchpad root (a symlinked,
 // non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns an ASK
 // naming the defect. When an operand escapes, ok is false and the returned

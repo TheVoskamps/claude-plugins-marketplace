@@ -142,9 +142,10 @@ func TestGitConfigIdentityDenied_125(t *testing.T) {
 // identity classifier runs (see callIsGitDashCAbs). That rule fires only on
 // ABSOLUTE `-C` paths; a RELATIVE `-C` path falls through to classifyGit, where
 // parseGitGlobals consumes the `-C <path>` global and gitConfigIdentityRule sees
-// `rest`. So the relative `-C` form is what actually exercises Fix 1's `-C`
-// path, and the absolute form is asserted separately as a forbidden-form deny
-// so the interaction is documented rather than silently colliding.
+// `rest`. So the relative `-C` form is what actually exercises the get-form
+// fix's `-C` path, and the absolute form is asserted separately as a
+// forbidden-form deny so the interaction is documented rather than silently
+// colliding.
 func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 	// Reads → not denied. (Relative `-C` exercises the get-form path through
 	// parseGitGlobals + gitConfigIdentityRule.)
@@ -188,10 +189,10 @@ func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 	}
 }
 
-// Fix 2 (folds two trace reports): export/local (DeclClause), [[ … ]] (TestClause),
-// let (LetClause), time (TimeClause), and command substitutions inside an
-// assignment RHS must be reduced precisely, not blanket-asked as
-// bash:unhandled-construct.
+// Reducible constructs (folding two separate trace reports): export/local
+// (DeclClause), [[ … ]] (TestClause), let (LetClause), time (TimeClause), and
+// command substitutions inside an assignment RHS must be reduced precisely, not
+// blanket-asked as bash:unhandled-construct.
 func TestReducibleConstructs_35(t *testing.T) {
 	notUnhandled := func(cmd string) Decision {
 		t.Helper()

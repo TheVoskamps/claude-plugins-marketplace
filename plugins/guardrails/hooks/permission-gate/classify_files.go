@@ -612,8 +612,8 @@ func isMutatingFileTool(name string) bool {
 }
 
 // isUnderGitDir reports whether the canonicalized target is anywhere under a
-// git directory (generalizing the former isGitConfigPath check, which
-// rule to the whole .git/ tree). Two forms are matched:
+// git directory. It generalizes the former isGitConfigPath check, which matched
+// only .git/config, to the whole .git/ tree. Two forms are matched:
 //
 //   - The current repo's resolved shared git dir (rc.commonDir is <gitdir>);
 //     the target equals it or is nested under it. This is the precise,

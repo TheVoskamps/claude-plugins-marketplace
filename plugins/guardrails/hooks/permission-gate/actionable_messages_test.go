@@ -44,6 +44,15 @@ var trackerRefInComment = regexp.MustCompile(`#\d+`)
 // issue whose acceptance criterion it pins. trackerRefInReason covers the
 // agent-facing Reason text; between the two, nothing an agent reads and nothing
 // a maintainer reads in place carries a bare tracker pointer.
+//
+// The check runs on the JOINED comment block, not line by line. A comment is
+// wrapped prose: its sentences straddle line breaks, so a reference the wrap
+// splits (`… before #` / `132 allowlisted it …`) is invisible to a per-line
+// regex and to the grep a sweep is audited with. Joining the block with the
+// wraps closed up puts the two halves back together, and it strictly subsumes
+// the per-line check, since any match inside one line survives concatenation.
+// The line-level scan is kept only so the failure message can name the exact
+// line; the joined scan is what decides whether the block is clean.
 func TestNoIssueRefsInComments(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -61,20 +70,72 @@ func TestNoIssueRefsInComments(t *testing.T) {
 		}
 		checked++
 		for _, cg := range f.Comments {
+			var lines []string
+			for _, c := range cg.List {
+				lines = append(lines, strings.Split(c.Text, "\n")...)
+			}
+			m := trackerRefInComment.FindString(joinCommentBlock(lines))
+			if m == "" {
+				continue
+			}
+			// Locate the offending line for the message. A reference the wrap
+			// split matches no single line, so fall back to the whole block.
+			where := strings.TrimSpace(cg.Text())
 			for _, c := range cg.List {
 				for _, line := range strings.Split(c.Text, "\n") {
-					if m := trackerRefInComment.FindString(line); m != "" {
-						pos := fset.Position(c.Pos())
-						t.Errorf("%s:%d: a Go comment carries the tracker reference %q; state the invariant in "+
-							"place instead (git blame has the provenance):\n\t%s",
-							pos.Filename, pos.Line, m, strings.TrimSpace(line))
+					if trackerRefInComment.MatchString(line) {
+						where = strings.TrimSpace(line)
 					}
 				}
 			}
+			pos := fset.Position(cg.Pos())
+			t.Errorf("%s:%d: a Go comment carries the tracker reference %q; state the invariant in "+
+				"place instead (git blame has the provenance):\n\t%s",
+				pos.Filename, pos.Line, m, where)
 		}
 	}
 	if checked == 0 {
 		t.Fatal("no Go files were checked — the guard would pass vacuously")
+	}
+}
+
+// joinCommentBlock renders a comment block as ONE string with every line break
+// closed up: each line is stripped of its `//` marker and surrounding
+// whitespace, then concatenated with no separator. Closing the wrap up (rather
+// than joining with a space) is the point — it is what puts a reference the wrap
+// split back together. It introduces no false positives, because the pattern
+// requires a digit immediately after the `#`, so the only text it can newly
+// match is a line that ends in `#` followed by a line that starts with a digit.
+func joinCommentBlock(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "//")))
+	}
+	return b.String()
+}
+
+// TestNoIssueRefsInCommentsSeesWrappedRefs is the negative control for the guard
+// above: it proves the joined-block scan catches a reference a per-line scan
+// structurally cannot, so the widening is not decorative. The shape is a real
+// one — comments are wrapped prose, so a reference near a wrap point ends up
+// with its marker on one line and its digits on the next, and both the per-line
+// guard and the grep a sweep is audited with walk straight past it.
+func TestNoIssueRefsInCommentsSeesWrappedRefs(t *testing.T) {
+	wrapped := []string{"// the rule introduced in #", "// 132 applies here"}
+	// The defect being guarded against: line by line, neither half matches.
+	for _, line := range wrapped {
+		if trackerRefInComment.MatchString(line) {
+			t.Fatalf("precondition failed: %q already matches per-line, so this control proves nothing", line)
+		}
+	}
+	joined := joinCommentBlock(wrapped)
+	if got := trackerRefInComment.FindString(joined); got != "#"+"132" {
+		t.Errorf("the joined-block scan must recover the split reference; got %q from %q", got, joined)
+	}
+	// The joined scan must also still see an ordinary same-line reference, or it
+	// would trade one blind spot for another.
+	if got := trackerRefInComment.FindString(joinCommentBlock([]string{"// see #64 for the rationale"})); got == "" {
+		t.Error("the joined-block scan must still catch a same-line reference")
 	}
 }
 

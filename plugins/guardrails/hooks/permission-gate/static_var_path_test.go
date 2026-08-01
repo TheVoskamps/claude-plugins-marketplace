@@ -84,8 +84,8 @@ func TestStaticVarPathResolvesToContainment_60(t *testing.T) {
 // must keep marking hasUnknownExpansion and escalate (fail-closed). It must NOT
 // be resolved to an empty / bogus path.
 //
-// NOTE: `$(pwd)` itself was the example command substitution here before it
-// allowlisted it as a known-anchor substitution (see
+// NOTE: `$(pwd)` itself was the example command substitution here before the
+// gate began resolving it as a known-anchor substitution (see
 // TestPwdAnchorResolvesToTrackedCwd_132 in anchor_cmdsubst_test.go for its new
 // behavior). This test now uses `$(git log)` — a real, but NOT allowlisted,
 // command substitution — to keep pinning the general "arbitrary command
