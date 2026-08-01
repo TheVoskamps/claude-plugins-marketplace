@@ -39,7 +39,7 @@ Before doing anything else:
 1. Read `~/.claude/CLAUDE.md` and follow the instructions at the
    top of that file.
 2. Then read this repo's `.claude/rules/repo-config.md` from the
-   worktree root, with a lightweight **inline** parse of just the one
+   worktree root, with a lightweight **inline** parse of just the
    front-matter field below — not the full reader contract in the
    `issues` plugin's `skills/lib/repo-config.md`. That lib file lives
    inside the `issues` plugin, and plugins are file-sandboxed (a bare
@@ -49,7 +49,7 @@ Before doing anything else:
    of that lib (`plugins/sdlc/skills/lib/repo-config.md` was deleted),
    so do not attempt to `Read` it by any bare or qualified path.
 
-You need only one field from the file:
+You need only this field from the file:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — the prefix used in `References:` trailers (see step 2
