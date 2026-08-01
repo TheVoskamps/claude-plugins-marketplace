@@ -62,6 +62,18 @@ four sibling guards, matching the scrubber's carve-out in substance
 guard has extra SHA+porcelain verification machinery the siblings
 don't).
 
+**Sweeping is only one of the two remedies.** PR #211 (issue #207)
+faced the same family with the scrubber's *lifecycle* prose
+paraphrased in all four writer agents, and the reviewer's follow-up
+chose the other remedy: collapse each paraphrase to a pointer at the
+canonical statement — the `/sdlc:orchestrate` skill → "Before
+`/pr-ready`: curate the PR's agent memory" — keeping only each
+agent's own operational instruction inline. Sweep when the duplicated
+text has to stay inline (the `git branch -D` guard is per-agent
+operational text); collapse when it is shared *rationale* that one
+file can own. After that PR the lifecycle prose no longer needs the
+four-file sweep — the end-of-run cleanup guard still does.
+
 **Generalized lesson:** when the thing being swept is a guard/rule
 with an exception clause, sweep the exception too, not just the
 headline sentence. A partial sweep (rule copied, carve-out dropped) is
