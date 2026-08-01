@@ -65,6 +65,10 @@ boot-time `apt-get update` was already failing on the keyring bug #106
 fixed. The per-run-clone design removes the shared-writable image this
 lived on. Recorded in config-test.sh Test 28.
 
-**NOT verified by a real VM boot** in the implementing run (throwaway
-worktree cannot build+boot); shell/config tests (config-test.sh: 205
-pass) are the only coverage. See [[unit-tests-are-not-real-runs]].
+**NOT verified by a real VM boot** in the implementing run; shell/config
+tests (config-test.sh: 205 pass) were the only coverage there. The
+parenthetical that used to sit here -- "throwaway worktree cannot
+build+boot" -- is WRONG and was disproved in issue #107, which did both
+from a throwaway worktree. See
+[[claude-vm-real-build-and-boot-is-doable]] for the recipe, and
+[[unit-tests-are-not-real-runs]] for why it still matters.
