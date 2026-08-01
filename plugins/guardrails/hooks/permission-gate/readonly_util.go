@@ -154,9 +154,9 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 
 	// A real-file redirect (clobber/exfiltration) disqualifies the allow track:
 	// the bytes leave stdout for a file. Defer to the normal pipeline — unless
-	// every destination is a session-shaped harness scratchpad, which the
-	// designates safe by construction and which `tee`/`cp` already write to
-	// under an ALLOW. redirectVetoesAllow owns that grading; see there for why
+	// every destination is a session-shaped harness scratchpad, a region the
+	// carve-out designates safe by construction and which `tee`/`cp` already
+	// write to under an ALLOW. redirectVetoesAllow owns that grading; see why
 	// the lift is exactly that narrow. (The unknown-expansion half of
 	// allowEligible is handled below: a path-bearing utility fails closed ASK on
 	// a dynamic path operand, a stronger posture than defer.)

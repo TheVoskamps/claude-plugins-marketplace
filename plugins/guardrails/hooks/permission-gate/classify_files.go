@@ -94,8 +94,10 @@ func classifyFileTool(ev *Event) Decision {
 				// is a WRITE into the shared clone). The .git/ tree deny still
 				// applies independently (checked above via isUnderGitDir, though
 				// that check is gated to mutating tools — so re-check it here for
-				// the read case, since .git/ reads must stay gated too, per the
-				// issue's explicit requirement).
+				// the read case: a read of .git/ internals stays gated even where
+				// primary-clone reads are otherwise relaxed, because config and
+				// hooks disclose identity and executable content the shared-content
+				// argument does not cover).
 				if isUnderGitDir(real, rc) {
 					return deny("read:.git tree (#125)", fmt.Sprintf(
 						"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
@@ -400,8 +402,9 @@ func containInputRedirects(prog string, sc simpleCommand, ev *Event) (Decision, 
 
 // scratchHint returns the prescriptive scratch-destination guidance to append
 // to a containment-escape deny. A guardrail that only forbids invites a
-// workaround; one that prescribes prevents it. The under-specified escape
-// escapes used to leave the correct landing spot to the model's discretion,
+// workaround; one that prescribes prevents it. The cross-repo and
+// worktree-escape denies used to leave the landing spot to the model's
+// discretion,
 // and a plausible-but-wrong improvisation is to write under .git/ purely
 // because it is gitignored and in-repo, so it slips past containment.
 //

@@ -1214,8 +1214,8 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // rather than being silently dropped or bulk-ASKed. staticExpandBraceFallback
 // only understands the single unnested `{x,y,z}` comma-list grammar; a
 // range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
-// closed exactly as before — the issue's carve-out ("if you hit a range
-// form you don't handle, fall closed").
+// closed exactly as before — the accepted carve-out: a brace form the
+// fallback does not handle falls closed rather than being guessed at.
 func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
@@ -1512,8 +1512,9 @@ func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
 // these — see resolveVar's doc comment). Anything with extra logic — default
 // (`${VAR:-x}`), length (`${#VAR}`), indirection (`${!VAR}`), array index,
 // slice, replacement, modifiers, or special parameters ($1, $@, $?) — is NOT
-// resolvable here and keeps the word inexact (fail-closed): this issue widens
-// WHICH NAMES resolve, not which expansion forms are accepted. A name
+// resolvable here and keeps the word inexact (fail-closed): the closed
+// allowlist widens WHICH NAMES resolve, not which expansion forms are
+// accepted. A name
 // resolvable by neither source (an arbitrary env var, or a var assigned
 // dynamically) stays unresolvable.
 func isResolvableParamExp(p *syntax.ParamExp, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {

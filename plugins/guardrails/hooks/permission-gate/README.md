@@ -466,7 +466,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   bash-read commands (`cat`, the read-only-utility set, `less`/`more`/
   pagers via `classifyPathReader`) alike. The `.git/`-tree deny is
   checked BEFORE this relaxation and survives independently for reads
-  too — `cat <primary-clone>/.git/config` still denies. The **write**
+  too — `cat <primary-clone>/.git/config` still denies. That deny is
+  reached from the primary-clone branch, so it does not extend to an
+  **in-repo** `.git/` read, which the curated read-utility track
+  allows; see "Gaps left in place deliberately" below. The **write**
   side is unaffected: Write/Edit/MultiEdit/NotebookEdit and the
   in-repo-write shell classifier still DENY a target that resolves to
   the primary clone (#127), and #148 cross-repo reads/writes are
@@ -504,8 +507,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   every repo session and leaving cross-repo / cross-session handoff
   with no sanctioned home at all. The verdict is **graded on where
   inside the prefix the target lands**, not a blanket defer — and it is
-  a function of **region × track**, not of region alone. The three
-  tracks are the **path-reader** track (the `Read` file tool, and the
+  a function of **region × track**, not of region alone. The tracks are
+  the **path-reader** track (the `Read` file tool, and the
   bash pagers / dumpers `less`, `more`, `od`, `xxd`, `hexdump`); the
   **curated read-utility** track (`cat`, `head`, `grep`, `find`, `ls`,
   … — the `readOnlyUtilities` table); and the **write** track
@@ -632,8 +635,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   is cross-session handoff working as intended, and is allowed.
 
   **Reaching the carve-out from bash.** A carve-out the bash track
-  cannot reach is not a carve-out, and two gates sat in front of this
-  one until #193's third round. The first was the read-only-utility
+  cannot reach is not a carve-out, and gates sat in front of this one
+  until #193's third round. The first was the read-only-utility
   table's missing `ls`, described above. The second was the redirect
   veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
   set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
@@ -649,7 +652,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   at large all keep the veto, as do a destination the gate cannot
   resolve statically (#1), an unresolvable running cwd (#129), and a
   command whose *other* redirect escapes the region. The lift reaches
-  exactly the two allow tracks that call `redirectVetoesAllow` — the
+  exactly the allow tracks that call `redirectVetoesAllow` — the
   read-only-utility classifier and the in-repo-write classifier. The
   credentialed-tool classifiers are untouched: `git`/`gh`/`aws` keep
   their unconditional redirect-to-file **ask**, and `acli` keeps
@@ -684,6 +687,23 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   built from an unresolved expansion fails closed on the existing
   dynamic-path `ask`.
 
+  **Gaps left in place deliberately.** Read containment reaches the two
+  read tracks and the write track — and nothing else. It does not reach
+  the credentialed-tool classifiers, which gate on `hasRedirectToFile`
+  (an *output* redirect) alone and never consult
+  `inputRedirectTargets`, so `git status < /etc/passwd` allows, as do
+  the `gh`, `aws` and `acli` spellings of the same shape. Extending
+  read containment into them is a materially larger blast radius than
+  the carve-out carries, and is not attempted here. Separately, an
+  **in-repo** `.git/` read on the curated read-utility track allows
+  (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
+  write path and on the primary-clone read branch, not for an ordinary
+  contained read. Both gaps predate the input-redirect grading, and
+  each holds identically for its operand and redirect spellings —
+  `cat < <repo-root>/.git/config` allows exactly as
+  `cat <repo-root>/.git/config` does. That is the equivalence rule
+  working as specified, not a hole the redirect grading opened.
+
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.
   Neither the carve-out nor the root `ask` short-circuits the operand
@@ -704,7 +724,11 @@ rules.
 
 The Go comments in this package state their invariant **completely in
 place**. None of them points at an issue number, and
-`TestNoIssueRefsInComments` fails the build if one is reintroduced.
+`TestNoIssueRefsInComments` fails the build if one is reintroduced. The
+guard parses every `.go` file in the package directory — tests
+included, and a newly added file the moment it lands — and rejects a
+bare `#<digits>` anywhere in a comment. It fails outright if it parsed
+no files at all, so it cannot pass vacuously.
 
 The rule is that code must be authoritative and stand on its own. A
 comment reading "pre-existing #32 behavior" states no invariant: it
@@ -717,8 +741,9 @@ reasoning, that reasoning was restated inline (or, when it is a design
 decision rather than a local invariant, recorded in this README)
 instead of being dropped with the number.
 
-Two surfaces are deliberately outside the rule, because neither is text
-a reader has to act on in place:
+These surfaces are deliberately outside the rule, because neither is
+text a reader has to act on in place — and both are string literals, so
+the comment guard never sees them:
 
 - **Deny/ask labels** (the `Operation` field, e.g.
   `bash-read:cross-repo (#148)`) keep their stable `(#N)` tag — they are

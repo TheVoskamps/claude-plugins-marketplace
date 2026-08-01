@@ -90,7 +90,7 @@ var restEndpointAllowPrefixes = []string{
 //     (server-side path traversal) → DENY (appendix step 7).
 //  2. any flag not in ghAPIRESTFlags (and not one already handled upstream) →
 //     ASK (Deviation 1: a false ask costs one click; a hard deny on every future
-//     gh flag is the no-escape-hatch failure this issue exists to fix).
+//     gh flag is the no-escape-hatch failure this gate exists to remove).
 //  3. endpoint on the path-prefix allowlist → ALLOW.
 //  4. otherwise → ASK (Deviation 2: preserve today's human escape hatch rather
 //     than getting stricter).

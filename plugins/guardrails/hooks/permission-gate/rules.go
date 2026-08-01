@@ -1222,7 +1222,7 @@ var ghGlobalBoolFlags = map[string]bool{
 // the values of value-taking globals — consumed. It stops at the first
 // non-flag token (the noun).
 //
-// Two desync defenses, both motivated by the same hazard (with an ALLOW
+// The desync defenses, both motivated by the same hazard (with an ALLOW
 // floor in place, a missed deny is a silent auto-allow, so the deny tier must
 // be un-bypassable):
 //
