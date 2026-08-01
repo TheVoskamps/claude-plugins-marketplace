@@ -22,6 +22,10 @@
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
   permission-gate blocks heredoc `git commit -m`, use `commit -F`.
+- [claude-vm config-wizard skills lag](project_claude-vm-config-wizard-skills-lag.md)
+  — claude-vm feature PRs leave the two config-WIZARD SKILL.md files stale,
+  incl. bake/boot placement facts that are now launch-aborting; also check
+  payload/README.md's helper-function list.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
