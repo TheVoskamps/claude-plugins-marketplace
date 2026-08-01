@@ -791,8 +791,8 @@ self-sufficiently actionable.
 
 Policy lives in the binary, not on disk — a security gate's rule set
 must not be runtime-editable. **Changing policy means editing the Go
-source, re-running the test suite, rebuilding both binaries, and
-recommitting them.**
+source, re-running the test suite, rebuilding every committed binary,
+and recommitting them.**
 
 ## Build / test / cross-compile
 
@@ -806,7 +806,13 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
   go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/darwin-arm64/permission-gate .
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
   go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-amd64/permission-gate .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-arm64/permission-gate .
 ```
+
+Every target is pure Go with CGo disabled, so all of them cross-compile
+from the Mac — no toolchain is ever needed on the target machine, and
+none of these binaries is built at plugin load time.
 
 ### Binary reproducibility (don't expect a byte-identical rebuild)
 
@@ -838,16 +844,40 @@ To correctly verify that a committed binary matches its source:
    is **not** a valid mismatch signal on its own, because of the VCS
    stamp.
 
-Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`
-(`darwin-arm64` for this machine, `linux-amd64` for WSL2). The
-`settings.json` registration selects the correct one per platform via
-`uname`.
+Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`:
+`darwin-arm64` for this machine, `linux-amd64` for WSL2, `linux-arm64`
+for claude-vm guests (Debian on Apple Silicon). `hooks/hooks.json`
+selects the matching one per platform via `uname`.
 
 ## Registration
 
-`settings.json` wires the gate as a single PreToolUse hook matching
+`hooks/hooks.json` (and, for the non-plugin deployment, `settings.json`)
+wires the gate as a single PreToolUse hook matching
 `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*`, deployed to
 `~/.claude/settings.json`.
+
+### A missing platform binary hard-blocks
+
+The registration does not exec the `uname`-resolved path blindly. It
+tests it for executability first and, when the test fails, writes a
+one-line message naming the exact missing path to stderr and exits 2 —
+a blocking deny for that tool call:
+
+```text
+guardrails permission-gate: no executable gate binary for this platform
+at <path> -- failing closed, tool call denied. Build and commit one per
+plugins/guardrails/hooks/permission-gate/README.md.
+```
+
+Without that guard, an unprovisioned platform fails **open**: the shell
+cannot find the binary, the hook exits non-blocking, and every gated
+tool call proceeds with no adjudication at all while the transcript
+shows only a `PreToolUse:Bash hook error`. That is exactly what happened
+in a claude-vm `linux-arm64` guest before the `linux-arm64` binary
+existed (issue #216). A security gate that cannot run must block, not
+step aside — so a platform with no committed binary is unusable rather
+than silently ungated, and the remedy is to add that platform to the
+cross-compile recipe above.
 
 ## Deferred
 

@@ -223,10 +223,10 @@ image:
 #   plugins:
 #     bake:
 #       - block-background-agents@thevoskamps
-#       # COMPILED-HOOK PAIRING (not auto-derived): the guardrails
-#       # permission-gate builds its hook from Go source at load time, so baking
-#       # it requires a sufficiently new `golang` in this file's `packages:`.
-#       # Enable both halves in the same edit or the gate never adjudicates.
+#       # COMPILED HOOKS NEED NO TOOLCHAIN: the guardrails permission-gate
+#       # ships prebuilt, committed binaries (one per <goos>-<goarch>,
+#       # including the guest's linux-arm64), so baking it requires nothing
+#       # in this file's `packages:` -- no `golang`, nothing.
 #       # - guardrails@thevoskamps
 
 # --- BOOT file keys, continued ---
@@ -423,10 +423,12 @@ lands in a sibling slice under #39. It resolves correctly through
     marketplace. Every derived addition is logged. A `owner/repo` shorthand
     url yields no derivable host (keep `github.com` in `egress.allow`
     yourself); the launcher says so rather than guessing.
-  - **Compiled-hook pairing** (not auto-derived): the guardrails
-    permission-gate builds its hook from Go source at load time, so baking
-    `guardrails@…` requires a sufficiently new `golang` in the bake file's
-    `packages:`. Both halves are the operator's to set, in one edit.
+  - **Compiled hooks need no toolchain**: the guardrails permission-gate
+    ships prebuilt, committed binaries (one per `<goos>-<goarch>`, the
+    guest's being `linux-arm64`), so baking `guardrails@…` requires
+    **nothing** in the bake file's `packages:` — in particular no
+    `golang`. A platform with no committed binary makes the hook fail
+    closed (exit 2, tool call denied), never silently unadjudicated.
 - `github.auth` (`none` default | `host-token`) selects whether the
   guest is seeded with a GitHub auth token derived from the host.
 

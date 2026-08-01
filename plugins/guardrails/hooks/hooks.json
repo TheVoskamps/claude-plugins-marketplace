@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/bin/$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/permission-gate",
+            "command": "gate=\"${CLAUDE_PLUGIN_ROOT}/hooks/bin/$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')/permission-gate\"; [ -x \"$gate\" ] || { echo \"guardrails permission-gate: no executable gate binary for this platform at $gate -- failing closed, tool call denied. Build and commit one per plugins/guardrails/hooks/permission-gate/README.md.\" >&2; exit 2; }; exec \"$gate\"",
             "timeout": 10
           }
         ]
