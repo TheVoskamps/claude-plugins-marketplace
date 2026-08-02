@@ -40,5 +40,17 @@ whether the offending line exists there at all — a hit on a line the
 diff adds is PR-introduced under the *in-place* lint, which is the
 only lint run that used the right configs.
 
+**The lint CONFIG itself can differ between the branch's fork point and
+main** (PR #217 round 2): `main` had added
+`.claude/agent-memory/.markdownlint.jsonc` (MD041/MD013 carve-outs for
+the memory tree) and fixed the root config's inert `MD060` → `MD055`
+after the branch forked, so the branch's memory files raised ~79
+MD041/MD013 hits under the branch's stale config that all dissolve on
+rebase. markdownlint-cli2 discovers config upward from each FILE's
+directory, so linting the primary clone's copy of the same file is a
+quick main-config baseline. Only errors that survive under main's config
+(e.g. an MD033 from dropped backticks) are findings.
+
 Related: [[verify-doc-cross-reference-headings]],
-[[read-branch-tip-via-git-show]].
+[[read-branch-tip-via-git-show]],
+[[recheck-main-facts-every-round]].
