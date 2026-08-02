@@ -31,10 +31,28 @@ A multi-round PR's branch can be unchanged while its review facts rot:
   is one cheap call; `git merge-tree --write-tree origin/main HEAD`
   names the conflicted paths read-only, no checkout needed.
 
+**Main can also move DURING a round, not just between rounds.** On
+round 3 the local `origin/main` ref silently advanced mid-session
+(#220 merged and something fetched into the shared object store):
+`git rev-parse origin/main` gave two different answers minutes apart,
+and a PR that read `MERGEABLE` early in the round was `CONFLICTING`
+by the end. Two consequences: (1) re-run the mergeable check
+immediately **before posting**, not only at round start; (2) the tell
+that the ref moved under you is `git diff --name-only origin/main
+HEAD` listing files absent from `gh pr diff` — the "extra" files are
+main's newest advance appearing in reverse, not branch content, so
+diagnose with `git merge-base` before treating them as unreviewed
+diff. Grade a conflicts-only movement as one Medium (un-mergeable)
+and say explicitly whether the new main commits touched gate source
+or the two plugin versions — if they did not, the fixer needs neither
+a rebuild nor a re-bump, and saying so saves a full verification
+loop.
+
 **How to apply:** treat "vs main" claims in the PR body ("byte-identical
 to main", "version bumped per repo rule") as stamped with the date they
 were written. On every round, after `git fetch`-equivalent freshness is
 established (origin/main ref), re-run the three checks above before
-grading. Related: [[version-bump-check-history-can-lie]] (the show +
+grading — and the mergeability one again right before posting.
+Related: [[version-bump-check-history-can-lie]] (the show +
 last-touching-commit recipe), [[re-review-the-whole-diff-fresh]] (same
 principle, diff axis instead of base axis).
