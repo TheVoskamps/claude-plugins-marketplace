@@ -318,8 +318,9 @@ so it needs the same doc pass before its re-review.
 
 The doc pass is cheap in the common case and never costs a review
 round: when a round had no doc impact, `doc-updater` returns without a
-commit, and the review-round cap (Hard Constraints → "Max review
-rounds per PR") counts `pr-reviewer` runs only.
+doc commit — it still pushes its own `.claude/agent-memory/` capture
+like every other teammate — and the review-round cap (Hard Constraints
+→ "Max review rounds per PR") counts `pr-reviewer` runs only.
 
 Both run in fresh worktrees and check out the PR branch. Because each
 subagent's end-of-run cleanup deletes the local feature branch, the
@@ -430,8 +431,9 @@ alone.
    any doc commit; if doc-updater runs after pr-reviewer, the reviewer
    reviews an incomplete PR. Skipping this step is what lets a fixer's
    own unverified doc claim reach the reviewer unchecked. When the
-   round had no doc impact, the agent returns without a commit, and
-   the pass does not consume a review round.
+   round had no doc impact, the agent returns without a doc commit —
+   its agent-memory capture is still pushed — and the pass does not
+   consume a review round.
 5. Spawn the pr-reviewer again for a follow-up review of the new
    changes.
 6. Repeat this loop until APPROVED or until the review-round cap
