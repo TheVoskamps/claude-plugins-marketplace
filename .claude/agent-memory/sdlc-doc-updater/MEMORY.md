@@ -33,6 +33,10 @@
 - [known gaps are a doc surface](project_issue-known-gaps-are-a-doc-surface.md)
   — an issue's "Known gaps left in place" section is the part the
   developer reliably never carries into the README; check it every run.
+- [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
+  — `<these files> all <predicate>` is one claim per file; open each
+  before writing it, and treat a shared predicate as weak warrant when
+  reading one.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass

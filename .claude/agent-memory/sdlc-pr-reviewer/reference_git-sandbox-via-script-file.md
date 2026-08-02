@@ -7,12 +7,17 @@ metadata:
 
 To exercise a git claim (e.g. "does `git add -N` preserve content for
 `git checkout --`?") a review needs several commands in one throwaway
-repo. Two harness constraints block the obvious spellings:
+repo. Harness constraints block the obvious spellings:
 
 - `cd <path> && git <subcommand>` is refused by the permission gate,
-  and so is `git -C <abs-path> <subcommand>`.
+  and so is `git -C <abs-path> <subcommand>`. A shell `for` loop whose
+  body runs git is also refused ("too complex to verify it stays
+  inside the worktree") — issue one git call per Bash invocation.
 - cwd does **not** persist between a worktree-isolated subagent's Bash
-  calls, so a bare `cd` in one call is gone by the next.
+  calls, so a bare `cd` in one call is gone by the next. The flip
+  side: every call *starts* at the worktree root, so a single bare
+  `git <subcommand>` needs no `cd` at all — the script-file recipe
+  below is only for multi-step sequences.
 - Paths under the session scratchpad (`/private/tmp/claude-.../`) are
   refused as "outside the current repository", including by plain
   `wc`/`cat`.

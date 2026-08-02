@@ -1,6 +1,6 @@
 ---
 name: rebase-continue-editor-gate
-description: Both env-prefix (GIT_EDITOR=true git ...) and config-injection (git -c core.editor=true ...) forms are blocked by the permission gate, so drive a conflicted rebase with `git commit --no-edit` then a bare `git rebase --continue`
+description: Both env-prefix (GIT_EDITOR=true git ...) and config-injection (git -c core.editor=true ...) forms are blocked by the permission gate, so drive a conflicted rebase with `git commit --no-edit` then a bare `git rebase --continue` — then strip the `# Conflicts:` blocks that workaround bakes into every resolved commit's message
 metadata:
   type: feedback
 ---
@@ -22,6 +22,34 @@ here, each by its own gate with its own message:
 
 The gate is not specific to `core.editor`; it refuses the *forms*, so
 no editor-related key gets through either one.
+
+**The workaround's own side effect, and its fix.** `git commit
+--no-edit` on a conflicted step reuses `.git/MERGE_MSG`, and for a
+conflicted commit that file carries a trailing
+
+```text
+# Conflicts:
+#   <path>
+```
+
+block (the second line is tab-indented in the real file). Merge-shaped commits default to `cleanup=whitespace`, which
+keeps `#` lines, so every commit you resolved ships that block in its
+message — permanently, and invisibly unless you go looking (`git log
+--oneline` shows only the subject). After the rebase reports success,
+check with `git log <base>..HEAD --format='%B' | grep -c 'Conflicts:'`
+and, if non-zero, strip them in one pass:
+
+```bash
+git rebase -f <base> --exec "git commit --amend --no-edit --cleanup=strip"
+```
+
+`-f` forces the replay even though the branch is already on `<base>`,
+and `--cleanup=strip` re-cleans each reused message, dropping the
+comment lines. Verified on a 19-commit rebase with 7 resolved
+conflicts: all blocks gone, `References:` trailers and multi-paragraph
+bodies intact, and `git diff <old-head> <new-head>` empty — the tree is
+byte-identical, only the messages changed. Do this *before* pushing, so
+the force-push is a single event.
 
 **How to apply:** any time a rebase, cherry-pick, or revert stops on a
 conflict. Resolve the files with Edit (against the **worktree-absolute**

@@ -1,7 +1,7 @@
 # Memory Index
 
 - [Self-approve blocked, use comment](feedback_self-approve-blocked-use-comment.md) — when gh identity == PR author, --approve fails; re-post body with --comment and state verdict inline
-- ["Only one X:" before a list is in-class](project_only-one-before-list-is-in-class.md) — §7 adjudication: numeral before an adjacent list is a tally even with "only"; fix keeps "only", drops the numeral
+- ["Only one X:" before a list is in-class](project_only-one-before-list-is-in-class.md) — §7: numeral before an adjacent list is a tally even with "only" (fix drops the numeral); frozen-history and external-structure counts are out-of-class
 - [GraphQL reads pass the gate now](reference_graphql-relationship-read-gate-blocked.md) — query-only `-f query='…'` documents ALLOW under the current gate; try inline first, fall back to gh issue view --json only on refusal
 - [Harness slugs can double-dash](reference_harness-slugs-can-double-dash.md) — hidden-dir cwds slug "/." to "--"; verify session-shape regexes against `ls /tmp/claude-<uid>/` and `~/.claude/projects/`, not the issue's "observed layout" claim
 - [Version bump: history can lie](reference_version-bump-check-history-can-lie.md) — a "Bump to X" commit in main's log may be reverted later; check `git show origin/main:.../plugin.json` + last-touching commit before flagging a collision
@@ -33,3 +33,5 @@
 - [Flag model cannot swallow containment operands](reference_flag-model-cannot-swallow-containment-operands.md) — pathOperands is flag-model-unaware (keeps every non-dash token), so "value flag swallows the operand, skips containment" rationales are counterfactual on the read track; also `go version -m` verifies foreign-arch binaries
 - [Probe the redirect attach point](reference_probe-the-redirect-attach-point.md) — redirects park on the enclosing Stmt, so `{ cmd; } < f`, loop/if forms and a bare `> f` are attach points a simple-command matrix never reaches; run the matrix wrapped and command-less, with an operand control
 - [Sweep artifacts hide in line wraps](reference_sweep-artifacts-hide-in-line-wraps.md) — after a mechanical token-removal sweep, grep old-side refs at end-of-line and read the JOINED block; file all sites as ONE class-level Low, not one finding apiece
+- [Scratchpad blocked, use repo .claude/tmp](reference_scratchpad-blocked-use-repo-claude-tmp.md) — the /private/tmp scratchpad is write-blocked for worktree agents; scratch files go under `<worktree>/.claude/tmp/`
+- [Regrade own Verified; check round narratives](reference_regrade-own-verified-and-check-round-narratives.md) — a fixer contradicting your earlier Verified is usually right (a grep hit is not a read); verify round-history claims via posted reviews + per-commit blobs

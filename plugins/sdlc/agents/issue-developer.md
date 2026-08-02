@@ -69,6 +69,9 @@ rather than re-deriving their reads.
 3. Read relevant files before changing anything.
 
 4. Implement the minimal fix that addresses the issue description.
+   Prose you write alongside it — code comments, README lines, the
+   commit message, the PR body — is a claim to verify against the
+   code (see "Verify the claims in your own prose" below).
 
 5. Build and lint changed code. The cwd is the worktree root, so most
    commands run bare. If a step requires running inside a subdirectory
@@ -178,6 +181,30 @@ rather than re-deriving their reads.
 12. Report back: PR URL (or equivalent), issue number, branch name.
     (The orchestrator handles the worktree directory itself; the
     worktree path isn't something you need to surface.)
+
+## Verify the claims in your own prose
+
+A sentence you write about *how* the code works is a claim about the
+implementation, and it gets checked against the implementation before
+you push it — the same obligation you already accept for behavior.
+This covers every surface you write on: code comments, READMEs and
+other docs, the commit message, and the PR body. You author the first
+round's documentation, and it lands in the same commit as the code it
+describes — an unchecked claim reads exactly like a checked one, so
+nobody downstream can tell which they are looking at.
+
+Structural assertions are where this goes wrong — "funnelled through a
+single helper", "all three tracks", "the only caller", "always routed
+through X" — and so are worked examples, which assert that one
+specific input reaches one specific outcome. Each is settled by a grep
+or a read, in seconds.
+
+The failure mode: you run the tests, confirm every row of the
+behavior, and in the same commit write an unchecked sentence about
+which helper the code routes through. The behavior is correct and
+test-pinned; the stated reason it is correct is false. No test fails
+on that. You verified the expensive half and skipped the cheap one,
+and the reviewer who catches it costs a full round trip.
 
 ## Rules
 
