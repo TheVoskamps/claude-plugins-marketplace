@@ -7,7 +7,7 @@ metadata:
 
 To exercise a git claim (e.g. "does `git add -N` preserve content for
 `git checkout --`?") a review needs several commands in one throwaway
-repo. Two harness constraints block the obvious spellings:
+repo. Harness constraints block the obvious spellings:
 
 - `cd <path> && git <subcommand>` is refused by the permission gate,
   and so is `git -C <abs-path> <subcommand>`. A shell `for` loop whose

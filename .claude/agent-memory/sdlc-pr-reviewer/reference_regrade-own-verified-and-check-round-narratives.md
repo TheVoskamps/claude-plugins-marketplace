@@ -5,7 +5,7 @@ metadata:
   type: reference
 ---
 
-Two habits from PR #220 round 3, one incident:
+Habits from PR #220 round 3, one incident:
 
 - **Your own prior-round Verified entry is not evidence.** When a fix
   round corrects more than the finding named and thereby contradicts
@@ -18,7 +18,7 @@ Two habits from PR #220 round 3, one incident:
   agent *behavior*. A grep hit list locates text; it does not read it.
 - **Round-history claims are checkable, so check them.** An agent
   memory narrating "round N found / round M corrected" is verifiable
-  from two immutable surfaces: `gh pr view <PR> --json reviews`
+  from immutable surfaces: `gh pr view <PR> --json reviews`
   returns every posted review body (findings quoted verbatim), and
   `git show <commit>:<path>` proves whether a sentence changed in a
   given round. On #220 a fixer memory got its own PR's history wrong
