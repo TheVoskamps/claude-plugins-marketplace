@@ -35,3 +35,4 @@
 - [Sweep artifacts hide in line wraps](reference_sweep-artifacts-hide-in-line-wraps.md) — after a mechanical token-removal sweep, grep old-side refs at end-of-line and read the JOINED block; file all sites as ONE class-level Low, not one finding apiece
 - [Scratchpad blocked, use repo .claude/tmp](reference_scratchpad-blocked-use-repo-claude-tmp.md) — the /private/tmp scratchpad is write-blocked for worktree agents; scratch files go under `<worktree>/.claude/tmp/`
 - [Regrade own Verified; check round narratives](reference_regrade-own-verified-and-check-round-narratives.md) — a fixer contradicting your earlier Verified is usually right (a grep hit is not a read); verify round-history claims via posted reviews + per-commit blobs
+- [podman needs --platform for arch probes](reference_podman-platform-flag-required.md) — cached debian image is amd64; without --platform linux/arm64 podman silently emulates and the probe runs the WRONG binary; confirm uname -m
