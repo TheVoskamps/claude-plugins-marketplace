@@ -60,8 +60,8 @@ deliberate and must stay, so re-read this entry before removing a hit
 that refers back to already-stated items instead of introducing a
 list.
 
-**The README's own opening line was a surviving defect (#193, PR
-#208):** "Two engines feed the allow/deny/ask (plus defer) decision…"
+**The README's own opening line was a surviving defect (#193, PR #208):**
+"Two engines feed the allow/deny/ask (plus defer) decision…"
 sits immediately above the Engine A / Engine B bullet list — line 11,
 the first prose in the file, and it survived every earlier sweep
 because the `\b(two|three|…) [a-z-]+` grep hits it and the eye reads it
@@ -72,6 +72,23 @@ exception. Same class shows up in Go comments the developer writes for
 carve-out switch arms ("Two carve-outs that both DEFER…" above
 `case claudeConfig, harnessScratch:`); sweep the changed `.go` files'
 comments for it too, not just the Markdown.
+
+**Slash-joined classifier lists are a claim class of their own (#193,
+PR #208):** the fixer wrote "The `git`/`gh`/`aws`/`acli` classifiers
+keep their own unconditional redirect-to-file `ask`". Three of the four
+do; `classifyAcli` gates its read-only allow on `sc.allowEligible()`,
+so a redirect there **defers**. The lumping is seductive because those
+four are always named together elsewhere in the file (the classifier
+dispatch, the bypass-gate paragraph), so the habit of writing them as
+one slash-joined group survives into a sentence where they diverge.
+Verify each name in a slash-joined list against its own classifier
+function, not against the group. Same round: when a helper stops being
+the gate on a track (`allowEligible()` is no longer called by
+`classifyReadOnlyUtility` / `classifyInRepoWrite`, which now ask
+`redirectVetoesAllow`), the helper's own doc comment still describes
+the old universality — grep the helper's remaining production callers
+(`grep -n 'helperName()' *.go | grep -v _test`) and make the comment
+say which tracks still use it.
 
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
