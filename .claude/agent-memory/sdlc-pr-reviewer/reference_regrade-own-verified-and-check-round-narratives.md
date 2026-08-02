@@ -26,6 +26,18 @@ Habits from PR #220 round 3, one incident:
   grade the false backstory as its own (usually Low) finding and say
   which sibling memory, if any, has the history right.
 
+**The between-rounds trap** (added round 5): a fix round runs after
+review round N and before round N+1, so "which round is this?" has no
+answer in the round vocabulary — SKILL.md defines a round as one
+`pr-reviewer` run, and the fixer sits in the unnumbered gap. On #220
+the same fix round wrote "Round 4 flagged" in its commit message
+(a49979a, matching the posted review) and dated the same event
+"round 5" in its memory entry (3aa7e6c) — a fixer trying to follow
+the numbering rule still misdated the gap. When reviewing (or
+writing) such prose, expect events to be attributed to the review
+that posted them or to a commit SHA; a bare number for the gap itself
+is the tell.
+
 **How to apply:** in any follow-up round, before endorsing or flagging
 a memory/PR-body sentence about what earlier rounds did, pull the
 posted reviews and the per-commit blobs; and whenever your evidence
