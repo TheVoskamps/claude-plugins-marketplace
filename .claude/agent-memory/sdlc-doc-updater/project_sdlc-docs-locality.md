@@ -24,9 +24,18 @@ doc surfaces that go stale are, in order of likelihood:
   SKILL.md's own fix-loop step quote a `### After each ...` heading
   verbatim; the roster quotes no heading. Renaming a heading in
   SKILL.md means grepping the quoted title across `plugins/sdlc/`.
-- Not stale-prone: root `README.md`'s one-line `sdlc` bullet,
-  `plugins/github-prs/README.md`, `plugins/issues/skills/**` — these
-  name the agents only as a list, never their behavior.
+- Lower-yield, in the order worth checking:
+  `plugins/github-prs/README.md` attributes one PR verb per agent in
+  its opening paragraph (`issue-developer` opens the PR, the
+  `pr-reviewer` diffs and reviews it, the `issue-fixer` and
+  `doc-updater` diff it) and repeats the diff-consumer list in its
+  `/pr-diff` section; `plugins/issues/skills/**` names the agents as
+  repo-config readers, with `lib/repo-config.md` adding which of them
+  dispatch on `source-control`; root `README.md`'s `sdlc` bullet names
+  them only by shorthand (developer/fixer/reviewer/doc/memory-scrubber)
+  with no behavior at all. Check the first two only when a PR changes
+  which skill or config field an agent uses — PR #220 rewrote
+  `doc-updater`'s Output section and falsified none of them.
 - `docs/plugin-migration-plan.md` mentions the agents but is a frozen
   historical plan; never edit it (see [[plugin-docs-locality]]).
 
