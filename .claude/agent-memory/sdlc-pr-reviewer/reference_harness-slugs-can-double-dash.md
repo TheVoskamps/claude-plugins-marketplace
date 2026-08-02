@@ -25,10 +25,10 @@ ls ~/.claude/projects/            # same slug scheme, more history
 ```
 
 The slug alphabet is `[A-Za-z0-9-]` but dashes DO double (any adjacent
-non-alnum pair: `/.`, `/ `, `~` sequences). A shape that requires
-`-[alnum]` after every dash silently misses every hidden-directory
-project. Probe the committed binary with a synthetic event for one of
-the real doubled-dash slugs to confirm.
+non-alnum pair: `/.`, a `/` followed by a space, `~` sequences). A
+shape that requires `-[alnum]` after every dash silently misses every
+hidden-directory project. Probe the committed binary with a synthetic
+event for one of the real doubled-dash slugs to confirm.
 
 Related: [[guardrails-binary-verification]],
 [[gate-blocks-pathlike-grep-patterns]] (the active gate is main's
