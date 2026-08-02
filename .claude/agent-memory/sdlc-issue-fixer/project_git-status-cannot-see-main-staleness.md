@@ -54,7 +54,20 @@ re-reviewing the diff. `git diff --stat <pre-rebase-tip>..HEAD --
 sources *and* committed binaries) is byte-identical to the approved tip,
 so no rebuild is owed. `git range-diff <old-base>..<old-tip>
 origin/main..HEAD` should mark every substantive commit `=`; only the
-commits you hand-resolved may read `!`. For agent memory, also prove the
+commits you hand-resolved may read `!`.
+
+Prefer a **pairwise `git patch-id --stable`** walk (`git rev-list
+--reverse` both ranges, `git show <sha> | git patch-id --stable`, compare
+in lockstep) over reading `range-diff`'s verdicts. `range-diff` grades on
+the whole commit, so a message-only edit — exactly what the
+`--cleanup=strip` pass in [[rebase-continue-editor-gate]] does to every
+replayed commit — reads `!` on commits whose *patch* never moved, and its
+similarity pairing silently mis-matches near-identical commits (PR #217
+round 4: two "Rebuild the linux-arm64 gate binary…" commits paired
+crosswise, faking a reorder that `git log --oneline` disproved). The
+patch-id walk answers the question you actually have — "did any diff
+change?" — and on that run flagged exactly the five hand-resolved commits
+and nothing else. For agent memory, also prove the
 final file set equals the union of both sides
 (`git ls-tree -r --name-only` on each of main, the old tip, and HEAD,
 then `comm`), and check each index in both directions — every pointer
