@@ -38,6 +38,32 @@ both sides' bullets — except when the branch's own `Curate agent
 memory` commit is the one being replayed, where the correct resolution
 is to keep main's new bullet and honor the scrubber's deletion.
 
+**Union-resolving an index by script — and the anchor trap.** On a long
+branch the same `MEMORY.md` conflicts once per replayed memory commit,
+so it pays to script the union (`grep -vE` away the three marker line
+kinds). The trap: BSD `grep` (macOS) treats `$` as a **literal** when it
+is not at the very end of the pattern, so a branch like
+`'^<<<<<<< |^=======$|^>>>>>>> '` silently never matches the separator
+and leaves a bare `=======` in the resolved file, which `git add` then
+happily commits. Anchor the separator branch at the start only, and make
+the script re-grep for surviving markers and exit non-zero.
+
+**Proving the rebase disturbed nothing.** Two cheap checks beat
+re-reviewing the diff. `git diff --stat <pre-rebase-tip>..HEAD --
+<subtree>` printing nothing proves that subtree (e.g. a whole plugin,
+sources *and* committed binaries) is byte-identical to the approved tip,
+so no rebuild is owed. `git range-diff <old-base>..<old-tip>
+origin/main..HEAD` should mark every substantive commit `=`; only the
+commits you hand-resolved may read `!`. For agent memory, also prove the
+final file set equals the union of both sides
+(`git ls-tree -r --name-only` on each of main, the old tip, and HEAD,
+then `comm`), and check each index in both directions — every pointer
+resolves to a file, every file has exactly one pointer.
+
 See [[git-command-form-gate-cd-then-bare-git]] and
 [[rebase-continue-editor-gate]] for the command forms the gate allows
-while doing this.
+while doing this, [[worktree-isolation-gate-blocks-compound-bash]] for
+why these checks have to live in `.sh` files under `.claude/tmp/` rather
+than compound Bash calls, and
+[[rebase-absorbs-an-identical-version-bump]] for the version-bump
+follow-up a rebase silently creates.

@@ -1,6 +1,6 @@
 // Command permission-gate is a compiled PreToolUse hook that adjudicates the
 // tool calls Claude Code is about to make. It is the deterministic
-// enforcement layer the OS sandbox structurally cannot provide (issue #247).
+// enforcement layer the OS sandbox structurally cannot provide.
 //
 // It reads a single PreToolUse event as JSON on stdin and emits a verdict:
 //

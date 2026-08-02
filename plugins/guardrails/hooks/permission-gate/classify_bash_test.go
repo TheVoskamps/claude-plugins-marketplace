@@ -22,13 +22,13 @@ func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 	}
 }
 
-// §10: git globals before -C (#13); commands inside &&/;/pipelines;
-// env VAR=x <cmd>; quoted/expanded strings (#1) — verified by classification.
+// §10: git globals before -C; commands inside &&/;/pipelines;
+// env VAR=x <cmd>; quoted/expanded strings — verified by classification.
 
 func TestGitGlobalsBeforeSubcommand_13(t *testing.T) {
 	// --no-pager / -c k=v / -P globals must be consumed; the real subcommand
 	// (status) is read-only → ALLOW. NOTE: `-c core.pager=cat` was previously
-	// asserted ALLOW here, but #64's config-injection gate now DENYs any
+	// asserted ALLOW here, but the config-injection gate now DENYs any
 	// code-executing `-c` key (core.pager is one — its value is run as a shell
 	// command, so cat and `curl x|sh` are indistinguishable to the gate). The
 	// inert display knob `-c color.ui=always` still ALLOWs.
@@ -54,7 +54,7 @@ func TestCompoundCommands(t *testing.T) {
 }
 
 func TestEnvWrapper(t *testing.T) {
-	// #64 precondition: an inline environment-assignment prefix on git/gh/aws
+	// Precondition: an inline environment-assignment prefix on git/gh/aws
 	// DENYs — it can redirect egress / swap identity / inject a pager without
 	// touching argv (AWS_ENDPOINT_URL=, GIT_SSH_COMMAND=, GH_HOST=, AWS_PAGER=).
 	// This SUPERSEDES the prior expectation that `env FOO=bar git status` and
@@ -66,7 +66,7 @@ func TestEnvWrapper(t *testing.T) {
 	// fires first, but either way it is a deny).
 	wantBucket(t, classifyCmd(t, "env GIT_PAGER=cat git reset --hard", true), BucketDeny, "env + destructive")
 	// A non-git/gh/aws program with an env wrapper still has its wrapper
-	// stripped and the inner program classified normally (the #64 inline-env
+	// stripped and the inner program classified normally (the inline-env
 	// deny is scoped to git/gh/aws). `printf` is a pure-output read-only
 	// utility (no path operand) → ALLOW.
 	wantBucket(t, classifyCmd(t, "env FOO=bar printf hi", false), BucketAllow, "env VAR=x printf (non-git/gh/aws)")
@@ -83,7 +83,7 @@ func TestQuotedAndExpandedStrings_1(t *testing.T) {
 	}
 }
 
-// §10: gh auth switch and multi-identity switch forms are denied (#117).
+// §10: gh auth switch and multi-identity switch forms are denied.
 func TestGhAuthSwitchDenied_117(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch", false), BucketDeny, "gh auth switch")
 	wantBucket(t, classifyCmd(t, "gh auth switch --user other", false), BucketDeny, "gh auth switch --user")
@@ -91,7 +91,7 @@ func TestGhAuthSwitchDenied_117(t *testing.T) {
 }
 
 // §10: subagent git reset --hard is denied/asked with detached-checkout
-// remediation in stderr (#120).
+// remediation in stderr.
 func TestGitResetHard_120(t *testing.T) {
 	dSub := classifyCmd(t, "git reset --hard HEAD", true)
 	wantBucket(t, dSub, BucketDeny, "subagent git reset --hard")
@@ -103,7 +103,7 @@ func TestGitResetHard_120(t *testing.T) {
 	wantBucket(t, dMain, BucketAsk, "main git reset --hard")
 }
 
-// §10: git config user.* identity writes are denied (#125 write), including the
+// §10: git config user.* identity writes are denied, including the
 // `--file <path>` form where the file path precedes the user.* key. (The direct
 // file-tool Write/Edit of a .git/config is exercised separately in
 // containment_test.go's TestGitConfigFileWriteDenied_125.)
@@ -130,29 +130,30 @@ func TestGitConfigIdentityDenied_125(t *testing.T) {
 	}
 }
 
-// #35 Fix 1 (folds #34): `git config user.*` with NO value operand is git's
-// GET form — a read, not an identity write — and must NOT be denied. Only the
-// write form (key followed by a value, or a write-verb flag) denies. The
-// `-C <path>` global is consumed by parseGitGlobals before the rule sees rest,
-// so the #34 `-C` repro is resolved by the same get-form fix.
+// `git config user.*` with NO value operand is git's GET form — a read, not an
+// identity write — and must NOT be denied. Only the write form (key followed by
+// a value, or a write-verb flag) denies. The `-C <path>` global is consumed by
+// parseGitGlobals before the rule sees rest, so the reported `-C` repro is
+// resolved by the same get-form fix.
 //
-// NOTE on the #34 `-C` form: the issue's test list spells the repro with an
+// NOTE on the `-C` form: the reported repro spells it with an
 // ABSOLUTE path (`git -C /some/repo config …`), but `git -C <abs-path>` is
-// independently denied by the pre-existing #78 forbidden-form rule BEFORE the
-// identity classifier runs (see callIsGitDashCAbs). That #78 rule fires only on
+// independently denied by the pre-existing forbidden-form rule BEFORE the
+// identity classifier runs (see callIsGitDashCAbs). That rule fires only on
 // ABSOLUTE `-C` paths; a RELATIVE `-C` path falls through to classifyGit, where
 // parseGitGlobals consumes the `-C <path>` global and gitConfigIdentityRule sees
-// `rest`. So the relative `-C` form is what actually exercises Fix 1's `-C`
-// path, and the absolute form is asserted separately as a #78 deny so the
-// interaction is documented rather than silently colliding.
+// `rest`. So the relative `-C` form is what actually exercises the get-form
+// fix's `-C` path, and the absolute form is asserted separately as a
+// forbidden-form deny so the interaction is documented rather than silently
+// colliding.
 func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
-	// Reads → not denied. (Relative `-C` exercises the #34 path through
+	// Reads → not denied. (Relative `-C` exercises the get-form path through
 	// parseGitGlobals + gitConfigIdentityRule.)
 	for _, cmd := range []string{
 		"git config user.email",
 		"git config --local user.email",
 		"git config --get --local user.email",
-		"git -C some/repo config --local user.email", // relative -C form, folds #34
+		"git -C some/repo config --local user.email", // relative -C form
 	} {
 		d := classifyCmd(t, cmd, false)
 		if d.Bucket == BucketDeny {
@@ -162,15 +163,15 @@ func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 	// Writes → denied.
 	for _, cmd := range []string{
 		"git config user.email foo@bar",
-		"git -C some/repo config --local user.email foo@bar", // relative -C form, folds #34
+		"git -C some/repo config --local user.email foo@bar", // relative -C form
 		`git config --global user.name Foo`,
 		"git config --unset user.email",
 		"git config --file .git/config user.email foo@bar",
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "write form: "+cmd)
 	}
-	// The ABSOLUTE `-C` form (as the issue spells the #34 repro) is denied by the
-	// #78 forbidden-form rule, independently of read-vs-write. Both shapes deny.
+	// The ABSOLUTE `-C` form (as the repro spells it) is denied by the
+	// forbidden-form rule, independently of read-vs-write. Both shapes deny.
 	for _, cmd := range []string{
 		"git -C /some/repo config --local user.email",
 		"git -C /some/repo config --local user.email foo@bar",
@@ -188,10 +189,10 @@ func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 	}
 }
 
-// #35 Fix 2 (folds #59, #63): export/local (DeclClause), [[ … ]] (TestClause),
-// let (LetClause), time (TimeClause), and command substitutions inside an
-// assignment RHS must be reduced precisely, not blanket-asked as
-// bash:unhandled-construct.
+// Reducible constructs (folding two separate trace reports): export/local
+// (DeclClause), [[ … ]] (TestClause), let (LetClause), time (TimeClause), and
+// command substitutions inside an assignment RHS must be reduced precisely, not
+// blanket-asked as bash:unhandled-construct.
 func TestReducibleConstructs_35(t *testing.T) {
 	notUnhandled := func(cmd string) Decision {
 		t.Helper()
@@ -208,11 +209,11 @@ func TestReducibleConstructs_35(t *testing.T) {
 	// Decl ignored; the line reduces to `cd` (defers) + `git status` (allow).
 	// `cd` is not on the allow track, so the aggregate defers — the key fix is
 	// that this is no longer a bash:unhandled-construct ASK. (The leading `cd`
-	// here is `/x` with `&& export …` on its right, so the #78 `cd … && git`
+	// here is `/x` with `&& export …` on its right, so the `cd … && git`
 	// forbidden form does not fire.)
 	wantBucket(t, notUnhandled(`cd /x && export PATH="$PWD/bin:$PATH" && git status`), BucketDefer, "cd + export + git status")
 	// Multi-assignment decl reduces cleanly; with no `cd`, every part is the
-	// read-only git status → ALLOW (folds #59 trace 4).
+	// read-only git status → ALLOW (folds trace 4).
 	wantBucket(t, notUnhandled(`export A=x B=y && git status`), BucketAllow, "multi-assign export then git status")
 	// Function body with a local decl reduces cleanly; echo is unclassified →
 	// defer.
@@ -220,7 +221,7 @@ func TestReducibleConstructs_35(t *testing.T) {
 	// let / [[ … ]] contribute no command.
 	notUnhandled("let x=1+2")
 	notUnhandled("[[ -f foo ]]")
-	// TestClause reduces cleanly, classifies on echo (folds #63). echo is not
+	// TestClause reduces cleanly, classifies on echo (folds the echo trace). echo is not
 	// allow-listed → defer.
 	notUnhandled(`[[ "$a" == "$b" ]] && echo eq`)
 	// time wraps a real command → classifies the wrapped git status → ALLOW.
@@ -228,7 +229,7 @@ func TestReducibleConstructs_35(t *testing.T) {
 	// A command substitution in an export RHS: the inner git status is
 	// classified (read-only); must NOT be a blanket ask.
 	notUnhandled("export X=$(git status)")
-	// CmdSubst inside DblQuoted in the RHS (folds #59 trace 2). Descends into
+	// CmdSubst inside DblQuoted in the RHS (folds trace 2). Descends into
 	// the quoted $(mktemp); the wrapped `bash harness.sh` is classified by the
 	// normal pipeline.
 	notUnhandled(`export WORK_LOG="$(mktemp)" && bash harness.sh`)
@@ -258,7 +259,7 @@ func TestReadOnlyAllowed(t *testing.T) {
 	}
 }
 
-// #124 changed the aws terminal fall-through from ALLOW to ASK: an aws op the
+// The aws terminal fall-through changed from ALLOW to ASK: an aws op the
 // gate cannot prove read-only (e.g. s3api delete-object) now ASKs, because the
 // call carries the guest's credentials to a control plane outside the
 // microVM and mutates real cloud state the VM cannot roll back — containment
@@ -277,7 +278,7 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 	// A read-only op gets the read-only label (token-anchored list-/describe-/
 	// get- prefix) and ALLOWs. Check the ALLOW-branch's exact label ("is a
 	// read-only operation"), not the bare substring "read-only operation" —
-	// the #124 ASK branch's message also contains that bare substring (as
+	// the ASK branch's message also contains that bare substring (as
 	// "is not a provably read-only operation"), so the bare substring check
 	// would no longer distinguish the two branches.
 	_, d := mk("aws", "s3api", "list-buckets")
@@ -287,7 +288,7 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 	}
 	// Substring trap: `unlist-thing` merely CONTAINS "list" but is not a list-*
 	// prefix, so it must NOT be labeled a read-only op (it ASKs via the
-	// non-read-op default instead, per #124).
+	// non-read-op default instead).
 	_, d2 := mk("aws", "foo", "unlist-thing")
 	wantBucket(t, d2, BucketAsk, "aws unlist-thing (not read-anchored)")
 	if containsSubstr(d2.Reason, "is a read-only operation") {
@@ -313,13 +314,13 @@ func TestUnparseableFailsClosed(t *testing.T) {
 	}
 }
 
-// TestProcessSubstitutionDoesNotPanic_5 covers #5: the gate panicked with a
-// nil-pointer dereference while classifying `<(...)` / `>(...)` process
-// substitution, because the expand.Config used by literalWord set no ProcSubst
-// handler and expand.Literal calls it unconditionally. The gate must classify
-// these constructs without crashing. Process substitution's inner command is
-// not statically resolvable, so the line must NOT ride the allow track — it
-// defers/asks — but it must never panic.
+// TestProcessSubstitutionDoesNotPanic_5 covers the panic repro: the gate
+// panicked with a nil-pointer dereference while classifying `<(...)` /
+// `>(...)` process substitution, because the expand.Config used by literalWord
+// set no ProcSubst handler and expand.Literal calls it unconditionally. The
+// gate must classify these constructs without crashing. Process substitution's
+// inner command is not statically resolvable, so the line must NOT ride the
+// allow track — it defers/asks — but it must never panic.
 func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
 	cmds := []string{
 		"cat <(echo hi)",
@@ -346,8 +347,8 @@ func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
 	}
 }
 
-// TestMultilineEmbeddedCmdSubstDoesNotPanic_5 covers the sibling traces from
-// #5: a multi-line line that prefixes a command with assignments whose RHS is a
+// TestMultilineEmbeddedCmdSubstDoesNotPanic_5 covers the sibling panic traces:
+// a multi-line command that prefixes a command with assignments whose RHS is a
 // command substitution (`ROOT="$(git rev-parse --show-toplevel)"`) followed by
 // a command using the variable. These must classify without panicking.
 func TestMultilineEmbeddedCmdSubstDoesNotPanic_5(t *testing.T) {

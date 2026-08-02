@@ -4,16 +4,16 @@ import (
 	"strings"
 )
 
-// This file implements the `gh api` classification the #64 spec's appendix
-// anticipated ("If it later proves hot in the loop, whitelist specific allowed
-// forms, or adopt the GET-gate in the appendix"). It replaces the blanket
-// graphql-DENY / any-REST-ASK behavior with two classifiers, both driven from
-// classifyGhAPI in rules.go:
+// This file implements the `gh api` classification the dangerous-command
+// spec's appendix anticipated ("If it later proves hot in the loop, whitelist
+// specific allowed forms, or adopt the GET-gate in the appendix"). It replaces
+// the blanket graphql-DENY / any-REST-ASK behavior with two classifiers, both
+// driven from classifyGhAPI in rules.go:
 //
 //   - the GraphQL document scanner (Design A): a provably query-only document
 //     supplied literally via `-f query=…` / `--raw-field query=…` ALLOWs, as
 //     does a fragment-free mutation document whose every top-level field is on
-//     the curated issue-metadata allowlist (#195, ghGraphQLMutationAllowlist);
+//     the curated issue-metadata allowlist (ghGraphQLMutationAllowlist);
 //     any other mutation-bearing document ASKs (naming the mutation fields);
 //     everything else (non-literal query source, unbalanced/garbage,
 //     subscription) DENYs.
@@ -90,7 +90,7 @@ var restEndpointAllowPrefixes = []string{
 //     (server-side path traversal) → DENY (appendix step 7).
 //  2. any flag not in ghAPIRESTFlags (and not one already handled upstream) →
 //     ASK (Deviation 1: a false ask costs one click; a hard deny on every future
-//     gh flag is the no-escape-hatch failure this issue exists to fix).
+//     gh flag is the no-escape-hatch failure this gate exists to remove).
 //  3. endpoint on the path-prefix allowlist → ALLOW.
 //  4. otherwise → ASK (Deviation 2: preserve today's human escape hatch rather
 //     than getting stricter).
@@ -247,7 +247,7 @@ func isGluedShortFlag(a string) bool {
 // ("", false) — the DENY path, same as "no query field at all" — when zero or
 // more than one is found.
 //
-// The more-than-one case is #113 review hardening, not a live `gh` exploit:
+// The more-than-one case is review hardening, not a live `gh` exploit:
 // verified live (not observable from inside this sandbox), the installed gh
 // REJECTS a duplicate `-f query=…` outright with "unexpected override
 // existing field under \"query\"", before assembling any request — so
@@ -324,10 +324,10 @@ type graphqlDocResult struct {
 	mutationFields []string
 	// sawSubscription is true when a top-level `subscription` operation was
 	// found. It is tracked separately from queryOnly because the mutation
-	// allowlist (#195) may only fire on a document whose every non-query
+	// allowlist may only fire on a document whose every non-query
 	// operation is a mutation: a subscription names no allow-listable field, so
 	// a document bundling one with an allow-listed mutation must keep its
-	// pre-#195 verdict rather than riding the mutation's allowlist entry.
+	// un-narrowed verdict rather than riding the mutation's allowlist entry.
 	sawSubscription bool
 	// sawFragment is true when the document carries ANY fragment indirection: a
 	// `...` spread token (fragment spread or inline fragment) anywhere in the
@@ -341,12 +341,12 @@ type graphqlDocResult struct {
 	// deleteIssue(…) }` reports the field `addSubIssue` while GitHub executes
 	// `deleteIssue` (`__schema { mutationType { name } }` is literally
 	// `Mutation`, so `on Mutation` is a valid type condition and the shape does
-	// execute). That mislabel was harmless while EVERY mutation ASKed; the #195
+	// execute). That mislabel was harmless while EVERY mutation ASKed; the
 	// allowlist turns some mutations into an ALLOW, which would make the
 	// mislabel a laundering bypass. A fragment-bearing mutation document
-	// therefore may not ride the allowlist and keeps its pre-#195 ASK.
+	// therefore may not ride the allowlist and keeps its un-narrowed ASK.
 	//
-	// The signal deliberately does not gate the #113 query-only ALLOW: a
+	// The signal deliberately does not gate the query-only ALLOW: a
 	// query-only document executes against the Query root type, so no fragment
 	// it spreads can reach a mutation field.
 	sawFragment bool
@@ -362,7 +362,7 @@ type graphqlDocResult struct {
 //
 // When a `mutation` operation is present, its top-level selection-set field
 // names are collected so the ASK reason can name them (e.g. `addSubIssue`) and
-// so the #195 allowlist can judge them. Because those names are only as
+// so the allowlist can judge them. Because those names are only as
 // faithful as the document is fragment-free, any fragment indirection in the
 // document also sets sawFragment (see that field, and
 // graphqlDocHasFragmentSpread below).
@@ -402,9 +402,9 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 }
 
 // ghGraphQLMutationAllowlist is the curated set of top-level GraphQL mutation
-// FIELD names whose document ALLOWs (#195). The issues plugin's hot loop is
+// FIELD names whose document ALLOWs. The issues plugin's hot loop is
 // mutation-heavy — a single `/issue-create` or triage pass costs several
-// prompts under the plain "any mutation → ASK" rule of #113 — for operations
+// prompts under the plain "any mutation → ASK" rule — for operations
 // that are that plugin's sanctioned job.
 //
 // The principled basis is the GraphQL spelling of the verbs classifyGh already
@@ -414,10 +414,10 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // `gh issue reopen`, which are already recoverable-write verbs.
 //
 // Recorded trade-off: these mutations address opaque node IDs, so — unlike the
-// #163 `-R`/`--repo` foreign-target check — the gate cannot see which repo the
+// `-R`/`--repo` foreign-target check — the gate cannot see which repo the
 // target belongs to. Accepted because the writes are recoverable, land on
 // human-visible surfaces (issue threads, project boards), and require write
-// access the credential already holds. The config work (#66) later makes this
+// access the credential already holds. Later configuration work makes this
 // list repo-extendable via `repo-can-extend`.
 //
 // GraphQL names are case-sensitive, so lookups are exact-match by design.
@@ -435,7 +435,7 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 }
 
 // allGraphQLMutationFieldsAllowed reports whether EVERY named top-level
-// mutation selection field is on ghGraphQLMutationAllowlist (#195). Aliases
+// mutation selection field is on ghGraphQLMutationAllowlist. Aliases
 // already resolve to the real field name in topLevelSelectionFields, so an
 // aliased multi-operation document is judged on the fields it actually calls.
 //
@@ -600,7 +600,7 @@ func walkGraphQLTopLevel(doc string) graphqlDocResult {
 			// The body is deliberately DISCARDED — a definition executes nothing on
 			// its own — but that is exactly why it must be recorded: whatever it
 			// defines reaches the wire through a spread this walk cannot resolve,
-			// so a document containing one may not reach the #195 mutation ALLOW.
+			// so a document containing one may not reach the mutation ALLOW.
 			res.sawFragment = true
 			braceIdx := selectionSetBraceIndex(doc, after)
 			if braceIdx < 0 {
@@ -698,11 +698,11 @@ func extractBracedBlock(doc string, open int) (body string, next int, ok bool) {
 // topLevelSelectionFields returns the field names at the top level of a
 // selection-set body (the content between the outer braces), skipping nested
 // braces, arguments (…), and directives. It names the mutation fields in the
-// ASK reason (e.g. `addSubIssue`) and feeds the #195 allowlist decision. A
+// ASK reason (e.g. `addSubIssue`) and feeds the allowlist decision. A
 // field is an identifier at brace depth 0 of the body; an alias
 // (`alias: field`) resolves to the field name after the ':'.
 //
-// LOSSY, and load-bearing since #195 — read this before trusting its output:
+// LOSSY, and load-bearing for that allowlist — read this before trusting its output:
 // it is a token scanner, not a resolver. It reports the identifiers PRESENT in
 // the body, which equal the root fields GitHub executes only when the body is
 // fragment-free. Given `...addSubIssue` it reports `addSubIssue` — the fragment

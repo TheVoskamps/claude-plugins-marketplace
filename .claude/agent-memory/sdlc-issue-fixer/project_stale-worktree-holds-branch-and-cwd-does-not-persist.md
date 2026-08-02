@@ -1,6 +1,6 @@
 ---
 name: stale-worktree-holds-branch-and-cwd-does-not-persist
-description: a prior dead/uncleaned agent worktree can still hold the target branch ref; recover with git worktree remove after checking it's clean, using git --git-dir/--work-tree flags (not cd or git -C) to inspect it, since subagent cwd resets between Bash calls
+description: a prior dead/uncleaned agent worktree can still hold the target branch ref; every way of INSPECTING it from a sibling worktree is now gate-blocked, so compare SHAs against origin and let a plain (non-force) git worktree remove be the dirtiness check
 metadata:
   type: project
 ---
@@ -16,24 +16,39 @@ out on the branch.
 way**: a `cd /path/to/other/worktree` in one Bash call, followed by `git
 status` in the NEXT Bash call, silently ran against MY OWN worktree root
 (cwd reset between calls) — not the other worktree. The `cd <path> && git
-...` and `git -C <path> ...` forms are both blocked by the harness gate
-regardless, so neither shortcut works either. The only way to inspect a
-different worktree from inside a subagent is `git --git-dir=<path>/.git
---work-tree=<path> <subcommand>` (not blocked, not a `cd` chain) — a
-single Bash call, no chaining.
+...` and `git -C <path> ...` forms are both blocked by the harness gate.
+
+**UPDATE (2026-07-31, issue #193 / PR #208): the `--git-dir` escape
+hatch is now blocked too.** `git --git-dir=<other>/.git
+--work-tree=<other> status` is refused with *"This agent is isolated in
+the worktree …, but this command redirects git to the shared checkout
+via --git-dir."* So there is now **no** way to inspect another
+worktree's dirtiness from inside a subagent. Don't burn calls hunting
+for one. (Same gate also refuses a compound Bash call it can't verify
+stays in-worktree — a `for` loop over three input files, or
+`cmd && cmd; cmd` chains — with *"too complex to verify"*. Split into
+separate plain calls; the refusal is about static verifiability, not
+about the commands themselves.)
 
 **How to apply**: when `git checkout <branch>` reports "already used by
-worktree at `<path>`", don't fight it by trying `cd`/`-C` tricks or assuming
-the other agent is still running. Check the other worktree's state with
-`git --git-dir=<path>/.git --work-tree=<path> status --porcelain=v1
---branch` — if it's clean and matches `origin/<branch>` exactly (no
-divergence, nothing uncommitted), it's safe to `git worktree remove
-<path>` (no `--force` needed for a clean worktree; see
-[[never-force-worktree-remove]] in the sdlc-orchestrator/global memory for
-why `--force` itself is never appropriate). Then proceed with the normal
-`git fetch && git checkout <branch>` in your own worktree. If the other
-worktree is DIRTY or diverged, stop and escalate rather than removing it —
-that's someone else's uncommitted work, not routine staleness.
+worktree at `<path>`", don't fight it by trying `cd`/`-C`/`--git-dir`
+tricks or assuming the other agent is still running. Instead, from your
+OWN worktree:
+
+1. `git worktree list` — read the other worktree's SHA and confirm it
+   prints `[branch-name]` (a real claim) rather than `(detached HEAD)`.
+2. `git rev-parse origin/<branch>` — if the SHAs match, the other
+   worktree has nothing committed that origin lacks.
+3. `git worktree remove <path>` — **plain, never `--force`**. This IS
+   the dirtiness check: git refuses a worktree with uncommitted or
+   untracked files, so a clean exit 0 proves it was clean, and a refusal
+   is your signal to stop and escalate rather than destroy someone
+   else's work. See [[never-force-worktree-remove]] in the
+   sdlc-orchestrator/global memory for why `--force` is never
+   appropriate.
+
+Then proceed with the normal `git fetch && git checkout <branch>` in your
+own worktree. Worked first try on PR #208.
 
 **Don't over-trigger on this**: a spawn brief may flag a worktree at the
 target branch's old tip SHA as a possible claim to investigate. Check

@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-// #132: a path anchored to a command substitution whose output is a KNOWN
+// A path anchored to a command substitution whose output is a KNOWN
 // filesystem location ($(git rev-parse --show-toplevel), $(git rev-parse
 // --git-common-dir), $(pwd)/`pwd`) must resolve instead of failing closed to
 // a human ASK. Anchor resolution only makes the path KNOWABLE — it must never
 // bypass containment or the .git/ deny, and it must respect scopeDepth like
 // any other recorded assignment.
 
-// TestGitTopLevelAnchorResolvesToContainment_132 is the #126 shape-B repro:
+// TestGitTopLevelAnchorResolvesToContainment_132 is the shape-B repro:
 // `root=$(git rev-parse --show-toplevel); cat "$root/…"` must resolve and run
 // through normal containment (contained, not ASK) instead of failing closed
 // on the unresolvable command substitution.
@@ -54,7 +54,7 @@ grep -rn X "$root/plugins/"`
 // This must run from a linked WORKTREE (not a plain repo): a plain repo's
 // .git/ lives directly under its own topLevel, so testContainmentFrom
 // classifies it as merely `contained` (a literal .git/config read there
-// already ALLOWs today, pre-dating and unrelated to #132 — see
+// already ALLOWs today, pre-dating and unrelated to the anchor work — see
 // TestPrimaryCloneReadRelaxed_130 for the existing gated case). The .git/
 // deny fires via the escapeWorktree branch, which only diverges from
 // `contained` when commonDir sits outside THIS worktree's topLevel — i.e.
@@ -72,7 +72,7 @@ func TestGitCommonDirAnchorResolvesThenDeniesGitDir_132(t *testing.T) {
 }
 
 // TestPwdAnchorResolvesToTrackedCwd_132 pins the $(pwd)/`pwd` anchor: it must
-// resolve against the CD-TRACKED running cwd (#129's runningCWD), not ev.CWD
+// resolve against the CD-TRACKED running cwd (the tracked runningCWD), not ev.CWD
 // — a preceding `cd` changes what a real `pwd` would print.
 func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 	_, wt := setupWorktree(t)
@@ -120,11 +120,12 @@ func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 }
 
 // TestHomeAnchorStillDefersToClaudeConfigCarveOut_132 is regression coverage
-// for the #159 $HOME/$PWD env-var read-side resolution: $HOME must keep
-// resolving (this issue's remaining #HOME work is only to confirm the
-// existing behavior, not re-implement it). A $HOME-anchored path under
-// ~/.claude/ hits the claudeConfig carve-out (defer to settings.json),
-// distinct from the DENY a $HOME/.ssh/id_rsa path gets.
+// for the $HOME/$PWD env-var read-side resolution: $HOME must keep
+// resolving (this test confirms the existing behavior rather than pinning
+// anything new). A $HOME-anchored path under
+// ~/.claude/ hits the claudeConfig carve-out — not an escape, so the calling
+// track's own terminal for a contained target governs — distinct from the DENY
+// a $HOME/.ssh/id_rsa path gets.
 func TestHomeAnchorStillDefersToClaudeConfigCarveOut_132(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -175,7 +176,7 @@ func TestNonAllowlistedCmdSubstStillEscalates_132(t *testing.T) {
 // TestAnchorInSubshellDoesNotLeak_132 pins scopeDepth discipline for anchor
 // assignments: an anchor assigned inside a `( … )` subshell must not persist
 // into the program-global knownVars, exactly like any other recorded
-// assignment (#60 follow-up).
+// assignment (a follow-up to the assignment-tracking work).
 func TestAnchorInSubshellDoesNotLeak_132(t *testing.T) {
 	_, wt := setupWorktree(t)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}

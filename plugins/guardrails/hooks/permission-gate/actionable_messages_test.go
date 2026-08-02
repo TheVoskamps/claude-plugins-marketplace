@@ -7,7 +7,7 @@ import (
 )
 
 // trackerRefInReason matches the non-actionable issue-tracker pointers that
-// must never appear in an agent-facing Reason (#58): an "issue(s) #N" pointer,
+// must never appear in an agent-facing Reason: an "issue(s) #N" pointer,
 // or a bare "(#N)" parenthetical embedded in prose. An issue number
 // tells a blocked agent nothing about what to do — the Reason must be
 // self-sufficiently actionable. Deny/ask LABELS (the Operation field) may
@@ -64,6 +64,78 @@ func TestRemediationReasonsAreActionable_58(t *testing.T) {
 		}
 		if trackerRefInReason.MatchString(d.Reason) {
 			t.Errorf("%s: Reason carries a non-actionable issue-tracker pointer; got %q", c.name, d.Reason)
+		}
+	}
+}
+
+// TestScratchDestinationsNameResolvedRoot_193 is a class-level guard over every
+// deny that carries the prescriptive scratch guidance. The gate already holds
+// the resolved repository root (rc.topLevel — the same value the adjacent
+// cross-repo deny prints as `repo root %s`), so the prescription must name that
+// real, directly-usable path.
+//
+// The forbidden spellings, both live before this test: a literal
+// `<repo-root>` placeholder, which the model then resolves for itself and can
+// resolve to the primary clone rather than its own worktree; and a
+// `$(git rev-parse --show-toplevel)` incantation, which tells the model to run
+// a command for a value the gate is already holding. Call sites used to
+// disagree with each other AND with the helper's own doc comment.
+func TestScratchDestinationsNameResolvedRoot_193(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	repoRoot := canonicalize(repo)
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	sib := canonicalize(sibling)
+	primary, wt := setupWorktree(t)
+
+	fileWrite := func(cwd, target string) func() Decision {
+		return func() Decision {
+			return classifyFileTool(&Event{
+				ToolName: "Write", CWD: cwd, AgentType: "issue-developer",
+				ToolInput: []byte(`{"file_path":"` + target + `"}`),
+			})
+		}
+	}
+	bashWrite := func(cwd, cmd string) func() Decision {
+		return func() Decision {
+			return classifyBash(cmd, &Event{
+				HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "issue-developer",
+			})
+		}
+	}
+
+	cases := []struct {
+		name     string
+		wantRoot string
+		got      func() Decision
+	}{
+		{"file-tool .git-tree write", repoRoot, fileWrite(repoRoot, filepath.Join(repoRoot, ".git", "config"))},
+		{"file-tool cross-repo write", repoRoot, fileWrite(repoRoot, filepath.Join(sib, "x.txt"))},
+		{"file-tool worktree escape", wt, fileWrite(wt, filepath.Join(primary, "agents", "x.md"))},
+		{"bash .git-tree write", repoRoot, bashWrite(repoRoot, "touch "+filepath.Join(repoRoot, ".git", "x"))},
+		{"bash cross-repo write", repoRoot, bashWrite(repoRoot, "touch "+filepath.Join(sib, "x.txt"))},
+		{"bash worktree escape", wt, bashWrite(wt, "touch "+filepath.Join(primary, "x.md"))},
+	}
+
+	for _, c := range cases {
+		d := c.got()
+		wantBucket(t, d, BucketDeny, c.name)
+		if !containsSubstr(d.Reason, c.wantRoot+"/.claude/tmp/") {
+			t.Errorf("%s: the deny must prescribe the RESOLVED root %q; got %q", c.name, c.wantRoot, d.Reason)
+		}
+		if containsSubstr(d.Reason, "<repo-root>") {
+			t.Errorf("%s: the deny must not carry a <repo-root> placeholder; got %q", c.name, d.Reason)
+		}
+		if containsSubstr(d.Reason, "$(git rev-parse --show-toplevel)/.claude/tmp/") {
+			t.Errorf("%s: the deny must not tell the model to run rev-parse for a root the gate holds; got %q",
+				c.name, d.Reason)
+		}
+		// Both sanctioned destinations, per the prescriptive-remediation rule.
+		if !containsSubstr(d.Reason, harnessScratchDisplay()) {
+			t.Errorf("%s: the deny must also name the harness scratchpad handoff destination; got %q",
+				c.name, d.Reason)
 		}
 	}
 }

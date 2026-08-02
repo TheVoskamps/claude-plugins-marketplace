@@ -11,16 +11,25 @@ import (
 // tested; the worst result wins (escape → deny, contained → defer to the
 // normal pipeline).
 //
-// Writes and reads diverge on a primary-clone-escape target (#130): a
+// Writes and reads diverge on a primary-clone-escape target: a
 // mutating tool DENIES a target that resolves into the primary clone /
-// shared git dir (#127 — a write there corrupts state another worktree
+// shared git dir (a write there corrupts state another worktree
 // depends on), while a non-mutating (read) tool is CONTAINED there instead —
 // a linked worktree shares tracked content with the primary clone, so a read
 // discloses nothing new — except a target under `.git/`, which stays denied
-// for reads too (#125). Cross-repo escapes (#148, a genuine sibling repo)
+// for reads too. Cross-repo escapes (a genuine sibling repo)
 // are still denied for both reads and writes. The hook only DENIES on a
 // proven escape; an in-worktree (or now, primary-clone-read) path defers
 // (the normal pipeline / settings.json denyRead etc. still apply).
+//
+// The one path to an outright ALLOW here is the harness scratchpad
+// carve-out: when EVERY target of the call lands in an allow-eligible region
+// of the harness prefix (a session-shaped scratchpad directory for any tool;
+// the bundled-skills tree for a READ — see scratchAllowEligible), the call is
+// allowed rather than deferred, because a defer would still lose to a `/tmp`
+// deny entry in settings.json. A call that mixes such a target with any other
+// kind falls back to the ordinary defer, so the allow never rides along with a
+// path the gate has not blessed on its own terms.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -43,8 +52,19 @@ func classifyFileTool(ev *Event) Decision {
 			ev.ToolName, err))
 	}
 
+	// allScratch stays true only while EVERY target so far is an allow-eligible
+	// harness-prefix path — the sole ground for an outright ALLOW here.
+	// Eligibility is read/write-graded for the bundled-skills tree, so the
+	// call's class is computed once here from isMutatingFileTool, the same
+	// predicate the .git/-tree rule below already uses. badRoot records a
+	// scratchpad-root ASK without short-circuiting the walk, so a genuine
+	// escape later in the same call still outranks it.
+	readClass := !isMutatingFileTool(ev.ToolName)
+	allScratch := true
+	var badRoot Decision
+	haveBadRoot := false
 	for _, p := range paths {
-		// #125 (write half), broadened (#35 Fix 3): a file-mutating tool whose
+		// Write half, broadened to the whole tree: a file-mutating tool whose
 		// canonicalized target is anywhere under a `.git/` directory is a direct
 		// write to the git internals tree. This is denied independently of
 		// containment — an in-worktree `.git/` write would otherwise be
@@ -57,23 +77,27 @@ func classifyFileTool(ev *Event) Decision {
 			return deny("write:.git tree (#125)", fmt.Sprintf(
 				"Blocked: %s target '%s' is inside a .git/ directory. Directly editing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
-					"repo state. Git's own commands own that tree — do not hand-edit .git/. If you need a scratch "+
-					"file, write it under <repo-root>/.claude/tmp/ (already gitignored). If a setting is genuinely "+
-					"wrong, surface it to the human rather than rewriting it.",
-				ev.ToolName, p))
+					"repo state. Git's own commands own that tree — do not hand-edit .git/. %s If a setting is "+
+					"genuinely wrong, surface it to the human rather than rewriting it.",
+				ev.ToolName, p, scratchDestinations(rc.topLevel)))
 		}
 
 		res, real := testContainment(p, rc)
+		if !scratchAllowEligible(res, readClass) {
+			allScratch = false
+		}
 		switch res {
 		case escapeWorktree:
 			if !isMutatingFileTool(ev.ToolName) {
-				// #130: a Read of the primary clone / shared git dir is a read of
-				// content the worktree already shares — not the #127 hazard (that
+				// A Read of the primary clone / shared git dir is a read of
+				// content the worktree already shares — not the write hazard (that
 				// is a WRITE into the shared clone). The .git/ tree deny still
 				// applies independently (checked above via isUnderGitDir, though
 				// that check is gated to mutating tools — so re-check it here for
-				// the read case, since .git/ reads must stay gated too, per the
-				// issue's explicit requirement).
+				// the read case: a read of .git/ internals stays gated even where
+				// primary-clone reads are otherwise relaxed, because config and
+				// hooks disclose identity and executable content the shared-content
+				// argument does not cover).
 				if isUnderGitDir(real, rc) {
 					return deny("read:.git tree (#125)", fmt.Sprintf(
 						"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
@@ -90,24 +114,51 @@ func classifyFileTool(ev *Event) Decision {
 			return deny("containment:worktree-escape (#127)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 					"Writes and edits must land inside this worktree. Use the worktree-anchored path instead: %s. "+
-					"Anchor every absolute path to $(git rev-parse --show-toplevel). For scratch or temporary files, "+
-					"write under $(git rev-parse --show-toplevel)/.claude/tmp/ (already gitignored) rather than picking "+
-					"an arbitrary spot in the worktree; never use .git/ for scratch.",
-				ev.ToolName, p, real, rc.topLevel, correct))
+					"Anchor every absolute path to $(git rev-parse --show-toplevel). %s",
+				ev.ToolName, p, real, rc.topLevel, correct,
+				scratchDestinations(rc.topLevel)))
 		case escapeRepo:
 			return deny("containment:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves outside the current repository (%s, repo root %s). "+
 					"Tool-mediated reads and writes must stay within the current repo — do not reach into a sibling "+
 					"repo (e.g. another project's node_modules). If you need third-party API details, consult the "+
 					"dependency's published docs instead.%s",
-				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName)))
-		case claudeConfig:
-			// The agent's own ~/.claude global config tree (#247). Required
-			// startup reading, allow-listed in settings.json. Defer so that
-			// allow-list governs it rather than the #148 cross-repo deny.
+				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName, rc.topLevel)))
+		case harnessScratchBadRoot:
+			// Record, do not return: a later target may be a genuine escape,
+			// and a deny must outrank this ask.
+			badRoot = harnessScratchBadRootAsk("file:scratchpad-root (#193)",
+				fmt.Sprintf("%s target '%s'", ev.ToolName, p))
+			haveBadRoot = true
+		case harnessScratchSession:
+			// The harness's own per-session scratchpad directory: a
+			// region designated safe by construction. Eligible for the ALLOW
+			// terminal below, which outranks a settings.json /tmp deny.
+		case harnessScratchBundled:
+			// The harness's bundled-skills tree. A READ is eligible for
+			// the ALLOW terminal (scratchAllowEligible said so above); a WRITE
+			// already cleared allScratch, so it lands on the ordinary DEFER —
+			// the content is harness-installed and rewriting it is not this
+			// gate's to bless, but neither is it an escape to deny.
+		case claudeConfig, harnessScratch:
+			// Carve-outs that DEFER rather than deny, so the normal
+			// settings.json pipeline governs them: the agent's own ~/.claude
+			// global config tree (required startup reading, allow-listed
+			// in settings.json), and the part of the harness scratchpad prefix
+			// matching neither the session nor the bundled-skills shape
+			// (in the right tree but not provably either, so the gate has no
+			// opinion).
 		case contained:
 			// ok; keep checking the remaining paths
 		}
+	}
+	if haveBadRoot {
+		return badRoot
+	}
+	if allScratch {
+		return allow(fmt.Sprintf(
+			"%s targets only harness-owned regions under %s/ that are designated safe by construction (%s)",
+			ev.ToolName, harnessScratchDisplay(), eligibleScratchRegions(readClass)))
 	}
 	// All targets are inside this worktree — defer to the normal pipeline
 	// (settings.json denyRead, ask lists, etc. still apply).
@@ -121,7 +172,7 @@ func classifyFileTool(ev *Event) Decision {
 // denies/asks. The read-only-utility classifier (classifyReadOnlyUtility) uses
 // the same containment via containPathOperands but ALLOWs the contained form.
 //
-// #148: a bash-read targeting a sibling repo's node_modules is blocked.
+// A bash-read targeting a sibling repo's node_modules is blocked.
 func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event) Decision {
 	if sc.hasUnknownExpansion {
 		// A path built from a command substitution / unresolved variable can't
@@ -134,14 +185,14 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 		return d
 	}
 
-	if d, ok := containPathOperands(prog, pathOperands(args), sc, ev); !ok {
+	if d, ok := containPathOperands(prog, readTargets(args, sc), sc, ev); !ok {
 		return d
 	}
 	return deferToPipeline()
 }
 
 // cdInvalidAsk reports the fail-closed ASK for a command whose running cwd was
-// invalidated by an earlier dynamic `cd` (#129: `cd "$UNKNOWN" && cat ../x`).
+// invalidated by an earlier dynamic `cd` (`cd "$UNKNOWN" && cat ../x`).
 // A relative path operand cannot be safely resolved against an unknown cwd, so
 // this must be checked before containment runs — mirroring the existing
 // hasUnknownExpansion fail-closed check the same callers already perform. An
@@ -164,26 +215,35 @@ func cdInvalidAsk(prog string, sc simpleCommand) (Decision, bool) {
 // containPathOperands runs Engine B containment on a read-class command's path
 // operands. It returns ok=true when every operand is contained inside the
 // current worktree, is a non-.git/ read of the primary clone / shared git dir
-// (#130 — a linked worktree shares tracked content with the primary clone, so
-// this is not a disclosure), or is the carved-out ~/.claude tree (#247), so
-// the caller may proceed to its contained-path terminal (ALLOW for the
-// read-only-utility classifier, DEFER for classifyPathReader). When an
-// operand escapes, ok is false and the returned Decision is the appropriate
-// deny (#148 cross-repo, or #125 a .git/-tree read) / ask (no-repo-context
-// fail-closed) to return verbatim.
+// (a linked worktree shares tracked content with the primary clone, so
+// this is not a disclosure), or is one of the carve-outs (the ~/.claude tree,
+// or the harness scratchpad prefix), so the caller may proceed to its
+// contained-path terminal (ALLOW for the read-only-utility classifier, DEFER
+// for classifyPathReader).
+//
+// ok=false means the returned Decision is TERMINAL — return it verbatim.
+// Usually that is a deny (cross-repo, or a .git/-tree read) or an
+// ask (no-repo-context fail-closed, or a defective scratchpad root), but
+// it is also how the scratchpad ALLOW is delivered: when every operand
+// lands in a read-eligible region of the harness prefix (a session-shaped
+// scratchpad directory, or the bundled-skills tree), the read is allowed
+// outright rather than left to the caller's terminal, because the DEFER
+// terminal would still lose to a `/tmp` deny entry in settings.json. A deny
+// found anywhere in the operand walk returns immediately and so always
+// outranks both the ask and the allow.
 //
 // With no operands there is nothing to contain, so ok=true and the caller's
 // own terminal applies. The caller is responsible for the hasUnknownExpansion
 // AND cwdInvalid fail-closed checks before calling this (the dynamic-path /
 // unresolved-cwd messages differ by caller posture).
 //
-// sc carries the running cwd this command executes in (#129), tracked through
+// sc carries the running cwd this command executes in, tracked through
 // any preceding `cd` in the same parsed program; a relative operand resolves
 // against sc.cwd rather than ev.CWD, so `cd <subdir> && cmd ../x` resolves
 // `../x` relative to <subdir> as bash actually would. sc.cwd falls back to
 // ev.CWD when no `cd` preceded this command (extractSimpleCommands seeds the
 // running cwd from ev.CWD), so passing the zero simpleCommand{} preserves the
-// pre-#129 behavior for any caller that has no sc to thread (there are none
+// pre-cd-tracking behavior for any caller that has no sc to thread (there are none
 // left, but this keeps the fallback explicit).
 func containPathOperands(prog string, operands []string, sc simpleCommand, ev *Event) (Decision, bool) {
 	if len(operands) == 0 {
@@ -201,21 +261,33 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 	if base == "" {
 		base = ev.CWD
 	}
+	// See the ok=false contract above: allScratch drives the terminal
+	// ALLOW; badRoot is recorded rather than returned inline so a genuine
+	// escape later in the walk still outranks it. Every operand reaching this
+	// function is a READ operand by construction (containWriteOperands is the
+	// write track), which is what makes the bundled-skills tree allow-eligible
+	// here and not there — hence the literal readClass=true.
+	allScratch := true
+	var badRoot Decision
+	haveBadRoot := false
 	for _, p := range operands {
 		res, real := testContainmentFrom(p, base, rc)
+		if !scratchAllowEligible(res, true) {
+			allScratch = false
+		}
 		switch res {
 		case escapeRepo:
 			return deny("bash-read:cross-repo (#148)", fmt.Sprintf(
 				"Blocked: '%s' would read '%s' which resolves outside the current repository (%s, repo root %s). "+
 					"Do not read another repo's files (e.g. a sibling project's node_modules) to verify third-party "+
-					"APIs — use the dependency's published docs. Do not work around this by reading or writing under "+
-					".git/.",
-				prog, p, real, rc.topLevel)), false
+					"APIs — use the dependency's published docs. %s Do not work around this by reading or writing "+
+					"under .git/.",
+				prog, p, real, rc.topLevel, handoffHint())), false
 		case escapeWorktree:
-			// #130: a linked worktree SHARES tracked content with the primary
+			// A linked worktree SHARES tracked content with the primary
 			// clone / common dir, so reading a non-.git/ file there discloses
 			// nothing the worktree's own history doesn't already have. Relax to
-			// contained for reads — but the .git/ tree deny (#125/#35 Fix 3) MUST
+			// contained for reads — but the .git/ tree deny MUST
 			// survive independently of this relaxation: check it BEFORE relaxing.
 			if isUnderGitDir(real, rc) {
 				return deny("bash-read:.git tree (#125)", fmt.Sprintf(
@@ -224,13 +296,37 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 						"Do not work around this by reading or writing under .git/.",
 					prog, real)), false
 			}
-			// Not under .git/: a legitimate shared-content read (#125's stated
+			// Not under .git/: a legitimate shared-content read (the git-tree
 			// intent). Treat as contained rather than escalating.
-		case claudeConfig:
-			// The agent's own ~/.claude global config tree (#247) — required
-			// startup reading, allow-listed in settings.json. Treat as contained.
+		case harnessScratchBadRoot:
+			badRoot = harnessScratchBadRootAsk("bash-read:scratchpad-root (#193)",
+				fmt.Sprintf("'%s' operand '%s'", prog, p))
+			haveBadRoot = true
+		case harnessScratchSession, harnessScratchBundled:
+			// The harness's own per-session scratchpad directory and its
+			// bundled-skills tree: regions designated safe by
+			// construction. Both are read-eligible for the terminal ALLOW
+			// below — this is the read track, and reading a bundled skill is
+			// exactly what that tree is provisioned for.
+		case claudeConfig, harnessScratch:
+			// The agent's own ~/.claude global config tree (required
+			// startup reading, allow-listed in settings.json) and the part of
+			// the harness scratchpad prefix matching neither the session nor
+			// the bundled-skills shape. Treat both as contained, leaving
+			// the caller's own terminal to govern — which differs by track, and
+			// is the read-only-utility classifier's ALLOW for the two callers
+			// here that hold one. That is this track's pre-existing terminal for
+			// any contained operand, not a verdict either carve-out chose.
 		case contained:
 		}
+	}
+	if haveBadRoot {
+		return badRoot, false
+	}
+	if allScratch {
+		return allow(fmt.Sprintf(
+			"'%s' reads only harness-owned regions under %s/ that are designated safe by construction (%s)",
+			prog, harnessScratchDisplay(), eligibleScratchRegions(true))), false
 	}
 	return Decision{}, true
 }
@@ -260,29 +356,251 @@ func pathOperands(args []string) []string {
 	return out
 }
 
+// readTargets returns every path a read-class command reads: its path operands
+// (pathOperands) plus the sources of its input redirects (`cat < f`), which are
+// not argv operands and so appear in no arg list.
+//
+// The two are merged into ONE containment walk on purpose. A redirected read and
+// an operand read are the same read spelled two ways, so they must earn the same
+// verdict: `cat < ../sibling-repo/.env` denies exactly as
+// `cat ../sibling-repo/.env` does, an in-repo source behaves exactly as the
+// operand form, and a source in a read-eligible carve-out region rides the same
+// terminal ALLOW. Grading them anywhere else would let one spelling drift from
+// the other, which is the defect this closes: before, an input redirect was
+// graded nowhere at all, so `cat < /etc/passwd` reached the read-only-utility
+// classifier with zero operands to contain and was allowed outright.
+func readTargets(args []string, sc simpleCommand) []string {
+	// pathOperands returns a fresh slice, so appending to it aliases nothing.
+	return append(pathOperands(args), sc.inputRedirectTargets...)
+}
+
+// containInputRedirects grades the input-redirect sources of a WRITE-class
+// command (`tee f.md < /etc/passwd`) through the same read containment that
+// grades read operands, and reports ok=false with a TERMINAL deny/ask when one
+// of them escapes.
+//
+// The read tracks do not need this: they merge their input sources straight into
+// their operand walk via readTargets. A write command cannot, because
+// containPathOperands can also return an outright ALLOW (every operand landed in
+// a read-eligible carve-out region), and a read source is no grounds at all to
+// bless the command's WRITE. So the allow is discarded here and only the escape
+// verdicts are forwarded — an input redirect on the write track can lose the
+// ALLOW but never earn one.
+//
+// The caller is responsible for the hasUnknownExpansion / cwdInvalid fail-closed
+// checks, exactly as it is for its own operands.
+func containInputRedirects(prog string, sc simpleCommand, ev *Event) (Decision, bool) {
+	if len(sc.inputRedirectTargets) == 0 {
+		return Decision{}, true
+	}
+	d, ok := containPathOperands(prog, sc.inputRedirectTargets, sc, ev)
+	if ok || d.Bucket == BucketAllow {
+		return Decision{}, true
+	}
+	return d, false
+}
+
 // scratchHint returns the prescriptive scratch-destination guidance to append
-// to a containment-escape deny (#30). A guardrail that only forbids invites a
-// workaround; one that prescribes prevents it. The under-specified #148/#127
-// escapes used to leave the correct landing spot to the model's discretion,
+// to a containment-escape deny. A guardrail that only forbids invites a
+// workaround; one that prescribes prevents it. The cross-repo and
+// worktree-escape denies used to leave the landing spot to the model's
+// discretion,
 // and a plausible-but-wrong improvisation is to write under .git/ purely
 // because it is gitignored and in-repo, so it slips past containment.
 //
-// For a mutating tool ("I needed somewhere to put a file") the hint names the
-// canonical in-repo scratch destination, <repo-root>/.claude/tmp/ (already
-// gitignored repo-wide via the /**/tmp/ rule), and explicitly warns off .git/.
-// For a read tool the scratch recommendation is not load-bearing, so the hint
-// only forbids the .git/ workaround target. Returns a leading-space-prefixed
-// sentence (or "") so callers can append it inline.
-func scratchHint(toolName string) string {
+// For a mutating tool ("I needed somewhere to put a file") the hint names both
+// sanctioned destinations via scratchDestinations and explicitly warns off
+// .git/. For a read tool the scratch recommendation is not load-bearing, but
+// the handoff LOCATION is (the model may be reaching for a file another session
+// wrote), so the read hint names that plus the .git/ prohibition. Returns a
+// leading-space-prefixed sentence (or "") so callers can append it inline.
+//
+// repoRoot is the RESOLVED repository root (rc.topLevel), forwarded to
+// scratchDestinations — see there for why the gate names the real path rather
+// than a placeholder.
+func scratchHint(toolName string, repoRoot string) string {
 	if isMutatingFileTool(toolName) {
-		return " For scratch or temporary files, write under <repo-root>/.claude/tmp/ " +
-			"(already gitignored) instead of an out-of-repo path. Never write scratch files under .git/."
+		return " " + scratchDestinations(repoRoot)
 	}
-	return " Do not work around this by reading or writing under .git/."
+	return " " + handoffHint() + " Do not work around this by reading or writing under .git/."
+}
+
+// scratchDestinations returns the prescriptive scratch guidance every
+// containment-escape deny carries. A guardrail that only forbids invites a
+// workaround; one that prescribes prevents it. It names BOTH sanctioned
+// destinations, because prescribing only the in-repo one left an agent
+// with a genuine cross-repo / cross-session handoff file no legal landing spot
+// at all — and an under-specified denial is exactly what induces an improvised
+// bad write (e.g. under .git/, purely because it is gitignored and in-repo):
+//
+//   - repo-scoped scratch  -> <repo-root>/.claude/tmp/ (already gitignored)
+//   - cross-repo/-session  -> the harness scratchpad, <system-tmp>/claude-<uid>/
+//
+// repoRoot is the RESOLVED repository root — rc.topLevel, the same value the
+// adjacent cross-repo deny already prints as `repo root %s`. Every call site
+// has it in scope, so the message names a real, directly-usable absolute path.
+// It is deliberately neither a literal `<repo-root>` placeholder (which the
+// model then has to resolve for itself, and can resolve to the primary clone
+// rather than its own worktree) nor a `$(git rev-parse --show-toplevel)`
+// incantation the model is told to run for a value the gate is already
+// holding. A caller without a resolved root would have to pass a placeholder,
+// but there is none — do not add one without revisiting this comment.
+func scratchDestinations(repoRoot string) string {
+	return fmt.Sprintf(
+		"For repo-scoped scratch or temporary files, write under %s/.claude/tmp/ (already gitignored) "+
+			"instead of an out-of-repo path. For a file that must outlive this repo or this session (a "+
+			"cross-repo or cross-session handoff), use the harness scratchpad under %s/ instead. "+
+			"Never write scratch files under .git/.",
+		repoRoot, harnessScratchDisplay())
+}
+
+// harnessScratchBadRootAsk builds the ASK for a target that resolves through a
+// harness scratchpad root (<system-tmp>/claude-<uid>) that is not a plain
+// directory owned by this uid. The root is the one component of the
+// scratchpad path that needs its own check — see resolveHarnessScratchRoot for
+// why nothing below it does.
+//
+// The reason NAMES the defect (a symlink, a non-directory, another user's
+// directory) rather than reading as a containment escape, so an operator who
+// hits it diagnoses their own broken /tmp instead of concluding that the
+// carve-out has regressed.
+//
+// lead identifies the offending call in the caller's own voice, e.g.
+// `Write target '/tmp/claude-501/…'` or `'cat' operand '…'`.
+func harnessScratchBadRootAsk(op string, lead string) Decision {
+	defect := harnessScratchRootResolver().defect
+	if defect == "" {
+		// The root recovered between the containment test and this message.
+		defect = "not in the state the carve-out requires"
+	}
+	return ask(op, fmt.Sprintf(
+		"Blocked: %s resolves through the harness scratchpad root %s, which is %s rather than a plain directory "+
+			"owned by this user. The scratchpad carve-out needs a real directory to prove where a path under it "+
+			"actually lands, so this escalates to a human decision (fail-closed). This is the scratchpad-root "+
+			"check, NOT a containment escape — inspect %s (`ls -ld`) before re-running.",
+		lead, harnessScratchDisplay(), defect, harnessScratchDisplay()))
+}
+
+// handoffHint names the sanctioned cross-repo / cross-session handoff location
+// for a READ deny. The read side has no scratch-destination problem, but
+// it has the mirror-image one: a session reading back a handoff file another
+// session wrote needs to be told where that file legitimately lives, or the
+// deny reads as "this workflow is impossible" and invites a workaround.
+func handoffHint() string {
+	return fmt.Sprintf(
+		"A cross-repo or cross-session handoff file belongs under the harness scratchpad at %s/, "+
+			"which reads and writes are not blocked from.",
+		harnessScratchDisplay())
+}
+
+// scratchAllowEligible reports whether a harness-prefix containmentResult
+// may ride the outright ALLOW terminal, given whether the call is read-class.
+// It is the single place the read/write grading of the carve-out lives, and
+// every track calls it rather than restating the grading: classifyFileTool and
+// containPathOperands drive their allScratch flag from it, containWriteOperands
+// drives its deferForCarveOut flag from it, and redirectVetoesAllow grades a
+// redirect destination through it as a write operand. Keeping them on one
+// predicate is what stops them drifting apart:
+//
+//   - harnessScratchSession — always eligible. Writing to the session
+//     scratchpad is precisely the behavior the carve-out exists to permit.
+//   - harnessScratchBundled — eligible for a READ only. The bundled-skills
+//     tree is harness-installed content the model legitimately reads; a write
+//     there is not an escape to deny, but it is not something this gate has
+//     positive grounds to bless either, so it falls through to DEFER and the
+//     classifier decides.
+//
+// Everything else (including the non-shape-matching harnessScratch remainder)
+// is ineligible for THIS terminal. What happens then is the caller's own
+// terminal for a contained target, which is not one verdict across the board: a
+// DEFER on the file-tool, path-reader and write tracks, and the curated
+// read-utility track's ordinary ALLOW — the terminal that track already returns
+// for an in-repo operand and for the ~/.claude carve-out, decided long
+// before this carve-out existed.
+//
+// readClass is the caller's existing read/write predicate — isMutatingFileTool
+// on the file-tool track, operand position on the bash track (a
+// containPathOperands operand is read-class by construction, a
+// containWriteOperands one is not, and a redirect destination is a write by
+// definition). No new classification concept is introduced.
+func scratchAllowEligible(res containmentResult, readClass bool) bool {
+	switch res {
+	case harnessScratchSession:
+		return true
+	case harnessScratchBundled:
+		return readClass
+	default:
+		return false
+	}
+}
+
+// redirectVetoesAllow reports whether a command's real-file redirect
+// disqualifies it from the allow track.
+//
+// The veto used to be unconditional: sc.allowEligible() is false whenever
+// hasRedirectToFile is set, so `echo x > <scratchpad>/f` could never reach an
+// ALLOW no matter where the bytes landed — while `tee <scratchpad>/f` and
+// `cp <src> <scratchpad>/f`, the same write to the same region spelled through
+// argv, both allow via containWriteOperands. The redirect's stated rationale is
+// exfiltration / clobber risk, which is precisely what the session scratchpad
+// is designated safe against by construction; two spellings of one write cannot
+// have two verdicts, so the veto lifts for that destination and stays intact for
+// every other one (an in-repo file, a sibling repo, the bundled-skills tree, the
+// unshaped remainder of the prefix, /tmp at large).
+//
+// The lift is deliberately narrow, and fails closed on every axis:
+//
+//   - The destination is graded through scratchAllowEligible as a WRITE operand
+//     (readClass=false), the same predicate the three operand tracks use, so a
+//     redirect can never reach a region a `tee` to the same path could not.
+//   - Any unresolved expansion anywhere in the command (including in the
+//     redirect word itself, which sets hasUnknownExpansion) keeps the veto: a
+//     destination the gate cannot pin statically is not a destination it can
+//     bless.
+//   - An unresolvable running cwd keeps the veto, since a relative
+//     destination cannot then be resolved at all.
+//   - EVERY real-file destination must qualify: `cmd > <scratchpad>/f 2> ../x`
+//     still vetoes on the second one.
+func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
+	if !sc.hasRedirectToFile {
+		return false
+	}
+	if sc.hasUnknownExpansion || sc.cwdInvalid || len(sc.redirectTargets) == 0 {
+		return true
+	}
+	rc, err := resolveRepoContext(ev.CWD)
+	if err != nil {
+		// The boundary could not be established, so nothing can be proven to
+		// land inside the carve-out. Keep the veto.
+		return true
+	}
+	base := sc.cwd
+	if base == "" {
+		base = ev.CWD
+	}
+	for _, t := range sc.redirectTargets {
+		res, _ := testContainmentFrom(t, base, rc)
+		if !scratchAllowEligible(res, false) {
+			return true
+		}
+	}
+	return false
+}
+
+// eligibleScratchRegions names, in the allow reason, exactly the carve-out regions
+// that were eligible for THIS call's class — so a Write's reason does not
+// advertise the bundled-skills tree it could not have ridden. It is the prose
+// mirror of scratchAllowEligible and must be kept in step with it.
+func eligibleScratchRegions(readClass bool) string {
+	regions := "the session scratchpad, <project-slug>/<session-id>/{scratchpad,tasks}"
+	if readClass {
+		regions += ", or the bundled-skills tree"
+	}
+	return regions
 }
 
 // isMutatingFileTool reports whether the tool writes/edits files (as opposed to
-// Read, which only reads). The .git/config write rule (#125) applies only to
+// Read, which only reads). The .git/config write rule applies only to
 // mutating tools — reading .git/config is not an identity write.
 func isMutatingFileTool(name string) bool {
 	switch name {
@@ -294,8 +612,8 @@ func isMutatingFileTool(name string) bool {
 }
 
 // isUnderGitDir reports whether the canonicalized target is anywhere under a
-// git directory (#35 Fix 3, generalizing the former isGitConfigPath #125-config
-// rule to the whole .git/ tree). Two forms are matched:
+// git directory. It generalizes the former isGitConfigPath check, which matched
+// only .git/config, to the whole .git/ tree. Two forms are matched:
 //
 //   - The current repo's resolved shared git dir (rc.commonDir is <gitdir>);
 //     the target equals it or is nested under it. This is the precise,
@@ -324,7 +642,7 @@ func isUnderGitDir(real string, rc *repoContext) bool {
 }
 
 // correctWorktreePath rewrites a primary-clone path to its in-worktree
-// equivalent, for the #127 remediation message. Returns the original real
+// equivalent, for the worktree-escape remediation message. Returns the original real
 // path if the rewrite cannot be derived.
 func correctWorktreePath(real string, rc *repoContext) string {
 	if rc.primaryClone != "" && pathUnder(real, rc.primaryClone) {

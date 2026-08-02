@@ -8,8 +8,8 @@ provide (issue #247). It replaces the shell hooks
 
 ## What it does
 
-Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
-(uncertainty escalates to a human, never to allow):
+The gate's engines feed the allow/deny/ask (plus defer) decision,
+ask-defaulting (uncertainty escalates to a human, never to allow):
 
 - **Engine A — command classifier** (`engine_a_bash.go`,
   `classify_command.go`, `rules.go`, `readonly_util.go`,
@@ -127,12 +127,15 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
   `comm`, `paste`, `nl`, `fold`, `fmt`, `column`, `rev`, `realpath`,
-  `grep`, `printf`, `echo`, `basename`, `dirname`, `true`, `false`,
-  `seq`, `yes`, plus the conditionally-read-only `sed`, `awk`, `jq`,
-  `find`, and `tee` — **ALLOWs** the provably non-mutating form instead
-  of deferring (a defer then matches no `settings.json` allow entry and
-  prompts the user, the single largest prompt source). The ALLOW is
-  withheld — the line **defers** — when a real-file redirect or a
+  `ls`, `grep`, `printf`, `echo`, `basename`, `dirname`, `true`,
+  `false`, `seq`, `yes`, plus the conditionally-read-only `sed`, `awk`,
+  `jq`, `find`, and `tee` — **ALLOWs** the provably non-mutating form
+  instead of deferring (a defer then matches no `settings.json` allow
+  entry and prompts the user, the single largest prompt source). The
+  ALLOW is
+  withheld — the line **defers** — when a real-file redirect (other
+  than one whose every destination is a session-shaped harness
+  scratchpad, #193) or a
   command substitution / unresolved expansion is present (#1); when a
   utility is invoked in a **file-writing form** — a write-capable flag
   (`sed -i`, gawk `-i inplace`/`-p`/`-o`/`-d`, `sort -o`/`--output`,
@@ -144,15 +147,37 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
   utility enumerates its read-only flag grammar, and anything outside it
   defers. The read still **denies/asks** when a path operand escapes
-  containment (#148 cross-repo, #127 worktree). Pure-
+  containment (#148 cross-repo, #127 worktree) — and an **input
+  redirect source** (`cat < f`) is graded by that same containment,
+  including for a utility whose own operands are not paths, so
+  `tee /dev/null < ../sibling-repo/.env` cannot copy an out-of-repo
+  file to stdout under an allow. Pure-
   output utilities (`printf`, `echo`, `seq`, `true`/`false`, `yes`,
   `basename`, `dirname`) take no path operand and so ALLOW without a
-  `git rev-parse` fork. Pagers / binary dumpers (`less`, `more`, `od`,
+  `git rev-parse` fork of their own. Pagers / binary dumpers (`less`,
+  `more`, `od`,
   `xxd`, `hexdump`) are deliberately out of this ALLOW set: they keep
   the prior path-reader posture (contained → defer, escape →
   deny/ask). A redirect target built from a process substitution or
   unresolved expansion (`wc < <(grep x f)`, `cmd > "$DYNAMIC"`) marks
   the command unprovable so it cannot ride the allow track.
+  `ls` joined the set in #193: it was in neither bash read track, so it
+  deferred for every path while `find` and `grep` — both strictly more
+  capable — allowed, and the scratchpad carve-out's own worked example
+  (an `ls` of the bundled-skills hash directory) was false. It is
+  path-bearing like the rest, so an `ls` of a path outside the repo now
+  earns the ordinary #148 read deny rather than a defer. Its
+  fail-safe predicate models only flags that are bools in **both** GNU
+  and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`, `-w`)
+  are left unmodelled and defer. That gap holds no hole shut: the flag
+  model decides allow-*eligibility* only, while `pathOperands` keeps
+  every non-`-` token without consulting it, so `ls -I /etc` yields the
+  operand `/etc` either way — modelling those flags as value-taking
+  would make the verdict `deny` (eligible, then containment), i.e.
+  **stricter** than the current `defer`. They stay unmodelled because a
+  model must not assert an arity that is wrong on one of the two
+  platforms: as value flags the predicate misreads BSD's `ls -I .`, and
+  as bools it misreads GNU's `ls -w 80 .`.
 - **In-repo-write classifier** (`classify_inrepo_write.go`, #32): the
   write-side counterpart to the read-only-utility classifier. The agent
   can already mutate any in-repo file via the Write/Edit tools (Engine B
@@ -166,7 +191,13 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   operand that escapes the repo (#148) or the worktree into the primary
   clone (#127) **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies** (#125); an operand built from an
-  unresolved expansion **asks** (#1); a real-file redirect **defers**.
+  unresolved expansion **asks** (#1); a real-file redirect **defers**
+  unless every destination is a session-shaped harness scratchpad
+  (#193), the same graded veto the read track carries. An **input
+  redirect source** is graded by the *read* containment, so
+  `tee f.md < ../sibling-repo/.env` denies even though every operand
+  the parser sees is in-repo; a read source can only withhold this
+  classifier's allow, never earn it.
   `rm` is deliberately **excluded** (the conservative #32 posture): the
   highest-blast-radius mutating program stays on the ask/defer track so a
   human sees each one. `sed` and `tee` are dual-mode — their read-only
@@ -403,12 +434,28 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
   can inject hooks or corrupt repo state just as a `.git/config` write
   rewrites identity). Reads of `.git/` files are not writes and are
-  unaffected. If you need a scratch file, write it under
+  unaffected. If you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   (#127, #148) are **prescriptive** (#30): a write/edit escape names
   `<repo-root>/.claude/tmp/` as the scratch destination and warns
   against `.git/`, so an open-ended denial does not induce the model to
-  improvise a bad landing spot. See
+  improvise a bad landing spot. As of #193 they name a **second**
+  destination alongside it — the harness scratchpad,
+  `<system-tmp>/claude-<uid>/` — for a file that must outlive this repo
+  or this session, and the read-side denies name that handoff location
+  too; prescribing only the in-repo path left a genuine cross-repo
+  handoff with no legal landing spot, which is the same open-ended
+  denial in a different disguise. The in-repo destination is emitted as
+  the **resolved** root the gate is already holding (`rc.topLevel`, the
+  same value the cross-repo deny prints as `repo root %s`), not as the
+  literal `<repo-root>` placeholder written here and not as a
+  `$(git rev-parse --show-toplevel)` incantation for the model to run —
+  a placeholder resolves to the primary clone as easily as to the
+  agent's own worktree. `scratchDestinations` is the single helper every
+  deny that names it calls, and
+  `TestScratchDestinationsNameResolvedRoot_193` guards the property
+  across its call sites (the read-side denies name only the handoff
+  location, via `handoffHint`). See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
   for the convention. (3) **reading** a non-`.git/` file that resolves
   into the primary clone / shared git dir is **contained/defer** (ALLOW
@@ -419,7 +466,10 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   bash-read commands (`cat`, the read-only-utility set, `less`/`more`/
   pagers via `classifyPathReader`) alike. The `.git/`-tree deny is
   checked BEFORE this relaxation and survives independently for reads
-  too — `cat <primary-clone>/.git/config` still denies. The **write**
+  too — `cat <primary-clone>/.git/config` still denies. That deny is
+  reached from the primary-clone branch, so it does not extend to an
+  **in-repo** `.git/` read, which the curated read-utility track
+  allows; see "Gaps left in place deliberately" below. The **write**
   side is unaffected: Write/Edit/MultiEdit/NotebookEdit and the
   in-repo-write shell classifier still DENY a target that resolves to
   the primary clone (#127), and #148 cross-repo reads/writes are
@@ -447,7 +497,257 @@ Two engines feed the allow/deny/ask (plus defer) decision, ask-defaulting
   `<base>/~/...` and read as `contained` — a live fail-open, caught by
   round-3 review and closed by threading the resolver's
   home-unresolvable signal through `testContainmentFrom` directly (see
-  `canonicalizeFromResolver` in `engine_b_containment.go`).
+  `canonicalizeFromResolver` in `engine_b_containment.go`). (5) a
+  target whose canonical path lands under the harness's per-uid
+  scratchpad root, `<system-tmp>/claude-<uid>/`, is carved out of the
+  `/tmp` deny (#193). The harness provisions that tree and actively
+  directs the model to put temporary files there, so treating it as an
+  ordinary `/tmp` escape made the gate fight the harness: a hook deny
+  beats a `settings.json` allow, leaving the scratchpad unusable from
+  every repo session and leaving cross-repo / cross-session handoff
+  with no sanctioned home at all. The verdict is **graded on where
+  inside the prefix the target lands**, not a blanket defer — and it is
+  a function of **region × track**, not of region alone. The tracks are
+  the **path-reader** track (the `Read` file tool, and the
+  bash pagers / dumpers `less`, `more`, `od`, `xxd`, `hexdump`); the
+  **curated read-utility** track (`cat`, `head`, `grep`, `find`, `ls`,
+  … — the `readOnlyUtilities` table); and the **write** track
+  (`Write`/`Edit`/`NotebookEdit`, and bash write operands such as
+  `tee`, `cp`/`mv` destinations, and output redirects):
+
+  | region (canonicalized) | path-reader | curated read utility | write |
+  | --- | --- | --- | --- |
+  | remainder matches the session shape | `allow` | `allow` | `allow` |
+  | remainder matches the bundled-skills shape | `allow` | `allow` | `defer` |
+  | under the prefix, remainder matches neither | `defer` | `allow` | `defer` |
+  | the `claude-<uid>` root is not a plain, this-uid-owned directory | `ask` | `ask` | `ask` |
+  | anything else under `/tmp` | `deny` | `deny` | `deny` |
+
+  The curated read-utility column's `allow` on the unshaped-remainder
+  row is **pre-existing behavior of that track**, not something the
+  scratchpad carve-out decides: that classifier's terminal for any
+  contained-or-carved-out operand is an `allow`, which it already
+  returned for an in-repo operand and for the `~/.claude` carve-out
+  (#247). The row is recorded because the table has to describe what
+  the gate does, not what this carve-out chose. An earlier revision of
+  this table gave one verdict per region and was wrong about exactly
+  that row.
+
+  `allow` rather than `defer` for the session shape is deliberate:
+  writing to the scratchpad is precisely what we want to permit, and a
+  defer would leave the feature dead until every `/tmp` entry is
+  removed from `settings.json` — a hook allow outranks that list, a
+  defer does not. See `decision.go` for the restated bar `BucketAllow`
+  now holds.
+
+  The **session shape** is matched against the remainder left after
+  stripping the canonical root, never the full path, so the pattern is
+  platform-independent by construction and contains neither `/tmp` nor
+  `/private/tmp`:
+  `(-+[A-Za-z0-9]+)+/<uuid>/(scratchpad|tasks)(/|$)`. `<uuid>` is the
+  loose `8-4-4-4-12` hex shape with the version nibble deliberately
+  unpinned, so a generator change cannot break the match. A shape miss
+  costs a `defer`, not a denial, which is what makes a pattern this
+  tight affordable. The carve-out still covers the whole **per-uid
+  prefix** rather than the current session's own subdirectory, because
+  reading back what another session wrote is the point.
+
+  The `-+` in the project-slug part is load-bearing. The slug is the
+  session's absolute cwd with **every** non-alphanumeric character
+  rewritten to a dash, so any hidden directory in the path produces a
+  run of consecutive dashes — `/Users/<u>/.claude` slugs to
+  `-Users-<u>--claude`, and `/Users/<u>/.config/macos-setup` to
+  `-Users-<u>--config-macos-setup`, both ordinary session directories
+  with the standard `scratchpad`/`tasks` layout. The first
+  implementation round shipped a single-dash-only
+  `(-[A-Za-z0-9]+)+`, faithfully implementing an earlier revision of
+  #193's spec, and thereby excluded every such session — silently
+  reintroducing this issue's own symptom for them. The widening stops
+  at the quantifier: the character class stays `[A-Za-z0-9]`, which is
+  exactly the alphabet the harness emits.
+  `TestHarnessShapesMatchLiveLayout_193` walks the machine's real
+  prefix and asserts every existing session directory matches, so the
+  next such claim is checked against the filesystem rather than
+  against the issue body.
+
+  The **bundled-skills shape** covers the harness-managed, non-session
+  sibling living under the same prefix,
+  `bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...`. It is
+  the one carve-out whose verdict is **read/write-graded**: a read is
+  `allow` (reading a bundled skill is what the tree is for), a write is
+  `defer` (the content is harness-installed, so the gate has no
+  positive grounds to bless a rewrite — but neither is it an escape to
+  deny; the classifier decides). The grading uses the read/write
+  predicate each track already has — `isMutatingFileTool` on the
+  file-tool track, operand position (`containPathOperands` vs.
+  `containWriteOperands`) on the bash track — and every track asks the
+  single `scratchAllowEligible` helper for the verdict rather than
+  restating it in its own switch, so they cannot drift. The redirect
+  grading below asks the same helper, passing `readClass=false`,
+  because a redirect destination is a write. The match ends at `(/|$)`
+  right after the 32-hex segment, so an `ls` of the hash directory
+  itself is covered, not only files beneath it — an example that is
+  true only because `ls` is on the read-only-utility ALLOW track; it
+  was not until #193's third round, and the claim was false until then.
+
+  The version component is **shape**-checked (`major.minor.patch`) and
+  deliberately not pinned to the running Claude Code version: the hook
+  event carries no version field, so the only source would be
+  `CLAUDE_CODE_EXECPATH` in the environment — the same defect that
+  rules out `os.TempDir()`/`$TMPDIR` below. Shape-checking also
+  survives an upgrade, where the previous version's directory lingers
+  beside the new one. The evidence base here is narrower than for the
+  session shape (one version directory, one hash directory, one
+  machine), so a channel-tagged version such as `2.1.220-beta.1` is a
+  known miss — costing a read a `defer`, never a denial.
+
+  `<uid>` comes from `os.Getuid()` at runtime — never hardcoded, never
+  a `claude-*` glob, which would match another user's prefix
+  (`claude-501` and `claude-503` do coexist on real machines). The
+  system temp directory is the literal `/tmp` and NOT `os.TempDir()`:
+  `os.TempDir()` honours `$TMPDIR` (a `/var/folders/...` path on macOS
+  that the harness does not use), and deriving a security carve-out
+  from an environment variable would let whatever set that variable
+  relocate it to an arbitrary directory.
+
+  **Both `/tmp` and `/private/tmp` spellings** are handled by
+  canonicalizing *both sides*, with no literal enumeration of either.
+  Enumerating the two literals would be actively wrong on Linux, where
+  there is no `/tmp` symlink and `/private/tmp` is a genuinely
+  different directory a literal allow-list would wrongly match.
+
+  **Symlinks.** The threat is Claude Code writing to a wrong path,
+  accidentally or otherwise — not a hostile local user contesting the
+  region. Only the `claude-<uid>` root gets its own check
+  (`os.Lstat` on the final component after `EvalSymlinks` on the
+  parent; `Lstat`-ing the whole path would break macOS outright, where
+  `/tmp` is itself a symlink), and a defective root yields the `ask`
+  above with a reason naming the defect, so the failure is not mistaken
+  for this bug reappearing. Nothing **below** the root needs a check:
+  canonicalization already resolves those components and produces a
+  better verdict than an `Lstat` refusal would — a symlinked
+  `scratchpad` -> `~/.ssh` resolves out of the region and earns the
+  ordinary deny. The root is the unique hole for a structural reason:
+  the root is canonicalized too, so a symlink *there* moves the
+  comparison root together with the target and `pathUnder` still
+  matches, whereas every other component moves only the target and the
+  mismatch surfaces on its own. A symlink pointing *within* the region
+  is cross-session handoff working as intended, and is allowed.
+
+  **Reaching the carve-out from bash.** A carve-out the bash track
+  cannot reach is not a carve-out, and gates sat in front of this one
+  until #193's third round. The first was the read-only-utility
+  table's missing `ls`, described above. The second was the redirect
+  veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
+  set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
+  well-contained it was — while `tee <scratchpad>/f` and
+  `cp <src> <scratchpad>/f` write the same bytes to the same region
+  under an ALLOW, via `containWriteOperands`. The veto's stated
+  rationale is exfiltration / clobber risk, which is exactly what this
+  region is designated safe against by construction, and two spellings
+  of one write cannot carry two verdicts. So `redirectVetoesAllow`
+  grades the destination instead of vetoing on the bare bool, and lifts
+  **only** for the session shape: an in-repo destination, the
+  bundled-skills tree, the unshaped remainder of the prefix, and `/tmp`
+  at large all keep the veto, as do a destination the gate cannot
+  resolve statically (#1), an unresolvable running cwd (#129), and a
+  command whose *other* redirect escapes the region. The lift reaches
+  exactly the allow tracks that call `redirectVetoesAllow` — the
+  read-only-utility classifier and the in-repo-write classifier. The
+  credentialed-tool classifiers are untouched: `git`/`gh`/`aws` keep
+  their unconditional redirect-to-file **ask**, and `acli` keeps
+  gating its read-only allow on the ungraded `allowEligible()`, so a
+  redirect there still **defers**. Those guard credentialed command
+  output, a different concern from where a scratch file lands.
+
+  **Input redirects are contained like operands.** A carve-out is only
+  meaningful if the surrounding denial holds, and it did not: an input
+  redirect reads a file without that file ever becoming an argv
+  operand, so `reduceCallExpr` — which switched on `r.Op` over the
+  output ops only — recorded nothing, and `cat < /etc/passwd` reached
+  the read-only-utility classifier with **zero** operands to contain
+  and was allowed outright. `syntax.RdrIn` targets are now recorded in
+  `inputRedirectTargets`, a field deliberately distinct from
+  `redirectTargets`: a read is not a write, and one list for both would
+  either veto reads with the write veto or let a read-eligible region
+  authorize a write. The read tracks merge those sources into the same
+  containment walk that grades their operands (`readTargets`), so the
+  two spellings of one read cannot carry two verdicts —
+  `cat < ../sibling-repo/.env` denies exactly as
+  `cat ../sibling-repo/.env` does, an in-repo source behaves exactly as
+  the operand form, and a session-scratchpad source allows. The write
+  track grades them too (`containInputRedirects`), because
+  `tee f.md < ../sibling-repo/.env` copies an out-of-repo file into the
+  repo while every operand it parses is contained; there the read
+  source can only lose the ALLOW, never earn one. Heredocs and
+  herestrings (`<<`, `<<-`, `<<<`) are inline text, not file reads, and
+  are deliberately not swept in; `<>` is graded for its read half but
+  sets no write flag, since `hasRedirectToFile` is checked *before*
+  containment and would replace this deny with a defer. An input source
+  built from an unresolved expansion fails closed on the existing
+  dynamic-path `ask`.
+
+  **A redirect on a compound command is graded like one on a simple
+  command.** Redirects live on the enclosing `*syntax.Stmt`, and only
+  `walkCmd`'s `CallExpr` arm consumed the ones it was handed; every
+  compound arm recursed with the *inner* statement's redirects and
+  dropped the outer statement's. So `{ cat; } < /etc/passwd` reduced to
+  an operand-less `cat` and **allowed**, and `{ echo x; } > <out-of-repo>`
+  reduced to a bare, allow-eligible `echo` and **allowed** an arbitrary
+  out-of-repo write — a positive allow, which outranks `settings.json`.
+  Every compound arm (`Block`, `Subshell`, `IfClause` including its
+  `else`, `ForClause`, `WhileClause`, `CaseClause`, `FuncDecl`,
+  `TimeClause`, `CoprocClause`, `BinaryCmd`) now forwards the effective
+  redirect set to the statements it descends into, so the redirect
+  reaches every command inside — which is what bash does with it.
+  Nesting composes rather than shadowing: bash performs *both* opens, so
+  `{ cat < a; } < b` grades a and b. A command substitution deliberately
+  inherits **nothing**, because bash expands it before applying the
+  enclosing command's redirections, so its inner command reads the
+  shell's stdin, not the redirected file.
+
+  **Redirects with no command at all.** Some statements run no program
+  yet still perform their redirects: a bare `> f` (the truncate idiom,
+  which parses to a statement with no `Cmd`), `[[ … ]] > f`,
+  `(( … )) > f`, `let n=1 > f`, `export A=1 > f`, an empty
+  `case q in esac > f`, and a bare `A=1 > f`. None of them emitted a
+  command, so their paths were graded nowhere, and
+  `[[ -f x ]] > <out-of-repo> && echo hi` reduced to the lone
+  allow-eligible `echo hi` and **allowed** while the shell created the
+  file. Such a statement now emits a synthetic **redirect-only** command
+  (`simpleCommand.redirectOnly`), graded by `classifyRedirectOnly` on the
+  paths its redirects open — the redirect veto, then read containment,
+  then the unknown-expansion fallback, in the same order and through the
+  same helpers `classifyReadOnlyUtility` uses for a utility with no path
+  operands of its own. The result is the operand form's verdict in every
+  case: `> <out-of-repo>` defers like `echo x > <out-of-repo>`,
+  `> <scratchpad>/f` allows like `echo x > <scratchpad>/f`, and
+  `< /etc/passwd` denies like `cat < /etc/passwd`. A redirect that names
+  no file (`> /dev/null`, `>&2`, a heredoc) is not emitted at all, so it
+  costs the line nothing.
+
+  **Gaps left in place deliberately.** Read containment reaches the two
+  read tracks and the write track — and nothing else. It does not reach
+  the credentialed-tool classifiers, which gate on `hasRedirectToFile`
+  (an *output* redirect) alone and never consult
+  `inputRedirectTargets`, so `git status < /etc/passwd` allows, as do
+  the `gh`, `aws` and `acli` spellings of the same shape. Extending
+  read containment into them is a materially larger blast radius than
+  the carve-out carries, and is not attempted here. Separately, an
+  **in-repo** `.git/` read on the curated read-utility track allows
+  (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
+  write path and on the primary-clone read branch, not for an ordinary
+  contained read. Both gaps predate the input-redirect grading, and
+  each holds identically for its operand and redirect spellings —
+  `cat < <repo-root>/.git/config` allows exactly as
+  `cat <repo-root>/.git/config` does. That is the equivalence rule
+  working as specified, not a hole the redirect grading opened.
+
+  Every other `/tmp` path — including another uid's
+  `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.
+  Neither the carve-out nor the root `ask` short-circuits the operand
+  walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
+  its destination.
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the
@@ -458,6 +758,28 @@ Every ASK and DENY is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
 `PERMISSION_GATE_LOG`) for promoting recurring ASKs into explicit
 rules.
+
+## Comments state the invariant, not the ticket
+
+A Go comment in this package states its invariant **in place** rather
+than pointing the reader at an issue number. Code must be authoritative
+and stand on its own: a comment reading "pre-existing #32 behavior"
+states no invariant — it makes the reader fetch a ticket to learn the
+rule, and the pointer that prompted this convention was not even
+correct, it named the wrong issue. Provenance needs no help from the
+comment; `git blame` yields the line, the commit, the merge, the PR and
+the issue on demand, without every comment carrying a pointer that
+rots. Where a reference carried real reasoning, that reasoning was
+restated inline (or, when it is a design decision rather than a local
+invariant, recorded in this README) instead of being dropped with the
+number.
+
+Agent-facing `Reason` text is a different surface, and the text the
+gate emits is behavior rather than documentation: `trackerRefInReason`
+(`TestRemediationReasonsAreActionable_58`) asserts that no deny/ask
+`Reason` carries a bare issue pointer, because an issue number tells a
+blocked agent nothing about what to do — a Reason must be
+self-sufficiently actionable.
 
 ## Rules are compiled in
 

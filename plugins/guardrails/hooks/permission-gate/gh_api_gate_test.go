@@ -5,18 +5,18 @@ import (
 	"testing"
 )
 
-// Adversarial coverage for #113: the gh-api gate that unblocks the issues
-// plugin's `gh api` (graphql + REST) usage. The old #64 behavior — graphql →
+// Adversarial coverage for the gh-api gate that unblocks the issues
+// plugin's `gh api` (graphql + REST) usage. The old behavior — graphql →
 // DENY, every REST GET → ASK — walled off the entire issues plugin. This suite
 // pins the new behavior: query-only graphql documents ALLOW, mutation documents
 // ASK (naming the field), unclassifiable graphql DENYs; allow-listed REST GETs
-// ALLOW. Per #162, the REST/graphql write tiers (non-GET method, implicit-POST
+// ALLOW. The REST/graphql write tiers (non-GET method, implicit-POST
 // body flag, method-override header) ASK rather than DENY — a `gh api` REST
 // write is a credential-carrying remote mutation the microVM cannot roll back,
-// the same class as an `aws` mutation (#124); --hostname keeps its own DENY
+// the same class as an `aws` mutation; --hostname keeps its own DENY
 // (the one shape the egress proxy's host-allowlist can see and control).
 //
-// Per #195 the mutation ASK is narrowed by a curated issue-metadata allowlist:
+// The mutation ASK is narrowed by a curated issue-metadata allowlist:
 // a document whose EVERY top-level mutation field is on it ALLOWs (subject to
 // the same redirect-to-file ASK), while any other mutation-bearing document
 // keeps today's ASK naming the fields.
@@ -60,7 +60,7 @@ func TestGhAPIGraphQLQueryOnly_113(t *testing.T) {
 // A mutation-bearing document → ASK, and the reason must name the top-level
 // mutation field(s) so the human sees what is being written.
 //
-// The fields exercised here are deliberately OFF the #195 issue-metadata
+// The fields exercised here are deliberately OFF the issue-metadata
 // allowlist — an allow-listed field now ALLOWs, and that path is pinned by the
 // _195 tests below. This test owns the residual "any other mutation" ASK.
 func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
@@ -97,11 +97,11 @@ func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
 	}
 }
 
-// --- #195: the curated issue-metadata mutation allowlist ---------------------
+// --- the curated issue-metadata mutation allowlist ---------------------------
 
 // A mutation document whose every top-level field is on the curated allowlist
 // ALLOWs — the issues plugin's sanctioned metadata writes, which cost 2–5
-// prompts per triage pass under the plain "any mutation → ASK" rule of #113.
+// prompts per triage pass under the plain "any mutation → ASK" rule.
 func TestGhAPIGraphQLAllowlistedMutationAllows_195(t *testing.T) {
 	for _, cmd := range []string{
 		// Every allow-listed field, one document each (the enumerated list).
@@ -166,7 +166,7 @@ func TestGhAPIGraphQLMixedMutationAsks_195(t *testing.T) {
 			[]string{"deleteIssue"},
 		},
 		// A subscription bundled with an allow-listed mutation rides no
-		// allowlist entry — it keeps the pre-#195 ASK verdict.
+		// allowlist entry — it keeps the un-narrowed ASK verdict.
 		{
 			`gh api graphql -f query='subscription s { x } mutation m { addSubIssue(input: {}) { issue { id } } }'`,
 			[]string{"addSubIssue"},
@@ -208,13 +208,13 @@ func TestGhAPIGraphQLAllowlistedMutationWithVariables_195(t *testing.T) {
 	}
 }
 
-// Fragment indirection may never reach the #195 ALLOW. topLevelSelectionFields
+// Fragment indirection may never reach the allowlist ALLOW. topLevelSelectionFields
 // names the identifier that FOLLOWS a `...`, and the top-level walk discards
 // fragment-definition bodies, so a spread NAMED after an allow-listed mutation
 // would otherwise launder an arbitrary one: GitHub's mutation root type is
 // literally `Mutation`, so `fragment addSubIssue on Mutation { deleteIssue(…) }`
 // is a valid type condition that executes. Any fragment-bearing mutation
-// document therefore keeps its pre-#195 ASK.
+// document therefore keeps the un-narrowed ASK.
 func TestGhAPIGraphQLFragmentBearingMutationAsks_195(t *testing.T) {
 	for _, cmd := range []string{
 		// The exploit: a spread named after an allow-listed field, whose
@@ -233,7 +233,7 @@ func TestGhAPIGraphQLFragmentBearingMutationAsks_195(t *testing.T) {
 		// Conservative by design: even a benign fragment in an allow-listed
 		// mutation's PAYLOAD selection withholds the ALLOW. The gate does not
 		// resolve fragments, so it cannot tell this one from the exploits above;
-		// falling back to the pre-#195 ASK is the safe direction.
+		// falling back to the un-narrowed ASK is the safe direction.
 		`gh api graphql -f query='mutation { addSubIssue(input: {}) { issue { ...F } } } fragment F on Issue { id }'`,
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "graphql fragment-bearing mutation: "+cmd)
@@ -302,7 +302,7 @@ func TestGhAPIGraphQLDuplicateQueryFieldDenies_113(t *testing.T) {
 }
 
 // The graphql write tiers still fire regardless of the document: an explicit
-// non-GET method ASKs (#162) and --hostname still DENYs, both before document
+// non-GET method ASKs and --hostname still DENYs, both before document
 // classification.
 func TestGhAPIGraphQLWriteTiersUnchanged_113(t *testing.T) {
 	wantBucket(t, classifyCmd(t, `gh api -X DELETE graphql -f query='query { viewer { login } }'`, false), BucketAsk, "graphql -X DELETE")
@@ -363,8 +363,9 @@ func TestGhAPIRESTDeny_113(t *testing.T) {
 	}
 }
 
-// The REST write tiers ASK (#162; DENY under #113 for all but --hostname,
-// which keeps its own DENY justification — see rules.go classifyGhAPI).
+// The REST write tiers ASK (they denied outright before this gate, for all but
+// --hostname, which keeps its own DENY justification — see rules.go
+// classifyGhAPI).
 func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 	for _, cmd := range []string{
 		// implicit-POST via body flag (no explicit GET) on an allow-listed endpoint.
@@ -386,7 +387,7 @@ func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 }
 
 // Redirect-to-file on an otherwise-allowed gh api form → ASK (the shared
-// redirect carve-out, now reachable on the ALLOW path #113 opened).
+// redirect carve-out, now reachable on the ALLOW path the gh-api gate opened).
 func TestGhAPIRedirectToFileAsks_113(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh api user --jq .login > /tmp/out.txt", false), BucketAsk, "REST allow + redirect")
 	wantBucket(t, classifyCmd(t, `gh api graphql -f query='query { viewer { login } }' > /tmp/out.txt`, false), BucketAsk, "graphql allow + redirect")

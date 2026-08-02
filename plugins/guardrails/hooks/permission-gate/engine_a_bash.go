@@ -12,16 +12,16 @@ import (
 )
 
 // varResolver supplies the authoritative sources for the closed allowlist of
-// process-environment-derived variables ($HOME, $USER, $TMPDIR) that #156
-// widens literalWord/isResolvableParamExp to resolve when a name is absent
+// process-environment-derived variables ($HOME, $USER, $TMPDIR) that
+// literalWord/isResolvableParamExp may resolve when a name is absent
 // from knownVars. $PWD and $OLDPWD are deliberately NOT resolved through this
 // struct — they come from the per-command tracked cwd (simpleCommand.cwd /
 // cwdInvalid and their oldCWD counterparts, threaded separately through
 // reduceCallExpr), because the hook's process-env $PWD is the EVENT cwd and
 // would be wrong after an in-script `cd` (see the "$PWD must NOT come from
-// the process environment" note in issue #156).
+// the process environment" note in the var-resolution design).
 //
-// Fields are injectable funcs (mirroring PR #139's `homeDir` resolver for
+// Fields are injectable funcs (mirroring the `homeDir` resolver for
 // `~`) so the fail-closed branches (homeDir erroring/empty, a var absent from
 // the process env) are deterministically testable rather than dependent on
 // ambient environment.
@@ -66,8 +66,8 @@ var cwdResolvableNames = map[string]bool{
 }
 
 // cwdCtx carries the per-command tracked-cwd state literalWord needs to
-// resolve $PWD/$OLDPWD (#156): the running cwd and its validity (mirroring
-// simpleCommand.cwd/cwdInvalid, #129) plus the PRIOR cwd and its validity
+// resolve $PWD/$OLDPWD: the running cwd and its validity (mirroring
+// simpleCommand.cwd/cwdInvalid) plus the PRIOR cwd and its validity
 // (for $OLDPWD, recorded by applyCd on each `cd`). The zero value (all
 // fields empty/invalid) makes $PWD/$OLDPWD fail closed, which is correct
 // for any call site that has no tracked cwd to offer (e.g. a RHS assignment
@@ -110,7 +110,7 @@ func classifyBash(command string, ev *Event) Decision {
 	}
 
 	// Resolve the git context once, up front, so recordAssign can recognize
-	// the #132 command-substitution anchors ($(git rev-parse
+	// the command-substitution anchors ($(git rev-parse
 	// --show-toplevel), $(git rev-parse --git-common-dir)). A resolution
 	// failure (not inside a git work tree, git missing, timeout) leaves rc
 	// nil; every anchor-recognition call below treats a nil rc as "cannot
@@ -165,7 +165,17 @@ func classifyBash(command string, ev *Event) Decision {
 		// wins only (§4 posture).
 		return deferToPipeline()
 	}
-	return allow("all command parts are provably read-only / non-mutating")
+	// Every part earned BucketAllow. The reason must state the bar that bucket
+	// actually holds (decision.go, BucketAllow) — POSITIVE GROUNDS, not
+	// "provably read-only / non-mutating". That older wording was falsified by
+	// the allow track's own write classifiers: `tee <scratchpad-file>` and an
+	// in-worktree `cp` both reach here with BucketAllow while plainly mutating,
+	// so the line claimed something the gate had not established. Restated
+	// rather than deleted, because a reason surfaced to the model should say
+	// why the call was blessed.
+	return allow("every command part has positive grounds to be safe: the operation itself cannot write, " +
+		"or its targets are confined to a region designated safe by construction (this worktree, or the " +
+		"harness scratchpad)")
 }
 
 // simpleCommand is a flattened view of one executed command: the program
@@ -178,23 +188,56 @@ type simpleCommand struct {
 	args []string
 	// hasUnknownExpansion is true when any word contained a command
 	// substitution or an unresolved parameter expansion. Such a command
-	// cannot be statically proven safe (#1), so it must not ALLOW.
+	// cannot be statically proven safe, so it must not ALLOW.
 	hasUnknownExpansion bool
 	// hasRedirectToFile is true when the command redirects stdout/stderr to a
 	// real file (not /dev/null). Such a command can exfiltrate/clobber and
 	// must not ride an allow-listed prefix.
 	hasRedirectToFile bool
+	// redirectTargets holds those real-file redirect destinations, verbatim, in
+	// the order they appeared. They are NOT argv operands, so neither Engine B
+	// operand walk (containPathOperands / containWriteOperands) ever sees them;
+	// recording them is what lets redirectVetoesAllow grade the destination
+	// instead of vetoing on the bare bool. A `/dev/null` target is not
+	// recorded — it does not set hasRedirectToFile either.
+	redirectTargets []string
+	// inputRedirectTargets holds the files an INPUT redirect opens for reading
+	// (`cmd < f`, and the read half of `cmd <> f`), verbatim, in the order they
+	// appeared. Deliberately a separate field from redirectTargets: a read is not
+	// a write, and conflating the two would either wrongly veto reads (an input
+	// redirect is not the exfiltration/clobber risk the write veto guards) or
+	// wrongly permit writes (a read-eligible carve-out region is not
+	// write-eligible). An input redirect reads a file WITHOUT that file ever
+	// becoming an argv operand, so neither operand walk sees it either; recording
+	// it is what lets the read tracks put it through the same containment that
+	// grades their operands, so `cat < ../sibling-repo/.env` earns the same deny
+	// as `cat ../sibling-repo/.env`. A `/dev/null` source is not recorded (it
+	// discloses nothing, and containment would read it as an out-of-repo path).
+	inputRedirectTargets []string
+	// redirectOnly marks a synthetic command that carries NOTHING BUT redirects:
+	// the statement they were attached to runs no program at all (a bare `> f`,
+	// `[[ -f x ]] > f`, `(( i++ )) > f`, `let n=1 > f`, `export A=1 > f`,
+	// `case q in esac > f`, a bare `A=1 > f` assignment). The shell still performs
+	// the redirect — the file is created, truncated, or opened for reading — so the
+	// paths it names must still be graded, and before this existed they were graded
+	// nowhere: the construct emitted no simpleCommand, so a line like
+	// `[[ -f x ]] > <out-of-repo> && echo hi` reduced to a lone allow-eligible
+	// `echo hi` and ALLOWed while the shell performed the out-of-repo write.
+	// args[0] carries a display name for the decision text only, never a real
+	// program; classifySimpleCommand branches on this flag BEFORE any program
+	// dispatch, so the name is never matched against a rule table.
+	redirectOnly bool
 	// hasInlineAssignment is true when the command carried an inline
 	// environment-assignment prefix (`AWS_ENDPOINT_URL=… aws …`,
 	// `GIT_SSH_COMMAND=… git …`, `GH_HOST=… gh …`). Such a prefix can redirect
 	// egress, swap identity, or inject a pager without ever touching argv, so
-	// the git/gh/aws classifiers DENY on it (issue #64 precondition). The
+	// the git/gh/aws classifiers DENY on it (a stated precondition). The
 	// prefix is stripped from args[] by stripEnvWrapper so the real program is
 	// at args[0]; this flag preserves the fact that it was present.
 	hasInlineAssignment bool
 	// cwd is the RUNNING working directory this command executes in, tracked
-	// through any `cd <arg>` that appeared earlier in the same parsed program
-	// (#129). Seeded from ev.CWD and updated left-to-right as the walk crosses a
+	// through any `cd <arg>` that appeared earlier in the same parsed program.
+	// Seeded from ev.CWD and updated left-to-right as the walk crosses a
 	// statically-resolvable `cd`. Relative path operands on this command must be
 	// resolved against cwd, not blindly against ev.CWD, so `cd <subdir> && cmd
 	// ../x` resolves `../x` relative to <subdir> as bash actually would.
@@ -205,7 +248,7 @@ type simpleCommand struct {
 	// cannot be safely resolved and must fail closed (treated as unknown), even
 	// though absolute operands are unaffected.
 	cwdInvalid bool
-	// oldCWD / oldCWDInvalid are $OLDPWD's tracked source (#156): the running
+	// oldCWD / oldCWDInvalid are $OLDPWD's tracked source: the running
 	// cwd's value immediately BEFORE the most recent statically-resolvable
 	// `cd` that preceded this command in the walk. Stamped alongside cwd at
 	// the same point (before this call's own `cd` side effect, if any).
@@ -217,9 +260,18 @@ type simpleCommand struct {
 
 // allowEligible reports whether a command is eligible for the high-confidence
 // ALLOW track. A command with a real-file redirect (exfiltration/clobber risk)
-// or an unresolved expansion / command substitution (#1: cannot be proven
+// or an unresolved expansion / command substitution (which cannot be proven
 // safe statically) is NOT eligible and must defer to the normal pipeline
 // instead of auto-allowing.
+//
+// Its redirect half is ABSOLUTE, which is why the two path-classifier allow
+// tracks no longer call it: classifyReadOnlyUtility and classifyInRepoWrite
+// ask redirectVetoesAllow instead, so a redirect whose every destination is a
+// session-shaped harness scratchpad can still allow, and they spell out
+// the unknown-expansion half themselves. Calling this helper there would
+// re-apply the ungraded veto and undo that. It remains the right gate for
+// classifyAcli, whose concern is credentialed command output rather than where
+// a scratch file lands.
 func (sc simpleCommand) allowEligible() bool {
 	return !sc.hasRedirectToFile && !sc.hasUnknownExpansion
 }
@@ -230,7 +282,7 @@ func (sc simpleCommand) allowEligible() bool {
 // statically reduced to a set of commands (the fail-closed signal).
 //
 // seedCWD is the event's cwd (ev.CWD); it seeds the RUNNING cwd tracked
-// through the walk (#129). The walk order is left-to-right / top-to-bottom for
+// through the walk. The walk order is left-to-right / top-to-bottom for
 // &&/||/;/newline-separated statements, which is exactly the order bash
 // applies `cd` side effects, so a single running-cwd variable updated as the
 // walk encounters each `cd` is faithful for the common `cd X && cmd` /
@@ -239,12 +291,12 @@ func (sc simpleCommand) allowEligible() bool {
 // relative operands against the cwd that was actually in effect for that
 // command, not the process-wide event cwd.
 //
-// resolver supplies the authoritative sources for $HOME/$USER/$TMPDIR (#156);
+// resolver supplies the authoritative sources for $HOME/$USER/$TMPDIR;
 // it is threaded down into every literalWord call the walk makes.
 //
 // rc is the resolved git context for the event's cwd (nil when resolution
 // failed, e.g. not inside a work tree). recordAssign threads it into
-// resolveAnchorCmdSubst (#132) so an assignment RHS that is EXACTLY
+// resolveAnchorCmdSubst so an assignment RHS that is EXACTLY
 // `$(git rev-parse --show-toplevel)` / `$(git rev-parse --git-common-dir)`
 // can be recorded as a known literal instead of always being dropped as an
 // unresolvable command substitution.
@@ -253,7 +305,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	var walkErr error
 
 	// runningCWD / runningCWDInvalid track the shell's current directory as the
-	// walk crosses `cd` statements (#129). runningCWDInvalid is set by a `cd`
+	// walk crosses `cd` statements. runningCWDInvalid is set by a `cd`
 	// whose target cannot be statically resolved (a command substitution, an
 	// unresolved variable, or `cd -`) — after that point relative operands
 	// cannot be safely resolved and must fail closed, so every later-emitted
@@ -261,7 +313,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	runningCWD := seedCWD
 	runningCWDInvalid := false
 
-	// runningOldCWD / runningOldCWDInvalid track $OLDPWD (#156): the value of
+	// runningOldCWD / runningOldCWDInvalid track $OLDPWD: the value of
 	// runningCWD immediately before the most recent statically-resolvable
 	// `cd`. Starts invalid — before any `cd` has happened, $OLDPWD is not
 	// tracked and must fail closed. applyCd updates these BEFORE it mutates
@@ -270,7 +322,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	runningOldCWDInvalid := true
 
 	// knownVars accumulates variables assigned to a STATIC literal value
-	// (#60) earlier in the same parsed program, in walk order (which is
+	// earlier in the same parsed program, in walk order (which is
 	// left-to-right / top-to-bottom for &&/||/;/newline-separated
 	// statements). A later `cat "$P/x"` whose path is built only from such
 	// variables can be resolved to a concrete literal and run through normal
@@ -282,7 +334,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	knownVars := map[string]string{}
 
 	// scopeDepth tracks how many nested SCOPED constructs the walk is currently
-	// inside (#60 follow-up). In real bash an assignment made inside a `( … )`
+	// inside. In real bash an assignment made inside a `( … )`
 	// subshell, a function body, or a backgrounded group/subshell runs in a
 	// child shell and does NOT persist to the enclosing/program-global scope.
 	// While scopeDepth > 0 we therefore DO NOT record assignments into
@@ -293,7 +345,10 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// the read side (literalWord).
 	scopeDepth := 0
 
-	var walkStmt func(stmt *syntax.Stmt)
+	// walkStmt's second parameter is the set of redirects INHERITED from an
+	// enclosing statement — see mergeRedirs and walkCmd for why a compound
+	// command's redirects have to travel down to the simple commands inside it.
+	var walkStmt func(stmt *syntax.Stmt, inherited []*syntax.Redirect)
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
 	var walkDeclClause func(c *syntax.DeclClause)
 	var descendCmdSubsts func(w *syntax.Word)
@@ -313,7 +368,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		}
 		// Inside a subshell / function body / backgrounded group the assignment
 		// is scoped to a child shell and must not leak into the program-global
-		// knownVars (#60 follow-up). Skip recording entirely; we do NOT delete
+		// knownVars. Skip recording entirely; we do NOT delete
 		// an existing top-level value either, because the scoped assignment does
 		// not actually overwrite the parent's variable in real bash.
 		if scopeDepth > 0 {
@@ -337,7 +392,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
 		val, exact := literalWord(a.Value, knownVars, resolver, cc)
 		if !exact {
-			// #132: before giving up on a dynamic RHS, check whether it is
+			// Before giving up on a dynamic RHS, check whether it is
 			// EXACTLY one of the allowlisted anchor command substitutions
 			// ($(git rev-parse --show-toplevel), $(git rev-parse
 			// --git-common-dir), $(pwd)/`pwd`). Those substitutions' output is
@@ -360,8 +415,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		knownVars[name] = val
 	}
 
-	// applyCd updates the running cwd when a walked CallExpr is `cd <arg>`
-	// (#129). It reuses stmtIsCdWithArg's detection shape (basename == "cd" with
+	// applyCd updates the running cwd when a walked CallExpr is `cd <arg>`.
+	// It reuses stmtIsCdWithArg's detection shape (basename == "cd" with
 	// at least one argument) inline, since that helper takes a *syntax.Stmt and
 	// this is called from the CallExpr level.
 	//
@@ -381,7 +436,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// closed rather than resolve against a stale or guessed cwd.
 	//
 	// Before mutating runningCWD, it records the PRIOR value into
-	// runningOldCWD/runningOldCWDInvalid (#156, $OLDPWD's source) — mirroring
+	// runningOldCWD/runningOldCWDInvalid ($OLDPWD's source) — mirroring
 	// real bash, which sets $OLDPWD to the directory `cd` is leaving. Every
 	// exit path that goes on to change (or invalidate) runningCWD does this
 	// capture first, including the invalidating paths: bash still updates
@@ -455,6 +510,12 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// (`"$(cmd)"`) — and classifies the substituted command(s) by walking
 	// their statements. A plain literal / parameter-expansion word has no
 	// CmdSubst parts and contributes nothing.
+	//
+	// The inner statements inherit NO redirects. A command substitution is
+	// expanded during word expansion, which bash performs BEFORE it applies the
+	// enclosing command's redirections, so in `echo "$(cat)" < f` the `cat` reads
+	// the shell's stdin, not f. Passing the enclosing redirects down here would
+	// attribute a read/write to a command that never performs it.
 	descendCmdSubsts = func(w *syntax.Word) {
 		if w == nil {
 			return
@@ -463,13 +524,13 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			switch p := part.(type) {
 			case *syntax.CmdSubst:
 				for _, s := range p.Stmts {
-					walkStmt(s)
+					walkStmt(s, nil)
 				}
 			case *syntax.DblQuoted:
 				for _, dp := range p.Parts {
 					if cs, ok := dp.(*syntax.CmdSubst); ok {
 						for _, s := range cs.Stmts {
-							walkStmt(s)
+							walkStmt(s, nil)
 						}
 					}
 				}
@@ -486,7 +547,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		for _, a := range c.Args {
 			if a != nil {
 				// Record a static `export VAR=literal` / `local VAR=literal`
-				// so later uses can resolve it (#60), then descend into any
+				// so later uses can resolve it, then descend into any
 				// command substitution in the RHS so the inner command is
 				// still classified.
 				recordAssign(a)
@@ -495,6 +556,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		}
 	}
 
+	// walkCmd classifies one command node. redirs is the EFFECTIVE redirect set
+	// for it: the redirects written on its own statement, plus every redirect
+	// inherited from an enclosing statement (mergeRedirs builds it).
+	//
+	// Every compound arm below forwards redirs to the statements it descends
+	// into, because a redirect attached to a compound command applies to EVERY
+	// command inside it — `{ cat; } < /etc/passwd` really does hand /etc/passwd to
+	// cat, and `{ echo x; } > <out-of-repo>` really does perform that write.
+	// Forwarding is what makes a redirect grade identically whether it is written
+	// on a simple command or on a compound one; dropping it (which is what these
+	// arms used to do, since only the CallExpr arm consumed redirs) reduced the
+	// line to a bare non-path-bearing `echo` or an operand-less `cat` and ALLOWed
+	// it, bypassing containment on both the read and the write side.
 	walkCmd = func(cmd syntax.Command, redirs []*syntax.Redirect) {
 		if walkErr != nil {
 			return
@@ -503,8 +577,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		case *syntax.CallExpr:
 			// A bare assignment-only CallExpr (`VAR=x` with no program)
 			// mutates shell state and persists to later commands in the same
-			// program, so record any static assignment for later resolution
-			// (#60). A `VAR=x cmd` prefix (with a program) sets env for THAT
+			// program, so record any static assignment for later resolution.
+			// A `VAR=x cmd` prefix (with a program) sets env for THAT
 			// command only and does NOT persist, so its assigns are not
 			// recorded here.
 			if len(c.Args) == 0 {
@@ -513,7 +587,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				}
 			}
 			// Stamp the running cwd (and its validity) AT THE POINT this command
-			// is walked (#129/#156), BEFORE applying this call's own `cd` side
+			// is walked, BEFORE applying this call's own `cd` side
 			// effect (a `cd`'s own arguments, if any, are resolved against the
 			// PRIOR cwd, not the directory it is about to change into).
 			cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
@@ -535,35 +609,42 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// the walk see the updated cwd.
 			applyCd(c)
 		case *syntax.BinaryCmd:
-			// && || | & — descend both sides.
-			walkStmt(c.X)
-			walkStmt(c.Y)
+			// && || | & — descend both sides, each inheriting this statement's
+			// redirects. In practice the parser parks a redirect written after
+			// `a && b` on b's own statement, so this arm rarely inherits
+			// anything; forwarding is the fail-closed direction either way,
+			// since an over-attributed redirect can only cost a defer.
+			walkStmt(c.X, redirs)
+			walkStmt(c.Y, redirs)
 		case *syntax.Block:
 			for _, s := range c.Stmts {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 		case *syntax.Subshell:
 			// A `( … )` subshell runs in a child shell; assignments inside it
-			// do not persist to the enclosing scope (#60 follow-up). Bump the
+			// do not persist to the enclosing scope. Bump the
 			// scope depth so recordAssign skips them.
 			scopeDepth++
 			for _, s := range c.Stmts {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 			scopeDepth--
 		case *syntax.IfClause:
 			for _, s := range c.Cond {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 			for _, s := range c.Then {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 			if c.Else != nil {
-				walkCmd(c.Else, nil)
+				// The `else`/`elif` branch is part of the SAME statement, so it
+				// inherits that statement's redirects exactly as the `then`
+				// branch does. Passing nil here dropped them.
+				walkCmd(c.Else, redirs)
 			}
 		case *syntax.ForClause:
 			// A `for x in <words>; do …; done` whose header is a fully static
-			// item list (#131) makes the loop variable's entire value set
+			// item list makes the loop variable's entire value set
 			// visible at parse time. When every item resolves to an exact
 			// literal (directly, via brace expansion, via a known-variable
 			// expansion, or via a glob's containment-relevant directory
@@ -589,12 +670,12 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 					for _, item := range items {
 						knownVars[loopVar] = item
 						for _, s := range c.Do {
-							walkStmt(s)
+							walkStmt(s, redirs)
 						}
 					}
 					// Restore/remove the binding so it does not leak past the
 					// loop or clobber an outer variable of the same name
-					// (#131 scopeDepth discipline).
+					// (scopeDepth discipline).
 					if hadPrev {
 						knownVars[loopVar] = prevVal
 					} else {
@@ -606,45 +687,50 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				// through to the conservative unbound walk below.
 			}
 			for _, s := range c.Do {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 		case *syntax.WhileClause:
 			for _, s := range c.Cond {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 			for _, s := range c.Do {
-				walkStmt(s)
+				walkStmt(s, redirs)
 			}
 		case *syntax.CaseClause:
 			for _, item := range c.Items {
 				for _, s := range item.Stmts {
-					walkStmt(s)
+					walkStmt(s, redirs)
 				}
 			}
 		case *syntax.FuncDecl:
 			// A function body is a separate scope: `local`/scoped vars and even
 			// plain assignments inside it do not persist to the program-global
-			// scope merely by the function being declared (#60 follow-up). Bump
+			// scope merely by the function being declared. Bump
 			// the scope depth so recordAssign skips its assignments.
+			//
+			// A redirect on the DECLARATION (`f() { … ; } > log`) is applied
+			// every time the function is called, so the body inherits it.
 			scopeDepth++
-			walkStmt(c.Body)
+			walkStmt(c.Body, redirs)
 			scopeDepth--
 		case *syntax.ArithmCmd:
-			// Pure arithmetic; no external command. Ignore.
+			// Pure arithmetic; no external command. Ignore. Any redirect written
+			// on it is still performed by the shell, and is graded by
+			// walkStmt's redirect-only fallback because nothing is emitted here.
 		case *syntax.LetClause:
 			// `let x=1+2` — pure arithmetic, no external command. Ignore
-			// (same as the ArithmCmd case). (#35 Fix 2)
+			// (same as the ArithmCmd case, redirect fallback included).
 		case *syntax.TestClause:
-			// `[[ … ]]` — a builtin test; runs no external command. Ignore.
-			// (#63, folded into #35 Fix 2)
+			// `[[ … ]]` — a builtin test; runs no external command. Ignore
+			// (same as the ArithmCmd case, redirect fallback included).
 		case *syntax.TimeClause:
 			// `time cmd` — wraps a real command. Descend into the wrapped
-			// statement and classify it. (#35 Fix 2)
-			walkStmt(c.Stmt)
+			// statement and classify it.
+			walkStmt(c.Stmt, redirs)
 		case *syntax.CoprocClause:
 			// `coproc cmd` — wraps a command in a coprocess. Descend into the
-			// wrapped statement and classify it. (#35 Fix 2)
-			walkStmt(c.Stmt)
+			// wrapped statement and classify it.
+			walkStmt(c.Stmt, redirs)
 		case *syntax.DeclClause:
 			// `export`/`local`/`declare`/`readonly`/`typeset` — walk ALL of its
 			// assignments (a single `export A=x B=y` carries multiple). A plain
@@ -652,37 +738,81 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// contributes no program. When an assignment RHS contains a command
 			// substitution (`local d=$(cmd)`, including the quoted `="$(cmd)"`
 			// form), descend into the substituted command and classify it.
-			// (#59, folded into #35 Fix 2)
 			walkDeclClause(c)
 		default:
 			walkErr = fmt.Errorf("unhandled shell construct %T", c)
 		}
 	}
 
-	walkStmt = func(stmt *syntax.Stmt) {
+	walkStmt = func(stmt *syntax.Stmt, inherited []*syntax.Redirect) {
 		if walkErr != nil || stmt == nil {
 			return
 		}
+		// This statement's own redirects PLUS everything inherited from an
+		// enclosing (compound) statement. Nesting composes: an inner redirect
+		// does not cancel an outer one, because bash performs both opens — in
+		// `{ cat < a; } < b` the block opens b on fd 0 and cat then opens a on
+		// its own fd 0, so both files are read and both must be graded.
+		redirs := mergeRedirs(stmt.Redirs, inherited)
+		emitted := len(out)
+
+		// A statement can be redirects and NOTHING else: bare `> f` (the
+		// truncate idiom) parses to a Stmt with no Cmd at all. The shell still
+		// creates/truncates f, so it must not fall out of the walk here — the
+		// redirect-only fallback below grades it.
 		if stmt.Cmd != nil {
 			// A backgrounded statement (`cmd &`, `{ … ; } &`, `( … ) &`) runs in
 			// a child shell, so any assignment it makes does not persist to the
-			// enclosing scope (#60 follow-up). Bump the scope depth around the
+			// enclosing scope. Bump the scope depth around the
 			// descent so recordAssign skips those assignments. (A `( … )`
 			// Subshell already bumps depth in walkCmd; the extra bump here for a
 			// backgrounded subshell is harmless — depth is only ever tested for
 			// > 0.)
 			if stmt.Background {
 				scopeDepth++
-				walkCmd(stmt.Cmd, stmt.Redirs)
+				walkCmd(stmt.Cmd, redirs)
 				scopeDepth--
-				return
+			} else {
+				walkCmd(stmt.Cmd, redirs)
 			}
-			walkCmd(stmt.Cmd, stmt.Redirs)
+		}
+
+		// Redirect-only fallback. If this statement wrote redirects of its own
+		// but the descent produced no command for them to ride on, the shell
+		// still performs them and nothing else would grade them. That covers a
+		// bare `> f`, and every construct that runs no external command —
+		// `[[ … ]]`, `(( … ))`, `let`, `export A=1`, an empty `case`, a bare
+		// `A=1` assignment. It is a real hole, not a curiosity:
+		// `[[ -f x ]] > <out-of-repo> && echo hi` reduced to the single
+		// allow-eligible `echo hi` and ALLOWed while the shell created the
+		// out-of-repo file. Emit a synthetic redirect-only command so the paths
+		// are graded on their own merits.
+		//
+		// Keyed on stmt.Redirs, not the merged set: when the redirects are
+		// inherited, the enclosing statement that wrote them runs this same
+		// check and covers the whole construct in one go.
+		if walkErr == nil && len(stmt.Redirs) > 0 && len(out) == emitted {
+			cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+			sc := simpleCommand{}
+			applyRedirs(&sc, redirs, knownVars, resolver, cc)
+			// Nothing gradeable (every target was /dev/null and statically
+			// resolvable, or the statement carried only heredocs / descriptor
+			// duplications): emitting here would cost an otherwise-clean line a
+			// defer for a redirect that names no file.
+			if sc.hasRedirectToFile || len(sc.inputRedirectTargets) > 0 || sc.hasUnknownExpansion {
+				sc.redirectOnly = true
+				sc.args = []string{redirectOnlyProgram}
+				sc.cwd = runningCWD
+				sc.cwdInvalid = runningCWDInvalid
+				sc.oldCWD = runningOldCWD
+				sc.oldCWDInvalid = runningOldCWDInvalid
+				out = append(out, sc)
+			}
 		}
 	}
 
 	for _, stmt := range file.Stmts {
-		walkStmt(stmt)
+		walkStmt(stmt, nil)
 	}
 	if walkErr != nil {
 		return nil, walkErr
@@ -696,44 +826,20 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 // Leading `env VAR=val` wrappers and assignment prefixes are stripped so the
 // real program lands at args[0] (§10: `env VAR=x <cmd>`).
 //
-// resolver and cc thread the #156 var-resolution sources (process env for
+// resolver and cc thread the var-resolution sources (process env for
 // $HOME/$USER/$TMPDIR, the tracked cwd for $PWD/$OLDPWD) into every
 // literalWord call this reduction makes.
 func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) (simpleCommand, error) {
 	sc := simpleCommand{}
 
-	// Detect redirections to real files (anything other than /dev/null).
-	// Redirects live on the enclosing *syntax.Stmt, not the CallExpr.
-	for _, r := range redirs {
-		if r.Word == nil {
-			continue
-		}
-		target, exact := literalWord(r.Word, knownVars, resolver, cc)
-		// A redirect target built from a command substitution, process
-		// substitution, or unresolved expansion (e.g. `wc < <(grep x f)`,
-		// `cmd > "$DYNAMIC"`) cannot be statically proven safe — an input
-		// process substitution even spawns an unproven command. Such a command
-		// must not ride the allow track (#1), so mark it as unknown-expansion.
-		// This keeps the allow-aware classifiers (read-only utilities, git, gh,
-		// …) from auto-allowing a command whose redirect introduces unprovable
-		// behavior, even when its own arg words are all literal.
-		if !exact {
-			sc.hasUnknownExpansion = true
-		}
-		switch r.Op {
-		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
-			if target != "/dev/null" {
-				sc.hasRedirectToFile = true
-			}
-		}
-	}
+	applyRedirs(&sc, redirs, knownVars, resolver, cc)
 
 	// An inline environment-assignment prefix on the CallExpr itself
 	// (`AWS_ENDPOINT_URL=… aws …`, `GIT_SSH_COMMAND=… git …`) sets env for THIS
 	// command only. The parser parks these on c.Assigns (separate from c.Args)
 	// when a program token follows. Such a prefix can redirect egress, swap
 	// identity, or inject a pager without ever touching argv, so the git/gh/aws
-	// classifiers DENY on it (#64). Record its presence; a bare assignment-only
+	// classifiers DENY on it. Record its presence; a bare assignment-only
 	// CallExpr (no program) has no Args and is handled as a shell-state mutation
 	// elsewhere, so the program-bearing guard below is what matters here.
 	if len(c.Assigns) > 0 && len(c.Args) > 0 {
@@ -762,11 +868,109 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 	return sc, nil
 }
 
+// mergeRedirs returns the effective redirect set for a statement: the redirects
+// written on the statement itself, followed by those inherited from an enclosing
+// compound statement. A redirect attached to a compound command applies to every
+// command inside it, and nesting composes — bash performs BOTH opens, so the
+// inner redirect does not cancel the outer one and both targets are graded.
+//
+// It always returns a fresh slice (or nil): appending onto stmt.Redirs directly
+// could write into the parser's own backing array and leak one statement's
+// inherited redirects into a sibling.
+func mergeRedirs(own, inherited []*syntax.Redirect) []*syntax.Redirect {
+	switch {
+	case len(inherited) == 0:
+		return own
+	case len(own) == 0:
+		return inherited
+	}
+	merged := make([]*syntax.Redirect, 0, len(own)+len(inherited))
+	merged = append(merged, own...)
+	merged = append(merged, inherited...)
+	return merged
+}
+
+// redirectOnlyProgram is the display name carried in args[0] of a synthetic
+// redirect-only command (simpleCommand.redirectOnly). It is deliberately not a
+// real program name — it appears only in a decision message, where naming the
+// shell redirect is what makes the message actionable ("'shell redirect' would
+// read '/etc/passwd'"), and classifySimpleCommand branches on the redirectOnly
+// flag before any program dispatch, so it is never matched against a rule table.
+const redirectOnlyProgram = "shell redirect"
+
+// applyRedirs grades one statement's redirects into sc: it sets
+// hasRedirectToFile / hasUnknownExpansion and records the write destinations and
+// input sources. Extracted from reduceCallExpr so the synthetic redirect-only
+// command (a construct that runs no program yet still performs its redirects)
+// grades them through EXACTLY this logic rather than a second, drifting copy.
+//
+// Redirects live on the enclosing *syntax.Stmt, not the CallExpr, and a compound
+// statement's redirects reach here through mergeRedirs.
+func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[string]string, resolver varResolver, cc cwdCtx) {
+	// Detect redirections to real files (anything other than /dev/null).
+	for _, r := range redirs {
+		if r.Word == nil {
+			continue
+		}
+		target, exact := literalWord(r.Word, knownVars, resolver, cc)
+		// A redirect target built from a command substitution, process
+		// substitution, or unresolved expansion (e.g. `wc < <(grep x f)`,
+		// `cmd > "$DYNAMIC"`) cannot be statically proven safe — an input
+		// process substitution even spawns an unproven command. Such a command
+		// must not ride the allow track, so mark it as unknown-expansion.
+		// This keeps the allow-aware classifiers (read-only utilities, git, gh,
+		// …) from auto-allowing a command whose redirect introduces unprovable
+		// behavior, even when its own arg words are all literal.
+		if !exact {
+			sc.hasUnknownExpansion = true
+		}
+		switch r.Op {
+		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
+			if target != "/dev/null" {
+				sc.hasRedirectToFile = true
+				// Record the destination so a classifier can GRADE it
+				// rather than only knowing that some redirect exists. A
+				// non-exact target is recorded too, so a caller that walks the
+				// list still sees every destination; it can never widen
+				// anything, because !exact has already set hasUnknownExpansion
+				// and redirectVetoesAllow refuses to lift on that.
+				sc.redirectTargets = append(sc.redirectTargets, target)
+			}
+		case syntax.RdrIn:
+			// `cmd < f` READS f, and f never becomes an argv operand, so without
+			// this the operand walk has nothing to contain and a read-only
+			// utility allows the line outright — `cat < /etc/passwd` reached the
+			// classifier with ZERO operands. Recorded on the read side only: it
+			// sets no write flag, because an input redirect writes nothing.
+			if target != "/dev/null" {
+				sc.inputRedirectTargets = append(sc.inputRedirectTargets, target)
+			}
+		case syntax.RdrInOut:
+			// `cmd <> f` opens f for reading and writing on the same fd. Its READ
+			// half is the same disclosure `<` is, so the target is graded here
+			// exactly like an input redirect. It deliberately does NOT set
+			// hasRedirectToFile: that flag is checked BEFORE containment on the
+			// allow tracks, so setting it would replace this read's DENY with the
+			// veto's defer — strictly worse than the earlier status quo, in which
+			// `<>` was ungraded on both axes. Its write half stays where it
+			// already was: unmodelled, and unreachable without a further
+			// fd-duplication redirect (`>&0`) the gate does not model either.
+			if target != "/dev/null" {
+				sc.inputRedirectTargets = append(sc.inputRedirectTargets, target)
+			}
+		}
+		// Heredocs and herestrings (`<<`, `<<-`, `<<<`) are deliberately absent:
+		// their word is inline text (or a delimiter), not a file the command
+		// reads, so grading it as a path would deny ordinary `cat <<EOF` scripts.
+		// Descriptor duplications (`<&`, `>&`) name a descriptor, not a file.
+	}
+}
+
 // stripEnvWrapper removes a leading `env` and any leading VAR=val tokens so
 // the actual program is at args[0]. `env -i`, `env -u VAR`, and `env --` are
 // handled by skipping their option args. It also reports whether any VAR=val
 // assignment token was stripped, so the caller can flag the command as
-// carrying an inline environment-assignment prefix (#64): the `env VAR=val cmd`
+// carrying an inline environment-assignment prefix: the `env VAR=val cmd`
 // form parks the assignment in args (not on the CallExpr's Assigns), so this is
 // the only place that form is observed.
 func stripEnvWrapper(args []string) (out []string, strippedAssign bool) {
@@ -828,7 +1032,7 @@ func isAssignment(tok string) bool {
 }
 
 // resolveVar resolves a bare variable name to its value and whether
-// resolution succeeded, applying the #156 precedence: an in-script static
+// resolution succeeded, applying the documented precedence: an in-script static
 // assignment (knownVars) always wins over any environment/engine-derived
 // source, so `HOME=/tmp cat "$HOME/x"` resolves $HOME to /tmp, not the
 // process env. Only when the name is ABSENT from knownVars does resolution
@@ -881,7 +1085,7 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 }
 
 // anchorCommand describes one allowlisted command substitution whose output
-// is a known, resolvable filesystem location (#132). match reports whether
+// is a known, resolvable filesystem location. match reports whether
 // args (the substituted command's argv, program name included) is EXACTLY
 // this anchor's recognized form — no extra flags, no extra arguments.
 // resolve computes the anchor's value from the current repoContext / tracked
@@ -894,7 +1098,7 @@ type anchorCommand struct {
 }
 
 // anchorCommands is the closed, explicit allowlist of command substitutions
-// resolveAnchorCmdSubst recognizes (#132). Matching is exact: the substituted
+// resolveAnchorCmdSubst recognizes. Matching is exact: the substituted
 // command's argv must equal one of these forms precisely, with no additional
 // arguments or flags — anything else is not an anchor and stays unresolved
 // (fail-closed), preserving the conservative default for arbitrary
@@ -932,7 +1136,7 @@ var anchorCommands = []anchorCommand{
 	},
 	{
 		// $(pwd) / `pwd` (bare, no arguments) → the CD-TRACKED running cwd
-		// (#129's runningCWD), NOT ev.CWD — a preceding `cd` changes what a
+		// (the tracked runningCWD), NOT ev.CWD — a preceding `cd` changes what a
 		// real `pwd` would print. An invalid tracked cwd (a prior dynamic
 		// `cd`) keeps this unresolved.
 		match: func(args []string) bool {
@@ -948,8 +1152,8 @@ var anchorCommands = []anchorCommand{
 }
 
 // resolveAnchorCmdSubst reports whether word is EXACTLY a single command
-// substitution matching one of anchorCommands, and if so, its resolved value
-// (#132). "Exactly" means: the word has one part, that part is a *CmdSubst,
+// substitution matching one of anchorCommands, and if so, its resolved value.
+// "Exactly" means: the word has one part, that part is a *CmdSubst,
 // its substituted program is a SINGLE statement (no `;`/`&&`/pipeline inside
 // the substitution), and that statement is a plain CallExpr with no
 // assignments/redirects whose argv matches an anchor form precisely. Any
@@ -997,14 +1201,14 @@ func resolveAnchorCmdSubst(word *syntax.Word, rc *repoContext, runningCWD string
 // like `"foo"` or `'bar'` or `foo` is exact; `$(date)` is not. A simple
 // parameter expansion (`$VAR` / `${VAR}`) is exact when VAR is present in
 // knownVars — i.e. it was assigned to a static literal earlier in the same
-// parsed program (#60) — OR when VAR is one of the closed allowlist of names
-// (#156: $HOME, $USER, $TMPDIR, $PWD, $OLDPWD) resolveVar can resolve from
+// parsed program — OR when VAR is one of the closed allowlist of names
+// ($HOME, $USER, $TMPDIR, $PWD, $OLDPWD) resolveVar can resolve from
 // its authoritative source; otherwise it is inexact (fail-closed for every
 // other env var and for dynamically-assigned vars).
 //
 // expand.Literal with the resolveVar-backed environment resolves quoting,
 // tilde, and resolvable parameter expansions but returns an error / partial
-// result for command substitutions, which we treat as inexact (#1: quoted
+// result for command substitutions, which we treat as inexact (quoted
 // strings with expansions are first-class, classified, not heuristically
 // matched).
 func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolver, cc cwdCtx) (string, bool) {
@@ -1041,8 +1245,8 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 
 	cfg := &expand.Config{
 		// Resolve a variable to its statically-known literal value when we
-		// recorded one earlier in the program (#60), or to its
-		// authoritative-source value for the closed #156 allowlist; unknown
+		// recorded one earlier in the program, or to its
+		// authoritative-source value for the closed allowlist; unknown
 		// names expand to "" (as before) and the fast-path loop above has
 		// already marked the word inexact, so such a command cannot ride the
 		// allow track and is not run through containment as if resolved.
@@ -1054,7 +1258,7 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 		CmdSubst: func(io.Writer, *syntax.CmdSubst) error { return nil },
 		// Process substitution (`<(cmd)` / `>(cmd)`): expand.Literal calls
 		// cfg.ProcSubst unconditionally when it hits a *syntax.ProcSubst part,
-		// so leaving this nil panics with a nil-pointer deref (#5). The inner
+		// so leaving this nil panics with a nil-pointer deref. The inner
 		// command of a process substitution is not statically resolvable, so we
 		// expand it to an empty string and rely on the fast-path loop above
 		// having already marked the word inexact (ProcSubst hits the default
@@ -1071,14 +1275,14 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 }
 
 // maxForFanOut bounds how many items a static `for x in <words>` fan-out
-// (#131) will expand. A pathologically long static item list would otherwise
+// will expand. A pathologically long static item list would otherwise
 // walk the loop body once per item; above this cap we fall back to the
 // conservative unbound walk (fail-closed on body uses of the loop variable)
 // rather than doing unbounded work.
 const maxForFanOut = 64
 
 // staticForItems reports the resolved literal value of every item word in a
-// `for x in <words>` header, and whether ALL of them are exact (#131). It
+// `for x in <words>` header, and whether ALL of them are exact. It
 // expands every statically-knowable form — brace expansion, a bare
 // known-variable word (split on IFS the way bash word-splits an unquoted
 // expansion), and a glob's containment-relevant directory prefix — and fans
@@ -1087,7 +1291,7 @@ const maxForFanOut = 64
 // glob while cwdInvalid) makes the WHOLE list non-static, since the loop
 // variable's value set is no longer fully known at parse time.
 //
-// cwdInvalid is whether the running cwd tracked through the walk (#129) is
+// cwdInvalid is whether the running cwd tracked through the walk is
 // currently invalid; used to fail closed on a relative glob item (case 3,
 // see globDirPrefix) that cannot be safely anchored. The resolved directory
 // prefix itself is left relative and resolved later, at containment time,
@@ -1105,7 +1309,7 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 }
 
 // staticExpandItem resolves ONE `for … in` item word to zero or more
-// concrete literal values (#131). It handles, in order:
+// concrete literal values. It handles, in order:
 //
 //  1. Brace expansion (`{a,b}.md`, `{a,b}$X.md`) via the upstream
 //     syntax.SplitBraces + expand.Braces pair, which performs the
@@ -1144,8 +1348,8 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // rather than being silently dropped or bulk-ASKed. staticExpandBraceFallback
 // only understands the single unnested `{x,y,z}` comma-list grammar; a
 // range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
-// closed exactly as before — the issue's carve-out ("if you hit a range
-// form you don't handle, fall closed").
+// closed exactly as before — the accepted carve-out: a brace form the
+// fallback does not handle falls closed rather than being guessed at.
 func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bool, resolver varResolver, cc cwdCtx) ([]string, bool) {
 	// Bare unquoted known-variable word: exactly one ParamExp part, no braces.
 	// Must be checked BEFORE brace-splitting/literalWord so its IFS-split
@@ -1222,8 +1426,8 @@ func staticExpandItem(w *syntax.Word, knownVars map[string]string, cwdInvalid bo
 // hasDotDotBraceMember reports whether raw contains a top-level (unnested)
 // brace-comma-list `{...,...}` with at least one comma-separated member
 // containing "..". This is a cheap textual pre-check used purely to decide
-// whether to distrust upstream's expand.Braces output shape (#131 follow-up)
-// — it does not itself resolve anything. A false positive here just means
+// whether to distrust upstream's expand.Braces output shape — it does not
+// itself resolve anything. A false positive here just means
 // staticExpandBraceFallback gets consulted and, if the form is anything more
 // exotic than a single unnested comma-list, correctly declines (fail closed).
 func hasDotDotBraceMember(raw string) bool {
@@ -1371,7 +1575,7 @@ func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
 
 // hasGlobMeta reports whether s contains a shell glob metacharacter
 // (`*`, `?`, `[`) that bash would expand via pathname expansion. Used to
-// detect a static `for x in <words>` item (#131) that merely LOOKS like a
+// detect a static `for x in <words>` item that merely LOOKS like a
 // literal but actually depends on runtime directory contents; it is not a
 // general-purpose literalWord change.
 func hasGlobMeta(s string) bool {
@@ -1379,24 +1583,34 @@ func hasGlobMeta(s string) bool {
 }
 
 // globDirPrefix resolves a glob pattern's containment-relevant directory
-// prefix (#131 case 3), without reading the filesystem. Containment is pure
+// prefix, without reading the filesystem. Containment is pure
 // path arithmetic: every path a glob like `*.md` or `src/*.go` can possibly
 // match is a child of the pattern's directory prefix (the portion before the
 // first path segment that itself contains a glob metacharacter), so binding
 // the loop variable to that prefix directory makes every possible match
-// share the exact same containment verdict as the prefix itself —
-// contained, escapeWorktree, escapeRepo, or claudeConfig — via the existing
-// pathUnder equal-or-nested check. The returned prefix is deliberately left
+// share the prefix's own containment verdict — whichever containmentResult it
+// earns — via the existing pathUnder equal-or-nested check.
+//
+// The scratchpad carve-out is the one verdict that is not purely
+// pathUnder: inside <system-tmp>/claude-<uid> the verdict also depends on
+// whether the remainder matches the per-session shape. It cannot fail open
+// here, because the shape is closed under descent — a remainder that matches
+// keeps matching with more segments appended, so a session-shaped prefix
+// implies session-shaped matches, while a prefix that stops short of a session
+// directory earns the more conservative unshaped-remainder region (never the
+// carve-out ALLOW its matches might individually have earned).
+//
+// The returned prefix is deliberately left
 // relative (e.g. ".", "src", ".."): the caller feeds it through knownVars
 // into the loop body, and the EXISTING containment pipeline
 // (containPathOperands -> testContainmentFrom) already resolves a relative
-// operand against the command's own tracked running cwd (#129, sc.cwd) at
+// operand against the command's own tracked running cwd (sc.cwd) at
 // classification time — resolving it again here would be redundant, not more
 // correct. This resolves the containment QUESTION without ever asking "which
 // files actually exist".
 //
 // ok is false when the prefix cannot be safely resolved: cwdInvalid (an
-// earlier dynamic `cd` invalidated the running cwd, #129) means a RELATIVE
+// earlier dynamic `cd` invalidated the running cwd) means a RELATIVE
 // glob cannot be safely anchored, so the caller fails the whole for-list
 // closed (ASK), matching cdInvalidAsk's fail-closed posture for every other
 // relative operand. An absolute glob (`/abs/*.md`) is unaffected by
@@ -1426,14 +1640,15 @@ func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
 // isResolvableParamExp reports whether a parameter expansion is a plain
 // `$VAR` / `${VAR}` whose name is resolvable — either because it was
 // statically assigned earlier in the same program (present in knownVars,
-// #60) or because it is one of the closed #156 allowlist of names
+// or because it is one of the closed allowlist of names
 // ($HOME, $USER, $TMPDIR, $PWD, $OLDPWD) resolveVar can resolve from its
 // authoritative source (in-script assignment always takes precedence over
 // these — see resolveVar's doc comment). Anything with extra logic — default
 // (`${VAR:-x}`), length (`${#VAR}`), indirection (`${!VAR}`), array index,
 // slice, replacement, modifiers, or special parameters ($1, $@, $?) — is NOT
-// resolvable here and keeps the word inexact (fail-closed): this issue widens
-// WHICH NAMES resolve, not which expansion forms are accepted. A name
+// resolvable here and keeps the word inexact (fail-closed): the closed
+// allowlist widens WHICH NAMES resolve, not which expansion forms are
+// accepted. A name
 // resolvable by neither source (an arbitrary env var, or a var assigned
 // dynamically) stays unresolvable.
 func isResolvableParamExp(p *syntax.ParamExp, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {

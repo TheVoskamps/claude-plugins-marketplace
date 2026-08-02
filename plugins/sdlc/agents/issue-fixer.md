@@ -168,11 +168,20 @@ If any are missing, ask before proceeding.
 - Always run tests before pushing.
 - All scratch work, test fixtures, sandboxes, and throwaway artifacts
   MUST live under `.claude/tmp/<task-slug>/` (e.g.,
-  `.claude/tmp/issue-67-self-update/`). NEVER use `/tmp/`, `/var/tmp/`,
-  the user's home directory, or any path outside the repository.
-  `.claude/` is gitignored, so artifacts won't get committed; using a
-  path under the repo keeps boundaries enforceable and makes failures
-  inspectable. Clean up the sandbox after the work succeeds; leave it
-  in place if the task fails so it can be examined.
+  `.claude/tmp/issue-67-self-update/`). Never use a loose `/tmp/` or
+  `/var/tmp/` path, the user's home directory, or any other path
+  outside the repository. `.claude/` is gitignored, so artifacts won't
+  get committed; using a path under the repo keeps boundaries
+  enforceable and makes failures inspectable. Clean up the sandbox
+  after the work succeeds; leave it in place if the task fails so it
+  can be examined.
+- The single sanctioned out-of-repo destination is the harness's own
+  per-session scratchpad,
+  `<system-tmp>/claude-<uid>/<project-slug>/<session-id>/scratchpad/`,
+  and only for a file that must outlive this repo or this session — a
+  cross-repo or cross-session handoff. Ordinary task scratch does not
+  qualify and belongs under `.claude/tmp/` as above. Write under the
+  scratchpad path the harness gave this session; do not hand-build a
+  lookalike path elsewhere in the tree.
 - Do NOT create a new PR — the existing PR will pick up your pushed
   commits.

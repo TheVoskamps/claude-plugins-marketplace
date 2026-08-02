@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// #156: the permission gate resolves $HOME, $USER, $TMPDIR (from the
+// The permission gate resolves $HOME, $USER, $TMPDIR (from the
 // process env / os.UserHomeDir()) and $PWD/$OLDPWD (from the engine's
-// tracked running cwd, #129) for a closed allowlist of names, instead of
+// tracked running cwd) for a closed allowlist of names, instead of
 // failing closed on every $VAR the way it did before this issue. These
 // tests pin the issue's acceptance criteria directly.
 
