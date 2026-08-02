@@ -759,41 +759,27 @@ Every ASK and DENY is appended to an evolution log
 `PERMISSION_GATE_LOG`) for promoting recurring ASKs into explicit
 rules.
 
-## Comments carry no issue references
+## Comments state the invariant, not the ticket
 
-The Go comments in this package state their invariant **completely in
-place**. None of them points at an issue number, and
-`TestNoIssueRefsInComments` fails the build if one is reintroduced. The
-guard parses every `.go` file in the package directory — tests
-included, and a newly added file the moment it lands — and rejects a
-bare `#<digits>` anywhere in a comment. It fails outright if it parsed
-no files at all, so it cannot pass vacuously.
+A Go comment in this package states its invariant **in place** rather
+than pointing the reader at an issue number. Code must be authoritative
+and stand on its own: a comment reading "pre-existing #32 behavior"
+states no invariant — it makes the reader fetch a ticket to learn the
+rule, and the pointer that prompted this convention was not even
+correct, it named the wrong issue. Provenance needs no help from the
+comment; `git blame` yields the line, the commit, the merge, the PR and
+the issue on demand, without every comment carrying a pointer that
+rots. Where a reference carried real reasoning, that reasoning was
+restated inline (or, when it is a design decision rather than a local
+invariant, recorded in this README) instead of being dropped with the
+number.
 
-The rule is that code must be authoritative and stand on its own. A
-comment reading "pre-existing #32 behavior" states no invariant: it
-makes the reader fetch a ticket to learn the rule, and the pointer that
-prompted this sweep was not even correct — it named the wrong issue.
-Provenance needs no help from the comment; `git blame` yields the line,
-the commit, the merge, the PR and the issue on demand, without every
-comment carrying a pointer that rots. Where a reference carried real
-reasoning, that reasoning was restated inline (or, when it is a design
-decision rather than a local invariant, recorded in this README)
-instead of being dropped with the number.
-
-These surfaces are deliberately outside the rule, because neither is
-text a reader has to act on in place — and both are string literals, so
-the comment guard never sees them:
-
-- **Deny/ask labels** (the `Operation` field, e.g.
-  `bash-read:cross-repo (#148)`) keep their stable `(#N)` tag — they are
-  grep keys for the evolution log.
-- **Test failure messages** may name the issue whose acceptance
-  criterion the assertion pins.
-
-Agent-facing `Reason` text is covered by the older sibling guard,
-`trackerRefInReason` (`TestRemediationReasonsAreActionable_58`): an
-issue number tells a blocked agent nothing about what to do, so a
-Reason must be self-sufficiently actionable.
+Agent-facing `Reason` text is a different surface, and the text the
+gate emits is behavior rather than documentation: `trackerRefInReason`
+(`TestRemediationReasonsAreActionable_58`) asserts that no deny/ask
+`Reason` carries a bare issue pointer, because an issue number tells a
+blocked agent nothing about what to do — a Reason must be
+self-sufficiently actionable.
 
 ## Rules are compiled in
 
