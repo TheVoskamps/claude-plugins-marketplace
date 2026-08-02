@@ -28,6 +28,13 @@ survives the rebase untouched and needs nothing. So check *every*
 touched plugin, and compare against main's value rather than against
 your memory of what the branch shipped.
 
+The third case is the loud, safe one and needs no re-bump: both sides
+bumped the same plugin to *different* values (PR #220 — main 0.9.1 →
+0.9.2, branch 0.9.1 → 0.10.0) and `plugin.json` conflicts outright.
+Resolve to whichever value is greater and stop there; the branch's own
+bump is still present, so the per-PR rule is already satisfied and a
+further bump would be a second bump in one PR.
+
 **How to apply:** treat the re-bump as a mandatory step of any rebase
 onto main, alongside the checks in
 [[git-status-cannot-see-main-staleness]]. The PR body may also name the
