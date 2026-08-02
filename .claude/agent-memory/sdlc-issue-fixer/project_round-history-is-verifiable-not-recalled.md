@@ -1,12 +1,12 @@
 ---
 name: round-history-is-verifiable-not-recalled
-description: never write "round N found / round M fixed" from session recollection — a fixer sees only its own round, and the true history is two commands away (gh pr view --json reviews, git show <commit>:<path>)
+description: never write "round N found / round M fixed" from session recollection — a fixer sees only its own round, and the true history is cheap to check (gh pr view --json reviews, git show <commit>:<path>)
 metadata:
   type: project
 ---
 
 A memory or PR-body sentence narrating what earlier rounds of a PR did
-is a checkable claim, not colour. Two immutable surfaces settle it:
+is a checkable claim, not colour. Immutable surfaces settle it:
 
 - `gh pr view <PR> --json reviews --jq '.reviews[] | ...'` returns every
   posted review body verbatim, so "which member did round N name?" and
