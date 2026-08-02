@@ -45,11 +45,14 @@ rule"` became `"…check, which / rule to the whole .git/ tree"`;
 and `"<ref> Fix 2"` became a bare `"Fix 2"` naming a fix list that
 nothing identifies.
 
-**Corollary for the regression guard.** A line-based `#\d+` guard
-structurally cannot see a reference the wrap splits. Join the comment
-block with the line breaks *closed up* (not space-joined) before
-matching: that strictly subsumes the per-line scan and adds no false
-positives, because the pattern needs a digit immediately after the `#`.
+**CORRECTED (2026-08-01, PR #208 round 5): do not turn this audit into
+a regression guard.** An earlier revision of this memory advised
+widening a `#\d+` test to joined comment blocks. Edwin approved that
+test in error and had issue #193 rewritten to forbid it outright — see
+[[no-source-lint-meta-tests]]. The joined-block *reading* above stays
+correct as an audit technique; what must not exist is a `go test` (or
+any substitute mechanism) that greps the package's own comments. The
+sweep is judged by reading, and nothing enforces it afterwards.
 
 See also [[sweep-sibling-agent-guards]] for the other half of this
 lesson — sweeping a rule's exception clause, not just its headline.
