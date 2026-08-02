@@ -26,6 +26,13 @@
   — claude-vm feature work leaves the two config-WIZARD SKILL.md files stale;
   a wrong bake/boot placement there makes the wizard write a config that
   cannot launch; also check payload/README.md's helper-function list.
+- [issue-ref sweep artifacts](project_issue-ref-sweep-artifacts.md) —
+  a mechanical `#N`-removal sweep breaks grammar ACROSS comment line
+  wraps (line greps miss it) and turns refs into unnamed "this issue"
+  pointers; join comment blocks and read the old→new diff pairs.
+- [known gaps are a doc surface](project_issue-known-gaps-are-a-doc-surface.md)
+  — an issue's "Known gaps left in place" section is the part the
+  developer reliably never carries into the README; check it every run.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
