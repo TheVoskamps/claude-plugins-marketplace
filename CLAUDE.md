@@ -45,6 +45,24 @@ Constraint ("wait for confirmation before starting Phase 2"), so
 renaming them is a cross-file refactor rather than a doc-pass sweep.
 Say so in the report instead of churning on them.
 
+## Sweep the claude-vm docs when guardrails hook packaging changes
+
+How the `guardrails` permission-gate is *shipped* — prebuilt, committed
+binaries under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`, selected
+at run time by `uname` — is described outside the `guardrails` tree as
+well as inside it, because it decides what a claude-vm bake file's
+`packages:` list must contain. The mirroring surfaces are
+`plugins/claude-vm/payload/README.md`,
+`plugins/claude-vm/payload/config-bake.example.yml`, and
+`plugins/claude-vm/skills/claude-vm/SKILL.md` (both the commented config
+block and the derived-keys section). A PR touching
+`plugins/guardrails/hooks/hooks.json`, `plugins/guardrails/hooks/bin/`,
+or the gate's build recipe must update those surfaces in the same PR,
+and therefore bumps both plugins' versions. Gate *classifier* behavior
+is the opposite: it lives only in
+`plugins/guardrails/hooks/permission-gate/README.md`, and no other
+markdown in the repo describes it.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,
