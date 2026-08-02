@@ -32,8 +32,8 @@ Config discovery is **per-directory, closest wins**, and this repo
 nests a second config: `.claude/agent-memory/.markdownlint.jsonc`
 (extends the root, turns off only MD041/MD013). A mirror tree under
 `.claude/tmp/` that reproduces just the root config lints under the
-wrong rules — on PR #220 the extracted `sdlc-pr-reviewer/MEMORY.md`
-fired three bogus MD013 hits that are off in its home tree. When the
+wrong rules: an extracted `MEMORY.md` fires bogus MD013 hits that are
+switched off in its home tree. When the
 mirror's config lineage is in doubt, skip the mirror and prove
 **line provenance** instead: `wc -l` the `origin/main` blob and check
 whether the offending line exists there at all — a hit on a line the

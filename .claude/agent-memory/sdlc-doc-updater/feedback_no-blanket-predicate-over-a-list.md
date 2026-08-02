@@ -6,23 +6,22 @@ metadata:
 ---
 
 When a memory (or a doc paragraph) lists several files and attaches one
-predicate to all of them — "these three name the agents only as a list,
-never their behavior" — that is not one claim, it is one claim per file.
+predicate to all of them — "these name the agents only as a list, never
+their behavior" — that is not one claim, it is one claim per file.
 Write per-member descriptions instead, and state the trigger that makes
 each go stale.
 
-**Why:** [[sdlc-docs-locality]] carried exactly that shape and was wrong
-about two of its three members: `plugins/github-prs/README.md` attributes
-a PR verb per agent and `plugins/issues/skills/lib/repo-config.md` says
-which agents dispatch on `source-control`. An `issue-fixer` round on
-PR #220 (commit 130bff5) had to correct it. The blanket predicate reads
-as verified because it is one sentence, but its evidence was one file
-skimmed and the rest assumed.
+**Why:** a blanket predicate reads as verified because it is one
+sentence, but its evidence is typically one file skimmed and the rest
+assumed. The sdlc doc-surface map now carried in the repo's `CLAUDE.md`
+began life in that shape and was false about the members nobody had
+opened: one of them attributes a PR verb per agent, and another says
+which agents dispatch on `source-control`.
 
 **How to apply:** before committing any memory or doc sentence of the
 form `<list of files> all <predicate>`, open each file and confirm the
 predicate for it individually. If they differ, they need separate
-clauses — the shared sentence is the defect, not the wording. Same
+clauses — the shared sentence is the defect, not the wording. The same
 check applies when *reading* such a memory: a shared predicate is a
 weaker warrant than a per-file one, so re-verify the member you are
 about to act on.

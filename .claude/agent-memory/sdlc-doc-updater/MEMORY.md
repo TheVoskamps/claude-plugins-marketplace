@@ -33,10 +33,6 @@
 - [known gaps are a doc surface](project_issue-known-gaps-are-a-doc-surface.md)
   — an issue's "Known gaps left in place" section is the part the
   developer reliably never carries into the README; check it every run.
-- [sdlc docs locality](project_sdlc-docs-locality.md) — no
-  plugins/sdlc/README.md; orchestrate SKILL.md duplicates each agent's
-  contract in several places (roster, section prose, fix-loop step) —
-  grep it whole; leave the Phase 1/2/3 headings alone.
 - [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when

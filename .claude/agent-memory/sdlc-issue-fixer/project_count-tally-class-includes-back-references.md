@@ -9,27 +9,25 @@ When sweeping a doc for core-principles §7 ("no number-of before a
 self-counting list"), the class is not only the count word *introducing*
 the list. Every later phrase that encodes the same count is in-class:
 `In either case ...` after a two-bullet list, `If either input is
-missing` after a two-item Inputs list, `all three of the above`.
+missing` after a two-item Inputs list, `all three of the above`. A
+back-reference rots identically to the introducing tally — add another
+bullet and the prose is wrong. Fixing the introducing tally while
+leaving its trailing back-reference is what burns an extra review
+round on this class.
 
-**Why:** PR #211 (issue #207) burned an extra review round on exactly
-this. An earlier round fixed the introducing tallies but left "These
-failure shapes **both** fail it:" plus its trailing "In **either**
-case", so a later round had to name it again. The back-reference rots
-identically — add a third bullet and the prose is wrong.
-
-**Scope the grep to the whole PR, not the Markdown.** A later round of
-the same PR found the identical shape in a `.jsonc` comment ("minus the
-**two** below. / **Both** reflect …" above the list of disabled rules).
-§7 governs prose wherever it lives — config comments, code comments,
-the PR body — so sweep every file the PR touched, not just `*.md`.
+**Scope the grep to the whole PR, not the Markdown.** §7 governs prose
+wherever it lives — config comments (a `.jsonc` comment reading "minus
+the two below. / Both reflect ..." above a list of disabled rules is
+in-class), code comments, the PR body — so sweep every file the PR
+touched, not just `*.md`.
 
 **Frontmatter is prose too.** In an agent-memory entry the YAML
-`description:` is a swept surface: on PR #220 round 5 the flagged body
-line ("Two immutable surfaces settle it:") had a sibling in the same
-file's `description:` ("the true history is **two** commands away
-(cmd-a, cmd-b)") — a count over a parenthetical enumeration one line
-from the one the reviewer named. Fix body, `description:`, and the
-`MEMORY.md` hook in the same pass.
+`description:` is a swept surface, and so is the entry's `MEMORY.md`
+hook. A flagged body line ("Two immutable surfaces settle it:")
+routinely has a sibling count a line away in the same file's
+`description:` ("the true history is two commands away (cmd-a,
+cmd-b)") — a count over a parenthetical enumeration. Fix body,
+`description:`, and the index hook in the same pass.
 
 **Don't re-derive the boundary — read the adjudicated one.** The
 `sdlc-pr-reviewer` sibling memory
