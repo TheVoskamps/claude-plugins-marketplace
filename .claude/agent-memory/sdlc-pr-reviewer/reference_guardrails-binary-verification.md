@@ -1,6 +1,6 @@
 ---
 name: guardrails-binary-verification
-description: How to verify the guardrails permission-gate committed binary carries a PR's new policy — exercise it with synthetic PreToolUse events, not cmp against a rebuild
+description: How to verify the guardrails permission-gate committed binary carries a PR's new policy — exercise it with synthetic PreToolUse events; a raw cmp against a rebuild proves nothing, but the nm-table + build-ID + delta-clustering rebuild comparison IS decisive
 metadata:
   type: reference
 ---
@@ -34,5 +34,27 @@ host-arch exercise + passing `go test` is sufficient evidence.
 outside the repo root and blocks `cd <path> && git ...` forms. Create
 the scratch git repo under `<repo-root>/.claude/tmp/<slug>/`, `cd` into
 it in one Bash call, then run `git init -q .` as a separate bare call.
+
+**When the claim is "the committed binary matches HEAD source" (a
+staleness claim, not a policy claim), a rebuild comparison IS decisive
+— just not a raw `cmp`.** Verified on PR #208 round 6: build with the
+README's exact invocation (`GOOS=… GOARCH=… CGO_ENABLED=0 go -C
+plugins/guardrails/hooks/permission-gate build -trimpath -o <out> .`),
+then require ALL of:
+
+1. `go tool nm <committed>` vs `go tool nm <rebuilt>` byte-identical
+   (compiled code identity; works for the foreign arch too, no
+   execution needed);
+2. `go tool buildid` third segment (`a/b/CONTENT/d`) matching;
+3. `cmp -l` offsets clustering ONLY into vcs-stamp-derived regions —
+   the two embedded buildinfo copies (grep the hex dump for
+   `vcs.revision`), the `Go build ID:` string near 0x1000, LC_UUID,
+   and the LC_CODE_SIGNATURE range (`otool -l` gives dataoff/datasize).
+
+On #208 that was exactly 291 differing bytes, all accounted for. Also:
+scope a fixer's "only a _test.go changed" claim to the LAST COMMIT THAT
+TOUCHED bin/ (`git log -- plugins/guardrails/hooks/bin/`), not to the
+latest commit — comment-only .go changes after the rebuild are fine,
+but check the diff since the rebuild commit, not since round N.
 
 Related: [[self-approve-blocked-use-comment]].
