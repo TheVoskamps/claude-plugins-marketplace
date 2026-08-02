@@ -78,10 +78,13 @@ Notes that made this work in issue #216:
 - `--platform linux/amd64` works under emulation, so the linux-amd64 binary is
   exercisable from the Mac too.
 
-**Still NOT reachable this way:** an interactive in-guest *claude session*
-(the harness actually firing the hook). The binary and the hooks.json wrapper
-are both fully testable; the claude-code integration on top of them is not.
-And per [[baked-plugin-changes-unverifiable-pre-merge]] the guest bake pulls
-the marketplace's default branch, so a feature branch can't be guest-tested at
-all pre-merge. See [[unit-tests-are-not-real-runs]] -- the standard is
-unchanged, this memory just widens how much of it you can actually meet.
+**Not reachable this way:** an interactive in-guest *claude session* (the
+harness actually firing the hook). The binary and the hooks.json wrapper are
+both fully testable here; the claude-code integration on top of them is not --
+but that integration IS reachable in a real guest, pre-merge, per
+[[baked-plugin-changes-verifiable-pre-merge-via-local-marketplace]] (launch the
+guest from the PR-branch worktree and install the branch from `/mnt/repo` as a
+local marketplace). Treat these container probes as corroboration for the live
+guest run, not as a substitute for it. See [[unit-tests-are-not-real-runs]] --
+the standard is unchanged, this memory just widens how much of it you can meet
+without a guest.
