@@ -57,4 +57,25 @@ TOUCHED bin/ (`git log -- plugins/guardrails/hooks/bin/`), not to the
 latest commit — comment-only .go changes after the rebuild are fine,
 but check the diff since the rebuild commit, not since round N.
 
-Related: [[self-approve-blocked-use-comment]].
+**Negate-check the PR's new tests rather than trusting a green run.** In
+the review worktree, flip the predicate the new tests exist to exercise
+(e.g. a new allow-eligibility arm to `return false`), run only those
+tests, read which assertions fail, revert, then prove the revert with
+`git hash-object <file>` against `git rev-parse HEAD:<file>`. It
+separates the load-bearing assertions from the vacuous-but-true ones in
+one run and settles an ambiguous PR-body claim without asking anyone.
+
+**Choose the probe form by the track the program takes, not by
+convenience.** The read tracks have different terminals for the same
+containment verdict — the read-only-utility track ALLOWs any operand
+that is contained or carved out, while the pager/dumper track (`less`,
+`more`, `od`, `xxd`) DEFERs — so a probe whose track already produces
+the bucket you expect proves nothing about the carve-out under review.
+Read the program's classifier arm first, then pick a probe whose
+verdict can actually change.
+
+Subagent cwd resets between Bash calls, so run module commands as
+`go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.
+
+Related: [[self-approve-blocked-use-comment]],
+[[harness-slugs-can-double-dash]].

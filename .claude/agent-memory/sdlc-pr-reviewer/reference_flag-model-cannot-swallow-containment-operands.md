@@ -37,10 +37,12 @@ binaries were rebuilt consistently when only one can be executed.
 Related: [[guardrails-binary-verification]],
 [[narrowing-a-gate-promotes-cosmetic-helpers]].
 
-Correction note: [[probe-forms-that-cannot-prove-gate-carve-outs]] is
-frozen at round 3 — its two premises (`ls` on no allow track; `>`
-targets never graded) were deliberately falsified by round 3's fix
-(24826ac): `ls` is now in `readOnlyUtilities` and redirect targets are
-recorded in `sc.redirectTargets` and graded by `redirectVetoesAllow`.
-Its probe-form advice is stale for #193-era binaries; the negate-check
-recipe in it is still good.
+Two probe facts that older review notes get backwards: `ls` IS on the
+read-only-utility allow track (`readOnlyUtilities`), so it grades a path
+rather than deferring on every one; and a redirect target IS graded —
+destinations land in `sc.redirectTargets` and are decided by
+`redirectVetoesAllow`. Neither `ls <path>` nor `cmd > <path>` is a
+vacuous probe any more. Pick a probe form by reading the program's
+classifier arm — see the track-terminal note in
+[[guardrails-binary-verification]], which also carries the negate-check
+recipe.
