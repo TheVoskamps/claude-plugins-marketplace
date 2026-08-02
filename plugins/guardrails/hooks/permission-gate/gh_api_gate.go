@@ -413,6 +413,16 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // and close/reopen. `closeIssue`/`reopenIssue` mirror `gh issue close` /
 // `gh issue reopen`, which are already recoverable-write verbs.
 //
+// Each field-set verb is paired with its clear verb, because unsetting a value
+// is the same write on the same surface as setting it:
+// `deleteIssueFieldValue` clears one native issue field (the direct spelling of
+// the `delete: Boolean` that `setIssueFieldValue`'s own input already carries),
+// and `clearProjectV2ItemFieldValue` clears one project-board item field (the
+// only way to do it — `updateProjectV2ItemFieldValue` demands a concrete value
+// and cannot clear). A clear is recoverable exactly as its set counterpart is,
+// since the value can simply be set again, so neither adds exposure the set
+// verb has not already accepted.
+//
 // Recorded trade-off: these mutations address opaque node IDs, so — unlike the
 // `-R`/`--repo` foreign-target check — the gate cannot see which repo the
 // target belongs to. Accepted because the writes are recoverable, land on
@@ -423,7 +433,9 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // GraphQL names are case-sensitive, so lookups are exact-match by design.
 var ghGraphQLMutationAllowlist = map[string]bool{
 	"setIssueFieldValue":            true,
+	"deleteIssueFieldValue":         true,
 	"updateProjectV2ItemFieldValue": true,
+	"clearProjectV2ItemFieldValue":  true,
 	"addProjectV2ItemById":          true,
 	"updateIssueIssueType":          true,
 	"addSubIssue":                   true,

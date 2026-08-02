@@ -90,6 +90,22 @@ the old universality — grep the helper's remaining production callers
 (`grep -n 'helperName()' *.go | grep -v _test`) and make the comment
 say which tracks still use it.
 
+**Allowlist-extension PRs are the "already current" class
+(#209, PR #222):** adding entries to `ghGraphQLMutationAllowlist` (the clear verbs
+`deleteIssueFieldValue` / `clearProjectV2ItemFieldValue`) landed with the
+README's #195 allowlist paragraph and the map's own Go doc comment both
+already rewritten, and nothing else in the repo enumerates the allowlist
+— `rules.go`'s references say "curated issue-metadata allowlist" without
+listing members, and the issues plugin's SKILL.md /
+`skills/lib/issue.md` mentions of `setIssueFieldValue` /
+`updateProjectV2ItemFieldValue` are that plugin's own GraphQL templates,
+untouched by gate policy. So a pure allowlist add has zero doc-updater
+work: verify the README paragraph and the map comment, grep the verb
+names repo-wide to confirm no second enumeration exists, run the
+count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
+below — Engine A *static-resolution* changes do reliably need new README
+prose.
+
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
 literalWord, varResolver) but did NOT touch the README, even though #156

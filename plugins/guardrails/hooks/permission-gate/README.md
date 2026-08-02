@@ -295,7 +295,13 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `updateIssueIssueType`, `addSubIssue`, `removeSubIssue`,
   `addBlockedBy`, `removeBlockedBy`, `closeIssue`, `reopenIssue`; the
   GraphQL spelling of the recoverable-write verbs `gh` already allows,
-  plus the issues plugin's metadata verbs) also **allows**, with
+  plus the issues plugin's metadata verbs; extended in #209 with the
+  clear verbs `deleteIssueFieldValue` and
+  `clearProjectV2ItemFieldValue`, which unset a native issue field and
+  a project-board item field respectively — recoverable exactly as
+  their set counterparts are (the value can just be set again), and for
+  a board field the only spelling, since
+  `updateProjectV2ItemFieldValue` cannot clear) also **allows**, with
   aliases resolved to the real field name first; any other
   mutation-bearing document **asks** with the mutation field names in
   the reason (so the human sees `addSubIssue` vs `deleteIssue`), and a
