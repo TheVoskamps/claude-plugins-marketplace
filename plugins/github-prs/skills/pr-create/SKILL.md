@@ -1,15 +1,19 @@
 ---
 name: pr-create
-description: Open a draft GitHub PR for a branch against the configured base, with a closing keyword for the branch's own issue in the PR body.
+description: Open a draft GitHub PR for a branch against the configured base, with one closing keyword per issue in the branch's own issue set in the PR body.
 ---
 
 # PR Create
 
 Open a pull request for a feature branch as a **draft**, targeting the
-base branch read from repo-config, with a closing keyword for the
-branch's OWN issue in the PR body. This is the PR-create operation the
-`/sdlc:orchestrate` flow's `issue-developer` previously performed as a
-raw `gh pr create`; the skill now owns it, including the config read.
+base branch read from repo-config, with a closing keyword in the PR
+body for each issue in the branch's OWN issue set. This is the
+PR-create operation the `/sdlc:orchestrate` flow's `issue-developer`
+previously performed as a raw `gh pr create`; the skill now owns it,
+including the config read.
+
+A branch carrying one issue is the k=1 case of the same shape: one
+closing line, exactly as before.
 
 This skill is **GitHub-only by design**. It is built directly on
 `gh pr create`; there is no CodeCommit (or other source-control)
@@ -19,14 +23,19 @@ scope for this plugin.
 ## Invocation
 
 ```text
-/pr-create <issue-number> <branch>
+/pr-create <issue-number>… <branch>
 ```
 
-- `<issue-number>` (required): the issue this branch resolves — the
-  branch's OWN issue, with or without a leading `#`. See "Own issue
-  only" below.
+- `<issue-number>…` (required): the issues this PR resolves — members
+  of the branch's OWN issue set, each with or without a leading `#`,
+  separated by spaces or commas. See "Own issue set only" below.
 - `<branch>` (required): the head branch the PR is opened from,
-  conventionally `issue-<N>-<slug>` (or `<initials>/…` / `<name>/…`).
+  conventionally `issue-<N>-<slug>` for one issue or
+  `issue-<N1>-<N2>-…-<Nk>-<slug>` for a batch (optionally behind an
+  `<initials>/` or `<name>/` prefix).
+
+The `<branch>` argument is the last one, so the issue numbers are
+whatever precedes it.
 
 ## Repo-config
 
@@ -53,33 +62,57 @@ The values consumed:
 
 - **`default-pr-target-branch`** — the base branch the PR targets.
 - **`issue-link-prefix`** — the literal string concatenated with the
-  issue number in the closing keyword (`#` on GitHub, so the body
+  issue number in the closing keyword (`#` on GitHub, so each line
   reads `Closes #<N>`).
 
 Re-read the file every run; do not cache across invocations.
 
-## Own issue only
+## Own issue set only
 
-`<issue-number>` MUST be the branch's own issue — the single issue the
-PR resolves — **never** an umbrella, parent, predecessor, or otherwise
+Every issue this PR closes MUST be a member of the branch's own issue
+set — **never** an umbrella, parent, predecessor, or otherwise
 "related" issue. Aiming a closing keyword at another issue would
-auto-close that issue when this PR merges. Per the git-workflow rule
-("CRITICAL — closing keyword: PR body only, own issue only"), when the
-caller-supplied number and the branch name disagree, **the branch name
-is the higher-fidelity source of truth**: the branch-naming convention
-is `issue-<N>-<slug>`, so `<N>` from `<branch>` is the authoritative
-issue. Prefer the branch's `<N>` and note the discrepancy in the
-report-back.
+auto-close that issue when this PR merges. Per the closing-keyword
+rule in `rules/git-workflow.md` — PR body only, the branch's own issue
+set only — when the caller-supplied numbers and the branch name
+disagree, **the branch name is the higher-fidelity source of truth**.
+
+Recover the branch's set from its name by the parsing rule
+`git-tools:git-branch-create` writes it with: after the `issue-`
+marker, the leading run of all-numeric hyphen-separated tokens is the
+set, and everything from the first non-numeric token onward is the
+slug. So `issue-206-196-201-guardrails-gate-sweep` yields
+`{206, 196, 201}`. Compare as a **set**: the order in the branch name
+is the implementation order the caller chose, and carries no meaning
+for this comparison.
+
+**The branch's set is a maximum, not an equality.** A PR may close a
+*subset* of it, never a superset. That is what lets a member be
+dropped mid-flight — because it needed a design decision, or turned
+out larger than scoped — without renaming a branch that already
+carries commits. A closing line is therefore written only for an issue
+that is in the branch's set; a caller-supplied number outside it never
+gets one, and the refusal is named in the report-back rather than
+silently swallowed.
 
 ## Execution
 
-1. **Resolve the authoritative issue number.** If `<branch>` matches
-   `issue-<N>-<slug>` (with or without an `<initials>/` or `<name>/`
-   prefix), use its `<N>`; otherwise use the passed `<issue-number>`.
-   Call the result `<N>`.
+1. **Resolve the set of issues to close.** Recover the branch's set
+   `B` from `<branch>` per "Own issue set only". Take the
+   caller-supplied numbers as `C`. The set this PR closes is:
 
-2. **Open the PR as a draft**, targeting the configured base, with a
-   closing keyword for `<N>` in the body:
+   - `C ∩ B` — the caller's selection, restricted to the branch's set.
+   - If `C ∩ B` is empty, or `B` could not be recovered because
+     `<branch>` doesn't match the convention, fall back: use `B` when
+     it is non-empty (the branch name wins over a caller-supplied
+     number that matches nothing — the single-issue mismatch case),
+     otherwise use `C`.
+
+   Call the result `<N…>`. Note every member of `C` that was refused
+   because it is not in `B`.
+
+2. **Open the PR as a draft**, targeting the configured base, with one
+   closing keyword line per member of `<N…>` in the body:
 
    ```bash
    gh pr create --draft --base <default-pr-target-branch> \
@@ -88,25 +121,35 @@ report-back.
      --body "## Summary
    <what changed and why>
 
-   Closes <issue-link-prefix><N>"
+   Closes <issue-link-prefix><N1>
+   Closes <issue-link-prefix><N2>"
    ```
 
+   - **One keyword per line, one line per issue.** GitHub links only a
+     reference that carries its own keyword immediately before it, so
+     `Closes #196, #201` links `#196` only and silently leaves `#201`
+     unlinked. Repeating the keyword is what makes every member link
+     and auto-close.
    - `--draft` is REQUIRED: every PR is born as a draft. A draft PR
      cannot be auto-merged (the repo's auto-merge workflow filters
      `isDraft == false`), so it stays inert until an
      orchestrator/human flips it ready. The closing keyword only fires
      on merge to the default branch, so it too stays inert while the
      PR is draft.
-   - `Closes <issue-link-prefix><N>` in the **PR body** (never a commit
-     message) is REQUIRED, not forbidden — it is how the PR gets its
-     Development-sidebar link AND how the issue auto-closes on merge.
-     Never aim the closing keyword at any other issue, and never write
-     it into a commit message.
+   - The closing lines belong in the **PR body**, never in a commit
+     message — that is how the PR gets its Development-sidebar links
+     AND how each issue auto-closes on merge. Never aim a closing
+     keyword at an issue outside the branch's set, and never write one
+     into a commit message.
    - If the caller supplies title/body text, use it; otherwise
      synthesize a concise imperative title and a short summary. Always
-     ensure the `Closes <issue-link-prefix><N>` line is present in the
-     body.
+     ensure a `Closes <issue-link-prefix><N>` line is present for every
+     member of `<N…>`.
+   - When the PR closes a strict subset of `B` — a member was dropped
+     mid-flight — say so in the body: name the deferred issue and why
+     it is not in this PR, so the reviewer and the human can tell a
+     sanctioned deferral from a silent under-delivery.
 
 3. Report back a single line: the PR URL, the branch, and the issue
-   number `<N>` the PR closes. If the resolved `<N>` differed from the
-   passed `<issue-number>`, note the discrepancy.
+   set `<N…>` the PR closes. Note any deferred member of `B`, and any
+   caller-supplied number refused for being outside `B`.

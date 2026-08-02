@@ -1,9 +1,10 @@
 # github-prs
 
 GitHub-only skills for the operations a pull request goes through:
-create it (as a draft, closing its own issue), fetch its diff, submit a
-review with a verdict, flip it between draft and ready-for-review, and
-link it to the issue it resolves via a closing keyword in the PR body.
+create it (as a draft, closing its own issue set), fetch its diff,
+submit a review with a verdict, flip it between draft and
+ready-for-review, and link it to the issues it resolves via one closing
+keyword each in the PR body.
 
 These skills serve the `/sdlc:orchestrate` flow and its agents — the
 `issue-developer` opens the PR, the `pr-reviewer` diffs and reviews it,
@@ -12,6 +13,31 @@ PRs draft through the review/fix loop and only flips draft → ready once
 the human blesses the PR at end-of-loop — but each skill is a
 standalone verb usable by a human or any caller.
 
+## One PR, one issue set
+
+A PR in this flow delivers a **batch**: an ordered set of one or more
+issues implemented on one branch. A batch of one is the ordinary
+single-issue PR, so nothing below is extra work for that case.
+
+`git-tools:git-branch-create` encodes the set in the branch name —
+`issue-<N1>-<N2>-…-<Nk>-<slug>`, or `issue-<N>-<slug>` at k=1 — and
+`/pr-create` and `/pr-link-issue` recover it by the same parsing rule:
+after the `issue-` marker, the leading run of all-numeric
+hyphen-separated tokens is the set, and everything from the first
+non-numeric token onward is the slug. Both compare as a **set**; the
+order in the name is the developer's implementation order and carries
+no meaning for them.
+
+The branch's set is a **maximum, not an equality**: a PR may close a
+subset of it, never a superset. That is what lets a member be dropped
+mid-flight without renaming a branch that already carries commits and
+a PR.
+
+Each member needs **its own closing keyword** — GitHub links only a
+reference that carries a keyword immediately before it, so
+`Closes #196, #201` links `#196` and silently leaves `#201` unlinked.
+Both skills therefore write one `Closes #<issue>` line per issue.
+
 Every skill is GitHub-only **by design**: each is built directly on the
 `gh` CLI, and there is no CodeCommit (or other source-control) branch
 in any of them. CodeCommit is deliberately out of scope here, not
@@ -19,9 +45,9 @@ deferred.
 
 ## Config: read internally, not by the caller
 
-Five of the six skills (`pr-ready`, `pr-draft`, `pr-link-issue`,
-`pr-diff`, `pr-review-submit`) take everything they need as arguments
-and read no configuration at all. Only `pr-create` reads
+Every skill but `pr-create` — `pr-ready`, `pr-draft`, `pr-link-issue`,
+`pr-diff`, `pr-review-submit` — takes everything it needs as arguments
+and reads no configuration at all. Only `pr-create` reads
 repo-config — `default-pr-target-branch` and `issue-link-prefix` — and
 it does so **internally**, via a lightweight inline parse of just
 those two front-matter lines, not the `issues` plugin's full
@@ -38,25 +64,26 @@ review`.
 
 | Skill | Purpose | Underlying command |
 | ------- | --------- | -------------------- |
-| `/pr-create <issue> <branch>` | Open a draft PR for a branch against the right base, closing its own issue | `gh pr create --draft --base <target>` |
+| `/pr-create <issue>… <branch>` | Open a draft PR for a branch against the right base, closing its own issue set | `gh pr create --draft --base <target>` |
 | `/pr-diff <PR>` | Fetch a PR's full diff | `gh pr diff <PR>` |
 | `/pr-review-submit <PR> ...` | Post a single PR review carrying a verdict | `gh pr review <PR>` |
 | `/pr-ready <N>` | Mark a draft PR ready for review (draft → ready) | `gh pr ready <N>` |
 | `/pr-draft <N>` | Convert a ready PR back to a draft (ready → draft) | `gh pr ready <N> --undo` |
-| `/pr-link-issue <PR> <issue>` | Ensure the PR body links & closes its own issue | verify/append `Closes #<issue>` in the PR body |
+| `/pr-link-issue <PR> <issue>…` | Ensure the PR body links & closes every issue in its own set | verify/append the missing `Closes #<issue>` lines in the PR body |
 
-### `/pr-create <issue> <branch>`
+### `/pr-create <issue>… <branch>`
 
 Opens a pull request for `<branch>` as a **draft**, against the base
-branch read from `default-pr-target-branch` in repo-config, with a
-`Closes <link-prefix><issue>` line in the PR body so the PR links and
-auto-closes its own issue on merge. Reads `default-pr-target-branch`
-and `issue-link-prefix` internally via a lightweight inline parse (see
-"Config: read internally, not by the caller" above). `<issue>` must be
-the branch's own issue (`issue-<N>-<slug>`); when the passed `<issue>`
-and the branch's encoded `<N>` disagree, the branch name is the
-higher-fidelity source of truth. See the skill for the closing-keyword
-rule (PR body only, own issue only, never a commit).
+branch read from `default-pr-target-branch` in repo-config, with one
+`Closes <link-prefix><issue>` line per issue in the PR body so the PR
+links and auto-closes each of them on merge. Reads
+`default-pr-target-branch` and `issue-link-prefix` internally via a
+lightweight inline parse (see "Config: read internally, not by the
+caller" above). Every `<issue>` must be a member of the branch's own
+set (see "One PR, one issue set" above); a caller-supplied number
+outside it never gets a closing line, and the refusal is named in the
+report-back. See the skill for the closing-keyword rule (PR body only,
+own issue set only, never a commit).
 
 ### `/pr-diff <PR>`
 
@@ -87,16 +114,19 @@ Converts a ready PR back to a draft, re-arming that safety gate. Used
 manually when a PR that looked ready turns out to still need work.
 Safe to run more than once.
 
-### `/pr-link-issue <PR> <issue>`
+### `/pr-link-issue <PR> <issue>…`
 
-Idempotent verify/append. Reads the PR body; if it already contains a
-closing keyword immediately followed by a reference to `<issue>`, it
-no-ops. Otherwise it appends `Closes #<issue>` to the PR body. A
-closing keyword in the PR body is GitHub's sanctioned mechanism for
-both the Development-sidebar "linked pull request" **and** the
-auto-close-on-merge to the default branch.
+Set-idempotent verify/append. Reads the PR body and checks each passed
+issue for a closing keyword immediately followed by a reference to it;
+members that already have one are left alone, the missing ones get a
+`Closes #<issue>` line appended, and a body that already covers every
+member is a no-op. A closing keyword in the PR body is GitHub's
+sanctioned mechanism for both the Development-sidebar "linked pull
+request" **and** the auto-close-on-merge to the default branch.
 
-`<issue>` must be the branch's **own** issue — the one issue the PR
-resolves, never an umbrella/parent/related issue. When the passed
-`<issue>` and the PR's head branch (`issue-<N>-<slug>`) disagree, the
-branch name is the higher-fidelity source of truth.
+Every `<issue>` must be a member of the branch's **own** set — never
+an umbrella/parent/related issue. The passed numbers select which
+members to ensure; the head branch's encoded set bounds which are
+allowed, and is the higher-fidelity source of truth when they
+disagree. Passing a subset is how a deliberately deferred member stays
+un-closed.

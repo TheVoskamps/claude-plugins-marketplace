@@ -13,14 +13,15 @@ The marketplace currently ships these plugins (one entry each in
 - **`sdlc`** — issue orchestration and the
   developer/fixer/reviewer/doc/memory-scrubber agents.
 - **`github-prs`** — GitHub PR-operations skills: create, diff, and
-  review-submit a PR; flip a PR draft/ready; and link a PR to its issue
-  via a closing keyword in the PR body. GitHub-only by design.
+  review-submit a PR; flip a PR draft/ready; and link a PR to the
+  issues it closes via one closing keyword each in the PR body.
+  GitHub-only by design.
 - **`github-setup`** — GitHub repo provisioning (App identity, PR
   automation, branch protection, public mirror, history scrubbing,
   private-to-public promotion).
-- **`git-tools`** — create the correctly-named issue branch off the
-  right base, clean up merged branches and stale worktrees, and
-  generate unit tests.
+- **`git-tools`** — create the correctly-named issue branch, for one
+  issue or a batch of them, off the right base; clean up merged
+  branches and stale worktrees; and generate unit tests.
 - **`cc-tools`** — Claude Code meta-skills: load all global rules,
   track Claude Code feature/bug watchlist status, and curate a repo's
   `.claude/agent-memory/` in one acting pass (`agent-memory-cleanup`).
