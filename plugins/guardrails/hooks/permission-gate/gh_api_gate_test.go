@@ -104,7 +104,8 @@ func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
 // prompts per triage pass under the plain "any mutation → ASK" rule.
 func TestGhAPIGraphQLAllowlistedMutationAllows_195(t *testing.T) {
 	for _, cmd := range []string{
-		// Every allow-listed field, one document each (the enumerated list).
+		// The fields the allowlist launched with, one document each. The two
+		// clear verbs added later are pinned by the _209 tests below.
 		`gh api graphql -f query='mutation { setIssueFieldValue(input: {}) { issue { id } } }'`,
 		`gh api graphql -f query='mutation { updateProjectV2ItemFieldValue(input: {}) { projectV2Item { id } } }'`,
 		`gh api graphql -f query='mutation { addProjectV2ItemById(input: {}) { item { id } } }'`,
@@ -177,6 +178,58 @@ func TestGhAPIGraphQLMixedMutationAsks_195(t *testing.T) {
 		for _, f := range tc.want {
 			if !strings.Contains(d.Reason, f) {
 				t.Errorf("mixed-mutation ASK reason must name %q, got: %q", f, d.Reason)
+			}
+		}
+	}
+}
+
+// The two clear verbs ALLOW alongside their set counterparts. Unsetting an
+// issue-metadata value is the same recoverable write on the same human-visible
+// surface as setting it, and for a project-board field
+// `clearProjectV2ItemFieldValue` is the ONLY spelling — without it a board-field
+// clear costs a prompt that no set ever costs.
+func TestGhAPIGraphQLClearMutationsAllow_209(t *testing.T) {
+	for _, cmd := range []string{
+		// Each clear verb on its own, bare input.
+		`gh api graphql -f query='mutation { deleteIssueFieldValue(input: {}) { issue { id } } }'`,
+		`gh api graphql -f query='mutation { clearProjectV2ItemFieldValue(input: {}) { projectV2Item { id } } }'`,
+		// Named with variable definitions — the shape a clear verb would be
+		// called with, matching the issues plugin's own template style.
+		`gh api graphql -f query='mutation($issueId: ID!, $fieldId: ID!) { deleteIssueFieldValue(input: { issueId: $issueId, fieldId: $fieldId }) { issue { id number } } }'`,
+		`gh api graphql -f query='mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!) { clearProjectV2ItemFieldValue(input: { projectId: $projectId, itemId: $itemId, fieldId: $fieldId }) { projectV2Item { id } } }'`,
+		// A clear bundled with its own set counterpart: both are allow-listed,
+		// so the all-fields-must-pass rule is satisfied.
+		`gh api graphql -f query='mutation a { setIssueFieldValue(input: {}) { issue { id } } } mutation b { deleteIssueFieldValue(input: {}) { issue { id } } }'`,
+		// Aliases resolve to the real field name before the allowlist check.
+		`gh api graphql -f query='mutation { c: clearProjectV2ItemFieldValue(input: {}) { projectV2Item { id } } }'`,
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "graphql clear mutation: "+cmd)
+	}
+}
+
+// All-fields-must-pass is unchanged by the clear verbs: a document bundling
+// either clear with a non-allow-listed mutation still ASKs, naming both fields.
+func TestGhAPIGraphQLMixedClearMutationAsks_209(t *testing.T) {
+	for _, tc := range []struct {
+		cmd  string
+		want []string
+	}{
+		// Native-field clear alongside an off-list destructive mutation.
+		{
+			`gh api graphql -f query='mutation { deleteIssueFieldValue(input: {}) { issue { id } } deleteIssue(input: {}) { repository { id } } }'`,
+			[]string{"deleteIssueFieldValue", "deleteIssue"},
+		},
+		// Board-field clear in one operation, an off-list mutation in the next.
+		{
+			`gh api graphql -f query='mutation a { clearProjectV2ItemFieldValue(input: {}) { projectV2Item { id } } } mutation b { deleteProjectV2Item(input: {}) { deletedItemId } }'`,
+			[]string{"clearProjectV2ItemFieldValue", "deleteProjectV2Item"},
+		},
+	} {
+		d := classifyCmd(t, tc.cmd, false)
+		wantBucket(t, d, BucketAsk, "graphql mixed clear mutation: "+tc.cmd)
+		for _, f := range tc.want {
+			if !strings.Contains(d.Reason, f) {
+				t.Errorf("mixed clear-mutation ASK reason must name %q, got: %q", f, d.Reason)
 			}
 		}
 	}
