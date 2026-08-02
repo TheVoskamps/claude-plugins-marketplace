@@ -43,4 +43,4 @@
 - [No source-lint meta-tests](feedback_no-source-lint-meta-tests.md) — never `go test` the package's own comments/prose (nor substitute a build tag or linter config); removing one means deleting its README/comment/PR-body claims too
 - [Probe the parser AST, not the grammar](project_probe-the-parser-ast-not-the-grammar.md) — mvdan/sh: a bare `> f` has Cmd==nil, and `a && b > f` / `f() { …; } > f` park Redirs on the INNER stmt; measure with a throwaway in-package test
 - [Rebase absorbs an identical version bump](project_rebase-absorbs-an-identical-version-bump.md) — both sides bumping a plugin to the SAME version resolves silently and leaves the branch shipping main's value; re-bump after every rebase
-- [Shared-predicate list is one claim](project_shared-predicate-list-is-one-claim.md) — "A, B and C all have property P" needs P re-checked on every member when a finding names one; blanket negatives survive round after round otherwise
+- [Shared-predicate list is one claim](project_shared-predicate-list-is-one-claim.md) — "A, B and C all have property P" needs P re-checked on every member when a finding names one; the wrong member is the one nobody opened
