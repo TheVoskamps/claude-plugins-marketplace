@@ -301,12 +301,24 @@ truth when they disagree.
 The PR stays a **draft** at this point and through the entire
 review/fix loop — see "PR draft/ready lifecycle" below.
 
-### After each issue-developer reports back: doc-updater first, then pr-reviewer
+### After each issue-developer or issue-fixer: doc-updater, then pr-reviewer
 
 Run `doc-updater` and `pr-reviewer` **sequentially**, doc-updater first.
 The reviewer must see the final state of the PR including the doc
 commit; if doc-updater runs after pr-reviewer, the reviewer reviews an
 incomplete PR.
+
+This applies to **every** round that puts commits on the branch — the
+initial `issue-developer` implementation and each `issue-fixer` round
+alike (see "Handling review findings — the fix loop" below). A fixer
+round rewrites docs and doc comments under exactly the conditions the
+developer's round did — in the same commit as the code they describe —
+so it needs the same doc pass before its re-review.
+
+The doc pass is cheap in the common case and never costs a review
+round: when a round had no doc impact, `doc-updater` returns without a
+commit, and the review-round cap (Hard Constraints → "Max review
+rounds per PR") counts `pr-reviewer` runs only.
 
 Both run in fresh worktrees and check out the PR branch. Because each
 subagent's end-of-run cleanup deletes the local feature branch, the
@@ -348,10 +360,14 @@ human approval).
 
 Track a "worktrees cleaned" count for the final report.
 
-**doc-updater spawn prompt** — give it PR number, issue number, branch name:
+**doc-updater spawn prompt** — give it PR number, issue number, branch
+name. The same prompt serves both the developer's round and every
+fixer round; the agent works from the PR diff, so it needs no telling
+which round produced the commits:
 
 ```text
-PR <PR_N> was just created for issue <link-prefix><issue_N>: "<title>".
+PR <PR_N> for issue <link-prefix><issue_N> ("<title>") has new
+commits on it.
 Branch: <branch-name>
 
 Update docs per your agent definition (CLAUDE.md, READMEs, /docs,
@@ -405,11 +421,21 @@ alone.
    left a stale end-state lock — see
    `~/.claude/rules/worktree-cleanup.md`) before spawning the next
    subagent.
-4. Spawn the pr-reviewer again for a follow-up review of the new
+4. Spawn `doc-updater` against the branch, with the same spawn prompt
+   as after the developer's round (see "After each issue-developer or
+   issue-fixer: doc-updater, then pr-reviewer" above), and remove its
+   worktree when it returns — serially, before the reviewer is
+   spawned. The reviewer must see the final state of the PR including
+   any doc commit; if doc-updater runs after pr-reviewer, the reviewer
+   reviews an incomplete PR. Skipping this step is what lets a fixer's
+   own unverified doc claim reach the reviewer unchecked. When the
+   round had no doc impact, the agent returns without a commit, and
+   the pass does not consume a review round.
+5. Spawn the pr-reviewer again for a follow-up review of the new
    changes.
-5. Repeat this loop until APPROVED or until the review-round cap
+6. Repeat this loop until APPROVED or until the review-round cap
    (Hard Constraints → "Max review rounds per PR") is reached.
-6. If findings above Low persist when the cap is reached, escalate to
+7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
 ### Before `/pr-ready`: curate the PR's agent memory
@@ -711,7 +737,9 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   serial within a wave, per Anthropic issue #48927.
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
-- **Max review rounds per PR: 5.** Escalate to human after that.
+- **Max review rounds per PR: 5.** Escalate to human after that. A
+  round is one `pr-reviewer` run; the `doc-updater` pass that precedes
+  each one is not a review and never counts against the cap.
 
 ### What the orchestrator IS allowed to do
 

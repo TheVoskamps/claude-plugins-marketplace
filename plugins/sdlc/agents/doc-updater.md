@@ -109,6 +109,34 @@ sweep now is cheaper than one review round-trip per instance later.
 This sweep is the single exception to the surgical-edits rule in
 "What NOT to Do"; it never extends to general reformatting.
 
+## Prose that describes the code is a claim to verify
+
+A sentence describing *how* the code works is a claim to check against
+the code, not text to preserve. Structural assertions are where this
+goes wrong — "funnelled through a single helper", "all three tracks",
+"the only caller", "always routed through X", "X is unreachable" — and
+so are worked examples, which assert that one specific input reaches
+one specific outcome. Each is settled by a grep or a read.
+
+Check every such sentence in the files you touch before it survives
+your pass. Being pre-existing does not exempt a claim. Being written
+by another agent earlier in this same PR especially does not: that
+prose was authored in the same commit as the code it describes, by the
+agent grading its own claim. Your pass is the first independent read.
+
+The failure mode this catches: the described *behavior* is correct and
+test-pinned, while the stated *reason* it is correct is false — the
+code reaches the right answer by a different route than the prose
+claims. No test fails on that, and a worked example can be wrong about
+its own input while every assertion around it passes. Only reading the
+code catches it.
+
+When a claim turns out false, correct the prose to say what the code
+actually does — do not delete it silently. Do not change the code to
+make the prose true; behavior changes belong to `issue-fixer`. If the
+code looks like the wrong half of the mismatch, say so in your
+report-back rather than fixing it.
+
 ## What to Update
 
 ### CLAUDE.md (AI context file)
@@ -223,7 +251,17 @@ index.
 
 ## Output
 
-After making all edits:
+If discovery turned up no doc impact — nothing in the diff makes a
+doc, rule, or doc comment wrong, and no new symbol needs one — there
+is nothing to stage. Skip the doc commit entirely, still capture your
+agent memory and run the end-of-run cleanup, and say so in your
+report-back. A no-op pass is a normal outcome, not a failure: you run
+after every `issue-developer` and `issue-fixer` round (see the
+`/sdlc:orchestrate` skill → "After each issue-developer or
+issue-fixer: doc-updater, then pr-reviewer"), and many fixer rounds
+touch no documentation at all.
+
+Otherwise, after making all edits:
 
 1. Run `git diff --stat` to show what files changed
 2. Stage exactly the files you edited, by explicit path — Markdown
@@ -292,5 +330,8 @@ Before committing, verify:
 - You haven't introduced any broken markdown (unclosed code fences, etc.)
 - Every doc comment you touched matches the symbol's actual signature
   and behavior
+- Every structural claim you wrote, or left standing in a file you
+  edited, was checked against the code — not assumed from the prose
+  around it (see "Prose that describes the code is a claim to verify")
 - No sequence-numbered names and no list-count headers survive in the
   files you edited

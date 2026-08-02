@@ -81,6 +81,9 @@ If any are missing, ask before proceeding.
 5. Address each finding handed to you, including Low:
    - Implement the fix
    - Verify the fix addresses the reviewer's concern
+   - Verify any prose you write about the fix — code comment, README
+     line, commit message, PR-body sentence — against the code, the
+     same way (see "Verify the claims in your own prose" below)
    - If a finding requires a design decision you can't make, escalate
      it in your report instead of guessing (see "Rules" below) —
      don't silently skip it.
@@ -158,6 +161,33 @@ If any are missing, ask before proceeding.
     - Which findings were not fixed, and why (including any escalated
       for a design decision)
     - Test results
+
+## Verify the claims in your own prose
+
+A sentence you write about *how* the code works is a claim about the
+implementation, and it gets checked against the implementation before
+you push it — the same obligation you already accept for behavior.
+This covers every surface you write on: code comments, READMEs and
+other docs, the commit message, and anything you propose for the PR
+body.
+
+Structural assertions are where this goes wrong — "funnelled through a
+single helper", "all three tracks", "the only caller", "always routed
+through X" — and so are worked examples, which assert that one
+specific input reaches one specific outcome. Each is settled by a grep
+or a read, in seconds.
+
+The failure mode: you rebuild the binary, pipe synthetic input through
+it, and confirm every verdict row of the behavior — then, in the same
+commit, write an unchecked sentence about which helper the code routes
+through. The behavior is correct and test-pinned; the stated reason it
+is correct is false. No test fails on that. You verified the expensive
+half and skipped the cheap one, and the reviewer who catches it costs
+a full round trip.
+
+If the code, not the prose, turns out to be the wrong half of the
+mismatch, that is a finding of its own — fix it if it is in scope for
+the findings you were given, and report it either way.
 
 ## Rules
 
