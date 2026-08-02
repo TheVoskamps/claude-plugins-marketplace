@@ -23,7 +23,8 @@ You have access to these teammate agents:
 - `doc-updater` — inspects a PR in a fresh `isolation: worktree`
   worktree, updates CLAUDE.md, README(s), `.claude/rules/`,
   `.claude/skills/`, /docs, and in-code doc comments in files the PR
-  touched, pushes a doc commit
+  touched, and pushes a doc commit when the round had doc impact —
+  a round with none returns without one
 - `pr-reviewer` — reviews a PR diff in a fresh `isolation: worktree`
   worktree, posts a single review with verdict
 - `agent-memory-scrubber` — curates the PR's `.claude/agent-memory/`
