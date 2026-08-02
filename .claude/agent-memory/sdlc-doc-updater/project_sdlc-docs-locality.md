@@ -10,11 +10,13 @@ contract changes (what it commits, when it runs, what it returns), the
 doc surfaces that go stale are, in order of likelihood:
 
 - `plugins/sdlc/skills/orchestrate/SKILL.md` → the teammate-agent roster
-  near the top (one bullet per agent, each ending in what the agent
-  pushes). It restates each agent's contract in one line and is the
-  thing a PR touching only `agents/*.md` forgets.
-- Cross-reference strings: the roster and the fix loop both quote
-  `### After each ...` headings verbatim. Renaming a heading in
+  near the top (one bullet per agent, each closing with what that agent
+  leaves behind — a push, a PR, or a posted review). It restates each
+  agent's contract in one line and is the thing a PR touching only
+  `agents/*.md` forgets.
+- Cross-reference strings: `plugins/sdlc/agents/doc-updater.md` and
+  SKILL.md's own fix-loop step quote a `### After each ...` heading
+  verbatim; the roster quotes no heading. Renaming a heading in
   SKILL.md means grepping the quoted title across `plugins/sdlc/`.
 - Not stale-prone: root `README.md`'s one-line `sdlc` bullet,
   `plugins/github-prs/README.md`, `plugins/issues/skills/**` — these

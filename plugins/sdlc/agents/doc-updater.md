@@ -253,12 +253,13 @@ index.
 
 If discovery turned up no doc impact — nothing in the diff makes a
 doc, rule, or doc comment wrong, and no new symbol needs one — there
-is nothing to stage. Skip the doc commit entirely, still capture your
-agent memory and run the end-of-run cleanup, and say so in your
-report-back. A no-op pass is a normal outcome, not a failure: you run
-after every `issue-developer` and `issue-fixer` round (see the
-`/sdlc:orchestrate` skill → "After each issue-developer or
-issue-fixer: doc-updater, then pr-reviewer"), and many fixer rounds
+is nothing to stage. Skip the doc commit entirely, still capture
+**and push** your agent memory — the capture step below and the push
+after it both apply on this path — still run the end-of-run cleanup,
+and say so in your report-back. A no-op pass is a normal outcome, not
+a failure: you run after every `issue-developer` and `issue-fixer`
+round (see the `/sdlc:orchestrate` skill → "After each issue-developer
+or issue-fixer: doc-updater, then pr-reviewer"), and many fixer rounds
 touch no documentation at all.
 
 Otherwise, after making all edits:
