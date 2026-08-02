@@ -5,11 +5,15 @@ metadata:
   type: reference
 ---
 
-Reviewing PR #211's nested `.claude/agent-memory/.markdownlint.jsonc`
+A probe that fires in *neither* scope indicts the rule or its option
+value, not the config chain — so never read that silence as evidence
+about inheritance.
+
+**Why:** on PR #211's nested `.claude/agent-memory/.markdownlint.jsonc`
 (`"extends": "../../.markdownlint.jsonc"`), the planned propagation
 tracer was the root's pinned non-default
 `"MD060": { "style": "leading_and_trailing" }` — but a table probe
-violating that style raised no MD060 in *either* scope under
+violating that style raised no MD060 in either scope under
 markdownlint-cli2 v0.23.2 / markdownlint v0.41.1. The cause was **not**
 version skew: MD060 is `table-column-style`, and its `style` accepts
 only `aligned`/`any`/`compact`/`tight`. `leading_and_trailing` belongs
@@ -23,11 +27,10 @@ So a key that *looks* pinned can be inert for several reasons — a rule
 the resolved version does not implement, a wrong rule ID, or an
 out-of-vocabulary option value — and none of them warn. Check the
 rule's own `doc/mdNNN.md` at the resolved version's tag for its real
-name and option vocabulary before trusting it as a tracer. A tracer
-that fires in neither scope proves nothing about the chain and must be
-swapped, not interpreted.
+name and option vocabulary before trusting it as a tracer. A silent
+tracer must be swapped, not interpreted.
 
-**How to apply:** two probes settle a nested-config review
+**How to apply:** these probes settle a nested-config review
 conclusively, and neither needs the happy path:
 
 1. **Chain live:** flip a distinctive setting in the PARENT (e.g.

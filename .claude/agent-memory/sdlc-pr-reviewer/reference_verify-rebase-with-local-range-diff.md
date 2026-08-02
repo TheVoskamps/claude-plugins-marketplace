@@ -5,10 +5,12 @@ metadata:
   type: reference
 ---
 
-Reviewing PR #211 round 4 after a rebase onto a moved main, the plan
-was `gh api repos/<o>/<r>/compare/<oldtip>...<newtip>` — refused by the
-permission gate ("endpoint contains '..' (server-side path traversal)"),
-which blocks every three-dot compare URL by shape.
+To verify that a rebased-and-force-pushed PR lost nothing, compare the
+two commit *series* locally with `git range-diff`. The GitHub compare
+API is not available for this: `gh api
+repos/<o>/<r>/compare/<oldtip>...<newtip>` is refused by the permission
+gate ("endpoint contains '..' (server-side path traversal)"), which
+blocks every three-dot compare URL by shape.
 
 The local route is better anyway and needs no fetch:
 

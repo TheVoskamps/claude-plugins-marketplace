@@ -7,6 +7,13 @@ that plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`,
 in the same PR. The version bump is a separate, deliberate edit. A
 plugin change without a version bump is incomplete.
 
+Rebase onto `origin/main` before editing a version. A version is a
+single line, so when main has already bumped the same plugin since the
+branch's merge-base there is no value the branch can write that merges
+cleanly — every one of them conflicts, and the PR reads as
+`CONFLICTING`. Re-derive the change against the rebased tree rather
+than carrying over a diff computed against the pre-rebase files.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,

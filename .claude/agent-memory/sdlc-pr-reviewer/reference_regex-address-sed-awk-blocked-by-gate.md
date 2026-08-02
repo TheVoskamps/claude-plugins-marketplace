@@ -7,10 +7,10 @@ metadata:
 
 `sed -n '/^Packages=/,/^\[Build\]/p' <in-repo-file>` and
 `awk '/^Packages=/,/^\[Build\]/' <in-repo-file>` are both refused by the
-permission gate with "would read '<the regex>' which resolves outside the
-current repository" — the gate reads the regex address as a file path
-because it starts with `/`. The file argument being squarely inside the
-worktree does not help.
+permission gate with "would read `'<the regex>'` which resolves outside
+the current repository" — the gate reads the regex address as a file
+path because it starts with `/`. The file argument being squarely inside
+the worktree does not help.
 
 **How to apply:** to read a section of a file bounded by patterns, run
 `grep -n '<pattern>' <file>` to get the line numbers, then use the Read

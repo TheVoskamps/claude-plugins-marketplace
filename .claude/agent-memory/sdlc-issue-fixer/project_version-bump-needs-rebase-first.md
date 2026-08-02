@@ -1,26 +1,22 @@
 ---
 name: version-bump-needs-rebase-first
-description: A CLAUDE.md-mandated plugin version bump on a branch whose base is older than origin/main is an unavoidable merge conflict on the version line; check main-is-ancestor before bumping and rebase onto origin/main first
+description: Detect branch staleness with git merge-base --is-ancestor before a plugin version bump (git status will not tell you) and execute the rebase with the gate-legal forms; memory-index conflicts resolve as a union except where a Curate commit is replayed
 metadata:
   type: project
 ---
 
-Before editing any `plugins/<name>/.claude-plugin/plugin.json` version,
-run `git merge-base --is-ancestor origin/main HEAD` (after a
-`git fetch`). If it returns non-zero, the branch is behind and you must
-rebase onto `origin/main` **before** bumping.
+CLAUDE.md requires a rebase onto `origin/main` before any plugin
+version bump. This entry is how to detect that you need one, and how to
+carry it out here.
 
-**Why:** the repo's CLAUDE.md forces a version bump for every plugin a
-PR touches, and a version is a single line. If main has bumped that
-same plugin since the branch's merge-base, *every* value you can write
-conflicts — base `0.16.7`, main `0.17.0`, branch anything — so there is
-no bump that merges cleanly. On PR #211 this showed up as
-`gh pr view --json mergeable` reading `CONFLICTING`, which blocks the
-PR outright. The staleness bites twice: main had also edited the very
-`SKILL.md` table the round was fixing, so the fix was being computed
-against a file that no longer existed in that form. Fetching alone does
-not tell you this — `git status` says "up to date with
-`origin/<branch>`", which is true and irrelevant.
+**Detection.** `git status` reports "up to date with
+`origin/<branch>`", which is true and irrelevant — it compares against
+the branch's own remote ref, never against main, and fetching alone
+does not tell you either. Only `git merge-base --is-ancestor
+origin/main HEAD` answers the question. Staleness bites past the
+version line too: main may have edited the very file the round is
+fixing, so the fix gets computed against a file that no longer exists
+in that form, and `gh pr view --json mergeable` reads `CONFLICTING`.
 
 **How to apply:**
 
