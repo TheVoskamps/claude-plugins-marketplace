@@ -106,6 +106,27 @@ count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
 below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
+**Gate PACKAGING facts are cross-plugin, unlike gate BEHAVIOR facts
+(#216, PR #217).** The "no other markdown describes gate behavior" rule
+at the top of this entry holds only for *classifier* behavior. How the
+gate is *shipped* — prebuilt committed binaries per `<goos>-<goarch>`,
+`uname` selection, which platforms exist — is mirrored in three
+claude-vm surfaces: `plugins/claude-vm/payload/README.md`,
+`payload/config-bake.example.yml`, and `skills/claude-vm/SKILL.md`
+(twice: the commented config block and the derived-keys section). Those
+three had carried a flatly false claim for a long time — that the gate
+does a load-time `go build`, so baking `guardrails@…` requires `golang`
+in the bake file's `packages:` — which is why a guardrails packaging
+change spans two plugins and two version bumps. **How to apply:** on any
+PR touching `hooks/hooks.json`, `hooks/bin/`, or the build recipe, grep
+the whole repo for `golang|load[ -]time|go build|compiled[ -]hook` and
+for the platform triple, not just the guardrails tree. The claude-vm
+config-WIZARD skills (`claude-vm-config-global`/`-repo`) were checked
+and are clean here — they describe `claude.plugins.bake` mechanics
+generically and never named guardrails — so the lag warned about in
+[[project_claude-vm-config-wizard-skills-lag]] does not extend to
+gate-packaging facts.
+
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
 literalWord, varResolver) but did NOT touch the README, even though #156
