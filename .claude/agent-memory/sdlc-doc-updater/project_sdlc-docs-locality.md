@@ -14,6 +14,12 @@ doc surfaces that go stale are, in order of likelihood:
   leaves behind — a push, a PR, or a posted review). It restates each
   agent's contract in one line and is the thing a PR touching only
   `agents/*.md` forgets.
+- The same SKILL.md restates a contract a second and third time in
+  running prose: the "After each issue-developer or issue-fixer"
+  section and the fix-loop's `doc-updater` step both spell out the
+  no-doc-impact outcome. A change to an agent's Output section can
+  falsify all three sites at once — grep the agent name across
+  SKILL.md rather than fixing only the roster bullet.
 - Cross-reference strings: `plugins/sdlc/agents/doc-updater.md` and
   SKILL.md's own fix-loop step quote a `### After each ...` heading
   verbatim; the roster quotes no heading. Renaming a heading in
@@ -25,12 +31,13 @@ doc surfaces that go stale are, in order of likelihood:
   historical plan; never edit it (see [[plugin-docs-locality]]).
 
 **Why:** an sdlc PR's real diff is `agents/*.md` + `orchestrate/SKILL.md`,
-and the roster line is the only prose that duplicates an agent's contract
-outside that agent's own file.
+and SKILL.md is where an agent's contract gets duplicated outside that
+agent's own file.
 
-**How to apply:** on any sdlc PR, after reading the diff, re-read the
-SKILL.md roster bullet for each agent the PR touched and check it against
-that agent's current Output section.
+**How to apply:** on any sdlc PR, after reading the diff, grep SKILL.md
+for each agent the PR touched and check every hit — roster bullet,
+section prose, fix-loop step — against that agent's current Output
+section.
 
 Judgment call worth keeping (mine, not the user's): SKILL.md's
 `Phase 1 / Phase 2 / Phase 3` headings violate the writing-style

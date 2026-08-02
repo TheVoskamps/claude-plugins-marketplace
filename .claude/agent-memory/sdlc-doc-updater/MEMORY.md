@@ -34,9 +34,9 @@
   — an issue's "Known gaps left in place" section is the part the
   developer reliably never carries into the README; check it every run.
 - [sdlc docs locality](project_sdlc-docs-locality.md) — no
-  plugins/sdlc/README.md; the orchestrate SKILL.md teammate roster
-  duplicates each agent's contract and is what goes stale; leave the
-  Phase 1/2/3 headings alone.
+  plugins/sdlc/README.md; orchestrate SKILL.md duplicates each agent's
+  contract in several places (roster, section prose, fix-loop step) —
+  grep it whole; leave the Phase 1/2/3 headings alone.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
