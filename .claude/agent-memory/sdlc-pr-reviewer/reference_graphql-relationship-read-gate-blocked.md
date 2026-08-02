@@ -1,26 +1,31 @@
 ---
 name: graphql-relationship-read-gate-blocked
-description: In worktree isolation the gate refuses `gh api graphql` relationship reads in every form (-f literal with braces = "too complex", -F @file = "no statically-present document"); degrade /issue-view gracefully via `gh issue view --json`.
+description: Query-only `gh api graphql -f query='…'` documents now classify and ALLOW under the current gate (verified live on PR #222); the old "refused in every form" state was a pre-#113 gate. `-F query=@file` stays blocked; fall back to `gh issue view --json` when a document is refused.
 metadata:
   type: reference
 ---
 
-During PR #211 round 2 the /issue-view step's node-ID relationship
-lookup could not be run at all from the review worktree: the
-permission gate refused `gh api graphql -f query='{...}'` as "too
-complex to verify that it stays inside the worktree" (the braces and
-parens in a GraphQL document trip the shell classifier), and the
-file-based form `gh api graphql -F query=@file` is separately blocked
-because -F/@file carries no statically-present document for the gate
-to classify. Piping the output (`| head`) also triggers the
-too-complex refusal on otherwise-allowed commands.
+During PR #211 round 2 the then-active permission gate refused
+`gh api graphql -f query='{...}'` as "too complex to verify that it
+stays inside the worktree", so the /issue-view relationship lookup was
+unrunnable from a review worktree in every form.
 
-**How to apply:** get body, title, labels, assignees, and state from
+**That state is stale.** On PR #222 (2026-08-02, gate 0.9.15 active
+from main) three separate query-only introspection documents —
+`-f query='query { __type(name: "…") { inputFields { … } } }'`, full
+of braces, parens, and quoted strings — each ran and ALLOWed: the
+post-#113 gate classifies the document instead of refusing on shell
+shape, and a document whose every top-level construct is a `query`
+allows. Mutation-bearing documents allow only when every mutation
+field is on `ghGraphQLMutationAllowlist` (#195, extended #209).
+
+**How to apply:** try the plain `-f query='…'` literal form first for
+GraphQL reads — do not preemptively degrade. The file-based
+`-F query=@file` form is still blocked (no statically-present document
+to classify), so keep the document inline. If a specific document is
+refused anyway, fall back to
 `gh issue view <N> --json number,title,body,url,labels,assignees,state`
-(plain flags — passes the gate) and degrade the
-parent/sub-issues/blockedBy/blocking sections gracefully, noting the
-omission in the review preamble. Do not burn calls retrying GraphQL
-spellings, and do not launder the query through a bash script to dodge
-the gate — the gate's own error text points at sanctioned skills
-instead. Related: [[git-sandbox-via-script-file]] is for multi-step
-git experiments, not for evading a refused read.
+and degrade the parent/sub-issues/blockedBy/blocking sections
+gracefully, noting the omission in the review preamble. Related:
+[[git-sandbox-via-script-file]] is for multi-step git experiments, not
+for evading a refused read.

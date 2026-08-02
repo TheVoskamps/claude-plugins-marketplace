@@ -65,6 +65,16 @@ tests, read which assertions fail, revert, then prove the revert with
 separates the load-bearing assertions from the vacuous-but-true ones in
 one run and settles an ambiguous PR-body claim without asking anyone.
 
+**Never judge binary provenance from the embedded vcs stamps in this
+repo.** Builds run inside a `.claude/worktrees/` linked worktree stamp
+`vcs.revision` with the PRIMARY clone's HEAD (main), not the worktree's
+branch tip, and `vcs.modified=false` even though the worktree carries
+the PR's source — verified on PR #222, where the committed binaries
+AND a fresh review-worktree rebuild both stamped main's merge commit.
+A "wrong" revision stamp is therefore expected, not evidence of a
+stale binary; staleness falls to the nm-table compare and behavior
+probes above.
+
 **Choose the probe form by the track the program takes, not by
 convenience.** The read tracks have different terminals for the same
 containment verdict — the read-only-utility track ALLOWs any operand
