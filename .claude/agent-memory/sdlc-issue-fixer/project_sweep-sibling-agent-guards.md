@@ -1,6 +1,6 @@
 ---
 name: sweep-sibling-agent-guards
-description: a Critical fix to one sdlc agent's unguarded git branch -D was live in all four sibling agents too; round-3 swept the guard sentence, but round-4 found the sweep itself was incomplete — it dropped the scrubber's own carve-out for the no-commit case
+description: a Critical fix to one sdlc agent's unguarded git branch -D was live in all four sibling agents too; round-3 swept the guard sentence, round-4 found the sweep had dropped the scrubber's no-commit carve-out, and a later round set where a sweep stops — inside the change's own hunks, not pre-existing prose on an approved PR
 metadata:
   type: project
 ---
@@ -61,6 +61,39 @@ four sibling guards, matching the scrubber's carve-out in substance
 (wording adapted, not copy-pasted verbatim, since the scrubber's own
 guard has extra SHA+porcelain verification machinery the siblings
 don't).
+
+**Sweeping is only one of the two remedies.** PR #211 (issue #207)
+faced the same family with the scrubber's *lifecycle* prose
+paraphrased in all four writer agents, and the reviewer's follow-up
+chose the other remedy: collapse each paraphrase to a pointer at the
+canonical statement — the `/sdlc:orchestrate` skill → "Before
+`/pr-ready`: curate the PR's agent memory" — keeping only each
+agent's own operational instruction inline. Sweep when the duplicated
+text has to stay inline (the `git branch -D` guard is per-agent
+operational text); collapse when it is shared *rationale* that one
+file can own. After that PR the lifecycle prose no longer needs the
+four-file sweep — the end-of-run cleanup guard still does.
+
+**Where a sweep stops.** PR #211 round 3 handed the fixer two
+core-principles rule-7 tally instances, both in `pr-reviewer.md`. A
+grep of every file the PR touched turned up one more arguable instance
+— `agent-memory-scrubber.md`'s "These failure shapes both fail it:"
+above a two-bullet list (with "In either case" downstream) — but in
+*pre-existing* prose, outside any of the PR's own diff hunks, on a PR
+already graded APPROVED. Fixed the two in-hunk instances; reported the
+third to the orchestrator instead of editing it. The reviewer's own
+adjudication had scoped the sweep ("sweep both wordings in the same
+file"), and this agent definition's "do not refactor unrelated code"
+is the narrower instruction.
+
+*Unvalidated by the human as of 2026-07-31 — this was the fixer's own
+call, recorded so the next round is consistent rather than because it
+was blessed.* The reasoning: "sweep the class" is about not making the
+reviewer spend a round per instance, and a class instance in untouched
+prose costs no extra round if it is *named in the report*. Silently
+widening an approved PR's diff can cost one. So: sweep freely inside
+the change's own hunks; outside them, name it and let the orchestrator
+decide.
 
 **Generalized lesson:** when the thing being swept is a guard/rule
 with an exception clause, sweep the exception too, not just the

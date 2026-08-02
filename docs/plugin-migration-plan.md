@@ -78,7 +78,7 @@ source change to a 1408-line file with ~24 consumers — and is deferred
 ## Target plugins (7)
 
 | # | Plugin | Skills | Agents | In-plugin lib (`Read`) | Cross-plugin lib (skill) | Depends on |
-|---|--------|--------|--------|------------------------|--------------------------|------------|
+| --- | -------- | -------- | -------- | ------------------------ | -------------------------- | ------------ |
 | 1 | `issues` | 22 `issue-*` verbs + `issue-add` (alias) + `repo-config` + `user-config` + `global-user-config` | — | `issue.md` (incl. GitHub), `repo-config.md`, `user-config.md` | — | — |
 | 2 | `issues-jira` | — | — | — | `jira-lib` (= `jira.md`, `user-invocable: false`) | `issues` |
 | 3 | `sdlc` | `orchestrate` (renamed from `issue-address`) + `git-review-pr` | `issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer` | — | — | `issues` |

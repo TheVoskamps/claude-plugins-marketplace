@@ -5,8 +5,8 @@ metadata:
   type: project
 ---
 
-`plugins/claude-vm/payload/provisioners/podman-mkosi.sh` (issue #105 / PR
-#161) shipped with 151 passing unit tests in `config-test.sh`, all
+`plugins/claude-vm/payload/provisioners/podman-mkosi.sh` (issue #105 /
+PR #161) shipped with 151 passing unit tests in `config-test.sh`, all
 exercising pure functions in `payload/lib/config.sh` (bake-hash
 canonicalization, variant-path derivation, etc.). None of them render or
 execute the actual generated `mkosi.conf` / `build-in-container.sh`
@@ -47,8 +47,8 @@ infrastructure the sandbox doesn't have, and let the rest of the real
 script execute for real. This generalizes past claude-vm to any
 provisioner/build script in this repo.
 
-**Addendum (issue #106 PR #174, round 5)**: on this run's machine, `podman`
-+ `vfkit` + `tinyproxy` were actually present (only `gvproxy` was missing
+**Addendum (issue #106 PR #174, round 5)**: on this run's machine,
+`podman` + `vfkit` + `tinyproxy` were actually present (only `gvproxy` was missing
 from PATH, and `test/host-acceptance.sh` resolves it from podman's libexec
 via `claude_vm_resolve_gvproxy`, not PATH) — so no stubbing was needed at
 all; `bash plugins/claude-vm/payload/test/host-acceptance.sh` ran a fully
@@ -62,13 +62,14 @@ Separately, this round surfaced a sibling failure mode: the acceptance
 code gains a new hard requirement (issue #104 added a settings.json
 hard-abort to the boot launcher; `host-acceptance.sh`'s stub
 `claudecreds` share was never updated to include one). The harness kept
-exiting cleanly-looking but criterion (b) had actually been failing since
-#104 landed — masked across multiple PR rounds because each round's
+exiting cleanly-looking but criterion (b) had actually been failing
+since #104 landed — masked across multiple PR rounds because each round's
 "real vfkit boot passed" claim in the PR body was taken at face value
-without re ­running the harness. When a PR touches a build/boot surface that has its own acceptance
-harness, sweep the harness's stub fixtures for staleness against the
-product code's current hard requirements, not just the product code
-itself — see `plugins/claude-vm/payload/test/host-acceptance.sh` for the
+without rerunning the harness. When a PR touches a build/boot surface
+that has its own acceptance harness, sweep the harness's stub fixtures
+for staleness against the product code's current hard requirements, not
+just the product code itself — see
+`plugins/claude-vm/payload/test/host-acceptance.sh` for the
 concrete fixture-construction pattern that worked: mirror the real
 launcher's own render function (e.g. `claude_vm_render_guest_settings`)
 over a minimal merged-config stub, rather than hand-rolling a literal, so

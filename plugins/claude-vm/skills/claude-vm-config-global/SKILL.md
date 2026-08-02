@@ -73,7 +73,7 @@ values in `payload/config-bake.example.yml` /
 the two global files each key is written into (its bake/boot placement):
 
 | key | file | default | rationale |
-|-----|------|---------|-----------|
+| ----- | ------ | --------- | ----------- |
 | `cpus` | boot | `2` | RAM-bound sizing; vCPUs time-slice, 2 covers git/build/test bursts |
 | `mem` | boot | `4096` | the real ceiling — RAM is committed, ~8–12 VMs fit at 4 GB on a 64 GB host |
 | `proxy.cmd` | boot | omitted (bundled tinyproxy launcher is the launcher-side default) | tinyproxy is the chosen forward proxy; the launcher runs the bundled `payload/proxy/tinyproxy-launch.sh` when `proxy.cmd` is unset |

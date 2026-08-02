@@ -23,7 +23,7 @@ different worktree from inside a subagent is `git --git-dir=<path>/.git
 single Bash call, no chaining.
 
 **How to apply**: when `git checkout <branch>` reports "already used by
-worktree at <path>", don't fight it by trying `cd`/`-C` tricks or assuming
+worktree at `<path>`", don't fight it by trying `cd`/`-C` tricks or assuming
 the other agent is still running. Check the other worktree's state with
 `git --git-dir=<path>/.git --work-tree=<path> status --porcelain=v1
 --branch` — if it's clean and matches `origin/<branch>` exactly (no

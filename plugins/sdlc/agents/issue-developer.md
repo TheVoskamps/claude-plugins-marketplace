@@ -122,6 +122,16 @@ rather than re-deriving their reads.
      as an idempotent safety-net after you report back — it is a
      no-op when `/pr-create` already wrote the closing keyword, so you
      don't need to call it yourself.
+   - Write the body to describe the change **as it stands** — a
+     summary, what changed, why, and how it was tested — plus design
+     rationale that stays true as the branch evolves. Leave out any
+     inventory of known-but-unfixed nits, "left this alone"
+     decisions, and offers to file a follow-up. Body prose describing
+     a point-in-time state goes stale the moment a later round acts
+     on it, and the stale bullet then reads as a false claim to
+     whoever decides whether to merge. Put those items in your
+     report-back to the orchestrator instead, which is how the
+     fix-now-versus-file-an-issue decision reaches the human.
 
 10. Capture agent memory onto the branch, before worktree cleanup.
     `memory: project` resolves `.claude/agent-memory/` relative to
@@ -138,13 +148,13 @@ rather than re-deriving their reads.
 
     Stage **only** `.claude/agent-memory/` — never `git add -A` or any
     broader directory-wide add for this commit. This is a raw,
-    append-only capture: do not prune or curate your own memory here;
-    `agent-memory-scrubber` curates every agent's memory in a single
-    pass at the end of the PR lifecycle, after every other agent has
-    captured. The commit message must obey the same closing-keyword
-    rule as step 7 — never a closing keyword immediately before an
-    issue reference. If `.claude/agent-memory/` has no changes, skip
-    this step; there is nothing to commit.
+    append-only capture: do not prune or curate your own memory here.
+    `agent-memory-scrubber` owns curation — for when it runs, see the
+    `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
+    agent memory". The commit message must obey the same
+    closing-keyword rule as step 7 — never a closing keyword
+    immediately before an issue reference. If `.claude/agent-memory/`
+    has no changes, skip this step; there is nothing to commit.
 
 11. End-of-run cleanup — release the branch claim so subsequent
     subagents (`doc-updater`, `issue-fixer`) can check out the same

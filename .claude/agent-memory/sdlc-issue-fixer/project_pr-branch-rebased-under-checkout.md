@@ -24,6 +24,7 @@ again between fetch and push.
 
 **Safe recovery pattern** (a subagent worktree must never `git reset
 --hard` or force-push):
+
 1. `git diff > <scratch>/fix.patch` (or, if already committed,
    `git format-patch -1 <sha> --stdout > <scratch>/my-fix.patch`) to save
    the actual delta.

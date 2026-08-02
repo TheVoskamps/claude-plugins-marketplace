@@ -14,8 +14,8 @@ repo), it adjudicates YOUR own tool calls in real time.
 every Bash/Read/Write/Edit call. It is not a passive artifact you build
 and forget — it gates the very commands you use to build it.
 
-**How to apply:** concrete forms it blocks that bit me during issue
-#113 (all correctly — do not fight them):
+**How to apply:** concrete forms it blocks that bit me during
+issue #113 (all correctly — do not fight them):
 
 - `git commit -m "$(cat <<EOF ...)"` and any git with a command
   substitution / heredoc arg → DENY (non-static argv, #64 precondition).

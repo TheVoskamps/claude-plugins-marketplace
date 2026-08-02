@@ -44,12 +44,14 @@ flow: `issue-developer`, `issue-fixer`, `doc-updater`, and
 `pr-reviewer` each commit their own raw, uncurated
 `.claude/agent-memory/` deltas onto the branch at end-of-run, before
 their worktree cleanup, staging only that path — and none of them
-judges any memory, its own or anyone else's. Curation is a single pass
-owned by `agent-memory-scrubber`, spawned once after the review loop
-settles and before `/pr-ready` (see "After the review loop settles:
-curate the PR's agent memory"). Every writer has captured by then, so
-that one pass covers the whole PR — `pr-reviewer`'s own capture
-included — and nothing is deferred to a later PR.
+judges any memory, its own or anyone else's. Curation is owned by
+`agent-memory-scrubber`, which runs as the **last agent to touch the
+branch** before `/pr-ready` (see "Before `/pr-ready`: curate the PR's
+agent memory"). Running last is what makes one pass enough: every
+writer has captured by then, so that pass covers the whole PR —
+`pr-reviewer`'s own capture included — and nothing is deferred to a
+later PR. Anything that lands on the branch afterwards leaves the
+curation stale, and the scrubber runs again.
 `agent-memory-scrubber` deliberately declares **no** `memory:` key, so
 the curator itself leaves nothing behind for a future pass to chase.
 (Plugin-shipped agents don't support a `permissionMode` frontmatter
@@ -130,7 +132,7 @@ file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
 are file-sandboxed"). This is deliberate, not a gap: the orchestrator
 no longer does branch/PR mechanics itself — `issue-developer` now
 delegates those reads to `git-tools:git-branch-create` and
-`github-prs:pr-create` — so the orchestrator only ever needed two
+`github-prs:pr-create` — so the orchestrator only ever needed these
 things out of the old six-field contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
@@ -410,20 +412,53 @@ alone.
 6. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
-### After the review loop settles: curate the PR's agent memory
+### Before `/pr-ready`: curate the PR's agent memory
 
-Once a PR's review loop has settled — APPROVED, or the review-round
-cap reached — spawn `agent-memory-scrubber` **exactly once** for that
-PR. Spawn it after the last `pr-reviewer` run and **before** Phase 3's
-`/github-prs:pr-ready` call, so the curated memory is part of what the
-human blesses.
+`agent-memory-scrubber` must be the **last agent to touch the branch**
+before Phase 3's `/github-prs:pr-ready` call, so the curated memory is
+part of what the human blesses. Spawn it once the PR's review loop has
+settled — APPROVED, or the review-round cap reached — and no further
+branch work is queued.
 
-The placement is the whole point: by this moment every agent that
-writes memory (`issue-developer`, `issue-fixer`, `doc-updater`,
-`pr-reviewer`) has captured onto the branch, so a single pass curates
-the entire PR's memory delta and nothing is deferred to a later PR. Do
-not spawn it earlier, and do not spawn it a second time after a
-re-review — one PR, one curation pass.
+Being last is the whole point: by that moment every agent that writes
+memory (`issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer`)
+has captured onto the branch, so the scrubber's pass curates the entire
+PR's memory delta and nothing is deferred to a later PR.
+
+One pass is therefore the normal outcome, but it is a *consequence* of
+running last — not a budget, and not a rule that survives later work.
+**If anything lands on the branch after the scrubber ran, its curation
+is stale: spawn the scrubber again.** A late `issue-fixer` round after
+a re-review, an owner-directed revert, a rebase, or a doc fix each
+either adds uncurated memory or invalidates a transfer the scrubber
+already made, so re-running is the correct move rather than a
+violation. The only wrong placement is spawning it *early*, while more
+branch work is still expected.
+
+To make last-ness a checked property rather than a coincidence, record
+the PR's head commit when the scrubber returns:
+
+```bash
+gh pr view <PR> --json headRefOid --jq .headRefOid
+```
+
+Re-read it the same way immediately before Phase 3's `/pr-ready` call.
+If it moved, re-spawn the scrubber and re-record before flipping the PR
+ready.
+
+Read the head through `gh` rather than `git rev-parse
+origin/<branch-name>`. The remote-tracking ref is this clone's cached
+copy of the branch and only moves when this clone fetches, so it
+catches every push made through the orchestrate flow and misses one
+made from another clone or the GitHub web UI — which is exactly the
+out-of-band work the check exists to notice. Asking the API is
+authoritative, and it needs no fetch, so it also never blocks on an
+SSH-credential prompt.
+
+Recording the PR head (rather than the scrubber's own commit SHA)
+keeps the check uniform across the runs where the scrubber correctly
+pushes nothing and reports "no agent memory to curate" or "no changes
+to curate".
 
 Curation is destructive, so it is agent-owned work: the orchestrator
 never deletes, transfers, or rewrites memory entries itself, and never
@@ -486,13 +521,13 @@ concurrently.
 ### End-of-loop lifecycle transitions (per PR, on human confirmation)
 
 The review/fix loop leaves each PR **draft** and its issue **In
-Progress**, with `agent-memory-scrubber` already run once against it
-(Phase 2, "After the review loop settles: curate the PR's agent
-memory") so the branch's memory is curated before the human sees it.
-Phase 3 is where the human confirms — per PR — that the loop is done
-and the PR is good enough to move forward. On that end-of-loop
-confirmation for a given PR, and only then, the orchestrator performs
-two transitions:
+Progress**, with `agent-memory-scrubber` already run against it as the
+last agent to touch the branch (Phase 2, "Before `/pr-ready`: curate
+the PR's agent memory") so the branch's memory is curated before the
+human sees it. Phase 3 is where the human confirms — per PR — that the
+loop is done and the PR is good enough to move forward. On that
+end-of-loop confirmation for a given PR, and only then, the
+orchestrator performs these transitions:
 
 1. **Flip the PR draft → ready:**
 
@@ -507,6 +542,21 @@ two transitions:
    orchestrator never merges before the human blesses the PR" enforced
    by state, not just by prose. Do **not** call `/pr-ready` earlier in
    the loop.
+
+   Immediately before this call, re-read the PR's live head and compare
+   it with the one you recorded when `agent-memory-scrubber` returned
+   (Phase 2, "Before `/pr-ready`: curate the PR's agent memory"):
+
+   ```bash
+   gh pr view <PR> --json headRefOid --jq .headRefOid
+   ```
+
+   Read it from the API, not from `origin/<branch-name>` — a
+   remote-tracking ref would miss a push made outside this flow. If the
+   head moved — a late fix, an owner-directed revert, a rebase, or
+   someone else's push — the curation is stale: re-spawn the scrubber
+   and re-record the head first, rather than flipping the PR ready over
+   a stale pass.
 
 2. **Set the issue to In Review:**
 
@@ -590,7 +640,9 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
     orchestrator never deletes, transfers, or rewrites entries under
     `.claude/agent-memory/`, and never invokes
     `/cc-tools:agent-memory-cleanup` itself. Curation is destructive
-    and the scrubber's report is the record of it.
+    and the scrubber's report is the record of it. When later work
+    leaves a curation stale, the remedy is another scrubber spawn —
+    never an orchestrator-authored touch-up.
 - **Never act on a subagent escalation without human input.** When a
   teammate stops and reports an environmental mismatch, rule conflict,
   or topology problem, the orchestrator's job is to surface that
@@ -760,11 +812,12 @@ draft-first lifecycle:
    `Closes #N` keyword only fires on merge to the default branch, so
    it stays inert while the PR is draft.
 3. **Stays draft through the whole review/fix loop, and through the
-   memory scrub that follows it.** doc-updater, pr-reviewer, and any
+   memory scrub that closes it out.** doc-updater, pr-reviewer, and any
    issue-fixer rounds all run against the draft PR, and so does
-   `agent-memory-scrubber` once the loop settles (see "After the
-   review loop settles: curate the PR's agent memory"). Nothing in
-   that sequence flips the PR to ready.
+   `agent-memory-scrubber` — as the last agent to touch the branch,
+   re-spawned whenever later work displaces it (see "Before
+   `/pr-ready`: curate the PR's agent memory"). Nothing in that
+   sequence flips the PR to ready.
 4. **Ready at end-of-loop, on human confirmation only.** In Phase 3,
    when the human confirms a PR is good enough to end the loop, the
    orchestrator calls `/github-prs:pr-ready <PR>` (see "End-of-loop
@@ -834,7 +887,7 @@ namespace.
 - **Updating title/body/labels/assignees** → `/issue-update <N>`
   instead of `gh issue edit`.
 
-Two carve-outs keep this rule from being over-broad:
+These carve-outs keep this rule from being over-broad:
 
 1. **Read-only planning `gh` / `git` stays.** `gh pr view`,
    `gh pr diff`, `git log`, `git diff`, and file reads have no

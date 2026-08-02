@@ -59,6 +59,7 @@ missed three more of the identical class. Do not assume a sweep commit
 was exhaustive just because its message claims "all three sites fixed".
 Re-run the grep yourself against the branch tip; grade what remains.
 The three misses were instructive about *where* the class hides:
+
 - The SAME file the sweep edited (`build-guest-image.sh`) had two more
   hits the sweep didn't touch -- one at the `emit_boot_launcher()`
   definition-site header comment, one inside the emitted heredoc's own

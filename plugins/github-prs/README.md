@@ -37,7 +37,7 @@ review`.
 ## Skills
 
 | Skill | Purpose | Underlying command |
-|-------|---------|--------------------|
+| ------- | --------- | -------------------- |
 | `/pr-create <issue> <branch>` | Open a draft PR for a branch against the right base, closing its own issue | `gh pr create --draft --base <target>` |
 | `/pr-diff <PR>` | Fetch a PR's full diff | `gh pr diff <PR>` |
 | `/pr-review-submit <PR> ...` | Post a single PR review carrying a verdict | `gh pr review <PR>` |

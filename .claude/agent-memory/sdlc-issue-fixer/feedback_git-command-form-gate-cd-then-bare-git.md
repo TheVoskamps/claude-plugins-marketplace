@@ -9,10 +9,10 @@ In a subagent worktree, cwd does not persist across Bash calls, which
 tempts two compound forms to run a git command against the worktree in
 one call — both are rejected by the harness's CVE-2025-59536 gate:
 
-- `cd <worktree-path> && git status` → "Forbidden form 'cd <path> &&
-  git ...'"
-- `git -C <worktree-path> status` → "Forbidden form 'git -C <abs-path>
-  <subcommand>'"
+- `cd <worktree-path> && git status` → refused as
+  `Forbidden form 'cd <path> && git ...'`
+- `git -C <worktree-path> status` → refused as
+  `Forbidden form 'git -C <abs-path> <subcommand>'`
 
 **Why:** both forms let a single Bash call point git at an arbitrary
 directory without the harness being able to gate on the resulting cwd

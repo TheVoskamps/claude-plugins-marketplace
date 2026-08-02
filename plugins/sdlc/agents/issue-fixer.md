@@ -128,13 +128,13 @@ If any are missing, ask before proceeding.
 
     Stage **only** `.claude/agent-memory/` — never `git add -A` or any
     broader directory-wide add for this commit. This is a raw,
-    append-only capture: do not prune or curate your own memory here;
-    `agent-memory-scrubber` curates every agent's memory in a single
-    pass at the end of the PR lifecycle, after every other agent has
-    captured. The commit message must obey the same closing-keyword
-    rule as step 8 — never a closing keyword immediately before an
-    issue reference. If `.claude/agent-memory/` has no changes, skip
-    this step; there is nothing to commit.
+    append-only capture: do not prune or curate your own memory here.
+    `agent-memory-scrubber` owns curation — for when it runs, see the
+    `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
+    agent memory". The commit message must obey the same
+    closing-keyword rule as step 8 — never a closing keyword
+    immediately before an issue reference. If `.claude/agent-memory/`
+    has no changes, skip this step; there is nothing to commit.
 
 11. End-of-run cleanup — release the branch claim so subsequent
     subagents can check out the same branch. Run this only if your

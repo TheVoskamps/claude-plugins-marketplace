@@ -39,7 +39,7 @@ Before doing anything else:
 1. Read `~/.claude/CLAUDE.md` and follow the instructions at the
    top of that file.
 2. Then read this repo's `.claude/rules/repo-config.md` from the
-   worktree root, with a lightweight **inline** parse of just the one
+   worktree root, with a lightweight **inline** parse of just the
    front-matter field below — not the full reader contract in the
    `issues` plugin's `skills/lib/repo-config.md`. That lib file lives
    inside the `issues` plugin, and plugins are file-sandboxed (a bare
@@ -49,7 +49,7 @@ Before doing anything else:
    of that lib (`plugins/sdlc/skills/lib/repo-config.md` was deleted),
    so do not attempt to `Read` it by any bare or qualified path.
 
-You need only one field from the file:
+You need only this field from the file:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — the prefix used in `References:` trailers (see step 2
@@ -164,12 +164,12 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      own memory here. The commit message must obey the closing-keyword
      rule — never a closing keyword immediately before an issue
      reference.
-   - On the `/sdlc:orchestrate` path, `agent-memory-scrubber` runs
-     after you, once the review loop has settled, and curates this
-     capture along with every other agent's in the same PR — your
-     capture is the last one it waits for. This does not hold when
-     `/sdlc:git-review-pr` spawns you standalone, outside that loop:
-     there is no scrubber run after you, and this capture sits
+   - `agent-memory-scrubber` owns curation of this capture, along with
+     every other agent's on the same PR — for when it runs, see the
+     `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
+     agent memory". That holds on the `/sdlc:orchestrate` path only.
+     When `/sdlc:git-review-pr` spawns you standalone, outside that
+     loop, there is no scrubber run after you, and this capture sits
      uncurated on the branch until something else curates it.
    - If `.claude/agent-memory/` has no changes, skip this step.
 
