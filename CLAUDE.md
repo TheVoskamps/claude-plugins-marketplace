@@ -89,6 +89,20 @@ restatements live in
 `issue-branch-naming-prefix` — which documents only the prefix shapes
 and defers to the skill for the rest.
 
+What those consumers do when parsing yields **no** set needs the same
+sweep, and it is the half that gets missed: `pr-create`,
+`pr-link-issue`, and `pr-reviewer` each spell out their own arm for a
+branch name that doesn't match the convention — all three fall back to
+the numbers the caller passed or the PR body already carries — and the
+first two add further arms for a caller selection that misses a
+one-member or a multi-member branch set. These arms sit in the
+Execution steps, away from the `all-numeric` sentence, so the grammar
+grep above walks straight past them; grep `∩` and `` `B` empty ``
+too, and change every consumer in the same PR. Only a standalone
+`/sdlc:git-review-pr` on a human-named or `dependabot/…` branch
+exercises the no-set arm — an orchestrated run always has a
+convention branch, so nothing in the pipeline catches a missing one.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,
