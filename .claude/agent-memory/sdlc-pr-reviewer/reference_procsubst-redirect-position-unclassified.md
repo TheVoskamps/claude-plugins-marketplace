@@ -1,6 +1,6 @@
 ---
 name: procsubst-redirect-position-unclassified
-description: CLOSED — guardrails #225 briefly graded a `<(cmd)` in a REDIRECT position (`cat < <(cmd)`) by nobody while the argv spelling denied; the same PR wired descendProcSubsts to the redirect words too, so both positions now deny. Keep the technique: prove a widening is NEW by comparing the PR's classifier against a git-archive'd origin/main one.
+description: Guardrails #225's procSubstFD reduction leaks allow through EVERY position descendProcSubsts lacks a call site for — redirect (closed round 2), then item-list words, case patterns, and assignment RHS (found round 2, open at be6d64c); enumerate bash's substitution positions and probe each against BOTH binaries before believing any "covers both/all" claim.
 metadata:
   type: reference
 ---
@@ -38,7 +38,25 @@ every one of those shapes — and it is the cheapest way to grade any
 binary with `GOOS=… GOARCH=… CGO_ENABLED=0 go -C <permission-gate-dir>
 build -trimpath -o <out> .` and `shasum -a 256` against
 `hooks/bin/<goos>-<goarch>/permission-gate`. With `-trimpath` all three
-(darwin-arm64, linux-amd64, linux-arm64) reproduced byte-identical SHA-256.
+(darwin-arm64, linux-amd64, linux-arm64) reproduced byte-identical SHA-256
+— but only when built from the SAME source tree, comments included; see
+[[reference_guardrails-binary-verification]] for pinning WHICH commit's
+source a committed binary came from when the shasum does not match.
+
+**Round 2 (be6d64c): the same reduction leaks through more positions.**
+The class is "any word position whose exactness now propagates while
+`descendProcSubsts` has no call site there", not "redirect words".
+Measured ask → allow regressions beyond the redirect fix: `for f in
+<(cat /etc/passwd); do cat "$f"; done` (staticForItems fans out and
+binds the loop var to procSubstFD) and `x=<(cat /etc/passwd); cat "$x"`
+(recordAssign puts procSubstFD into knownVars). Pre-existing allow on
+BOTH binaries — the inner command is arbitrary, not just a read:
+`for f in <(rm -rf ~/x); do echo x; done`, `select … in <(…)`,
+`case <(…) in`, and the case-PATTERN position `case x in <(cmd))`.
+Unchanged defers: bare `x=<(…)`, array `a=(<(…))`, `[[ -f <(…) ]]`.
+When re-reviewing the fix, probe every row of that list again — a
+"covers both/all positions" claim written from freshly-wired call sites
+has been false twice on this PR.
 
 Related: [[reference_guardrails-binary-verification]],
 [[reference_flag-model-cannot-swallow-containment-operands]].

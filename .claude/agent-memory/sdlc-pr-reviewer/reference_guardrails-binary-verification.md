@@ -92,6 +92,28 @@ old gate denied a write to the harness scratchpad, reproducing #193).
 Probe the PR's own binary explicitly (`<pr-bin> < event.json`) whenever
 you need the branch's verdict rather than main's.
 
+**Escape-probe paths must escape the PRIMARY clone, not just the
+worktree.** With probe cwd = a `.claude/worktrees/<agent>` worktree,
+`../sibling-repo/.env` resolves to `.claude/worktrees/sibling-repo/…` —
+inside the primary repository — and the gate ALLOWS it (both main's and
+the PR's binary; pre-existing, not a finding). On #227 round 2 this made
+every "escaping" probe read allow and nearly fabricated a refutation of
+a correct fix. Use `/etc/passwd` or a path above the primary root; keep
+`cat <esc-path>` alone as the control row that must deny.
+
+**Pinning WHICH commit's source a committed binary came from** (used to
+prove #227's doc round staleness): `git archive <commit>
+plugins/guardrails/hooks/permission-gate | tar -x -C <tmp>` for each
+candidate commit, build all candidates in the same environment, then
+byte-compare and `go tool buildid` against the committed binary. An
+exact byte match names the source commit; comment-only .go edits change
+the artifact (pclntab file:line — over 1M differing bytes on #227) while
+`go tool nm` stays byte-identical, so policy-identity and
+provenance-identity are separable claims. A doc round that edits a gate
+`.go` comment without rebuilding leaves binaries that fail the README's
+"only vcs.revision/vcs.modified differ" protocol — a Medium, not
+policy-affecting.
+
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.
 
