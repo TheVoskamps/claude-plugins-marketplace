@@ -40,9 +40,13 @@ skill is installed and enabled wherever these skills run (see
 `docs/plugin-authoring-constraints.md` → "`dependencies` coordinates
 install/enable, not files").
 
-What differs between the two is only the **action**, and only on the
-outcome where there is no safe resolution: `/pr-create` opens no PR,
-and `/pr-link-issue` leaves the PR body untouched. Both report the
+What differs between the two is only the **action** each takes on what
+the skill reports. Where there is no safe resolution, `/pr-create`
+opens no PR and `/pr-link-issue` leaves the PR body untouched. On a
+branch member the skill reports as *not claimed*, `/pr-create` names
+the deferred issue and why in the body it is writing, while
+`/pr-link-issue` — which only appends closing lines to a body someone
+else authored — leaves that judgement to the reviewer. Both report the
 outcome with both sets, and both name any passed number the skill
 placed outside the branch's set — those never get a closing line.
 
@@ -106,8 +110,10 @@ lightweight inline parse (see "Config: read internally, not by the
 caller" above). Every `<issue>` must be a member of the branch's own
 set (see "One PR, one issue set" above); a caller-supplied number
 outside it never gets a closing line, and the refusal is named in the
-report-back. On the no-safe-resolution outcome the skill opens no PR
-at all. See the skill for the closing-keyword rule (PR body only,
+report-back; a branch member the caller did not claim is named in the
+body as a deferral, so a reviewer can tell one from a silent
+under-delivery. On the no-safe-resolution outcome the skill opens no
+PR at all. See the skill for the closing-keyword rule (PR body only,
 own issue set only, never a commit).
 
 ### `/pr-diff <PR>`
