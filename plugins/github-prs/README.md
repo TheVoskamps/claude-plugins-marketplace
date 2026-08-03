@@ -19,14 +19,13 @@ A PR in this flow delivers a **batch**: an ordered set of one or more
 issues implemented on one branch. A batch of one is the ordinary
 single-issue PR, so nothing below is extra work for that case.
 
-`git-tools:git-branch-create` encodes the set in the branch name —
-`issue-<N1>-<N2>-…-<Nk>-<slug>`, or `issue-<N>-<slug>` at k=1 — and
-`/pr-create` and `/pr-link-issue` recover it by the same parsing rule:
-after the `issue-` marker, the leading run of all-numeric
-hyphen-separated tokens is the set, and everything from the first
-non-numeric token onward is the slug. Both compare as a **set**; the
-order in the name is the developer's implementation order and carries
-no meaning for them.
+`git-tools:git-branch-create` encodes the set in the branch name, and
+`git-tools:git-issues-from-branch` — its inverse, and the one parser
+of that grammar — recovers it. `/pr-create` and `/pr-link-issue`
+invoke that skill rather than parsing a branch name themselves, so the
+grammar is stated in exactly one place, inside `git-tools`. Both
+compare what it reports as a **set**; the order it reports is the
+developer's implementation order and carries no meaning for them.
 
 The branch's set is a **maximum, not an equality**: a PR may close a
 subset of it, never a superset. That is what lets a member be dropped
@@ -49,8 +48,9 @@ the same way:
   caller deliberately dropped — exactly the deferral the subset rule
   above exists to allow. The caller re-invokes with numbers drawn from
   the branch's set.
-- **A branch name that doesn't match the convention** — there is no
-  set to bound with, so the caller's numbers are used as passed.
+- **A branch `git-issues-from-branch` reports as not a convention
+  branch** — there is no set to bound with, so the caller's numbers
+  are used as passed.
 
 Each member needs **its own closing keyword** — GitHub links only a
 reference that carries a keyword immediately before it, so
@@ -64,20 +64,23 @@ deferred.
 
 ## Config: read internally, not by the caller
 
-Every skill but `pr-create` — `pr-ready`, `pr-draft`, `pr-link-issue`,
-`pr-diff`, `pr-review-submit` — takes everything it needs as arguments
-and reads no configuration at all. Only `pr-create` reads
-repo-config — `default-pr-target-branch` and `issue-link-prefix` — and
-it does so **internally**, via a lightweight inline parse of just
-those two front-matter lines, not the `issues` plugin's full
-`skills/lib/repo-config.md` reader contract (that lib lives inside the
-`issues` plugin and isn't reachable across the plugin sandbox boundary
-— see `docs/plugin-authoring-constraints.md` → "Plugins are
-file-sandboxed"). The caller just invokes the skill with the issue/PR
-number — the operation owns its own config read where it needs one.
-This is the whole point of the split: a caller no longer parses
-repo-config to hand-roll a raw `gh pr create`/`gh pr diff`/`gh pr
-review`.
+`pr-ready`, `pr-draft`, `pr-diff`, and `pr-review-submit` take
+everything they need as arguments and read no configuration at all.
+Only `pr-create` reads repo-config — `default-pr-target-branch` and
+`issue-link-prefix` — and it does so **internally**, via a lightweight
+inline parse of just those two front-matter lines, not the `issues`
+plugin's full `skills/lib/repo-config.md` reader contract (that lib
+lives inside the `issues` plugin and isn't reachable across the plugin
+sandbox boundary — see `docs/plugin-authoring-constraints.md` →
+"Plugins are file-sandboxed"). Neither `pr-create` nor `pr-link-issue`
+reads anything about the **branch name**: both invoke
+`git-tools:git-issues-from-branch`, which reads
+`issue-branch-naming-prefix` internally in turn.
+
+The caller just invokes the skill with the issue/PR number — the
+operation owns its own config read where it needs one. This is the
+whole point of the split: a caller no longer parses repo-config to
+hand-roll a raw `gh pr create`/`gh pr diff`/`gh pr review`.
 
 ## Skills
 

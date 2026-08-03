@@ -20,8 +20,9 @@ The marketplace currently ships these plugins (one entry each in
   automation, branch protection, public mirror, history scrubbing,
   private-to-public promotion).
 - **`git-tools`** — create the correctly-named issue branch, for one
-  issue or a batch of them, off the right base; clean up merged
-  branches and stale worktrees; and generate unit tests.
+  issue or a batch of them, off the right base; recover the issue set
+  back out of a branch name; clean up merged branches and stale
+  worktrees; and generate unit tests.
 - **`cc-tools`** — Claude Code meta-skills: load all global rules,
   track Claude Code feature/bug watchlist status, and curate a repo's
   `.claude/agent-memory/` in one acting pass (`agent-memory-cleanup`).

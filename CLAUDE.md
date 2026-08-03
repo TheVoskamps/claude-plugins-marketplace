@@ -63,62 +63,6 @@ is the opposite: it lives only in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
 markdown in the repo describes it.
 
-## Sweep the branch-name grammar across plugins when it changes
-
-`git-tools:git-branch-create` **writes** the issue-branch name
-(`issue-<N1>-…-<Nk>-<slug>`, behind the configured prefix) and its
-"Branch name" section owns the rule that parses the issue set back out
-of it: after the `issue-` marker, the leading run of all-numeric
-hyphen-separated tokens is the set, and everything from the first
-non-numeric token onward is the slug. Consumers in other plugins
-restate that rule rather than importing it — plugins are
-file-sandboxed (`docs/plugin-authoring-constraints.md`), so there is
-nowhere shared to put it. A PR that changes the grammar (a new
-separator, a different slug boundary, a different prefix position)
-silently falsifies every restatement.
-
-Grep `plugins/` for `issue-<N` and for `all-numeric` — a short,
-wrap-proof needle, since the sentence carrying the rule wraps
-differently in each copy — and check every hit. The known
-restatements live in
-`plugins/github-prs/skills/pr-create/SKILL.md` and
-`skills/pr-link-issue/SKILL.md` (each under "Own issue set only"),
-`plugins/github-prs/README.md` → "One PR, one issue set",
-`plugins/sdlc/agents/pr-reviewer.md` step 2, and
-`plugins/issues/skills/lib/repo-config.md` under
-`issue-branch-naming-prefix` — which documents only the prefix shapes
-and defers to the skill for the rest.
-
-What those consumers do when parsing yields **no** set needs the same
-sweep, and it is the half that gets missed: `pr-create`,
-`pr-link-issue`, and `pr-reviewer` each spell out their own arm for a
-branch name that doesn't match the convention — all three fall back to
-the numbers the caller passed or the PR body already carries — and the
-first two add further arms for a caller selection that misses a
-one-member or a multi-member branch set. These arms sit in the
-Execution steps, away from the `all-numeric` sentence, so the grammar
-grep above walks straight past them; grep `∩` and `` `B` empty ``
-too, and change every consumer in the same PR. Only a standalone
-`/sdlc:git-review-pr` on a human-named or `dependabot/…` branch
-exercises the no-set arm — an orchestrated run always has a
-convention branch, so nothing in the pipeline catches a missing one.
-
-Tightening one of these rules inside a SKILL.md **Execution** step
-leaves three further surfaces stating the old, looser version, and
-none of them is reachable by grepping the new arm's own vocabulary:
-the narrative section above Execution in the same SKILL.md (the "Own
-issue set only" sections state the branch-name-wins rule as a flat
-absolute that a case split in the steps below can contradict); the
-per-skill blurb in `plugins/github-prs/README.md` (`### /pr-create …`,
-`### /pr-link-issue …`, one per skill, both needing the same edit);
-and the calling agent's paraphrase in
-`plugins/sdlc/agents/issue-developer.md` step 10, which describes what
-`/pr-create` guards against in running prose. Grep the rule's own
-distinctive phrase (`higher-fidelity`) alongside the skill name, and
-prefer replacing a downstream restatement with a pointer at the step
-that owns the resolution over restating the amended rule a second
-time.
-
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,

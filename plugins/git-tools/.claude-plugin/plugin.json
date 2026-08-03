@@ -1,6 +1,6 @@
 {
   "name": "git-tools",
-  "description": "Git and dev utilities: create issue branches (one issue or a batch of them), clean up merged branches and stale worktrees, generate unit tests.",
+  "description": "Git and dev utilities: create issue branches (one issue or a batch of them), recover a branch name's issue set, clean up merged branches and stale worktrees, generate unit tests.",
   "version": "0.3.0",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }

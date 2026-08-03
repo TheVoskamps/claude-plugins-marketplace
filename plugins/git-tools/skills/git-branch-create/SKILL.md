@@ -17,6 +17,9 @@ A batch of one is the ordinary single-issue case: it is the k=1
 instance of the same shape, not a preserved special case, and it
 produces exactly the `issue-<N>-<slug>` name it always did.
 
+The inverse operation — recovering the issue set back out of a
+finished branch name — is `git-tools:git-issues-from-branch`.
+
 Rooting the branch at the **explicit** source branch is the
 wrong-base guard: without an explicit start point, `git switch -c`
 roots the new branch at whatever commit the worktree happened to be on,
@@ -96,12 +99,19 @@ At k=1 that is exactly the historical `issue-<N>-<slug>` (or
 
 **Parsing rule.** After the `issue-` marker, the leading run of
 all-numeric hyphen-separated tokens is the issue set; everything from
-the first non-numeric token onward is the slug. Downstream consumers
-recover the set this way — `github-prs:pr-create` and
-`github-prs:pr-link-issue` to decide which issues the PR may close,
-and `sdlc`'s `pr-reviewer` to decide which issues to review against —
-so the number/slug boundary must stay unambiguous. That is what the
-"no leading digit" validation below protects.
+the first non-numeric token onward is the slug.
+
+This section is the **only** statement of the branch-name grammar in
+this marketplace — the "Invocation" section above applies it to argv
+tokens and points back here rather than owning it. Nothing downstream
+restates it either: `git-tools:git-issues-from-branch` is the one
+parser — the inverse of this skill — and the consumers that need a
+branch's issue set (`github-prs:pr-create` and
+`github-prs:pr-link-issue`, to decide which issues a PR may close, and
+`sdlc`'s `pr-reviewer`, to decide which issues to review against)
+invoke that skill. The number/slug boundary must therefore stay
+unambiguous, which is what the "no leading digit" validation below
+protects.
 
 **Order is implementation order**, not sorted: it records the order
 the caller intends to work the issues, which for a batch carrying a

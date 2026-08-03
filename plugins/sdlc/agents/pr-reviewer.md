@@ -8,6 +8,7 @@ isolation: worktree
 memory: project
 skills:
   - issue-view
+  - git-tools:git-issues-from-branch
   - github-prs:pr-diff
   - github-prs:pr-review-submit
 ---
@@ -56,7 +57,9 @@ You need only this field from the file:
   below). This is an **issue-tracker** concern, independent of the PR
   mechanics: `github-prs:pr-diff` and `github-prs:pr-review-submit`
   (declared in the `skills:` frontmatter above) read no repo-config at
-  all — they are GitHub-only by design — so you no longer resolve
+  all — they are GitHub-only by design — and
+  `git-tools:git-issues-from-branch` reads
+  `issue-branch-naming-prefix` internally, so you no longer resolve
   `source-control`, `default-issue-source-branch`,
   `default-pr-target-branch`, or `issue-branch-naming-prefix` yourself.
 
@@ -78,16 +81,14 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    branch name and body on GitHub with
    `gh pr view <number> --json body,headRefName`, then:
 
-   - **The branch name gives the maximum.** Parse it by the rule
-     `git-tools:git-branch-create` writes it with: after the `issue-`
-     marker, the leading run of all-numeric hyphen-separated tokens is
-     the issue set, and everything from the first non-numeric token
-     onward is the slug. So `issue-206-196-201-guardrails-gate-sweep`
-     yields `{206, 196, 201}`, and `issue-206-guardrails-gate-sweep`
-     yields `{206}`. An `<initials>/` or `<name>/` prefix may sit in
-     front, depending on `issue-branch-naming-prefix`. Treat the
-     result as a **set** `B`: the order is the implementation order the
-     developer worked in, and carries no meaning for the review.
+   - **The branch name gives the maximum.** Recover its issue set by
+     invoking `/git-tools:git-issues-from-branch <headRefName>`
+     (preloaded via the `skills:` frontmatter above) — the inverse of
+     the skill that wrote the name, and the one parser of that
+     grammar. Never parse a branch name yourself. Treat what it
+     reports as a **set** `B`: the order it reports is the
+     implementation order the developer worked in, and carries no
+     meaning for the review.
    - **The PR body's closing lines give what this PR actually
      delivers.** Collect every issue carrying a closing keyword in the
      body; call that set `C`. The set you review against is `C ∩ B`.
@@ -95,11 +96,11 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      set and never a superset — a member can be dropped mid-flight
      under the developer's drop protocol, and the branch keeps its
      name.
-   - **A branch name that doesn't match the convention leaves `B`
-     empty.** There is then no branch set to bound the body with, so
-     the set you review against is `C` itself — the same fallback
-     `/github-prs:pr-create` and `/github-prs:pr-link-issue` take when
-     `B` is empty. The findings the bullets below raise cannot arise
+   - **A branch the skill reports as not a convention branch leaves
+     `B` empty.** There is then no branch set to bound the body with,
+     so the set you review against is `C` itself — the same fallback
+     `/github-prs:pr-create` and `/github-prs:pr-link-issue` take on
+     that outcome. The findings the bullets below raise cannot arise
      here: with no branch set, no closing line can sit outside it and
      no branch-set member can go missing from the body. This is the
      standalone case — a human-named or `dependabot/…` branch handed

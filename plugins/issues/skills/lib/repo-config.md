@@ -295,7 +295,10 @@ file. Order is fixed; `schema-version` is always first.
   A branch carrying a batch of several issues names them all —
   `issue-<N1>-<N2>-…-<Nk>-<slug>`, behind the same prefix. See the
   `/git-tools:git-branch-create` skill → "Branch name" for the shape
-  and the rule that parses the issue set back out of it.
+  and the rule that parses the issue set back out of it. The one
+  skill that applies that rule is
+  `/git-tools:git-issues-from-branch`, which reads this field itself
+  to strip the prefix before parsing.
 
   When the prefix is `initials` or `name`, the agent prompts the
   human owner for the value if the spawn context doesn't supply it.

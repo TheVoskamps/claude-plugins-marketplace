@@ -49,13 +49,13 @@ branch's own issue set only — when the caller-supplied numbers and the
 branch name disagree, **the branch name is the higher-fidelity source
 of truth**.
 
-Recover the branch's set from its name by the parsing rule
-`git-tools:git-branch-create` writes it with: after the `issue-`
-marker, the leading run of all-numeric hyphen-separated tokens is the
-set, and everything from the first non-numeric token onward is the
-slug. So `issue-206-196-201-guardrails-gate-sweep` yields
-`{206, 196, 201}`. Compare as a **set** — the order in the branch name
-is implementation order and carries no meaning here.
+Recover the branch's set by invoking
+`/git-tools:git-issues-from-branch <headRefName>` — the inverse of the
+skill that wrote the name, and the one parser of that grammar. This
+skill never parses a branch name itself. Compare what it reports as a
+**set** — the order it reports is implementation order and carries no
+meaning here. That skill reads `issue-branch-naming-prefix` from
+repo-config internally; this one reads no config of its own.
 
 **The branch's set is a maximum, not an equality.** A PR may close a
 subset of it, never a superset: a member dropped mid-flight is not
@@ -78,9 +78,9 @@ see step 1 below for the exact resolution.
    gh pr view <PR> --json number,headRefName,body
    ```
 
-   Recover the branch's set `B` from `headRefName` per "Own issue set
-   only". Take the caller-supplied numbers as `C`. The set to ensure
-   is:
+   Invoke `/git-tools:git-issues-from-branch <headRefName>` per "Own
+   issue set only" and call what it reports `B`. Take the
+   caller-supplied numbers as `C`. The set to ensure is:
 
    - `C ∩ B` — the caller's selection, restricted to the branch's set.
    - `C ∩ B` empty and `|B| = 1` — use `B`. The branch name wins over
@@ -94,7 +94,7 @@ see step 1 below for the exact resolution.
      any deferral the body currently records, which is what "Own issue
      set only" above warns against. The caller re-invokes with numbers
      drawn from `B`.
-   - `B` empty — the head branch doesn't match the convention, so
+   - The skill reports **not a convention branch** — `B` is empty, so
      there is no branch set to bound the caller with: use `C`.
 
    Call the result `<issues>`. Note every member of `C` refused for

@@ -30,9 +30,8 @@ scope for this plugin.
   of the branch's OWN issue set, each with or without a leading `#`,
   separated by spaces or commas. See "Own issue set only" below.
 - `<branch>` (required): the head branch the PR is opened from,
-  conventionally `issue-<N>-<slug>` for one issue or
-  `issue-<N1>-<N2>-…-<Nk>-<slug>` for a batch (optionally behind an
-  `<initials>/` or `<name>/` prefix).
+  conventionally the one `git-tools:git-branch-create` produced for
+  the issue set.
 
 The `<branch>` argument is the last one, so the issue numbers are
 whatever precedes it.
@@ -67,6 +66,10 @@ The values consumed:
 
 Re-read the file every run; do not cache across invocations.
 
+Nothing about the **branch name** is read here.
+`git-tools:git-issues-from-branch`, which step 1 invokes, does its own
+internal read of `issue-branch-naming-prefix`.
+
 ## Own issue set only
 
 Every issue this PR closes MUST be a member of the branch's own issue
@@ -77,14 +80,12 @@ rule in `rules/git-workflow.md` — PR body only, the branch's own issue
 set only — when the caller-supplied numbers and the branch name
 disagree, **the branch name is the higher-fidelity source of truth**.
 
-Recover the branch's set from its name by the parsing rule
-`git-tools:git-branch-create` writes it with: after the `issue-`
-marker, the leading run of all-numeric hyphen-separated tokens is the
-set, and everything from the first non-numeric token onward is the
-slug. So `issue-206-196-201-guardrails-gate-sweep` yields
-`{206, 196, 201}`. Compare as a **set**: the order in the branch name
-is the implementation order the caller chose, and carries no meaning
-for this comparison.
+Recover the branch's set by invoking
+`/git-tools:git-issues-from-branch <branch>` — the inverse of the
+skill that wrote the name, and the one parser of that grammar. This
+skill never parses a branch name itself. Compare what it reports as a
+**set**: the order it reports is the implementation order the caller
+chose, and carries no meaning for this comparison.
 
 **The branch's set is a maximum, not an equality.** A PR may close a
 *subset* of it, never a superset. That is what lets a member be
@@ -104,9 +105,10 @@ resolution.
 
 ## Execution
 
-1. **Resolve the set of issues to close.** Recover the branch's set
-   `B` from `<branch>` per "Own issue set only". Take the
-   caller-supplied numbers as `C`. The set this PR closes is:
+1. **Resolve the set of issues to close.** Invoke
+   `/git-tools:git-issues-from-branch <branch>` per "Own issue set
+   only" and call what it reports `B`. Take the caller-supplied
+   numbers as `C`. The set this PR closes is:
 
    - `C ∩ B` — the caller's selection, restricted to the branch's set.
    - `C ∩ B` empty and `|B| = 1` — use `B`. The branch name wins over
@@ -120,8 +122,8 @@ resolution.
      deliberately dropped, undoing the mid-flight drop that "Own issue
      set only" above exists to allow. The caller re-invokes with
      numbers drawn from `B`.
-   - `B` empty — `<branch>` doesn't match the convention, so there is
-     no branch set to bound the caller with: use `C`.
+   - The skill reports **not a convention branch** — `B` is empty, so
+     there is no branch set to bound the caller with: use `C`.
 
    Call the result `<N…>`. Note every member of `C` that was refused
    because it is not in `B`.
