@@ -95,6 +95,28 @@ see [`plugin-migration-plan.md`](./plugin-migration-plan.md).
   `/A:issue-view` skill already returns, B should invoke `/A:issue-view`
   rather than reach for A's `issue.md` lib. No sharing problem to solve.
 
+### Sharing behavior (a parse, a lookup, a derivation)
+
+When the *same rule* ends up restated in several plugins because the
+sandbox blocks a shared `Read`, the duplication is the defect — a
+convention that "everyone keeps their copy in step" is a maintenance
+contract for it, not a fix. Move the **mechanism** into a skill in the
+plugin that owns the concept and have the others invoke it by its
+namespaced name (constraint 2), with a `dependencies` edge so the
+skill is present (constraint 3).
+
+Only the mechanism moves. Each consumer keeps its own **policy** about
+what to do with the result, so the extraction doesn't flatten
+deliberate per-caller differences.
+
+`git-tools:git-issues-from-branch` is the worked instance: the
+branch-name grammar is stated once, in
+`git-tools:git-branch-create` → "Branch name", that skill is its one
+parser, and `github-prs:pr-create`, `github-prs:pr-link-issue`, and
+`sdlc`'s `pr-reviewer` invoke it rather than each restating the rule —
+while each still decides for itself what an empty or absent issue set
+means.
+
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same

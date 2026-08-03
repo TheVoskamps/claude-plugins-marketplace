@@ -26,6 +26,11 @@ invoke that skill rather than parsing a branch name themselves, so the
 grammar is stated in exactly one place, inside `git-tools`. Both
 compare what it reports as a **set**; the order it reports is the
 developer's implementation order and carries no meaning for them.
+That cross-plugin invocation is why this plugin's `plugin.json`
+declares a `dependencies` edge on `git-tools`: the edge guarantees the
+parser skill is installed and enabled wherever these skills run (see
+`docs/plugin-authoring-constraints.md` → "`dependencies` coordinates
+install/enable, not files").
 
 The branch's set is a **maximum, not an equality**: a PR may close a
 subset of it, never a superset. That is what lets a member be dropped
