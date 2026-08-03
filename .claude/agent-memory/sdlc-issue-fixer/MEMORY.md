@@ -53,3 +53,4 @@
 - [A new arm falsifies the formula back-references](project_new-arm-falsifies-the-formula-back-references.md) — grep the formula symbol (`C ∩ B`), not the arm's keywords; a checked-in consumer list fires for every rule those files share
 - [Worktree git gate counts git-prefixed basenames](project_worktree-git-gate-counts-git-prefixed-basenames.md) — `git … plugins/git-tools` is refused as "names git more than once"; a deeper component or the parent dir passes
 - [A stand-in arm invalidates the sibling list](project_stand-in-arm-invalidates-the-sibling-lists-definition.md) — define "input minus X" lists against the RESOLVED value, not the input; transcribe the spec's own Output examples to catch the mismatch
+- [A new hedge obsoletes the old absolute](project_new-hedge-obsoletes-the-old-absolute.md) — hedging a fact ("may" where it said "must") contradicts the file's own untouched absolute phrasings; grep the fact's modals, not your hunk
