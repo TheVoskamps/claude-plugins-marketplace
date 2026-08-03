@@ -370,8 +370,10 @@ argv, settings, image identity, and plugin manifests from:
   (issue #107). `claude_vm_effective_marketplaces` emits the bake ++ boot
   union as `name<TAB>url` lines, deduped by `name`, which the launcher writes
   to `plugin-marketplaces.tsv` on the `runconfig` share;
-  `claude_vm_baked_marketplace_names` names the ones the image already
-  registered, so the boot phase adds only the rest;
+  `claude_vm_baked_marketplace_names` names the bake-declared ones, the set
+  the image is guaranteed to carry, and is read host-side only — by the
+  derived-egress gate and by the `origin` stamp below, never by the guest,
+  whose boot phase asks the CLI what is actually registered;
   `claude_vm_bake_plugins_json` emits the build's plugin CONTENT (the
   effective marketplaces plus the bake doc's sorted `claude.plugins.bake`) as
   compact JSON, the sibling of `claude_vm_bake_config_json`. Each marketplace
@@ -1005,7 +1007,13 @@ bake step: that the generated in-container script stages
 `claude plugin marketplace add` / `claude plugin install` under `HOME=/root`,
 copies only `/root/.claude/plugins` into the image, and that a build with a
 nonempty manifest but no `CLAUDE_VM_GUEST_CLAUDE_BIN` aborts instead of
-shipping a plugin-less image. It does not run a real `mkosi build` (no
+shipping a plugin-less image. Issue #226 added the per-entry failure policy,
+asserted by *running* the generated marketplace loop rather than grepping it:
+the loop is sliced out of the captured `build-in-container.sh` and driven
+against a stub `claude` whose exit status the test controls, so a failed add
+(or a name mismatch) on a bake-declared entry still aborts, the same entry
+declared `origin: boot` warns and continues, and an entry with no `origin`
+falls back to the strict reading. It does not run a real `mkosi build` (no
 container, no network); that gap is covered by `host-acceptance.sh`.
 
 `host-acceptance.sh` is the self-contained on-host acceptance test for

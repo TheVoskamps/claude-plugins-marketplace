@@ -96,7 +96,7 @@ the two global files each key is written into (its bake/boot placement):
 | `github.auth` | boot | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
 | `packages:` (bake file) | bake | `[]` | apt packages BAKED into the guest image (a flat list; present with no network at boot) |
 | `apt_sources` (bake file) | bake | `[]` | third-party apt repos rendered into the image at build time |
-| `claude.marketplaces` (bake file) | bake | `[]` | marketplaces registered INTO the image at build time (union+dedup with the boot file's, by `name`) |
+| `claude.marketplaces` (bake file) | bake | `[]` | marketplaces registered INTO the image at build time (union+dedup with the boot file's, by `name`); registering one declared HERE is a build precondition — a failed add aborts the build, where a boot-declared one only warns |
 | `claude.plugins.bake` | bake | `[]` | `plugin@marketplace` refs INSTALLED into the image at build time; a BAKE key because they change the image's bytes |
 | `image.root_headroom_mb` | bake | `1024` | extra MiB of FREE SPACE in the guest root filesystem above its base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
 
@@ -323,7 +323,10 @@ claude:
     ask: []
     deny: []
   marketplaces: []      # {name, url} entries a boot-time install needs (union+
-                        # dedup by name with the bake file's). Write on request.
+                        # dedup by name with the bake file's). One declared HERE
+                        # only has to be reachable from the GUEST -- the build
+                        # pre-registers it as an optimization and a url it cannot
+                        # reach only warns. Write on request.
   plugins:
     # bake: is a BAKE key -- it lives in config-bake.yml. Writing it here aborts
     # the launch.

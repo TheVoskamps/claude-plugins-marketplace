@@ -1137,10 +1137,18 @@ claude_vm_effective_marketplaces() {
 }
 
 # Emit the marketplace NAMES declared in the merged BAKE document, one per
-# line, de-duplicated. These are already registered inside the image, so the
-# boot path only has to ADD the ones this set does not cover -- which is also
-# what decides whether a boot-side marketplace add (and therefore marketplace
-# egress) is needed at all.
+# line, de-duplicated. This is the set the image is GUARANTEED to carry: a
+# bake-declared marketplace that fails to register aborts the build, while a
+# boot-declared one is only pre-registered best-effort (see the ORIGIN MARKER
+# note on claude_vm_bake_plugins_json below, issue #226).
+#
+# Its callers are host-side: claude_vm_boot_marketplace_egress_needed, where a
+# boot-declared name outside this set may still need an add at boot and so
+# derives marketplace egress; and claude_vm_bake_plugins_json, which stamps
+# each manifest entry's `origin` from it. The guest's own boot path does NOT
+# read this set -- build-guest-image.sh's plugin_marketplace_registered asks
+# the CLI what is actually registered, which is what lets it pick up a
+# boot-declared marketplace the build could not pre-register.
 #   $1 -- merged BAKE document file path
 claude_vm_baked_marketplace_names() {
   local bake_doc="$1"
@@ -1250,7 +1258,8 @@ $name
 }
 
 # Emit the CANONICAL bake-plugin manifest as compact JSON on stdout: the
-# marketplaces the image build must register and the plugin refs it must
+# marketplaces the image build registers -- some as a hard requirement, some
+# best-effort, see the ORIGIN MARKER note below -- and the plugin refs it must
 # install. This is what the launcher hands build-guest-image.sh (and it, the
 # provisioner) as build CONTENT -- the sibling of claude_vm_bake_config_json
 # for packages/apt_sources.

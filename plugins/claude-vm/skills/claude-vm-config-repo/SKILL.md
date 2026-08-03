@@ -123,7 +123,14 @@ file silently shadows future changes to the global default.
   `claude.marketplaces` may each appear in BOTH the bake and boot
   files — union, deduped by `name`; the same name with DIFFERING content
   (`{repo, key_url}` / `url`) aborts the launch, so keep each name's
-  content identical across files or give it a unique name. A
+  content identical across files or give it a unique name. Which file a
+  marketplace lands in decides its build-time failure policy: one in the
+  bake file must register at build time or the build aborts, so its url
+  has to be reachable from the build container, while one in the boot
+  file only has to be reachable from the **guest** — put a guest-local
+  path like `/mnt/repo`, or a private source needing host-only
+  credentials, in the boot file, where a build that cannot reach it
+  warns and the guest adds it at boot (issue #226). A
   `claude.plugins` sub-key written into the wrong file type aborts the
   launch too: `bake` belongs in the bake file, `install_at_boot` /
   `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` in

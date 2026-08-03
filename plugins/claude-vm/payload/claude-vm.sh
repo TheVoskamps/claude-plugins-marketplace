@@ -1211,12 +1211,15 @@ claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sour
 # these line-by-line in plain bash).
 #
 #   plugin-marketplaces.tsv -- name<TAB>url per line: the EFFECTIVE marketplace
-#                              set (bake ++ boot, deduped by name). The image
-#                              already registered these at build time, so at
-#                              boot the launcher only ADDS the ones missing
-#                              from the image -- which is exactly the
-#                              boot-only-marketplace case, and the reason a
-#                              boot-only marketplace still needs egress.
+#                              set (bake ++ boot, deduped by name). The build
+#                              registers the bake-declared ones (a failure
+#                              there aborts it) and pre-registers the
+#                              boot-declared ones best-effort (issue #226), so
+#                              at boot the launcher only ADDS what the image
+#                              turns out not to carry -- a boot-declared
+#                              marketplace the build could not reach, which is
+#                              also why a boot-only marketplace still needs
+#                              egress.
 #   plugin-install.list     -- one `plugin@marketplace` ref per line, from the
 #                              BOOT document's claude.plugins.install_at_boot.
 #                              The BAKE document's claude.plugins.bake is NOT
