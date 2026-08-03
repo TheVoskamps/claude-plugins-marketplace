@@ -52,7 +52,7 @@ This skill is **idempotent**. Before writing anything it checks whether
 - **If a file does not exist**: this is the create path for that file.
   Propose the full default file, get approval, write it.
 - **If a file already exists**: **do not clobber it.** Read it, show the
-  user what is there, and offer two choices:
+  user what is there, and offer these choices:
   1. **Leave** the existing file untouched (the default, safe choice).
   2. **Merge** the resolved defaults in for any keys the existing file
      is missing, preserving every key the user already set.
@@ -92,7 +92,7 @@ the two global files each key is written into (its bake/boot placement):
 | `claude.plugins.update_at_boot` | boot | `true` | refresh the marketplaces and update the installed plugins at boot — the freshness path for BAKED plugins |
 | `claude.plugins.add_marketplace_uris_to_allowlist` | boot | `auto` | marketplace-URI analogue of `add_apt_uris_to_allowlist` |
 | `claude.plugins.enabled` | boot | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
-| `claude.marketplaces` (boot file) | boot | `[]` | marketplaces only an `install_at_boot` ref needs (union+dedup with the bake file's, by `name`) |
+| `claude.marketplaces` (boot file) | boot | `[]` | marketplaces only an `install_at_boot` ref needs (union+dedup with the bake file's, by `name`); the url only has to be reachable from the GUEST — the build pre-registers it best-effort and a failure there only warns |
 | `github.auth` | boot | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
 | `packages:` (bake file) | bake | `[]` | apt packages BAKED into the guest image (a flat list; present with no network at boot) |
 | `apt_sources` (bake file) | bake | `[]` | third-party apt repos rendered into the image at build time |
@@ -167,7 +167,12 @@ Notes on the forward-looking keys:
   launch** with a message naming the right file, rather than parsing and
   being silently ignored. `claude.marketplaces` is the exception: allowed
   in both files, unioned and deduped by `name`, with the same name under
-  two differing urls aborting the launch.
+  two differing urls aborting the launch. Which file it lands in still
+  decides its build-time failure policy — a bake-file entry must register
+  during the image build or the build aborts, so its url has to be
+  reachable from the build container, while a boot-file entry is
+  pre-registered best-effort and a url the build cannot reach only warns
+  (issue #226).
 - **Prefer an explicit `https://` marketplace url.** The launcher derives
   the guest's marketplace egress hosts from the url; the `owner/repo`
   GitHub shorthand yields no derivable host, so it needs `github.com`

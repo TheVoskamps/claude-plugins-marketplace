@@ -397,8 +397,12 @@ argv, settings, image identity, and plugin manifests from:
   host and is instead named by `claude_vm_marketplaces_without_host` so the
   launcher can warn per entry. `claude_vm_boot_marketplace_egress_needed`
   decides whether `auto` derives anything at all: `always`, a nonempty
-  `install_at_boot`, a boot-declared marketplace the image does not carry, or
-  `update_at_boot` true with at least one marketplace configured.
+  `install_at_boot`, a marketplace declared in the boot doc whose name is not
+  bake-declared, or `update_at_boot` true with at least one marketplace
+  configured. That third test is deliberately conservative rather than exact:
+  since #226 the build only *tries* to pre-register a boot-declared
+  marketplace, and the host cannot know whether it succeeded, so the gate
+  derives egress for one even when the image turns out to carry it.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

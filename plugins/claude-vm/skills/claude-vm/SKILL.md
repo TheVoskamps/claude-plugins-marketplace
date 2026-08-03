@@ -427,10 +427,15 @@ lands in a sibling slice under #39. It resolves correctly through
     add/update fails (fail-soft) and `update_at_boot` would be inert.
   - `.add_marketplace_uris_to_allowlist` (`auto` default | `always`) mirrors
     `add_apt_uris_to_allowlist`: under `auto`, marketplace hosts are added to
-    the guest egress allowlist only when boot-side work will actually run (a
-    nonempty `install_at_boot`, a marketplace not already baked, or
-    `update_at_boot` true with at least one marketplace configured).
-    Everything baked + `update_at_boot: false` + `auto` derives **nothing** —
+    the guest egress allowlist only when boot-side work can actually run (a
+    nonempty `install_at_boot`, a marketplace declared in the boot file that is
+    not also bake-declared, or `update_at_boot` true with at least one
+    marketplace configured). The middle test reads the *declaration*, not the
+    image: the build's pre-registration of a boot-declared marketplace is
+    best-effort since #226 and the host cannot know whether it succeeded, so
+    the gate derives the host either way.
+    Everything bake-declared + `update_at_boot: false` + `auto` derives
+    **nothing** —
     and the guest still has working plugins, because the baked ones need no
     marketplace. Every derived addition is logged. A `owner/repo` shorthand
     url yields no derivable host (keep `github.com` in `egress.allow`
@@ -506,7 +511,7 @@ Remote-Control-attached for AFK observation/replies — those flags reach
 the in-guest claude via the existing `CLAUDE_ARGS` plumbing; no extra
 transport is involved.
 
-Two ways to turn on Remote Control:
+Ways to turn on Remote Control:
 
 - **Per-launch, via CLI** — pass `--remote-control` (and optionally
   `--name <n>`) after the repo path, as above.
