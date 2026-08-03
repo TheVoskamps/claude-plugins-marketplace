@@ -63,6 +63,41 @@ is the opposite: it lives only in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
 markdown in the repo describes it.
 
+## Keep claude-vm's declaration prose and image-state prose apart
+
+`plugins/claude-vm` uses the word "baked" for two different things, and
+a sweep that flattens one into the other introduces errors. Before
+rewording any "baked" / "already carries" sentence, check which side of
+the host/guest seam the code it describes sits on.
+
+- **Declaration (host side).**
+  `claude_vm_boot_marketplace_egress_needed` in `payload/lib/config.sh`
+  tests a boot-declared marketplace's name against
+  `claude_vm_baked_marketplace_names` — the bake *declaration*. The
+  build only *tries* to pre-register a boot-declared marketplace, so the
+  host cannot know the image state and the gate is deliberately
+  conservative. Prose here says "bake-declared", never "already baked
+  into the image".
+- **Image state (guest side).** `build-guest-image.sh`'s
+  `boot_plugin_phase` genuinely reads the image, shelling out to
+  `claude plugin marketplace list`. State wording is correct there and
+  must survive a sweep; say which of the two a given step reads.
+- **Neither.** The apt paragraphs' "hard-secure all-baked config"
+  (`payload/README.md`, `payload/podman-mkosi.sh`,
+  `payload/config-boot.example.yml`, `skills/claude-vm/SKILL.md`) are
+  about apt packages, which really are image bytes, and that gate has no
+  membership test at all. Editing those is churn.
+
+That one derived-egress gate is described in three places, so a doc pass
+that fixes two of them looks complete: `payload/README.md`'s helper
+bullet for `claude_vm_boot_marketplace_egress_needed`,
+`payload/README.md`'s separate *Derived egress* paragraph much further
+down in the guest-image section, and `skills/claude-vm/SKILL.md`'s
+`add_marketplace_uris_to_allowlist` bullet. Grep the criterion wording,
+not the helper name — the Derived egress paragraph never names the
+helper. When the per-entry policy gains skip paths, count them in the
+code and check the prose enumerates the same set.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,

@@ -1,8 +1,5 @@
 # Doc-updater memory index
 
-- [claude-vm marketplace declaration vs state](project_claude-vm-marketplace-declaration-vs-state.md)
-  — the host-side egress gate reads the bake DECLARATION, the guest boot
-  phase reads the IMAGE, apt "all-baked" is literal; don't flatten them.
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
@@ -47,7 +44,8 @@
   security-provenance comments elsewhere in the same/sibling files; also
   covers helper headers that name a downstream consumer that never calls
   them — grep for the helper name; and gate prose that names the state a
-  gate approximates rather than the one it tests.
+  gate approximates rather than the one it tests (the claude-vm
+  declaration-vs-image-state seam itself is in the root CLAUDE.md).
 - [skill-extraction doc surfaces](project_skill-extraction-doc-surfaces.md)
   — a round that extracts duplicated cross-plugin behavior into a new
   skill misses docs/plugin-authoring-constraints.md's pattern list and
