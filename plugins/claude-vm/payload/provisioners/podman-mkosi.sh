@@ -72,10 +72,14 @@ fi
 
 # Baked marketplaces + plugins (issue #107). build-guest-image.sh exports the
 # canonical manifest (from claude_vm_bake_plugins_json) as
-# CLAUDE_VM_BAKE_PLUGINS: {"marketplaces":[{name,url}...],"bake":[refs...]}.
-# Empty/unset normalizes to the empty canonical form so the in-container parser
-# always sees valid JSON, and an empty manifest means the plugin bake step is
-# skipped entirely -- the recipe is then exactly the pre-#107 image.
+# CLAUDE_VM_BAKE_PLUGINS:
+# {"marketplaces":[{name,url,origin}...],"bake":[refs...]}. Each marketplace
+# entry's origin is 'bake' or 'boot' (issue #226) and selects the build-time
+# failure policy for that entry -- see the FAIL HARD ON THE BAKED SET note
+# above the in-container plugin step. Empty/unset normalizes to the empty
+# canonical form so the in-container parser always sees valid JSON, and an
+# empty manifest means the plugin bake step is skipped entirely -- the recipe
+# is then exactly the pre-#107 image.
 BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}"
 if [ -z "$BAKE_PLUGINS" ]; then
   BAKE_PLUGINS='{"marketplaces":[],"bake":[]}'

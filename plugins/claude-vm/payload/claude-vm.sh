@@ -215,7 +215,9 @@ CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
 export CLAUDE_VM_BAKE_CONFIG
 
 # Baked marketplaces + plugins (issue #107). The build CONTENT sibling of
-# CLAUDE_VM_BAKE_CONFIG: the marketplaces the image must register and the
+# CLAUDE_VM_BAKE_CONFIG: the marketplaces the image build registers -- the
+# bake-declared ones as a hard requirement, the boot-declared ones best-effort
+# (issue #226, and each entry carries the `origin` that says which) -- and the
 # claude.plugins.bake refs it must install into /root/.claude/plugins. Like
 # CLAUDE_VM_BAKE_CONFIG this is CONTENT, not the cache key -- the cache key is
 # the whole-file raw-byte hash of the BAKE FILES, which already covers

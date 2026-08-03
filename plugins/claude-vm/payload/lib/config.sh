@@ -1219,8 +1219,9 @@ claude_vm_marketplaces_without_host() {
 # True iff ANY of:
 #   - claude.plugins.add_marketplace_uris_to_allowlist is "always"
 #   - claude.plugins.install_at_boot is nonempty      (a boot-side install)
-#   - a marketplace is configured in the BOOT doc that is NOT already baked
-#     (the boot path must ADD it before anything can resolve against it)
+#   - a marketplace is configured in the BOOT doc that is NOT bake-declared
+#     (the build pre-registers those best-effort only, so the boot path may
+#     still have to ADD it before anything can resolve against it)
 #   - claude.plugins.update_at_boot is true AND at least one marketplace is
 #     configured anywhere (with no marketplaces there is nothing to update, so
 #     the default-true knob must not allowlist hosts for a config that has none)
@@ -1235,7 +1236,8 @@ claude_vm_boot_marketplace_egress_needed() {
   if [ -n "$(claude_vm_list_items "$boot_doc" '.claude.plugins.install_at_boot')" ]; then
     return 0
   fi
-  # A boot-declared marketplace the image does not already carry must be added
+  # The build pre-registers a boot-declared marketplace best-effort only
+  # (issue #226), so one outside the bake-declared set may still need adding
   # at boot, which is itself marketplace egress.
   local baked_names name
   baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
