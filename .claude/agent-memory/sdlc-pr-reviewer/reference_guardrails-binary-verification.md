@@ -84,6 +84,14 @@ the bucket you expect proves nothing about the carve-out under review.
 Read the program's classifier arm first, then pick a probe whose
 verdict can actually change.
 
+**The gate active in YOUR review session is the installed plugin cache's
+binary — main's version, not the PR branch's.** So a deny you receive
+mid-review is evidence about MAIN's behavior, and can itself
+live-reproduce the pre-fix behavior a PR claims to change (on #208 the
+old gate denied a write to the harness scratchpad, reproducing #193).
+Probe the PR's own binary explicitly (`<pr-bin> < event.json`) whenever
+you need the branch's verdict rather than main's.
+
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.
 

@@ -30,7 +30,6 @@ shape that requires `-[alnum]` after every dash silently misses every
 hidden-directory project. Probe the committed binary with a synthetic
 event for one of the real doubled-dash slugs to confirm.
 
-Related: [[guardrails-binary-verification]],
-[[gate-blocks-pathlike-grep-patterns]] (the active gate is main's
-binary, so ls/cat probes of /tmp may deny mid-review — the PR's own
-binary run via `bash -c '<bin> < event.json'` is the reliable probe).
+Related: [[guardrails-binary-verification]] — the active gate is main's
+binary, so ls/cat probes of /tmp may deny mid-review; the PR's own
+binary run via `bash -c '<bin> < event.json'` is the reliable probe.
