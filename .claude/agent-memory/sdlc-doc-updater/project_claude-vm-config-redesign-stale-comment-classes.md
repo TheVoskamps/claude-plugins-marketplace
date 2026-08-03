@@ -46,6 +46,18 @@ same consumer claim verbatim, so a wrong one is wrong in two places. A
 `grep -rn <helper_name>` settles who actually calls a helper in one call;
 the prose around the helper never does.
 
+Another class, seen on #226 (bake-time marketplace registration went from
+unconditional to per-entry): prose that describes a *derived-egress gate*
+by the state it approximates rather than the state it tests. Both
+`payload/README.md`'s `claude_vm_boot_marketplace_egress_needed` bullet and
+`skills/claude-vm/SKILL.md`'s `add_marketplace_uris_to_allowlist` bullet
+said the gate fires for "a marketplace the image does not carry" / "not
+already baked". The gate has always read the bake *declaration*; before the
+change the two were equivalent, after it they diverge, and the gate is
+deliberately conservative because the host cannot know whether the build's
+best-effort pre-registration succeeded. When a guarantee is relaxed, reread
+every gate description for approximations that were previously exact.
+
 **How to apply:** after any claude-vm config-schema or identity-hashing
 redesign, grep the whole plugin (not just the README) for: the OLD
 filename/keyword the redesign retired, and the exact names of any deleted

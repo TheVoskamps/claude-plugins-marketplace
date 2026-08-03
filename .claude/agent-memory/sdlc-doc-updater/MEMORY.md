@@ -43,7 +43,8 @@
   still misses file headers, user-facing error messages, and
   security-provenance comments elsewhere in the same/sibling files; also
   covers helper headers that name a downstream consumer that never calls
-  them — grep for the helper name.
+  them — grep for the helper name; and gate prose that names the state a
+  gate approximates rather than the one it tests.
 - [skill-extraction doc surfaces](project_skill-extraction-doc-surfaces.md)
   — a round that extracts duplicated cross-plugin behavior into a new
   skill misses docs/plugin-authoring-constraints.md's pattern list and
