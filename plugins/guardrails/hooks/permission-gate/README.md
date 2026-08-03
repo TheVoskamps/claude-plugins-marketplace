@@ -791,8 +791,8 @@ self-sufficiently actionable.
 
 Policy lives in the binary, not on disk — a security gate's rule set
 must not be runtime-editable. **Changing policy means editing the Go
-source, re-running the test suite, rebuilding both binaries, and
-recommitting them.**
+source, re-running the test suite, rebuilding every committed binary,
+and recommitting them.**
 
 ## Build / test / cross-compile
 
@@ -806,7 +806,13 @@ GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
   go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/darwin-arm64/permission-gate .
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
   go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-amd64/permission-gate .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+  go -C plugins/guardrails/hooks/permission-gate build -trimpath -o ../bin/linux-arm64/permission-gate .
 ```
+
+Every target is pure Go with CGo disabled, so all of them cross-compile
+from the Mac — no toolchain is ever needed on the target machine, and
+none of these binaries is built at plugin load time.
 
 ### Binary reproducibility (don't expect a byte-identical rebuild)
 
@@ -838,16 +844,100 @@ To correctly verify that a committed binary matches its source:
    is **not** a valid mismatch signal on its own, because of the VCS
    stamp.
 
-Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`
-(`darwin-arm64` for this machine, `linux-amd64` for WSL2). The
-`settings.json` registration selects the correct one per platform via
-`uname`.
+Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`:
+`darwin-arm64` for this machine, `linux-amd64` for WSL2, `linux-arm64`
+for claude-vm guests (Debian on Apple Silicon). `hooks/hooks.json`
+selects the matching one per platform via `uname`.
 
 ## Registration
 
-`settings.json` wires the gate as a single PreToolUse hook matching
+`hooks/hooks.json` (and, for the non-plugin deployment, `settings.json`)
+wires the gate as a single PreToolUse hook matching
 `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*`, deployed to
 `~/.claude/settings.json`.
+
+### A gate binary that does not adjudicate hard-blocks
+
+The registration does not `exec` the `uname`-resolved path blindly. The
+guarantee it enforces is not "a binary is present" but **"a decision was
+produced"**: unless the gate exits 0 with a non-empty decision on stdout,
+or itself exits 2 (its own fail-closed backstop), the wrapper writes a
+one-line message naming the exact resolved path to stderr and exits 2 —
+a blocking deny for that tool call.
+
+Three distinct failures are covered, because `[ -x ]` alone answers only
+"may I try to run this", never "did it run and decide":
+
+1. **Missing, or present without the exec bit.** `[ -x "$gate" ]`:
+
+   ```text
+   guardrails permission-gate: no executable gate binary for this platform
+   at <path> -- failing closed, tool call denied. Build and commit one per
+   plugins/guardrails/hooks/permission-gate/README.md.
+   ```
+
+   The test is `[ -x ]`, not `[ -e ]`, so it fails the same way on a
+   binary that is present but not executable. On Linux it also catches a
+   correct binary sitting on a **`noexec` mount** — `access(X_OK)` honors
+   `MNT_NOEXEC`, so the mode bits are set yet the test still fails.
+
+2. **Present and executable but not runnable.** Exit **126** or **127**:
+
+   ```text
+   guardrails permission-gate: the gate binary at <path> could not be
+   executed (exit <rc>: wrong architecture or OS, a corrupt file, or a
+   noexec mount) -- failing closed, tool call denied. Rebuild and commit
+   it per plugins/guardrails/hooks/permission-gate/README.md.
+   ```
+
+   A binary built for the wrong `GOOS`/`GOARCH` (a transposed pair in the
+   cross-compile recipe) gets `ENOEXEC` → 126; a non-binary committed by
+   mistake falls through the shell's `ENOEXEC` script fallback → 127.
+
+3. **It ran but produced no decision.** Either it exited 0 with **empty
+   stdout** — what an *empty* file with the exec bit set does, because the
+   `ENOEXEC` fallback runs it as an empty script, with no output on any
+   stream and nothing in the transcript — or it exited with a status that
+   is neither 0 nor 2, which is what a **truncated** binary does when the
+   kernel kills it (observed: exit 137 on darwin-arm64, exit 139 on
+   linux-arm64):
+
+   ```text
+   guardrails permission-gate: the gate binary at <path> exited 0 without
+   emitting a decision -- failing closed, tool call denied. ...
+   guardrails permission-gate: the gate binary at <path> exited abnormally
+   without emitting a decision (exit <rc>: crashed, killed, or a truncated
+   file) -- failing closed, tool call denied. ...
+   ```
+
+Everything else passes through untouched: a real decision goes to stdout
+byte-for-byte (the binary writes no trailing newline, so the wrapper's
+command substitution has nothing to strip), the binary's own stderr is
+never captured, and a gate-authored exit 2 propagates as exit 2.
+
+The empty-stdout discriminator is only sound because the real binary can
+never produce that signature: every bucket — `allow`, `deny`, `ask`, and
+`defer`, including a `defer` with an empty reason — goes through
+`emitDecision`, which writes JSON before `os.Exit(0)`, and every other
+exit runs through `failClosed` (exit 2 plus a stderr line).
+`decision_stdout_test.go` pins that invariant end-to-end and
+bucket-by-bucket, so a future refactor that introduces a silent exit-0
+path fails CI rather than quietly reopening the hole.
+
+Without these guards the hook fails **open**: the hook exits with a
+status the harness treats as a non-blocking error, and every gated tool
+call proceeds with no adjudication at all while the transcript shows only
+a `PreToolUse:Bash hook error`. That is exactly what happened in a
+claude-vm `linux-arm64` guest before the `linux-arm64` binary existed
+(issue #216). A security gate that cannot run must block, not step aside
+— so an unprovisioned or unrunnable platform is unusable rather than
+silently ungated, and the remedy is to add that platform to the
+cross-compile recipe above and rebuild.
+
+Every binary must be committed with its executable bit set — git mode
+`100755`, verifiable with `git ls-files -s plugins/guardrails/hooks/bin/`.
+Committing one as `100644` denies every gated tool call on that platform,
+which reads as a total lockout rather than as a mode problem.
 
 ## Deferred
 

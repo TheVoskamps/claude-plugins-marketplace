@@ -35,7 +35,25 @@ Resolve to whichever value is greater and stop there; the branch's own
 bump is still present, so the per-PR rule is already satisfied and a
 further bump would be a second bump in one PR.
 
+**It can fire twice in one fix round.** On PR #217 the branch carried
+guardrails `0.9.15`; #208 merged with `0.9.15` and the rebase absorbed
+it, so the fixer re-bumped to `0.9.16` — and while the round was still
+running, #222 merged with `0.9.16`, so the *second* rebase absorbed the
+re-bump the same way and it had to go to `0.9.17`. The trigger is not
+"a rebase happened once"; it is "main moved", and on an active repo main
+can move again between your rebase and your push.
+
+**The check that actually catches it** is the absence of the file from
+`git diff --stat origin/main HEAD`, not reading `plugin.json`'s value —
+the value looks perfectly plausible (it is a bump, just not *yours*).
+Run that diff after every rebase and confirm each touched plugin's
+`plugin.json` is still listed.
+
 **How to apply:** treat the re-bump as a mandatory step of any rebase
 onto main, alongside the checks in
-[[git-status-cannot-see-main-staleness]]. The PR body may also name the
-version — see [[pr-body-is-a-swept-surface]].
+[[git-status-cannot-see-main-staleness]], and re-run the whole
+rebase → re-bump → rebuild → re-verify loop rather than assuming one
+pass settled it. The PR body may also name the version — see
+[[pr-body-is-a-swept-surface]]. If the plugin ships committed binaries,
+the rebase invalidates those too:
+[[buildvcs-stamp-is-primary-clone-head]].

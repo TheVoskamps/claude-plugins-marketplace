@@ -47,6 +47,23 @@ issue #113 (all correctly — do not fight them):
   `~/.claude/logs/permission-gate.jsonl`. That is the log's normal
   purpose; don't try to redirect it.
 
+Forms that turned out to be **allowed** (issue #216) — don't invent
+workarounds for these:
+
+- `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go -C <dir> build ...` — the
+  README's literal cross-compile recipe passes. The inline-assignment
+  denial noted above is narrower than "any leading `VAR=`".
+- `podman run --rm -i -v <abs-worktree-path>:/wt:ro <image> sh /wt/...`
+  including the host bind-mount.
+- `mkdir -p <relative-path>` and `>` redirects, when relative to the
+  worktree cwd.
+
+The **Edit tool** enforces the worktree boundary independently of the
+gate: editing a `<primary-clone>/...` absolute path fails with "This
+agent is isolated in the worktree ... Edit the worktree copy". Reading
+the primary clone's copy is allowed, so it is easy to Read one path and
+then try to Edit it — always anchor edit paths to the worktree root.
+
 Acceptance for permission-gate changes is verified by piping synthetic
 PreToolUse event JSON (`{"hook_event_name":"PreToolUse",
 "tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"..."}}`) into

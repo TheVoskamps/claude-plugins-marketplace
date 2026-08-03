@@ -1,6 +1,6 @@
 ---
 name: union-resolution-needs-the-incoming-commits-own-delta
-description: Resolving an append-only index (MEMORY.md) conflict by unioning both sides silently reverts the other side's in-place revisions; read the incoming commit's own delta with `git show <sha> -- <file>` to learn which lines it actually meant to change
+description: Resolving an append-only index (MEMORY.md) conflict by unioning both sides silently reverts the other side's in-place revisions; read the incoming commit's own delta with `git show <sha> -- <file>` to learn which lines it actually meant to change — and merge, rather than pick, the lines both sides revised
 metadata:
   type: project
 ---
@@ -33,6 +33,20 @@ The same read settles the deletion case: a terminal curation commit
 that drops an index entry conflicts against main's *additions* to the
 same tail. Its own delta shows one removed line, so main's new entries
 stay and only that one goes.
+
+**The fourth case needs a real merge, not a pick: both sides revised
+the same line.** The delta read identifies it — the incoming commit's
+diff shows a `-`/`+` pair on a line main also rewrote — and neither
+side's text is correct alone. Write one line carrying both revisions'
+content. On PR #217 round 4 the `Rebase absorbs an identical version
+bump` index entry had main appending
+`(differing values conflict loudly — take the greater, don't re-bump)`
+while the branch replaced the tail clause with
+`can fire twice in one round, so check git diff --stat origin/main HEAD`;
+the resolution keeps the branch's replacement *and* main's parenthetical,
+because the entry's body file (auto-merged, so both paragraphs survived)
+documents both facts. Taking either side alone would have left the index
+line describing less than the file it points at.
 
 **How to apply:** on every conflicted rebase step, before editing the
 file. It costs one `git show` per conflicted commit. Pair it with the

@@ -1,6 +1,6 @@
 ---
 name: claude-vm-real-build-and-boot-is-doable
-description: A claude-vm real image build AND a real vfkit boot ARE achievable from a throwaway subagent worktree -- start the podman machine yourself and verify container network first; inspect the built .raw with debugfs, not mount.
+description: A claude-vm real image build, a real vfkit boot, and real linux-arm64 execution of a compiled hook ARE all achievable from a throwaway subagent worktree -- start the podman machine yourself and verify container network first; inspect the built .raw with debugfs, not mount; probe arm64 binaries in a plain podman container.
 metadata:
   type: project
 ---
@@ -51,7 +51,40 @@ linux-arm64 claude binary. That is how #107's `update_at_boot` criterion was
 verified end-to-end (a baked plugin really went 0.1.0 -> 0.2.0 off a
 marketplace bump).
 
-**Still NOT reachable this way:** anything needing an interactive in-guest
-claude session (hook firing, a compiled gate adjudicating). Those need the
-human's own terminal. See [[unit-tests-are-not-real-runs]] -- the standard is
-unchanged, this memory just widens how much of it you can actually meet.
+**5. A compiled hook binary IS testable on real linux-arm64 without any VM.**
+(Corrects the older "not reachable" claim below.) The podman machine on this
+host is `arm64 linux`, and `docker.io/library/debian:{trixie,bookworm}` are
+already cached, so a plain container IS the guest's platform:
+
+```bash
+podman run --rm -i -v <worktree>:/wt:ro docker.io/library/debian:trixie \
+  sh /wt/<probe>.sh
+```
+
+Notes that made this work in issue #216:
+
+- `-i` is REQUIRED or stdin is empty and the gate fail-closes on
+  "empty event payload" -- which looks like a bug in your change and is not.
+- Extract the command under test verbatim with
+  `jq -r '.hooks.PreToolUse[0].hooks[0].command' <hooks.json> > run-hook.sh`,
+  then `sh run-hook.sh < event.json`. Never retype the command string.
+- `CLAUDE_PLUGIN_ROOT` can't be set inline (gate blocks inline assignment on
+  some forms) and shell state doesn't persist between Bash calls -- put the
+  `export` in a tiny wrapper script that then `sh`s the untouched command file.
+- The base debian images have **no git**, so Engine B fail-closes to `ask`.
+  For a real containment `deny` you need `apt-get install -y git` inside the
+  `--rm` container (ephemeral rootfs; touches neither the host nor any
+  lockfile) plus a real `git init` repo as the event `cwd`.
+- `--platform linux/amd64` works under emulation, so the linux-amd64 binary is
+  exercisable from the Mac too.
+
+**Not reachable this way:** an interactive in-guest *claude session* (the
+harness actually firing the hook). The binary and the hooks.json wrapper are
+both fully testable here; the claude-code integration on top of them is not --
+but that integration IS reachable in a real guest, pre-merge, per
+[[baked-plugin-changes-verifiable-pre-merge-via-local-marketplace]] (launch the
+guest from the PR-branch worktree and install the branch from `/mnt/repo` as a
+local marketplace). Treat these container probes as corroboration for the live
+guest run, not as a substitute for it. See [[unit-tests-are-not-real-runs]] --
+the standard is unchanged, this memory just widens how much of it you can meet
+without a guest.

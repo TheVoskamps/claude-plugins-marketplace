@@ -113,10 +113,10 @@ claude:
   plugins:
     bake:
       - block-background-agents@thevoskamps
-      # COMPILED-HOOK PAIRING (NOT auto-derived -- you must do both halves):
-      # the guardrails permission-gate builds its hook from Go source at load
-      # time, so baking it requires a sufficiently new `golang` in this file's
-      # `packages:` above. Without the toolchain the plugin installs fine and
-      # its gate simply never adjudicates. If you enable the line below, add
-      # `golang` to `packages:` in the same edit.
+      # COMPILED HOOKS NEED NO TOOLCHAIN: the guardrails permission-gate ships
+      # PREBUILT, committed binaries (one per <goos>-<goarch>), so baking it
+      # needs NOTHING in `packages:` above -- no `golang`, nothing. The guest
+      # is linux-arm64 and the plugin commits a linux-arm64 binary. If a
+      # platform ever has no committed binary, the hook hard-blocks every
+      # gated tool call rather than silently not adjudicating.
       # - guardrails@thevoskamps

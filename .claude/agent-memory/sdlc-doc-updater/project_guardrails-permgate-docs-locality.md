@@ -106,6 +106,17 @@ count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
 below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
+**Gate PACKAGING facts are the exception to the locality rule above.**
+The "no other markdown describes gate behavior" claim holds for
+*classifier* behavior only; how the gate is *shipped* is mirrored in
+claude-vm's docs, and the cross-plugin sweep obligation that creates
+lives in the repo's `CLAUDE.md`. The claude-vm config-WIZARD skills
+(`claude-vm-config-global`/`-repo`) are not among those mirroring
+surfaces — they describe `claude.plugins.bake` mechanics generically and
+never name guardrails — so the lag warned about in
+[[project_claude-vm-config-wizard-skills-lag]] does not extend to
+gate-packaging facts.
+
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
 doc comments on `engine_a_bash.go` (resolveVar, isResolvableParamExp,
 literalWord, varResolver) but did NOT touch the README, even though #156

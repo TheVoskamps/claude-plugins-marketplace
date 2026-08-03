@@ -663,10 +663,19 @@ key into `~/.claude/settings.json` itself, and the boot launcher copies the
 host-rendered file over whatever the image baked, so omitting it would drop the
 declarations the bake step's own CLI run wrote.
 
-*Compiled hooks.* The guardrails permission-gate builds its hook from Go source
-at load time, so listing `guardrails@…` in a plugin list requires a
-sufficiently new `golang` in the bake file's `packages:`. This is a documented
-pairing in `config-bake.example.yml`, deliberately **not** auto-derived.
+*Compiled hooks need no toolchain.* The guardrails permission-gate ships
+**prebuilt, committed** binaries, one per `<goos>-<goarch>`, and its
+`hooks.json` picks the matching one by `uname`. Listing `guardrails@…` in a
+plugin list therefore requires **nothing** in the bake file's `packages:` — in
+particular no `golang`. (Earlier revisions of this file and of
+`config-bake.example.yml` claimed a load-time `go build` and a
+guardrails↔`golang` pairing; that was never true, and issue #216 corrected
+it.) The guest is `linux-arm64` and the plugin commits a `linux-arm64`
+binary. Should a platform ever lack a committed binary, the hook now fails
+**closed** — a one-line stderr message naming the missing path and exit 2,
+hard-denying the tool call — instead of the pre-#216 behavior, where the
+missing binary produced a non-blocking `PreToolUse hook error` and every gated
+tool ran completely unadjudicated.
 
 **Mid-session apt proxying, metadata diet, and root headroom (issue #106
 real-run fixes).** Real-hardware testing of the boot-time apt work above
