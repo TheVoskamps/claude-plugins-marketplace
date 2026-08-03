@@ -1,5 +1,8 @@
 # Doc-updater memory index
 
+- [claude-vm marketplace declaration vs state](project_claude-vm-marketplace-declaration-vs-state.md)
+  — the host-side egress gate reads the bake DECLARATION, the guest boot
+  phase reads the IMAGE, apt "all-baked" is literal; don't flatten them.
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
