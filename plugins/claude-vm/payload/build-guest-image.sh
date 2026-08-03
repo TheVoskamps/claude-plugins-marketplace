@@ -924,8 +924,11 @@ log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CL
 #
 # Steps, in this order (each skipped when it has nothing to do):
 #   1. ENSURE: add any configured marketplace the image does not already carry.
-#      A baked marketplace is already registered, so the common case adds
-#      nothing and needs no network at all.
+#      This step reads the IMAGE, not the bake declaration -- it asks the CLI
+#      what is registered. A bake-declared marketplace is registered by the
+#      build as a precondition, and a boot-declared one usually is too (the
+#      build pre-registers it best-effort), so the common case adds nothing and
+#      needs no network at all.
 #   2. UPDATE marketplaces: `claude plugin marketplace update` refreshes every
 #      registered marketplace from its source. This is the freshness mechanism
 #      for BAKED plugins -- they are frozen at image-build time and the image
@@ -1017,7 +1020,7 @@ boot_plugin_phase() {
   if [ "$do_update" = "true" ] && [ "$have_marketplaces" -eq 1 ]; then
     log "claude-vm: boot-time plugins: refreshing marketplaces (claude.plugins.update_at_boot)."
     if ! "$CLAUDE_BIN" plugin marketplace update >/dev/null 2>&1; then
-      log "claude-vm: WARNING -- 'claude plugin marketplace update' failed; continuing with the marketplaces as baked."
+      log "claude-vm: WARNING -- 'claude plugin marketplace update' failed; continuing with the marketplaces as currently registered."
     fi
   fi
 

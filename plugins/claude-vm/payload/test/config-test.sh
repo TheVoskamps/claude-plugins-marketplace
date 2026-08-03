@@ -2113,19 +2113,19 @@ assert_eq "bake-manifest: no plugins configured -> stable empty form" \
   "$(claude_vm_bake_plugins_json "$EMPTY_DOC" "$EMPTY_DOC")"
 
 # Derived egress gate. The HARD-SECURE case is acceptance criterion 1:
-# everything baked, updates off, "auto" -> derives NOTHING.
+# everything bake-declared, updates off, "auto" -> derives NOTHING.
 MP_BOOT_HARD="$WORK/mp-boot-hard.yml"
 printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: auto\n' > "$MP_BOOT_HARD"
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_HARD" "$MP_BAKE"; then
-  assert_eq "egress: hard-secure (all baked, updates off, auto) derives nothing" "no" "yes"
+  assert_eq "egress: hard-secure (all bake-declared, updates off, auto) derives nothing" "no" "yes"
 else
-  assert_eq "egress: hard-secure (all baked, updates off, auto) derives nothing" "no" "no"
+  assert_eq "egress: hard-secure (all bake-declared, updates off, auto) derives nothing" "no" "no"
 fi
 # ... and each individual trigger flips it back on.
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT" "$MP_BAKE"; then
-  assert_eq "egress: boot-only marketplace needs a boot-side add" "yes" "yes"
+  assert_eq "egress: a boot-declared marketplace outside the bake set derives" "yes" "yes"
 else
-  assert_eq "egress: boot-only marketplace needs a boot-side add" "yes" "no"
+  assert_eq "egress: a boot-declared marketplace outside the bake set derives" "yes" "no"
 fi
 MP_BOOT_INSTALL="$WORK/mp-boot-install.yml"
 printf 'claude:\n  plugins:\n    install_at_boot:\n      - x@thevoskamps\n    update_at_boot: false\n' > "$MP_BOOT_INSTALL"
@@ -2206,7 +2206,8 @@ assert_eq "render: no marketplaces -> empty extraKnownMarketplaces object" \
 #
 # The behaviors that matter and are checkable host-side:
 #   - nothing configured        -> no CLI calls at all (no network, no noise)
-#   - everything already baked  -> no marketplace ADD (the common warm case)
+#   - every marketplace already registered in the image
+#                               -> no marketplace ADD (the common warm case)
 #   - a marketplace the image lacks -> exactly one add for it
 #   - update_at_boot: false     -> no marketplace update, no plugin update
 #   - update_at_boot: true      -> marketplace update BEFORE the installs, and
@@ -2267,15 +2268,16 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   assert_eq "boot_plugin_phase: nothing configured runs no claude calls" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
 
-  # Everything baked (marketplace already registered), updates OFF -> the
-  # hard-secure warm case: no add, no update, no install.
+  # The marketplace already registered in the image, updates OFF -> the
+  # hard-secure warm case: no add, no update, no install. This phase reads the
+  # image (what `plugin marketplace list` reports), not the bake declaration.
   : > "$CLAUDE_CALL_LOG"
   PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp.tsv"
   printf 'thevoskamps\thttps://github.com/TheVoskamps/claude-plugins-marketplace.git\n' > "$PLUGIN_MARKETPLACES_TSV"
   printf 'Configured marketplaces:\n\n  x thevoskamps\n' > "$MP_LIST_FILE"
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
   ( boot_plugin_phase >/dev/null 2>&1 || true )
-  assert_eq "boot_plugin_phase: already-baked marketplace is not re-added" \
+  assert_eq "boot_plugin_phase: an already-registered marketplace is not re-added" \
     "0" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
   assert_eq "boot_plugin_phase: update_at_boot=false runs no marketplace update" \
     "0" "$(grep -c 'marketplace update' "$CLAUDE_CALL_LOG" || true)"

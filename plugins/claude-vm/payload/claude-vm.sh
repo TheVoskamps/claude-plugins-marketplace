@@ -1303,16 +1303,22 @@ fi
 # The plugin-side sibling of the apt derivation above, with the same auto/always
 # semantics. Marketplace URL hosts are added to the allowlist IFF a boot-side
 # ensure/install/update will actually run (claude_vm_boot_marketplace_egress_needed:
-# a boot-only marketplace to add, a nonempty install_at_boot, or update_at_boot
-# true with at least one marketplace configured) OR the operator opted in with
+# a marketplace declared in a boot file whose name is not also bake-declared, a
+# nonempty install_at_boot, or update_at_boot true with at least one marketplace
+# configured) OR the operator opted in with
 # claude.plugins.add_marketplace_uris_to_allowlist: always.
 #
-# "auto" (the default) with everything baked and updates off derives NOTHING --
-# and the guest STILL has working plugins, because the baked ones are inside
-# the image and need no marketplace at all. That is the hard-secure posture the
-# issue's first acceptance criterion names. Every derived addition is logged, so
-# the allowlist never grows silently. Runs AFTER the warm-boot tightening so a
-# dropped claude.ai/downloads.claude.ai entry is never re-introduced here.
+# The bake-declared membership test reads the DECLARATION, not the image: since
+# issue #226 the build only TRIES to pre-register a boot-declared marketplace, and
+# the host cannot know whether it succeeded, so the gate derives the host either
+# way.
+#
+# "auto" (the default) with everything bake-declared and updates off derives
+# NOTHING -- and the guest STILL has working plugins, because the baked ones need
+# no marketplace at all. That is the hard-secure posture the issue's first
+# acceptance criterion names. Every derived addition is logged, so the allowlist
+# never grows silently. Runs AFTER the warm-boot tightening so a dropped
+# claude.ai/downloads.claude.ai entry is never re-introduced here.
 #
 # A marketplace whose `url` is not an http(s) URI (the `owner/repo` GitHub
 # shorthand, or a local path) derives no host -- claude_vm_marketplace_hosts

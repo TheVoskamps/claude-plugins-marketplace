@@ -1210,8 +1210,8 @@ claude_vm_marketplaces_without_host() {
 # True (exit 0) when a BOOT-SIDE marketplace ensure/install/update will run and
 # therefore needs the marketplace hosts reachable from the guest. False means
 # "auto, and nothing boot-side to do" -- the hard-secure config (everything
-# baked, updates off, `auto`) derives NOTHING and still has working plugins,
-# because the baked ones are already inside the image.
+# bake-declared, updates off, `auto`) derives NOTHING and still has working
+# plugins, because the baked ones need no marketplace at all.
 #
 #   $1 -- merged BOOT document file path
 #   $2 -- merged BAKE document file path

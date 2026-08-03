@@ -170,9 +170,13 @@ claude:
                           # marketplace hosts are added to the guest egress
                           # allowlist IFF boot-side marketplace work will actually
                           # run: install_at_boot is nonempty, OR a marketplace
-                          # declared here is not already baked into the image, OR
-                          # update_at_boot is true and at least one marketplace is
-                          # configured. Everything baked + update_at_boot: false +
+                          # declared here is not ALSO declared in config-bake.yml,
+                          # OR update_at_boot is true and at least one marketplace
+                          # is configured. That middle test reads the DECLARATION,
+                          # not the image: the build only TRIES to pre-register a
+                          # marketplace declared here and the host cannot know
+                          # whether it succeeded, so the hosts are derived either
+                          # way. Everything bake-declared + update_at_boot: false +
                           # "auto" derives NOTHING -- and the guest still has
                           # working plugins, because the baked ones need no
                           # marketplace at all. "always" keeps the URIs allowlisted

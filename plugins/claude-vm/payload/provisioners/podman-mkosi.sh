@@ -672,10 +672,11 @@ Packages=
     # ERR_STREAM_PREMATURE_CLOSE: git ... clone --depth 1 ..." -- which would
     # make claude.plugins.update_at_boot (default true) permanently inert and
     # any boot-added marketplace unreachable. The security boundary for a
-    # hard-secure all-baked config (add_marketplace_uris_to_allowlist: auto,
-    # nothing to do at boot) is the egress allowlist leaving the marketplace
-    # hosts unreachable, NOT the absence of git. The fail-soft failure policy
-    # (a failed add/update warns and continues to claude) is unchanged.
+    # hard-secure all-bake-declared config (add_marketplace_uris_to_allowlist:
+    # auto, nothing to do at boot) is the egress allowlist leaving the
+    # marketplace hosts unreachable, NOT the absence of git. The fail-soft
+    # failure policy (a failed add/update warns and continues to claude) is
+    # unchanged.
     git
 
 [Build]
