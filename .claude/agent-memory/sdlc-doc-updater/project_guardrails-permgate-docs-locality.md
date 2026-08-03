@@ -120,6 +120,18 @@ it does not cover*. Those read as equivalent and are not — the allowlist
 is closed and the enumeration invites "my flag isn't listed, so it's
 safe". Reword to match the code's polarity.
 
+**The fix round re-wrote the same false reach claim one notch
+narrower (#225, PR #227, round 2).** Closing the redirect-position gap,
+the fixer replaced "descends into every process substitution" with "the
+descent covers both positions bash accepts a substitution in" — still
+false: a substitution in a `for`/`select` item list or a `case` word
+reaches neither call site, so `for f in <(cat ../sibling/.env)` ALLOWs.
+The pattern to expect: a completeness claim written from the two call
+sites the author just wired, not from the grammar. When a gap is closed,
+re-probe the OTHER positions the same token can occupy before letting
+any "covers both/all" phrasing stand — a closed gap invites a stronger
+claim than was earned.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict

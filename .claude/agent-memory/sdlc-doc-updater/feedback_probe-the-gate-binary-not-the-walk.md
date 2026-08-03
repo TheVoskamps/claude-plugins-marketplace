@@ -25,6 +25,14 @@ shielding actually admits, which I then wrote into a skill as a
 prescription — never prescribe a gate-permitted spelling you have not
 run.
 
+To say whether a verdict you measured is a WIDENING or pre-existing,
+probe the merge base the same way: from the worktree root,
+`git archive <base> plugins/guardrails/hooks/permission-gate | tar -x -C
+zzbase`, copy the probe file in, `go test` there, `rm -rf zzbase`. Guess
+and you will call a pre-existing allow a regression (or miss one) — in
+issue #225 the `for`-header substitution ALLOWed at base too, while only the
+`"$f"`-using body actually flipped.
+
 **How to apply:** grep the helper's callers first
 (`grep -n 'helperName(' *.go | grep -v _test`) — a single call site is
 the tell that a "for every X" claim is scoped. Then probe. Test helpers
