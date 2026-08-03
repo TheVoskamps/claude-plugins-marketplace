@@ -103,6 +103,22 @@ too, and change every consumer in the same PR. Only a standalone
 exercises the no-set arm — an orchestrated run always has a
 convention branch, so nothing in the pipeline catches a missing one.
 
+Tightening one of these rules inside a SKILL.md **Execution** step
+leaves three further surfaces stating the old, looser version, and
+none of them is reachable by grepping the new arm's own vocabulary:
+the narrative section above Execution in the same SKILL.md (the "Own
+issue set only" sections state the branch-name-wins rule as a flat
+absolute that a case split in the steps below can contradict); the
+per-skill blurb in `plugins/github-prs/README.md` (`### /pr-create …`,
+`### /pr-link-issue …`, one per skill, both needing the same edit);
+and the calling agent's paraphrase in
+`plugins/sdlc/agents/issue-developer.md` step 10, which describes what
+`/pr-create` guards against in running prose. Grep the rule's own
+distinctive phrase (`higher-fidelity`) alongside the skill name, and
+prefer replacing a downstream restatement with a pointer at the step
+that owns the resolution over restating the amended rule a second
+time.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,
