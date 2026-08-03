@@ -88,8 +88,8 @@ the host/guest seam the code it describes sits on.
   about apt packages, which really are image bytes, and that gate has no
   membership test at all. Editing those is churn.
 
-That one derived-egress gate is described in three places, so a doc pass
-that fixes two of them looks complete: `payload/README.md`'s helper
+That one derived-egress gate is described in several places, so a doc
+pass that fixes the obvious ones looks complete: `payload/README.md`'s helper
 bullet for `claude_vm_boot_marketplace_egress_needed`,
 `payload/README.md`'s separate *Derived egress* paragraph much further
 down in the guest-image section, and `skills/claude-vm/SKILL.md`'s
@@ -97,6 +97,23 @@ down in the guest-image section, and `skills/claude-vm/SKILL.md`'s
 not the helper name — the Derived egress paragraph never names the
 helper. When the per-entry policy gains skip paths, count them in the
 code and check the prose enumerates the same set.
+
+## Never split a claude-vm TSV record with a tab-IFS `read`
+
+`plugins/claude-vm` moves multi-field records between its scripts as
+yq `@tsv` lines. A consumer must not take one apart with
+`IFS=$'\t' read -r a b c`: a tab is IFS *whitespace*, so `read`
+collapses a run of tabs into one separator and a record with an empty
+**middle** field loses it, shifting every later field left with no
+error. Issue #226 found it on a marketplace url, on an apt `key_url`,
+and on a mount `tag`, each producing a wrong-but-plausible value rather
+than a failure. Read the whole line with `IFS= read -r`
+and split it with `${rec%%$TAB*}` / `${rec#*$TAB}`, which is total
+because `@tsv` always writes every separator. The reasoning, the
+affected loops, and the test shape (run the real loop against the real
+emitter, plus a negative control rebuilt from the same captured lines)
+are in `plugins/claude-vm/payload/README.md` → *Splitting a TSV record
+back apart*.
 
 ## Add a README roster entry when you publish a plugin
 

@@ -145,14 +145,14 @@ bearer token alone is **not** sufficient for the interactive TUI to treat
 itself as onboarded and logged in: current Claude Code also decides "am I
 onboarded / logged in" from state in `~/.claude.json`. A fresh throwaway
 guest lacks that state, so without it every launch hits the
-onboarding/login wall despite the mounted credential. Beyond identity, two
+onboarding/login wall despite the mounted credential. Beyond identity, these
 keys matter: `hasCompletedOnboarding` (absent → claude runs its onboarding
 flow) and `autoUpdates` (unset → claude tries to self-update and fails
 against its RO-mounted binary in the egress-confined guest).
 
 So the launcher **also seeds the guest's identity + onboarding state**
 (issue #88): it reads your host `~/.claude.json` and emits a seed carrying
-`userID` and `oauthAccount` selected from the host, plus four synthesized
+`userID` and `oauthAccount` selected from the host, plus synthesized
 keys: `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false`
 (no self-update), and `lastOnboardingVersion` / `lastReleaseNotesSeen`
 stamped with the resolved claude version. It **additively** carries a few
@@ -403,6 +403,38 @@ argv, settings, image identity, and plugin manifests from:
   since #226 the build only *tries* to pre-register a boot-declared
   marketplace, and the host cannot know whether it succeeded, so the gate
   derives egress for one even when the image turns out to carry it.
+
+*Splitting a TSV record back apart (issue #226).* The helpers above emit
+multi-field records through yq's `@tsv` over a fixed-length array, so every
+line always carries every separator — but a consumer must **not** take one
+apart with `IFS=$'\t' read -r a b c`. A tab is IFS *whitespace*, so `read`
+collapses a run of tabs into a single separator: a record whose **middle**
+field is empty loses that field silently and shifts every later field left.
+Under #226 that turned a marketplace entry with no url
+(`name<TAB><TAB>origin`) into one whose origin was read as its url, making
+the no-url boot branch unreachable and aborting the very build the issue
+exists to keep alive. The same read shape sat on the other three-field
+records too: an `apt_sources` entry with a `key_url` but no `repo` handed the key
+url to `render_apt_source` as the repo *line* (writing a `sources.list.d`
+entry that points at the key, with no key fetched), and a `mounts` entry with
+an empty `tag` handed vfkit the `ro`/`rw` mode as the mount *tag*. Every
+three-field reader — the marketplace and `apt_sources` loops in
+`provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop in
+`build-guest-image.sh`, and the extra-mount loop in `claude-vm.sh` —
+therefore reads the whole line with `IFS= read -r` and splits it with
+`${rec%%$TAB*}` / `${rec#*$TAB}` parameter expansions, which are total
+exactly because `@tsv` always writes both separators. Each split is pinned by
+a test that *runs* the real loop against records from the real emitter,
+asserting on the values the split produced rather than grepping the source.
+The `apt_sources` and mount splits add a negative control — the pre-fix
+collapsing `read` rebuilt from the same captured lines, so the control cannot
+drift away from the code it is contrasted with; the marketplace loop instead
+asserts on the observable outcome (a no-url boot entry logs its skip and
+never tries to add `boot` as a url). Write any new record reader the same
+way. The two-field readers still use the plain
+`IFS=$'\t' read -r name url` form: they have no middle field to lose, though
+the same collapsing applies to a **leading** empty field (a marketplace
+declared with a `url` but no `name` reads its url as its name).
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -714,7 +746,7 @@ tool ran completely unadjudicated.
 
 **Mid-session apt proxying, metadata diet, and root headroom (issue #106
 real-run fixes).** Real-hardware testing of the boot-time apt work above
-found three more problems. First, an **interactive** `apt-get install` (run
+found further problems. First, an **interactive** `apt-get install` (run
 by the in-guest claude mid-session, not by `boot_apt_phase`) got no proxy at
 all: apt honors only lowercase `http_proxy`/`https_proxy` (never the
 uppercase forms `run.env` used to carry alone), and curl deliberately
@@ -899,7 +931,7 @@ preconditions for the verified cache and credential selection up front:
 Each failed check prints the exact remediation command(s) (`brew install
 gnupg`, the `curl … | gpg --import` + `gpg --fingerprint` pin steps,
 `xcode-select --install` for `python3`) rather than a bare error.
-Without this gate, a cold boot would otherwise pay for three network
+Without this gate, a cold boot would otherwise pay for the network
 fetches (channel pointer + manifest + signature) and a guest-image build
 before aborting on a condition knowable at startup. The deep checks in
 this library (gpg-on-PATH at the verify step, the unset-pin hard-abort)
@@ -924,7 +956,16 @@ union, single-layer and no-layer fallbacks, de-duplication) with no VM
 and no network, plus the pure helpers built on it — the settings render,
 the bake/identity hashing, and (issue #107) the marketplace/plugin
 helpers: effective-set dedup, the placement and name-conflict aborts,
-derived-egress `auto` semantics, and the bake-plugin manifest. Requires
+derived-egress `auto` semantics, and the bake-plugin manifest. Issue #226
+added cases that leave pure-helper territory: `boot_apt_phase` (sliced
+out of `build-guest-image.sh`, with `render_apt_source_boot` swapped for a
+recorder) and the launcher's extra-mount loop (sliced out of `claude-vm.sh`
+by line range, since it is bare top-level code rather than a function) are
+each *run* against records from the real emitter, asserting that a record's
+empty middle field survives the split — see *Splitting a TSV record back
+apart* above. Both carry a negative control that rebuilds the pre-fix
+collapsing `read` from the same captured lines, so the control cannot drift
+away from the code it contrasts with. Requires
 `yq` (mikefarah v4+); skips cleanly when absent.
 
 `endpoint-test.sh` exercises the per-run endpoint primitives in
@@ -1027,7 +1068,11 @@ the loop is sliced out of the captured `build-in-container.sh` and driven
 against a stub `claude` whose exit status the test controls, so a failed add
 (or a name mismatch) on a bake-declared entry still aborts, the same entry
 declared `origin: boot` warns and continues, and an entry with no `origin`
-falls back to the strict reading. It does not run a real `mkosi build` (no
+falls back to the strict reading. The generated `apt_sources` loop is driven
+the same way, against a real `bake-config.json` with `render_apt_source`
+stubbed to record its argv, pinning that an entry with a `key_url` but no
+`repo` keeps the key url in the third field — with a negative control
+rebuilt from the same captured lines. It does not run a real `mkosi build` (no
 container, no network); that gap is covered by `host-acceptance.sh`.
 
 `host-acceptance.sh` is the self-contained on-host acceptance test for
