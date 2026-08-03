@@ -38,16 +38,13 @@ the same file, or in sibling files that merely reference the changed
 concept, do not. A thorough README pass is not a substitute for a
 grep-based sweep.
 
-A further class, found on issue #226 (bake-vs-boot marketplace failure
-policy): `lib/config.sh` helper headers routinely name their *downstream
-consumer* ("these are already registered inside the image, so the boot path
-only has to ADD the rest"), and that clause rots independently of the code.
-`claude_vm_baked_marketplace_names` has exactly two callers, both host-side
-(`claude_vm_boot_marketplace_egress_needed` and `claude_vm_bake_plugins_json`)
-— the guest boot path never reads it, it asks the CLI via
-`plugin_marketplace_registered`. `payload/README.md`'s helper bullet repeated
-the same false consumer verbatim. A `grep -rn <helper_name>` settles it in one
-call; the prose around the helper never does.
+A further class: `lib/config.sh` helper headers routinely name their
+*downstream consumer* ("these are already registered inside the image, so
+the boot path only has to ADD the rest"), and that clause rots
+independently of the code. `payload/README.md`'s helper bullets repeat the
+same consumer claim verbatim, so a wrong one is wrong in two places. A
+`grep -rn <helper_name>` settles who actually calls a helper in one call;
+the prose around the helper never does.
 
 **How to apply:** after any claude-vm config-schema or identity-hashing
 redesign, grep the whole plugin (not just the README) for: the OLD

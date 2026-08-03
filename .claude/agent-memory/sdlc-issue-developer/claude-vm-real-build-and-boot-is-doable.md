@@ -55,7 +55,7 @@ dummy pin and read them off stderr. Corroborate that value against the published
 key by computing the OpenPGP v4 fingerprint of
 `https://downloads.claude.ai/keys/claude-code.asc` in pure Python:
 `sha1(b"\x99" + uint16(len(body)) + body)` over the first tag-6 packet, stdlib
-only, no gpg. In issue #226 both came out
+only, no gpg. Both fingerprints come out
 `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`. gpg itself still runs fine INSIDE the
 product's own scripts; only your own top-level `gpg` call is blocked.
 
