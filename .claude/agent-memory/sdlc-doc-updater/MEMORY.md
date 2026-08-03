@@ -42,3 +42,7 @@
   and OLD deleted function names plugin-wide; a thorough README pass
   still misses file headers, user-facing error messages, and
   security-provenance comments elsewhere in the same/sibling files.
+- [skill rule tightening leaves prose stale](project_skill-rule-tightening-leaves-prose-stale.md)
+  — a fixer that tightens an Execution-step rule leaves the SKILL.md's
+  own narrative section, the plugin README blurb, and the calling
+  agent's paraphrase stating the old flat rule.
