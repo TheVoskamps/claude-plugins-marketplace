@@ -1,6 +1,7 @@
 # Memory Index
 
 - [Self-approve blocked, use comment](feedback_self-approve-blocked-use-comment.md) — when gh identity == PR author, --approve fails; re-post body with --comment and state verdict inline
+- [Policy arms are deliberate; mechanism lives in a skill](feedback_policy-arms-are-deliberate-mechanism-lives-in-a-skill.md) — Edwin's #224 ruling: extract duplicated cross-plugin behavior into a skill + dependencies edge, never a CLAUDE.md sweep recipe; never file dedup findings against surviving per-consumer policy arms (C ∩ B et al.)
 - [Cross-repo Blocked-on: verify both ends](reference_crossrepo-blocked-on-verify-both-ends.md) — grep the deployed ~/.claude rule AND list claude-config PRs; staged-but-unmerged companion = Medium sequencing note, not High; the session-start rule snapshot can be stale — grep the live file
 - [Fix round patches named files, not the class](reference_fix-round-patches-named-files-not-the-class.md) — a case-arm fix lands only where the finding pointed; enumerate every parser of the shared rule (CLAUDE.md sweep sections) before grading the fix complete
 - [Run documented grep needles](reference_run-documented-grep-needles.md) — a PR that writes a sweep-needle recipe into docs makes a testable claim; run each needle at tip — multi-token needles miss line-wrapped sites
