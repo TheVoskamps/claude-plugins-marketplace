@@ -43,3 +43,4 @@
 - [Re-check main facts every round](reference_recheck-main-facts-every-round.md) — main moves mid-review: same-string version bumps auto-merge silently (collision!), foreign-arch binary vcs.revision goes stale; re-run gh mergeable + git show origin/main:plugin.json each round
 - [Baseline suite totals via git archive](reference_baseline-suite-totals-via-git-archive.md) — extract origin/main payload with git archive into .claude/tmp and run the suite there to verify "+N new assertions" delta claims
 - [Negative-control assertions via hybrid tree](reference_negative-control-assertions-via-hybrid-tree.md) — git archive HEAD + git show <pre-fix-commit>:<file> over one file, run the branch suite; FAIL list must equal the fixer's claimed set
+- [Gate blocks for-loops; zsh eats `echo ====`](reference_gate-blocks-for-loops-and-zsh-eats-eq-echo.md) — run suite sweeps as `;`-chained bare bash calls; quote `=`-leading echo separators
