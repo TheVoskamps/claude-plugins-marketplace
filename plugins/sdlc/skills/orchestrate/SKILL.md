@@ -29,7 +29,8 @@ You have access to these teammate agents:
   a round with none returns without one
 - `pr-reviewer` — reviews a PR diff in a fresh `isolation: worktree`
   worktree, posts a single review carrying a verdict per issue the PR
-  closes plus one overall verdict (the worst of them)
+  closes — plus one per any other issue its findings name — and one
+  overall verdict (the worst of them)
 - `agent-memory-scrubber` — curates the PR's `.claude/agent-memory/`
   in a fresh `isolation: worktree` worktree via the
   `/cc-tools:agent-memory-cleanup` skill, pushes the curated result
@@ -509,12 +510,14 @@ severity counts.
 
 ### Handling review findings — the fix loop
 
-The reviewer reports a verdict per issue the PR closes plus an overall
-verdict, which is the worst of them. **The overall verdict drives the
-loop** — the PR merges as one unit, so one member at NEEDS_CHANGES
-sends the whole PR back. The per-issue verdicts tell you which
-member's criteria each finding is measured against; carry those tags
-into the fixer's brief rather than flattening them.
+The reviewer reports a verdict per issue the PR closes — plus one for
+any other issue its findings name, such as a branch-set member the
+body silently dropped — and an overall verdict, which is the worst of
+them. **The overall verdict drives the loop** — the PR merges as one
+unit, so one member at NEEDS_CHANGES sends the whole PR back. The
+per-issue verdicts tell you which member's criteria each finding is
+measured against; carry those tags into the fixer's brief rather than
+flattening them.
 
 When a pr-reviewer reports back:
 

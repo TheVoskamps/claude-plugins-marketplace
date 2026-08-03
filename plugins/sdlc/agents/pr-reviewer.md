@@ -86,14 +86,23 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      yields `{206, 196, 201}`, and `issue-206-guardrails-gate-sweep`
      yields `{206}`. An `<initials>/` or `<name>/` prefix may sit in
      front, depending on `issue-branch-naming-prefix`. Treat the
-     result as a **set**: the order is the implementation order the
+     result as a **set** `B`: the order is the implementation order the
      developer worked in, and carries no meaning for the review.
    - **The PR body's closing lines give what this PR actually
      delivers.** Collect every issue carrying a closing keyword in the
-     body. This is the set you review against. It may be a *subset* of
-     the branch's set and never a superset — a member can be dropped
-     mid-flight under the developer's drop protocol, and the branch
-     keeps its name.
+     body; call that set `C`. The set you review against is `C ∩ B`.
+     `B` bounds it because a PR may close a *subset* of the branch's
+     set and never a superset — a member can be dropped mid-flight
+     under the developer's drop protocol, and the branch keeps its
+     name.
+   - **A closing line aimed outside `B` is a finding, not a member.**
+     `/github-prs:pr-create` and `/github-prs:pr-link-issue` refuse to
+     write one, but a hand-edited body can carry it, and merging the PR
+     would then auto-close an issue this branch never delivered — the
+     auto-close hazard the closing-keyword rule exists to prevent.
+     Never fold it into the set you review against. Grade it on that
+     consequence per "Findings by Severity" below, and give it its own
+     verdict line per "Per-issue verdicts, one overall".
    - **A branch-set member absent from the body is either a
      sanctioned deferral or a silent under-delivery, and the PR body
      is what tells them apart.** When the body names the member and
@@ -101,7 +110,10 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      already owns: note it as context, not a finding. When a member is
      simply missing with no explanation, that IS a finding — it is the
      exact failure a batch PR invites, and it is an unmet acceptance
-     criterion (graded High per "Findings by Severity" below).
+     criterion (graded High per "Findings by Severity" below). That
+     member gets its own verdict line carrying the finding, per
+     "Per-issue verdicts, one overall" below, even though the diff is
+     not reviewed against it.
 
    `References:` trailers in the PR body link *other* related issues
    (predecessors, follow-ups, umbrella issues, etc.) using the
@@ -116,8 +128,8 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    are required, one per member of the set. The same words as ordinary
    English prose with no adjacent issue reference are fine anywhere
    and must not be flagged.
-3. Read **each member independently** — every issue the PR body
-   closes, which is the set you review against — via the canonical
+3. Read **each member independently** — every issue in `C ∩ B`, the
+   set you review against — via the canonical
    `/issue-view` skill (preloaded via the `skills:` frontmatter above
    and invoked through the `Skill` tool) rather than hand-rolling
    `gh issue view`. Do not rely solely on the orchestrator's
@@ -223,13 +235,15 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    it out in step 4 or this step claims it in this worktree, and a
    subsequent subagent needs it back.
 
-8. Report back a verdict per member of the set — APPROVED,
-   NEEDS_CHANGES, or BLOCKED — plus the overall verdict, plus severity
-   counts (Critical, High, Medium, Low) covering findings only.
+8. Report back every verdict line you posted — APPROVED,
+   NEEDS_CHANGES, or BLOCKED, one per member of the set plus any extra
+   line per "Per-issue verdicts, one overall" below — plus the overall
+   verdict, plus severity counts (Critical, High, Medium, Low)
+   covering findings only.
    Verified passes are reported separately (the "Verified" list, see
    "A finding asserts a defect" below) and are never counted toward
-   severity. For a batch of one, that is one per-issue verdict and an
-   identical overall verdict.
+   severity. For a batch of one whose body closes exactly that issue,
+   that is one per-issue verdict and an identical overall verdict.
 
 ## End-of-run cleanup
 
@@ -406,8 +420,9 @@ delegate.
 
 ## Review Format
 
-- Per-issue verdict, one line per member of the set (see "Per-issue
-  verdicts, one overall" below)
+- Per-issue verdict, one line per member of the set and one per any
+  other issue a finding names (see "Per-issue verdicts, one overall"
+  below)
 - Overall assessment (Approve/Request Changes/Comment)
 - Verified list (confirmations of correctness — see "A finding asserts
   a defect" above), reported separately and never counted toward
@@ -421,8 +436,8 @@ delegate.
 
 ### Per-issue verdicts, one overall
 
-Every member of the set the PR closes gets its own verdict line,
-graded from that member's findings alone:
+Every member of the set you review against — `C ∩ B` from step 2 —
+gets its own verdict line, graded from that member's findings alone:
 
 ```markdown
 ## Verdicts
@@ -433,19 +448,37 @@ graded from that member's findings alone:
 - **Overall — NEEDS_CHANGES**
 ```
 
-The overall verdict is the **worst** of the per-issue verdicts, in the
-order APPROVED < NEEDS_CHANGES < BLOCKED. It is a derivation, not a
-separate judgment: one member at NEEDS_CHANGES makes the whole PR
-NEEDS_CHANGES, because the PR merges as one unit. The overall verdict
-is what `/github-prs:pr-review-submit` receives.
+Any *other* issue this review attaches a finding to gets a line too,
+even though it is outside the set you review against. That is what
+keeps such a finding from vanishing from the overall verdict. These
+are the cases step 2 raises one for:
+
+- **A branch-set member silently missing from the body** — step 2
+  grades that absence High, so the member gets a line reading
+  `- #207 — NEEDS_CHANGES (1 High, not delivered by this PR)`. The
+  diff was never reviewed against it, so that one finding is all the
+  line carries.
+- **A body closing line aimed outside the branch's set** — the rogue
+  issue gets a line reading `- #310 — NEEDS_CHANGES (1 High, closing
+  line outside the branch's set)`, carrying that finding alone.
+
+A sanctioned deferral is not one of them: the body names the member
+and says why it is not in this PR, step 2 raises no finding, and it
+gets no verdict line. Note it as context below the block.
+
+The overall verdict is the **worst** of the verdict lines in the
+block, in the order APPROVED < NEEDS_CHANGES < BLOCKED. It is a
+derivation, not a separate judgment: one line at NEEDS_CHANGES makes
+the whole PR NEEDS_CHANGES, because the PR merges as one unit. The
+overall verdict is what `/github-prs:pr-review-submit` receives.
 
 A finding that spans members — a shared helper both depend on, or the
 single version bump the batch shares — is graded once and tagged to
 every member it affects, so each of their verdicts reflects it.
 
-For a batch of one this collapses to a single verdict line whose value
-equals the overall verdict, which is the single-issue review as it has
-always been.
+For a batch of one whose body closes exactly that issue, this
+collapses to a single verdict line whose value equals the overall
+verdict, which is the single-issue review as it has always been.
 
 ### Findings by Severity
 
@@ -473,16 +506,20 @@ High per the rule above, not Low for "just a comment fix."
 
 ## Verdict follows from findings
 
-Each per-issue verdict is a mechanical consequence of that member's
-findings, not a separate judgment call:
+Each verdict line is a mechanical consequence of the findings tagged
+to the issue it names — a member of the set, or one of the extra
+issues "Per-issue verdicts, one overall" above gives a line to — not a
+separate judgment call:
 
-- Any open Critical, High, or Medium finding tagged to that member →
+- Any open Critical, High, or Medium finding tagged to that issue →
   `request-changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
   is outside the issue's scope and needs human decision).
 - Only Low findings, or no findings at all → `approve`.
 
-The overall verdict is then the worst of the per-issue verdicts, per
-"Per-issue verdicts, one overall" above — also mechanical.
+The overall verdict is then the worst of those lines, per "Per-issue
+verdicts, one overall" above — also mechanical. Every finding must be
+tagged to one of those lines; that is what keeps an open Critical,
+High, or Medium from ever leaving the overall verdict at APPROVED.
 
 This is a hard invariant, not a guideline. "APPROVED (1 High)" is
 malformed by definition — it cannot occur under a correct review. If

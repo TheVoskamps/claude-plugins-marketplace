@@ -77,11 +77,19 @@ and the branch's set bounds *which are allowed*.
    is:
 
    - `C ∩ B` — the caller's selection, restricted to the branch's set.
-   - If `C ∩ B` is empty, or `B` could not be recovered because the
-     head branch doesn't match the convention, fall back: use `B` when
-     it is non-empty (the branch name wins over a caller-supplied
-     number that matches nothing — the single-issue mismatch case),
-     otherwise use `C`.
+   - `C ∩ B` empty and `|B| = 1` — use `B`. The branch name wins over
+     a caller-supplied number that matches nothing: this is the
+     single-issue mismatch case, and a one-member branch set leaves
+     nothing to guess about which issue was meant.
+   - `C ∩ B` empty and `|B| > 1` — **refuse**. Leave the body
+     untouched; report that no caller-supplied number is in the
+     branch's set, naming both sets, and stop. Ensuring the whole of
+     `B` here would append a closing line for every member — undoing
+     any deferral the body currently records, which is what "Own issue
+     set only" above warns against. The caller re-invokes with numbers
+     drawn from `B`.
+   - `B` empty — the head branch doesn't match the convention, so
+     there is no branch set to bound the caller with: use `C`.
 
    Call the result `<issues>`. Note every member of `C` refused for
    being outside `B`.
@@ -116,4 +124,6 @@ and the branch's set bounds *which are allowed*.
 
 4. Report back a single line: which members were already linked and
    which had a `Closes #<issue>` line appended, naming `<PR>`, plus
-   any caller-supplied number refused for being outside `B`.
+   any caller-supplied number refused for being outside `B`. If step 1
+   refused outright, the body is unchanged — report that refusal
+   instead, with both sets.

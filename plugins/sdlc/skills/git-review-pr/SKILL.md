@@ -29,6 +29,6 @@ here; delegate to the agent so the two never drift.
    exactly as it does in the `/sdlc:orchestrate` pipeline.
 
 3. **Relay the agent's verdicts and findings** back to the user: the
-   overall APPROVED / NEEDS_CHANGES / BLOCKED, plus the per-issue
-   verdict for each issue the PR closes (a PR may deliver a batch of
-   several), plus the severity counts (Critical, High, Medium, Low).
+   overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every per-issue
+   verdict it reports (a PR may deliver a batch of several), plus the
+   severity counts (Critical, High, Medium, Low).

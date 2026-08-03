@@ -102,11 +102,19 @@ silently swallowed.
    caller-supplied numbers as `C`. The set this PR closes is:
 
    - `C ∩ B` — the caller's selection, restricted to the branch's set.
-   - If `C ∩ B` is empty, or `B` could not be recovered because
-     `<branch>` doesn't match the convention, fall back: use `B` when
-     it is non-empty (the branch name wins over a caller-supplied
-     number that matches nothing — the single-issue mismatch case),
-     otherwise use `C`.
+   - `C ∩ B` empty and `|B| = 1` — use `B`. The branch name wins over
+     a caller-supplied number that matches nothing: this is the
+     single-issue mismatch case, and a one-member branch set leaves
+     nothing to guess about which issue was meant.
+   - `C ∩ B` empty and `|B| > 1` — **refuse**. Open no PR; report that
+     no caller-supplied number is in the branch's set, naming both
+     sets, and stop. Falling back to the whole of `B` here would write
+     a closing line for every member — including any the caller
+     deliberately dropped, undoing the mid-flight drop that "Own issue
+     set only" above exists to allow. The caller re-invokes with
+     numbers drawn from `B`.
+   - `B` empty — `<branch>` doesn't match the convention, so there is
+     no branch set to bound the caller with: use `C`.
 
    Call the result `<N…>`. Note every member of `C` that was refused
    because it is not in `B`.
@@ -152,4 +160,6 @@ silently swallowed.
 
 3. Report back a single line: the PR URL, the branch, and the issue
    set `<N…>` the PR closes. Note any deferred member of `B`, and any
-   caller-supplied number refused for being outside `B`.
+   caller-supplied number refused for being outside `B`. If step 1
+   refused outright, there is no PR — report that refusal instead,
+   with both sets.
