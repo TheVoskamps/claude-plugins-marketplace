@@ -77,6 +77,15 @@ type cwdCtx struct {
 	cwdInvalid    bool
 	oldCWD        string
 	oldCWDInvalid bool
+	// rc is the resolved git context for the event's cwd (nil when resolution
+	// failed, e.g. not inside a work tree). literalWord threads it into anchor
+	// resolution so an allowlisted command substitution
+	// ($(git rev-parse --show-toplevel), $(git rev-parse --git-common-dir),
+	// $(pwd)) resolves WHEREVER it sits in a word — bare, wrapped in double
+	// quotes, or embedded inline alongside other parts — instead of only as a
+	// whole, unquoted assignment RHS. A nil rc keeps the two git anchors
+	// unresolved (fail-closed); $(pwd) resolves from cwd and needs no rc.
+	rc *repoContext
 }
 
 // classifyBash parses a Bash command to an AST and classifies it. The result
@@ -91,13 +100,26 @@ func classifyBash(command string, ev *Event) Decision {
 	parser := syntax.NewParser(syntax.KeepComments(false))
 	file, err := parser.Parse(strings.NewReader(command), "")
 	if err != nil {
-		// Unparseable command is a §9 fail-closed case. We escalate to a
-		// human (ASK) rather than block outright, because an unparseable
-		// command is often a human-authored one-liner the human can vet.
-		return ask("bash:parse-error", fmt.Sprintf(
-			"Blocked: the Bash command could not be parsed (%v), so the permission "+
-				"gate cannot classify it. Escalating to a human decision (fail-closed). "+
-				"Simplify the command or run its parts separately.", err))
+		// A parse failure is NOT a classification the gate is unsure about — it
+		// is a command bash itself would refuse. The parser runs mvdan/sh's
+		// default LangBash, so bash parity is the design intent; approving here
+		// would run a string bash rejects, and denying reaches that same outcome
+		// one click sooner. It also fires on a PreToolUse event, i.e. on a
+		// command the MODEL authored: a human cannot repair broken syntax by
+		// clicking Yes, so there is no human decision to escalate.
+		//
+		// Accepted risk: if mvdan/sh ever rejects a string bash accepts, this
+		// deny leaves no escape hatch. That is deliberate — a divergence then
+		// surfaces as a loud, fixable bug instead of being absorbed into a
+		// habitual approval click.
+		//
+		// The reason carries the parser's own position and, where the cause is a
+		// recognizable class, names it, so the agent's next attempt is a fix
+		// rather than a retry.
+		return deny("bash:parse-error", fmt.Sprintf(
+			"Blocked: this is not valid shell syntax — the parser failed at %v. %sReal bash rejects the same "+
+				"string, so there is nothing to approve: fix the quoting/escaping and re-run.",
+			err, parseErrorCauseSentence(command, err)))
 	}
 
 	// Forbidden command shapes (ported from the replaced
@@ -178,6 +200,72 @@ func classifyBash(command string, ev *Event) Decision {
 		"harness scratchpad)")
 }
 
+// parseErrorCauseSentence names the syntax defect behind a parser error when it
+// belongs to a recognizable class, as a sentence ready to splice into the
+// parse-error deny (empty string when the class is not recognized, so the
+// message degrades to the parser's bare position).
+//
+// mvdan/sh reports WHERE the parser ran out of input, which for an unterminated
+// construct is the opening delimiter — not the token that broke it. The common
+// real-world case is an unescaped backtick or `$(` inside a double-quoted
+// string: both open a command substitution that swallows the closing quote, and
+// the parser then reports only "reached EOF without closing quote". Naming the
+// swallower is what turns the message into a fix.
+func parseErrorCauseSentence(command string, err error) string {
+	cause := parseErrorCause(command, err)
+	if cause == "" {
+		return ""
+	}
+	return "The cause is " + cause + ". "
+}
+
+// parseErrorCause returns the recognized cause phrase for a parser error, or ""
+// when the error is outside the recognized classes. Split from
+// parseErrorCauseSentence so tests can assert the phrase itself.
+func parseErrorCause(command string, err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "closing quote `\"`"):
+		switch {
+		case containsUnescapedByte(command, '`'):
+			return "an unescaped ` inside a double-quoted string, which opens a command substitution and " +
+				"swallows the closing quote — escape it as \\` or switch the surrounding string to single quotes"
+		case strings.Contains(command, "$("):
+			return "an unbalanced $( inside a double-quoted string, which swallows the closing quote — " +
+				"close the substitution, or escape the $ as \\$"
+		}
+		return "an unbalanced double quote"
+	case strings.Contains(msg, "closing quote `'`"):
+		return "an unbalanced single quote"
+	case strings.Contains(msg, "matching `$(` with `)`"):
+		return "an unclosed $( … ) command substitution"
+	case strings.Contains(msg, "matching `${` with `}`"):
+		return "an unclosed ${ … } parameter expansion"
+	case strings.Contains(msg, "matching `(` with `)`"):
+		return "an unbalanced parenthesis"
+	case strings.Contains(msg, "matching `{` with `}`"):
+		return "an unbalanced brace"
+	}
+	return ""
+}
+
+// containsUnescapedByte reports whether s contains c not preceded by a
+// backslash. Deliberately a cheap scan rather than a re-lex: it feeds a
+// diagnostic hint, never a verdict, so a false positive costs one imprecise
+// sentence in a message that already carries the parser's own position.
+func containsUnescapedByte(s string, c byte) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != c {
+			continue
+		}
+		if i > 0 && s[i-1] == '\\' {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // simpleCommand is a flattened view of one executed command: the program
 // name plus its arguments, with leading `env VAR=x` wrappers and assignment
 // prefixes stripped. Path-bearing arguments are kept verbatim for Engine B.
@@ -190,6 +278,19 @@ type simpleCommand struct {
 	// substitution or an unresolved parameter expansion. Such a command
 	// cannot be statically proven safe, so it must not ALLOW.
 	hasUnknownExpansion bool
+	// argMeta is parallel to args, one entry per token. hasUnknownExpansion
+	// answers "was anything dynamic?"; this answers "WHICH token was, and where
+	// inside it", which is what lets the credentialed-tool precondition ask
+	// whether the dynamic token could occupy a classification-bearing position
+	// (the noun, the verb, the endpoint, a value-taking global) rather than
+	// denying every command that carries one anywhere. A redirect word's
+	// dynamism sets hasUnknownExpansion but occupies no argv slot, so the two
+	// are deliberately not redundant.
+	//
+	// It is empty on a hand-built simpleCommand (tests, the synthetic
+	// redirect-only command); every reader checks the length against args and
+	// falls back to hasUnknownExpansion, so an absent slice is fail-closed.
+	argMeta []argMeta
 	// hasRedirectToFile is true when the command redirects stdout/stderr to a
 	// real file (not /dev/null). Such a command can exfiltrate/clobber and
 	// must not ride an allow-listed prefix.
@@ -258,6 +359,56 @@ type simpleCommand struct {
 	oldCWDInvalid bool
 }
 
+// argMeta carries the per-argument facts about ONE argv token that the
+// whole-command hasUnknownExpansion bool cannot express.
+type argMeta struct {
+	// exact reports whether the token expanded to a static literal.
+	exact bool
+	// staticPrefix is the literal text contributed by the word's LEADING fully
+	// static parts, up to the first part the gate cannot pin. For `itemId=$ID`
+	// it is "itemId="; for `"$X"itemId=` it is "" — the dynamic part comes
+	// first, so nothing about that token is statically pinned.
+	//
+	// It exists so the precondition can tell a dynamic FIELD VALUE from a
+	// dynamic FIELD NAME. `gh api graphql -F itemId=$ID` is harmless: the key is
+	// literal, and the value can never become a subcommand or a second query
+	// document. `-F "$K"=v` is not: at run time $K could be `query`, which for
+	// `gh api graphql` IS the document the gate classifies. An inexact word's
+	// unresolvable parts expand to "", so any character present in the expansion
+	// came from a part the gate DID pin — but only a leading run of pinned parts
+	// proves the KEY specifically is pinned, which is what this records.
+	staticPrefix string
+}
+
+// staticWordPrefix returns the literal text of a word's leading fully-static
+// parts, stopping at the first part the gate cannot pin (see
+// argMeta.staticPrefix). A fully static word yields its whole literal text.
+func staticWordPrefix(w *syntax.Word) string {
+	var b strings.Builder
+	if w == nil {
+		return ""
+	}
+	for _, part := range w.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			b.WriteString(p.Value)
+		case *syntax.SglQuoted:
+			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			for _, dp := range p.Parts {
+				lit, ok := dp.(*syntax.Lit)
+				if !ok {
+					return b.String()
+				}
+				b.WriteString(lit.Value)
+			}
+		default:
+			return b.String()
+		}
+	}
+	return b.String()
+}
+
 // allowEligible reports whether a command is eligible for the high-confidence
 // ALLOW track. A command with a real-file redirect (exfiltration/clobber risk)
 // or an unresolved expansion / command substitution (which cannot be proven
@@ -321,6 +472,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	runningOldCWD := ""
 	runningOldCWDInvalid := true
 
+	// curCC snapshots everything literalWord resolves a word against at the
+	// point of the call: the tracked cwd pair ($PWD/$OLDPWD) plus the resolved
+	// git context the anchor allowlist needs. One constructor rather than five
+	// repeated struct literals, so a future field cannot be threaded into some
+	// call sites and forgotten at others.
+	curCC := func() cwdCtx {
+		return cwdCtx{
+			cwd: runningCWD, cwdInvalid: runningCWDInvalid,
+			oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid,
+			rc: rc,
+		}
+	}
+
 	// knownVars accumulates variables assigned to a STATIC literal value
 	// earlier in the same parsed program, in walk order (which is
 	// left-to-right / top-to-bottom for &&/||/;/newline-separated
@@ -352,6 +516,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
 	var walkDeclClause func(c *syntax.DeclClause)
 	var descendCmdSubsts func(w *syntax.Word)
+	var descendProcSubsts func(w *syntax.Word)
 	var recordAssign func(a *syntax.Assign)
 	var applyCd func(call *syntax.CallExpr)
 
@@ -388,24 +553,15 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		}
 		// The RHS of an assignment is resolved with the SAME cwdCtx/resolver
 		// as any other word — a static `P=$PWD/sub` should resolve $PWD from
-		// the running cwd just like a direct use would.
-		cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+		// the running cwd just like a direct use would, and an allowlisted
+		// anchor substitution ($(git rev-parse --show-toplevel), …) resolves
+		// here because literalWord resolves it in EVERY word position, not
+		// because this call site checks for one. That is why there is no
+		// anchor-specific fallback below: `R=$(git rev-parse --show-toplevel)`,
+		// `R="$(…)"` and `R=$(…)/sub` all come back exact already.
+		cc := curCC()
 		val, exact := literalWord(a.Value, knownVars, resolver, cc)
 		if !exact {
-			// Before giving up on a dynamic RHS, check whether it is
-			// EXACTLY one of the allowlisted anchor command substitutions
-			// ($(git rev-parse --show-toplevel), $(git rev-parse
-			// --git-common-dir), $(pwd)/`pwd`). Those substitutions' output is
-			// a known, resolvable filesystem location, so recording it lets a
-			// later use of the variable run through normal containment
-			// instead of failing closed. Anything else (a compound
-			// substitution, a non-allowlisted command, a substitution
-			// embedded alongside other word parts) is NOT an anchor and falls
-			// through to the existing drop-and-delete behavior.
-			if anchor, ok := resolveAnchorCmdSubst(a.Value, rc, runningCWD, runningCWDInvalid); ok {
-				knownVars[name] = anchor
-				return
-			}
 			// RHS is dynamic (e.g. `D=$(date)`, or built from an
 			// unresolved variable). The variable is no longer statically
 			// known — drop any stale value so a later use stays fail-closed.
@@ -448,7 +604,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		if len(call.Args) == 0 {
 			return
 		}
-		cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+		cc := curCC()
 		prog, _ := literalWord(call.Args[0], knownVars, resolver, cc)
 		if basename(prog) != "cd" {
 			return
@@ -538,6 +694,32 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		}
 	}
 
+	// descendProcSubsts classifies the command inside every process
+	// substitution of a word, by walking its statements as ordinary commands.
+	//
+	// It is what makes the `<(cmd)` word's exactness safe: the word itself no
+	// longer marks the enclosing command unprovable (a /dev/fd pipe is not a
+	// path — see procSubstFD), so the substituted command has to be judged on
+	// its own terms instead of riding the enclosing command's verdict. Both
+	// operators are descended into: `>(cmd)` really does run cmd too, and
+	// classifying it can only add a deny/ask, never an allow.
+	//
+	// The inner statements inherit NO redirects, for the same reason
+	// descendCmdSubsts passes none: the substitution is set up during word
+	// expansion, before the enclosing command's own redirections are applied.
+	descendProcSubsts = func(w *syntax.Word) {
+		if w == nil {
+			return
+		}
+		for _, part := range w.Parts {
+			if ps, ok := part.(*syntax.ProcSubst); ok {
+				for _, s := range ps.Stmts {
+					walkStmt(s, nil)
+				}
+			}
+		}
+	}
+
 	// walkDeclClause walks every assignment of a declaration clause
 	// (export/local/declare/readonly/typeset). It contributes no program for
 	// the declaration itself (a literal/param-expansion RHS mutates only shell
@@ -590,7 +772,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// is walked, BEFORE applying this call's own `cd` side
 			// effect (a `cd`'s own arguments, if any, are resolved against the
 			// PRIOR cwd, not the directory it is about to change into).
-			cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+			cc := curCC()
 			sc, err := reduceCallExpr(c, redirs, knownVars, resolver, cc)
 			if err != nil {
 				walkErr = err
@@ -604,6 +786,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// no args; skip it (it mutates only shell state).
 			if len(sc.args) > 0 {
 				out = append(out, sc)
+			}
+			// Classify the command inside every process substitution on its own
+			// terms. This command's own verdict no longer stands in for them.
+			for _, w := range c.Args {
+				descendProcSubsts(w)
 			}
 			// Apply this call's `cd` side effect (if any) so LATER commands in
 			// the walk see the updated cwd.
@@ -662,7 +849,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// variable NOT bound, so "$x" stays inexact and fails closed as
 			// before.
 			if wi, ok := c.Loop.(*syntax.WordIter); ok && wi.InPos.IsValid() && wi.Name != nil {
-				cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+				cc := curCC()
 				items, allStatic := staticForItems(wi, knownVars, runningCWDInvalid, resolver, cc)
 				if allStatic && len(items) <= maxForFanOut {
 					loopVar := wi.Name.Value
@@ -792,7 +979,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		// inherited, the enclosing statement that wrote them runs this same
 		// check and covers the whole construct in one go.
 		if walkErr == nil && len(stmt.Redirs) > 0 && len(out) == emitted {
-			cc := cwdCtx{cwd: runningCWD, cwdInvalid: runningCWDInvalid, oldCWD: runningOldCWD, oldCWDInvalid: runningOldCWDInvalid}
+			cc := curCC()
 			sc := simpleCommand{}
 			applyRedirs(&sc, redirs, knownVars, resolver, cc)
 			// Nothing gradeable (every target was /dev/null and statically
@@ -852,6 +1039,7 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 			sc.hasUnknownExpansion = true
 		}
 		sc.args = append(sc.args, lit)
+		sc.argMeta = append(sc.argMeta, argMeta{exact: exact, staticPrefix: staticWordPrefix(w)})
 	}
 
 	// Strip leading `env` wrapper and its VAR=val args (§10). Repeat in case
@@ -860,7 +1048,11 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 	// stripEnvWrapper reports whether it removed any assignment so the inline
 	// flag is set for that form too.
 	var strippedAssign bool
+	before := len(sc.args)
 	sc.args, strippedAssign = stripEnvWrapper(sc.args)
+	// stripEnvWrapper only ever removes LEADING tokens, so dropping the same
+	// count off the front keeps argMeta aligned with args.
+	sc.argMeta = sc.argMeta[before-len(sc.args):]
 	if strippedAssign {
 		sc.hasInlineAssignment = true
 	}
@@ -1151,22 +1343,24 @@ var anchorCommands = []anchorCommand{
 	},
 }
 
-// resolveAnchorCmdSubst reports whether word is EXACTLY a single command
-// substitution matching one of anchorCommands, and if so, its resolved value.
-// "Exactly" means: the word has one part, that part is a *CmdSubst,
-// its substituted program is a SINGLE statement (no `;`/`&&`/pipeline inside
-// the substitution), and that statement is a plain CallExpr with no
-// assignments/redirects whose argv matches an anchor form precisely. Any
-// other shape (a word with additional literal/expansion parts around the
-// substitution, a compound substitution, a non-allowlisted command) is not
-// recognized and returns ok=false, so the caller falls back to its existing
-// fail-closed behavior.
-func resolveAnchorCmdSubst(word *syntax.Word, rc *repoContext, runningCWD string, runningCWDInvalid bool) (string, bool) {
-	if word == nil || len(word.Parts) != 1 {
-		return "", false
-	}
-	cs, ok := word.Parts[0].(*syntax.CmdSubst)
-	if !ok || len(cs.Stmts) != 1 {
+// resolveAnchorCmdSubst reports whether a single command substitution matches
+// one of anchorCommands, and if so, its resolved value. "Matches" means: the
+// substituted program is a SINGLE statement (no `;`/`&&`/pipeline inside the
+// substitution), and that statement is a plain CallExpr with no
+// assignments/redirects whose argv equals an anchor form precisely. Any other
+// shape (a compound substitution, a non-allowlisted command) is not recognized
+// and returns ok=false, so the caller keeps its fail-closed behavior.
+//
+// It grades the SUBSTITUTION, not the word around it. That is what lets
+// literalWord consult it per word-part, so an anchor resolves wherever it sits
+// — bare (`$(git rev-parse --show-toplevel)`), wrapped in double quotes
+// (`"$(…)"`, the spelling every style guide asks for because it survives a
+// space in the path), embedded inline in a larger word (`"$(…)/.claude"`), or
+// as a `cd` target. Recognizing more PLACES never widens what an anchor
+// authorizes: the resolved value still runs through normal containment and the
+// .git/ deny, exactly as when only a bare assignment RHS was recognized.
+func resolveAnchorCmdSubst(cs *syntax.CmdSubst, rc *repoContext, runningCWD string, runningCWDInvalid bool) (string, bool) {
+	if cs == nil || len(cs.Stmts) != 1 {
 		return "", false
 	}
 	stmt := cs.Stmts[0]
@@ -1195,6 +1389,29 @@ func resolveAnchorCmdSubst(word *syntax.Word, rc *repoContext, runningCWD string
 	}
 	return "", false
 }
+
+// anchorValue is resolveAnchorCmdSubst spelled against the cwdCtx literalWord
+// already carries, so its per-word-part call sites read as one lookup.
+func anchorValue(cs *syntax.CmdSubst, cc cwdCtx) (string, bool) {
+	return resolveAnchorCmdSubst(cs, cc.rc, cc.cwd, cc.cwdInvalid)
+}
+
+// procSubstFD is the literal an INPUT process substitution (`<(cmd)`) reduces
+// to. Bash replaces it with a `/dev/fd/N` pipe — never a filesystem path — so
+// grading it as a path operand is a category error: the read tracks used to
+// report `comm -3 <(…) <(…)` as "a path argument built from an expansion the
+// gate cannot resolve statically" when there was no path to resolve at all.
+//
+// The two operand-containment walks (containPathOperands, containWriteOperands)
+// skip this token, which is the single choke point every per-program operand
+// grammar funnels through, so no grammar needs its own process-substitution
+// case. The token is deliberately not a syntactically valid path (it carries
+// `<` and `>`), so a command spelling it literally loses nothing by skipping
+// containment on it.
+//
+// An OUTPUT process substitution (`>(cmd)`) keeps its conservative handling: it
+// stays inexact, so its command can never ride the allow track.
+const procSubstFD = "/dev/fd/<process-substitution>"
 
 // literalWord returns the static literal value of a word and whether it is
 // EXACT (no command substitution, no unresolved parameter expansion). A word
@@ -1225,6 +1442,19 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 			if !isResolvableParamExp(p, knownVars, resolver, cc) {
 				exact = false
 			}
+		case *syntax.CmdSubst:
+			// An allowlisted anchor substitution resolves to a known filesystem
+			// location, so the word stays exact and flows into normal
+			// containment. Every other substitution is inexact as before.
+			if _, ok := anchorValue(p, cc); !ok {
+				exact = false
+			}
+		case *syntax.ProcSubst:
+			// `<(cmd)` is a /dev/fd pipe, not a path — exact by construction (see
+			// procSubstFD). `>(cmd)` keeps the conservative inexact handling.
+			if p.Op != syntax.CmdIn {
+				exact = false
+			}
 		case *syntax.DblQuoted:
 			for _, dp := range p.Parts {
 				switch dq := dp.(type) {
@@ -1233,12 +1463,20 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 					if !isResolvableParamExp(dq, knownVars, resolver, cc) {
 						exact = false
 					}
+				case *syntax.CmdSubst:
+					// The quoted spelling of an anchor — `"$(git rev-parse
+					// --show-toplevel)"`, alone or inline in a larger word — is
+					// the one every style guide asks for, and it used to be the
+					// one that failed.
+					if _, ok := anchorValue(dq, cc); !ok {
+						exact = false
+					}
 				default:
 					exact = false
 				}
 			}
 		default:
-			// CmdSubst, ArithmExp, ProcSubst, ExtGlob, etc.
+			// ArithmExp, ExtGlob, etc.
 			exact = false
 		}
 	}
@@ -1254,16 +1492,30 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 			v, _ := resolveVar(name, knownVars, resolver, cc)
 			return v
 		}),
-		// No command substitution: leave the literal as-is and mark inexact.
-		CmdSubst: func(io.Writer, *syntax.CmdSubst) error { return nil },
+		// Command substitution: an allowlisted anchor substitutes its resolved
+		// filesystem location (the fast-path loop above kept the word exact for
+		// exactly these); every other one substitutes nothing and the word is
+		// already marked inexact.
+		CmdSubst: func(w io.Writer, cs *syntax.CmdSubst) error {
+			if v, ok := anchorValue(cs, cc); ok {
+				_, err := io.WriteString(w, v)
+				return err
+			}
+			return nil
+		},
 		// Process substitution (`<(cmd)` / `>(cmd)`): expand.Literal calls
 		// cfg.ProcSubst unconditionally when it hits a *syntax.ProcSubst part,
-		// so leaving this nil panics with a nil-pointer deref. The inner
-		// command of a process substitution is not statically resolvable, so we
-		// expand it to an empty string and rely on the fast-path loop above
-		// having already marked the word inexact (ProcSubst hits the default
-		// case there) — the command can never ride the allow track.
-		ProcSubst: func(*syntax.ProcSubst) (string, error) { return "", nil },
+		// so leaving this nil panics with a nil-pointer deref. An INPUT
+		// substitution stands in as procSubstFD — the /dev/fd pipe bash actually
+		// passes, which the operand walks skip rather than test as a path. An
+		// OUTPUT substitution expands to nothing and stays inexact, so the
+		// command can never ride the allow track.
+		ProcSubst: func(ps *syntax.ProcSubst) (string, error) {
+			if ps.Op == syntax.CmdIn {
+				return procSubstFD, nil
+			}
+			return "", nil
+		},
 	}
 	lit, err := expand.Literal(cfg, w)
 	if err != nil {

@@ -279,7 +279,14 @@ func TestTopLevelVarResolvesInsideScope_60(t *testing.T) {
 
 // TestProcSubstInScopeStillSafe_60 guards that the process-substitution
 // crash-safety is not regressed by the scope-tracking change: a `<(…)` inside a
-// subshell must still classify (inexact → escalate) rather than panic.
+// subshell must classify rather than panic.
+//
+// The expected VERDICT changed with the process-substitution grading: an input
+// `<(…)` is a /dev/fd pipe, never a path, so it no longer marks the enclosing
+// command unprovable, and the substituted commands are classified on their own
+// terms. With `echo` on both sides everything is allow-classified, so the line
+// allows. The crash-safety guarantee this test was written for — "classifies
+// instead of panicking" — is unchanged and still what the call exercises.
 func TestProcSubstInScopeStillSafe_60(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -287,14 +294,9 @@ func TestProcSubstInScopeStillSafe_60(t *testing.T) {
 	cwd := canonicalize(repo)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
 
-	// Must not panic, and a process substitution is inexact so it must never ride
-	// the ALLOW track (it defers to the normal pipeline, matching the fast
-	// path). The crash-safety guarantee is "classifies instead of panicking".
 	cmd := `( diff <(echo a) <(echo b) )`
 	d := classifyBash(cmd, ev)
-	if d.Bucket == BucketAllow {
-		t.Errorf("#5 process substitution inside a subshell must not ALLOW; got %q", d.Bucket)
-	}
+	wantBucket(t, d, BucketAllow, "#5/#225 process substitution inside a subshell classifies without panicking")
 }
 
 // A `for x in <words>; do …; done` whose header is a fully static item

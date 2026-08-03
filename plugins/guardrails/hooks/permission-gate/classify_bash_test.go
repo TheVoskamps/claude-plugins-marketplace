@@ -273,7 +273,7 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 	// aggregate classifyBash reason masks the per-command label).
 	mk := func(prog string, rest ...string) (simpleCommand, Decision) {
 		sc := simpleCommand{args: append([]string{prog}, rest...)}
-		return sc, classifyAws(sc.args[1:], sc)
+		return sc, classifyAws(sc.args[1:], sc, &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: "/tmp"})
 	}
 	// A read-only op gets the read-only label (token-anchored list-/describe-/
 	// get- prefix) and ALLOWs. Check the ALLOW-branch's exact label ("is a

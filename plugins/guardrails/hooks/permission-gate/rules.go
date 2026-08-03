@@ -125,6 +125,18 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 					"'gh auth login' targeting a specific host can switch the active identity. "+
 						"Confirm this is intended and not an unprompted identity switch.")
 			}
+		case "status":
+			// A pure read: it prints which account is active and what scopes the
+			// token carries, and prints no credential. Recognized HERE rather
+			// than by adding `auth` to isGhReadOnly's knownNouns, which would be
+			// unsafe: `readVerbs` already contains `get`, and `gh auth token`
+			// prints the live credential and must keep escalating. Handling
+			// `auth` only in this dedicated switch keeps every
+			// credential-printing verb on the fail-closed track by construction.
+			if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+				return d
+			}
+			return allow("gh auth status reports the active account and scopes without printing a credential")
 		}
 	}
 
@@ -136,7 +148,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// GET-gate. sc is threaded through so the redirect-to-file ASK carve-out the
 	// other gh paths get also applies to an otherwise-allowed gh api form.
 	if cmd[0] == "api" {
-		return classifyGhAPI(args, sc)
+		return classifyGhAPI(args, sc, ev)
 	}
 
 	// DENY tier: irreparable / boundary-weakening gh operations.
@@ -177,9 +189,8 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// the exfil channel — that is consummated only by a WRITE to an
 	// attacker-readable place, which the enumerated-write scoping below covers.
 	if isGhReadOnly(cmd) {
-		if sc.hasRedirectToFile {
-			return ask("gh redirect-to-file",
-				"'gh' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+		if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+			return d
 		}
 		return allow(fmt.Sprintf("gh %s is a read-only subcommand", strings.Join(cmd, " ")))
 	}
@@ -193,9 +204,8 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// uses only enumerated verbs, so the prompt cost is ~zero, and a gh-version
 	// -drift miss now costs one click instead of a silent auto-allow.
 	if isGhRecoverableWrite(cmd) {
-		if sc.hasRedirectToFile {
-			return ask("gh redirect-to-file",
-				"'gh' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+		if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+			return d
 		}
 		// Foreign-target write scoping: an otherwise-ALLOWed gh write whose
 		// explicit target (`-R`/`--repo`, in either the leading-global or the
@@ -450,16 +460,6 @@ func classifyghAPIDeny(reason string) Decision {
 	return deny("gh api deny (#64/#113)", reason)
 }
 
-// ghAPIGraphQLRedirectAsk is the redirect-to-file carve-out shared by both
-// `gh api graphql` ALLOW paths — the provably query-only document and
-// the allow-listed-mutations document. Redirecting an allowed graphql
-// call's stdout/stderr into a real file turns a sanctioned read or metadata
-// write into an exfil channel, so it escalates to a human either way.
-func ghAPIGraphQLRedirectAsk() Decision {
-	return ask("gh api graphql redirect-to-file",
-		"'gh api graphql' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
-}
-
 // classifyGhAPI gates `gh api` (bypass gate 1). It walks the argv after
 // `api`, applies the --hostname DENY and the write ASK tiers first, then
 // branches on the endpoint:
@@ -493,7 +493,7 @@ func ghAPIGraphQLRedirectAsk() Decision {
 // args is the full gh argv (after the program), i.e. it still contains the
 // leading `api` token and gh's globals. sc is threaded through only for the
 // redirect-to-file ASK carve-out on an otherwise-allowed form.
-func classifyGhAPI(args []string, sc simpleCommand) Decision {
+func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 	// Walk the tokens after `api`. Track method, body-bearing flags, graphql,
 	// the endpoint positional, and whether the graphql query (if any) was
 	// supplied via a body flag that is NOT a literal string field. hostname
@@ -651,8 +651,8 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 		}
 		res := scanGraphQLDoc(doc)
 		if res.queryOnly {
-			if sc.hasRedirectToFile {
-				return ghAPIGraphQLRedirectAsk()
+			if d, hit := credentialedRedirectAsk("gh api graphql", sc, ev); hit {
+				return d
 			}
 			return allow("gh api graphql is a provably query-only (read) document")
 		}
@@ -669,8 +669,8 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 			// addSubIssue on Mutation { deleteIssue(…) }`). Both signals only ever
 			// withhold the ALLOW: the document falls through to the ASK below.
 			if !res.sawSubscription && !res.sawFragment && allGraphQLMutationFieldsAllowed(res.mutationFields) {
-				if sc.hasRedirectToFile {
-					return ghAPIGraphQLRedirectAsk()
+				if d, hit := credentialedRedirectAsk("gh api graphql", sc, ev); hit {
+					return d
 				}
 				return allow("gh api graphql carries only allow-listed issue-metadata mutations (" +
 					strings.Join(res.mutationFields, ", ") + ")")
@@ -689,9 +689,10 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 
 	// --- REST endpoint (Design B): path-prefix GET-gate. ---
 	rest := classifyGhAPIREST(endpoint, args)
-	if rest.Bucket == BucketAllow && sc.hasRedirectToFile {
-		return ask("gh api redirect-to-file",
-			"'gh api' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+	if rest.Bucket == BucketAllow {
+		if d, hit := credentialedRedirectAsk("gh api", sc, ev); hit {
+			return d
+		}
 	}
 	return rest
 }
@@ -761,7 +762,7 @@ func isGhReadOnly(cmd []string) bool {
 //     explicit read-only whitelist).
 //
 // Classification is on the parsed operation TOKEN, never a substring match (§4).
-func classifyAws(args []string, sc simpleCommand) Decision {
+func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	// Precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("aws", sc); hit {
 		return d
@@ -813,11 +814,12 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 		return allow("aws configure get <non-secret-key> reads local config only")
 	}
 
-	// A real-file redirect is the residual exfil concern that ASKs (cannot
-	// defer per the never-defer decision).
-	if sc.hasRedirectToFile {
-		return ask("aws redirect-to-file",
-			"'aws' with stdout redirected to a real file can exfiltrate. Confirm the target is intended.")
+	// A real-file redirect is GRADED, not vetoed: see credentialedRedirectAsk
+	// for why an in-worktree destination is the same write the in-repo-write
+	// track already allows through argv, and an escaping or unpinnable one
+	// still ASKs.
+	if d, hit := credentialedRedirectAsk("aws", sc, ev); hit {
+		return d
 	}
 
 	if awsReadOnlyOp(op) {

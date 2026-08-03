@@ -49,7 +49,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	case "gh":
 		return classifyGh(args, sc, ev)
 	case "aws":
-		return classifyAws(args, sc)
+		return classifyAws(args, sc, ev)
 	case "acli":
 		return classifyAcli(args, sc)
 	case "less", "more", "od", "xxd", "hexdump":
@@ -148,17 +148,28 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 }
 
 // preconditionDeny applies the precondition shared by the git/gh/aws
-// classifiers BEFORE any per-command logic: every word of the command must be a
-// static literal (no command substitution / unresolved parameter expansion /
-// glob), and there must be no inline environment-assignment prefix. Either
-// shape can reach a dangerous outcome without the flags the policy keys on
-// (`AWS_ENDPOINT_URL=… aws …` redirects egress; `git $OP` hides the
+// classifiers BEFORE any per-command logic: no inline environment-assignment
+// prefix, and no dynamic token in a CLASSIFICATION-BEARING argv position.
+// Either shape can reach a dangerous outcome without the flags the policy keys
+// on (`AWS_ENDPOINT_URL=… aws …` redirects egress; `git $OP` hides the
 // subcommand), so a hit DENYs rather than allowing. Returns the deny Decision
 // and true on a hit; the zero Decision and false otherwise.
 //
 // Per the resolved design decisions, these classifiers never defer:
 // callers must convert this into a concrete DENY here rather than handing a
 // non-static command back to the pipeline.
+//
+// The argv half used to fire on the whole-command hasUnknownExpansion bool, so
+// ANY dynamic token anywhere denied. Its rationale — a dynamic token can hide a
+// dangerous operation — holds only for a token that could occupy a position the
+// classifiers read: the noun, the verb, the endpoint, or a value-taking global
+// like `-R`. It does not hold for a token the parser has already established is
+// the VALUE of a field/output flag, which can never become a subcommand. The
+// practical cost of the un-scoped form was that the ordinary GraphQL chain
+// (capture a node ID, feed it to the next mutation) could not be scripted at
+// all, and there is no escape hatch from a deny — which pushed the issues
+// plugin's skills into pasting opaque node IDs as literals, strictly harder for
+// a human to review than the variable-carrying form.
 func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
 	if sc.hasInlineAssignment {
 		return deny(tool+" inline-env-assignment (#64)",
@@ -167,14 +178,143 @@ func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
 				"swap identity, or inject a pager without touching the command's arguments. "+
 				"Remove the inline assignment; if the variable is genuinely needed, surface it to the human."), true
 	}
-	if sc.hasUnknownExpansion {
+	if tok, hit := unshieldedDynamicArg(tool, sc); hit {
+		where := "its arguments are not all static literals"
+		if tok != "" {
+			where = "the token '" + tok + "' is not a static literal"
+		}
 		return deny(tool+" non-static-argv (#64)",
-			"Blocked: a '"+tool+"' command whose arguments are not all static literals "+
-				"(a command substitution, unresolved variable, or glob) cannot be statically classified and "+
-				"could reach a dangerous operation through the dynamic token. Run the command with literal "+
-				"arguments instead, so the gate can classify it."), true
+			"Blocked: a '"+tool+"' command where "+where+" (a command substitution, unresolved variable, or "+
+				"glob) in a position the gate classifies on — the subcommand, the endpoint, or a value-taking "+
+				"global — cannot be statically classified, and could reach a dangerous operation through the "+
+				"dynamic token. Spell that token literally so the gate can classify it. A dynamic value of a "+
+				"field or output flag (e.g. 'gh api graphql -F itemId=$ID') is NOT blocked."), true
 	}
 	return Decision{}, false
+}
+
+// unshieldedDynamicArg returns the first argv token that is dynamic AND sits
+// where it could still change how the command classifies. It returns
+// ("", false) when every dynamic token is shielded, and ("", true) when the
+// per-argument metadata is absent (a hand-built simpleCommand) but the command
+// carries a dynamic token — the fail-closed fallback to the old whole-command
+// behavior.
+//
+// A token is shielded only by being the established VALUE of a flag on the
+// tool's shield table. Shielding is an ALLOWLIST, not a denylist: an
+// unrecognized flag shields nothing, so a gate that has not modelled a flag
+// keeps its old deny rather than waving a token through.
+func unshieldedDynamicArg(tool string, sc simpleCommand) (string, bool) {
+	if len(sc.argMeta) != len(sc.args) {
+		return "", sc.hasUnknownExpansion
+	}
+	for i := 1; i < len(sc.args); i++ {
+		a, m := sc.args[i], sc.argMeta[i]
+		if m.exact {
+			// A static flag can shield the separate value token after it.
+			if i+1 < len(sc.args) && shieldsNextToken(tool, a) &&
+				valueTokenShieldable(tool, a, sc.argMeta[i+1]) {
+				i++
+			}
+			continue
+		}
+		// The glued spelling (`-FitemId=$ID`, `--field=itemId=$ID`, `--jq=$Q`)
+		// carries flag and value in ONE token.
+		if gluedValueShieldable(tool, a, m) {
+			continue
+		}
+		return a, true
+	}
+	return "", false
+}
+
+// ghShieldingFlags are the gh flags whose VALUE cannot occupy a
+// classification-bearing position: request fields (`-f`/`-F`), output shaping
+// (`--jq`/`--template`), and free-text content (`--body`/`--title`). Every other
+// gh flag — notably `-R`/`--repo` (the foreign-target write scoping reads it),
+// `-X`/`--method` and `-H`/`--header` (the REST write tiers read them), and
+// `--hostname` (an outright deny) — is deliberately absent, so a dynamic value
+// there keeps denying.
+//
+// git and aws have no entry at all. Their argv is classification-bearing almost
+// end to end (`git $OP`, `git -c $KV`, `aws $SVC $OP`), and neither showed a
+// flag-value case worth modelling, so both keep the whole-argv posture.
+var ghShieldingFlags = map[string]bool{
+	"-f": true, "--raw-field": true,
+	"-F": true, "--field": true,
+	"-q": true, "--jq": true,
+	"-t": true, "--template": true,
+	"-b": true, "--body": true,
+	"--title": true,
+}
+
+// ghFieldFlags are the gh flags whose value is a `key=value` request field. The
+// KEY of such a value must be statically pinned and must not be `query`: for
+// `gh api graphql` the `query` field IS the document the gate classifies, so a
+// key the gate cannot pin could introduce a second one at run time.
+var ghFieldFlags = map[string]bool{
+	"-f": true, "--raw-field": true,
+	"-F": true, "--field": true,
+}
+
+// shieldsNextToken reports whether flag token a consumes a FOLLOWING value
+// token whose dynamism cannot affect classification.
+func shieldsNextToken(tool, a string) bool {
+	return tool == "gh" && ghShieldingFlags[a]
+}
+
+// valueTokenShieldable reports whether the value token following flag a may be
+// left dynamic. For a `key=value` field flag the key must be statically pinned
+// (its staticPrefix reaches past the `=`) and must not be `query`.
+func valueTokenShieldable(tool, a string, value argMeta) bool {
+	if tool != "gh" {
+		return false
+	}
+	if !ghFieldFlags[a] {
+		return true // an output/content flag: no key, nothing to pin
+	}
+	return fieldKeyPinned(value.staticPrefix)
+}
+
+// gluedValueShieldable reports whether a single dynamic token that carries both
+// a gh flag and its value (`-FitemId=$ID`, `--field=itemId=$ID`, `--jq=$Q`) is
+// shielded. The flag name must be present in the token's STATIC prefix, so a
+// token whose leading part is itself dynamic is never shielded.
+func gluedValueShieldable(tool, a string, m argMeta) bool {
+	if tool != "gh" {
+		return false
+	}
+	for _, long := range []string{"--raw-field=", "--field=", "--jq=", "--template=", "--body=", "--title="} {
+		if !strings.HasPrefix(a, long) || !strings.HasPrefix(m.staticPrefix, long) {
+			continue
+		}
+		if long == "--raw-field=" || long == "--field=" {
+			return fieldKeyPinned(strings.TrimPrefix(m.staticPrefix, long))
+		}
+		return true
+	}
+	if len(a) <= 2 || a[0] != '-' || a[1] == '-' || len(m.staticPrefix) <= 2 {
+		return false
+	}
+	short := a[:2]
+	if short != m.staticPrefix[:2] || !ghShieldingFlags[short] {
+		return false
+	}
+	if ghFieldFlags[short] {
+		return fieldKeyPinned(m.staticPrefix[2:])
+	}
+	return true
+}
+
+// fieldKeyPinned reports whether a field value's static prefix pins the KEY: it
+// must reach past the `=`, name a non-empty key, and that key must not be
+// `query`.
+func fieldKeyPinned(staticPrefix string) bool {
+	eq := strings.IndexByte(staticPrefix, '=')
+	if eq <= 0 {
+		return false
+	}
+	return staticPrefix[:eq] != "query"
 }
 
 // classifyGit parses git's option grammar from the AST tokens: global options
@@ -276,12 +416,12 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// credential-carrying remote shapes (push, remote re-aim) do NOT reach here —
 	// they are classified in the deny/ask tiers above, because a push to an
 	// allowed host is the proxy's TLS-opaque blind spot, not a contained effect.
-	// A real-file redirect is the one residual exfil concern the gate still
-	// escalates — it cannot defer here (decision 2), so it ASKs.
-	if sc.hasRedirectToFile {
-		return ask("git redirect-to-file",
-			"'git' with stdout/stderr redirected to a real file can exfiltrate or clobber. "+
-				"Confirm the redirect target is intended.")
+	// A real-file redirect is GRADED, not vetoed: a destination inside this
+	// worktree (or in a scratchpad region designated safe by construction) is the
+	// same write `tee <path>` already performs under an ALLOW, while an escaping
+	// or unpinnable destination still ASKs. See credentialedRedirectAsk.
+	if d, hit := credentialedRedirectAsk("git", sc, ev); hit {
+		return d
 	}
 	return allow(fmt.Sprintf("git %s is not a guarded dangerous operation", sub))
 }
@@ -370,19 +510,22 @@ func gitConfigKeyExecutesCode(kv string) bool {
 
 // classifyGitPush classifies `git push` arguments (bypass gate 2 + the push
 // rules). rest is the args after the `push` subcommand token. The refspec — not
-// just the flags — is classified: a refspec containing `:` (delete/overwrite)
-// or whose source is empty (`:branch`, a delete) reaches a delete/overwrite
-// outcome WITHOUT the `--delete` flag the naive policy keys on.
+// just the flags — is classified, because a forced or deleting update reaches
+// its outcome WITHOUT the `--force`/`--delete` flag a flags-only policy keys on:
+// a `+` prefix on the refspec source is git's per-ref force marker.
 //
 // DENY:  --mirror, --prune (delete every remote ref absent from local).
-// ASK:   plain --force / -f (overwrites the ref).
+// ASK:   plain --force / -f, and a `+src:dst` forced refspec.
 // ALLOW: --force-with-lease (own-race protection), a clean named-branch delete
 //
-//	(--delete <branch> or origin :branch), tag deletion, and an
-//	ordinary fast-forward push.
+//	(--delete <branch> or origin :branch), tag deletion, an ordinary
+//	fast-forward push, and a plain `src:dst` refspec.
 //
-// Default within the gate: an arbitrary `:`-bearing refspec that is not a clean
-// named-branch delete ASKs (it overwrites a remote ref). Never defers.
+// A plain `src:dst` (`origin HEAD:branch`) is exactly as safe as
+// `git push origin branch`: receive-pack rejects a non-fast-forward update
+// unless it is forced, so the push either fast-forwards or is refused by the
+// remote. It is the standard idiom for pushing from a worktree whose local
+// branch name differs from the remote's. Never defers.
 func classifyGitPush(rest []string) Decision {
 	// Collect flags and positional (non-flag) operands separately.
 	var positionals []string
@@ -415,7 +558,8 @@ func classifyGitPush(rest []string) Decision {
 	}
 
 	// Refspec inspection: positionals are [remote] [refspec...]. A refspec
-	// containing ':' is a source:dest mapping; an empty source ('') is a delete.
+	// containing ':' is a source:dest mapping; an empty source ('') is a delete;
+	// a source with a leading '+' is a FORCED update.
 	for _, p := range positionals {
 		colon := strings.IndexByte(p, ':')
 		if colon < 0 {
@@ -429,16 +573,30 @@ func classifyGitPush(rest []string) Decision {
 			// --delete-flag path treats as allow; keep it ALLOW here.
 			continue
 		}
-		// 'src:dest' (or 'sha:branch') overwrites the destination ref WITHOUT a
-		// --delete flag. This is the bypass §2 shape: route to ASK (overwrite),
-		// unless it is the own-race-protected force-with-lease.
 		if hasForceWithLease {
 			continue
 		}
-		return ask("git push arbitrary-refspec (#64)",
-			"'git push' with an explicit source:dest refspec (e.g. 'origin local:refs/heads/x', "+
-				"'origin <sha>:branch') overwrites a remote ref without the --force flag the policy keys on. "+
-				"Confirm this overwrite is intended; prefer --force-with-lease for race protection.")
+		// A leading '+' on the source IS the force: git's per-ref force marker,
+		// exactly equivalent to --force for that refspec. Escalate it on its own
+		// merits. Before, `+src:dst` reached the same ask only incidentally,
+		// because it also contained a colon — the '+' was never inspected.
+		if strings.HasPrefix(src, "+") {
+			return ask("git push forced-refspec (#64)",
+				"'git push' with a '+' prefix on the refspec (e.g. 'origin +HEAD:branch') forces the update: "+
+					"the '+' is git's per-ref equivalent of --force, so the remote accepts a non-fast-forward "+
+					"and the overwritten commits are lost unless someone captured the prior SHA. Confirm this is "+
+					"intended. Drop the '+' for a plain fast-forward push, or use --force-with-lease for race "+
+					"protection.")
+		}
+		// A plain 'src:dest' (`HEAD:branch`, `HEAD:refs/heads/branch`) is NOT an
+		// overwrite. receive-pack rejects a non-fast-forward ref update unless
+		// the update is forced — by --force/-f, or by the per-ref '+' handled
+		// above — so this either fast-forwards or is refused by the remote,
+		// exactly like `git push origin branch`. It is also the standard idiom
+		// for pushing from a worktree whose local branch name differs from the
+		// remote's, which is why it appears on essentially every push. The old
+		// ask rested on the premise that it "overwrites a remote ref without the
+		// --force flag the policy keys on", which is not what git does.
 	}
 
 	if hasForce && !hasForceWithLease {

@@ -185,7 +185,7 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 		return d
 	}
 
-	if d, ok := containPathOperands(prog, readTargets(args, sc), sc, ev); !ok {
+	if d, ok := containPathOperands(prog, readTargets(pathOperands(args), sc), sc, ev); !ok {
 		return d
 	}
 	return deferToPipeline()
@@ -271,6 +271,14 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range operands {
+		if p == procSubstFD {
+			// `<(cmd)` — a /dev/fd pipe, not a filesystem path. It cannot escape
+			// anything, and the substituted command is classified on its own
+			// terms by the walk (descendProcSubsts). Skipping it keeps the
+			// all-carve-out ALLOW reachable too: a pipe operand is not a target
+			// that could disqualify it.
+			continue
+		}
 		res, real := testContainmentFrom(p, base, rc)
 		if !scratchAllowEligible(res, true) {
 			allScratch = false
@@ -356,9 +364,10 @@ func pathOperands(args []string) []string {
 	return out
 }
 
-// readTargets returns every path a read-class command reads: its path operands
-// (pathOperands) plus the sources of its input redirects (`cat < f`), which are
-// not argv operands and so appear in no arg list.
+// readTargets returns every path a read-class command reads: the path operands
+// its caller extracted (the plain non-flag walk, or the utility's own operand
+// grammar) plus the sources of its input redirects (`cat < f`), which are not
+// argv operands and so appear in no arg list.
 //
 // The two are merged into ONE containment walk on purpose. A redirected read and
 // an operand read are the same read spelled two ways, so they must earn the same
@@ -369,9 +378,10 @@ func pathOperands(args []string) []string {
 // the other, which is the defect this closes: before, an input redirect was
 // graded nowhere at all, so `cat < /etc/passwd` reached the read-only-utility
 // classifier with zero operands to contain and was allowed outright.
-func readTargets(args []string, sc simpleCommand) []string {
-	// pathOperands returns a fresh slice, so appending to it aliases nothing.
-	return append(pathOperands(args), sc.inputRedirectTargets...)
+func readTargets(operands []string, sc simpleCommand) []string {
+	out := make([]string, 0, len(operands)+len(sc.inputRedirectTargets))
+	out = append(out, operands...)
+	return append(out, sc.inputRedirectTargets...)
 }
 
 // containInputRedirects grades the input-redirect sources of a WRITE-class
@@ -585,6 +595,76 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 		}
 	}
 	return false
+}
+
+// credentialedRedirectAsk grades the real-file redirect of a credentialed tool
+// (git / gh / aws) and returns a TERMINAL ask when the destination is one the
+// gate cannot bless. hit=false means every destination is fine and the caller
+// may proceed to its own verdict.
+//
+// The check it replaces fired on the bare sc.hasRedirectToFile bool, before any
+// containment ran, so two spellings of one write carried two verdicts:
+// `tee <worktree>/.claude/tmp/x` allowed on the graded in-repo-write track while
+// `gh pr diff 224 > <worktree>/.claude/tmp/x` asked. It fired hardest on the two
+// destinations the gate itself designates safe — the in-repo `.claude/tmp/` its
+// own denies prescribe, and the harness scratchpad.
+//
+// The stated rationale was wrong too. A redirect into a file in this worktree
+// exfiltrates nothing: the bytes land where the agent can already write with
+// Write/Edit. The genuine risk is CLOBBER — overwriting a tracked file with
+// command output — and ESCAPE, which is exactly what containment decides. So the
+// grading is the write-operand grading (readClass=false, the same predicate
+// `tee`/`cp` are held to), and the reason names clobber and escape.
+//
+// It fails closed on every axis the graded redirect check already fails closed
+// on: an expansion the gate cannot pin, an invalidated running cwd, an
+// unresolvable repo boundary, and a `.git/` destination all keep the ask, and
+// EVERY destination must qualify (`gh … > <scratchpad>/f 2> ../x` still asks).
+func credentialedRedirectAsk(tool string, sc simpleCommand, ev *Event) (Decision, bool) {
+	if !sc.hasRedirectToFile {
+		return Decision{}, false
+	}
+	unpinnable := func(why string) (Decision, bool) {
+		return ask(tool+" redirect-unresolvable", fmt.Sprintf(
+			"'%s' redirects output to a file the gate cannot pin statically (%s), so it cannot prove the write "+
+				"lands inside this worktree rather than clobbering something outside it. Escalating to a human "+
+				"decision (fail-closed). Redirect to a literal path under this worktree instead.", tool, why)), true
+	}
+	if sc.hasUnknownExpansion {
+		return unpinnable("the destination is built from an expansion or command substitution")
+	}
+	if sc.cwdInvalid {
+		return unpinnable("a preceding 'cd' target could not be resolved, so a relative destination has no base")
+	}
+	if len(sc.redirectTargets) == 0 {
+		return unpinnable("the redirect names no statically-recorded destination")
+	}
+	rc, err := resolveRepoContext(ev.CWD)
+	if err != nil {
+		return unpinnable(fmt.Sprintf("the repository boundary could not be resolved: %v", err))
+	}
+	base := sc.cwd
+	if base == "" {
+		base = ev.CWD
+	}
+	for _, t := range sc.redirectTargets {
+		if isUnderGitDir(canonicalizeFrom(t, base), rc) {
+			return ask(tool+" redirect-into-.git", fmt.Sprintf(
+				"'%s' redirects output to '%s', inside a .git/ directory. Writing there can rewrite committer "+
+					"identity, inject hooks, or corrupt repo state. %s",
+				tool, t, scratchDestinations(rc.topLevel))), true
+		}
+		res, real := testContainmentFrom(t, base, rc)
+		if res == contained || scratchAllowEligible(res, false) {
+			continue
+		}
+		return ask(tool+" redirect-escapes-worktree", fmt.Sprintf(
+			"'%s' redirects output to '%s', which resolves to %s — outside this worktree (%s). A redirect "+
+				"clobbers whatever is at the destination, and the gate cannot vouch for a destination it does "+
+				"not own. Confirm this is intended. %s",
+			tool, t, real, rc.topLevel, scratchDestinations(rc.topLevel))), true
+	}
+	return Decision{}, false
 }
 
 // eligibleScratchRegions names, in the allow reason, exactly the carve-out regions

@@ -195,6 +195,12 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range operands {
+		if p == procSubstFD {
+			// `<(cmd)` — a /dev/fd pipe, not a filesystem path (see
+			// procSubstFD). Nothing to contain; the substituted command is
+			// classified on its own terms by the walk.
+			continue
+		}
 		// A write whose canonicalized target lands under a .git/ directory is a
 		// direct write to git internals, broadened to the whole tree — denied
 		// independently of containment, exactly as classifyFileTool denies it for

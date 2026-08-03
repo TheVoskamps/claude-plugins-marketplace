@@ -56,6 +56,29 @@ type utilitySpec struct {
 	// unrecognized flag, a write-capable flag, or a write-destination operand
 	// withholds the ALLOW and defers to the normal pipeline.
 	defersForm func(args []string) bool
+	// operandsFn returns the tokens of THIS invocation that name files the
+	// utility reads, parsed against the utility's own operand grammar. nil means
+	// every non-flag token is a path (pathOperands), which is right for a
+	// utility whose leading positional is already a file.
+	//
+	// It exists because that default is WRONG for a utility whose leading
+	// positional is a program, not a path: sed's script, awk's program text, and
+	// grep's pattern. A `sed -n '/A/,/B/p' f.md` range address starts with '/',
+	// so containment read it as an absolute path and DENIED the command as a
+	// cross-repo read. The write track has had this grammar since it was built
+	// (inRepoWriteSpec.operandsFn, for `sed -i`); this is the same idea on the
+	// read track, which had only the undifferentiated non-flag-token walk.
+	operandsFn func(args []string) []string
+}
+
+// operands returns the utility's read path operands for this invocation,
+// applying its own grammar when it has one and the plain non-flag walk
+// otherwise.
+func (s utilitySpec) operands(args []string) []string {
+	if s.operandsFn != nil {
+		return s.operandsFn(args)
+	}
+	return pathOperands(args)
 }
 
 // readOnlyUtilities maps a program basename to its read-only spec. cat/head/
@@ -111,12 +134,20 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// grep never writes a file (it writes only to stdout). It is read-only
 	// regardless of flags, but it still carries a fail-safe predicate so a future
 	// flag is not auto-allowed — grepDefers recognizes grep's flag grammar and
-	// defers on anything outside it. Its operands include a pattern (non-path)
-	// plus file paths; containment on the pattern token resolves under cwd and is
-	// harmless (a single-arg `grep PATTERN` has no file operand, so the pattern is
-	// treated as a path and containment fails closed — it can only deny/ask, never
-	// wrongly allow).
-	"grep": {pathBearing: true, defersForm: grepDefers},
+	// defers on anything outside it. Its leading positional is the PATTERN, not a
+	// path, so it carries an operand grammar too: an anchored pattern like
+	// `grep '/etc/passwd' f` would otherwise be tested as an absolute path and
+	// earn a cross-repo deny for a command that reads nothing of the sort.
+	"grep": {pathBearing: true, defersForm: grepDefers, operandsFn: grepFileOperands},
+
+	// diff compares two inputs and writes only to stdout — no output-file flag
+	// exists in its grammar, so there is no write mode to gate beyond the
+	// table's standing fail-safe-on-unknown-flag convention. It is here because
+	// the process-substitution idiom it anchors (`diff <(a) <(b)`) is the
+	// canonical two-stream comparison, and leaving diff off the track meant that
+	// line could never reach an allow no matter how the substitutions were
+	// graded.
+	"diff": {pathBearing: true, defersForm: diffDefers},
 
 	// Pure-output, no path operands and no write mode at all: nil defersForm.
 	// printf/echo/seq/true/false/yes/basename/dirname write only to stdout and
@@ -135,8 +166,17 @@ var readOnlyUtilities = map[string]utilitySpec{
 
 	// Conditionally read-only: a mutating mode is gated by a flag. defersForm
 	// withholds the ALLOW for the mutating flag OR any unrecognized flag.
-	"sed":  {pathBearing: true, defersForm: sedDefers},
-	"awk":  {pathBearing: true, defersForm: awkDefers},
+	// sed and awk also carry an operand grammar: their leading positional is a
+	// SCRIPT / PROGRAM, not a path (sedFileOperands is shared verbatim with the
+	// `sed -i` write track, which has parsed it that way all along).
+	"sed":  {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands},
+	"awk":  {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands},
+	// jq's leading positional is a FILTER, which is the same shape of non-path
+	// positional — but jqDefers deliberately does NOT fail safe on an unknown
+	// flag, so an operand grammar here could silently drop a real file operand
+	// out of containment instead of merely losing an allow. A jq filter is not
+	// absolute-path-shaped in practice, so the containment false positive sed
+	// and awk suffer does not arise; left on the plain non-flag walk.
 	"jq":   {pathBearing: true, defersForm: jqDefers},
 	"find": {pathBearing: true, defersForm: findDefers},
 	// tee's operands are WRITE destinations, not read sources, and teeDefers
@@ -177,7 +217,7 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 	// it as an operand, so leaving it ungraded would disclose it under an ALLOW.
 	readPaths := sc.inputRedirectTargets
 	if spec.pathBearing {
-		readPaths = readTargets(args, sc)
+		readPaths = readTargets(spec.operands(args), sc)
 	}
 
 	if spec.pathBearing || len(readPaths) > 0 {
@@ -630,15 +670,7 @@ func realpathDefers(args []string) bool {
 // value flags (-e/-f/-m/-A/-B/-C/--color etc.) and bool flags are enumerated.
 func grepDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{
-			"-e": true, "--regexp": true, "-f": true, "--file": true,
-			"-m": true, "--max-count": true, "-A": true, "--after-context": true,
-			"-B": true, "--before-context": true, "-C": true, "--context": true,
-			"-d": true, "--directories": true, "-D": true, "--devices": true,
-			"--include": true, "--exclude": true, "--exclude-dir": true,
-			"--include-dir": true, "--group-separator": true, "--label": true,
-			"--color": true, "--colour": true, "--binary-files": true,
-		},
+		valueFlags: grepValueFlags,
 		boolFlags: map[string]bool{
 			"-E": true, "--extended-regexp": true, "-F": true, "--fixed-strings": true,
 			"-G": true, "--basic-regexp": true, "-P": true, "--perl-regexp": true,
@@ -862,6 +894,203 @@ func awkDefers(args []string) bool {
 		return true
 	}
 	return false
+}
+
+// awkFileOperands returns the FILE operands of an awk invocation, excluding the
+// program text. awk's grammar is `awk [FLAGS] {'program' | -f progfile} [var=value
+// | FILE]...`: when no `-f`/`--file` supplied the program, the FIRST non-flag
+// operand IS the program and is not a path; the rest are files. A `var=value`
+// operand is an awk variable assignment, not a file, and is dropped too.
+//
+// Flag VALUES (`-F :`, `-v x=1`, `-f prog.awk`) are consumed rather than
+// returned, mirroring sedFileOperands: a flag value is not a path operand of the
+// command, and awkDefers has already refused any flag outside this grammar, so
+// an unrecognized flag never reaches here.
+func awkFileOperands(args []string) []string {
+	valueFlags := map[string]bool{
+		"-F": true, "--field-separator": true,
+		"-v": true, "--assign": true,
+		"-f": true, "--file": true,
+		"-i": true, "--include": true,
+	}
+	programSuppliedByFlag := false
+	var operands []string
+	sawDashDash := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if sawDashDash {
+			operands = append(operands, a)
+			continue
+		}
+		if a == "--" {
+			sawDashDash = true
+			continue
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			operands = append(operands, a)
+			continue
+		}
+		if strings.HasPrefix(a, "--file=") || strings.HasPrefix(a, "-f") && len(a) > 2 {
+			programSuppliedByFlag = true
+			continue
+		}
+		if a == "-f" || a == "--file" {
+			programSuppliedByFlag = true
+			i++ // consume the program file
+			continue
+		}
+		if strings.HasPrefix(a, "--") && strings.Contains(a, "=") {
+			continue // long flag carrying its own value
+		}
+		if valueFlags[a] {
+			i++ // consume the flag's value
+			continue
+		}
+		if len(a) >= 2 && a[1] != '-' && valueFlags[a[:2]] {
+			continue // attached short value form (`-F:`, `-vx=1`)
+		}
+		// A bool flag (awkDefers vouched for it); carries no value.
+	}
+	if !programSuppliedByFlag {
+		if len(operands) == 0 {
+			return nil
+		}
+		operands = operands[1:] // the first non-flag operand is the program text
+	}
+	return dropAssignmentOperands(operands)
+}
+
+// dropAssignmentOperands removes `var=value` tokens from an awk operand list.
+// awk interleaves variable assignments with file names (`awk '{…}' n=1 f.txt`),
+// and an assignment names no file.
+func dropAssignmentOperands(operands []string) []string {
+	var out []string
+	for _, o := range operands {
+		if isAssignment(o) {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out
+}
+
+// grepFileOperands returns the FILE operands of a grep invocation, excluding the
+// pattern. grep's grammar is `grep [FLAGS] {PATTERN | -e PATTERN | -f PATFILE}
+// [FILE...]`: with no `-e`/`-f`, the FIRST non-flag operand is the pattern.
+//
+// A pattern is not a path, and treating it as one is not merely wasted work: an
+// anchored pattern (`grep '/usr/local/bin' f`) looks absolute, so containment
+// resolves it outside the repo and DENIES a command that reads only `f`.
+// grepDefers has already refused any flag outside grep's known grammar, so an
+// unrecognized flag never reaches here.
+func grepFileOperands(args []string) []string {
+	patternSuppliedByFlag := false
+	var operands []string
+	sawDashDash := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if sawDashDash {
+			operands = append(operands, a)
+			continue
+		}
+		if a == "--" {
+			sawDashDash = true
+			continue
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			operands = append(operands, a)
+			continue
+		}
+		name := a
+		glued := strings.Contains(a, "=")
+		if glued {
+			name = a[:strings.IndexByte(a, '=')]
+		}
+		switch name {
+		case "-e", "--regexp", "-f", "--file":
+			patternSuppliedByFlag = true
+			if !glued && !(len(a) > 2 && a[1] != '-') && i+1 < len(args) {
+				i++ // consume the separate pattern/pattern-file token
+			}
+			continue
+		}
+		if glued {
+			continue // long flag carrying its own value
+		}
+		if grepValueFlags[name] {
+			i++ // consume the flag's value
+			continue
+		}
+		if len(a) > 2 && a[1] != '-' && (grepValueFlags[a[:2]] || a[:2] == "-e" || a[:2] == "-f") {
+			if a[:2] == "-e" || a[:2] == "-f" {
+				patternSuppliedByFlag = true
+			}
+			continue // attached short value form (`-A3`, `-eFOO`)
+		}
+		// A bool flag or a short cluster (grepDefers vouched for it).
+	}
+	if !patternSuppliedByFlag {
+		if len(operands) == 0 {
+			return nil
+		}
+		operands = operands[1:] // the first non-flag operand is the pattern
+	}
+	return operands
+}
+
+// grepValueFlags is the set of grep flags that consume a following token, shared
+// by grepDefers (which must not misread the value as an unknown flag) and
+// grepFileOperands (which must not misread it as a file). One table, so the two
+// walks cannot drift.
+var grepValueFlags = map[string]bool{
+	"-e": true, "--regexp": true, "-f": true, "--file": true,
+	"-m": true, "--max-count": true, "-A": true, "--after-context": true,
+	"-B": true, "--before-context": true, "-C": true, "--context": true,
+	"-d": true, "--directories": true, "-D": true, "--devices": true,
+	"--include": true, "--exclude": true, "--exclude-dir": true,
+	"--include-dir": true, "--group-separator": true, "--label": true,
+	"--color": true, "--colour": true, "--binary-files": true,
+}
+
+// diffDefers reports whether a diff invocation must defer. diff writes only to
+// stdout — its grammar has no output-file flag at all — so there is no write
+// mode to gate; the predicate exists only for the table's standing fail-safe:
+// a flag outside the enumerated grammar defers rather than riding the ALLOW.
+func diffDefers(args []string) bool {
+	return flagScan{
+		valueFlags: map[string]bool{
+			"-D": true, "--ifdef": true, "-F": true, "--show-function-line": true,
+			"-I": true, "--ignore-matching-lines": true, "-L": true, "--label": true,
+			"-S": true, "--starting-file": true, "-X": true, "--exclude-from": true,
+			"-x": true, "--exclude": true, "-W": true, "--width": true,
+			"--from-file": true, "--to-file": true, "--horizon-lines": true,
+			"--tabsize": true, "--line-format": true, "--GTYPE-group-format": true,
+			"-U": true, "--unified": true, "-C": true, "--context": true,
+		},
+		boolFlags: map[string]bool{
+			"-a": true, "--text": true, "-b": true, "--ignore-space-change": true,
+			"-B": true, "--ignore-blank-lines": true, "-c": true,
+			"-d": true, "--minimal": true, "-e": true, "--ed": true,
+			"-E": true, "--ignore-tab-expansion": true, "-i": true, "--ignore-case": true,
+			"-l": true, "--paginate": true, "-N": true, "--new-file": true,
+			"-n": true, "--rcs": true, "-p": true, "--show-c-function": true,
+			"-q": true, "--brief": true, "-r": true, "--recursive": true,
+			"-s": true, "--report-identical-files": true, "-t": true, "--expand-tabs": true,
+			"-T": true, "--initial-tab": true, "-u": true, "-w": true,
+			"--ignore-all-space": true, "-y": true, "--side-by-side": true,
+			"-Z": true, "--ignore-trailing-space": true, "--no-dereference": true,
+			"--strip-trailing-cr": true, "--suppress-common-lines": true,
+			"--suppress-blank-empty": true, "--binary": true, "--color": true,
+			"--normal": true, "--left-column": true, "--speed-large-files": true,
+			"--unidirectional-new-file": true, "--no-ignore-file-name-case": true,
+			"--ignore-file-name-case": true,
+		},
+		maxPathOperands: -1,
+		// clusterable: `diff -ru`, `diff -qr` are the common forms. diff has no
+		// write flag, so a cluster ALLOWs only when every character is a known
+		// bool — a cluster containing a value flag (`-U`, `-C`) defers.
+		clusterable: true,
+	}.defers(args)
 }
 
 // jqDefers reports whether a jq invocation must defer. jq is read-only unless a
