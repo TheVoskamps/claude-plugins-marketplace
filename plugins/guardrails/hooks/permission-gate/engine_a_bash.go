@@ -708,12 +708,21 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// descendCmdSubsts passes none: the substitution is set up during word
 	// expansion, before the enclosing command's own redirections are applied.
 	//
-	// SCOPE: there are two call sites, and between them they cover both places
-	// bash accepts a process substitution. The CallExpr branch calls this over
-	// c.Args (ARGV position); walkStmt calls it over stmt.Redirs' words (REDIRECT
-	// position — `cat < <(cmd)`, `cat > >(cmd)`), where literalWord likewise
-	// reduces an input substitution to procSubstFD and so leaves nothing else to
-	// grade the substituted command.
+	// SCOPE: there are two call sites, the two positions where the containment
+	// walks skip the token. The CallExpr branch calls this over c.Args (ARGV
+	// position); walkStmt calls it over stmt.Redirs' words (REDIRECT position —
+	// `cat < <(cmd)`, `cat > >(cmd)`), where literalWord likewise reduces an
+	// input substitution to procSubstFD and so leaves nothing else to grade the
+	// substituted command.
+	//
+	// KNOWN GAP: bash also accepts a substitution in an ITEM-LIST word — a
+	// ForClause's WordIter (`for f in <(cmd)`, `select f in <(cmd)`) and a
+	// CaseClause's word — and neither call site reaches those, so the
+	// substituted command is graded by nobody. `case`/`select` allowed that
+	// before #225 too; for `for` the item word is now an exact procSubstFD
+	// literal, so staticForItems fans out and binds the loop variable to it,
+	// moving a body that uses "$f" from defer to allow. Closing it means a third
+	// call site over those words.
 	descendProcSubsts = func(w *syntax.Word) {
 		if w == nil {
 			return

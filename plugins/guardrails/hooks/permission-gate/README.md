@@ -30,9 +30,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   terms**: the walk descends into every process substitution and grades
   its statements as ordinary commands, so
   `comm -3 <(cat ../sibling-repo/.env) <(…)` still earns the cross-repo
-  deny from the inner `cat`. The descent covers both positions bash
-  accepts a substitution in, because the token is skipped by the
-  containment walks in both: ARGV (`descendProcSubsts` over a
+  deny from the inner `cat`. `descendProcSubsts` has two call sites, the
+  two positions where the containment walks skip the token: ARGV (over a
   `CallExpr`'s words) and REDIRECT (over the words of a statement's own
   redirects), so `cat < <(cat ../sibling-repo/.env)` earns the same
   cross-repo deny the argv spelling does — including when the redirect
@@ -42,7 +41,18 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   graded the same way, on its write. The substituted command is
   resolved against the cwd in effect BEFORE the enclosing statement's
   own `cd`, matching bash: the pipe is set up during word expansion,
-  which precedes the command.
+  which precedes the command. Known gap: a substitution in an
+  ITEM-LIST word — `for f in <(cat ../sibling-repo/.env)`, `select f in
+  <(…)`, `case <(…) in` — reaches neither call site, so its command is
+  graded by nobody. For the `case` and `select` spellings that predates
+  #225 entirely: none of these positions was ever descended into, so
+  `for f in <(cat ../sibling-repo/.env); do echo x; done` ALLOWed before
+  this change too. What #225 widened is the body: the header word used
+  to be inexact, so a body that used `"$f"` stayed unreducible and
+  DEFERRED, and now that the word is an exact `/dev/fd` literal the
+  fan-out binds the loop variable to it and the body allows as well.
+  Closing the gap means a third call site, over a `WordIter`'s and a
+  `CaseClause`'s words.
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
