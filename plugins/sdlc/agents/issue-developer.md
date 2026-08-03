@@ -153,13 +153,12 @@ You must be given:
     passing every member the batch actually landed. The skill opens
     the PR as a **draft**, targets the repo's configured base branch,
     and writes one `Closes <issue-link-prefix><N>` line per member
-    into the PR body — the wrong-issue guard that used to be your
-    responsibility is now the skill's: it bounds the closing lines by
-    the branch name's encoded set, and when none of the numbers you
-    pass is in a multi-member set it opens no PR at all and reports
-    the refusal, rather than guessing which members you meant. If the
-    caller supplies a title/summary, pass it through; otherwise let
-    the skill synthesize one.
+    into the PR body. The wrong-issue guard that used to be your
+    responsibility is now the skill's — it reconciles the numbers you
+    pass against the branch name for you, and reports back what it
+    resolved, what it refused a closing line, and whether it found no
+    safe resolution at all. If the caller supplies a title/summary,
+    pass it through; otherwise let the skill synthesize one.
 
     - `--draft` is REQUIRED: every PR is born as a draft. A draft PR
       cannot be auto-merged (the repo's auto-merge workflow filters
@@ -250,10 +249,10 @@ half-implement it to keep the batch whole.
 The batch does not die with the member. The default remedy:
 
 - The members you already committed **stay**. Do not revert them.
-- The branch **keeps its name**. The branch's issue set is a maximum,
-  not an equality — a PR may close a subset of it, never a superset —
-  which is exactly what lets a member be dropped without renaming a
-  branch that already carries commits.
+- The branch **keeps its name**. A PR closing a subset of its
+  branch's issue set is sanctioned by `rules/git-workflow.md` →
+  "Issue References" — see that rule — so there is nothing to rename
+  on a branch that already carries commits.
 - The PR closes **only the landed subset**: pass just those members to
   `/github-prs:pr-create`, and name the dropped issue and the reason
   in the PR body. A batch member missing from the body with no

@@ -9,6 +9,7 @@ memory: project
 skills:
   - issue-view
   - git-tools:git-issues-from-branch
+  - github-prs:pr-closing-issues
   - github-prs:pr-diff
   - github-prs:pr-review-submit
 ---
@@ -55,10 +56,10 @@ You need only this field from the file:
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — the prefix used in `References:` trailers (see step 2
   below). This is an **issue-tracker** concern, independent of the PR
-  mechanics: `github-prs:pr-diff` and `github-prs:pr-review-submit`
-  (declared in the `skills:` frontmatter above) read no repo-config at
-  all — they are GitHub-only by design — and
-  `git-tools:git-issues-from-branch` reads
+  mechanics: `github-prs:pr-diff`, `github-prs:pr-review-submit`, and
+  `github-prs:pr-closing-issues` (declared in the `skills:` frontmatter
+  above) read no repo-config at all — they are GitHub-only by design —
+  and `git-tools:git-issues-from-branch` reads
   `issue-branch-naming-prefix` internally, so you no longer resolve
   `source-control`, `default-issue-source-branch`,
   `default-pr-target-branch`, or `issue-branch-naming-prefix` yourself.
@@ -81,64 +82,67 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    branch name and body on GitHub with
    `gh pr view <number> --json body,headRefName`, then:
 
-   - **The branch name gives the maximum.** Recover its issue set by
-     invoking `/git-tools:git-issues-from-branch <headRefName>`
-     (preloaded via the `skills:` frontmatter above) — the inverse of
-     the skill that wrote the name, and the one parser of that
-     grammar. Never parse a branch name yourself. Treat what it
-     reports as a **set** `B`: the order it reports is the
-     implementation order the developer worked in, and carries no
-     meaning for the review.
-   - **The PR body's closing lines give what this PR actually
-     delivers.** Collect every issue carrying a closing keyword in the
-     body; call that set `C`. The set you review against is `C ∩ B`.
-     `B` bounds it because a PR may close a *subset* of the branch's
-     set and never a superset — a member can be dropped mid-flight
-     under the developer's drop protocol, and the branch keeps its
-     name.
-   - **A branch the skill reports as not a convention branch leaves
-     `B` empty.** There is then no branch set to bound the body with,
-     so the set you review against is `C` itself — the same fallback
-     `/github-prs:pr-create` and `/github-prs:pr-link-issue` take on
-     that outcome. The findings the bullets below raise cannot arise
-     here: with no branch set, no closing line can sit outside it and
-     no branch-set member can go missing from the body. This is the
-     standalone case — a human-named or `dependabot/…` branch handed
-     to `/sdlc:git-review-pr` — where the body's closing lines are the
-     only statement of what the PR delivers.
-   - **A closing line aimed outside `B` is a finding, not a member.**
-     `/github-prs:pr-create` and `/github-prs:pr-link-issue` refuse to
-     write one, but a hand-edited body can carry it, and merging the PR
+   - **Your claim** is the issue set your spawn brief names, when the
+     orchestrator spawned you. Run standalone on a bare PR number —
+     the `/sdlc:git-review-pr` path — there is no brief to take it
+     from, so get it from `/github-prs:pr-closing-issues <number>`
+     (preloaded via the `skills:` frontmatter above), the one skill
+     that reads a PR body's closing lines. Never scan the body for
+     them yourself.
+   - **Reconcile the claim against the branch.** Invoke
+     `/git-tools:git-issues-from-branch <headRefName> <claim…>`
+     (preloaded via the `skills:` frontmatter above) — the one skill
+     that parses a branch name and the one place the global
+     issue-to-branch rule in `rules/git-workflow.md` → "Issue
+     References" is applied. Never parse a branch name and never
+     re-derive the resolution yourself. **You review against the
+     resolved set it reports.**
+
+   The lists it reports alongside the resolved set are findings rather
+   than members:
+
+   - **A claimed issue the skill places outside the branch's set is a
+     finding, not a member.** `/github-prs:pr-create` and
+     `/github-prs:pr-link-issue` refuse to write a closing line for
+     one, but a hand-edited body can carry it, and merging the PR
      would then auto-close an issue this branch never delivered — the
      auto-close hazard the closing-keyword rule exists to prevent.
      Never fold it into the set you review against. Grade it on that
      consequence per "Findings by Severity" below, and give it its own
      verdict line per "Per-issue verdicts, one overall".
-   - **A branch-set member absent from the body is either a
+   - **A branch member on the skill's *not claimed* list is either a
      sanctioned deferral or a silent under-delivery, and the PR body
      is what tells them apart.** When the body names the member and
      says why it is not in this PR, that is a deferral the human
-     already owns: note it as context, not a finding. When a member is
-     simply missing with no explanation, that IS a finding — it is the
-     exact failure a batch PR invites, and it is an unmet acceptance
+     already owns:
+     note it as context, not a finding. When a member is simply
+     missing with no explanation, that IS a finding — it is the exact
+     failure a batch PR invites, and it is an unmet acceptance
      criterion (graded High per "Findings by Severity" below). That
      member gets its own verdict line carrying the finding, per
      "Per-issue verdicts, one overall" below, even though the diff is
      not reviewed against it.
 
+   The remaining outcomes need no separate handling. On **not a
+   convention branch** — a human-named or `dependabot/…` branch, the
+   usual shape when `/sdlc:git-review-pr` hands you a bare PR number —
+   the skill resolves to your claim unchanged and reports those lists
+   empty, so no finding above can arise and your claim is the whole
+   answer. On **no safe resolution** there is no resolved set, so no
+   member is reviewed against and the findings above cover the PR
+   between them: every claimed issue is outside the branch's set, and
+   every branch member is unclaimed.
+
    `References:` trailers in the PR body link *other* related issues
    (predecessors, follow-ups, umbrella issues, etc.) using the
    `References: <link-prefix><M>` format (e.g. `References: #42` on
-   GitHub, `References: SET-42` on Jira) and are never part of the
-   set. The git-workflow rule forbids closing keywords
-   (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
-   `resolves`/`resolved`, case-insensitive) when placed **immediately
-   before** an issue reference (`#N`, `owner/repo#N`, `GH-N`, or issue
-   URL) **in a commit message** — that syntactic pattern auto-closes
-   the referenced issue. In the **PR body** those same closing lines
-   are required, one per member of the set. The same words as ordinary
-   English prose with no adjacent issue reference are fine anywhere
-   and must not be flagged.
+   GitHub, `References: SET-42` on Jira). A reference with no closing
+   keyword before it closes nothing, so `/github-prs:pr-closing-issues`
+   already leaves these out — never add one to the set by hand. The
+   closing keywords themselves are required in the **PR body**, one
+   line per member, and forbidden in a **commit message**; the same
+   words as ordinary English prose with no adjacent issue reference
+   are fine anywhere and must not be flagged.
 3. Read **each member independently** — every issue in the set you
    review against, as step 2 resolved it — via the canonical
    `/issue-view` skill (preloaded via the `skills:` frontmatter above
@@ -151,7 +155,7 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    /issue-view <N>
    ```
 
-   once per member. A branch-set member the body does not close is not
+   once per member. A branch member on the *not claimed* list is not
    reviewed against; step 2 already settled whether its absence is a
    deferral or a finding. Use each
    issue's body and acceptance criteria as the yardstick for the
@@ -464,14 +468,15 @@ even though it is outside the set you review against. That is what
 keeps such a finding from vanishing from the overall verdict. These
 are the cases step 2 raises one for:
 
-- **A branch-set member silently missing from the body** — step 2
-  grades that absence High, so the member gets a line reading
+- **A branch member on the *not claimed* list that the body never
+  explains** — step 2 grades that absence High, so it gets a line
+  reading
   `- #207 — NEEDS_CHANGES (1 High, not delivered by this PR)`. The
   diff was never reviewed against it, so that one finding is all the
   line carries.
-- **A body closing line aimed outside the branch's set** — the rogue
-  issue gets a line reading `- #310 — NEEDS_CHANGES (1 High, closing
-  line outside the branch's set)`, carrying that finding alone.
+- **A claimed issue outside the branch's set** — the rogue issue gets
+  a line reading `- #310 — NEEDS_CHANGES (1 High, closing line outside
+  the branch's set)`, carrying that finding alone.
 
 A sanctioned deferral is not one of them: the body names the member
 and says why it is not in this PR, step 2 raises no finding, and it

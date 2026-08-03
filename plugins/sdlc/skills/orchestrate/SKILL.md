@@ -408,10 +408,10 @@ developer variant or a human hand-edit skipped one. The orchestrate
 flow always has the issue numbers in hand, so this always runs.
 
 Pass the set the PR **actually closes**, which for a batch that
-dropped a member is a subset of the branch's set — the skill bounds
-what it will write by the branch name and never closes an issue
-outside it, but it is your job not to ask it to re-add a deliberately
-deferred member.
+dropped a member is a subset of the branch's set. What you pass is the
+skill's claim, and it reconciles that claim against the branch name
+itself (see `/github-prs:pr-link-issue` → "Own issue set only"), but
+it is your job not to ask it to re-add a deliberately deferred member.
 
 The PR stays a **draft** at this point and through the entire
 review/fix loop — see "PR draft/ready lifecycle" below.
@@ -495,7 +495,11 @@ files changed and what you updated.
 ```
 
 **pr-reviewer spawn prompt** — give it PR number, the issue set, and
-branch name:
+branch name. The set is not context here: it is the **claim** the
+agent reconciles against the branch name, so pass the set the PR
+actually closes (a dropped member is not in it), and pass it whenever
+you spawn the reviewer. Left out, the agent falls back to reading the
+PR body itself, which is the standalone path rather than this one:
 
 ```text
 Review PR <PR_N>, which closes issues <link-prefix><issue_N1>:
@@ -683,9 +687,10 @@ run it on the subset per the remedy below while the human decides what
 becomes of the dropped issue. Unless the human says otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
-  The branch's issue set is a maximum, not an equality — the PR closes
-  only the landed subset, and the developer names the deferral in the
-  PR body.
+  A PR closing a subset of its branch's issue set is sanctioned by
+  `rules/git-workflow.md` → "Issue References", so the PR closes only
+  the landed subset and the developer names the deferral in the PR
+  body.
 - The rest of the loop runs on that subset: `/pr-link-issue`,
   `doc-updater`, and `pr-reviewer` all get the set the PR actually
   closes, not the branch's full set.
@@ -749,16 +754,21 @@ orchestrator performs these transitions:
    and re-record the head first, rather than flipping the PR ready over
    a stale pass.
 
-2. **Set every issue the PR closes to In Review:**
+2. **Set every issue the PR closes to In Review.** The authoritative
+   list of those issues is what `/github-prs:pr-closing-issues <PR>`
+   reports — the one skill that reads a PR body's closing lines. Ask
+   it rather than reusing the batch's planned membership: neither
+   `/pr-create` nor `/pr-link-issue` writes a closing line for a
+   member the developer **dropped**, so a dropped member is absent
+   from that list and stays In Progress. Then, once per member it
+   named:
 
    ```text
    /issue-set-status <N> "In Review"
    ```
 
-   once per member — they flip together, because they ship together.
-   A member the developer **dropped** is not one of them: it is not
-   closed by this PR, so it stays In Progress. Gated on a configured
-   status slot — see "Issue-status transitions" below.
+   They flip together, because they ship together. Gated on a
+   configured status slot — see "Issue-status transitions" below.
 
 Neither transition merges the PR; the human still owns the merge. If
 the human ends the loop without blessing a PR (e.g. it lands in "Needs
@@ -956,14 +966,18 @@ itself:
   "Prefer the `/issue-*` namespace over raw `gh`" below.
 - **Manage a PR's draft/ready state and issue links via the
   `/github-prs:*` skills** — `/pr-link-issue <PR> <issues>` (link
-  a PR to the issues it closes) and `/pr-ready <N>` (flip draft →
-  ready at end-of-loop). These are coordination metadata in the same
-  bucket as `gh pr comment`: they set the PR's lifecycle state, they
+  a PR to the issues it closes), `/pr-closing-issues <PR>` (read back
+  which issues it closes), and `/pr-ready <N>` (flip draft → ready at
+  end-of-loop). These are coordination metadata in the same bucket as
+  `gh pr comment`: they set or read the PR's lifecycle state, they
   don't author feature work or a review verdict. `/pr-link-issue` is
   set-idempotent (it adds only the missing `Closes #N` lines, and
-  no-ops when the developer already wrote them all), and `/pr-ready`
-  merely un-drafts — neither merges the PR. See "PR draft/ready
-  lifecycle" below for when the orchestrator calls each.
+  no-ops when the developer already wrote them all),
+  `/pr-closing-issues` is read-only, and `/pr-ready` merely un-drafts
+  — none of them merges the PR. See "PR draft/ready lifecycle" below
+  for when the orchestrator calls `/pr-link-issue` and `/pr-ready`,
+  and "End-of-loop lifecycle transitions" above for the
+  `/pr-closing-issues` read that feeds the In Review flip.
 - **Set issue status via `/issue-set-status`** — `In Progress` when
   work starts, `In Review` at end-of-loop. Coordination metadata, not
   agent-owned work. See "Issue-status transitions" below and the

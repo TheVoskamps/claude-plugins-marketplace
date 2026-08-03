@@ -111,11 +111,22 @@ deliberate per-caller differences.
 
 `git-tools:git-issues-from-branch` is the worked instance: the
 branch-name grammar is stated once, in
-`git-tools:git-branch-create` → "Branch name", that skill is its one
-parser, and `github-prs:pr-create`, `github-prs:pr-link-issue`, and
-`sdlc`'s `pr-reviewer` invoke it rather than each restating the rule —
-while each still decides for itself what an empty or absent issue set
-means.
+`git-tools:git-branch-create` → "Branch name", and
+`git-issues-from-branch` is the one skill that parses it —
+`github-prs:pr-create`, `github-prs:pr-link-issue`, and `sdlc`'s
+`pr-reviewer` invoke `git-issues-from-branch` rather than each
+restating the rule. The same skill also applies the global
+issue-to-branch reconciliation rule in `rules/git-workflow.md`,
+because that rule is global rather than per-caller; what each consumer
+keeps is its own **action** per reported outcome, which is exactly the
+deliberate per-caller difference the extraction must not flatten.
+
+`github-prs:pr-closing-issues` is the same pattern on the other side
+of the same question: it is the one skill that reads a PR body's
+closing lines and reports which issues the PR closes, so
+`github-prs:pr-link-issue`'s idempotency check, `sdlc`'s `pr-reviewer`
+running standalone, and `/sdlc:orchestrate`'s end-of-loop status flip
+each invoke it instead of describing the scan again.
 
 ### Plugin grouping heuristics
 

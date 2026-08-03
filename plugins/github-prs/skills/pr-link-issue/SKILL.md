@@ -11,20 +11,22 @@ immediately followed by that issue reference in the **PR body**, once
 per issue.
 
 Per GitHub's "Linking a pull request to an issue" docs, a closing
-keyword (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
-`resolves`/`resolved`, case-insensitive) immediately followed by
-`#<issue>` in the **PR description** does two things at once: it
-creates the Development-sidebar "linked pull request" **and**
-auto-closes the linked issue when the PR merges into the default
-branch. A keyword in a *commit message* auto-closes but does **not**
-create the sidebar link, which is why this skill writes the PR body,
-never a commit. Both effects are intended: the sidebar link is the
-whole point, and auto-close-on-merge is the behavior we want.
+keyword immediately followed by an issue reference in the **PR
+description** does two things at once: it creates the
+Development-sidebar "linked pull request" **and** auto-closes the
+linked issue when the PR merges into the default branch. A keyword in
+a *commit message* auto-closes but does **not** create the sidebar
+link, which is why this skill writes the PR body, never a commit. Both
+effects are intended: the sidebar link is the whole point, and
+auto-close-on-merge is the behavior we want.
 
-Each issue needs **its own keyword**. GitHub links only a reference
-that carries a keyword immediately before it, so `Closes #196, #201`
-links `#196` and silently leaves `#201` unlinked. This skill therefore
-writes one `Closes #<issue>` line per issue.
+Each issue needs **its own keyword**, so this skill writes one
+`Closes #<issue>` line per issue rather than one line listing several.
+The syntax that makes that necessary is stated once, in
+`github-prs:pr-closing-issues` → "The syntax", over
+`rules/git-workflow.md` as its authority — and reading a body back for
+the lines it already carries goes through that same skill rather than
+a scan of this one's own (see step 2 of "Execution").
 
 ## Invocation
 
@@ -43,31 +45,23 @@ writes one `Closes #<issue>` line per issue.
 Every issue this skill writes a closing keyword for MUST be a member
 of the branch's own issue set — **never** an umbrella, parent,
 predecessor, or otherwise "related" issue. Aiming a closing keyword at
-another issue would auto-close that issue when this PR merges. Per the
-closing-keyword rule in `rules/git-workflow.md` — PR body only, the
-branch's own issue set only — when the caller-supplied numbers and the
-branch name disagree, **the branch name is the higher-fidelity source
-of truth**.
+another issue would auto-close that issue when this PR merges, which
+is what the closing-keyword rule in `rules/git-workflow.md` — PR body
+only, the branch's own issue set only — exists to prevent.
 
-Recover the branch's set by invoking
-`/git-tools:git-issues-from-branch <headRefName>` — the inverse of the
-skill that wrote the name, and the one parser of that grammar. This
-skill never parses a branch name itself. Compare what it reports as a
-**set** — the order it reports is implementation order and carries no
-meaning here. That skill reads `issue-branch-naming-prefix` from
-repo-config internally; this one reads no config of its own.
+That rule also settles what happens when the caller's numbers and the
+branch name disagree, and it is **global** rather than this skill's:
+`rules/git-workflow.md` → "Issue References" is the authority, and
+`/git-tools:git-issues-from-branch` is the one skill that applies it.
 
-**The branch's set is a maximum, not an equality.** A PR may close a
-subset of it, never a superset: a member dropped mid-flight is not
-closed by this PR, and re-adding its closing line here would undo that
-deferral. So the caller's numbers select *which* members to ensure,
-and the branch's set bounds *which are allowed*.
-
-Bounding is all it does: the branch's set stands in for the caller's
-selection only where doing so cannot guess — a one-member branch set
-whose member the caller missed. When nothing the caller passed is in a
-**multi-member** branch set, this skill leaves the body untouched —
-see step 1 below for the exact resolution.
+This skill's part is small. Its **claim** is the caller-supplied
+numbers — a caller of `/pr-link-issue` always has the issues in hand,
+so there is nothing to look up. It hands that claim to
+`/git-tools:git-issues-from-branch` alongside the PR's head branch,
+and acts on what comes back. It never parses a branch name and never
+re-derives the resolution. That skill reads
+`issue-branch-naming-prefix` from repo-config internally; this one
+reads no config of its own.
 
 ## Execution
 
@@ -78,44 +72,32 @@ see step 1 below for the exact resolution.
    gh pr view <PR> --json number,headRefName,body
    ```
 
-   Invoke `/git-tools:git-issues-from-branch <headRefName>` per "Own
-   issue set only" and call what it reports `B`. Take the
-   caller-supplied numbers as `C`. The set to ensure is:
+   Invoke `/git-tools:git-issues-from-branch <headRefName>
+   <issue-number>…` — the head branch first, the caller-supplied
+   numbers after it as the claim.
 
-   - `C ∩ B` — the caller's selection, restricted to the branch's set.
-   - `C ∩ B` empty and `|B| = 1` — use `B`. The branch name wins over
-     a caller-supplied number that matches nothing: this is the
-     single-issue mismatch case, and a one-member branch set leaves
-     nothing to guess about which issue was meant.
-   - `C ∩ B` empty and `|B| > 1` — **refuse**. Leave the body
-     untouched; report that no caller-supplied number is in the
-     branch's set, naming both sets, and stop. Ensuring the whole of
-     `B` here would append a closing line for every member — undoing
-     any deferral the body currently records, which is what "Own issue
-     set only" above warns against. The caller re-invokes with numbers
-     drawn from `B`.
-   - The skill reports **not a convention branch** — `B` is empty, so
-     there is no branch set to bound the caller with: use `C`.
+   - **A resolved set** is the set to ensure. Call it `<issues>`.
+   - **No safe resolution** — leave the body untouched. Report that
+     outcome with both sets exactly as the skill named them, and stop;
+     the caller re-invokes with numbers drawn from the branch's set.
 
-   Call the result `<issues>`. Note every member of `C` refused for
-   being outside `B`.
+   Note the "claimed outside the branch set" numbers it reports: those
+   never get a closing line, and the refusal is named in the
+   report-back.
 
-2. **Idempotent check, per member.** For each issue in `<issues>`,
-   scan the PR body for a closing keyword (`close`/`closes`/`closed`/
-   `fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`,
-   case-insensitive) immediately followed by a reference to that issue
-   — i.e. the keyword, optional whitespace, then `#<issue>` (or
-   `owner/repo#<issue>`, `GH-<issue>`, or the issue URL). The
-   reference must resolve to that issue exactly; a keyword aimed at a
-   *different* issue number does not satisfy the check for this one.
+2. **Idempotent check.** Invoke `/github-prs:pr-closing-issues <PR>` —
+   the one skill that reads a PR body's closing lines — and take the
+   set it reports as what the body already closes. Members of
+   `<issues>` in that set are already linked and are left alone; the
+   rest are the missing ones.
 
    - **Every member already linked** → no-op. Report `PR #<PR> already
      closes <issues>` and stop. Do not append a duplicate keyword.
 
 3. **Append the missing ones.** Append one `Closes #<issue>` line for
-   each member that failed the check in step 2 — and only those — to
-   the existing PR body (preserve the current body; add the lines
-   separated from it by a blank line) and write it back:
+   each member step 2 found missing — and only those — to the existing
+   PR body (preserve the current body; add the lines separated from it
+   by a blank line) and write it back:
 
    ```bash
    gh pr edit <PR> --body "<existing-body>
@@ -125,11 +107,11 @@ see step 1 below for the exact resolution.
    ```
 
    Preserve the existing body verbatim; only add the missing closing
-   lines. Never add a closing keyword aimed at an issue outside `B`,
-   and never write the keyword into a commit message.
+   lines. Never add a closing keyword aimed at an issue outside the
+   branch's set, and never write the keyword into a commit message.
 
 4. Report back a single line: which members were already linked and
    which had a `Closes #<issue>` line appended, naming `<PR>`, plus
-   any caller-supplied number refused for being outside `B`. If step 1
-   refused outright, the body is unchanged — report that refusal
-   instead, with both sets.
+   any caller-supplied number step 1 reported as sitting outside the
+   branch's set. If step 1 gave no safe resolution, the body is
+   unchanged — report that outcome instead, with both sets.
