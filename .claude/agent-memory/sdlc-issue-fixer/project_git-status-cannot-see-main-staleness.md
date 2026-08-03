@@ -1,6 +1,6 @@
 ---
 name: git-status-cannot-see-main-staleness
-description: git status compares against the branch's own remote ref and never against main, so only git merge-base --is-ancestor origin/main HEAD detects that a branch is behind; if a real conflict makes a rebase necessary, re-derive from the rebased tree, push with an explicit-SHA lease, and resolve MEMORY.md as a union that honors a Curate commit's deletions
+description: git status compares against the branch's own remote ref and never against main, so only git merge-base --is-ancestor origin/main HEAD detects that a branch is behind; if a real conflict makes a rebase necessary, re-derive from the rebased tree, prove it disturbed nothing with a changed-path set check (patch-id flags benign context shifts too), push with an explicit-SHA lease, and resolve MEMORY.md as a union that honors a Curate commit's deletions
 metadata:
   type: project
 ---
@@ -67,7 +67,29 @@ round 4: two "Rebuild the linux-arm64 gate binary…" commits paired
 crosswise, faking a reorder that `git log --oneline` disproved). The
 patch-id walk answers the question you actually have — "did any diff
 change?" — and on that run flagged exactly the five hand-resolved commits
-and nothing else. For agent memory, also prove the
+and nothing else.
+
+That last clause is run-specific, not a general property: `patch-id`
+hashes the diff's **context** lines too, so an *auto-merged* commit
+whose neighbourhood main happened to revise also reads `!` even though
+nobody touched it. PR #224 rebased 13 commits with 2 hand-resolved
+conflicts and the walk flagged 4 — the two extras were memory-index
+appends whose surrounding entries main had rewritten. Treat `!` as
+"look at this commit", never as "this commit changed".
+
+**The decisive check is at the path level, and it has no false
+positives:** every path where the rebased tip differs from the
+pre-rebase tip must be a path main itself changed. Two `git diff
+--name-only` runs (`<old-tip>..HEAD` and `<old-base>..origin/main`),
+sorted, then `comm -23` — an empty left column proves the branch's own
+content survived byte-identically everywhere main did not touch, which
+is exactly what the patch-id walk is groping at. Pair it with a
+`--numstat` on the overlap files: a union resolution must show `N 0`
+(additions, zero deletions) against main, since any deleted line is a
+silent revert of main's side. Both ran clean on #224 and settled in
+seconds what four `!` marks could not.
+
+For agent memory, also prove the
 final file set equals the union of both sides
 (`git ls-tree -r --name-only` on each of main, the old tip, and HEAD,
 then `comm`), and check each index in both directions — every pointer

@@ -28,6 +28,13 @@ here; delegate to the agent so the two never drift.
    `/github-prs:pr-review-submit`, carrying both verdict and body,
    exactly as it does in the `/sdlc:orchestrate` pipeline.
 
-3. **Relay the agent's verdict and findings** back to the user:
-   APPROVED / NEEDS_CHANGES / BLOCKED, plus the severity counts
-   (Critical, High, Medium, Low).
+   This path passes a bare PR number and no issue set, which is what
+   makes it the agent's **standalone** path: with no orchestrator
+   brief naming the issues, the agent takes its claim from
+   `/github-prs:pr-closing-issues <PR>` and reconciles it against the
+   branch itself. Nothing here needs to supply one.
+
+3. **Relay the agent's verdicts and findings** back to the user: the
+   overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every per-issue
+   verdict it reports (a PR may deliver a batch of several), plus the
+   severity counts (Critical, High, Medium, Low).

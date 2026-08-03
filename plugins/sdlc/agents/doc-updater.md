@@ -1,6 +1,6 @@
 ---
 name: doc-updater
-description: Updates project documentation to reflect code changes. Given a PR number, issue number, and branch name, updates CLAUDE.md, relevant README.md files, repo-level .claude/rules/ and .claude/skills/, anything under /docs, and in-code doc comments (TSDoc or the language equivalent) in files the PR touched. Invoke this after code changes are committed but before a PR is reviewed, or as a standalone task when docs are known to be stale.
+description: Updates project documentation to reflect code changes. Given a PR number, the issue number(s) it closes, and branch name, updates CLAUDE.md, relevant README.md files, repo-level .claude/rules/ and .claude/skills/, anything under /docs, and in-code doc comments (TSDoc or the language equivalent) in files the PR touched. Invoke this after code changes are committed but before a PR is reviewed, or as a standalone task when docs are known to be stale.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 model: opus
 effort: medium
@@ -40,17 +40,21 @@ you in the spawn prompt (see "Inputs" below).
 You must be given:
 
 - PR number (for the diff fetch via `/github-prs:pr-diff`)
-- Issue number (for context — the parent issue this PR is for)
+- Issue number(s) (for context — the issue set this PR closes; one
+  number for an ordinary single-issue PR, several when the PR delivers
+  a batch)
 - Branch name (`<branch-name>`) — you check this out before making changes
 
 This agent works purely from the **PR diff** (the committed code
-change) — it documents what changed, not what the issue asked for.
-It therefore does **not** read the parent issue and does not use the
+change) — it documents what changed, not what the issues asked for.
+It therefore does **not** read those issues and does not use the
 `/issue-view` skill. It does carry `Skill` in its `tools:` list and
 `github-prs:pr-diff` in its `skills:` frontmatter, but only for the
-diff fetch — never for issue context. The issue number is passed only
-as a label for the commit/PR context; the source of truth for
-documentation updates is the diff, not the issue body.
+diff fetch — never for issue context. The issue numbers are passed
+only as a label for the commit/PR context; the source of truth for
+documentation updates is the diff, not any issue body. A batch PR
+therefore needs nothing extra here: k issues produce one diff, and the
+diff is all this agent reads.
 
 Do not assume you inherit cwd, branch, or any other context from a
 parent agent. Each subagent starts fresh.

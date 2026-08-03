@@ -95,6 +95,45 @@ see [`plugin-migration-plan.md`](./plugin-migration-plan.md).
   `/A:issue-view` skill already returns, B should invoke `/A:issue-view`
   rather than reach for A's `issue.md` lib. No sharing problem to solve.
 
+### Sharing behavior (a parse, a lookup, a derivation)
+
+When the *same rule* ends up restated in several plugins because the
+sandbox blocks a shared `Read`, the duplication is the defect — a
+convention that "everyone keeps their copy in step" is a maintenance
+contract for it, not a fix. Move the **mechanism** into a skill in the
+plugin that owns the concept and have the others invoke it by its
+namespaced name (constraint 2), with a `dependencies` edge so the
+skill is present (constraint 3).
+
+Only the mechanism moves. Each consumer keeps its own **policy** about
+what to do with the result, so the extraction doesn't flatten
+deliberate per-caller differences.
+
+`git-tools:git-issues-from-branch` is the worked instance: the
+branch-name grammar is stated once, in
+`git-tools:git-branch-create` → "Branch name", and
+`git-issues-from-branch` is the one skill that parses it —
+`github-prs:pr-create`, `github-prs:pr-link-issue`, and `sdlc`'s
+`pr-reviewer` invoke `git-issues-from-branch` rather than each
+restating the rule. The same skill also applies the global
+issue-to-branch reconciliation rule in `rules/git-workflow.md`,
+because that rule is global rather than per-caller; what each consumer
+keeps is its own **action** per reported outcome, which is exactly the
+deliberate per-caller difference the extraction must not flatten.
+
+A new skill's registration surfaces are the owning plugin's
+`plugin.json` `description` and the root `README.md` roster bullet for
+that plugin. `.claude-plugin/marketplace.json` is per-plugin, not
+per-skill, so a new skill in an already-published plugin needs no entry
+there.
+
+`github-prs:pr-closing-issues` is the same pattern on the other side
+of the same question: it is the one skill that reads a PR body's
+closing lines and reports which issues the PR closes, so
+`github-prs:pr-link-issue`'s idempotency check, `sdlc`'s `pr-reviewer`
+running standalone, and `/sdlc:orchestrate`'s end-of-loop status flip
+each invoke it instead of describing the scan again.
+
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same

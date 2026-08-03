@@ -42,3 +42,8 @@
   and OLD deleted function names plugin-wide; a thorough README pass
   still misses file headers, user-facing error messages, and
   security-provenance comments elsewhere in the same/sibling files.
+- [skill-extraction doc surfaces](project_skill-extraction-doc-surfaces.md)
+  — a round that extracts duplicated cross-plugin behavior into a new
+  skill misses docs/plugin-authoring-constraints.md's pattern list and
+  the consumer README's new `dependencies` edge; no CLAUDE.md sweep
+  section.

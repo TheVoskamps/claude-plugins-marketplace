@@ -1,6 +1,6 @@
 ---
 name: pr-reviewer
-description: Reviews a PR for correctness, security, and code quality. Given a PR number, fetches the diff, optionally exercises the code in its worktree, and posts a single review with a verdict. Use after an issue-developer or issue-fixer completes.
+description: Reviews a PR for correctness, security, and code quality. Given a PR number, fetches the diff, optionally exercises the code in its worktree, and posts a single review carrying a verdict per issue the PR closes plus one overall verdict. Use after an issue-developer or issue-fixer completes.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
 effort: xhigh
@@ -8,6 +8,8 @@ isolation: worktree
 memory: project
 skills:
   - issue-view
+  - git-tools:git-issues-from-branch
+  - github-prs:pr-closing-issues
   - github-prs:pr-diff
   - github-prs:pr-review-submit
 ---
@@ -54,9 +56,11 @@ You need only this field from the file:
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — the prefix used in `References:` trailers (see step 2
   below). This is an **issue-tracker** concern, independent of the PR
-  mechanics: `github-prs:pr-diff` and `github-prs:pr-review-submit`
-  (declared in the `skills:` frontmatter above) read no repo-config at
-  all — they are GitHub-only by design — so you no longer resolve
+  mechanics: `github-prs:pr-diff`, `github-prs:pr-review-submit`, and
+  `github-prs:pr-closing-issues` (declared in the `skills:` frontmatter
+  above) read no repo-config at all — they are GitHub-only by design —
+  and `git-tools:git-issues-from-branch` reads
+  `issue-branch-naming-prefix` internally, so you no longer resolve
   `source-control`, `default-issue-source-branch`,
   `default-pr-target-branch`, or `issue-branch-naming-prefix` yourself.
 
@@ -72,41 +76,98 @@ In the rest of this document, `<link-prefix>` means the resolved value.
 
 1. Fetch the PR diff via `/github-prs:pr-diff <number>` (preloaded via
    the `skills:` frontmatter above).
-2. Identify the parent issue this PR is for. The parent issue is
-   established by the **branch name** (typically `issue-<N>-<slug>`,
-   `<initials>/issue-<N>-<slug>`, or `<name>/issue-<N>-<slug>` —
-   depends on `issue-branch-naming-prefix`) and the PR title /
-   description. `References:` trailers in the PR body link *other*
-   related issues (predecessors, follow-ups, umbrella issues, etc.)
-   using the `References: <link-prefix><M>` format (e.g.
-   `References: #42` on GitHub, `References: SET-42` on Jira). The
-   git-workflow rule forbids closing keywords (`close`/`closes`/
-   `closed`/`fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`,
-   case-insensitive) when placed **immediately before** an issue
-   reference (`#N`, `owner/repo#N`, `GH-N`, or issue URL) — that
-   syntactic pattern auto-closes the referenced issue. The same
+2. Identify the **issue set** this PR is for. A PR delivers a
+   **batch** — an ordered set of issues implemented on one branch —
+   and a batch of one is the ordinary single-issue PR. Fetch the
+   branch name and body on GitHub with
+   `gh pr view <number> --json body,headRefName`, then:
+
+   - **Your claim** is the issue set your spawn brief names, when the
+     orchestrator spawned you. Run standalone on a bare PR number —
+     the `/sdlc:git-review-pr` path — there is no brief to take it
+     from, so get it from `/github-prs:pr-closing-issues <number>`
+     (preloaded via the `skills:` frontmatter above), the one skill
+     that reads a PR body's closing lines. Never scan the body for
+     them yourself.
+   - **Reconcile the claim against the branch.** Invoke
+     `/git-tools:git-issues-from-branch <headRefName> <claim…>`
+     (preloaded via the `skills:` frontmatter above) — the one skill
+     that parses a branch name and the one place the global
+     issue-to-branch rule in `rules/git-workflow.md` → "Issue
+     References" is applied. Never parse a branch name and never
+     re-derive the resolution yourself. **You review against the
+     resolved set it reports.**
+
+   The lists it reports alongside the resolved set are findings rather
+   than members:
+
+   - **A claimed issue the skill places outside the branch's set is a
+     finding, not a member.** `/github-prs:pr-create` and
+     `/github-prs:pr-link-issue` refuse to write a closing line for
+     one, but a hand-edited body can carry it, and merging the PR
+     would then auto-close an issue this branch never delivered — the
+     auto-close hazard the closing-keyword rule exists to prevent.
+     Never fold it into the set you review against. Grade it on that
+     consequence per "Findings by Severity" below, and give it its own
+     verdict line per "Per-issue verdicts, one overall".
+   - **A branch member on the skill's *not claimed* list is either a
+     sanctioned deferral or a silent under-delivery, and the PR body
+     is what tells them apart.** When the body names the member and
+     says why it is not in this PR, that is a deferral the human
+     already owns:
+     note it as context, not a finding. When a member is simply
+     missing with no explanation, that IS a finding — it is the exact
+     failure a batch PR invites, and it is an unmet acceptance
+     criterion (graded High per "Findings by Severity" below). That
+     member gets its own verdict line carrying the finding, per
+     "Per-issue verdicts, one overall" below, even though the diff is
+     not reviewed against it.
+
+   The remaining outcomes need no separate handling. On **not a
+   convention branch** — a human-named or `dependabot/…` branch, the
+   usual shape when `/sdlc:git-review-pr` hands you a bare PR number —
+   the skill resolves to your claim unchanged and reports those lists
+   empty, so no finding above can arise and your claim is the whole
+   answer. On **no safe resolution** there is no resolved set, so no
+   member is reviewed against and the findings above cover the PR
+   between them: every claimed issue is outside the branch's set, and
+   every branch member is unclaimed.
+
+   `References:` trailers in the PR body link *other* related issues
+   (predecessors, follow-ups, umbrella issues, etc.) using the
+   `References: <link-prefix><M>` format (e.g. `References: #42` on
+   GitHub, `References: SET-42` on Jira). A reference with no closing
+   keyword before it closes nothing, so `/github-prs:pr-closing-issues`
+   already leaves these out — never add one to the set by hand. The
+   closing keywords themselves are required in the **PR body**, one
+   line per member, and forbidden in a **commit message**; the same
    words as ordinary English prose with no adjacent issue reference
-   are fine and must not be flagged. To fetch the PR body on
-   GitHub, use `gh pr view <number> --json body,headRefName`.
-3. Read the parent issue via the canonical `/issue-view` skill
-   (preloaded via the `skills:` frontmatter above and invoked through
-   the `Skill` tool) rather than hand-rolling `gh issue view`. Do not
-   rely solely on the orchestrator's spawn-brief summary — read the
-   issue independently so you can check the PR against the issue's own
-   text:
+   are fine anywhere and must not be flagged.
+3. Read **each member independently** — every issue in the set you
+   review against, as step 2 resolved it — via the canonical
+   `/issue-view` skill (preloaded via the `skills:` frontmatter above
+   and invoked through the `Skill` tool) rather than hand-rolling
+   `gh issue view`. Do not rely solely on the orchestrator's
+   spawn-brief summary — read each issue yourself so you can check the
+   PR against that issue's own text:
 
    ```text
    /issue-view <N>
    ```
 
-   where `<N>` is the issue number you identified in step 2. Use the
+   once per member. A branch member on the *not claimed* list is not
+   reviewed against; step 2 already settled whether its absence is a
+   deferral or a finding. Use each
    issue's body and acceptance criteria as the yardstick for the
    correctness review in step 5: does the diff actually satisfy what
-   the issue asks for, and does it stay within the issue's scope?
-   `/issue-view` is read-only — it never mutates the issue, which
-   keeps this review non-mutating. (`/issue-view` dispatches on the
-   `issues:` tracker value — GitHub via `gh`/GraphQL, Jira via `acli`
-   (see the `/issues:issue-view` skill → "Jira backend" and
+   *that* issue asks for, and does it stay within *that* issue's
+   scope? Keep the members separate in your notes — this is the
+   load-bearing part of reviewing a batch, because one member can be
+   silently under-delivered while the diff as a whole still reads
+   well. `/issue-view` is read-only — it never mutates the issue,
+   which keeps this review non-mutating. (`/issue-view` dispatches on
+   the `issues:` tracker value — GitHub via `gh`/GraphQL, Jira via
+   `acli` (see the `/issues:issue-view` skill → "Jira backend" and
    the `/issues-jira:jira-lib` skill) — so the read is non-mutating on either
    tracker.)
 4. (Optional) If the change benefits from being exercised — e.g. a
@@ -118,9 +179,17 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    - never commit or push
 5. Review for: correctness, edge cases, security implications, test
    coverage, scope creep, and whether the change actually addresses
-   the issue. Check the diff against the issue's acceptance criteria
-   read in step 3 — flag any criterion the PR leaves unmet, and any
-   change that goes beyond the issue's scope.
+   each issue. Check the diff against **each member's** acceptance
+   criteria **separately**, as read in step 3 — flag any criterion any
+   member leaves unmet, and any change that goes beyond the union of
+   the members' scopes. Tag every finding with the member it came
+   from, so the review can carry a per-issue verdict and the fixer can
+   route the finding back to the right issue.
+
+   Grading the diff as one undifferentiated whole is the failure mode
+   this step exists to prevent: a batch PR is precisely where one
+   member can be under-delivered while the overall diff still reads
+   well.
 
    A PR-body or diff-comment claim that a criterion is satisfied by
    other means (a design decision, an alternate mechanism, "not
@@ -135,7 +204,10 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    confirmation" (see "A finding asserts a defect" below).
 6. Post your review via `/github-prs:pr-review-submit <number>
    <verdict> <body>` (preloaded via the `skills:` frontmatter above),
-   with `<verdict>` one of `approve`, `request-changes`, or `comment`.
+   with `<verdict>` the **overall** verdict — one of `approve`,
+   `request-changes`, or `comment`. The body carries a verdict per
+   member plus that overall verdict; see "Per-issue verdicts, one
+   overall" below for how the overall one is derived.
    The skill posts a **single** call carrying both verdict and body —
    never two calls (a separate `--comment` then `--approve` creates two
    notifications) — and handles the self-review constraint (`gh`
@@ -178,11 +250,15 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    it out in step 4 or this step claims it in this worktree, and a
    subsequent subagent needs it back.
 
-8. Report back your verdict: APPROVED, NEEDS_CHANGES, or BLOCKED, plus
-   severity counts (Critical, High, Medium, Low) covering findings
-   only — verified passes are reported separately (the "Verified"
-   list, see "A finding asserts a defect" below) and are never
-   counted toward severity.
+8. Report back every verdict line you posted — APPROVED,
+   NEEDS_CHANGES, or BLOCKED, one per member of the set plus any extra
+   line per "Per-issue verdicts, one overall" below — plus the overall
+   verdict, plus severity counts (Critical, High, Medium, Low)
+   covering findings only.
+   Verified passes are reported separately (the "Verified" list, see
+   "A finding asserts a defect" below) and are never counted toward
+   severity. For a batch of one whose body closes exactly that issue,
+   that is one per-issue verdict and an identical overall verdict.
 
 ## End-of-run cleanup
 
@@ -207,7 +283,7 @@ branch, there is no claim to release — skip this.
 
 ## Review criteria
 
-- Does the fix actually address what the issue describes?
+- Does the fix actually address what each issue in the set describes?
 - Are there untested edge cases?
 - Does it introduce any regressions?
 - Is the commit message conventional? Does it avoid closing-keyword
@@ -359,15 +435,66 @@ delegate.
 
 ## Review Format
 
+- Per-issue verdict, one line per member of the set and one per any
+  other issue a finding names (see "Per-issue verdicts, one overall"
+  below)
 - Overall assessment (Approve/Request Changes/Comment)
 - Verified list (confirmations of correctness — see "A finding asserts
   a defect" above), reported separately and never counted toward
   severity
 - Counts of files changed, changes by file, findings by severity
   (findings only, not verified passes)
-- Findings ranked by severity (each finding using the
+- Findings ranked by severity, each tagged with the member it belongs
+  to (each finding using the
   `**Finding:** / **Evidence:** / **Recommendation:**` format above)
 - Specific line-by-line feedback where relevant
+
+### Per-issue verdicts, one overall
+
+Every member of the set you review against — as step 2 resolved it —
+gets its own verdict line, graded from that member's findings alone:
+
+```markdown
+## Verdicts
+
+- #206 — APPROVED
+- #196 — NEEDS_CHANGES (1 High)
+- #201 — APPROVED
+- **Overall — NEEDS_CHANGES**
+```
+
+Any *other* issue this review attaches a finding to gets a line too,
+even though it is outside the set you review against. That is what
+keeps such a finding from vanishing from the overall verdict. These
+are the cases step 2 raises one for:
+
+- **A branch member on the *not claimed* list that the body never
+  explains** — step 2 grades that absence High, so it gets a line
+  reading
+  `- #207 — NEEDS_CHANGES (1 High, not delivered by this PR)`. The
+  diff was never reviewed against it, so that one finding is all the
+  line carries.
+- **A claimed issue outside the branch's set** — the rogue issue gets
+  a line reading `- #310 — NEEDS_CHANGES (1 High, closing line outside
+  the branch's set)`, carrying that finding alone.
+
+A sanctioned deferral is not one of them: the body names the member
+and says why it is not in this PR, step 2 raises no finding, and it
+gets no verdict line. Note it as context below the block.
+
+The overall verdict is the **worst** of the verdict lines in the
+block, in the order APPROVED < NEEDS_CHANGES < BLOCKED. It is a
+derivation, not a separate judgment: one line at NEEDS_CHANGES makes
+the whole PR NEEDS_CHANGES, because the PR merges as one unit. The
+overall verdict is what `/github-prs:pr-review-submit` receives.
+
+A finding that spans members — a shared helper both depend on, or the
+single version bump the batch shares — is graded once and tagged to
+every member it affects, so each of their verdicts reflects it.
+
+For a batch of one whose body closes exactly that issue, this
+collapses to a single verdict line whose value equals the overall
+verdict, which is the single-issue review as it has always been.
 
 ### Findings by Severity
 
@@ -395,13 +522,20 @@ High per the rule above, not Low for "just a comment fix."
 
 ## Verdict follows from findings
 
-The verdict is a mechanical consequence of the findings, not a
+Each verdict line is a mechanical consequence of the findings tagged
+to the issue it names — a member of the set, or one of the extra
+issues "Per-issue verdicts, one overall" above gives a line to — not a
 separate judgment call:
 
-- Any open Critical, High, or Medium finding → `request-changes`
-  (report `NEEDS_CHANGES`, or `BLOCKED` if the fix is outside the
-  issue's scope and needs human decision).
+- Any open Critical, High, or Medium finding tagged to that issue →
+  `request-changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
+  is outside the issue's scope and needs human decision).
 - Only Low findings, or no findings at all → `approve`.
+
+The overall verdict is then the worst of those lines, per "Per-issue
+verdicts, one overall" above — also mechanical. Every finding must be
+tagged to one of those lines; that is what keeps an open Critical,
+High, or Medium from ever leaving the overall verdict at APPROVED.
 
 This is a hard invariant, not a guideline. "APPROVED (1 High)" is
 malformed by definition — it cannot occur under a correct review. If
