@@ -900,6 +900,28 @@ if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
   run_mp_policy '{"marketplaces":[{"name":"mp","url":"/mnt/repo"}],"bake":[]}' 1
   assert_eq "mp-policy: an origin-less manifest entry defaults to the strict policy" \
     "1" "$?"
+
+  # An entry with NO url. Its record is name<TAB><TAB>origin, an EMPTY MIDDLE
+  # field -- which a tab-IFS `read -r a b c` silently swallows, because a tab is
+  # IFS whitespace and a run of them collapses to one separator. That misread
+  # the origin as the url, left the origin empty, and so applied the strict
+  # policy to a boot-declared entry: the no-url boot branch was unreachable and
+  # the build aborted, which is the very failure #226 exists to prevent. Both
+  # halves are asserted, so a regression cannot hide behind the bake case.
+  MP_BOOT_NO_URL='{"marketplaces":[{"name":"mp","url":"","origin":"boot"}],"bake":[]}'
+  MP_BAKE_NO_URL='{"marketplaces":[{"name":"mp","url":"","origin":"bake"}],"bake":[]}'
+  run_mp_policy "$MP_BOOT_NO_URL" 0
+  assert_eq "mp-policy: a boot-declared entry with no url skips instead of aborting" \
+    "0" "$?"
+  assert_contains "mp-policy: ... and says so, rather than trying to add its origin as a url" \
+    "$MP_POLICY_DIR/err.log" "has no url to pre-register it from"
+  assert_not_contains "mp-policy: ... and never treats 'boot' as the url" \
+    "$MP_POLICY_DIR/err.log" "adding marketplace 'mp' from boot"
+  run_mp_policy "$MP_BAKE_NO_URL" 0
+  assert_eq "mp-policy: a bake-declared entry with no url still aborts" \
+    "1" "$?"
+  assert_contains "mp-policy: ... with the cannot-register message" \
+    "$MP_POLICY_DIR/err.log" "has no url; cannot register it in the image"
 else
   FAIL=$((FAIL + 1)); echo "FAIL - mp-policy: could not slice the marketplace loop out of build-in-container.sh"
 fi

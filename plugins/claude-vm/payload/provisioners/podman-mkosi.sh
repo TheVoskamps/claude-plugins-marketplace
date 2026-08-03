@@ -1144,7 +1144,21 @@ for m in d.get("marketplaces",[]):
     print("\t".join([m.get("name","") or "", m.get("url","") or "",
                      m.get("origin","") or "bake"]))
 ' > /work/recipe/.bake-marketplaces.tsv
-  while IFS=\$'\t' read -r mp_name mp_url mp_origin; do
+  # Split each record BY HAND rather than with 'IFS=<tab> read -r a b c'. A tab
+  # is an IFS WHITESPACE character, so read collapses a RUN of tabs into one
+  # separator: on the perfectly ordinary record for an entry with no url,
+  # name<TAB><TAB>origin, the empty MIDDLE field vanishes and the origin is read
+  # as the url, leaving the origin empty and defaulting it to the strict policy.
+  # The no-url boot branch just below would then be unreachable and such an
+  # entry would abort the build -- the exact failure issue #226 exists to stop.
+  # The emitter above always writes both separators, so the three expansions
+  # below are total.
+  MP_TAB=\$'\t'
+  while IFS= read -r mp_record; do
+    mp_name=\${mp_record%%\$MP_TAB*}
+    mp_rest=\${mp_record#*\$MP_TAB}
+    mp_url=\${mp_rest%%\$MP_TAB*}
+    mp_origin=\${mp_rest#*\$MP_TAB}
     [ -n "\$mp_name" ] || continue
     [ -n "\$mp_origin" ] || mp_origin=bake
     if [ -z "\$mp_url" ]; then
@@ -1218,17 +1232,22 @@ for p in d.get("bake",[]):
   # into the rootfs after package installation, which is fine here -- plugins
   # need no package manager.
   #
-  # BAKED_ITEMS == 0 is the one legitimate nothing-to-copy outcome (issue #226):
-  # there were no claude.plugins.bake refs and every configured marketplace was
-  # boot-declared and unreachable from this container, so the CLI was never
-  # asked for anything it could deliver. The guest adds those marketplaces at
-  # boot. EVERY other build carries at least one hard requirement that must
-  # have succeeded to reach this line, so a missing tree there still means the
-  # CLI produced nothing and the build aborts, exactly as before.
+  # BAKED_ITEMS == 0 is the one legitimate reason to ship no baked plugin tree
+  # (issue #226): there were no claude.plugins.bake refs, and every configured
+  # marketplace was boot-declared and left to the guest. Several paths above
+  # reach that, and each logs its own reason against the entry it happened to,
+  # so nothing here names a cause -- restating one would go stale the moment a
+  # path is added, and would be wrong for the other paths today. The invariant
+  # this branch rests on is only that a boot-declared entry is the sole kind
+  # that may be skipped without aborting. The guest adds those marketplaces at
+  # boot. EVERY other build carries at least one hard requirement that must have
+  # succeeded to reach this line, so a missing tree there still means the CLI
+  # produced nothing and the build aborts, exactly as before.
   if [ "\$BAKED_ITEMS" -eq 0 ]; then
-    echo "podman-mkosi(inner): nothing was pre-registered at bake time -- no plugin is baked and every" >&2
-    echo "podman-mkosi(inner): configured marketplace is boot-declared and unreachable from this build" >&2
-    echo "podman-mkosi(inner): container. Shipping no baked plugin tree; the guest adds them at boot." >&2
+    echo "podman-mkosi(inner): nothing was pre-registered at bake time -- no plugin is baked, and every" >&2
+    echo "podman-mkosi(inner): configured marketplace is boot-declared and was left to the guest; the" >&2
+    echo "podman-mkosi(inner): message logged against each one above gives its reason. Shipping no baked" >&2
+    echo "podman-mkosi(inner): plugin tree; the guest adds them at boot." >&2
   else
     if [ ! -d /root/.claude/plugins ]; then
       echo "podman-mkosi(inner): expected /root/.claude/plugins after the plugin installs, but it does not exist." >&2

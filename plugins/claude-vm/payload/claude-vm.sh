@@ -1219,9 +1219,9 @@ claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sour
 #                              boot-declared ones best-effort (issue #226), so
 #                              at boot the launcher only ADDS what the image
 #                              turns out not to carry -- a boot-declared
-#                              marketplace the build could not reach, which is
-#                              also why a boot-only marketplace still needs
-#                              egress.
+#                              marketplace the build did not pre-register, for
+#                              whichever reason the build logged, which is also
+#                              why a boot-only marketplace still needs egress.
 #   plugin-install.list     -- one `plugin@marketplace` ref per line, from the
 #                              BOOT document's claude.plugins.install_at_boot.
 #                              The BAKE document's claude.plugins.bake is NOT
