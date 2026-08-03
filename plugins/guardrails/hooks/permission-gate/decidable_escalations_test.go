@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -511,25 +512,16 @@ func TestProcSubstDescentIsExhaustive_225(t *testing.T) {
 		// reached through the outer one's own statements.
 		{`cat <(cat <(` + marker + `))`, 1},
 		{`cat <(` + marker + `) <(` + marker + `)`, 2},
-		// The documented exception. An argv-position command substitution's body
-		// is not descended into at all (descendCmdSubsts is wired only to a
-		// declaration clause's RHS), so a substitution nested inside one is not
-		// graded. That is the command-substitution class, not this one, and it is
-		// not an allow-track hole: the non-anchor `$(…)` leaves its word inexact,
-		// so the line DEFERS rather than allowing — asserted below.
-		{`echo "$(cat <(` + marker + `))"`, 0},
+		// Cross-class nesting. A process substitution inside a COMMAND
+		// substitution's body is reached because descendCmdSubsts walks that body's
+		// statements through walkStmt, which runs this descent on each of them.
+		// This row wanted 0 while descendCmdSubsts was wired only to a declaration
+		// clause's RHS.
+		{`echo "$(cat <(` + marker + `))"`, 1},
+		{`x=$(cat <(` + marker + `))`, 1},
 	} {
 		file := mustParse(t, tc.src)
-		nodes := 0
-		syntax.Walk(file, func(n syntax.Node) bool {
-			if n == nil {
-				return false
-			}
-			if _, ok := n.(*syntax.ProcSubst); ok {
-				nodes++
-			}
-			return true
-		})
+		nodes := countProcSubstNodes(file)
 		if nodes == 0 {
 			t.Errorf("%q: the corpus row must contain a ProcSubst node to be worth anything", tc.src)
 		}
@@ -537,23 +529,406 @@ func TestProcSubstDescentIsExhaustive_225(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: extract failed: %v", tc.src, err)
 		}
-		graded := 0
-		for _, sc := range cmds {
-			if len(sc.args) > 0 && sc.args[0] == marker {
-				graded++
-			}
-		}
-		if graded != tc.wantGraded {
+		if graded := countGraded(cmds, marker); graded != tc.wantGraded {
 			t.Errorf("%q: %d substituted command(s) graded, want %d (parser reports %d ProcSubst node(s))",
 				tc.src, graded, tc.wantGraded, nodes)
 		}
 	}
 
-	// The exception's containing line must still be unable to allow, which is
-	// what keeps it out of this class.
+	// A line carrying an unrecognized substituted command must not ride the allow
+	// track, whichever class the substitution belongs to.
 	ev := bashEvIn(t, canonicalize(t.TempDir()), "issue-developer")
-	if got := classifyBash(`echo "$(cat <(`+marker+`))"`, ev).Bucket; got == BucketAllow {
-		t.Errorf("an argv command substitution must not ride the allow track; got %v", got)
+	for _, src := range []string{
+		`echo "$(cat <(` + marker + `))"`,
+		`cat <(echo "$(` + marker + `)")`,
+	} {
+		if got := classifyBash(src, ev).Bucket; got == BucketAllow {
+			t.Errorf("%q: a nested substitution must not ride the allow track; got %v", src, got)
+		}
+	}
+}
+
+// --- 5b. command substitution ---------------------------------------------------
+
+// TestCmdSubstGradedInEveryWordPosition_225 is the command-substitution half of
+// TestProcSubstGradedInEveryWordPosition_225, and it closes a hole that pre-dates
+// this branch (every escaping row below ALLOWs at #225's merge base).
+//
+// A non-anchor `$(…)` leaves its word INEXACT, and that half-covers the class:
+// inexactness stops the allow track only where the inexact word rides a command
+// the walk emits. The positions below emit no command of their own — a
+// `for`/`select` item list, a `case` subject or pattern, an inline `VAR=… cmd`
+// prefix, an array element, a `[[ … ]]` operand, a bare or declared assignment
+// RHS — so nothing carried the inexactness forward and the line allowed on its
+// remaining parts while bash ran an arbitrary substituted command.
+func TestCmdSubstGradedInEveryWordPosition_225(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	ev := bashEvIn(t, root, "issue-developer")
+
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	esc := filepath.Join(canonicalize(sibling), ".env")
+
+	// Each row spells one position three ways: with an ESCAPING inner read, which
+	// must DENY on the inner command's own terms; with a BENIGN one; and with NO
+	// substitution at all. The last two must agree — that is what says the descent
+	// classifies rather than blanket-escalating.
+	//
+	// Rows whose substitution-free control runs no command at all (`export y=a`,
+	// `x=a`, `[[ -e a ]]`, a function declaration) carry a trailing `; echo x` in
+	// all three spellings, so the control has an allow of its own to earn and the
+	// comparison is about the substitution rather than about an empty line.
+	for _, tc := range []struct{ name, escaping, benign, noSubst string }{
+		{
+			"for-item list",
+			`for f in $(cat ` + esc + `); do echo x; done`,
+			`for f in $(echo hi); do echo x; done`,
+			`for f in a; do echo x; done`,
+		},
+		{
+			"select-item list",
+			`select f in $(cat ` + esc + `); do echo x; done`,
+			`select f in $(echo hi); do echo x; done`,
+			`select f in a; do echo x; done`,
+		},
+		{
+			"case subject word",
+			`case $(cat ` + esc + `) in a) echo x;; esac`,
+			`case $(echo hi) in a) echo x;; esac`,
+			`case a in a) echo x;; esac`,
+		},
+		{
+			"case pattern",
+			`case x in $(cat ` + esc + `)) echo x;; esac`,
+			`case x in $(echo hi)) echo x;; esac`,
+			`case x in a) echo x;; esac`,
+		},
+		{
+			// The prefix lives on the CallExpr's Assigns, not its Args, so
+			// reduceCallExpr never even calls literalWord on it — the inexactness
+			// this position could have inherited was never recorded in the first
+			// place.
+			"inline environment prefix",
+			`FOO=$(cat ` + esc + `) echo hi`,
+			`FOO=$(echo hi) echo hi`,
+			`FOO=a echo hi`,
+		},
+		{
+			"array assignment element",
+			`arr=( $(cat ` + esc + `) ); echo x`,
+			`arr=( $(echo hi) ); echo x`,
+			`arr=( a ); echo x`,
+		},
+		{
+			"declaration clause array element",
+			`declare -a A=( $(cat ` + esc + `) ); echo x`,
+			`declare -a A=( $(echo hi) ); echo x`,
+			`declare -a A=( a ); echo x`,
+		},
+		{
+			"test clause operand",
+			`[[ -e $(cat ` + esc + `) ]] && echo x`,
+			`[[ -e $(echo hi) ]] && echo x`,
+			`[[ -e a ]] && echo x`,
+		},
+		{
+			"bare assignment RHS",
+			`x=$(cat ` + esc + `); echo x`,
+			`x=$(echo hi); echo x`,
+			`x=a; echo x`,
+		},
+		{
+			"declaration clause RHS",
+			`export y=$(cat ` + esc + `); echo x`,
+			`export y=$(echo hi); echo x`,
+			`export y=a; echo x`,
+		},
+		{
+			"local declaration inside a function body",
+			`f() { local d=$(cat ` + esc + `); }; echo x`,
+			`f() { local d=$(echo hi); }; echo x`,
+			`f() { local d=a; }; echo x`,
+		},
+		{
+			// bash expands `$(…)` in an UNQUOTED here-document body and the parser
+			// reports the node there; the quoted `<<'EOF'` spelling is covered by
+			// the exhaustiveness test's own row.
+			"unquoted here-document body",
+			"cat <<EOF\n$(cat " + esc + ")\nEOF\n",
+			"cat <<EOF\n$(echo hi)\nEOF\n",
+			"cat <<EOF\na\nEOF\n",
+		},
+		{
+			// A parameter expansion's word. This is the position the sibling
+			// process-substitution class cannot reach at all (the parser reports no
+			// ProcSubst node inside a ParamExp); for `$(…)` the node IS reported, so
+			// the same traversal grades it. bash runs it in both the quoted and the
+			// unquoted spelling when the parameter is unset.
+			"parameter expansion default word",
+			`for f in ${Q:-$(cat ` + esc + `)}; do echo x; done`,
+			`for f in ${Q:-$(echo hi)}; do echo x; done`,
+			`for f in ${Q:-a}; do echo x; done`,
+		},
+		{
+			// The backtick spelling parses to the same *syntax.CmdSubst node, so it
+			// needs no case of its own in the walk — only a row here saying so.
+			"backtick spelling, argv position",
+			"echo `cat " + esc + "`",
+			"echo `echo hi`",
+			"echo a",
+		},
+	} {
+		wantBucket(t, classifyBash(tc.escaping, ev), BucketDeny, "escaping read in "+tc.name)
+		want := classifyBash(tc.noSubst, ev).Bucket
+		if want == BucketDeny || want == BucketAsk {
+			t.Fatalf("%s: the substitution-free control must not already escalate; got %v", tc.name, want)
+		}
+		if tc.name == "backtick spelling, argv position" {
+			// The one row whose benign form legitimately diverges from its control:
+			// an argv-position substitution leaves `echo`'s own word inexact, so the
+			// line cannot ride the allow track however benign the inner command is.
+			// That is the pre-existing inexactness behavior, not the descent's.
+			wantBucket(t, classifyBash(tc.benign, ev), BucketDefer, "benign substitution in "+tc.name)
+			continue
+		}
+		wantBucket(t, classifyBash(tc.benign, ev), want, "benign substitution in "+tc.name)
+	}
+
+	// A substitution runs in a CHILD shell, so an assignment or a `cd` inside one
+	// must not leak into the enclosing program's resolution state — the descent
+	// walks it at scopeDepth+1, exactly as a `( … )` subshell is walked. Without
+	// that, `$P` below would resolve to the sibling repo and the read would be
+	// graded against a path bash never builds.
+	for _, cmd := range []string{
+		`x=$(P=` + filepath.Dir(esc) + `; echo hi); cat "$P/.env"`,
+		`x=$(cd ` + filepath.Dir(esc) + `; echo hi); cat .env`,
+	} {
+		if got := classifyBash(cmd, ev).Bucket; got == BucketAllow {
+			t.Errorf("a substituted subshell's state must not leak; %q allowed", cmd)
+		}
+	}
+}
+
+// TestCmdSubstDescentIsExhaustive_225 is the count-equality guard for the
+// command-substitution class, mirroring TestProcSubstDescentIsExhaustive_225:
+// for every shape, the number of substituted commands the walk GRADES equals the
+// number of CmdSubst nodes the PARSER reports. Hand-enumerating word positions is
+// what failed to converge on this issue, so the invariant is asserted directly
+// rather than as a list of positions someone has to keep complete.
+func TestCmdSubstDescentIsExhaustive_225(t *testing.T) {
+	// `marker` is not a real program; it only has to arrive at the walk's output
+	// as args[0] of its own simple command.
+	const marker = "zz-substituted-marker"
+
+	for _, tc := range []struct {
+		src string
+		// wantGraded is the number of substituted commands that must be graded,
+		// always the parser's CmdSubst-node count here. The one class of exception
+		// — an allowlisted anchor — is asserted separately below, because it needs
+		// a resolved repoContext to be an anchor at all.
+		wantGraded int
+	}{
+		{`echo $(` + marker + `)`, 1},
+		{`echo "$(` + marker + `)"`, 1},
+		{"echo `" + marker + "`", 1},
+		{`echo pre$(` + marker + `)post`, 1},
+		{`for f in $(` + marker + `); do :; done`, 1},
+		{`for f in a $(` + marker + `) b; do :; done`, 1},
+		{`select f in $(` + marker + `); do break; done`, 1},
+		{`case $(` + marker + `) in *) :;; esac`, 1},
+		{`case x in $(` + marker + `)) :;; esac`, 1},
+		{`case x in y|$(` + marker + `)) :;; esac`, 1},
+		{`x=$(` + marker + `)`, 1},
+		{`arr=( $(` + marker + `) )`, 1},
+		{`FOO=$(` + marker + `) true`, 1},
+		{`export y=$(` + marker + `)`, 1},
+		{`declare -a A=( $(` + marker + `) )`, 1},
+		{`f() { local z=$(` + marker + `); :; }`, 1},
+		{`[[ -e $(` + marker + `) ]]`, 1},
+		{`true > $(` + marker + `)`, 1},
+		{`true < $(` + marker + `)`, 1},
+		{`(( 1 )) < $(` + marker + `)`, 1},
+		{`cat <<< $(` + marker + `)`, 1},
+		{"cat <<EOF\n$(" + marker + ")\nEOF\n", 1},
+		{`: ${Q:-$(` + marker + `)}`, 1},
+		{`: "${Q:-$(` + marker + `)}"`, 1},
+		{`cd $(` + marker + `)`, 1},
+		{`coproc C { cat $(` + marker + `); }`, 1},
+		{`time cat $(` + marker + `)`, 1},
+		{`while cat $(` + marker + `); do break; done`, 1},
+		{`until cat $(` + marker + `); do break; done`, 1},
+		{`if true; then :; else cat $(` + marker + `); fi`, 1},
+		{`for f in a; do cat $(` + marker + `); done`, 1},
+		{`{ cat; } < $(` + marker + `)`, 1},
+		{`( cat $(` + marker + `) )`, 1},
+		{`cat $(` + marker + `) &`, 1},
+		// Nesting: each substitution is graded exactly once, and the inner one is
+		// reached through the outer one's own statements.
+		{`echo $(` + marker + `-a $(` + marker + `-b))`, 2},
+		{`cat $(` + marker + `) $(` + marker + `)`, 2},
+	} {
+		file := mustParse(t, tc.src)
+		nodes := countCmdSubstNodes(file)
+		if nodes == 0 {
+			t.Errorf("%q: the corpus row must contain a CmdSubst node to be worth anything", tc.src)
+		}
+		cmds, err := extractSimpleCommands(file, t.TempDir(), defaultVarResolver(), nil)
+		if err != nil {
+			t.Fatalf("%q: extract failed: %v", tc.src, err)
+		}
+		if graded := countGraded(cmds, marker); graded != tc.wantGraded {
+			t.Errorf("%q: %d substituted command(s) graded, want %d (parser reports %d CmdSubst node(s))",
+				tc.src, graded, tc.wantGraded, nodes)
+		}
+	}
+
+	// The two spellings bash does NOT expand. Neither needs a case in the walk,
+	// because the parser reports no CmdSubst node for either — measured here so a
+	// future upstream change that starts reporting one fails loudly instead of
+	// silently widening what gets graded.
+	for _, src := range []string{
+		`echo '$(` + marker + `)'`,
+		"cat <<'EOF'\n$(" + marker + ")\nEOF\n",
+	} {
+		file := mustParse(t, src)
+		if nodes := countCmdSubstNodes(file); nodes != 0 {
+			t.Errorf("%q: parser now reports %d CmdSubst node(s); bash does not expand this spelling", src, nodes)
+		}
+	}
+}
+
+// countCmdSubstNodes returns how many *syntax.CmdSubst nodes the parser reports
+// beneath n. Both spellings — `$(cmd)` and the backtick “ `cmd` “ — are one
+// such node each.
+func countCmdSubstNodes(n syntax.Node) int {
+	count := 0
+	syntax.Walk(n, func(node syntax.Node) bool {
+		if node == nil {
+			return false
+		}
+		if _, ok := node.(*syntax.CmdSubst); ok {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+// countProcSubstNodes is countCmdSubstNodes for the sibling class.
+func countProcSubstNodes(n syntax.Node) int {
+	count := 0
+	syntax.Walk(n, func(node syntax.Node) bool {
+		if node == nil {
+			return false
+		}
+		if _, ok := node.(*syntax.ProcSubst); ok {
+			count++
+		}
+		return true
+	})
+	return count
+}
+
+// countGraded returns how many of the walk's emitted commands are a marker
+// program, i.e. how many substituted commands the descent actually graded. The
+// match is on a PREFIX so a nested corpus row can distinguish its two levels
+// (`$(marker-a $(marker-b))`) while still counting both.
+func countGraded(cmds []simpleCommand, marker string) int {
+	graded := 0
+	for _, sc := range cmds {
+		if len(sc.args) > 0 && strings.HasPrefix(sc.args[0], marker) {
+			graded++
+		}
+	}
+	return graded
+}
+
+// TestAnchorCmdSubstIsNotDescendedInto_225 pins the descent's one deliberate
+// exception, on both axes.
+//
+// STRUCTURAL: an allowlisted anchor substitution is skipped, so its CmdSubst node
+// is reported by the parser and graded by nobody. That is sound because
+// resolveAnchorCmdSubst admits only a single plain CallExpr whose argv equals one
+// of three read-only forms EXACTLY — the command is already known in full, and
+// the value it resolves to still runs through normal containment.
+//
+// BEHAVIORAL: grading them instead would regress #132's own idiom. Measured by
+// deleting the skip and re-running this test, the two git anchors grade as ALLOW
+// and cost nothing, but bare `pwd` earns no high-confidence allow of its own, so
+// descending into `$(pwd)` turns `cat "$(pwd)/a.txt"`, `case "$(pwd)" in …` and
+// `FOO=$(pwd) echo hi` from allows into prompts. The skip is applied uniformly
+// across the allowlist anyway — one rule rots less than three — so the structural
+// half below covers all three forms.
+func TestAnchorCmdSubstIsNotDescendedInto_225(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ev := bashEvIn(t, root, "issue-developer")
+
+	rc, err := resolveRepoContext(root)
+	if err != nil {
+		t.Fatalf("resolveRepoContext: %v", err)
+	}
+
+	// Structural: the node is there, the descent emits nothing for it. `pwd` is
+	// the row that would otherwise cost an allow; the two git forms are included
+	// so a future edit cannot quietly narrow the exception to one anchor.
+	for _, src := range []string{
+		`cat "$(git rev-parse --show-toplevel)/a.txt"`,
+		`cat "$(git rev-parse --git-common-dir)/config"`,
+		`cat "$(pwd)/a.txt"`,
+		`for f in "$(pwd)/a.txt"; do cat "$f"; done`,
+		`case "$(pwd)" in *) echo x;; esac`,
+		`FOO=$(pwd) echo hi`,
+	} {
+		file := mustParse(t, src)
+		if nodes := countCmdSubstNodes(file); nodes != 1 {
+			t.Fatalf("%q: want exactly 1 CmdSubst node, got %d", src, nodes)
+		}
+		cmds, err := extractSimpleCommands(file, root, defaultVarResolver(), rc)
+		if err != nil {
+			t.Fatalf("%q: extract failed: %v", src, err)
+		}
+		for _, sc := range cmds {
+			if len(sc.args) > 0 && (sc.args[0] == "pwd" || sc.args[0] == "git") {
+				t.Errorf("%q: an anchor substitution was descended into (emitted %v)", src, sc.args)
+			}
+		}
+	}
+
+	// Behavioral: the anchors keep resolving to an ALLOW in every word position.
+	for _, src := range []string{
+		`cat "$(git rev-parse --show-toplevel)/a.txt"`,
+		`cat "$(pwd)/a.txt"`,
+		`R=$(git rev-parse --show-toplevel); cat "$R/a.txt"`,
+		`R="$(git rev-parse --show-toplevel)"; cat "$R/a.txt"`,
+		`export R=$(git rev-parse --show-toplevel); cat "$R/a.txt"`,
+		`for f in "$(git rev-parse --show-toplevel)/a.txt"; do cat "$f"; done`,
+		`arr=( "$(git rev-parse --show-toplevel)/a.txt" ); echo x`,
+		`[[ -f "$(git rev-parse --show-toplevel)/a.txt" ]] && echo x`,
+		`case "$(pwd)" in *) echo x;; esac`,
+		`FOO=$(pwd) echo hi`,
+	} {
+		wantBucket(t, classifyBash(src, ev), BucketAllow, "anchor keeps allowing: "+src)
+	}
+
+	// An anchor that cannot RESOLVE is not an anchor here either: with no
+	// repoContext, `$(git rev-parse --show-toplevel)` is an ordinary substitution
+	// and the descent grades it like any other.
+	file := mustParse(t, `cat "$(git rev-parse --show-toplevel)/a.txt"`)
+	cmds, err := extractSimpleCommands(file, root, defaultVarResolver(), nil)
+	if err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+	if countGraded(cmds, "git") != 1 {
+		t.Errorf("an UNRESOLVABLE anchor must be graded like any other substitution; emitted %v", cmds)
 	}
 }
 

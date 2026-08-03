@@ -16,11 +16,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `forbidden_forms.go`, `engine_a_mcp.go`): parses the Bash command to an AST
   (`mvdan.cc/sh/v3`) and classifies each simple command; branches on
   MCP tool names. A command substitution `$(…)` outside the anchor
-  allowlist, and an **output** process substitution `>(…)`, are
-  classified conservatively (the word is marked inexact, which keeps it
-  off the allow track wherever it belongs to a command the walk emits —
-  see the non-emitting word positions below) rather than crashing; an
-  earlier nil
+  allowlist, and an **output** process substitution `>(…)`, mark the
+  word inexact rather than crashing; an earlier nil
   `ProcSubst` expander panicked on `<(…)` (#5). An **input** process
   substitution `<(…)` is treated as what bash actually passes — a
   `/dev/fd/N` pipe, never a filesystem path (#225). It no longer marks
@@ -53,30 +50,56 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   pipe is set up during word expansion, which precedes the command; and
   it is walked in a CHILD scope, so an assignment or `cd` inside a
   substitution does not leak into the enclosing program's resolution
-  state, as in a `( … )` subshell. One position where bash does run the
-  command is invisible here because `mvdan.cc/sh` reports no `ProcSubst`
-  node for it at all: a parameter expansion's word, unquoted
-  (`: ${Q:-<(cmd)}` runs it, `: "${Q:-<(cmd)}"` does not). A here-document
-  body is not a substitution position at all: bash expands `$(…)` there
-  and takes `<(…)` literally.
-  Inexactness is what covers the constructs this descent does not
-  reach — that unquoted parameter expansion, and a command substitution's
-  body anywhere other than a declaration clause's assignment RHS, the one
-  position `descendCmdSubsts` is wired to — but it covers them **only in a
-  word position that emits a command**. `echo "$(cat ../sibling-repo/.env)"`,
-  `x=$(…)` and `[[ -f $(…) ]]` all defer, because the inexact word rides a
-  command the walk emits and that command cannot then be proven safe. A
-  `for`/`select` item list, a `case` subject word or pattern, and a
-  `VAR=… cmd` prefix emit no command of their own, so nothing carries the
-  inexactness and the line allows on its remaining parts:
-  `for f in $(cat ../sibling-repo/.env); do echo x; done`,
-  `case $(…) in`, `FOO=$(…) echo hi` and
-  `for f in ${Q:-<(cat ../sibling-repo/.env)}; do echo x; done` all ALLOW
-  while bash runs the substituted command. That is not specific to
-  substitutions — `for f in ${UNSET}x` allows on the same mechanism — and
-  it is unchanged by #225: each of those rows allows identically at this
-  branch's merge base. What #225 closed is the `<(…)` half, where the word
-  is exact by construction and so could never have been caught this way.
+  state, as in a `( … )` subshell.
+  Command substitutions are graded by the same traversal, over the same
+  nodes: `descendCmdSubsts` finds every `*syntax.CmdSubst` — the `$(…)`
+  spelling and the backtick `` `cmd` `` alike — with `syntax.Walk` and grades
+  its statements as ordinary commands. That closes a hole older than #225. A
+  non-anchor `$(…)` does mark its word inexact, but inexactness stops the
+  allow track **only in a word position that emits a command**: a
+  `for`/`select` item list, a `case` subject word or pattern, an inline
+  `VAR=… cmd` prefix, an array element, a `[[ … ]]` operand and an assignment
+  RHS emit no command of their own, so nothing carried the inexactness
+  forward and the line allowed on its remaining parts. Measured at this
+  branch's merge base,
+  `for f in $(cat ../sibling-repo/.env); do echo x; done`, `case $(…) in`,
+  `case x in $(…))`, `FOO=$(…) echo hi`, `arr=( $(…) )`,
+  `declare -a A=( $(…) )` and `[[ -e $(…) ]] && echo x` all ALLOWed while
+  bash ran the substituted command; each now earns the inner command's own
+  verdict. The `$(…)` class reaches two positions the `<(…)` one cannot, for
+  different reasons: a parameter expansion's default word (`${Q:-$(cmd)}`,
+  which bash expands in *both* quotings, where `<(cmd)` runs only unquoted and
+  the parser reports no `ProcSubst` node in either), and an unquoted
+  here-document body (which bash expands for `$(…)` and takes literally for
+  `<(…)`). In both, `mvdan.cc/sh` reports the `CmdSubst` node, which is what
+  the traversal needs. The single-quoted `'$(cmd)'` and the quoted-delimiter
+  here-document (`<<'EOF'`) need no exception — bash expands neither and the
+  parser reports no node for either.
+  Grading a `$(…)` also strengthens the emitting positions from a defer to
+  the inner command's own verdict, so
+  `echo "$(cat ../sibling-repo/.env)"`, `x=$(…)`, `[[ -f $(…) ]]` and
+  `true > $(…)` now earn the same cross-repo deny the direct spelling
+  `cat ../sibling-repo/.env` does.
+  The one deliberate exception is an allowlisted **anchor** substitution
+  (`$(git rev-parse --show-toplevel)`, `$(git rev-parse --git-common-dir)`,
+  `$(pwd)`), which is skipped rather than graded: `resolveAnchorCmdSubst`
+  admits only a single plain call whose argv equals one of those forms
+  exactly, so the command is already known in full and is read-only, and the
+  value it resolves to still runs through normal containment. `$(pwd)` is
+  what makes the exception load-bearing: measured by deleting the skip, the
+  two git anchors grade as allow and cost nothing, but bare `pwd` earns no
+  high-confidence allow of its own, so descending into `$(pwd)` turns
+  `cat "$(pwd)/a.txt"`, `case "$(pwd)" in …` and `FOO=$(pwd) echo hi` back
+  into prompts — the escalation #132 was filed to remove. The skip is applied
+  uniformly across the allowlist regardless, because one rule for "an anchor
+  is not an ordinary substitution" rots less than three.
+  One measured hole is left, in neither class's power to close: a PROCESS
+  substitution inside a parameter expansion's word, which `mvdan.cc/sh`
+  reports no `ProcSubst` node for at all, so there is nothing to hang a
+  descent off. Real bash runs `: ${Q:-<(cmd)}` and does not run
+  `: "${Q:-<(cmd)}"`, and
+  `for f in ${Q:-<(cat ../sibling-repo/.env)}; do echo x; done` ALLOWs, here
+  and at the merge base. The `$(…)` spelling of that same shape is graded.
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead

@@ -515,7 +515,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	var walkStmt func(stmt *syntax.Stmt, inherited []*syntax.Redirect)
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
 	var walkDeclClause func(c *syntax.DeclClause)
-	var descendCmdSubsts func(w *syntax.Word)
+	var descendCmdSubsts func(n syntax.Node)
 	var descendProcSubsts func(n syntax.Node)
 	var recordAssign func(a *syntax.Assign)
 	var applyCd func(call *syntax.CallExpr)
@@ -661,11 +661,10 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		runningCWDInvalid = false
 	}
 
-	// descendCmdSubsts finds every command substitution inside a word —
-	// including a `$(cmd)` nested inside a double-quoted string
-	// (`"$(cmd)"`) — and classifies the substituted command(s) by walking
-	// their statements. A plain literal / parameter-expansion word has no
-	// CmdSubst parts and contributes nothing.
+	// descendCmdSubsts classifies the command inside every command substitution
+	// that belongs to one AST node, by walking its statements as ordinary
+	// commands. Both spellings are covered — `$(cmd)` and the backtick
+	// `` `cmd` `` — because the parser reports one *syntax.CmdSubst for each.
 	//
 	// The inner statements inherit NO redirects. A command substitution is
 	// expanded during word expansion, which bash performs BEFORE it applies the
@@ -677,29 +676,82 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// runs in a CHILD shell, so `P=/safe; export D=$(P=/etc; echo); cat "$P/x"`
 	// reads /safe/x in real bash. Recording the inner assignment would have the
 	// gate grade /etc/x instead — a path the command never touches.
-	descendCmdSubsts = func(w *syntax.Word) {
-		if w == nil {
+	//
+	// SCOPE: like descendProcSubsts it takes a NODE, not a word, and finds every
+	// substitution beneath it with syntax.Walk, so it covers every word position
+	// of that node at once. That matters because a non-anchor `$(…)` leaves its
+	// word INEXACT, and inexactness stops the allow track only where the inexact
+	// word rides a command the walk emits: a `for`/`select` item list, a `case`
+	// subject or pattern, and a `VAR=… cmd` prefix emit no command of their own,
+	// so before this took a node, `for f in $(cat ../sib/.env); do echo x; done`
+	// and `FOO=$(cat ../sib/.env) echo hi` ALLOWed on their remaining parts while
+	// bash ran the substituted command. Hand-listing the positions was tried on
+	// #225 for the sibling process-substitution class and did not converge —
+	// successive review rounds each found one more — so the reach is a property
+	// of the traversal instead.
+	//
+	// The walk STOPS at any nested *syntax.Stmt: the main walk reaches those on
+	// its own (a `for` body, a `case` arm, a substitution's own statements), and a
+	// substitution nested inside one is reached when that statement is walked. So
+	// each substitution is graded exactly once however deeply the spellings nest
+	// (`echo $(echo $(cmd))`, `echo "$(cat <(cmd))"`, `cat <(echo "$(cmd)")`).
+	//
+	// The ONE deliberate exception is an allowlisted ANCHOR substitution
+	// ($(git rev-parse --show-toplevel), $(git rev-parse --git-common-dir),
+	// $(pwd) — anchorCommands). Those are skipped, not graded. resolveAnchorCmdSubst
+	// admits only a single plain CallExpr whose argv equals one of those forms
+	// EXACTLY, with no assignments, redirects or background marker, so the command
+	// is already known in full and is read-only; there is nothing left to decide,
+	// and the resolved value still runs through normal containment, so skipping
+	// the descent widens nothing.
+	//
+	// $(pwd) is what makes the exception load-bearing rather than merely tidy.
+	// Measured by deleting this skip and re-running: the two git anchors grade as
+	// ALLOW and cost nothing, but bare `pwd` earns no high-confidence allow of its
+	// own, so descending into $(pwd) turns `cat "$(pwd)/a.txt"`,
+	// `case "$(pwd)" in …` and `FOO=$(pwd) echo hi` from allows into prompts —
+	// #132's own idiom, back to the escalation it was filed to remove. The skip is
+	// applied uniformly across the allowlist anyway, because "an anchor is not an
+	// ordinary substitution" is one rule and three rules would rot.
+	//
+	// When an anchor CANNOT resolve (no repoContext, or an invalidated tracked
+	// cwd) it is not an anchor here either, and the descent grades it like any
+	// other substitution.
+	//
+	// Positions where bash does NOT run a substitution need no exception, because
+	// the parser reports no CmdSubst node for them either (measured against
+	// mvdan.cc/sh v3.13.1): a single-quoted `'$(cmd)'`, and a QUOTED here-document
+	// body (`<<'EOF'`). The unquoted here-document body is the opposite — bash
+	// does expand it, the parser does report the node, and walking a whole
+	// *syntax.Redirect grades it. A parameter expansion's word (`${Q:-$(cmd)}`)
+	// IS reported, in both the quoted and unquoted spellings, and bash runs both
+	// when the parameter is unset; grading it whether or not the default branch is
+	// taken is the fail-closed direction.
+	descendCmdSubsts = func(node syntax.Node) {
+		if node == nil {
 			return
 		}
-		walkSubstStmts := func(stmts []*syntax.Stmt) {
-			scopeDepth++
-			for _, s := range stmts {
-				walkStmt(s, nil)
-			}
-			scopeDepth--
-		}
-		for _, part := range w.Parts {
-			switch p := part.(type) {
+		cc := curCC()
+		syntax.Walk(node, func(n syntax.Node) bool {
+			switch x := n.(type) {
+			case nil:
+				// Walk calls f(nil) after a node's children.
+				return false
+			case *syntax.Stmt:
+				return false
 			case *syntax.CmdSubst:
-				walkSubstStmts(p.Stmts)
-			case *syntax.DblQuoted:
-				for _, dp := range p.Parts {
-					if cs, ok := dp.(*syntax.CmdSubst); ok {
-						walkSubstStmts(cs.Stmts)
-					}
+				if _, ok := anchorValue(x, cc); ok {
+					return false
 				}
+				scopeDepth++
+				for _, s := range x.Stmts {
+					walkStmt(s, nil)
+				}
+				scopeDepth--
+				return false
 			}
-		}
+			return true
+		})
 	}
 
 	// descendProcSubsts classifies the command inside every process substitution
@@ -736,39 +788,36 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// each substitution is graded exactly once, no matter how deeply the
 	// spellings nest (`cat <(cat <(cmd))`).
 	//
-	// The nested statements the main walk does NOT reach are the bodies of
-	// command substitutions outside a declaration clause's assignment RHS —
-	// the one position descendCmdSubsts is wired to. That is the
-	// command-substitution class, not this one, and INEXACTNESS ONLY HALF
-	// COVERS IT: a non-anchor `$(…)` leaves its word inexact, which stops the
-	// allow track only where that word rides a command the walk emits
-	// (`echo "$(cat ../sib/.env)"`, `x=$(…)`, `[[ -f $(…) ]]` all DEFER). A
-	// word position that emits no command of its own has nothing to carry the
-	// inexactness, so the line allows on its remaining parts while bash runs
-	// the substituted command: measured on this source,
-	// `for f in $(cat ../sib/.env); do echo x; done`, `select f in $(…)`,
-	// `case $(…) in`, `case x in $(…))` and `FOO=$(…) echo hi` all ALLOW —
-	// identically at #225's merge base, so this is pre-existing rather than
-	// anything this function widened. Closing that half is separate work, and
-	// it belongs to descendCmdSubsts, not here.
+	// The sibling command-substitution class is descendCmdSubsts', and walkStmt
+	// calls both over the same nodes, so a `$(…)` body is graded there and this
+	// function never needs to reach one. That split is what keeps each
+	// substitution graded exactly once when the two nest
+	// (`echo "$(cat <(cmd))"`, `cat <(echo "$(cmd)")`).
 	//
 	// An input `<(…)` is the only construct that keeps its word EXACT while
 	// carrying a command — inexactness could never have caught it in any
 	// position — which is exactly why grading it in every position is this
 	// function's job.
 	//
-	// One position where bash DOES run a substitution is unreachable from here,
-	// because the parser reports no ProcSubst node for it at all (measured
+	// One position where bash DOES run a process substitution is unreachable from
+	// here, because the parser reports no ProcSubst node for it at all (measured
 	// against mvdan.cc/sh v3.13.1): a parameter expansion's word, in its
 	// unquoted spelling — real bash runs `: ${Q:-<(cmd)}` and does NOT run
-	// `: "${Q:-<(cmd)}"`. isResolvableParamExp rejects every non-plain
-	// expansion, so the word is inexact — which covers it under exactly the
-	// emitting-position caveat above, and no further:
+	// `: "${Q:-<(cmd)}"` (re-measured, identically, on bash 3.2.57 and 5.3.15).
+	// isResolvableParamExp rejects every non-plain expansion, so the word is
+	// inexact, and inexactness stops the allow track only where the inexact word
+	// rides a command the walk emits — so a NON-emitting position keeps allowing:
 	// `for f in ${Q:-<(cat ../sib/.env)}; do echo x; done` ALLOWs, here and at
-	// the merge base. A here-document body is not a substitution position at all: bash
-	// expands `$(…)` there but takes `<(…)` literally, and the parser agrees, so
-	// walking a whole *syntax.Redirect (Hdoc included) grades nothing bash would
-	// not run.
+	// #225's merge base. This is the one measured hole left in either
+	// substitution class, and it is unclosable without a node to hang the descent
+	// on; the `$(…)` spelling of the same shape (`${Q:-$(cmd)}`) IS reported and
+	// IS graded, by descendCmdSubsts.
+	//
+	// A here-document body is not a PROCESS-substitution position at all: bash
+	// takes `<(cmd)` there literally and the parser agrees, so walking a whole
+	// *syntax.Redirect (Hdoc included) grades nothing bash would not run. The
+	// `$(…)` spelling is the opposite on both counts and is graded — see
+	// descendCmdSubsts.
 	descendProcSubsts = func(node syntax.Node) {
 		if node == nil {
 			return
@@ -795,17 +844,18 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// walkDeclClause walks every assignment of a declaration clause
 	// (export/local/declare/readonly/typeset). It contributes no program for
 	// the declaration itself (a literal/param-expansion RHS mutates only shell
-	// state); it descends into any command substitution in an assignment RHS so
-	// the inner command is classified by the normal pipeline.
+	// state), so all it does is record a static `export VAR=literal` /
+	// `local VAR=literal` for later uses to resolve.
+	//
+	// It deliberately does NOT descend into a command substitution in the RHS.
+	// It used to be the single call site of descendCmdSubsts, back when that
+	// took a word; now walkStmt runs the descent over the whole statement, which
+	// reaches this clause's assignment values along with every other word
+	// position. Descending here as well would grade those inner commands twice.
 	walkDeclClause = func(c *syntax.DeclClause) {
 		for _, a := range c.Args {
 			if a != nil {
-				// Record a static `export VAR=literal` / `local VAR=literal`
-				// so later uses can resolve it, then descend into any
-				// command substitution in the RHS so the inner command is
-				// still classified.
 				recordAssign(a)
-				descendCmdSubsts(a.Value)
 			}
 		}
 	}
@@ -859,9 +909,9 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			if len(sc.args) > 0 {
 				out = append(out, sc)
 			}
-			// The command inside every process substitution — in argv, in an
-			// assignment prefix, or in a bare assignment's RHS — is classified on
-			// its own terms by the statement-level descent in walkStmt, which runs
+			// The command inside every substitution, process or command — in argv,
+			// in an assignment prefix, or in a bare assignment's RHS — is classified
+			// on its own terms by the statement-level descent in walkStmt, which runs
 			// before this arm and before applyCd.
 			//
 			// Apply this call's `cd` side effect (if any) so LATER commands in
@@ -994,9 +1044,9 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// `export`/`local`/`declare`/`readonly`/`typeset` — walk ALL of its
 			// assignments (a single `export A=x B=y` carries multiple). A plain
 			// literal/parameter-expansion RHS mutates only shell state, so it
-			// contributes no program. When an assignment RHS contains a command
-			// substitution (`local d=$(cmd)`, including the quoted `="$(cmd)"`
-			// form), descend into the substituted command and classify it.
+			// contributes no program. A substitution in an assignment RHS
+			// (`local d=$(cmd)`, including the quoted `="$(cmd)"` form) is graded by
+			// walkStmt's statement-level descent, not here.
 			walkDeclClause(c)
 		default:
 			walkErr = fmt.Errorf("unhandled shell construct %T", c)
@@ -1014,14 +1064,16 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		// its own fd 0, so both files are read and both must be graded.
 		redirs := mergeRedirs(stmt.Redirs, inherited)
 
-		// A process substitution can sit in any word this statement owns, not just
-		// argv: a REDIRECT target (`cat < <(cat ../sibling-repo/.env)`,
-		// `cat > >(tee x)`), a `for`/`select` item list, a `case` subject word or
-		// pattern, an assignment RHS or array element, a `[[ … ]]` operand. In each
-		// of them literalWord reduces an input substitution to procSubstFD — a token
-		// the containment walks skip — so nothing else would ever grade the
-		// substituted command, and the enclosing command rides its own allow.
-		// Descend over the statement's whole command node and its own redirects, so
+		// A substitution — process or command — can sit in any word this statement
+		// owns, not just argv: a REDIRECT target (`cat < <(cat ../sibling-repo/.env)`,
+		// `cat > >(tee x)`, `true > $(cmd)`), a `for`/`select` item list, a `case`
+		// subject word or pattern, an assignment RHS or array element, a `[[ … ]]`
+		// operand, an inline `FOO=… cmd` prefix. Neither class is caught by the
+		// enclosing command's own verdict there: literalWord reduces an INPUT process
+		// substitution to procSubstFD — a token the containment walks skip — and a
+		// non-anchor `$(…)` only makes its word inexact, which stops the allow track
+		// solely where that word rides a command the walk emits. Descend over the
+		// statement's whole command node and its own redirects with both functions, so
 		// every position is classified on the same terms.
 		//
 		// Keyed on stmt.Redirs, not the merged set, and placed BEFORE `emitted` is
@@ -1034,9 +1086,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		// substitution's pipe up during word expansion).
 		for _, r := range stmt.Redirs {
 			descendProcSubsts(r)
+			descendCmdSubsts(r)
 		}
 		if stmt.Cmd != nil {
 			descendProcSubsts(stmt.Cmd)
+			descendCmdSubsts(stmt.Cmd)
 		}
 
 		emitted := len(out)
