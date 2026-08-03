@@ -34,8 +34,9 @@ thing a future run cannot recover from the code.
 **How to apply:** on any round whose diff adds a SKILL.md in one
 plugin and a `dependencies` array in another, check those two files
 before concluding the pass is a no-op. Do **not** add a CLAUDE.md
-sweep section for the surviving restatements — Edwin ruled the sweep
-rule itself the defect on this PR (see the issue-fixer's
-`extract-a-skill-not-a-sweep-rule`); the per-consumer policy arms
+sweep section for the surviving restatements — a sweep rule over
+duplicated behavior is itself the defect, per
+`docs/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
+lookup, a derivation)"; the per-consumer policy arms
 (`C ∩ B`, one-member stand-in, multi-member refusal) are deliberate
 duplication, not drift.

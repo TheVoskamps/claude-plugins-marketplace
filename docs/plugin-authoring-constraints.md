@@ -121,6 +121,12 @@ because that rule is global rather than per-caller; what each consumer
 keeps is its own **action** per reported outcome, which is exactly the
 deliberate per-caller difference the extraction must not flatten.
 
+A new skill's registration surfaces are the owning plugin's
+`plugin.json` `description` and the root `README.md` roster bullet for
+that plugin. `.claude-plugin/marketplace.json` is per-plugin, not
+per-skill, so a new skill in an already-published plugin needs no entry
+there.
+
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's
 closing lines and reports which issues the PR closes, so

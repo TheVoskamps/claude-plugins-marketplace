@@ -24,21 +24,24 @@ replace each apposition with a pointer at the step that owns the
 resolution ("as step 2 resolved it") rather than restating the amended
 rule — one owner, no second site to keep in sync.
 
-**A restatement list fires for any shared rule, not just the one it
-names.** This repo's `CLAUDE.md` → "Sweep the branch-name grammar
-across plugins when it changes" already enumerates the consumers,
-`pr-reviewer.md` step 2 among them. Round 1 added the `B` empty arm to
-`pr-create` and `pr-link-issue` and skipped the reviewer anyway,
-because the trigger reads as "a PR that changes the grammar" and an arm
-around the grammar is not the grammar. Read such a list as covering
-every rule those files hold in common — the parsing rule, the
+**A checked-in list of consumers fires for any shared rule, not just
+the one it names.** When `CLAUDE.md` enumerates the files that restate
+a rule, the trigger reads as "a PR that changes the rule" — and an arm
+*around* the rule does not read as the rule, so a round that adds a
+case to the two named consumers skips the third. Read such a list as
+covering every rule those files hold in common — the parsing rule, the
 maximum-not-equality rule, the empty-set arms — and walk all of it.
+When the duplication is behavior rather than policy, the deeper fix is
+to extract the mechanism into a skill and delete the list, per
+`docs/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
+lookup, a derivation)".
 
-**Why:** the missed member is a *third* consumer in a *different*
+**Why:** the missed consumer is often a *third* one in a *different*
 plugin, so neither the sibling-agent family sweep
 ([[sweep-sibling-agent-guards]]) nor a same-directory grep finds it;
-only the checked-in list does. And the cost of the silent half is a
-whole extra round on prose that no build or lint checks.
+only a checked-in list, or the extraction that removes the copies,
+does. And the cost of the silent half is a whole extra round on prose
+that no build or lint checks.
 
 Sibling shapes: [[shared-predicate-list-is-one-claim]] (one blanket
 claim over N files), [[count-tally-class-includes-back-references]]

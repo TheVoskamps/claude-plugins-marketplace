@@ -22,9 +22,11 @@ whole diff fresh and asking "who else parses this input?".
 
 **How to apply:** when a fix adds a case/arm to some restatements of
 a shared rule, enumerate ALL sites that parse or restate the same
-input before grading the fix complete. This repo's CLAUDE.md sweep
-sections are the enumeration (e.g. "Sweep the branch-name grammar
-across plugins" lists every parser); absent one, grep the rule's
-wrap-proof needle. Related:
+input before grading the fix complete. A CLAUDE.md sweep section, when
+one exists for that rule, is the enumeration; absent one, grep the
+rule's wrap-proof needle. Where the shared rule has been extracted
+into a skill the consumers invoke, there is only one site and the
+question dissolves — check that the extraction is complete instead.
+Related:
 [[feedback_re-review-the-whole-diff-fresh]] and
 [[reference_sweep-stale-behavior-comments-in-sibling-files]].
