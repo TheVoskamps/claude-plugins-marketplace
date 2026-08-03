@@ -202,7 +202,7 @@ has an "unbatched" leftover — every issue lands in a batch, possibly
 alone.
 
 Grouping decides both what goes on a branch together and what runs
-concurrently, in two steps:
+concurrently:
 
 1. **Assign every issue to a batch.**
 2. **Order the batches into waves.** Batches with no dependency

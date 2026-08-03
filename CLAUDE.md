@@ -63,6 +63,32 @@ is the opposite: it lives only in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
 markdown in the repo describes it.
 
+## Sweep the branch-name grammar across plugins when it changes
+
+`git-tools:git-branch-create` **writes** the issue-branch name
+(`issue-<N1>-…-<Nk>-<slug>`, behind the configured prefix) and its
+"Branch name" section owns the rule that parses the issue set back out
+of it: after the `issue-` marker, the leading run of all-numeric
+hyphen-separated tokens is the set, and everything from the first
+non-numeric token onward is the slug. Consumers in other plugins
+restate that rule rather than importing it — plugins are
+file-sandboxed (`docs/plugin-authoring-constraints.md`), so there is
+nowhere shared to put it. A PR that changes the grammar (a new
+separator, a different slug boundary, a different prefix position)
+silently falsifies every restatement.
+
+Grep `plugins/` for `issue-<N` and for `all-numeric` — a short,
+wrap-proof needle, since the sentence carrying the rule wraps
+differently in each copy — and check every hit. The known
+restatements live in
+`plugins/github-prs/skills/pr-create/SKILL.md` and
+`skills/pr-link-issue/SKILL.md` (each under "Own issue set only"),
+`plugins/github-prs/README.md` → "One PR, one issue set",
+`plugins/sdlc/agents/pr-reviewer.md` step 2, and
+`plugins/issues/skills/lib/repo-config.md` under
+`issue-branch-naming-prefix` — which documents only the prefix shapes
+and defers to the skill for the rest.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,

@@ -286,11 +286,16 @@ file. Order is fixed; `schema-version` is always first.
   off `integ` but PRs target `main`).
 
 - **`issue-branch-naming-prefix`** — one of `none`, `initials`,
-  `name`. Selects the branch-name shape that the multi-issue
-  orchestrator and the developer/fixer agents use:
+  `name`. Selects the prefix in front of the issue-branch name that
+  `git-tools:git-branch-create` produces:
   - `none`     -> `issue-<N>-<slug>`
   - `initials` -> `<initials>/issue-<N>-<slug>`
   - `name`     -> `<name>/issue-<N>-<slug>`
+
+  A branch carrying a batch of several issues names them all —
+  `issue-<N1>-<N2>-…-<Nk>-<slug>`, behind the same prefix. See the
+  `/git-tools:git-branch-create` skill → "Branch name" for the shape
+  and the rule that parses the issue set back out of it.
 
   When the prefix is `initials` or `name`, the agent prompts the
   human owner for the value if the spawn context doesn't supply it.
@@ -439,9 +444,10 @@ whole run.
 > Note: the `/issue-*` Jira operations that consume this block are
 > implemented (issue #9, built on the #249 foundation). They live in
 > the "Jira backend" section of `skills/lib/issue.md` and call `acli`
-> per the `/issues-jira:jira-lib` skill. A Jira repo without this block (or with a
-> skip marker) still degrades gracefully — metadata-requiring
-> operations warn-and-skip rather than aborting the run.
+> per the `/issues-jira:jira-lib` skill. A Jira repo without this
+> block (or with a skip marker) still degrades gracefully —
+> metadata-requiring operations warn-and-skip rather than aborting the
+> run.
 
 ## Migration policy
 
