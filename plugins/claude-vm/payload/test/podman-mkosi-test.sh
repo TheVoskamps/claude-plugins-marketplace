@@ -567,6 +567,112 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# apt_sources record splitting: an empty MIDDLE field must survive.
+#
+# The build-time apt_sources loop reads name<TAB>repo<TAB>key_url records. A
+# tab is IFS WHITESPACE, so 'IFS=<tab> read -r a b c' collapses a RUN of tabs
+# into ONE separator: on an entry that carries a key_url but no repo the record
+# is name<TAB><TAB>key_url, the empty middle field vanishes, and the KEY URL is
+# read as the REPO LINE. render_apt_source would then write a sources.list.d
+# entry pointing at the key and fetch no key at all.
+#
+# Asserted by RUNNING the generated loop against a real bake-config.json, the
+# same slice-and-drive shape the marketplace policy cases below use:
+# render_apt_source is stubbed to record the argv it was called with, so the
+# assertion is on the three values the split actually produced.
+# ---------------------------------------------------------------------
+AS_SPLIT_DIR="$WORK/as-split"
+mkdir -p "$AS_SPLIT_DIR"
+AS_SLICE="$AS_SPLIT_DIR/apt-sources-loop.sh"
+AS_SLICE_START=""
+AS_SLICE_END=""
+if [ -f "$CAPTURE_INNER" ]; then
+  AS_SLICE_START="$(grep -n "^AS_TAB=" "$CAPTURE_INNER" | head -1 | cut -d: -f1)"
+  AS_SLICE_END="$(awk -v start="${AS_SLICE_START:-0}" 'NR >= start && /^done$/ { print NR; exit }' "$CAPTURE_INNER")"
+fi
+if [ -n "$AS_SLICE_START" ] && [ -n "$AS_SLICE_END" ]; then
+  # The pre-fix line, rebuilt exactly. The dollar is escaped so this test
+  # file's own shell does not expand it. awk's -v runs backslash escapes on the
+  # value it is handed, which would turn the two-character \t into a real tab,
+  # so the awk copy doubles the backslash to arrive with the \t intact.
+  AS_OLD_READ="' | while IFS=\$'\\t' read -r as_name as_repo as_key_url; do"
+  AS_OLD_READ_AWK="' | while IFS=\$'\\\\t' read -r as_name as_repo as_key_url; do"
+
+  # write_as_slice <out-file> <new|old> -- emit a runnable harness around the
+  # captured loop. Mode "old" rebuilds the pre-fix collapsing read from the
+  # SAME captured lines (swap the read line, drop the four hand-split
+  # expansions), so the negative control cannot drift away from the code under
+  # test.
+  write_as_slice() {
+    local out="$1" mode="$2"
+    {
+      echo '#!/usr/bin/env bash'
+      echo 'set -uo pipefail'
+      echo 'SANDBOX_KEYRINGS=/sandbox/keyrings'
+      echo 'SANDBOX_SOURCES=/sandbox/sources'
+      echo 'APT_KEYRINGS_RT=/etc/apt/keyrings'
+      echo 'render_apt_source() { printf "%s|%s|%s\n" "$1" "$2" "$3" >> "$AS_ARGV_LOG"; }'
+      awk -v start="$AS_SLICE_START" -v end="$AS_SLICE_END" \
+          -v mode="$mode" -v oldread="$AS_OLD_READ_AWK" -v q="'" '
+        NR < start || NR > end { next }
+        mode == "old" && $0 == q " | while IFS= read -r as_record; do" { print oldread; next }
+        mode == "old" && $0 ~ /^  as_(name|rest|repo|key_url)=/ { next }
+        { print }
+      ' "$CAPTURE_INNER" | sed "s#/work/recipe#$AS_SPLIT_DIR#g"
+    } > "$out"
+  }
+
+  # run_as_split <slice-file> <bake-config-json> -- returns the argv
+  # render_apt_source was called with, one "name|repo|key_url" line per entry.
+  run_as_split() {
+    printf '%s' "$2" > "$AS_SPLIT_DIR/bake-config.json"
+    : > "$AS_SPLIT_DIR/argv.log"
+    AS_ARGV_LOG="$AS_SPLIT_DIR/argv.log" bash "$1" >/dev/null 2>&1
+    cat "$AS_SPLIT_DIR/argv.log"
+  }
+
+  write_as_slice "$AS_SLICE" new
+
+  # An entry with a key_url but NO repo. claude_vm_bake_config_json normalizes
+  # a missing repo to "", so this record really is name<TAB><TAB>key_url.
+  AS_NO_REPO='{"bake":[],"apt_sources":[{"name":"nr","repo":"","key_url":"https://k.example/key.asc"}]}'
+  assert_eq "apt-sources-split: an empty repo stays empty and the key_url stays in field 3" \
+    "nr||https://k.example/key.asc" "$(run_as_split "$AS_SLICE" "$AS_NO_REPO")"
+
+  # A fully-populated entry is unchanged by the hand split.
+  AS_FULL='{"bake":[],"apt_sources":[{"name":"gh","repo":"deb https://cli.github.com/packages stable main","key_url":"https://cli.github.com/packages/k.gpg"}]}'
+  assert_eq "apt-sources-split: a fully-populated entry splits into the same three fields" \
+    "gh|deb https://cli.github.com/packages stable main|https://cli.github.com/packages/k.gpg" \
+    "$(run_as_split "$AS_SLICE" "$AS_FULL")"
+
+  # A trailing empty key_url (the common case: a repo needing no key).
+  AS_NO_KEY='{"bake":[],"apt_sources":[{"name":"nk","repo":"deb https://r.example x main","key_url":""}]}'
+  assert_eq "apt-sources-split: a trailing empty key_url lands empty" \
+    "nk|deb https://r.example x main|" "$(run_as_split "$AS_SLICE" "$AS_NO_KEY")"
+
+  # A nameless entry is still skipped -- and with the hand split the name is
+  # genuinely empty rather than the repo shifted left into it.
+  AS_NO_NAME='{"bake":[],"apt_sources":[{"name":"","repo":"deb https://r.example x main","key_url":""}]}'
+  assert_eq "apt-sources-split: a nameless entry renders nothing" \
+    "" "$(run_as_split "$AS_SLICE" "$AS_NO_NAME")"
+
+  # NEGATIVE CONTROL: rebuild the OLD collapsing read from the same captured
+  # lines and show it misparses the very record above -- the key url arriving
+  # as the repo line, the key_url empty.
+  AS_SLICE_OLD="$AS_SPLIT_DIR/apt-sources-loop-old.sh"
+  write_as_slice "$AS_SLICE_OLD" old
+  assert_contains "apt-sources-split: the control really carries the old tab-IFS read" \
+    "$AS_SLICE_OLD" "$AS_OLD_READ"
+  assert_not_contains "apt-sources-split: ... and none of the hand-split expansions" \
+    "$AS_SLICE_OLD" 'as_rest=${as_record'
+  assert_eq "apt-sources-split: NEGATIVE CONTROL -- the old read misreads the key_url as the repo" \
+    "nr|https://k.example/key.asc|" "$(run_as_split "$AS_SLICE_OLD" "$AS_NO_REPO")"
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - apt-sources-split: could not slice the apt_sources loop out of build-in-container.sh"
+fi
+
+# ---------------------------------------------------------------------
 # Issue #106 real-run fix: guest apt metadata diet (mkosi.skeleton/) and
 # root-partition headroom (mkosi.repart/). Re-run the provisioner with a
 # fresh capture so these assertions do not depend on state left over from

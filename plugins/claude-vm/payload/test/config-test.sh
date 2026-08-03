@@ -1707,6 +1707,79 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   UPDATE_CALLS_EMPTY="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
   assert_eq "boot_apt_phase: no install_at_boot and update_at_boot=false runs no update" \
     "0" "$UPDATE_CALLS_EMPTY"
+
+  # -------------------------------------------------------------------
+  # boot_apt_phase: an apt_sources record's empty MIDDLE field must survive.
+  #
+  # The records are name<TAB>repo<TAB>key_url. A tab is IFS WHITESPACE, so
+  # 'IFS=<tab> read -r a b c' collapses a RUN of tabs into ONE separator: an
+  # entry with a key_url but no repo is emitted as name<TAB><TAB>key_url, the
+  # empty middle field vanishes, and the KEY URL arrives as the repo LINE --
+  # rendered straight into the guest's live /etc/apt with no key fetched. Same
+  # class as the marketplace record split in podman-mkosi.sh (issue #226).
+  #
+  # Driven through the REAL extracted boot_apt_phase, with
+  # render_apt_source_boot swapped for a recorder so the assertion is on the
+  # three values the split actually produced. The records come from the real
+  # emitter (claude_vm_apt_sources) rather than hand-typed tabs, so the test
+  # would notice the emitter changing shape underneath the reader.
+  # -------------------------------------------------------------------
+  BAP_ARGV="$WORK/boot-apt-argv.log"
+  render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$BAP_ARGV"; }
+
+  BAP_AS_YML="$WORK/bap-apt-sources.yml"
+  cat > "$BAP_AS_YML" <<'YML'
+apt_sources:
+  - name: nr
+    key_url: https://k.example/key.asc
+  - name: gh
+    repo: "deb https://cli.github.com/packages stable main"
+    key_url: https://cli.github.com/packages/k.gpg
+  - name: nk
+    repo: "deb https://r.example x main"
+YML
+  APT_SOURCES_TSV="$WORK/bap-apt-sources.tsv"
+  claude_vm_apt_sources "$BAP_AS_YML" > "$APT_SOURCES_TSV"
+  APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  : > "$BAP_ARGV"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+
+  assert_eq "boot_apt_phase: an apt_source with no repo keeps the key_url in field 3" \
+    "nr||https://k.example/key.asc" "$(sed -n 1p "$BAP_ARGV")"
+  assert_eq "boot_apt_phase: a fully-populated apt_source splits into the same three fields" \
+    "gh|deb https://cli.github.com/packages stable main|https://cli.github.com/packages/k.gpg" \
+    "$(sed -n 2p "$BAP_ARGV")"
+  assert_eq "boot_apt_phase: a trailing empty key_url lands empty" \
+    "nk|deb https://r.example x main|" "$(sed -n 3p "$BAP_ARGV")"
+
+  # NEGATIVE CONTROL: rebuild the pre-fix collapsing read from the SAME
+  # extracted lines (swap the read line back, drop the four hand-split
+  # expansions) and show it hands the key url over as the repo line. Sourced
+  # and run inside a subshell so the good definition above survives.
+  BAP_OLD_SRC="$WORK/boot_apt_phase_old.sh"
+  BAP_OLD_READ="      while IFS=\$'\\t' read -r as_name as_repo as_key_url; do"
+  BAP_OLD_READ_AWK="      while IFS=\$'\\\\t' read -r as_name as_repo as_key_url; do"
+  awk -v oldread="$BAP_OLD_READ_AWK" '
+    $0 == "      while IFS= read -r as_record; do" { print oldread; next }
+    $0 ~ /^        as_(name|rest|repo|key_url)=/ { next }
+    { print }
+  ' "$BAP_SRC" > "$BAP_OLD_SRC"
+  assert_eq "boot_apt_phase: the control really carries the old tab-IFS read" \
+    "1" "$(grep -cF -- "$BAP_OLD_READ" "$BAP_OLD_SRC" || true)"
+  : > "$BAP_ARGV"
+  (
+    # shellcheck source=/dev/null
+    . "$BAP_OLD_SRC"
+    render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$BAP_ARGV"; }
+    boot_apt_phase >/dev/null 2>&1 || true
+  )
+  assert_eq "boot_apt_phase: NEGATIVE CONTROL -- the old read misreads the key_url as the repo" \
+    "nr|https://k.example/key.asc|" "$(sed -n 1p "$BAP_ARGV")"
+
+  # Restore the inert stub so any later use of the extracted phase behaves as
+  # the surrounding tests expect.
+  render_apt_source_boot() { :; }
 else
   echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
 fi
@@ -2353,6 +2426,91 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   CLAUDE_STUB_EXIT=0
 else
   echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; plugin-phase tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 31: the launcher's extra-mount loop splits its records by hand
+# (issue #226 class completion).
+#
+# claude_vm_mount_specs emits source<TAB>tag<TAB>mode. A tab is IFS
+# WHITESPACE, so 'IFS=<tab> read -r src tag mode' collapses a RUN of tabs into
+# ONE separator: a mounts entry written with an empty tag is emitted as
+# source<TAB><TAB>mode, the empty middle field vanishes, and the MODE is taken
+# as the mount TAG -- the share goes out as mountTag=ro (or rw), and two such
+# entries share that one tag. Same class as the marketplace record split in
+# podman-mkosi.sh.
+#
+# The loop is bare top-level code in claude-vm.sh (not a function), so it is
+# sliced out by line range -- the same extraction the boot_apt_phase and
+# boot_plugin_phase tests above use on build-guest-image.sh -- and run against
+# the REAL emitter, with the resulting --device flags printed for assertion.
+# ---------------------------------------------------------------------
+LAUNCHER="$TEST_DIR/../claude-vm.sh"
+MNT_START=""
+MNT_END=""
+if [ -f "$LAUNCHER" ]; then
+  MNT_START="$(grep -n '^EXTRA_MOUNT_FLAGS=()$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  MNT_END="$(awk -v start="${MNT_START:-0}" 'NR >= start && /^done < <\(claude_vm_mount_specs/ { print NR; exit }' "$LAUNCHER")"
+fi
+if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
+  # The pre-fix line, rebuilt exactly. The dollar is escaped so this test
+  # file's own shell does not expand it; awk's -v runs backslash escapes on the
+  # value it is handed, so the awk copy doubles the backslash.
+  MNT_OLD_READ="while IFS=\$'\\t' read -r src tag mode; do"
+  MNT_OLD_READ_AWK="while IFS=\$'\\\\t' read -r src tag mode; do"
+
+  # write_mnt_slice <out-file> <new|old> -- wrap the captured loop in a
+  # runnable harness. Mode "old" rebuilds the collapsing read from the SAME
+  # captured lines, so the negative control cannot drift from the real code.
+  write_mnt_slice() {
+    local out="$1" mode="$2"
+    {
+      echo '#!/usr/bin/env bash'
+      echo 'set -uo pipefail'
+      printf '. %s\n' "\"$LIB\""
+      echo 'MERGED_BOOT="$1"'
+      awk -v start="$MNT_START" -v end="$MNT_END" \
+          -v mode="$mode" -v oldread="$MNT_OLD_READ_AWK" '
+        NR < start || NR > end { next }
+        mode == "old" && $0 == "while IFS= read -r mount_record; do" { print oldread; next }
+        mode == "old" && $0 ~ /^  (src|mount_rest|tag|mode)=\$\{mount_(record|rest)/ { next }
+        { print }
+      ' "$LAUNCHER"
+      echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
+    } > "$out"
+  }
+
+  MNT_SLICE="$WORK/mount-loop.sh"
+  MNT_SLICE_OLD="$WORK/mount-loop-old.sh"
+  write_mnt_slice "$MNT_SLICE" new
+  write_mnt_slice "$MNT_SLICE_OLD" old
+
+  MNT_YML="$WORK/mount-loop-boot.yml"
+  cat > "$MNT_YML" <<'YML'
+mounts:
+  - source: /a/empty-tag
+    tag: ""
+    mode: rw
+  - source: /a/normal
+    tag: work
+    mode: rw
+YML
+
+  assert_eq "mount-split: an empty tag stays empty rather than swallowing the mode" \
+    "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=" \
+    "$(bash "$MNT_SLICE" "$MNT_YML" 2>/dev/null | sed -n 1,2p | tr '\n' ' ' | sed 's/ $//')"
+  assert_eq "mount-split: a fully-populated entry keeps its own tag" \
+    "--device virtio-fs,sharedDir=/a/normal,mountTag=work" \
+    "$(bash "$MNT_SLICE" "$MNT_YML" 2>/dev/null | sed -n 3,4p | tr '\n' ' ' | sed 's/ $//')"
+
+  # NEGATIVE CONTROL: the pre-fix read promotes the MODE into the tag slot.
+  assert_eq "mount-split: the control really carries the old tab-IFS read" \
+    "1" "$(grep -cF -- "$MNT_OLD_READ" "$MNT_SLICE_OLD" || true)"
+  assert_eq "mount-split: NEGATIVE CONTROL -- the old read mounts the empty-tag share as 'rw'" \
+    "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=rw" \
+    "$(bash "$MNT_SLICE_OLD" "$MNT_YML" 2>/dev/null | sed -n 1,2p | tr '\n' ' ' | sed 's/ $//')"
+else
+  echo "SKIP: extra-mount loop extraction from claude-vm.sh failed; mount-split tests skipped." >&2
 fi
 
 # ---------------------------------------------------------------------

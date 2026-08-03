@@ -803,7 +803,24 @@ boot_apt_phase() {
   if [ -s "$APT_INSTALL_LIST" ]; then
     if [ -s "$APT_SOURCES_TSV" ]; then
       log "claude-vm: boot-time apt: rendering apt_sources for install_at_boot."
-      while IFS=$'\t' read -r as_name as_repo as_key_url; do
+      # Split each record BY HAND rather than with 'IFS=<tab> read -r a b c'. A
+      # tab is IFS WHITESPACE, so read collapses a RUN of tabs into one
+      # separator: an empty MIDDLE field vanishes and every later field shifts
+      # left. An apt_sources entry that carries a key_url but no repo is
+      # emitted as name<TAB><TAB>key_url, and the collapsing read handed the KEY
+      # URL to render_apt_source_boot as the repo LINE, then rendered it into
+      # the guest's live /etc/apt with no key fetched to verify it. The emitter
+      # (claude_vm_apt_sources, via yq @tsv) joins all three fields, and the
+      # boot-tier filter over it passes each surviving line through verbatim,
+      # so both separators are always present and the three expansions below
+      # are total. Same split as the build-time twin in podman-mkosi.sh.
+      local as_tab as_record as_rest
+      as_tab=$'\t'
+      while IFS= read -r as_record; do
+        as_name=${as_record%%$as_tab*}
+        as_rest=${as_record#*$as_tab}
+        as_repo=${as_rest%%$as_tab*}
+        as_key_url=${as_rest#*$as_tab}
         [ -n "$as_name" ] || continue
         render_apt_source_boot "$as_name" "$as_repo" "$as_key_url" || true
       done < "$APT_SOURCES_TSV"

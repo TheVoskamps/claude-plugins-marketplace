@@ -1038,6 +1038,16 @@ fi
 SANDBOX_KEYRINGS=/work/recipe/mkosi.sandbox/etc/apt/keyrings
 SANDBOX_SOURCES=/work/recipe/mkosi.sandbox/etc/apt/sources.list.d
 APT_KEYRINGS_RT=/etc/apt/keyrings
+# Split each record BY HAND, for the reason spelled out at the marketplace
+# loop below: a tab is IFS WHITESPACE, so 'IFS=<tab> read -r a b c' collapses a
+# RUN of tabs into one separator and an empty MIDDLE field vanishes, shifting
+# every later field left. An apt_sources entry that carries a key_url but no
+# repo emits name<TAB><TAB>key_url -- the collapsing read handed the KEY URL to
+# render_apt_source as the repo LINE and left the key unfetched, writing a
+# sources.list.d entry that points at the key. The emitter below joins all
+# three fields, so both separators are always present and the three expansions
+# are total.
+AS_TAB=\$'\t'
 python3 -c '
 import json
 d=json.load(open("/work/recipe/bake-config.json"))
@@ -1046,7 +1056,11 @@ for s in d.get("apt_sources",[]):
     repo=s.get("repo","") or ""
     key_url=s.get("key_url","") or ""
     print("\t".join([name,repo,key_url]))
-' | while IFS=\$'\t' read -r as_name as_repo as_key_url; do
+' | while IFS= read -r as_record; do
+  as_name=\${as_record%%\$AS_TAB*}
+  as_rest=\${as_record#*\$AS_TAB}
+  as_repo=\${as_rest%%\$AS_TAB*}
+  as_key_url=\${as_rest#*\$AS_TAB}
   [ -n "\$as_name" ] || continue
   render_apt_source "\$as_name" "\$as_repo" "\$as_key_url" \\
     "\$SANDBOX_KEYRINGS" "\$SANDBOX_SOURCES" "\$APT_KEYRINGS_RT"

@@ -1388,7 +1388,20 @@ fi
 # below; these are the user's EXTRA mounts.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
-while IFS=$'\t' read -r src tag mode; do
+# Split each record BY HAND rather than with 'IFS=<tab> read -r src tag mode'.
+# A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
+# an empty MIDDLE field vanishes and every later field shifts left. A mounts
+# entry written with an empty tag is emitted as source<TAB><TAB>mode, and the
+# collapsing read took the MODE as the mount TAG -- the share went out as
+# mountTag=ro (or rw), and two such entries would share that one tag. The
+# emitter (claude_vm_mount_specs, via yq @tsv) joins all three fields, so both
+# separators are always present and the three expansions below are total.
+MOUNT_TAB=$'\t'
+while IFS= read -r mount_record; do
+  src=${mount_record%%$MOUNT_TAB*}
+  mount_rest=${mount_record#*$MOUNT_TAB}
+  tag=${mount_rest%%$MOUNT_TAB*}
+  mode=${mount_rest#*$MOUNT_TAB}
   [ -z "$src" ] && continue
   # Expand a leading ~ to $HOME (config is YAML, not shell).
   case "$src" in
