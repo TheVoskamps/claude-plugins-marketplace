@@ -412,8 +412,10 @@ lands in a sibling slice under #39. It resolves correctly through
     marketplace declared only in a **boot** file is pre-registered here as an
     optimization, and its url only has to be reachable from the *guest* — a
     guest-local path (`/mnt/repo`), a private source, or an https host outside
-    the build container's egress. A failed add on one of those warns and the
-    build continues, leaving the registration to the boot path (issue #226).
+    the build container's egress. A boot-declared entry warns and leaves the
+    registration to the boot path on each of the paths that fail a
+    bake-declared one: no `url` at all, a failed add, or an add that registers
+    under a name other than the configured one (issue #226).
   - The boot path ensures any marketplace the image does not already carry,
     then (when `update_at_boot` is `true`, the default) refreshes the
     marketplaces and updates the installed plugins, then installs the

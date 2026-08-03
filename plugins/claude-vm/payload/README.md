@@ -631,14 +631,20 @@ marketplace declared only in a **boot** file is pre-registered here purely as
 an optimization — it saves the guest one network add — and its url only has to
 be reachable from the **guest**. A guest-local path (`/mnt/repo`), a private
 source needing host-only credentials, or an https host outside the build
-container's egress is legal and simply cannot be added at build time, so a
-failure on one of those logs a warning and the build continues;
-`boot_plugin_phase` adds it at boot, which it already does for any marketplace
-the image does not carry. The provisioner tells the two apart by the `origin`
-field `claude_vm_bake_plugins_json` stamps on each manifest entry, defaulting
-to the strict `bake` reading when the field is absent. When *nothing* lands —
-no `bake:` refs and every boot-declared add skipped — the build ships no baked
-plugin tree instead of failing the "expected /root/.claude/plugins" check.
+container's egress is legal and simply cannot be added at build time, so the
+build logs its reason and continues. A boot-declared entry is skipped rather
+than fatal on each of the paths that abort a bake-declared one: it carries no
+`url` at all, the `claude plugin marketplace add` fails, or the add succeeds
+but registers under a name that does not match the configured one. Each path
+logs its own message against the entry it happened to, and
+`boot_plugin_phase` adds the marketplace at boot, which it already does for
+any marketplace the image does not carry. The provisioner tells the two apart
+by the `origin` field `claude_vm_bake_plugins_json` stamps on each manifest
+entry, defaulting to the strict `bake` reading when the field is absent. When
+*nothing* lands — no `bake:` refs and every boot-declared add skipped — the
+build ships no baked plugin tree instead of failing the "expected
+/root/.claude/plugins" check, and its summary line points back at the
+per-entry messages rather than naming one cause.
 
 *Boot path.* `build-guest-image.sh`'s `boot_plugin_phase` runs after the
 claude-fetch seam (it needs the verified binary) and before claude launches,
@@ -668,9 +674,13 @@ packages from *outside* the image with the build container's own tooling.
 *Derived egress.* `add_marketplace_uris_to_allowlist` (`auto` default |
 `always`) mirrors `add_apt_uris_to_allowlist`. Under `auto` the marketplace
 hosts are added **iff** boot-side work will actually run: a nonempty
-`install_at_boot`, a marketplace declared in a boot file that is not already
-baked, or `update_at_boot` true with at least one marketplace configured.
-Everything baked + `update_at_boot: false` + `auto` therefore derives
+`install_at_boot`, a marketplace declared in a boot file whose name is not
+also bake-declared, or `update_at_boot` true with at least one marketplace
+configured. That middle test reads the *declaration*, not the image: since
+issue #226 the build only *tries* to pre-register a boot-declared
+marketplace and the host cannot know whether it succeeded, so the gate
+derives the host either way.
+Everything bake-declared + `update_at_boot: false` + `auto` therefore derives
 **nothing** — and the guest still has working plugins, because the baked ones
 need no marketplace at all. Every derived addition is logged. A marketplace
 whose `url` is an `owner/repo` GitHub shorthand yields no derivable host; the
