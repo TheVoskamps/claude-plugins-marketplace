@@ -19,6 +19,13 @@ consumer plugin's README narrative. What it leaves behind:
 - The consumer plugin's README does not mention the new
   `dependencies` edge its `plugin.json` gained, even when the README
   has a whole section on how that plugin resolves things internally.
+- The consumer README's "what differs between these consumers"
+  sentence. It enumerates the arms on which the consumers diverge, and
+  a later round that gives the extracted skill a **new reported
+  outcome** (here: "branch members not claimed") makes its "only on X"
+  scoping false — one consumer acts on the new arm, the other doesn't.
+  Only opening both consumer SKILL.mds settles it; the sentence reads
+  fine in isolation.
 
 **Why:** on PR #224 (`git-tools:git-issues-from-branch`) both were
 missing after a thorough developer pass, and both are the kind of
