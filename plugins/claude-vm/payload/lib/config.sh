@@ -1259,30 +1259,68 @@ $name
 #   $2 -- merged BOOT document file path
 #
 # `marketplaces` is the EFFECTIVE set (bake ++ boot, deduped by name): the
-# image registers every configured marketplace, not only the bake-declared
-# ones, so a boot-side install has its marketplace already present and needs no
-# network to add it. Only the marketplace REGISTRATION is baked that way -- a
-# boot-only marketplace still contributes no plugin to the bake set, and,
-# because it lives in a boot file, still never moves the image-identity hash.
+# build tries to register every configured marketplace, not only the
+# bake-declared ones, so a boot-side install usually finds its marketplace
+# already present and needs no network to add it. Only the marketplace
+# REGISTRATION is baked that way -- a boot-only marketplace still contributes
+# no plugin to the bake set, and, because it lives in a boot file, still never
+# moves the image-identity hash.
 # `bake` is claude.plugins.bake from the BAKE doc only, with null/empty entries
 # stripped (same hazard as a stray `-` in a package list) and sorted for a
 # stable canonical form.
+#
+# ORIGIN MARKER (issue #226). Every marketplace entry carries `origin`, either
+# `bake` (the name is declared in the BAKE doc) or `boot` (it reached the
+# effective set from a BOOT file only). It exists because the two origins have
+# DIFFERENT build-time failure policies, and the flat set the provisioner used
+# to receive could not tell them apart:
+#
+#   bake -- registering it is a build PRECONDITION. The image is cached under
+#           an identity hash that covers the bake files, so an image missing a
+#           bake-declared marketplace would be reused by every later launch.
+#           A failed add aborts the build.
+#   boot -- registering it here is an OPTIMIZATION, never a precondition. Its
+#           url only has to be reachable from the GUEST: a guest-local path
+#           (`/mnt/repo`), a private source needing host-only credentials, or
+#           an https host outside the build container's egress are all legal
+#           and simply cannot be added at build time. A failed add warns and
+#           continues, leaving the registration to the guest boot launcher's
+#           boot_plugin_phase, which already adds any marketplace the image
+#           does not carry.
 #
 # NOTE ON IDENTITY: this JSON is build CONTENT, not the cache key. Since #179
 # the cache key is the whole-file raw-byte hash of the BAKE FILES, which
 # already covers claude.marketplaces + claude.plugins.bake now that they live
 # there -- that IS the "extend the bake-hash with marketplace/plugin refs" the
 # issue asks for, achieved by placement instead of by a new key-picked hash.
-# A boot-file-only marketplace deliberately does NOT rebuild the image; its
-# registration is added at boot instead.
+# A boot-file-only marketplace deliberately does NOT rebuild the image, and
+# (per the origin marker above) never fails one either; its registration is
+# added at boot whenever the build could not pre-register it.
 claude_vm_bake_plugins_json() {
-  local bake_doc="$1" boot_doc="$2" mps name url first=1
+  local bake_doc="$1" boot_doc="$2" mps name url origin baked_names first=1
   mps=""
+  # Membership test against the BAKE doc's own names decides each entry's
+  # origin. Same newline-delimited idiom claude_vm_boot_marketplace_egress_needed
+  # uses, so a name is compared whole rather than as a substring.
+  baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
   while IFS=$'\t' read -r name url; do
     [ -n "$name" ] || continue
+    origin="boot"
+    case "
+$baked_names
+" in
+      *"
+$name
+"*) origin="bake" ;;
+    esac
     if [ "$first" -eq 1 ]; then first=0; else mps="${mps},"; fi
-    mps="${mps}$(CLAUDE_VM_MP_NAME="$name" CLAUDE_VM_MP_URL="$url" yq eval -o=json -I=0 -n '
-      {"name": strenv(CLAUDE_VM_MP_NAME), "url": strenv(CLAUDE_VM_MP_URL)}
+    mps="${mps}$(CLAUDE_VM_MP_NAME="$name" CLAUDE_VM_MP_URL="$url" CLAUDE_VM_MP_ORIGIN="$origin" \
+      yq eval -o=json -I=0 -n '
+      {
+        "name": strenv(CLAUDE_VM_MP_NAME),
+        "url": strenv(CLAUDE_VM_MP_URL),
+        "origin": strenv(CLAUDE_VM_MP_ORIGIN)
+      }
     ' 2>/dev/null)"
   done < <(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")
   CLAUDE_VM_MPS="[${mps}]" yq eval -o=json -I=0 '

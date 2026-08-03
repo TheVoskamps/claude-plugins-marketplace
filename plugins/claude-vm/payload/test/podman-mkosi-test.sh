@@ -794,6 +794,122 @@ else
   FAIL=$((FAIL + 1)); echo "FAIL - plugins: build-in-container.sh not captured"
 fi
 
+# ---------------------------------------------------------------------
+# Bake-vs-boot marketplace failure policy (issue #226).
+#
+# A boot-declared marketplace's url only has to be reachable from the GUEST --
+# /mnt/repo, a private source, an https host outside the build container's
+# egress. Pre-registering it in the image is an optimization, so its add
+# failing must WARN and continue; the guest's boot_plugin_phase adds it. A
+# BAKE-declared one is a build precondition and must still abort.
+#
+# Asserted by RUNNING the generated loop, not by grepping it: slice the
+# marketplace_registered helper plus the registration loop out of the captured
+# build-in-container.sh (the same line-range extraction config-test.sh uses on
+# the <<'BOOT' heredoc), repoint /work/recipe at a temp dir, and drive it with
+# a stub claude whose exit status the test controls.
+# ---------------------------------------------------------------------
+MP_POLICY_DIR="$WORK/mp-policy"
+mkdir -p "$MP_POLICY_DIR"
+MP_STUB="$MP_POLICY_DIR/stub-claude"
+cat > "$MP_STUB" <<'STUB'
+#!/usr/bin/env bash
+if [ "${2:-}" = "marketplace" ] && [ "${3:-}" = "list" ]; then
+  cat "$MP_LIST_FILE" 2>/dev/null
+  exit 0
+fi
+if [ "${2:-}" = "marketplace" ] && [ "${3:-}" = "add" ]; then
+  exit "${MP_ADD_EXIT:-0}"
+fi
+exit 0
+STUB
+chmod +x "$MP_STUB"
+
+MP_SLICE="$MP_POLICY_DIR/marketplace-loop.sh"
+MP_SLICE_START=""
+MP_SLICE_END=""
+if [ -f "$CAPTURE_INNER" ]; then
+  MP_SLICE_START="$(grep -n 'marketplace_registered() {' "$CAPTURE_INNER" | head -1 | cut -d: -f1)"
+  MP_SLICE_END="$(grep -n 'done < /work/recipe/.bake-marketplaces.tsv' "$CAPTURE_INNER" | head -1 | cut -d: -f1)"
+fi
+if [ -n "$MP_SLICE_START" ] && [ -n "$MP_SLICE_END" ]; then
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -euo pipefail'
+    echo 'GUEST_CLAUDE="$MP_STUB"'
+    awk -v start="$MP_SLICE_START" -v end="$MP_SLICE_END" 'NR >= start && NR <= end' "$CAPTURE_INNER" \
+      | sed "s#/work/recipe#$MP_POLICY_DIR#g"
+    echo 'echo "BAKED_ITEMS=$BAKED_ITEMS" >&2'
+  } > "$MP_SLICE"
+
+  # run_mp_policy <manifest-json> <add-exit> -- returns the loop's exit status,
+  # with its stderr in $MP_POLICY_DIR/err.log.
+  run_mp_policy() {
+    printf '%s' "$1" > "$MP_POLICY_DIR/bake-plugins.json"
+    MP_STUB="$MP_STUB" \
+    MP_LIST_FILE="$MP_POLICY_DIR/mp-list.txt" \
+    MP_ADD_EXIT="$2" \
+      bash "$MP_SLICE" >"$MP_POLICY_DIR/out.log" 2>"$MP_POLICY_DIR/err.log"
+  }
+
+  MP_BAKE_DECL='{"marketplaces":[{"name":"mp","url":"/mnt/repo","origin":"bake"}],"bake":[]}'
+  MP_BOOT_DECL='{"marketplaces":[{"name":"mp","url":"/mnt/repo","origin":"boot"}],"bake":[]}'
+
+  # A failing add on a BAKE-declared marketplace still aborts the build.
+  printf 'No marketplaces configured\n' > "$MP_POLICY_DIR/mp-list.txt"
+  run_mp_policy "$MP_BAKE_DECL" 1
+  assert_eq "mp-policy: a failed add on a bake-declared marketplace aborts" \
+    "1" "$?"
+  assert_contains "mp-policy: the abort keeps the existing refusal message" \
+    "$MP_POLICY_DIR/err.log" "Refusing to bake an image whose"
+
+  # The SAME url declared only in a boot file warns and continues -- this is
+  # the issue #226 reproduce case, which used to take the whole build down.
+  run_mp_policy "$MP_BOOT_DECL" 1
+  assert_eq "mp-policy: a failed add on a boot-declared marketplace continues" \
+    "0" "$?"
+  assert_contains "mp-policy: ... with a warning that names the marketplace" \
+    "$MP_POLICY_DIR/err.log" "failed for 'mp'"
+  assert_not_contains "mp-policy: ... and does NOT print the build-refusal message" \
+    "$MP_POLICY_DIR/err.log" "Refusing to bake an image whose"
+  # Nothing landed, so the tree-copy step below the loop must not demand one.
+  assert_contains "mp-policy: a skipped boot-declared add leaves BAKED_ITEMS at 0" \
+    "$MP_POLICY_DIR/err.log" "BAKED_ITEMS=0"
+
+  # An add that SUCCEEDS but registers under a different name: still fatal for
+  # a bake-declared entry, still best-effort for a boot-declared one.
+  printf 'Configured marketplaces:\n\n  x other\n' > "$MP_POLICY_DIR/mp-list.txt"
+  run_mp_policy "$MP_BAKE_DECL" 0
+  assert_eq "mp-policy: a name mismatch on a bake-declared marketplace aborts" \
+    "1" "$?"
+  run_mp_policy "$MP_BOOT_DECL" 0
+  assert_eq "mp-policy: a name mismatch on a boot-declared marketplace continues" \
+    "0" "$?"
+
+  # The happy path counts the registration, so a build that DID register
+  # something keeps the strict "tree must exist" check downstream.
+  printf 'Configured marketplaces:\n\n  x mp\n' > "$MP_POLICY_DIR/mp-list.txt"
+  run_mp_policy "$MP_BOOT_DECL" 0
+  assert_eq "mp-policy: a successful add succeeds whatever the origin" "0" "$?"
+  assert_contains "mp-policy: ... and counts toward BAKED_ITEMS" \
+    "$MP_POLICY_DIR/err.log" "BAKED_ITEMS=1"
+
+  # An origin-less entry (an older or hand-written manifest) is read as
+  # bake-declared -- the fail-safe reading.
+  printf 'No marketplaces configured\n' > "$MP_POLICY_DIR/mp-list.txt"
+  run_mp_policy '{"marketplaces":[{"name":"mp","url":"/mnt/repo"}],"bake":[]}' 1
+  assert_eq "mp-policy: an origin-less manifest entry defaults to the strict policy" \
+    "1" "$?"
+else
+  FAIL=$((FAIL + 1)); echo "FAIL - mp-policy: could not slice the marketplace loop out of build-in-container.sh"
+fi
+
+# The tree-copy step must be skipped, not fatal, when nothing was baked.
+if [ -f "$CAPTURE_INNER" ]; then
+  assert_contains "mp-policy: nothing baked skips the tree copy instead of aborting" \
+    "$CAPTURE_INNER" 'if [ "$BAKED_ITEMS" -eq 0 ]; then'
+fi
+
 # No plugins configured -> the whole apparatus is inert and no binary is
 # needed, so a plugin-less build is byte-identical to the pre-#107 recipe.
 run_provisioner_plugins '{"marketplaces":[],"bake":[]}' ""

@@ -208,7 +208,10 @@ image:
 # pointed at the image root and drives its own CLI (`claude plugin marketplace
 # add` / `claude plugin install`), so the image ships a real
 # /root/.claude/plugins that loads with NO marketplace egress at boot. A failed
-# add/install FAILS THE BUILD rather than shipping an image without them.
+# add/install FAILS THE BUILD rather than shipping an image without them --
+# for the marketplaces declared HERE and every `bake:` ref. A marketplace
+# declared only in the boot file is pre-registered as an optimization, and a
+# failure there only warns (the guest adds it at boot).
 # Placement here (not in the boot file) is what puts these under the whole-file
 # image-identity hash; writing `claude.plugins.bake` into a boot file aborts the
 # launch. Prefer an explicit https:// url over the `owner/repo` shorthand so the
@@ -246,7 +249,10 @@ claude:
     deny: []
   marketplaces: []                # {name, url} entries. Allowed in BOTH file
                                   # types (like apt_sources); `name` must match
-                                  # the marketplace's OWN manifest name.
+                                  # the marketplace's OWN manifest name. One
+                                  # declared HERE only has to be reachable from
+                                  # the GUEST -- a url the image build cannot
+                                  # reach warns and is added at boot instead.
   plugins:
     # bake: lives in the BAKE file -- see the bake-file block above.
     install_at_boot: []           # plugin@marketplace refs installed at boot
@@ -401,7 +407,13 @@ lands in a sibling slice under #39. It resolves correctly through
     CLI (`claude plugin marketplace add` / `claude plugin install`) — the
     registry format is claude's and is never hand-written. A failed
     add/install **fails the build**, so a cached image never silently lacks a
-    configured plugin.
+    configured plugin. That strictness covers what the image must **carry**:
+    every `bake:` ref and every marketplace declared in a bake file. A
+    marketplace declared only in a **boot** file is pre-registered here as an
+    optimization, and its url only has to be reachable from the *guest* — a
+    guest-local path (`/mnt/repo`), a private source, or an https host outside
+    the build container's egress. A failed add on one of those warns and the
+    build continues, leaving the registration to the boot path (issue #226).
   - The boot path ensures any marketplace the image does not already carry,
     then (when `update_at_boot` is `true`, the default) refreshes the
     marketplaces and updates the installed plugins, then installs the

@@ -374,8 +374,11 @@ argv, settings, image identity, and plugin manifests from:
   registered, so the boot phase adds only the rest;
   `claude_vm_bake_plugins_json` emits the build's plugin CONTENT (the
   effective marketplaces plus the bake doc's sorted `claude.plugins.bake`) as
-  compact JSON, the sibling of `claude_vm_bake_config_json`. All pure and
-  unit-tested.
+  compact JSON, the sibling of `claude_vm_bake_config_json`. Each marketplace
+  entry in that JSON carries an `origin` of `bake` or `boot` (issue #226),
+  decided by whether the name appears in the bake doc, which is what lets the
+  provisioner apply a different build-time failure policy per entry — see
+  *Bake path* below. All pure and unit-tested.
 - `claude_vm_check_plugin_key_placement` / `claude_vm_check_marketplace_conflicts`
   — the **abort guards** (issue #107). The first rejects a `claude.plugins`
   sub-key written into the file type that never reads it (`bake` in a boot
@@ -614,6 +617,22 @@ silently plugin-less image would be cached under a version stamp claiming it
 has them. The launcher therefore resolves the verified binary **before** the
 image build (an ordering change from #49's original sequence), which also means
 a signature/checksum failure now aborts before a multi-minute build.
+
+*Bake-declared vs. boot-declared marketplaces (issue #226).* That
+fail-the-build policy is scoped to what the image must **carry**: every
+`claude.plugins.bake` ref, and every marketplace declared in a bake file. A
+marketplace declared only in a **boot** file is pre-registered here purely as
+an optimization — it saves the guest one network add — and its url only has to
+be reachable from the **guest**. A guest-local path (`/mnt/repo`), a private
+source needing host-only credentials, or an https host outside the build
+container's egress is legal and simply cannot be added at build time, so a
+failure on one of those logs a warning and the build continues;
+`boot_plugin_phase` adds it at boot, which it already does for any marketplace
+the image does not carry. The provisioner tells the two apart by the `origin`
+field `claude_vm_bake_plugins_json` stamps on each manifest entry, defaulting
+to the strict `bake` reading when the field is absent. When *nothing* lands —
+no `bake:` refs and every boot-declared add skipped — the build ships no baked
+plugin tree instead of failing the "expected /root/.claude/plugins" check.
 
 *Boot path.* `build-guest-image.sh`'s `boot_plugin_phase` runs after the
 claude-fetch seam (it needs the verified binary) and before claude launches,

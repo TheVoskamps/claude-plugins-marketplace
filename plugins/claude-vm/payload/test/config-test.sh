@@ -1951,7 +1951,8 @@ fi
 #
 # Covers the pure, host-side-verifiable half of the slice: the bake/boot
 # placement guard, the marketplace name-conflict guard, the effective
-# marketplace union, the canonical bake-plugin manifest, the derived-egress
+# marketplace union, the canonical bake-plugin manifest (including its
+# per-entry bake/boot origin marker, issue #226), the derived-egress
 # gate (including the hard-secure "derives nothing" case, acceptance criterion
 # 1), and the extraKnownMarketplaces render.
 #
@@ -2066,6 +2067,44 @@ assert_eq "bake-manifest: marketplaces carry the effective set" \
   "2" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces | length' - 2>/dev/null)"
 assert_eq "bake-manifest: install_at_boot refs are NOT baked" \
   "false" "$(printf '%s' "$BP_JSON" | yq -p=json eval '[.bake[] == "cc-tools@thevoskamps"] | any' - 2>/dev/null)"
+# Origin marker (issue #226): the provisioner needs to tell a bake-declared
+# marketplace (registering it is a build PRECONDITION -- a failed add aborts)
+# from a boot-declared one (pre-registering it is an OPTIMIZATION -- a failed
+# add warns and the guest adds it at boot). The flat set carried no such
+# distinction, so an unreachable-at-build-time boot url failed the whole build.
+assert_eq "bake-manifest: a bake-declared marketplace is marked origin=bake" \
+  "bake" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces[] | select(.name == "thevoskamps") | .origin' - 2>/dev/null)"
+assert_eq "bake-manifest: a boot-declared marketplace is marked origin=boot" \
+  "boot" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces[] | select(.name == "official") | .origin' - 2>/dev/null)"
+assert_eq "bake-manifest: every marketplace entry carries an origin" \
+  "0" "$(printf '%s' "$BP_JSON" | yq -p=json eval '[.marketplaces[] | select(has("origin") | not)] | length' - 2>/dev/null)"
+# A name in BOTH docs is bake-declared: it is under the image-identity hash
+# either way, so the strict policy applies (the de-dupe keeps the bake entry).
+assert_eq "bake-manifest: a name in both docs counts as bake-declared" \
+  "bake" \
+  "$(claude_vm_bake_plugins_json "$MP_BAKE" "$MP_BOOT_DUP" | yq -p=json eval '.marketplaces[] | select(.name == "thevoskamps") | .origin' - 2>/dev/null)"
+# The reproduce case from issue #226: a boot-only marketplace whose url is a
+# guest-local path, with NOTHING in the bake doc. Nothing here is a build
+# precondition, so the entry must be marked boot.
+MP_BAKE_BARE="$WORK/mp-bake-bare.yml"
+printf 'packages:\n  - git\n' > "$MP_BAKE_BARE"
+MP_BOOT_LOCAL="$WORK/mp-boot-local.yml"
+cat > "$MP_BOOT_LOCAL" <<'YML'
+claude:
+  marketplaces:
+    - name: thevoskamps
+      url: /mnt/repo
+  plugins:
+    install_at_boot:
+      - guardrails@thevoskamps
+    update_at_boot: false
+YML
+assert_eq "bake-manifest: a boot-only local-path marketplace is origin=boot" \
+  "boot" \
+  "$(claude_vm_bake_plugins_json "$MP_BAKE_BARE" "$MP_BOOT_LOCAL" | yq -p=json eval '.marketplaces[0].origin' - 2>/dev/null)"
+assert_eq "bake-manifest: ... and contributes no bake ref" \
+  "0" \
+  "$(claude_vm_bake_plugins_json "$MP_BAKE_BARE" "$MP_BOOT_LOCAL" | yq -p=json eval '.bake | length' - 2>/dev/null)"
 # Empty config -> the stable empty canonical form the provisioner tests for.
 EMPTY_DOC="$WORK/mp-empty.yml"
 printf '{}\n' > "$EMPTY_DOC"
