@@ -597,6 +597,12 @@ func classifyGitPush(rest []string) Decision {
 		// remote's, which is why it appears on essentially every push. The old
 		// ask rested on the premise that it "overwrites a remote ref without the
 		// --force flag the policy keys on", which is not what git does.
+		//
+		// It moves on to the next positional rather than returning an allow: the
+		// refspec being safe does not make the COMMAND safe, and the post-loop
+		// --force check is what still asks for `git push --force origin
+		// HEAD:branch`.
+		continue
 	}
 
 	if hasForce && !hasForceWithLease {

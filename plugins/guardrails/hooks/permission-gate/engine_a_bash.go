@@ -708,10 +708,12 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// descendCmdSubsts passes none: the substitution is set up during word
 	// expansion, before the enclosing command's own redirections are applied.
 	//
-	// SCOPE: the only call site is the CallExpr branch, over c.Args — so this
-	// covers a substitution in ARGV position only. One in a redirect word
-	// (`cat < <(cmd)`) is reduced to procSubstFD by literalWord and then
-	// classified by nobody; see the KNOWN GAP note in applyRedirs.
+	// SCOPE: there are two call sites, and between them they cover both places
+	// bash accepts a process substitution. The CallExpr branch calls this over
+	// c.Args (ARGV position); walkStmt calls it over stmt.Redirs' words (REDIRECT
+	// position — `cat < <(cmd)`, `cat > >(cmd)`), where literalWord likewise
+	// reduces an input substitution to procSubstFD and so leaves nothing else to
+	// grade the substituted command.
 	descendProcSubsts = func(w *syntax.Word) {
 		if w == nil {
 			return
@@ -946,6 +948,26 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		// `{ cat < a; } < b` the block opens b on fd 0 and cat then opens a on
 		// its own fd 0, so both files are read and both must be graded.
 		redirs := mergeRedirs(stmt.Redirs, inherited)
+
+		// A process substitution can sit in a REDIRECT word as easily as in argv
+		// (`cat < <(cat ../sibling-repo/.env)`, `cat > >(tee x)`), and literalWord
+		// reduces an input one to procSubstFD — a token the containment walks skip
+		// — so nothing else here would ever grade the substituted command. Descend
+		// so it is classified on its own terms, exactly as the CallExpr branch does
+		// for an argv-position one; otherwise the redirect spelling of an escaping
+		// read rides the enclosing command's allow while the argv spelling denies.
+		//
+		// Keyed on stmt.Redirs, not the merged set, and placed BEFORE `emitted` is
+		// captured and before walkCmd runs: keying on the merged set would classify
+		// an inherited substitution once per statement inside the construct, the
+		// early capture keeps the redirect-only fallback's "the descent produced no
+		// command" test about stmt.Cmd, and descending before walkCmd resolves the
+		// inner command against the cwd in effect BEFORE this statement's own `cd`
+		// (bash sets the substitution's pipe up during word expansion).
+		for _, r := range stmt.Redirs {
+			descendProcSubsts(r.Word)
+		}
+
 		emitted := len(out)
 
 		// A statement can be redirects and NOTHING else: bare `> f` (the
@@ -1118,15 +1140,13 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 		// …) from auto-allowing a command whose redirect introduces unprovable
 		// behavior, even when its own arg words are all literal.
 		//
-		// KNOWN GAP (#225): an INPUT process substitution (`wc < <(grep x f)`)
-		// is no longer inexact — literalWord reduces it to procSubstFD, the
-		// /dev/fd pipe bash passes — so it no longer sets this flag, and the
-		// operand walks skip the token. But descendProcSubsts is wired only to
-		// the argv walk, so the substituted command in a REDIRECT position is
-		// classified by nothing: `cat < <(cat ../sibling-repo/.env)` ALLOWs,
-		// while the argv spelling `comm -3 <(cat ../sibling-repo/.env) x`
-		// correctly DENIEs. Closing it means descending into the redirect
-		// words too, here or at the walk's redirect sites.
+		// An INPUT process substitution (`wc < <(grep x f)`) is deliberately not
+		// one of those: literalWord reduces it to procSubstFD, the /dev/fd pipe
+		// bash passes, so it stays exact here and the operand walks skip the
+		// token. What keeps that sound is that walkStmt descends into every
+		// redirect word's substitution, so the substituted command earns its own
+		// verdict — `cat < <(cat ../sibling-repo/.env)` denies on the inner read,
+		// the same as the argv spelling `comm -3 <(cat ../sibling-repo/.env) x`.
 		if !exact {
 			sc.hasUnknownExpansion = true
 		}

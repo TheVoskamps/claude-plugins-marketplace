@@ -188,6 +188,11 @@ func TestGitPushHeadRefspecAllows_225(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git push --mirror origin", true), BucketDeny, "--mirror")
 	wantBucket(t, classifyCmd(t, "git push --prune origin", true), BucketDeny, "--prune")
 	wantBucket(t, classifyCmd(t, "git push --force origin main", true), BucketAsk, "--force")
+	// The refspec being safe does not make the command safe: the plain-refspec
+	// branch moves on to the next positional, and --force is still graded after
+	// the loop.
+	wantBucket(t, classifyCmd(t, "git push --force origin HEAD:issue-216-x", true), BucketAsk,
+		"--force alongside a plain refspec")
 	wantBucket(t, classifyCmd(t, "git push --force-with-lease origin HEAD:main", true), BucketAllow,
 		"--force-with-lease")
 }
@@ -226,6 +231,86 @@ func TestProcessSubstitutionIsNotAPath_225(t *testing.T) {
 	// A real path operand alongside a process substitution is still contained.
 	wantBucket(t, classifyBash("diff "+filepath.Join(canonicalize(sibling), "x")+" <(echo b)", ev),
 		BucketDeny, "a real operand alongside a process substitution is still contained")
+}
+
+// TestProcSubstInRedirectPositionIsClassified_225 is the redirect-position half
+// of the test above. Both positions have to earn the same verdict: `<(cmd)` is
+// exact wherever it sits, and the containment walks skip the /dev/fd token in a
+// redirect target exactly as they do in argv, so a descent wired only to argv
+// would leave `cat < <(cat <escaping-path>)` graded by nobody and riding the
+// enclosing command's ALLOW while the argv spelling denies.
+func TestProcSubstInRedirectPositionIsClassified_225(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	ev := bashEvIn(t, root, "issue-developer")
+
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	escaping := filepath.Join(canonicalize(sibling), ".env")
+
+	// An escaping read inside a redirect-position substitution denies, in every
+	// spelling the walk can reach it through: a simple command's own redirect, a
+	// compound statement's redirect, and a statement that is redirects and
+	// nothing else (no Cmd at all).
+	for _, cmd := range []string{
+		"cat < <(cat " + escaping + ")",
+		"wc -l < <(cat " + escaping + ")",
+		"grep x < <(cat " + escaping + ")",
+		"cat < <(cat /etc/passwd)",
+		"{ cat; } < <(cat /etc/passwd)",
+		"< <(cat /etc/passwd)",
+		// An OUTPUT substitution in a redirect position runs its command too,
+		// so its escaping WRITE is graded the same way.
+		"cat > >(tee " + filepath.Join(canonicalize(sibling), "out") + ")",
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketDeny, "redirect-position process substitution: "+cmd)
+	}
+
+	// The argv spelling of the same read — the control this must agree with.
+	wantBucket(t, classifyBash("comm -3 <(cat "+escaping+") <(echo b)", ev),
+		BucketDeny, "control: the argv spelling denies")
+
+	// A contained substituted command keeps the enclosing ALLOW: the descent
+	// classifies, it does not blanket-escalate.
+	for _, cmd := range []string{
+		"cat < <(echo hi)",
+		"wc -l < <(grep x file)",
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "benign redirect-position substitution: "+cmd)
+	}
+
+	// The substituted command is resolved against the cwd in effect BEFORE this
+	// statement's own `cd`, matching bash (the pipe is set up during word
+	// expansion, before `cd` runs) and matching the argv-position descent, which
+	// also precedes applyCd. `sub/../x` would be contained; `../x` from the repo
+	// root is not, and that is the one that must be graded.
+	if err := os.MkdirAll(filepath.Join(root, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantBucket(t, classifyBash("cd sub < <(cat ../x)", ev), BucketDeny,
+		"the substitution is resolved against the pre-cd cwd")
+
+	// Structural: the descent must not swallow the #193 redirect-only fallback.
+	// That fallback fires only when the descent into stmt.Cmd emitted nothing, so
+	// a substituted command counted as "something emitted" would leave the WRITE
+	// half of the same statement ungraded.
+	cmds, err := extractSimpleCommands(mustParse(t, "[[ -f a ]] > out.log < <(echo hi)"), root,
+		defaultVarResolver(), nil)
+	if err != nil {
+		t.Fatalf("extract failed: %v", err)
+	}
+	var haveRedirectOnly bool
+	for _, sc := range cmds {
+		if sc.redirectOnly && len(sc.redirectTargets) == 1 && sc.redirectTargets[0] == "out.log" {
+			haveRedirectOnly = true
+		}
+	}
+	if !haveRedirectOnly {
+		t.Errorf("the redirect-only fallback must still grade the write half; got %d commands %v",
+			len(cmds), cmds)
+	}
 }
 
 // --- 6. dynamic tokens in established flag-value positions -----------------------

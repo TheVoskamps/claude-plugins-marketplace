@@ -13,11 +13,13 @@ choke point", "all three tracks" — write a throwaway
 delete the file before staging.
 
 **Why:** the helper usually does do what its own doc comment says. The
-falsehood is in the *call sites*: on #225 `descendProcSubsts` genuinely
-descends into every process substitution of the word it is handed, but
-its single caller is the `CallExpr` argv branch, so `cat < <(cat
-../sibling-repo/.env)` ALLOWs while `comm -3 <(cat …) x` DENIEs. Reading
+falsehood is in the *call sites*: mid-#225 `descendProcSubsts` genuinely
+descended into every process substitution of the word it was handed, but
+its single caller was the `CallExpr` argv branch, so `cat < <(cat
+../sibling-repo/.env)` ALLOWed while `comm -3 <(cat …) x` DENIEd. Reading
 the function bottom-up confirms the claim; only running it refutes it.
+(That gap was closed later in the same PR — a second caller now covers
+redirect words — so the lesson is the method, not the verdict.)
 The same probe settled which `gh -f/-F` field spellings the new
 shielding actually admits, which I then wrote into a skill as a
 prescription — never prescribe a gate-permitted spelling you have not

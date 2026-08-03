@@ -1,31 +1,38 @@
 ---
 name: procsubst-redirect-position-unclassified
-description: In the permission-gate, descendProcSubsts (the walk that classifies a process substitution's inner command) is wired ONLY to the CallExpr argv branch, so a `<(cmd)` in a REDIRECT position (`cat < <(cmd)`, `wc -l < <(cmd)`) is classified by nobody while the outer command allows — an escaping/arbitrary-file read rides the allow track. Probe by building both the PR binary and origin/main's binary and comparing verdicts on the same shape.
+description: CLOSED — guardrails #225 briefly graded a `<(cmd)` in a REDIRECT position (`cat < <(cmd)`) by nobody while the argv spelling denied; the same PR wired descendProcSubsts to the redirect words too, so both positions now deny. Keep the technique: prove a widening is NEW by comparing the PR's classifier against a git-archive'd origin/main one.
 metadata:
   type: reference
 ---
 
-Since guardrails #225 (PR #227), an INPUT process substitution `<(cmd)`
-reduces to `procSubstFD` (a `/dev/fd/<...>` token the containment walks
-skip) and no longer marks the enclosing command inexact. `descendProcSubsts`
-classifies the inner command on its own terms — but it is called ONLY from
-the `CallExpr` argv branch of `extractSimpleCommands`. So:
+Guardrails #225 (PR #227) made an INPUT process substitution `<(cmd)`
+reduce to `procSubstFD` (a `/dev/fd/<...>` token the containment walks
+skip) instead of marking the enclosing command inexact. Mid-PR,
+`descendProcSubsts` — the walk that classifies the substituted command on
+its own terms, which is what makes that sound — was wired ONLY to the
+`CallExpr` argv branch, so:
 
-- ARGV position: `comm -3 <(cat ../sibling/.env) x` / `cat <(cat sibling/.env)`
-  → the inner `cat` escapes → correctly **DENIES**.
+- ARGV position: `comm -3 <(cat ../sibling/.env) x` → inner `cat` escapes
+  → **DENY**.
 - REDIRECT position: `cat < <(cat ../sibling/.env)`, `wc -l < <(…)`,
-  `grep x < <(…)`, `cat < <(cat /etc/passwd)` → inner command graded by
-  nobody, redirect target reduces to procSubstFD which the walk skips →
-  outer command **ALLOWS** silently.
+  `< <(…)` → graded by nobody → outer command **ALLOWED** silently.
+
+**Resolved in the same PR** (fix round after the review): `walkStmt` now
+calls `descendProcSubsts` over every word of `stmt.Redirs` as well, so
+both positions earn the same verdict, including the compound
+(`{ cat; } < <(…)`) and redirect-only (`< <(…)`) spellings, and an output
+substitution in a redirect (`cat > >(tee ../sibling/out)`) denies on its
+write. Pinned by `TestProcSubstInRedirectPositionIsClassified_225`. Do not
+re-report it as open — read that test first.
 
 **Verified technique (do this, don't reason):** `git archive origin/main
 plugins/guardrails/hooks/permission-gate | tar -x -C <tmp>`, drop a
 throwaway `zz_docprobe_test.go` calling `classifyBash` into BOTH the PR
 tree and the extracted main tree, `t.Logf` the verdict, run
-`go -C <dir> test -run … -v .`. On #227 main ASKed all these shapes; the
-PR ALLOWs the redirect ones — proving it is a NEW widening, not a
-pre-existing hole. The doc-updater flagged this as a "known gap" in the
-README and the `applyRedirs` code comment but did not fix it.
+`go -C <dir> test -run … -v .`. That is what proved the redirect-position
+allow was a NEW widening rather than a pre-existing hole — main ASKed
+every one of those shapes — and it is the cheapest way to grade any
+"is this regression ours?" question on a classifier PR.
 
 **Binary provenance recipe that worked on #227:** rebuild each committed
 binary with `GOOS=… GOARCH=… CGO_ENABLED=0 go -C <permission-gate-dir>

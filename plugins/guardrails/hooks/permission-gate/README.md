@@ -27,17 +27,22 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   gate cannot resolve statically", which is what made `comm -3 <(…)
   <(…)` escalate when there was no path to resolve at all. What makes
   that sound is that the **substituted command is classified on its own
-  terms**: the walk descends into every process substitution sitting in
-  a command's ARGV and grades its statements as ordinary commands, so
+  terms**: the walk descends into every process substitution and grades
+  its statements as ordinary commands, so
   `comm -3 <(cat ../sibling-repo/.env) <(…)` still earns the cross-repo
-  deny from the inner `cat`. Known gap: the descent is wired only to the
-  argv walk (`descendProcSubsts` is called on a `CallExpr`'s words), so
-  a substitution in a REDIRECT position — `cat < <(cat
-  ../sibling-repo/.env)`, `wc -l < <(…)` — has its inner command graded
-  by nothing, while the outer command now allows because the redirect
-  target reduces to the `/dev/fd` token the containment walk skips.
-  Before #225 that shape stayed inexact and could not ride the allow
-  track, so this is a real widening, not a pre-existing hole.
+  deny from the inner `cat`. The descent covers both positions bash
+  accepts a substitution in, because the token is skipped by the
+  containment walks in both: ARGV (`descendProcSubsts` over a
+  `CallExpr`'s words) and REDIRECT (over the words of a statement's own
+  redirects), so `cat < <(cat ../sibling-repo/.env)` earns the same
+  cross-repo deny the argv spelling does — including when the redirect
+  is written on a compound statement (`{ cat; } < <(…)`) or on a
+  statement that is redirects and nothing else (`< <(…)`). An output
+  substitution in a redirect (`cat > >(tee ../sibling-repo/out)`) is
+  graded the same way, on its write. The substituted command is
+  resolved against the cwd in effect BEFORE the enclosing statement's
+  own `cd`, matching bash: the pipe is set up during word expansion,
+  which precedes the command.
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
@@ -199,9 +204,13 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `more`, `od`,
   `xxd`, `hexdump`) are deliberately out of this ALLOW set: they keep
   the prior path-reader posture (contained → defer, escape →
-  deny/ask). A redirect target built from a process substitution or
-  unresolved expansion (`wc < <(grep x f)`, `cmd > "$DYNAMIC"`) marks
-  the command unprovable so it cannot ride the allow track.
+  deny/ask). A redirect target built from an unresolved expansion
+  (`cmd > "$DYNAMIC"`) or from an OUTPUT process substitution
+  (`cat > >(tee x)`) marks the command unprovable so it cannot ride the
+  allow track. An INPUT process substitution (`wc -l < <(grep x f)`) is
+  the exception and not a hole: it is exact because it names a `/dev/fd`
+  pipe rather than a path, and the substituted command earns its own
+  verdict from the redirect-word descent above.
   `ls` joined the set in #193: it was in neither bash read track, so it
   deferred for every path while `find` and `grep` — both strictly more
   capable — allowed, and the scratchpad carve-out's own worked example
