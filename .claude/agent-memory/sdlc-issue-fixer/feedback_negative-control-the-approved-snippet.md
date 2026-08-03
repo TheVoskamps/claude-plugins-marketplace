@@ -30,7 +30,13 @@ from `stmt.Redirs` to the merged set took the emitted-command count for
 `{ cat; cat; } < <(cat /etc/passwd)` from 3 to 5 — the comment's "once
 per statement inside the construct" was exactly right, and would have
 been a guess otherwise. The same backup/flip/restore loop is how you
-prove a *new* regression test actually fails against the pre-fix code.
+prove a *new* regression test actually fails against the pre-fix code —
+and for a whole-file baseline, `git archive --format=tar -o
+.claude/tmp/<slug>/base.tar HEAD <pkg-dir>`, `tar -xf … -C zzbase`,
+`/bin/cp -f` your new test file in, and `go test` there: on #227 that
+printed which rows were already graded (here-string, else arm) versus
+the eleven that flipped, which no reasoning about the diff would have
+separated.
 
 **How to apply:** build the doctored cases first, then run *two* wrappers
 over the same trees — the approved snippet and yours — and print the raw
