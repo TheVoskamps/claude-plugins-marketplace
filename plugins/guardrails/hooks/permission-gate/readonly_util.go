@@ -169,8 +169,8 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// sed and awk also carry an operand grammar: their leading positional is a
 	// SCRIPT / PROGRAM, not a path (sedFileOperands is shared verbatim with the
 	// `sed -i` write track, which has parsed it that way all along).
-	"sed":  {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands},
-	"awk":  {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands},
+	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands},
+	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands},
 	// jq's leading positional is a FILTER, which is the same shape of non-path
 	// positional — but jqDefers deliberately does NOT fail safe on an unknown
 	// flag, so an operand grammar here could silently drop a real file operand

@@ -707,6 +707,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// The inner statements inherit NO redirects, for the same reason
 	// descendCmdSubsts passes none: the substitution is set up during word
 	// expansion, before the enclosing command's own redirections are applied.
+	//
+	// SCOPE: the only call site is the CallExpr branch, over c.Args — so this
+	// covers a substitution in ARGV position only. One in a redirect word
+	// (`cat < <(cmd)`) is reduced to procSubstFD by literalWord and then
+	// classified by nobody; see the KNOWN GAP note in applyRedirs.
 	descendProcSubsts = func(w *syntax.Word) {
 		if w == nil {
 			return
@@ -1105,14 +1110,23 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 			continue
 		}
 		target, exact := literalWord(r.Word, knownVars, resolver, cc)
-		// A redirect target built from a command substitution, process
-		// substitution, or unresolved expansion (e.g. `wc < <(grep x f)`,
-		// `cmd > "$DYNAMIC"`) cannot be statically proven safe — an input
-		// process substitution even spawns an unproven command. Such a command
+		// A redirect target built from a non-anchor command substitution, an
+		// OUTPUT process substitution, or an unresolved expansion (e.g.
+		// `cmd > "$DYNAMIC"`) cannot be statically proven safe. Such a command
 		// must not ride the allow track, so mark it as unknown-expansion.
 		// This keeps the allow-aware classifiers (read-only utilities, git, gh,
 		// …) from auto-allowing a command whose redirect introduces unprovable
 		// behavior, even when its own arg words are all literal.
+		//
+		// KNOWN GAP (#225): an INPUT process substitution (`wc < <(grep x f)`)
+		// is no longer inexact — literalWord reduces it to procSubstFD, the
+		// /dev/fd pipe bash passes — so it no longer sets this flag, and the
+		// operand walks skip the token. But descendProcSubsts is wired only to
+		// the argv walk, so the substituted command in a REDIRECT position is
+		// classified by nothing: `cat < <(cat ../sibling-repo/.env)` ALLOWs,
+		// while the argv spelling `comm -3 <(cat ../sibling-repo/.env) x`
+		// correctly DENIEs. Closing it means descending into the redirect
+		// words too, here or at the walk's redirect sites.
 		if !exact {
 			sc.hasUnknownExpansion = true
 		}

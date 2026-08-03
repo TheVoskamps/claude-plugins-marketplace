@@ -27,10 +27,18 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   gate cannot resolve statically", which is what made `comm -3 <(…)
   <(…)` escalate when there was no path to resolve at all. What makes
   that sound is that the **substituted command is classified on its own
-  terms**: the walk descends into every process substitution and grades
-  its statements as ordinary commands, so `comm -3 <(cat
-  ../sibling-repo/.env) <(…)` still earns the cross-repo deny from the
-  inner `cat`. A parameter expansion (`$P` / `${P}`) whose variable was
+  terms**: the walk descends into every process substitution sitting in
+  a command's ARGV and grades its statements as ordinary commands, so
+  `comm -3 <(cat ../sibling-repo/.env) <(…)` still earns the cross-repo
+  deny from the inner `cat`. Known gap: the descent is wired only to the
+  argv walk (`descendProcSubsts` is called on a `CallExpr`'s words), so
+  a substitution in a REDIRECT position — `cat < <(cat
+  ../sibling-repo/.env)`, `wc -l < <(…)` — has its inner command graded
+  by nothing, while the outer command now allows because the redirect
+  target reduces to the `/dev/fd` token the containment walk skips.
+  Before #225 that shape stayed inexact and could not ride the allow
+  track, so this is a real widening, not a pre-existing hole.
+  A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
   of failing closed on `hasUnknownExpansion` (#60): e.g.
@@ -168,11 +176,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   counterpart of the one the write track has always had for `sed -i`:
   for `sed` the first non-flag token is the script unless `-e`/`-f`
   supplied one, for `awk` the program text unless `-f` did, for `grep`
-  the pattern unless `-e`/`-f` did. None of the three is a path, and
+  the pattern unless `-e`/`-f` did. None of them is a path, and
   testing them as one was not merely wasted work — a `sed -n
   '/A/,/B/p' f.md` range address begins with `/`, so containment read
   it as an absolute path and DENIED a command that reads only `f.md`.
-  An `awk` `var=value` operand is dropped for the same reason. Every
+  An `awk` `var=value` operand is dropped too: it is a variable
+  assignment, so it names no file either. `jq` is deliberately NOT given
+  one even though its leading positional is a filter: `jqDefers` does
+  not fail safe on an unknown flag, so a grammar there could silently
+  drop a real file operand out of containment rather than merely lose an
+  allow, and a jq filter is not absolute-path-shaped in practice. Every
   genuine path operand alongside them is still contained. The read
   still **denies/asks** when a path operand escapes
   containment (#148 cross-repo, #127 worktree) — and an **input
@@ -248,7 +261,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   the guest's credential may do at an already-allowed host. So a
   classifier miss on a **guest-local** effect costs nothing (the box is
   disposable), but a miss on a **credential-carrying remote** operation
-  has no proxy backstop at all, and the two are tiered accordingly:
+  has no proxy backstop at all, and they are tiered accordingly:
   - For **`git`**, the ALLOW default covers only the guest-local
     subcommands (commit, add, checkout, rebase, …), which the
     disposable microVM contains and which git's content-addressed
@@ -287,12 +300,19 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   glob) on any of those tools **denies** — the dynamic token can
   hide a dangerous op. That rationale only reaches a token in a
   **classification-bearing position**, so #225 scoped the check to
-  those: the noun, the verb, the endpoint, and any flag whose value the
-  classifiers read (`-R`/`--repo`, `-X`/`--method`, `-H`/`--header`,
-  `--hostname`, and a `gh api graphql` `query=` field). A dynamic token
+  those. Scoping is spelled as an allowlist of SHIELDED flags rather
+  than an enumeration of bearing positions, so every position the
+  allowlist does not name stays bearing by default: the noun, the verb,
+  the endpoint, and every unshielded flag value — including the ones the
+  classifiers demonstrably read (`-R`/`--repo`, `-X`/`--method`,
+  `-H`/`--header`, `--hostname`, and a `gh api graphql` `query=` field),
+  and equally a flag nobody has modelled yet. A dynamic token
   the parser has already established is the value of a `gh` field or
-  output flag (`-f`/`-F`/`--field`/`--raw-field`/`--jq`/`--template`/
-  `--body`/`--title`) can never become a subcommand, and no longer
+  output flag (`-f`/`--raw-field`, `-F`/`--field`, `-q`/`--jq`,
+  `-t`/`--template`, `-b`/`--body`, `--title` — the whole of
+  `ghShieldingFlags`, in both the separate-token and the glued
+  `-FitemId=$ID` / `--jq=$Q` spellings) can never become a subcommand,
+  and no longer
   denies — the ordinary GraphQL chain (`ITEM=$(gh api graphql … --jq
   …); gh api graphql … -F itemId=$ITEM`) was otherwise unscriptable,
   with no escape hatch from a deny, which pushed the `issues` plugin's
@@ -963,7 +983,7 @@ or itself exits 2 (its own fail-closed backstop), the wrapper writes a
 one-line message naming the exact resolved path to stderr and exits 2 —
 a blocking deny for that tool call.
 
-Three distinct failures are covered, because `[ -x ]` alone answers only
+Distinct failure modes are covered, because `[ -x ]` alone answers only
 "may I try to run this", never "did it run and decide":
 
 1. **Missing, or present without the exec bit.** `[ -x "$gate" ]`:

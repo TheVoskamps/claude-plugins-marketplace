@@ -529,6 +529,15 @@ shell-escaped strings. Use `-f` (string) for `ID!` arguments; `-F`
 coerces to int/bool when the value parses as one, which can mangle
 node IDs — reserve `-F` for numeric or boolean arguments only.
 
+A field VALUE may be a shell variable: `ID=$(gh api graphql … --jq …)`
+then `gh api graphql -f query='…' -f id="$ID"` is fine, so a node ID
+captured from a prior query does not have to be pasted back as a
+literal. The guardrails permission-gate shields a `-f`/`-F` value from
+its static-argv deny as long as the field NAME is spelled literally and
+is not `query` (guardrails #225). The document itself still has to be a
+literal — `-f query="$DOC"` denies, and so does a dynamic field name
+(`-f "$KEY"=v`).
+
 ### Node-ID lookup by issue number
 
 ```graphql
