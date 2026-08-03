@@ -32,3 +32,10 @@ is "merge the companion first", and it dissolves the moment that PR
 lands and deploys. Don't grade the citation of the future wording as
 a false-claim High when the companion PR exists; do flag that the PR
 body omits the ordering constraint if it does.
+
+The session-start system-reminder snapshot of `~/.claude/rules/*` is
+NOT the live file: on #224 round 2 the snapshot still showed the old
+singular "own issue only" heading while a live grep showed the
+amended "own issues only" / "issue set" wording already deployed
+(claude-config#38 merged between rounds). Never grade a deployment
+claim from the snapshot — grep the file on disk.
