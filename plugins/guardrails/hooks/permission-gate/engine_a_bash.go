@@ -736,22 +736,36 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// each substitution is graded exactly once, no matter how deeply the
 	// spellings nest (`cat <(cat <(cmd))`).
 	//
-	// The one nested statement the main walk does NOT reach is the body of an
-	// argv-position command substitution (`echo "$(cat <(cmd))"`) —
-	// descendCmdSubsts is wired only to a declaration clause's assignment RHS.
-	// That is the command-substitution class, not this one, and it is not an
-	// allow-track hole: a non-anchor `$(…)` leaves its word INEXACT, so the
-	// enclosing command defers instead of allowing. An input `<(…)` is the only
-	// construct that keeps its word exact while carrying a command, which is
-	// exactly why grading it in every position is this function's job.
+	// The nested statements the main walk does NOT reach are the bodies of
+	// command substitutions outside a declaration clause's assignment RHS —
+	// the one position descendCmdSubsts is wired to. That is the
+	// command-substitution class, not this one, and INEXACTNESS ONLY HALF
+	// COVERS IT: a non-anchor `$(…)` leaves its word inexact, which stops the
+	// allow track only where that word rides a command the walk emits
+	// (`echo "$(cat ../sib/.env)"`, `x=$(…)`, `[[ -f $(…) ]]` all DEFER). A
+	// word position that emits no command of its own has nothing to carry the
+	// inexactness, so the line allows on its remaining parts while bash runs
+	// the substituted command: measured on this source,
+	// `for f in $(cat ../sib/.env); do echo x; done`, `select f in $(…)`,
+	// `case $(…) in`, `case x in $(…))` and `FOO=$(…) echo hi` all ALLOW —
+	// identically at #225's merge base, so this is pre-existing rather than
+	// anything this function widened. Closing that half is separate work, and
+	// it belongs to descendCmdSubsts, not here.
+	//
+	// An input `<(…)` is the only construct that keeps its word EXACT while
+	// carrying a command — inexactness could never have caught it in any
+	// position — which is exactly why grading it in every position is this
+	// function's job.
 	//
 	// One position where bash DOES run a substitution is unreachable from here,
 	// because the parser reports no ProcSubst node for it at all (measured
 	// against mvdan.cc/sh v3.13.1): a parameter expansion's word, in its
 	// unquoted spelling — real bash runs `: ${Q:-<(cmd)}` and does NOT run
-	// `: "${Q:-<(cmd)}"`. It is not an allow-track hole either way, because
-	// isResolvableParamExp rejects every non-plain expansion, leaving the word
-	// inexact. A here-document body is not a substitution position at all: bash
+	// `: "${Q:-<(cmd)}"`. isResolvableParamExp rejects every non-plain
+	// expansion, so the word is inexact — which covers it under exactly the
+	// emitting-position caveat above, and no further:
+	// `for f in ${Q:-<(cat ../sib/.env)}; do echo x; done` ALLOWs, here and at
+	// the merge base. A here-document body is not a substitution position at all: bash
 	// expands `$(…)` there but takes `<(…)` literally, and the parser agrees, so
 	// walking a whole *syntax.Redirect (Hdoc included) grades nothing bash would
 	// not run.

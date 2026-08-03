@@ -17,8 +17,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   (`mvdan.cc/sh/v3`) and classifies each simple command; branches on
   MCP tool names. A command substitution `$(…)` outside the anchor
   allowlist, and an **output** process substitution `>(…)`, are
-  classified conservatively (the word is marked inexact, so the line
-  never rides the allow track) rather than crashing; an earlier nil
+  classified conservatively (the word is marked inexact, which keeps it
+  off the allow track wherever it belongs to a command the walk emits —
+  see the non-emitting word positions below) rather than crashing; an
+  earlier nil
   `ProcSubst` expander panicked on `<(…)` (#5). An **input** process
   substitution `<(…)` is treated as what bash actually passes — a
   `/dev/fd/N` pipe, never a filesystem path (#225). It no longer marks
@@ -54,10 +56,27 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   state, as in a `( … )` subshell. One position where bash does run the
   command is invisible here because `mvdan.cc/sh` reports no `ProcSubst`
   node for it at all: a parameter expansion's word, unquoted
-  (`: ${Q:-<(cmd)}` runs it, `: "${Q:-<(cmd)}"` does not). It is not an
-  allow-track hole either way — a non-plain expansion leaves the word
-  inexact. A here-document body is not a substitution position at all:
-  bash expands `$(…)` there and takes `<(…)` literally.
+  (`: ${Q:-<(cmd)}` runs it, `: "${Q:-<(cmd)}"` does not). A here-document
+  body is not a substitution position at all: bash expands `$(…)` there
+  and takes `<(…)` literally.
+  Inexactness is what covers the constructs this descent does not
+  reach — that unquoted parameter expansion, and a command substitution's
+  body anywhere other than a declaration clause's assignment RHS, the one
+  position `descendCmdSubsts` is wired to — but it covers them **only in a
+  word position that emits a command**. `echo "$(cat ../sibling-repo/.env)"`,
+  `x=$(…)` and `[[ -f $(…) ]]` all defer, because the inexact word rides a
+  command the walk emits and that command cannot then be proven safe. A
+  `for`/`select` item list, a `case` subject word or pattern, and a
+  `VAR=… cmd` prefix emit no command of their own, so nothing carries the
+  inexactness and the line allows on its remaining parts:
+  `for f in $(cat ../sibling-repo/.env); do echo x; done`,
+  `case $(…) in`, `FOO=$(…) echo hi` and
+  `for f in ${Q:-<(cat ../sibling-repo/.env)}; do echo x; done` all ALLOW
+  while bash runs the substituted command. That is not specific to
+  substitutions — `for f in ${UNSET}x` allows on the same mechanism — and
+  it is unchanged by #225: each of those rows allows identically at this
+  branch's merge base. What #225 closed is the `<(…)` half, where the word
+  is exact by construction and so could never have been caught this way.
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
