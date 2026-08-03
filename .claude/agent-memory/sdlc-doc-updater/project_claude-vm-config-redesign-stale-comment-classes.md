@@ -58,6 +58,23 @@ deliberately conservative because the host cannot know whether the build's
 best-effort pre-registration succeeded. When a guarantee is relaxed, reread
 every gate description for approximations that were previously exact.
 
+That one gate is described in THREE places, and an earlier doc round fixed
+only two: `payload/README.md`'s helper bullet for
+`claude_vm_boot_marketplace_egress_needed` (~line 400), `payload/README.md`'s
+separate *Derived egress* paragraph much further down in the guest-image
+section (~line 670), and `skills/claude-vm/SKILL.md`'s
+`add_marketplace_uris_to_allowlist` bullet. Grep the *criterion wording*
+("not already baked", "already baked", "the image does not carry"), not the
+helper name — the Derived egress paragraph never names the helper, so a
+name-based grep misses it entirely.
+
+**Leniency side of the same change:** when a per-entry policy gains skip
+paths, count them in the code and check the prose enumerates the same set.
+On #226 the provisioner grew three lenient paths for a boot-declared
+marketplace (no `url`, the add fails, the add registers a name that does not
+match) while both README and SKILL.md still described only the
+url-unreachable one.
+
 **How to apply:** after any claude-vm config-schema or identity-hashing
 redesign, grep the whole plugin (not just the README) for: the OLD
 filename/keyword the redesign retired, and the exact names of any deleted
