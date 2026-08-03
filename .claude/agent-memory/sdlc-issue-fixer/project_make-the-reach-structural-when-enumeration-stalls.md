@@ -32,9 +32,23 @@ one call — including three positions no round had thought to list.
   the change is behavioral — but the equality is the guard that
   converges.
 - State every deliberate exception in the test itself, with the reason
-  and its blast radius (on #227: an argv-position `$(…)` body is not
-  descended into, which is a different class and only ever DEFERS,
-  asserted right there).
+  and its blast radius — and MEASURE the blast radius, don't reason it.
+  Round 3 on #227 asserted "an argv-position `$(…)` body is a different
+  class and only ever DEFERS"; round 4 measured it and found every
+  NON-emitting position of that class allowing outright, at the merge
+  base. An exception phrased as "covered by some other mechanism" is a
+  claim about that mechanism's reach, and reach claims are what this whole
+  note says not to trust. The surviving exception on #227 is narrower and
+  measured: an allowlisted ANCHOR substitution is skipped, verified by
+  deleting the skip and watching `cat "$(pwd)/a.txt"` fall from allow to
+  defer.
+- A count-equality invariant forecloses "leave that position alone":
+  the graded count must equal the parser's node count, so a position
+  someone judged already-covered cannot be exempted without a stated,
+  asserted exception. Expect that to change verdicts the review round
+  called safe — on #227, `echo "$(cat ../sib/.env)"`, `x=$(…)` and
+  `true > $(…)` went defer → deny. Measure each such row, and report the
+  strengthening rather than narrowing the traversal to preserve it.
 - Ask whether the wider reach needs a scope guard: a `<(…)` / `$(…)`
   runs in a CHILD shell, so newly-walked inner statements must not
   record assignments or `cd`s into the enclosing program's state.

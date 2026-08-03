@@ -155,9 +155,12 @@ lesson: **"inexact, so it cannot ride the allow track" is a claim about
 a word's POSITION, not about the word.** Probe it in a non-emitting
 position before letting it stand, exactly as
 [[feedback_probe-the-gate-binary-not-the-walk]] prescribes for reach
-claims. The `sdlc-pr-reviewer` reference note on this PR still carries
-the false version — memory is the scrubber's to fix, not doc-updater's,
-so report it rather than editing it.
+claims. Round 4 then closed the `$(…)` rows too (`descendCmdSubsts` takes
+a NODE and runs per statement beside `descendProcSubsts`), so those rows
+now DENY; the one row still ALLOWing is the PROCESS substitution inside a
+parameter expansion, `for f in ${Q:-<(cmd)}`, which has no parser node to
+hang a descent off. The lesson about POSITION outlives the fix — reach for
+it before writing "inexact, so it cannot ride the allow track" again.
 
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to

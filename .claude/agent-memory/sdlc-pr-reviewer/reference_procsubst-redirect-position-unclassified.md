@@ -1,6 +1,6 @@
 ---
 name: procsubst-redirect-position-unclassified
-description: Guardrails #225's procSubstFD reduction leaked allow through every position descendProcSubsts lacked a call site for — redirect, item-list words, case patterns, assignment RHS — until round 3 replaced the hand-listed call sites with a per-statement syntax.Walk; probe positions against BOTH binaries before believing any "covers both/all" claim.
+description: Guardrails #225's procSubstFD reduction leaked allow through every position descendProcSubsts lacked a call site for — redirect, item-list words, case patterns, assignment RHS — until round 3 replaced the hand-listed call sites with a per-statement syntax.Walk, and round 4 did the same for `$(…)`; probe positions against BOTH binaries before believing any "covers both/all" or "inexactness catches it" claim.
 metadata:
   type: reference
 ---
@@ -67,11 +67,30 @@ substitution-free control) and `TestProcSubstDescentIsExhaustive_225`
 (structural: graded count == the parser's `ProcSubst`-node count). The
 one position bash runs but the gate cannot see is an unquoted parameter
 expansion word (`: ${Q:-<(cmd)}` runs it, the quoted spelling does not),
-where `mvdan.cc/sh` reports no `ProcSubst` node at all; a non-plain
-expansion leaves the word inexact, so it cannot ride the allow track. A
-here-document body only looks like one: bash takes `<(…)` literally
-there. The remaining ungraded inner command is the argv-position `$(…)`
-body (`echo "$(cat <(cmd))"`) — a different class, and a deferring one.
+where `mvdan.cc/sh` reports no `ProcSubst` node at all. A here-document
+body only looks like one: bash takes `<(…)` literally there.
+
+**Round 4 closed the `$(…)` class the same way — two claims above were
+WRONG, and one of them was mine.** "A non-plain expansion leaves the word
+inexact, so it cannot ride the allow track" is false: inexactness stops
+the allow track ONLY where the inexact word rides a command the walk
+emits. A `for`/`select` item list, a `case` subject or pattern, an inline
+`VAR=… cmd` prefix, an array element, a `[[ … ]]` operand and an
+assignment RHS emit no command, so
+`for f in ${Q:-<(cat ../sib/.env)}; do echo x; done` and
+`for f in $(cat ../sib/.env); do echo x; done` both ALLOWed — measured at
+PR #227's merge base, so pre-existing, not a regression. And the
+argv-position `$(…)` body was not merely "a deferring class": every
+non-emitting position of it allowed outright. `descendCmdSubsts` now
+takes a NODE too, runs per statement beside `descendProcSubsts`, and is
+pinned by `TestCmdSubstGradedInEveryWordPosition_225` /
+`TestCmdSubstDescentIsExhaustive_225`. Its one exception is an
+allowlisted ANCHOR substitution, skipped rather than graded
+(`TestAnchorCmdSubstIsNotDescendedInto_225`) because bare `pwd` earns no
+allow of its own and descending would turn `cat "$(pwd)/x"` into a
+prompt. The `${Q:-<(cmd)}` PROCESS-substitution row is the one hole left,
+and it is unclosable — there is no node to hang a descent off; the
+`${Q:-$(cmd)}` spelling IS graded, in both quotings.
 
 The lesson survives the fix: a "covers both/all positions" claim written
 from freshly-wired call sites was false twice on this PR, which is why
