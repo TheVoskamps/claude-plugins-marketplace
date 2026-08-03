@@ -96,5 +96,24 @@ The lesson survives the fix: a "covers both/all positions" claim written
 from freshly-wired call sites was false twice on this PR, which is why
 the third fix was made structural instead of enumerated.
 
+**Round 5 verified all three structural claims and found the round's real
+defects elsewhere.** Independently confirmed, so do not re-litigate:
+mvdan/sh v3.13.1 reports `ProcSubst=0` for `${Q:-<(cmd)}` in BOTH quotings
+(the default word is a single `*syntax.Lit` holding the raw text) while
+`${Q:-$(cmd)}` reports `CmdSubst=1`; the anchor skip is exact argv
+token-equality against a closed 3-form allowlist on a plain single-statement
+`CallExpr`, and the RESOLVED value still hits the `.git/` deny and cross-repo
+deny; the emitting-position `defer -> deny` denies only where the direct
+spelling denies (eight everyday shapes probed, zero new denies). "Unclosable"
+is true of GRADING the `${Q:-<(cmd)}` inner command but not of WITHHOLDING
+the allow — that distinction is a follow-up issue, not a finding, because the
+row allows at the merge base too.
+
+The lesson for the next round: on a PR whose whole story is one mechanism,
+the surviving defects are in the parts nobody framed as the story. Here both
+were flag values on the newly widened read track — see
+[[reference_new-allow-track-entries-need-flag-value-audit]].
+
 Related: [[reference_guardrails-binary-verification]],
-[[reference_flag-model-cannot-swallow-containment-operands]].
+[[reference_flag-model-cannot-swallow-containment-operands]],
+[[reference_new-allow-track-entries-need-flag-value-audit]].
