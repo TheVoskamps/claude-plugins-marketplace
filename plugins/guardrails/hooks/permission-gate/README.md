@@ -66,10 +66,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `case x in $(…))`, `FOO=$(…) echo hi`, `arr=( $(…) )`,
   `declare -a A=( $(…) )` and `[[ -e $(…) ]] && echo x` all ALLOWed while
   bash ran the substituted command; each now earns the inner command's own
-  verdict. The `$(…)` class reaches two positions the `<(…)` one cannot, for
+  verdict — that command's verdict, not a blanket deny, so it lands wherever
+  the direct spelling lands:
+  `for f in $(cat ../sibling-repo/.env); do echo x; done` DENIES on the
+  cross-repo read, while `for f in $(rm -rf ../sibling-repo/.env); do echo x;
+  done` DEFERS — the same verdict bare `rm -rf ../sibling-repo/.env` earns on
+  its own. The `$(…)` class reaches positions the `<(…)` one cannot, for
   different reasons: a parameter expansion's default word (`${Q:-$(cmd)}`,
-  which bash expands in *both* quotings, where `<(cmd)` runs only unquoted and
-  the parser reports no `ProcSubst` node in either), and an unquoted
+  which bash expands in *both* quotings — measured on bash 3.2.57 and 5.3.15 —
+  where `<(cmd)` runs only unquoted and the parser reports no
+  `ProcSubst` node in either), and an unquoted
   here-document body (which bash expands for `$(…)` and takes literally for
   `<(…)`). In both, `mvdan.cc/sh` reports the `CmdSubst` node, which is what
   the traversal needs. The single-quoted `'$(cmd)'` and the quoted-delimiter
@@ -93,13 +99,14 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   into prompts — the escalation #132 was filed to remove. The skip is applied
   uniformly across the allowlist regardless, because one rule for "an anchor
   is not an ordinary substitution" rots less than three.
-  One measured hole is left, in neither class's power to close: a PROCESS
-  substitution inside a parameter expansion's word, which `mvdan.cc/sh`
-  reports no `ProcSubst` node for at all, so there is nothing to hang a
-  descent off. Real bash runs `: ${Q:-<(cmd)}` and does not run
-  `: "${Q:-<(cmd)}"`, and
+  One hole the measurement turned up is closable by neither class: a
+  PROCESS substitution inside a parameter expansion's word. `mvdan.cc/sh`
+  v3.13.1 reports no `ProcSubst` node for it in either quoting, so there is
+  nothing to hang a descent off. Real bash runs `: ${Q:-<(cmd)}` and does not
+  run `: "${Q:-<(cmd)}"` (measured on bash 3.2.57 and 5.3.15), and
   `for f in ${Q:-<(cat ../sibling-repo/.env)}; do echo x; done` ALLOWs, here
-  and at the merge base. The `$(…)` spelling of that same shape is graded.
+  and at the merge base. The `$(…)` spelling of that same shape DENIES: the
+  parser does report the `CmdSubst` node there, in both quotings.
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
@@ -300,7 +307,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   operand that escapes the repo (#148) or the worktree into the primary
   clone (#127) **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies** (#125); an operand built from an
-  unresolved expansion **asks** (#1); a real-file redirect **defers**
+  unresolved expansion **asks** (#1) — except that a command-substitution
+  operand also carries the substituted command's own verdict, which outranks
+  that ask when it denies (`cp "$(cat ../sibling-repo/.env)" x` denies, while
+  `cp "$(echo hi)" x` asks); a real-file redirect **defers**
   unless every destination is a session-shaped harness scratchpad
   (#193), the same graded veto the read track carries. An **input
   redirect source** is graded by the *read* containment, so
