@@ -153,9 +153,11 @@ You must be given:
     passing every member the batch actually landed. The skill opens
     the PR as a **draft**, targets the repo's configured base branch,
     and writes one `Closes <issue-link-prefix><N>` line per member
-    into the PR body — the same wrong-issue guard (preferring the
-    branch name's encoded set over mismatched caller-supplied numbers)
-    that used to be your responsibility is now the skill's. If the
+    into the PR body — the wrong-issue guard that used to be your
+    responsibility is now the skill's: it bounds the closing lines by
+    the branch name's encoded set, and when none of the numbers you
+    pass is in a multi-member set it opens no PR at all and reports
+    the refusal, rather than guessing which members you meant. If the
     caller supplies a title/summary, pass it through; otherwise let
     the skill synthesize one.
 

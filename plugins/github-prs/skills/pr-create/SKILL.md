@@ -95,6 +95,13 @@ that is in the branch's set; a caller-supplied number outside it never
 gets one, and the refusal is named in the report-back rather than
 silently swallowed.
 
+The branch's set therefore *bounds* the caller rather than replacing
+the caller's selection. It stands in for that selection only where
+doing so cannot guess: a one-member branch set whose member the caller
+missed. When nothing the caller passed is in a **multi-member** branch
+set, this skill opens no PR at all — see step 1 below for the exact
+resolution.
+
 ## Execution
 
 1. **Resolve the set of issues to close.** Recover the branch's set

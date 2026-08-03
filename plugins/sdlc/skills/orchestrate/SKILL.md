@@ -503,9 +503,9 @@ Review PR <PR_N>, which closes issues <link-prefix><issue_N1>:
 Branch: <branch-name>
 
 Review per your agent definition and post a single review with a
-verdict per issue plus an overall verdict. Report back the per-issue
-verdicts and the overall APPROVED, NEEDS_CHANGES, or BLOCKED with
-severity counts.
+verdict per issue plus an overall verdict. Report back every verdict
+line you posted and the overall APPROVED, NEEDS_CHANGES, or BLOCKED
+with severity counts.
 ```
 
 ### Handling review findings — the fix loop

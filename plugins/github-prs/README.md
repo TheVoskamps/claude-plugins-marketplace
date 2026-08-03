@@ -33,6 +33,25 @@ subset of it, never a superset. That is what lets a member be dropped
 mid-flight without renaming a branch that already carries commits and
 a PR.
 
+So the branch's set **bounds** the numbers a caller passes rather than
+replacing them. `/pr-create` and `/pr-link-issue` intersect the two
+and act on the intersection; a passed number outside the branch's set
+never gets a closing line, and the refusal is named in the
+report-back. When the intersection is empty, both skills resolve it
+the same way:
+
+- **A one-member branch set** — that member is used. Standing in for
+  the caller's selection guesses nothing when the branch names exactly
+  one issue, and this is the ordinary single-issue mismatch.
+- **A multi-member branch set** — the skill refuses and does nothing:
+  no PR is opened, no body is edited. Falling back to the whole set
+  would write a closing line for every member, including any the
+  caller deliberately dropped — exactly the deferral the subset rule
+  above exists to allow. The caller re-invokes with numbers drawn from
+  the branch's set.
+- **A branch name that doesn't match the convention** — there is no
+  set to bound with, so the caller's numbers are used as passed.
+
 Each member needs **its own closing keyword** — GitHub links only a
 reference that carries a keyword immediately before it, so
 `Closes #196, #201` links `#196` and silently leaves `#201` unlinked.
@@ -82,7 +101,9 @@ lightweight inline parse (see "Config: read internally, not by the
 caller" above). Every `<issue>` must be a member of the branch's own
 set (see "One PR, one issue set" above); a caller-supplied number
 outside it never gets a closing line, and the refusal is named in the
-report-back. See the skill for the closing-keyword rule (PR body only,
+report-back. When *no* passed number is in a multi-member branch set,
+the skill opens no PR at all. See the skill for the closing-keyword
+rule (PR body only,
 own issue set only, never a commit).
 
 ### `/pr-diff <PR>`
@@ -127,6 +148,7 @@ request" **and** the auto-close-on-merge to the default branch.
 Every `<issue>` must be a member of the branch's **own** set — never
 an umbrella/parent/related issue. The passed numbers select which
 members to ensure; the head branch's encoded set bounds which are
-allowed, and is the higher-fidelity source of truth when they
-disagree. Passing a subset is how a deliberately deferred member stays
-un-closed.
+allowed, and wins when they disagree — including by leaving the body
+untouched when no passed number is in a multi-member set (see "One PR,
+one issue set" above). Passing a subset is how a deliberately deferred
+member stays un-closed.

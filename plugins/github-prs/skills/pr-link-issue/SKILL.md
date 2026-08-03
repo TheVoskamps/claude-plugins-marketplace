@@ -63,6 +63,12 @@ closed by this PR, and re-adding its closing line here would undo that
 deferral. So the caller's numbers select *which* members to ensure,
 and the branch's set bounds *which are allowed*.
 
+Bounding is all it does: the branch's set stands in for the caller's
+selection only where doing so cannot guess — a one-member branch set
+whose member the caller missed. When nothing the caller passed is in a
+**multi-member** branch set, this skill leaves the body untouched —
+see step 1 below for the exact resolution.
+
 ## Execution
 
 1. **Resolve the set of issues to ensure.** Fetch the PR's head branch
