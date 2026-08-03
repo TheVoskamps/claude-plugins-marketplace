@@ -130,7 +130,11 @@ The pattern to expect: a completeness claim written from the two call
 sites the author just wired, not from the grammar. When a gap is closed,
 re-probe the OTHER positions the same token can occupy before letting
 any "covers both/all" phrasing stand — a closed gap invites a stronger
-claim than was earned.
+claim than was earned. Round 3 ended the loop by making the claim
+structural rather than enumerated: the descent takes a NODE and finds
+substitutions with `syntax.Walk`, so those `for`/`select`/`case` rows
+now DENY and the README's reach sentence is checkable against one
+mechanism instead of a call-site list.
 
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to

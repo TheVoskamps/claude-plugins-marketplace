@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
 // The gate held enough information to decide each command below, and escalated
@@ -295,21 +297,263 @@ func TestProcSubstInRedirectPositionIsClassified_225(t *testing.T) {
 	// Structural: the descent must not swallow the #193 redirect-only fallback.
 	// That fallback fires only when the descent into stmt.Cmd emitted nothing, so
 	// a substituted command counted as "something emitted" would leave the WRITE
-	// half of the same statement ungraded.
-	cmds, err := extractSimpleCommands(mustParse(t, "[[ -f a ]] > out.log < <(echo hi)"), root,
-		defaultVarResolver(), nil)
-	if err != nil {
-		t.Fatalf("extract failed: %v", err)
-	}
-	var haveRedirectOnly bool
-	for _, sc := range cmds {
-		if sc.redirectOnly && len(sc.redirectTargets) == 1 && sc.redirectTargets[0] == "out.log" {
-			haveRedirectOnly = true
+	// half of the same statement ungraded. It has to hold for a substitution in
+	// the statement's COMMAND node as well as in its redirects — `[[ … ]]` runs no
+	// program, so the fallback is the only thing grading `out.log` in either.
+	for _, src := range []string{
+		"[[ -f a ]] > out.log < <(echo hi)",
+		"[[ -f <(echo hi) ]] > out.log",
+	} {
+		cmds, err := extractSimpleCommands(mustParse(t, src), root, defaultVarResolver(), nil)
+		if err != nil {
+			t.Fatalf("%q: extract failed: %v", src, err)
+		}
+		var haveRedirectOnly bool
+		for _, sc := range cmds {
+			if sc.redirectOnly && len(sc.redirectTargets) == 1 && sc.redirectTargets[0] == "out.log" {
+				haveRedirectOnly = true
+			}
+		}
+		if !haveRedirectOnly {
+			t.Errorf("%q: the redirect-only fallback must still grade the write half; got %d commands %v",
+				src, len(cmds), cmds)
 		}
 	}
-	if !haveRedirectOnly {
-		t.Errorf("the redirect-only fallback must still grade the write half; got %d commands %v",
-			len(cmds), cmds)
+}
+
+// TestProcSubstGradedInEveryWordPosition_225 is the whole-class half. Bash
+// accepts a process substitution in every word position, not just argv and a
+// redirect target, and in each of them literalWord reduces an INPUT
+// substitution to the procSubstFD token the containment walks skip — so a
+// descent wired to a hand-listed few leaves the substituted command graded by
+// nobody while the enclosing line rides the allow track. Every position below
+// was measured to RUN the substituted command in real bash, so grading it is
+// what bash itself does, not a conservative guess.
+func TestProcSubstGradedInEveryWordPosition_225(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	ev := bashEvIn(t, root, "issue-developer")
+
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	esc := filepath.Join(canonicalize(sibling), ".env")
+
+	// Each row spells one position three ways: with an ESCAPING inner read,
+	// which must DENY on the inner command's own terms; with a BENIGN one; and
+	// with NO substitution at all. The last two must agree — that is what says
+	// the descent classifies rather than blanket-escalating, and it keeps a
+	// `defer` attributable to the construct (a line whose commands have no
+	// high-confidence allow of their own) instead of to the descent.
+	for _, tc := range []struct{ name, escaping, benign, noSubst string }{
+		{
+			// The two rows this PR regressed: the header word is now an exact
+			// procSubstFD literal, so staticForItems fans out and binds the loop
+			// variable, and recordAssign puts the same literal into knownVars —
+			// both moving a body that uses the variable from defer to allow.
+			"for-item, loop variable used in the body",
+			`for f in <(cat ` + esc + `); do cat "$f"; done`,
+			`for f in <(echo hi); do cat "$f"; done`,
+			`for f in a; do cat "$f"; done`,
+		},
+		{
+			"assignment RHS, variable used later",
+			`x=<(cat ` + esc + `); cat "$x"`,
+			`x=<(echo hi); cat "$x"`,
+			`x=a; cat "$x"`,
+		},
+		{
+			// Pre-existing allows on main: none of these positions was ever
+			// descended into, so the inner command could be anything at all.
+			"for-item, loop variable unused",
+			`for f in <(cat ` + esc + `); do echo x; done`,
+			`for f in <(echo hi); do echo x; done`,
+			`for f in a; do echo x; done`,
+		},
+		{
+			"select-item",
+			`select f in <(cat ` + esc + `); do echo x; done`,
+			`select f in <(echo hi); do echo x; done`,
+			`select f in a; do echo x; done`,
+		},
+		{
+			"case subject word",
+			`case <(cat ` + esc + `) in *) echo x;; esac`,
+			`case <(echo hi) in *) echo x;; esac`,
+			`case a in *) echo x;; esac`,
+		},
+		{
+			"case pattern",
+			`case x in <(cat ` + esc + `)) echo x;; esac`,
+			`case x in <(echo hi)) echo x;; esac`,
+			`case x in a) echo x;; esac`,
+		},
+		{
+			"array assignment element",
+			`arr=( <(cat ` + esc + `) ); echo x`,
+			`arr=( <(echo hi) ); echo x`,
+			`arr=( a ); echo x`,
+		},
+		{
+			"inline environment prefix",
+			`FOO=<(cat ` + esc + `) true`,
+			`FOO=<(echo hi) true`,
+			`FOO=a true`,
+		},
+		{
+			"declaration clause RHS",
+			`export y=<(cat ` + esc + `); echo x`,
+			`export y=<(echo hi); echo x`,
+			`export y=a; echo x`,
+		},
+		{
+			"declaration clause array element",
+			`declare -a A=( <(cat ` + esc + `) ); echo x`,
+			`declare -a A=( <(echo hi) ); echo x`,
+			`declare -a A=( a ); echo x`,
+		},
+		{
+			// `[[ … ]]` runs no external command, so nothing else in the
+			// statement could ever have carried the inner verdict.
+			"test clause operand",
+			`[[ -e <(cat ` + esc + `) ]] && echo x`,
+			`[[ -e <(echo hi) ]] && echo x`,
+			`[[ -e a ]] && echo x`,
+		},
+		{
+			"here-string",
+			`cat <<< <(cat ` + esc + `)`,
+			`cat <<< <(echo hi)`,
+			`cat <<< a`,
+		},
+		{
+			// The `else` arm is the one construct reached by a direct walkCmd
+			// call rather than through walkStmt. Its line DEFERS either way —
+			// `:` and `true` earn no high-confidence allow — which is exactly
+			// what the no-substitution control establishes.
+			"else arm",
+			`if true; then :; else cat <(cat ` + esc + `); fi`,
+			`if true; then :; else cat <(echo hi); fi`,
+			`if true; then :; else cat a; fi`,
+		},
+	} {
+		wantBucket(t, classifyBash(tc.escaping, ev), BucketDeny, "escaping read in "+tc.name)
+		want := classifyBash(tc.noSubst, ev).Bucket
+		if want == BucketDeny || want == BucketAsk {
+			t.Fatalf("%s: the substitution-free control must not already escalate; got %v", tc.name, want)
+		}
+		wantBucket(t, classifyBash(tc.benign, ev), want, "benign substitution in "+tc.name)
+	}
+
+	// A substitution runs in a CHILD shell, so an assignment or a `cd` inside
+	// one must not leak into the enclosing program's resolution state — the
+	// descent walks it at scopeDepth+1, exactly as a `( … )` subshell is walked.
+	// Without that, `$P` below would resolve to the sibling repo and the read
+	// would be graded against a path bash never builds.
+	for _, cmd := range []string{
+		`cat <(P=` + filepath.Dir(esc) + `; echo hi); cat "$P/.env"`,
+		`cat <(cd ` + filepath.Dir(esc) + `; echo hi); cat .env`,
+	} {
+		if got := classifyBash(cmd, ev).Bucket; got == BucketAllow {
+			t.Errorf("a substituted subshell's state must not leak; %q allowed", cmd)
+		}
+	}
+}
+
+// TestProcSubstDescentIsExhaustive_225 is the structural guard the row-by-row
+// test above cannot give: hand-enumerating word positions did not converge
+// (each of three review rounds found a position the round before had missed),
+// so this asserts the invariant directly — for every shape, the number of
+// substituted commands the walk GRADES equals the number of ProcSubst nodes the
+// PARSER reports. A future position added to bash, or a walk arm that stops
+// forwarding, fails here rather than silently allowing.
+func TestProcSubstDescentIsExhaustive_225(t *testing.T) {
+	// `marker` is not a real program; it only has to arrive at the walk's output
+	// as args[0] of its own simple command.
+	const marker = "zz-substituted-marker"
+
+	for _, tc := range []struct {
+		src string
+		// wantGraded is the number of substituted commands that must be graded,
+		// normally the parser's ProcSubst-node count. The exceptions are stated
+		// per row.
+		wantGraded int
+	}{
+		{`cat <(` + marker + `)`, 1},
+		{`cat < <(` + marker + `)`, 1},
+		{`cat > >(` + marker + `)`, 1},
+		{`cat <<< <(` + marker + `)`, 1},
+		{`for f in <(` + marker + `); do :; done`, 1},
+		{`for f in a <(` + marker + `) b; do :; done`, 1},
+		{`select f in <(` + marker + `); do break; done`, 1},
+		{`case <(` + marker + `) in *) :;; esac`, 1},
+		{`case x in <(` + marker + `)) :;; esac`, 1},
+		{`case x in y|<(` + marker + `)) :;; esac`, 1},
+		{`x=<(` + marker + `)`, 1},
+		{`arr=( <(` + marker + `) )`, 1},
+		{`FOO=<(` + marker + `) true`, 1},
+		{`export y=<(` + marker + `)`, 1},
+		{`declare -a A=( <(` + marker + `) )`, 1},
+		{`f() { local z=<(` + marker + `); :; }`, 1},
+		{`[[ -e <(` + marker + `) ]]`, 1},
+		{`(( 1 )) < <(` + marker + `)`, 1},
+		{`coproc C { cat <(` + marker + `); }`, 1},
+		{`time cat <(` + marker + `)`, 1},
+		{`while cat <(` + marker + `); do break; done`, 1},
+		{`until cat <(` + marker + `); do break; done`, 1},
+		{`if true; then :; else cat <(` + marker + `); fi`, 1},
+		{`for f in a; do cat <(` + marker + `); done`, 1},
+		{`{ cat; } < <(` + marker + `)`, 1},
+		{`( cat <(` + marker + `) )`, 1},
+		{`cat <(` + marker + `) &`, 1},
+		// Nesting: each substitution is graded exactly once, and the inner one is
+		// reached through the outer one's own statements.
+		{`cat <(cat <(` + marker + `))`, 1},
+		{`cat <(` + marker + `) <(` + marker + `)`, 2},
+		// The documented exception. An argv-position command substitution's body
+		// is not descended into at all (descendCmdSubsts is wired only to a
+		// declaration clause's RHS), so a substitution nested inside one is not
+		// graded. That is the command-substitution class, not this one, and it is
+		// not an allow-track hole: the non-anchor `$(…)` leaves its word inexact,
+		// so the line DEFERS rather than allowing — asserted below.
+		{`echo "$(cat <(` + marker + `))"`, 0},
+	} {
+		file := mustParse(t, tc.src)
+		nodes := 0
+		syntax.Walk(file, func(n syntax.Node) bool {
+			if n == nil {
+				return false
+			}
+			if _, ok := n.(*syntax.ProcSubst); ok {
+				nodes++
+			}
+			return true
+		})
+		if nodes == 0 {
+			t.Errorf("%q: the corpus row must contain a ProcSubst node to be worth anything", tc.src)
+		}
+		cmds, err := extractSimpleCommands(file, t.TempDir(), defaultVarResolver(), nil)
+		if err != nil {
+			t.Fatalf("%q: extract failed: %v", tc.src, err)
+		}
+		graded := 0
+		for _, sc := range cmds {
+			if len(sc.args) > 0 && sc.args[0] == marker {
+				graded++
+			}
+		}
+		if graded != tc.wantGraded {
+			t.Errorf("%q: %d substituted command(s) graded, want %d (parser reports %d ProcSubst node(s))",
+				tc.src, graded, tc.wantGraded, nodes)
+		}
+	}
+
+	// The exception's containing line must still be unable to allow, which is
+	// what keeps it out of this class.
+	ev := bashEvIn(t, canonicalize(t.TempDir()), "issue-developer")
+	if got := classifyBash(`echo "$(cat <(`+marker+`))"`, ev).Bucket; got == BucketAllow {
+		t.Errorf("an argv command substitution must not ride the allow track; got %v", got)
 	}
 }
 

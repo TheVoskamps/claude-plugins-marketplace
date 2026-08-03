@@ -18,8 +18,10 @@ descended into every process substitution of the word it was handed, but
 its single caller was the `CallExpr` argv branch, so `cat < <(cat
 ../sibling-repo/.env)` ALLOWed while `comm -3 <(cat …) x` DENIEd. Reading
 the function bottom-up confirms the claim; only running it refutes it.
-(That gap was closed later in the same PR — a second caller now covers
-redirect words — so the lesson is the method, not the verdict.)
+(That gap, and the item-list/`case`/assignment ones found after it, were
+closed later in the same PR — the descent now takes a NODE and finds
+substitutions with `syntax.Walk`, applied per statement — so the lesson
+is the method, not the verdict.)
 The same probe settled which `gh -f/-F` field spellings the new
 shielding actually admits, which I then wrote into a skill as a
 prescription — never prescribe a gate-permitted spelling you have not

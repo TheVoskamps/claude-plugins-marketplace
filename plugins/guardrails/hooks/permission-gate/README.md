@@ -30,29 +30,34 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   terms**: the walk descends into every process substitution and grades
   its statements as ordinary commands, so
   `comm -3 <(cat ../sibling-repo/.env) <(…)` still earns the cross-repo
-  deny from the inner `cat`. `descendProcSubsts` has two call sites, the
-  two positions where the containment walks skip the token: ARGV (over a
-  `CallExpr`'s words) and REDIRECT (over the words of a statement's own
-  redirects), so `cat < <(cat ../sibling-repo/.env)` earns the same
-  cross-repo deny the argv spelling does — including when the redirect
-  is written on a compound statement (`{ cat; } < <(…)`) or on a
-  statement that is redirects and nothing else (`< <(…)`). An output
-  substitution in a redirect (`cat > >(tee ../sibling-repo/out)`) is
-  graded the same way, on its write. The substituted command is
-  resolved against the cwd in effect BEFORE the enclosing statement's
-  own `cd`, matching bash: the pipe is set up during word expansion,
-  which precedes the command. Known gap: a substitution in an
-  ITEM-LIST word — `for f in <(cat ../sibling-repo/.env)`, `select f in
-  <(…)`, `case <(…) in` — reaches neither call site, so its command is
-  graded by nobody. For the `case` and `select` spellings that predates
-  #225 entirely: none of these positions was ever descended into, so
-  `for f in <(cat ../sibling-repo/.env); do echo x; done` ALLOWed before
-  this change too. What #225 widened is the body: the header word used
-  to be inexact, so a body that used `"$f"` stayed unreducible and
-  DEFERRED, and now that the word is an exact `/dev/fd` literal the
-  fan-out binds the loop variable to it and the body allows as well.
-  Closing the gap means a third call site, over a `WordIter`'s and a
-  `CaseClause`'s words.
+  deny from the inner `cat`. `descendProcSubsts` is applied per
+  STATEMENT — to the statement's own redirects and to its command node —
+  and finds the substitutions beneath them with `syntax.Walk` rather
+  than from a list of word positions, so it covers argv, a redirect
+  target, a `for`/`select` item list, a `case` subject word and its
+  patterns, an assignment RHS and its array elements, an inline
+  environment prefix, a declaration clause's RHS, and a `[[ … ]]`
+  operand alike. `cat < <(cat ../sibling-repo/.env)`,
+  `for f in <(cat ../sibling-repo/.env); do echo x; done` and
+  `case <(…) in` all earn the same cross-repo deny the argv spelling
+  does — including when a redirect is written on a compound statement
+  (`{ cat; } < <(…)`) or on a statement that is redirects and nothing
+  else (`< <(…)`). An output substitution (`cat > >(tee
+  ../sibling-repo/out)`) is graded the same way, on its write. The walk
+  stops at each nested statement, which the main walk reaches on its
+  own, so every substitution is graded exactly once however deeply the
+  spellings nest. The substituted command is resolved against the cwd in
+  effect BEFORE the enclosing statement's own `cd`, matching bash: the
+  pipe is set up during word expansion, which precedes the command; and
+  it is walked in a CHILD scope, so an assignment or `cd` inside a
+  substitution does not leak into the enclosing program's resolution
+  state, as in a `( … )` subshell. One position where bash does run the
+  command is invisible here because `mvdan.cc/sh` reports no `ProcSubst`
+  node for it at all: a parameter expansion's word, unquoted
+  (`: ${Q:-<(cmd)}` runs it, `: "${Q:-<(cmd)}"` does not). It is not an
+  allow-track hole either way — a non-plain expansion leaves the word
+  inexact. A here-document body is not a substitution position at all:
+  bash expands `$(…)` there and takes `<(…)` literally.
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
@@ -220,7 +225,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   allow track. An INPUT process substitution (`wc -l < <(grep x f)`) is
   the exception and not a hole: it is exact because it names a `/dev/fd`
   pipe rather than a path, and the substituted command earns its own
-  verdict from the redirect-word descent above.
+  verdict from the per-statement descent above.
   `ls` joined the set in #193: it was in neither bash read track, so it
   deferred for every path while `find` and `grep` — both strictly more
   capable — allowed, and the scratchpad carve-out's own worked example

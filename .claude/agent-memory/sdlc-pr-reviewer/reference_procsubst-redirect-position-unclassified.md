@@ -1,6 +1,6 @@
 ---
 name: procsubst-redirect-position-unclassified
-description: Guardrails #225's procSubstFD reduction leaks allow through EVERY position descendProcSubsts lacks a call site for — redirect (closed round 2), then item-list words, case patterns, and assignment RHS (found round 2, open at be6d64c); enumerate bash's substitution positions and probe each against BOTH binaries before believing any "covers both/all" claim.
+description: Guardrails #225's procSubstFD reduction leaked allow through every position descendProcSubsts lacked a call site for — redirect, item-list words, case patterns, assignment RHS — until round 3 replaced the hand-listed call sites with a per-statement syntax.Walk; probe positions against BOTH binaries before believing any "covers both/all" claim.
 metadata:
   type: reference
 ---
@@ -43,8 +43,8 @@ build -trimpath -o <out> .` and `shasum -a 256` against
 [[reference_guardrails-binary-verification]] for pinning WHICH commit's
 source a committed binary came from when the shasum does not match.
 
-**Round 2 (be6d64c): the same reduction leaks through more positions.**
-The class is "any word position whose exactness now propagates while
+**Round 2 (be6d64c): the same reduction leaked through more positions.**
+The class was "any word position whose exactness now propagates while
 `descendProcSubsts` has no call site there", not "redirect words".
 Measured ask → allow regressions beyond the redirect fix: `for f in
 <(cat /etc/passwd); do cat "$f"; done` (staticForItems fans out and
@@ -53,10 +53,29 @@ binds the loop var to procSubstFD) and `x=<(cat /etc/passwd); cat "$x"`
 BOTH binaries — the inner command is arbitrary, not just a read:
 `for f in <(rm -rf ~/x); do echo x; done`, `select … in <(…)`,
 `case <(…) in`, and the case-PATTERN position `case x in <(cmd))`.
-Unchanged defers: bare `x=<(…)`, array `a=(<(…))`, `[[ -f <(…) ]]`.
-When re-reviewing the fix, probe every row of that list again — a
-"covers both/all positions" claim written from freshly-wired call sites
-has been false twice on this PR.
+
+**Round 3 closed the class structurally — do not re-report these rows
+as open.** `descendProcSubsts` no longer takes a word from a hand-listed
+call site: it takes a NODE and finds substitutions with `syntax.Walk`,
+applied per statement to `stmt.Redirs` and `stmt.Cmd`, stopping at any
+nested `*syntax.Stmt` (the main walk reaches those). Every row above now
+DENIES, as do the positions round 2 recorded as "unchanged defers"
+(array element `a=(<(…))`, `[[ -e <(…) ]]`) and the ones no round had
+listed (an inline `FOO=<(…) cmd` prefix, `export y=<(…)`). Pinned by
+`TestProcSubstGradedInEveryWordPosition_225` (verdict rows, each with a
+substitution-free control) and `TestProcSubstDescentIsExhaustive_225`
+(structural: graded count == the parser's `ProcSubst`-node count). The
+one position bash runs but the gate cannot see is an unquoted parameter
+expansion word (`: ${Q:-<(cmd)}` runs it, the quoted spelling does not),
+where `mvdan.cc/sh` reports no `ProcSubst` node at all; a non-plain
+expansion leaves the word inexact, so it cannot ride the allow track. A
+here-document body only looks like one: bash takes `<(…)` literally
+there. The remaining ungraded inner command is the argv-position `$(…)`
+body (`echo "$(cat <(cmd))"`) — a different class, and a deferring one.
+
+The lesson survives the fix: a "covers both/all positions" claim written
+from freshly-wired call sites was false twice on this PR, which is why
+the third fix was made structural instead of enumerated.
 
 Related: [[reference_guardrails-binary-verification]],
 [[reference_flag-model-cannot-swallow-containment-operands]].

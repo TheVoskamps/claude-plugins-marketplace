@@ -516,7 +516,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	var walkCmd func(cmd syntax.Command, redirs []*syntax.Redirect)
 	var walkDeclClause func(c *syntax.DeclClause)
 	var descendCmdSubsts func(w *syntax.Word)
-	var descendProcSubsts func(w *syntax.Word)
+	var descendProcSubsts func(n syntax.Node)
 	var recordAssign func(a *syntax.Assign)
 	var applyCd func(call *syntax.CallExpr)
 
@@ -672,30 +672,39 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// enclosing command's redirections, so in `echo "$(cat)" < f` the `cat` reads
 	// the shell's stdin, not f. Passing the enclosing redirects down here would
 	// attribute a read/write to a command that never performs it.
+	//
+	// They are walked at scopeDepth+1, matching descendProcSubsts: a substitution
+	// runs in a CHILD shell, so `P=/safe; export D=$(P=/etc; echo); cat "$P/x"`
+	// reads /safe/x in real bash. Recording the inner assignment would have the
+	// gate grade /etc/x instead — a path the command never touches.
 	descendCmdSubsts = func(w *syntax.Word) {
 		if w == nil {
 			return
 		}
+		walkSubstStmts := func(stmts []*syntax.Stmt) {
+			scopeDepth++
+			for _, s := range stmts {
+				walkStmt(s, nil)
+			}
+			scopeDepth--
+		}
 		for _, part := range w.Parts {
 			switch p := part.(type) {
 			case *syntax.CmdSubst:
-				for _, s := range p.Stmts {
-					walkStmt(s, nil)
-				}
+				walkSubstStmts(p.Stmts)
 			case *syntax.DblQuoted:
 				for _, dp := range p.Parts {
 					if cs, ok := dp.(*syntax.CmdSubst); ok {
-						for _, s := range cs.Stmts {
-							walkStmt(s, nil)
-						}
+						walkSubstStmts(cs.Stmts)
 					}
 				}
 			}
 		}
 	}
 
-	// descendProcSubsts classifies the command inside every process
-	// substitution of a word, by walking its statements as ordinary commands.
+	// descendProcSubsts classifies the command inside every process substitution
+	// that belongs to one AST node, by walking its statements as ordinary
+	// commands.
 	//
 	// It is what makes the `<(cmd)` word's exactness safe: the word itself no
 	// longer marks the enclosing command unprovable (a /dev/fd pipe is not a
@@ -707,33 +716,66 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// The inner statements inherit NO redirects, for the same reason
 	// descendCmdSubsts passes none: the substitution is set up during word
 	// expansion, before the enclosing command's own redirections are applied.
+	// They are walked at scopeDepth+1: a substitution runs in a CHILD shell, so
+	// an assignment or a `cd` inside it must not leak into the enclosing
+	// program's knownVars / running cwd, exactly as for a `( … )` subshell.
 	//
-	// SCOPE: there are two call sites, the two positions where the containment
-	// walks skip the token. The CallExpr branch calls this over c.Args (ARGV
-	// position); walkStmt calls it over stmt.Redirs' words (REDIRECT position —
-	// `cat < <(cmd)`, `cat > >(cmd)`), where literalWord likewise reduces an
-	// input substitution to procSubstFD and so leaves nothing else to grade the
-	// substituted command.
+	// SCOPE: it takes a NODE, not a word, and finds every substitution beneath
+	// it with syntax.Walk — so it covers every word position of that node at
+	// once (argv, an assignment RHS and its array elements, a `for`/`select`
+	// item list, a `case` subject word and its patterns, a `[[ … ]]` operand, a
+	// redirect target) instead of a hand-listed few. Enumerating the positions by
+	// hand did not converge on #225: each review round found a position the round
+	// before had missed — first a redirect target, then `for f in <(cmd)`,
+	// `case <(cmd) in` and `x=<(cmd)` — so the reach is now a property of the
+	// traversal rather than of a list someone has to keep complete.
 	//
-	// KNOWN GAP: bash also accepts a substitution in an ITEM-LIST word — a
-	// ForClause's WordIter (`for f in <(cmd)`, `select f in <(cmd)`) and a
-	// CaseClause's word — and neither call site reaches those, so the
-	// substituted command is graded by nobody. `case`/`select` allowed that
-	// before #225 too; for `for` the item word is now an exact procSubstFD
-	// literal, so staticForItems fans out and binds the loop variable to it,
-	// moving a body that uses "$f" from defer to allow. Closing it means a third
-	// call site over those words.
-	descendProcSubsts = func(w *syntax.Word) {
-		if w == nil {
+	// The walk STOPS at any nested *syntax.Stmt: the main walk reaches those on
+	// its own (a `for` body, a `case` arm, a substitution's own statements), and a
+	// substitution nested inside one is reached when that statement is walked. So
+	// each substitution is graded exactly once, no matter how deeply the
+	// spellings nest (`cat <(cat <(cmd))`).
+	//
+	// The one nested statement the main walk does NOT reach is the body of an
+	// argv-position command substitution (`echo "$(cat <(cmd))"`) —
+	// descendCmdSubsts is wired only to a declaration clause's assignment RHS.
+	// That is the command-substitution class, not this one, and it is not an
+	// allow-track hole: a non-anchor `$(…)` leaves its word INEXACT, so the
+	// enclosing command defers instead of allowing. An input `<(…)` is the only
+	// construct that keeps its word exact while carrying a command, which is
+	// exactly why grading it in every position is this function's job.
+	//
+	// One position where bash DOES run a substitution is unreachable from here,
+	// because the parser reports no ProcSubst node for it at all (measured
+	// against mvdan.cc/sh v3.13.1): a parameter expansion's word, in its
+	// unquoted spelling — real bash runs `: ${Q:-<(cmd)}` and does NOT run
+	// `: "${Q:-<(cmd)}"`. It is not an allow-track hole either way, because
+	// isResolvableParamExp rejects every non-plain expansion, leaving the word
+	// inexact. A here-document body is not a substitution position at all: bash
+	// expands `$(…)` there but takes `<(…)` literally, and the parser agrees, so
+	// walking a whole *syntax.Redirect (Hdoc included) grades nothing bash would
+	// not run.
+	descendProcSubsts = func(node syntax.Node) {
+		if node == nil {
 			return
 		}
-		for _, part := range w.Parts {
-			if ps, ok := part.(*syntax.ProcSubst); ok {
-				for _, s := range ps.Stmts {
+		syntax.Walk(node, func(n syntax.Node) bool {
+			switch x := n.(type) {
+			case nil:
+				// Walk calls f(nil) after a node's children.
+				return false
+			case *syntax.Stmt:
+				return false
+			case *syntax.ProcSubst:
+				scopeDepth++
+				for _, s := range x.Stmts {
 					walkStmt(s, nil)
 				}
+				scopeDepth--
+				return false
 			}
-		}
+			return true
+		})
 	}
 
 	// walkDeclClause walks every assignment of a declaration clause
@@ -803,11 +845,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			if len(sc.args) > 0 {
 				out = append(out, sc)
 			}
-			// Classify the command inside every process substitution on its own
-			// terms. This command's own verdict no longer stands in for them.
-			for _, w := range c.Args {
-				descendProcSubsts(w)
-			}
+			// The command inside every process substitution — in argv, in an
+			// assignment prefix, or in a bare assignment's RHS — is classified on
+			// its own terms by the statement-level descent in walkStmt, which runs
+			// before this arm and before applyCd.
+			//
 			// Apply this call's `cd` side effect (if any) so LATER commands in
 			// the walk see the updated cwd.
 			applyCd(c)
@@ -958,23 +1000,29 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		// its own fd 0, so both files are read and both must be graded.
 		redirs := mergeRedirs(stmt.Redirs, inherited)
 
-		// A process substitution can sit in a REDIRECT word as easily as in argv
-		// (`cat < <(cat ../sibling-repo/.env)`, `cat > >(tee x)`), and literalWord
-		// reduces an input one to procSubstFD — a token the containment walks skip
-		// — so nothing else here would ever grade the substituted command. Descend
-		// so it is classified on its own terms, exactly as the CallExpr branch does
-		// for an argv-position one; otherwise the redirect spelling of an escaping
-		// read rides the enclosing command's allow while the argv spelling denies.
+		// A process substitution can sit in any word this statement owns, not just
+		// argv: a REDIRECT target (`cat < <(cat ../sibling-repo/.env)`,
+		// `cat > >(tee x)`), a `for`/`select` item list, a `case` subject word or
+		// pattern, an assignment RHS or array element, a `[[ … ]]` operand. In each
+		// of them literalWord reduces an input substitution to procSubstFD — a token
+		// the containment walks skip — so nothing else would ever grade the
+		// substituted command, and the enclosing command rides its own allow.
+		// Descend over the statement's whole command node and its own redirects, so
+		// every position is classified on the same terms.
 		//
 		// Keyed on stmt.Redirs, not the merged set, and placed BEFORE `emitted` is
 		// captured and before walkCmd runs: keying on the merged set would classify
 		// an inherited substitution once per statement inside the construct, the
 		// early capture keeps the redirect-only fallback's "the descent produced no
-		// command" test about stmt.Cmd, and descending before walkCmd resolves the
-		// inner command against the cwd in effect BEFORE this statement's own `cd`
-		// (bash sets the substitution's pipe up during word expansion).
+		// command" test about stmt.Cmd (`[[ -f <(echo hi) ]] > out.log` must still
+		// grade the write), and descending before walkCmd resolves the inner command
+		// against the cwd in effect BEFORE this statement's own `cd` (bash sets the
+		// substitution's pipe up during word expansion).
 		for _, r := range stmt.Redirs {
-			descendProcSubsts(r.Word)
+			descendProcSubsts(r)
+		}
+		if stmt.Cmd != nil {
+			descendProcSubsts(stmt.Cmd)
 		}
 
 		emitted := len(out)
