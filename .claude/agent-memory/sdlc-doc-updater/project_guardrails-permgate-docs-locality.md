@@ -136,6 +136,29 @@ substitutions with `syntax.Walk`, so those `for`/`select`/`case` rows
 now DENY and the README's reach sentence is checkable against one
 mechanism instead of a call-site list.
 
+**Round 3's replacement claim was the SAME defect one class over
+(#225, PR #227, round 3).** Having closed the `<(…)` reach, both the
+README and the `descendProcSubsts` doc comment justified the two
+constructs still unreached — an unquoted `${Q:-<(cmd)}`, and a `$(…)`
+body outside a declaration clause's assignment RHS — with "not an
+allow-track hole, the word is inexact". Probing refutes it: inexactness
+stops the allow track only where the inexact word rides a command the
+walk EMITS. A `for`/`select` item list, a `case` subject word or
+pattern, and a `VAR=… cmd` prefix emit no command of their own, so
+nothing carries the inexactness and the line allows on its remaining
+parts — `for f in $(cat ../sib/.env); do echo x; done`,
+`case $(…) in`, `FOO=$(…) echo hi`,
+`for f in ${Q:-<(cat ../sib/.env)}; do echo x; done`, and even the
+substitution-free `for f in ${UNSET}x` all ALLOW, identically at the
+merge base (pre-existing, not this PR's widening). Generalize the
+lesson: **"inexact, so it cannot ride the allow track" is a claim about
+a word's POSITION, not about the word.** Probe it in a non-emitting
+position before letting it stand, exactly as
+[[feedback_probe-the-gate-binary-not-the-walk]] prescribes for reach
+claims. The `sdlc-pr-reviewer` reference note on this PR still carries
+the false version — memory is the scrubber's to fix, not doc-updater's,
+so report it rather than editing it.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
