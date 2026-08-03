@@ -16,11 +16,12 @@ returns the issue numbers it was given, in the order it was given
 them, and the slug it used. A branch it did not create is the
 **not-a-convention-branch** outcome below.
 
-This skill is the only parser of that grammar. Consumers in other
-plugins — `github-prs:pr-create`, `github-prs:pr-link-issue`, and
-`sdlc`'s `pr-reviewer` — invoke it instead of restating the rule:
-skill invocation crosses the plugin sandbox boundary that a `Read`
-cannot (see `docs/plugin-authoring-constraints.md` → "Skill invocation
+This skill is the only parser of branch names in this marketplace.
+Consumers in other plugins — `github-prs:pr-create`,
+`github-prs:pr-link-issue`, and `sdlc`'s `pr-reviewer` — invoke it
+instead of restating the rule: skill invocation crosses the plugin
+sandbox boundary that a `Read` cannot (see
+`docs/plugin-authoring-constraints.md` → "Skill invocation
 is global and namespaced"). Each of them keeps its own policy about
 what to do with the result; none of them re-derives the result itself.
 
