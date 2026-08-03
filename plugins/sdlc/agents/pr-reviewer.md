@@ -95,6 +95,16 @@ In the rest of this document, `<link-prefix>` means the resolved value.
      set and never a superset — a member can be dropped mid-flight
      under the developer's drop protocol, and the branch keeps its
      name.
+   - **A branch name that doesn't match the convention leaves `B`
+     empty.** There is then no branch set to bound the body with, so
+     the set you review against is `C` itself — the same fallback
+     `/github-prs:pr-create` and `/github-prs:pr-link-issue` take when
+     `B` is empty. The findings the bullets below raise cannot arise
+     here: with no branch set, no closing line can sit outside it and
+     no branch-set member can go missing from the body. This is the
+     standalone case — a human-named or `dependabot/…` branch handed
+     to `/sdlc:git-review-pr` — where the body's closing lines are the
+     only statement of what the PR delivers.
    - **A closing line aimed outside `B` is a finding, not a member.**
      `/github-prs:pr-create` and `/github-prs:pr-link-issue` refuse to
      write one, but a hand-edited body can carry it, and merging the PR
@@ -128,8 +138,8 @@ In the rest of this document, `<link-prefix>` means the resolved value.
    are required, one per member of the set. The same words as ordinary
    English prose with no adjacent issue reference are fine anywhere
    and must not be flagged.
-3. Read **each member independently** — every issue in `C ∩ B`, the
-   set you review against — via the canonical
+3. Read **each member independently** — every issue in the set you
+   review against, as step 2 resolved it — via the canonical
    `/issue-view` skill (preloaded via the `skills:` frontmatter above
    and invoked through the `Skill` tool) rather than hand-rolling
    `gh issue view`. Do not rely solely on the orchestrator's
@@ -436,7 +446,7 @@ delegate.
 
 ### Per-issue verdicts, one overall
 
-Every member of the set you review against — `C ∩ B` from step 2 —
+Every member of the set you review against — as step 2 resolved it —
 gets its own verdict line, graded from that member's findings alone:
 
 ```markdown

@@ -29,9 +29,10 @@ not at the source branch's tip.
 ```
 
 Arguments are parsed by the same rule that recovers the issue set from
-a finished branch name (see "Branch name" below): the **leading run of
-all-numeric tokens** is the issue set, and a single remaining
-non-numeric token is the compound slug.
+a finished branch name (see "Branch name" below), applied after
+stripping each token's leading `#` and any comma separators: the
+**leading run of all-numeric tokens** is the issue set, and a single
+remaining non-numeric token is the compound slug.
 
 - `<issue-number>…` (required): one or more issue numbers in
   **implementation order** — dependency order within the batch — each
