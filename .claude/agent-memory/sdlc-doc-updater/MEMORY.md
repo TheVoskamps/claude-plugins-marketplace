@@ -51,3 +51,7 @@
   skill misses docs/plugin-authoring-constraints.md's pattern list and
   the consumer README's new `dependencies` edge; no CLAUDE.md sweep
   section.
+- [diagnostic detail claims](feedback_diagnostic-detail-claims.md) —
+  "aborts with the path named" is a claim per BRANCH of the validator;
+  read the message strings, then sweep — that sentence is always copied
+  to several doc surfaces.

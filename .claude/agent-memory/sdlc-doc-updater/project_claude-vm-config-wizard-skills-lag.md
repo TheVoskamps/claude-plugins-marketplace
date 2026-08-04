@@ -26,7 +26,15 @@ in the same plugin don't get updated" pattern as
 [[claude-vm-config-redesign-stale-comment-classes]], one level up at the
 doc-file granularity.
 
-**How to apply:** after ANY claude-vm config-schema change, grep
+A third class, seen on issue #226: a new **load-time validation gate** (an
+entry the launcher now rejects) is a wizard concern even though no key
+changed — the wizard writes entries verbatim, so a gate it does not know
+about turns into a config that aborts the launch. #226's gates (a
+`claude.marketplaces` entry with no `name`, a `mounts` entry with no
+`source`/`tag`) were swept into README/SKILL/examples but not the wizards.
+
+**How to apply:** after ANY claude-vm config-schema OR config-validation
+change, grep
 `plugins/claude-vm/skills/claude-vm-config-{global,repo}/SKILL.md` for the
 changed key names AND for `#39`/`sibling slice`/`schema + merge only`. Check
 three surfaces in each: the key table's bake/boot **file** column, the YAML
