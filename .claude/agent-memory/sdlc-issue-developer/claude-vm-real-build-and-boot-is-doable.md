@@ -68,8 +68,8 @@ put the REAL claude binary on claudebin and write real
 `CLAUDE_ARGS` (via `claude_vm_quote_args`) to `plugin list`: claude then runs
 non-interactively, prints the installed set to hvc1, exits 0, and the guest
 powers itself off -- an assertion channel for what the boot phase actually
-installed, with no interactive session and no Keychain. Two gotchas that cost a
-boot each:
+installed, with no interactive session and no Keychain. Gotchas that each cost
+a boot:
 
 - `efi,variable-store=$X,create` needs `$X` to NOT exist; pre-creating it as a
   directory fails with `NSPOSIXErrorDomain Code=21 "Is a directory"`.

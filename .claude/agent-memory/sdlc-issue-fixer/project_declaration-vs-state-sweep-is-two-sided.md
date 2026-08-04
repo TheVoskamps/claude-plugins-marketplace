@@ -17,21 +17,21 @@ succeeded.
 **Why the sweep is not a find-and-replace.** The ambiguous word
 ("baked") appears on both sides of the very distinction being fixed:
 
-- **Declaration side** — the host-side gate. Fix by naming the
-  declaration ("bake-declared", "not ALSO declared in config-bake.yml")
-  and stating why it is conservative.
-- **State side** — the guest's own boot phase, which genuinely asks the
-  CLI what is registered. That framing is *correct* and must survive.
-  But its prose used the same declaration word for a state fact ("a
-  baked marketplace is already registered"), so the fix there is the
-  mirror image: swap toward the explicit **state** word ("already
-  registered in the image"), and say which of the two the step reads.
-- **Unrelated-but-identical phrase** — a sibling subsystem (apt
-  packages/apt_sources) carried the byte-identical phrase "hard-secure
-  all-baked config" in eight places. Not in the class: reading its gate
-  showed it has **no membership test at all**, only boot-knob reads, so
-  there is no declaration/state confusion to fix. Editing those would
-  have been pure churn.
+- **Declaration side** — a host-side gate that can only test what the
+  config declares. Fix by naming the declaration and stating why the
+  gate is conservative.
+- **State side** — code that genuinely reads the artifact. That framing
+  is *correct* and must survive; the fix there is the mirror image,
+  swapping toward the explicit **state** word and saying which of the
+  two a given step reads.
+- **Unrelated-but-identical phrase** — a sibling subsystem carrying the
+  byte-identical phrase while having no membership test at all. Not in
+  the class; editing those is pure churn.
+
+The claude-vm instance of all three — which helper sits on which side,
+and which files carry the out-of-class phrase — is in the root
+`CLAUDE.md`. Read it there rather than from this entry, which keeps
+only the method.
 
 **How to apply.** Grade every phrase-family hit by *reading the gate
 the sentence describes*, not by the phrase. Three verdicts, not one:

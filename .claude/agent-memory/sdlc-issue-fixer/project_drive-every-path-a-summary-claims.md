@@ -26,13 +26,12 @@ would have.
 *whitespace* character, so `IFS=$'\t' read -r a b c` collapses a RUN of
 tabs into one separator and an empty **middle** field vanishes. On
 `name<TAB><TAB>origin` you get `b=origin`, `c=""` — silently shifted.
-Two-field reads are safe (a trailing empty field just yields an empty
-var), so **the trigger is adding a THIRD column to an existing TSV**,
-which is precisely what that PR did. The fix is parameter expansion
+A leading empty field is lost the same way, so two-field reads are no
+safer than three-field ones. The fix is parameter expansion
 (`${rec%%$TAB*}` / `${rec#*$TAB}`), which is indifferent to empty
-fields. Same latent hazard, unfixed and reported as out-of-hunk, in the
-`apt_sources` loops (`podman-mkosi.sh`, `build-guest-image.sh`) and
-`claude-vm.sh`'s mounts loop — all three-field tab reads.
+fields. The rule, the affected loops and the test shape now live in the
+root `CLAUDE.md` and in `plugins/claude-vm/payload/README.md`; read
+those rather than re-deriving the hazard from this entry.
 
 **How to apply:** when a finding enumerates code paths, build a driver
 that exercises each one against the *real* generated artifact (for the
