@@ -304,7 +304,11 @@ github:
   `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
   file instead of a hand-maintained allowlist baked into the command.
 - `mounts` generates the extra `virtio-fs` device flags. A leading `~`
-  in `source` expands to `$HOME`.
+  in `source` expands to `$HOME`. Both `source` and `tag` are mandatory
+  per entry — the guest mounts each share *by* its tag, so an entry with
+  an empty or omitted `tag:` is a share nobody can mount and two of them
+  would collide on one tag. Either omission aborts the launch at config
+  load with the mount path named.
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,
@@ -398,7 +402,9 @@ lands in a sibling slice under #39. It resolves correctly through
   derived addition is logged.
 - **Marketplaces and plugins** (issue #107). `claude.marketplaces` (union of
   `{name, url}`, allowed in both file types, deduped by `name`, conflicting
-  urls under one name abort) declares the marketplaces the guest knows.
+  urls under one name abort, and — since issue #226 — an entry with a url but
+  no `name` aborts too, since the name is what every consumer matches on)
+  declares the marketplaces the guest knows.
   `claude.plugins.bake` (BAKE file) is installed **into the image** at build
   time; `claude.plugins.install_at_boot` (BOOT file) is installed **at boot**,
   blocking, before claude starts.

@@ -147,6 +147,17 @@ claude_vm_check_apt_sources_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
 # Same guard for claude.marketplaces (issue #107): one name with two urls would
 # silently decide which code a `plugin@marketplace` ref resolves to.
 claude_vm_check_marketplace_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
+# A claude.marketplaces entry with no name (issue #226): the name is the key
+# every reader of the effective set matches on, so a nameless entry is dropped
+# by every one of them. Abort instead of silently configuring nothing.
+claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
+  || { echo "claude-vm: aborting -- name every claude.marketplaces entry as described above." >&2; exit 1; }
+# A mounts entry with no source or no tag (issue #226): the guest mounts each
+# virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
+# two of them collide on one tag. Abort rather than launching without the mount
+# the operator asked for.
+claude_vm_check_mounts "$MERGED_BOOT" \
+  || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
 # claude.plugins is the one map that legitimately appears in BOTH file types
 # (bake refs in a bake file; install_at_boot/update_at_boot/enabled in a boot
 # file), which makes a misplaced sub-key easy to write and -- absent this guard
@@ -1396,6 +1407,14 @@ EXTRA_MOUNT_FLAGS=()
 # mountTag=ro (or rw), and two such entries would share that one tag. The
 # emitter (claude_vm_mount_specs, via yq @tsv) joins all three fields, so both
 # separators are always present and the three expansions below are total.
+#
+# Since #226 a sourceless or tagless entry never reaches here at all --
+# claude_vm_check_mounts rejected it at config load, above. The split and the
+# `-z "$src"` guard stay as this loop's floor: the split is what makes such an
+# entry legible to that check in the first place (the check reads the same
+# records, split the same way), and the guard keeps the loop honest for any
+# caller that runs it without the load-time gate, such as the unit test that
+# slices it out.
 MOUNT_TAB=$'\t'
 while IFS= read -r mount_record; do
   src=${mount_record%%$MOUNT_TAB*}

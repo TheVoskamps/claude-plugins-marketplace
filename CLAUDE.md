@@ -102,18 +102,28 @@ code and check the prose enumerates the same set.
 
 `plugins/claude-vm` moves multi-field records between its scripts as
 yq `@tsv` lines. A consumer must not take one apart with
-`IFS=$'\t' read -r a b c`: a tab is IFS *whitespace*, so `read`
-collapses a run of tabs into one separator and a record with an empty
-**middle** field loses it, shifting every later field left with no
-error. Issue #226 found it on a marketplace url, on an apt `key_url`,
-and on a mount `tag`, each producing a wrong-but-plausible value rather
-than a failure. Read the whole line with `IFS= read -r`
-and split it with `${rec%%$TAB*}` / `${rec#*$TAB}`, which is total
-because `@tsv` always writes every separator. The reasoning, the
-affected loops, and the test shape (run the real loop against the real
-emitter, plus a negative control rebuilt from the same captured lines)
-are in `plugins/claude-vm/payload/README.md` → *Splitting a TSV record
-back apart*.
+`IFS=$'\t' read -r a b`: a tab is IFS *whitespace*, so `read` collapses
+a run of tabs into one separator *and* strips a leading one. A record
+with an empty **middle** field loses it, shifting every later field
+left; a record with an empty **leading** field loses that. Both are
+silent. Issue #226 found the middle-field case on a marketplace url, an
+apt `key_url` and a mount `tag`, and the leading-field case on a
+marketplace `name` and a `claude.plugins.enabled` key — each producing
+a wrong-but-plausible value rather than a failure, so two-field records
+are no safer than three-field ones. Read the whole line with
+`IFS= read -r` and split it with `${rec%%$TAB*}` / `${rec#*$TAB}`,
+which is total because `@tsv` always writes every separator. Skip a
+wholly empty record first: an empty result set from these emitters is
+one empty *line*, not zero bytes.
+
+Splitting correctly only makes a malformed entry visible. An entry
+whose KEY field (a marketplace `name`, a mount `tag`, an `enabled` ref)
+is empty must then abort at config load, naming the entry — not be
+skipped. The reasoning, the affected loops, the load-time gates, and
+the test shape (run the real loop against the real emitter, plus a
+negative control rebuilt from the same captured lines) are in
+`plugins/claude-vm/payload/README.md` → *Splitting a TSV record back
+apart*.
 
 ## Add a README roster entry when you publish a plugin
 

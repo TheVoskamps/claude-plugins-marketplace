@@ -2514,6 +2514,320 @@ else
 fi
 
 # ---------------------------------------------------------------------
+# Test 32: the launcher's config-load gates reject a malformed entry
+# (issue #226 class completion).
+#
+# Splitting a record correctly makes an empty key field VISIBLE; it does not
+# make such an entry usable. Two guards turn the newly-visible cases into a
+# launch abort:
+#
+#   claude_vm_check_mounts            -- a mounts entry with no source, or with
+#                                        no tag (omitted OR explicitly ""). The
+#                                        guest mounts each share BY its tag.
+#   claude_vm_check_marketplace_names -- a claude.marketplaces entry with a url
+#                                        but no name, in either document.
+#
+# Driven through the LAUNCHER's own load block, sliced out of claude-vm.sh by
+# line range (the same extraction Test 31 uses on its mount loop), so these
+# assert that the gates are wired into the launch path -- not merely that the
+# helpers return non-zero when called directly. The slice runs the real
+# claude_vm_merge_config over real per-tier files, so a fixture reaches the
+# gates exactly as an operator's config would.
+# ---------------------------------------------------------------------
+GATE_START=""
+GATE_END=""
+if [ -f "$LAUNCHER" ]; then
+  GATE_START="$(grep -nF 'MERGED_BAKE="$(claude_vm_mktemp claude-vm-merged-bake)"' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  GATE_END="$(grep -nF 'aborting -- move the misplaced claude.plugins key(s)' "$LAUNCHER" | head -1 | cut -d: -f1)"
+fi
+if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
+  GATE_SLICE="$WORK/config-load-gates.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -uo pipefail'
+    printf '. %s\n' "\"$LIB\""
+    echo 'GLOBAL_BAKE_CONFIG="$1"'
+    echo 'REPO_BAKE_CONFIG="$2"'
+    echo 'GLOBAL_BOOT_CONFIG="$3"'
+    echo 'REPO_BOOT_CONFIG="$4"'
+    awk -v start="$GATE_START" -v end="$GATE_END" 'NR >= start && NR <= end' "$LAUNCHER"
+    echo 'echo GATE-OK'
+  } > "$GATE_SLICE"
+
+  # run_gates <bake-file> <boot-file> -- run the sliced load block over one
+  # pair of repo-tier files and print "<rc>|<merged stdout+stderr, one line>".
+  # TMPDIR is pointed at $WORK so the block's own merged tempfiles land where
+  # this suite's trap already cleans up.
+  run_gates() {
+    local bake="$1" boot="$2" out rc
+    out="$(TMPDIR="$WORK" bash "$GATE_SLICE" "" "$bake" "" "$boot" 2>&1)"
+    rc=$?
+    printf '%s|%s\n' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+  }
+
+  GATE_NONE_BAKE="$WORK/gate-none-bake.yml"; printf 'packages:\n  - git\n'   > "$GATE_NONE_BAKE"
+  GATE_NONE_BOOT="$WORK/gate-none-boot.yml"; printf 'cpus: 2\nmem: 4096\n'   > "$GATE_NONE_BOOT"
+
+  # A config that declares NEITHER mounts nor marketplaces must pass. This is
+  # the regression guard for the empty-result-set shape: yq prints ONE EMPTY
+  # LINE (not zero bytes) for `.mounts // [] | .[]`, and a gate that read that
+  # line as an entry would reject every ordinary config on earth.
+  assert_eq "load-gates: a config with no mounts and no marketplaces passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$GATE_NONE_BOOT")"
+
+  GATE_OK_BOOT="$WORK/gate-ok-boot.yml"
+  cat > "$GATE_OK_BOOT" <<'YML'
+mounts:
+  - source: /a/one
+    tag: one
+    mode: ro
+claude:
+  marketplaces:
+    - name: mp
+      url: https://example.invalid/mp.git
+YML
+  assert_eq "load-gates: a well-formed mounts + marketplaces config passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$GATE_OK_BOOT")"
+
+  # A mounts entry whose `tag:` key is OMITTED. Before the `// ""` guard on
+  # claude_vm_mount_specs this rendered the literal string `null` and sailed
+  # through to vfkit as mountTag=null; it is now an empty field and a hard stop.
+  GATE_NOTAG_BOOT="$WORK/gate-notag-boot.yml"
+  printf 'mounts:\n  - source: /a/omitted-tag\n    mode: rw\n' > "$GATE_NOTAG_BOOT"
+  GATE_NOTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOTAG_BOOT")"
+  assert_eq "load-gates: an OMITTED mount tag aborts the launch" \
+    "1" "${GATE_NOTAG%%|*}"
+  case "$GATE_NOTAG" in
+    *"mounts entry #1 ('/a/omitted-tag') has no tag"*)
+      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "$GATE_NOTAG" ;;
+  esac
+
+  # ...and an EXPLICITLY empty tag, the other spelling of the same mistake.
+  GATE_EMPTYTAG_BOOT="$WORK/gate-emptytag-boot.yml"
+  printf 'mounts:\n  - source: /a/empty-tag\n    tag: ""\n    mode: rw\n' > "$GATE_EMPTYTAG_BOOT"
+  GATE_EMPTYTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_EMPTYTAG_BOOT")"
+  assert_eq "load-gates: an EXPLICITLY empty mount tag aborts the launch" \
+    "1" "${GATE_EMPTYTAG%%|*}"
+  case "$GATE_EMPTYTAG" in
+    *"mounts entry #1 ('/a/empty-tag') has no tag"*)
+      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "$GATE_EMPTYTAG" ;;
+  esac
+
+  # A mounts entry with no source at all: nothing to share, and nothing to name
+  # it by. Previously the launcher's loop dropped it without a word.
+  GATE_NOSRC_BOOT="$WORK/gate-nosrc-boot.yml"
+  printf 'mounts:\n  - tag: orphan\n    mode: ro\n' > "$GATE_NOSRC_BOOT"
+  GATE_NOSRC="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOSRC_BOOT")"
+  assert_eq "load-gates: a mount with no source aborts the launch" \
+    "1" "${GATE_NOSRC%%|*}"
+  case "$GATE_NOSRC" in
+    *"mounts entry #1 has no source"*)
+      assert_eq "load-gates: the no-source abort says which entry" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the no-source abort says which entry" "named" "$GATE_NOSRC" ;;
+  esac
+
+  # A claude.marketplaces entry with a url but no name, in the BOOT document.
+  GATE_NONAME_BOOT="$WORK/gate-noname-boot.yml"
+  cat > "$GATE_NONAME_BOOT" <<'YML'
+claude:
+  marketplaces:
+    - name: fine
+      url: https://example.invalid/fine.git
+    - url: https://example.invalid/nameless.git
+YML
+  GATE_NONAME="$(run_gates "$GATE_NONE_BAKE" "$GATE_NONAME_BOOT")"
+  assert_eq "load-gates: a nameless marketplace aborts the launch" \
+    "1" "${GATE_NONAME%%|*}"
+  case "$GATE_NONAME" in
+    *"claude.marketplaces entry #2 in the merged BOOT config has no name (url: 'https://example.invalid/nameless.git')"*)
+      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "$GATE_NONAME" ;;
+  esac
+
+  # ...and the same entry in the BAKE document, which is a different tier label
+  # and a different reader (the origin stamp, the baked-name set).
+  GATE_NONAME_BAKE="$WORK/gate-noname-bake.yml"
+  cat > "$GATE_NONAME_BAKE" <<'YML'
+claude:
+  marketplaces:
+    - url: https://example.invalid/bake-nameless.git
+YML
+  GATE_NONAME_B="$(run_gates "$GATE_NONAME_BAKE" "$GATE_NONE_BOOT")"
+  assert_eq "load-gates: a nameless marketplace in a BAKE file aborts too" \
+    "1" "${GATE_NONAME_B%%|*}"
+  case "$GATE_NONAME_B" in
+    *"in the merged BAKE config has no name"*)
+      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "$GATE_NONAME_B" ;;
+  esac
+else
+  echo "SKIP: config-load gate block extraction from claude-vm.sh failed; load-gate tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 33: the TWO-field record readers split by hand too
+# (issue #226 class completion).
+#
+# A tab is IFS WHITESPACE, so `IFS=$'\t' read -r a b` does not only collapse a
+# run of tabs -- it also STRIPS A LEADING one. A two-field record has no middle
+# field to lose, but it does have a leading one: `<TAB>url`, the record for a
+# marketplace declared with a url and no name, arrives as name=url / url="".
+# Every reader is therefore hand-split like its three-field siblings.
+#
+# Driven against the REAL emitters, with a negative control rebuilt from the
+# SAME captured lines so the control cannot drift away from the code it is
+# contrasted with.
+# ---------------------------------------------------------------------
+TF_BOOT="$WORK/twofield-boot.yml"
+cat > "$TF_BOOT" <<'YML'
+claude:
+  marketplaces:
+    - url: https://example.invalid/nameless.git
+    - name: named
+      url: https://example.invalid/named.git
+YML
+TF_BAKE="$WORK/twofield-bake.yml"
+printf '{}\n' > "$TF_BAKE"
+
+# The emitter really does produce a LEADING empty field for that entry -- the
+# premise every assertion below rests on.
+TF_LINES="$WORK/twofield-lines.tsv"
+claude_vm_marketplaces "$TF_BOOT" > "$TF_LINES"
+assert_eq "two-field: the emitter leads a nameless entry with an EMPTY field" \
+  "1" "$(grep -c '^	https://example.invalid/nameless.git$' "$TF_LINES" || true)"
+
+# claude_vm_effective_marketplaces drops the nameless entry and keeps its
+# well-formed sibling.
+assert_eq "two-field: effective set drops the nameless entry, keeps the named one" \
+  "named," "$(claude_vm_effective_marketplaces "$TF_BAKE" "$TF_BOOT" | cut -f1 | tr '\n' ',')"
+
+# NEGATIVE CONTROL: the pre-fix read, rebuilt over the SAME captured emitter
+# lines, promotes the URL into the name slot -- so the launcher would have
+# written a marketplace literally named `https://example.invalid/nameless.git`
+# into plugin-marketplaces.tsv, with an empty url.
+TF_OLD_NAME=""
+while IFS=$'\t' read -r tf_name tf_url; do
+  [ -n "$tf_name" ] || continue
+  [ -n "$TF_OLD_NAME" ] || TF_OLD_NAME="$tf_name"
+done < "$TF_LINES"
+assert_eq "two-field: NEGATIVE CONTROL -- the old tab-IFS read takes the url as the name" \
+  "https://example.invalid/nameless.git" "$TF_OLD_NAME"
+
+# claude_vm_bake_plugins_json is the manifest the provisioner registers from:
+# the nameless entry must not reach it under a url-shaped name.
+TF_JSON="$(claude_vm_bake_plugins_json "$TF_BAKE" "$TF_BOOT")"
+assert_eq "two-field: the bake manifest carries only the named marketplace" \
+  "named" "$(printf '%s' "$TF_JSON" | yq -p=json eval '[.marketplaces[].name] | join(",")' - 2>/dev/null)"
+
+# claude_vm_mount_specs normalizes an OMITTED tag to an empty field rather than
+# the literal string `null` -- the premise claude_vm_check_mounts rests on, and
+# the reason one check covers both spellings.
+TF_MNT="$WORK/twofield-mounts.yml"
+printf 'mounts:\n  - source: /a/omitted-tag\n    mode: rw\n' > "$TF_MNT"
+assert_eq "mount-specs: an omitted tag emits an EMPTY field, not the string 'null'" \
+  "/a/omitted-tag		rw" "$(claude_vm_mount_specs "$TF_MNT")"
+
+# claude.plugins.enabled with an EMPTY key: leading empty field again, this
+# time on yq's `to_entries` output. The old read reported it as a plugin named
+# `true`; it is now named as the empty ref it is, and it ABORTS rather than
+# being skipped.
+TF_ENA_BOOT="$WORK/twofield-enabled-boot.yml"
+printf 'claude:\n  plugins:\n    enabled:\n      "": true\n' > "$TF_ENA_BOOT"
+TF_ENA_BAKE="$WORK/twofield-enabled-bake.yml"
+printf 'claude:\n  plugins:\n    bake:\n      - real@mp\n' > "$TF_ENA_BAKE"
+TF_ENA_ERR="$(claude_vm_render_guest_settings "$TF_ENA_BOOT" "$TF_ENA_BAKE" 2>&1 >/dev/null)"
+if claude_vm_render_guest_settings "$TF_ENA_BOOT" "$TF_ENA_BAKE" >/dev/null 2>&1; then
+  assert_eq "two-field: an empty claude.plugins.enabled ref aborts the render" "abort" "rendered"
+else
+  assert_eq "two-field: an empty claude.plugins.enabled ref aborts the render" "abort" "abort"
+fi
+case "$TF_ENA_ERR" in
+  *"claude.plugins.enabled entry #1 has an empty plugin ref (value: 'true')"*)
+    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "named" ;;
+  *)
+    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "$TF_ENA_ERR" ;;
+esac
+
+# ---------------------------------------------------------------------
+# Test 34: the GUEST-side reader (boot_plugin_phase) splits by hand too.
+#
+# This one sits inside build-guest-image.sh's <<'BOOT' heredoc and runs in the
+# guest, where no config-load gate exists: the host's
+# claude_vm_check_marketplace_names has already aborted the launch before
+# plugin-marketplaces.tsv is written, so a nameless record cannot arrive by the
+# ordinary path. The hand split plus the name guard is this side's floor for
+# the paths that are not the ordinary one, and the phase WARNS rather than
+# silently dropping the record.
+#
+# Reuses Test 30's extraction (BPP_START/BPP_END). `log` is redefined here to
+# capture, so the warning itself is assertable.
+# ---------------------------------------------------------------------
+if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_phase >/dev/null 2>&1; then
+  BPP_LOG="$WORK/bpp-log.txt"
+  log() { printf '%s\n' "$*" >> "$BPP_LOG"; }
+
+  : > "$CLAUDE_CALL_LOG"
+  : > "$BPP_LOG"
+  printf 'No marketplaces configured\n' > "$MP_LIST_FILE"
+  : > "$PLUGIN_LIST_FILE"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-noname.tsv"
+  printf '\texample.invalid\n' > "$PLUGIN_MARKETPLACES_TSV"
+  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"; : > "$PLUGIN_INSTALL_LIST"
+  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: a nameless record makes no CLI call at all" \
+    "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
+  assert_eq "boot_plugin_phase: a nameless record is WARNED about, not dropped silently" \
+    "1" "$(grep -c "a configured marketplace has no name (url 'example.invalid')" "$BPP_LOG" || true)"
+
+  # A wholly blank line is skipped without a warning -- the record has no
+  # content to complain about.
+  : > "$CLAUDE_CALL_LOG"
+  : > "$BPP_LOG"
+  printf '\n' > "$PLUGIN_MARKETPLACES_TSV"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: a blank record is skipped with no warning" \
+    "0" "$(grep -c . "$BPP_LOG" || true)"
+
+  # NEGATIVE CONTROL: rebuild the phase with the pre-fix collapsing read (the
+  # substitution runs over the SAME extracted lines, so it cannot drift), and
+  # source it in a SUBSHELL so the redefinition does not leak. The old read
+  # strips the leading empty field, so the phase asks the CLI whether a
+  # marketplace named `example.invalid` is registered -- one CLI call where the
+  # fixed code makes none.
+  BPP_OLD_READ_AWK="    while IFS=\$'\\\\t' read -r mp_name mp_url; do"
+  BPP_OLD_SRC="$WORK/boot_plugin_phase_old.sh"
+  {
+    echo 'log() { printf "%s\n" "$*" >> "$BPP_LOG"; }'
+    awk -v start="$BPP_START" -v end="$BPP_END" -v oldread="$BPP_OLD_READ_AWK" '
+      NR < start || NR > end { next }
+      $0 ~ /^ *while IFS= read -r mp_record; do$/ { print oldread; next }
+      $0 ~ /^ *mp_(name|url)=\$\{mp_record/ { next }
+      { print }
+    ' "$BUILD_GUEST_IMAGE"
+  } > "$BPP_OLD_SRC"
+  assert_eq "boot_plugin_phase: the control really carries the old tab-IFS read" \
+    "1" "$(grep -cF -- "read -r mp_name mp_url; do" "$BPP_OLD_SRC" || true)"
+
+  : > "$CLAUDE_CALL_LOG"
+  : > "$BPP_LOG"
+  printf '\texample.invalid\n' > "$PLUGIN_MARKETPLACES_TSV"
+  # shellcheck source=/dev/null
+  ( . "$BPP_OLD_SRC"; boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: NEGATIVE CONTROL -- the old read queries the registry for a marketplace named after the url" \
+    "1" "$(grep -c '^plugin marketplace list$' "$CLAUDE_CALL_LOG" || true)"
+else
+  echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; guest-side two-field tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

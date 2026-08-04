@@ -342,8 +342,8 @@ argv, settings, image identity, and plugin manifests from:
   overrides per key), and `extraKnownMarketplaces` (the effective
   marketplace set, each entry rendered `{"source":"git","url":…}` for an
   http(s) url or `{"source":"github","repo":…}` for an `owner/repo`
-  shorthand). Validates the `enabled` map once (boolean values;
-  keys must name installed refs) and returns non-zero on a typo so the
+  shorthand). Validates the `enabled` map once (non-empty keys; boolean
+  values; keys must name installed refs) and returns non-zero on a typo so the
   launcher aborts. Reads the claude-vm config only — never the host
   `~/.claude/settings.json`.
 - `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
@@ -389,6 +389,17 @@ argv, settings, image identity, and plugin manifests from:
   marketplace `name` carrying differing `url`s across the tiers, the same
   shape as `claude_vm_check_apt_sources_conflicts`. Both turn a silent no-op
   into a loud launch abort.
+- `claude_vm_check_marketplace_names` / `claude_vm_check_mounts` — the
+  **malformed-entry guards** (issue #226), same shape and same abort-at-load
+  wiring as the pair above. The first rejects a `claude.marketplaces` entry
+  with no `name` in either document, naming the tier, the entry number and
+  the url: the name is the key every reader of the effective set matches on,
+  so an unnamed entry is dropped by all of them and the operator silently
+  gets no marketplace. The second rejects a `mounts` entry with no `source`
+  or no `tag`, naming the mount path: the guest mounts each virtio-fs share
+  *by* its tag, so a tagless entry is a share nobody can mount and two of
+  them collide on one tag. Both read the same `@tsv` records their consumers
+  do, split the same way — see *Splitting a TSV record back apart* below.
 - `claude_vm_marketplace_hosts` / `claude_vm_marketplaces_without_host` /
   `claude_vm_boot_marketplace_egress_needed` — the **derived marketplace
   egress** helpers (issue #107), the plugin-side siblings of the apt egress
@@ -408,33 +419,71 @@ argv, settings, image identity, and plugin manifests from:
 multi-field records through yq's `@tsv` over a fixed-length array, so every
 line always carries every separator — but a consumer must **not** take one
 apart with `IFS=$'\t' read -r a b c`. A tab is IFS *whitespace*, so `read`
-collapses a run of tabs into a single separator: a record whose **middle**
-field is empty loses that field silently and shifts every later field left.
-Under #226 that turned a marketplace entry with no url
+collapses a run of tabs into a single separator *and* strips a leading one:
+a record whose **middle** field is empty loses that field silently and shifts
+every later field left, and one whose **leading** field is empty loses that.
+Under #226 the middle-field case turned a marketplace entry with no url
 (`name<TAB><TAB>origin`) into one whose origin was read as its url, making
 the no-url boot branch unreachable and aborting the very build the issue
 exists to keep alive. The same read shape sat on the other three-field
 records too: an `apt_sources` entry with a `key_url` but no `repo` handed the key
 url to `render_apt_source` as the repo *line* (writing a `sources.list.d`
 entry that points at the key, with no key fetched), and a `mounts` entry with
-an empty `tag` handed vfkit the `ro`/`rw` mode as the mount *tag*. Every
-three-field reader — the marketplace and `apt_sources` loops in
-`provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop in
-`build-guest-image.sh`, and the extra-mount loop in `claude-vm.sh` —
-therefore reads the whole line with `IFS= read -r` and splits it with
-`${rec%%$TAB*}` / `${rec#*$TAB}` parameter expansions, which are total
-exactly because `@tsv` always writes both separators. Each split is pinned by
-a test that *runs* the real loop against records from the real emitter,
-asserting on the values the split produced rather than grepping the source.
-The `apt_sources` and mount splits add a negative control — the pre-fix
-collapsing `read` rebuilt from the same captured lines, so the control cannot
-drift away from the code it is contrasted with; the marketplace loop instead
-asserts on the observable outcome (a no-url boot entry logs its skip and
-never tries to add `boot` as a url). Write any new record reader the same
-way. The two-field readers still use the plain
-`IFS=$'\t' read -r name url` form: they have no middle field to lose, though
-the same collapsing applies to a **leading** empty field (a marketplace
-declared with a `url` but no `name` reads its url as its name).
+an empty `tag` handed vfkit the `ro`/`rw` mode as the mount *tag*. The
+two-field records carry the leading-field case: a `claude.marketplaces` entry
+with a `url` but no `name` (`<TAB>url`) read its **url as its name**, so the
+effective set and the bake manifest each carried a marketplace called
+`https://…` with an empty url, and the guest's boot phase then rejected that
+url-as-a-name for containing characters outside `[A-Za-z0-9._-]` — a
+diagnostic about a marketplace nobody configured, while the entry the operator
+did configure went unmentioned. A `claude.plugins.enabled` map with an empty
+key (`<TAB>true`) likewise aborted the render blaming a plugin named `true`.
+
+**Every** reader — the marketplace and `apt_sources` loops in
+`provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop and
+`boot_plugin_phase`'s marketplace loop in `build-guest-image.sh`, the
+extra-mount loop in `claude-vm.sh`, and every two-field reader in
+`lib/config.sh` (`claude_vm_effective_marketplaces`,
+`claude_vm_marketplaces_without_host`,
+`claude_vm_boot_marketplace_egress_needed`, `claude_vm_bake_plugins_json`,
+both loops in `claude_vm_render_guest_settings`, and the two load-time gates
+described below) — therefore reads the whole line with `IFS= read -r` and
+splits it with `${rec%%$TAB*}` / `${rec#*$TAB}` parameter expansions, which
+are total exactly because `@tsv` always writes every separator. No
+`IFS=$'\t' read` survives in the payload's shipped code; the only ones left
+are the negative controls in `test/config-test.sh`, which exist precisely to
+be contrasted with. Write any new record reader the same way.
+
+Note that an *empty result set* from one of these emitters is one **empty
+line**, not zero bytes (yq prints a newline for `.mounts // [] | .[]` when
+there are no mounts). Every reader skips a wholly empty record before judging
+its fields — a validator that forgot to would reject every ordinary config.
+
+*Splitting is half of it.* A correct split makes an empty key field visible;
+it does not make such an entry usable, so the launcher rejects one at config
+load rather than silently configuring nothing:
+`claude_vm_check_marketplace_names` aborts on a `claude.marketplaces` entry
+with no `name` (naming the tier, the entry number and the url),
+`claude_vm_check_mounts` aborts on a `mounts` entry with no `source` or no
+`tag` (naming the mount path), and `claude_vm_render_guest_settings` aborts on
+an empty `claude.plugins.enabled` key alongside its existing
+value/unknown-key validation. `claude_vm_mount_specs` guards `.source`/`.tag`
+with `// ""` so an *omitted* key and an explicit `""` reach that check as the
+same empty field — unguarded, an omitted `tag:` rendered the literal string
+`null`. The one reader with no load-time gate of its own is
+`boot_plugin_phase`, which runs in the guest: the host has already aborted the
+launch before `plugin-marketplaces.tsv` is written, so there the hand split,
+the name guard and a logged warning are the floor.
+
+Each split and each gate is pinned by a test that *runs* the real code against
+records from the real emitter, asserting on the values the split produced
+rather than grepping the source; the load-time gates are driven through the
+launcher's own load block, sliced out of `claude-vm.sh`. The `apt_sources`,
+mount, two-field and `boot_plugin_phase` cases add a negative control — the
+pre-fix collapsing `read` rebuilt from the same captured lines, so the control
+cannot drift away from the code it is contrasted with; the build-time
+marketplace loop instead asserts on the observable outcome (a no-url boot
+entry logs its skip and never tries to add `boot` as a url).
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -957,16 +1006,20 @@ and no network, plus the pure helpers built on it — the settings render,
 the bake/identity hashing, and (issue #107) the marketplace/plugin
 helpers: effective-set dedup, the placement and name-conflict aborts,
 derived-egress `auto` semantics, and the bake-plugin manifest. Issue #226
-added cases that leave pure-helper territory: `boot_apt_phase` (sliced
-out of `build-guest-image.sh`, with `render_apt_source_boot` swapped for a
-recorder) and the launcher's extra-mount loop (sliced out of `claude-vm.sh`
-by line range, since it is bare top-level code rather than a function) are
-each *run* against records from the real emitter, asserting that a record's
-empty middle field survives the split — see *Splitting a TSV record back
-apart* above. Both carry a negative control that rebuilds the pre-fix
-collapsing `read` from the same captured lines, so the control cannot drift
-away from the code it contrasts with. Requires
-`yq` (mikefarah v4+); skips cleanly when absent.
+added cases that leave pure-helper territory, each *run* against records from
+the real emitter rather than grepped for out of the source: `boot_apt_phase`
+and `boot_plugin_phase` (sliced out of `build-guest-image.sh`, the former with
+`render_apt_source_boot` swapped for a recorder), the launcher's extra-mount
+loop, and the launcher's whole config-load gate block (both sliced out of
+`claude-vm.sh` by line range, since they are bare top-level code rather than
+functions). Together they assert that a record's empty middle field survives
+the split, that an empty *leading* field does too, and that a mounts or
+`claude.marketplaces` entry missing its key field aborts the launch with a
+message naming it — see *Splitting a TSV record back apart* above. The split
+cases each carry a negative control that rebuilds the pre-fix collapsing
+`read` from the same captured lines, so the control cannot drift away from
+the code it contrasts with. Requires `yq` (mikefarah v4+); skips cleanly when
+absent.
 
 `endpoint-test.sh` exercises the per-run endpoint primitives in
 `lib/endpoint.sh` (issue #179): kernel-assigned free-TCP-port acquisition,

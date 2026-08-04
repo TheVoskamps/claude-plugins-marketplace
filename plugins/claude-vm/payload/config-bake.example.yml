@@ -110,6 +110,10 @@ image:
 # launcher derives the guest's marketplace egress from the url's host, and a
 # shorthand yields no host to derive (it resolves against github.com, which you
 # then have to keep in the boot file's egress.allow yourself).
+#
+# `name:` is mandatory on every entry: it is what a plugin@marketplace ref
+# resolves against and what registration is checked by, so an entry with a url
+# and no name ABORTS the launch rather than being ignored.
 claude:
   marketplaces:
     - name: thevoskamps

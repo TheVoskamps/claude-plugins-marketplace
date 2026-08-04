@@ -143,6 +143,9 @@ claude:
   # here and never fails an image build. (A marketplace declared in
   # config-bake.yml is the opposite: the image must carry it, so a failed add
   # aborts the build.)
+  # `name:` is mandatory on every entry: it is what a plugin@marketplace ref
+  # resolves against and what the guest checks registration by, so an entry
+  # with a url and no name ABORTS the launch rather than being ignored.
   marketplaces: []        # {name, url} entries (list, union)
   plugins:
     # NOTE: `bake:` is NOT a boot key -- baked plugins change the image's bytes,
@@ -211,6 +214,10 @@ egress:
     - github.com
     - claude.ai
 
+# Every entry needs BOTH a source and a tag: the guest mounts each share BY its
+# tag, so an entry with an empty or omitted `tag:` is a share nobody can mount
+# and two of them would collide on one tag. Either mistake ABORTS the launch
+# with the mount path named, rather than starting the VM without it.
 mounts:                 # extra mounts beyond the repo auto-mount
   - source: ~/.claude/policy
     tag: policy
