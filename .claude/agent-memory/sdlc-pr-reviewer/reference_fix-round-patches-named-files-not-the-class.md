@@ -20,6 +20,19 @@ yields review set `C ∩ ∅ = ∅` and grades every legitimate closing
 line as a rogue-line High. Round 2 caught it only by re-reading the
 whole diff fresh and asking "who else parses this input?".
 
+**A closed gap invites a stronger completeness claim than was
+earned.** When a fix round closes the position a finding named, it
+tends to rewrite the mechanism's own reach sentence from the call
+sites it just wired — "covers both positions", "descends into every
+X" — rather than from the grammar. Re-probe the OTHER positions the
+same token can occupy before letting such phrasing stand; a reach
+claim is refutable only by running the classifier, never by reading
+the helper, whose doc comment is usually accurate about itself and
+silent about its scoping. Two successive rounds each finding one more
+uncovered position is the tell that the enumeration itself is the
+defect and the reach needs to become a traversal with a
+count-equality test.
+
 **How to apply:** when a fix adds a case/arm to some restatements of
 a shared rule, enumerate ALL sites that parse or restate the same
 input before grading the fix complete. A CLAUDE.md sweep section, when

@@ -24,8 +24,8 @@ Critical.
 result, run `... | od -c | head` on the payload you actually piped. If
 you see a bare `\n` byte inside a JSON string, the harness mangled it —
 re-test from a file. Repo `.claude/tmp/<slug>/` is the right sandbox;
-the session scratchpad under `/private/tmp` is blocked by the
-worktree-isolation guard for `jq` and friends.
+the harness scratchpad under `/tmp/claude-<uid>/` works too — reads and
+writes there are allowed.
 
 Related: [[verify-bash-regex-in-real-bash]] — same class of defect, where
 the tool's shell rather than the code under review is what actually

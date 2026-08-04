@@ -20,7 +20,7 @@ harness-provisioned paths (session dirs, project slugs, uuid layouts),
 do not accept the PR/issue's empirical premise — list the live surfaces:
 
 ```bash
-ls /tmp/claude-$(id -u)/          # real scratchpad slugs (the gate defers on the prefix root, reads inside allowed)
+ls /tmp/claude-$(id -u)/          # real scratchpad slugs (reads under the prefix allow; only a WRITE to the bare root defers)
 ls ~/.claude/projects/            # same slug scheme, more history
 ```
 

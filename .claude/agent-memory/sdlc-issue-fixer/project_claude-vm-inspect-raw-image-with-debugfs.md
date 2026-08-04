@@ -38,7 +38,7 @@ contents. When a fix is specifically "package X is now baked in," this
 debugfs recipe is the way to prove it without a real vfkit boot.
 
 Also note: task-output files under
-`/private/tmp/claude-*/.../tasks/*.output` (from `run_in_background`)
-are OUTSIDE the repo and both `Read` and `Bash` (cat/grep) refuse them
-by the repo-boundary gate. Redirect background-command output into a
-repo-scoped `.claude/tmp/` path instead if you need to read it back.
+`/tmp/claude-<uid>/.../tasks/*.output` (from `run_in_background`) sit
+outside the repo but inside the gate's harness-scratchpad carve-out, so
+`Read` and `Bash` (cat/grep) both reach them directly — no redirect
+into a repo-scoped `.claude/tmp/` path is needed to read them back.

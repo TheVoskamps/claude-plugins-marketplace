@@ -54,8 +54,9 @@ skill will not tell you to.
 runs to hundreds of lines of Markdown full of backticks, quotes, and
 `!`, and inlining it in `gh pr review --body "..."` invites shell
 mangling. Write it with the Write tool to the repo's own
-`.claude/tmp/review-<PR>.md` (the session scratchpad is refused as
-out-of-repo — see [[git-sandbox-via-script-file]]) and post with
+`.claude/tmp/review-<PR>.md` (which keeps the body with the worktree;
+the harness scratchpad is allowed too — see
+[[git-sandbox-via-script-file]]) and post with
 `gh pr review <n> --comment --body-file <path>`. For the self-review
 fallback, `printf 'APPROVED\n\n' > final.md && cat body.md >> final.md`
 prepends the verdict line without re-quoting anything.
