@@ -40,6 +40,15 @@ import (
 type inRepoWriteSpec struct {
 	operandsFn func(args []string) []string
 	mutatesFn  func(args []string, sc simpleCommand) bool
+	// pathValueFlags names the flags whose VALUE is a path the program READS
+	// (`sed -i -f SCRIPTFILE`), and valueFlags the program's complete
+	// value-taking set that locates such a value in every spelling. They are
+	// graded through the READ containment (containReadSources), never added to
+	// the write operands: the file is read, not written, and the read grading
+	// can only ever withhold this classifier's ALLOW, never earn it. Same
+	// meaning as utilitySpec's fields of these names on the read track.
+	pathValueFlags map[string]bool
+	valueFlags     map[string]bool
 }
 
 // inRepoWriters maps a mutating program basename to its operand-extraction spec.
@@ -59,8 +68,12 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 	"touch": {operandsFn: mkdirTouchOperands},
 	// sed -i: only the FILE args are paths; the script arg (`s/a/b/`) is not.
 	// mutatesFn gates this to the in-place form; the read-only form (no -i) is
-	// handled by the read-only-utility classifier.
-	"sed": {operandsFn: sedFileOperands, mutatesFn: sedMutates},
+	// handled by the read-only-utility classifier. A script supplied by
+	// `-f FILE` is a file sed READS, so it is declared here and graded by the
+	// read containment rather than dropped (sedFileOperands consumes it) or
+	// mistaken for a write target.
+	"sed": {operandsFn: sedFileOperands, mutatesFn: sedMutates,
+		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
 	// tee: the operands are WRITE destinations. mutatesFn gates this to the
 	// real-file form; `tee /dev/null` stays on the read-only-utility track.
 	"tee": {operandsFn: teeTargets, mutatesFn: teeMutates},
@@ -110,20 +123,23 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 		return deferToPipeline()
 	}
 
-	// An input redirect is a READ this track's operand parser never sees:
-	// `tee f.md < ../sibling-repo/.env` copies a file from outside the repo into
-	// one inside it, and every operand it does see is contained. Grade those
-	// sources through the read containment (containInputRedirects), which yields
+	// The paths this command READS are ones the operand parser never returns:
+	// an input redirect (`tee f.md < ../sibling-repo/.env` copies a file from
+	// outside the repo into one inside it) and the value of a path-valued flag
+	// (`sed -i -f ../sibling-repo/x.sed f.md` runs a script read from outside
+	// it), while every operand the parser does see is contained. Grade those
+	// sources through the read containment (containReadSources), which yields
 	// escape verdicts only — a read source can never earn this classifier's
 	// write ALLOW.
 	//
 	// A DENY from either side is a genuine escape, so whichever fires wins; the
 	// deny is taken FIRST here so it outranks the DEFER containWriteOperands
-	// returns for a merely-ineligible carve-out operand. An input-side ASK (a
+	// returns for a merely-ineligible carve-out operand. A read-side ASK (a
 	// defective scratchpad root, an unresolvable repo boundary) is held back
 	// until after the write walk, so a write escape still outranks it — the same
 	// ordering containWriteOperands applies to its own recorded ask.
-	inputEscape, inputClean := containInputRedirects(prog, sc, ev)
+	readSources := append(pathFlagValues(args, spec.valueFlags, spec.pathValueFlags), sc.inputRedirectTargets...)
+	inputEscape, inputClean := containReadSources(prog, readSources, sc, ev)
 	if !inputClean && inputEscape.Bucket == BucketDeny {
 		return inputEscape
 	}
@@ -387,10 +403,7 @@ func sedMutates(args []string, _ simpleCommand) bool {
 // -e/-f/-l are consumed. An unrecognized flag returns no operands (fail safe →
 // the caller defers), so a future mutating flag does not slip a write through.
 func sedFileOperands(args []string) []string {
-	valueFlags := map[string]bool{
-		"-e": true, "--expression": true, "-f": true, "--file": true,
-		"-l": true, "--line-length": true,
-	}
+	valueFlags := sedValueFlags
 	boolFlags := map[string]bool{
 		"-n": true, "--quiet": true, "--silent": true,
 		"-E": true, "-r": true, "--regexp-extended": true,

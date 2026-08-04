@@ -126,13 +126,25 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 						"Confirm this is intended and not an unprompted identity switch.")
 			}
 		case "status":
-			// A pure read: it prints which account is active and what scopes the
-			// token carries, and prints no credential. Recognized HERE rather
-			// than by adding `auth` to isGhReadOnly's knownNouns, which would be
-			// unsafe: `readVerbs` already contains `get`, and `gh auth token`
-			// prints the live credential and must keep escalating. Handling
-			// `auth` only in this dedicated switch keeps every
-			// credential-printing verb on the fail-closed track by construction.
+			// A read of WHICH account is active and what scopes its token carries
+			// — but only in the spellings that print no credential. `gh auth
+			// status` has its own credential-printing FLAG (`-t`/`--show-token`,
+			// which also embeds the token in `--json` output), so the verb alone
+			// does not settle the verdict: ghAuthStatusEscalates screens the
+			// flags against the credential-free set and escalates anything else.
+			//
+			// Recognizing `auth` HERE rather than by adding it to isGhReadOnly's
+			// knownNouns keeps the rest of the noun on the fail-closed track by
+			// NAME: admitting the noun would make every `auth` verb's verdict
+			// turn on the verb spelling alone, and `readVerbs` contains `get`,
+			// so an `auth` verb named `get` would ride the read allow whatever
+			// it printed. `gh auth token` keeps its ask either way — the switch
+			// is what makes that structural rather than incidental. The flag
+			// screen above is the other half, which the switch alone never
+			// covered.
+			if d, hit := ghAuthStatusEscalates(cmd[2:]); hit {
+				return d
+			}
 			if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
 				return d
 			}
@@ -238,6 +250,99 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 			"permission gate cannot classify it, so it escalates to a human (fail-closed) rather than "+
 			"auto-allowing. Confirm this is intended; if it is a routine safe operation, it can be added to the "+
 			"gate's enumerated verb set.")
+}
+
+// ghAuthStatusValueFlags and ghAuthStatusBoolFlags are the CREDENTIAL-FREE flags
+// of `gh auth status` (gh 2.96.0: `-a`/`--active`, `-h`/`--hostname`, `--json`,
+// `--jq`, `--template`, and the inherited `--help`). `-t`/`--show-token` is
+// deliberately absent from both: it prints the live OAuth token in plain text,
+// and with `--json hosts` it embeds that token in the JSON.
+//
+// The screen is a WHITELIST, so an unrecognized flag — one a future gh release
+// adds, credential-printing or not — escalates instead of riding the verb's
+// allow. That is the same fail-closed posture parseGhGlobals holds for an
+// unknown leading global, applied to the one read verb whose own flag set can
+// turn it into a credential read.
+var ghAuthStatusValueFlags = map[string]bool{
+	"-h": true, "--hostname": true,
+	"--json": true, "--jq": true, "--template": true,
+}
+
+var ghAuthStatusBoolFlags = map[string]bool{
+	"-a": true, "--active": true, "--help": true,
+}
+
+// ghAuthStatusEscalates screens the flags of a `gh auth status` invocation and
+// returns a terminal ASK for any form the gate cannot vouch for as
+// credential-free. flags is the token slice AFTER `auth status`.
+//
+// `--show-token` is caught in every spelling: the bare long flag, the
+// `=`-joined `--show-token=true`, the short `-t`, and any single-dash token
+// carrying a `t` among its characters. The last is deliberately broader than
+// gh's own parser — in `-ht` pflag reads the `t` as `--hostname`'s value, not as
+// `--show-token` — because the gate does not model gh's cluster arity and a
+// missed credential print costs a leaked token while a spurious escalation
+// costs one click. For the same reason, the only single-dash tokens that pass
+// are the exact `-a` and `-h`; every glued or bundled short form escalates.
+func ghAuthStatusEscalates(flags []string) (Decision, bool) {
+	tokenAsk := func() (Decision, bool) {
+		return ask("gh auth status --show-token (#225)",
+			"'gh auth status' with '-t'/'--show-token' prints the live OAuth token in plain text — including "+
+				"inside '--json' output — which makes it a credential read rather than a status read. Confirm this "+
+				"is intended; drop the flag if the active account and its scopes are what you need. A bundled "+
+				"short-flag cluster carrying a 't' escalates too: the gate does not model gh's cluster arity, so it "+
+				"will not rule out '--show-token' inside one."), true
+	}
+	unknownAsk := func(tok string) (Decision, bool) {
+		return ask("gh auth status unknown-flag (#225)",
+			"'gh auth status "+tok+"' carries a token the permission gate does not recognize as credential-free, "+
+				"so it escalates to a human rather than allowing a form that may print the auth token. The "+
+				"recognized flags are --active, --hostname, --json, --jq, --template and --help (each short flag "+
+				"only in its own separate token)."), true
+	}
+	for i := 0; i < len(flags); i++ {
+		a := flags[i]
+		switch {
+		case strings.HasPrefix(a, "--"):
+			name := a
+			glued := false
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				name, glued = a[:eq], true
+			}
+			if name == "--show-token" {
+				return tokenAsk()
+			}
+			if ghAuthStatusBoolFlags[name] {
+				continue
+			}
+			if ghAuthStatusValueFlags[name] {
+				if !glued && i+1 < len(flags) {
+					i++ // consume the separate value token
+				}
+				continue
+			}
+			return unknownAsk(a)
+		case strings.HasPrefix(a, "-") && a != "-":
+			if strings.ContainsRune(a[1:], 't') {
+				return tokenAsk()
+			}
+			if ghAuthStatusBoolFlags[a] {
+				continue
+			}
+			if ghAuthStatusValueFlags[a] {
+				if i+1 < len(flags) {
+					i++ // consume the separate value token
+				}
+				continue
+			}
+			return unknownAsk(a)
+		default:
+			// `gh auth status` takes no positional argument, so a bare token is a
+			// shape the gate cannot account for.
+			return unknownAsk(a)
+		}
+	}
+	return Decision{}, false
 }
 
 // ghRecoverableWriteVerbs maps each gh noun to the set of write verbs that are

@@ -384,26 +384,29 @@ func readTargets(operands []string, sc simpleCommand) []string {
 	return append(out, sc.inputRedirectTargets...)
 }
 
-// containInputRedirects grades the input-redirect sources of a WRITE-class
-// command (`tee f.md < /etc/passwd`) through the same read containment that
-// grades read operands, and reports ok=false with a TERMINAL deny/ask when one
-// of them escapes.
+// containReadSources grades the paths a WRITE-class command READS — its
+// input-redirect sources (`tee f.md < /etc/passwd`) and the values of its
+// path-valued flags (`sed -i -f ../sibling-repo/x.sed f.md`) — through the same
+// read containment that grades read operands, and reports ok=false with a
+// TERMINAL deny/ask when one of them escapes.
 //
 // The read tracks do not need this: they merge their input sources straight into
 // their operand walk via readTargets. A write command cannot, because
 // containPathOperands can also return an outright ALLOW (every operand landed in
 // a read-eligible carve-out region), and a read source is no grounds at all to
 // bless the command's WRITE. So the allow is discarded here and only the escape
-// verdicts are forwarded — an input redirect on the write track can lose the
-// ALLOW but never earn one.
+// verdicts are forwarded — a read source on the write track can lose the
+// ALLOW but never earn one. Keeping them out of the write operand list matters
+// for the same reason in the other direction: a script file sed READS is not a
+// file sed writes, and grading it as a write target would say so in the deny.
 //
 // The caller is responsible for the hasUnknownExpansion / cwdInvalid fail-closed
 // checks, exactly as it is for its own operands.
-func containInputRedirects(prog string, sc simpleCommand, ev *Event) (Decision, bool) {
-	if len(sc.inputRedirectTargets) == 0 {
+func containReadSources(prog string, sources []string, sc simpleCommand, ev *Event) (Decision, bool) {
+	if len(sources) == 0 {
 		return Decision{}, true
 	}
-	d, ok := containPathOperands(prog, sc.inputRedirectTargets, sc, ev)
+	d, ok := containPathOperands(prog, sources, sc, ev)
 	if ok || d.Bucket == BucketAllow {
 		return Decision{}, true
 	}

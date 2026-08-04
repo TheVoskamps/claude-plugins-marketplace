@@ -33,6 +33,18 @@ value-flag-aware, so the story can be true for a program that has one
 write track). It stays counterfactual for a program that falls back to
 `pathOperands` (`ls`, `cat`, `find`, the rest).
 
+**Since #225 the extractor is `utilitySpec.operands`, not `operandsFn`
+alone**: it is `pathOperands`/`operandsFn` PLUS the values of the
+program's declared `pathValueFlags`, appended (`pathFlagValues`, both
+tracks). So a swallow story is now false even for a program WITH a
+grammar when the flag is a declared path flag — `grep -f`, `sed -f`,
+`awk -f`/`-i`, `diff -X`/`--from-file`/`--to-file`/`-S`,
+`wc --files0-from`, `sort -T`/`--random-source`,
+`realpath --relative-to` all reach containment in every spelling. Read
+the table entry, not just the function: what is dropped is a pattern, a
+script or a number, and only a flag ABSENT from `pathValueFlags` can
+still hide a path.
+
 Same round, second tool: `go version -m <committed binary>` prints
 go version, module, deps, `-trimpath`, `CGO_ENABLED` for a foreign-arch
 binary (linux-amd64 on a mac) — use it to confirm both committed gate

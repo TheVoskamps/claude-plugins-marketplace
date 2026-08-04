@@ -171,6 +171,71 @@ func TestGhAuthStatusAllows_225(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch", false), BucketDeny, "gh auth switch still denies")
 }
 
+// TestGhAuthStatusFlagScreen_225 pins the other half of that allow. The verb is a
+// read only in the spellings that print no credential: `gh auth status` has its
+// own credential-printing FLAG (`-t`/`--show-token`, which `--json hosts` embeds
+// in the JSON), so recognizing the verb settles nothing on its own. The
+// redirect case is the sharp one — the destination is contained, so without the
+// flag screen `gh auth status -t > .claude/tmp/t` lands the live token in a file
+// with no human in the loop.
+func TestGhAuthStatusFlagScreen_225(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	if err := os.MkdirAll(filepath.Join(root, ".claude", "tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ev := bashEvIn(t, root, "issue-fixer")
+
+	// Every spelling of the credential-printing flag escalates: the separate
+	// long flag, the `=`-joined form, the short flag, and a bundled cluster
+	// carrying a `t`.
+	for _, cmd := range []string{
+		"gh auth status --show-token",
+		"gh auth status --show-token=true",
+		"gh auth status -t",
+		"gh auth status -at",
+		"gh auth status -ta",
+		"gh auth status --json hosts --show-token",
+		"gh auth status -t > .claude/tmp/t",
+	} {
+		d := classifyBash(cmd, ev)
+		wantBucket(t, d, BucketAsk, "credential-printing flag: "+cmd)
+		if !containsSubstr(d.Reason, "--show-token") {
+			t.Errorf("%q: the ask must name --show-token; got %q", cmd, d.Reason)
+		}
+	}
+
+	// The control that keeps the redirect case honest: the same redirect WITHOUT
+	// the flag allows, so the ask above comes from the flag screen rather than
+	// from the destination grading.
+	wantBucket(t, classifyBash("gh auth status > .claude/tmp/t", ev), BucketAllow,
+		"control: a contained redirect of the credential-free form")
+
+	// The credential-free flags keep the allow.
+	for _, cmd := range []string{
+		"gh auth status --active",
+		"gh auth status -a",
+		"gh auth status -h github.com",
+		"gh auth status --hostname github.com",
+		"gh auth status --hostname=github.com",
+		"gh auth status --json hosts",
+		"gh auth status --json hosts --jq '.hosts | add'",
+		"gh auth status --active --hostname github.example.com",
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "credential-free flag: "+cmd)
+	}
+
+	// An unrecognized flag fails closed rather than riding the verb's allow — a
+	// future gh release can add another credential-printing one.
+	unknown := classifyBash("gh auth status --print-secret", ev)
+	wantBucket(t, unknown, BucketAsk, "unrecognized gh auth status flag")
+	if !containsSubstr(unknown.Reason, "--print-secret") {
+		t.Errorf("the unknown-flag ask must name the flag; got %q", unknown.Reason)
+	}
+}
+
 // --- 4. git push HEAD:branch ---------------------------------------------------
 
 // TestGitPushHeadRefspecAllows_225 pins the refspec verdicts. A plain
@@ -1021,6 +1086,108 @@ func TestReadTrackOperandGrammar_225(t *testing.T) {
 	// escaping one still denies.
 	wantBucket(t, classifyBash(`sed -n -e '/x/p' `+filepath.Join(sib, "issue.md"), ev), BucketDeny,
 		"-e script: the remaining operand is still a contained file")
+}
+
+// TestReadTrackFileFlagValuesAreContained_225 pins the boundary of that grammar.
+// What an operand grammar may drop is a pattern, a script or a number — never a
+// file the utility OPENS. `grep -f`, `sed -f` and `awk -f` all name a file the
+// program reads, and diff/wc/sort/realpath carry path-valued flags whose GLUED
+// spelling the plain non-flag walk drops (the token begins with `-`) while the
+// separate-token spelling of the same command is contained. Both shapes are
+// containment holes: the value escapes the repo and the command allows.
+func TestReadTrackFileFlagValuesAreContained_225(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	for _, name := range []string{"README.md", "a.txt", "b.txt", "patterns.txt", "script.sed", "prog.awk", "exclude.txt", "list.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sibling := filepath.Join(base, "sibling")
+	gitInit(t, sibling)
+	sib := canonicalize(sibling)
+	out := filepath.Join(sib, "patterns.txt")
+
+	ev := bashEvIn(t, root, "pr-reviewer")
+
+	// A path-valued flag pointing outside the repo denies, in every spelling.
+	for _, cmd := range []string{
+		`grep -f ` + out + ` README.md`,
+		`grep -f` + out + ` README.md`,
+		`grep --file ` + out + ` README.md`,
+		`grep --file=` + out + ` README.md`,
+		`grep -rf ` + out + ` .`,
+		`sed -n -f ` + out + ` README.md`,
+		`sed -n --file=` + out + ` README.md`,
+		`awk -f ` + out + ` README.md`,
+		`awk -i ` + out + ` '{print}' README.md`,
+		`diff -X ` + out + ` a.txt b.txt`,
+		`diff -X` + out + ` a.txt b.txt`,
+		`diff --exclude-from=` + out + ` a.txt b.txt`,
+		`diff --from-file=` + out + ` b.txt`,
+		`diff -S` + out + ` a.txt b.txt`,
+		`wc --files0-from ` + out,
+		`wc --files0-from=` + out,
+		`sort --random-source=` + out + ` a.txt`,
+		`sort -T` + filepath.Join(sib, "tmp") + ` a.txt`,
+		`realpath --relative-to=` + sib + ` a.txt`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketDeny, "an escaping flag value is contained: "+cmd)
+	}
+
+	// The in-repo counterpart of each still allows — containing the value must
+	// not cost the ordinary form its allow.
+	for _, cmd := range []string{
+		`grep -f patterns.txt README.md`,
+		`grep -fpatterns.txt README.md`,
+		`sed -n -f script.sed README.md`,
+		`awk -f prog.awk README.md`,
+		`diff -Xexclude.txt a.txt b.txt`,
+		`diff --exclude-from=exclude.txt a.txt b.txt`,
+		`wc --files0-from=list.txt`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "in-repo flag value: "+cmd)
+	}
+
+	// A flag value that names no file is still not tested as a path, which is
+	// what the operand grammar is for.
+	for _, cmd := range []string{
+		`grep -e '/etc/passwd' README.md`,
+		`awk -v p=/etc/passwd '{print p}' README.md`,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "a non-path flag value is not a path: "+cmd)
+	}
+
+	// The write track carries the same rule for the one path-valued flag it
+	// models: a `sed -i` script READ from outside the repo denies even though
+	// every write target is contained, and the in-repo script still allows.
+	wantBucket(t, classifyBash(`sed -i -f `+out+` README.md`, ev), BucketDeny,
+		"sed -i reading an out-of-repo script")
+	wantBucket(t, classifyBash(`sed -i -f script.sed README.md`, ev), BucketAllow,
+		"sed -i reading an in-repo script")
+}
+
+// TestPathValueFlagsAreDeclaredValueFlags_225 is the structural guard on the two
+// tables: pathFlagValues finds a value only for a flag its walk knows to be
+// value-taking, so a pathValueFlags entry missing from valueFlags would be
+// silently inert — the exact failure this class is about.
+func TestPathValueFlagsAreDeclaredValueFlags_225(t *testing.T) {
+	for prog, spec := range readOnlyUtilities {
+		for flag := range spec.pathValueFlags {
+			if !spec.valueFlags[flag] {
+				t.Errorf("read track %q: pathValueFlags has %q but valueFlags does not", prog, flag)
+			}
+		}
+	}
+	for prog, spec := range inRepoWriters {
+		for flag := range spec.pathValueFlags {
+			if !spec.valueFlags[flag] {
+				t.Errorf("write track %q: pathValueFlags has %q but valueFlags does not", prog, flag)
+			}
+		}
+	}
 }
 
 // --- 8. a parse error is a syntax error, not a decision --------------------------

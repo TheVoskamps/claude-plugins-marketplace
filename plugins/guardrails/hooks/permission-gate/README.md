@@ -255,7 +255,27 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   not fail safe on an unknown flag, so a grammar there could silently
   drop a real file operand out of containment rather than merely lose an
   allow, and a jq filter is not absolute-path-shaped in practice. Every
-  genuine path operand alongside them is still contained. The read
+  genuine path operand alongside them is still contained — including one
+  that arrives as a **flag value**. A flag whose value names a path the
+  utility reads (`grep -f PATFILE`, `sed -f SCRIPT`, `awk -f PROG` and
+  gawk's `-i LIB`, `diff -X`/`--exclude-from`/`--from-file`/`--to-file`/
+  `-S`, `wc --files0-from`, `sort --random-source`), writes
+  (`sort -T DIR`) or resolves (`realpath --relative-to`) is declared in
+  the table's `pathValueFlags`, and its value goes through containment in
+  **every spelling** — separate token, glued (`-X/etc/passwd`),
+  `=`-joined, or the value-taking tail of a short cluster (`grep -rf`).
+  Without that declaration the two spellings disagreed: the plain walk
+  keeps only tokens that do not begin with `-`, so `diff -X /etc/passwd`
+  was contained while `diff -X/etc/passwd` was not, and a per-program
+  operand grammar consumed the value in both (right for `grep -e`'s
+  pattern or `diff -U`'s number, wrong for a file the program opens).
+  The values are **appended** to what the operand walk produced, never
+  substituted for it, so the addition can only put more paths through
+  containment. `jq` needs no entry: it accepts neither a glued short nor
+  an `=`-joined long option (jq 1.8.2 answers both `-f/dev/null` and
+  `--from-file=/dev/null` with "Unknown option"), so its file values
+  always arrive as separate non-flag tokens the plain walk already
+  contains. The read
   still **denies/asks** when a path operand escapes
   containment (#148 cross-repo, #127 worktree) — and an **input
   redirect source** (`cat < f`) is graded by that same containment,
@@ -283,12 +303,15 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   earns the ordinary #148 read deny rather than a defer. Its
   fail-safe predicate models only flags that are bools in **both** GNU
   and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`, `-w`)
-  are left unmodelled and defer. That gap holds no hole shut: the flag
-  model decides allow-*eligibility* only, while `pathOperands` keeps
-  every non-`-` token without consulting it, so `ls -I /etc` yields the
-  operand `/etc` either way — modelling those flags as value-taking
-  would make the verdict `deny` (eligible, then containment), i.e.
-  **stricter** than the current `defer`. They stay unmodelled because a
+  are left unmodelled and defer. That gap holds no hole shut: for `ls`
+  the flag model decides allow-*eligibility* only, while `pathOperands`
+  keeps every non-`-` token without consulting it, so `ls -I /etc`
+  yields the operand `/etc` either way — modelling those flags as
+  value-taking would make the verdict `deny` (eligible, then
+  containment), i.e. **stricter** than the current `defer`. (`ls`
+  declares no `pathValueFlags`, no ls flag taking a path value; where a
+  program does declare them the flag model adds operands to containment,
+  never removes any.) They stay unmodelled because a
   model must not assert an arity that is wrong on one of the two
   platforms: as value flags the predicate misreads BSD's `ls -I .`, and
   as bools it misreads GNU's `ls -w 80 .`.
@@ -303,7 +326,12 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   program's operands are parsed against its own flag grammar so a flag
   value or a `sed` script (`s/a/b/`) is never tested as a path — the
   read track carries the mirror of that grammar for `sed`/`awk`/`grep`
-  (see above); before #225 it had none, so this claim held only here. An
+  (see above); before #225 it had none, so this claim held only here.
+  Not being tested as a *write target* is not the same as being ignored:
+  a flag value that names a file the program READS (`sed -i -f SCRIPT`)
+  is graded by the **read** containment via `containReadSources`,
+  alongside the input-redirect sources, so it can withhold this
+  classifier's ALLOW but never earn one. An
   operand that escapes the repo (#148) or the worktree into the primary
   clone (#127) **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies** (#125); an operand built from an
@@ -545,13 +573,27 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   identifiers, never the secret) and stay ALLOW. The gh analog is `gh
   auth token` (prints the active token) — noun `auth` is not in
   `isGhReadOnly`'s known nouns, so it falls to the #163 fail-closed
-  **ask**. Keeping `auth` out of that map is what makes the sibling
-  `gh auth status` **allow** safe (#225): status prints the active
-  account and its scopes and no credential, so it is recognized in
-  `classifyGh`'s dedicated `auth` switch instead. Adding `auth` to
-  `knownNouns` would have been the unsafe spelling — `readVerbs`
-  already contains `get`, and the switch is what keeps every
-  credential-printing verb on the escalation track by construction.
+  **ask**. `gh auth status` **allows** (#225) without disturbing that:
+  status reports the active account and its scopes, and it is
+  recognized in `classifyGh`'s dedicated `auth` switch rather than by
+  admitting the noun. Admitting it would make every `auth` verb's
+  verdict turn on the verb SPELLING alone — `readVerbs` contains `get`,
+  so an `auth` verb named `get` would ride the read allow whatever it
+  printed — where the switch enumerates the one verb by name. The verb
+  is only half the decision,
+  because `gh auth status` has a credential-printing FLAG of its own:
+  `-t`/`--show-token` prints the live OAuth token in plain text, and
+  with `--json hosts` embeds it in the JSON. So the arm screens the
+  flags against the credential-free set (`-a`/`--active`,
+  `-h`/`--hostname`, `--json`, `--jq`, `--template`, `--help`) and
+  **asks** on `--show-token` in any spelling — bare, `=`-joined, `-t`,
+  or a bundled short cluster carrying a `t` — and on any flag outside
+  that set, so a credential-printing flag a future gh release adds
+  escalates rather than riding the verb's allow. The cluster rule is
+  deliberately broader than gh's own parser (in `-ht` pflag reads the
+  `t` as `--hostname`'s value): the gate does not model gh's cluster
+  arity, and a missed token print costs a leak while a spurious
+  escalation costs a click.
   **Every other aws op — including
   ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
   `cloudformation delete-stack`, `lambda invoke`, …) — asks (#124)**:
@@ -857,7 +899,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `cat < ../sibling-repo/.env` denies exactly as
   `cat ../sibling-repo/.env` does, an in-repo source behaves exactly as
   the operand form, and a session-scratchpad source allows. The write
-  track grades them too (`containInputRedirects`), because
+  track grades them too (`containReadSources`, which grades its
+  path-valued flag values in the same walk), because
   `tee f.md < ../sibling-repo/.env` copies an out-of-repo file into the
   repo while every operand it parses is contained; there the read
   source can only lose the ALLOW, never earn one. Heredocs and

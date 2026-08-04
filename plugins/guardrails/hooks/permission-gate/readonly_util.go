@@ -69,16 +69,127 @@ type utilitySpec struct {
 	// (inRepoWriteSpec.operandsFn, for `sed -i`); this is the same idea on the
 	// read track, which had only the undifferentiated non-flag-token walk.
 	operandsFn func(args []string) []string
+	// pathValueFlags names the flags whose VALUE is a filesystem path — one the
+	// utility READS (`grep -f PATFILE`, `sed -f SCRIPT`, `awk -f PROG`,
+	// `diff -X EXCLUDEFILE`, `wc --files0-from=LIST`), WRITES (`sort -T DIR`
+	// holds its temporary spill files) or RESOLVES (`realpath
+	// --relative-to=DIR`). Their values are added to the containment list by
+	// operands() below.
+	//
+	// Neither operand walk can see them on its own. pathOperands drops every
+	// token beginning with `-`, so a GLUED spelling (`diff -X/etc/passwd`,
+	// `wc --files0-from=/etc/shadow`) never reaches containment while the
+	// separate-token spelling of the same command does. A per-program
+	// operandsFn goes further and CONSUMES the value in both spellings —
+	// correct for a pattern (`grep -e`), a number (`diff -U`) or a label
+	// (`diff -L`), wrong for a filename the utility opens.
+	// valueFlags is the utility's COMPLETE value-taking flag set (of which
+	// pathValueFlags is a subset); pathFlagValues needs it to know where a value
+	// begins inside a bundled short-flag cluster (`grep -rf PATFILE`).
+	pathValueFlags map[string]bool
+	valueFlags     map[string]bool
 }
 
-// operands returns the utility's read path operands for this invocation,
-// applying its own grammar when it has one and the plain non-flag walk
-// otherwise.
+// operands returns the utility's read path operands for this invocation:
+// its own operand grammar when it has one and the plain non-flag walk
+// otherwise, plus the values of any pathValueFlags it carries.
+//
+// The flag values are APPENDED to what the operand walk produced, never
+// substituted for it, so this addition can only ever put MORE paths through
+// containment. That keeps the property the flag models rely on — a mismodelled
+// flag arity can make a verdict stricter (an extra operand to contain) but
+// never open a hole by swallowing a real path operand.
 func (s utilitySpec) operands(args []string) []string {
+	ops := pathOperands(args)
 	if s.operandsFn != nil {
-		return s.operandsFn(args)
+		ops = s.operandsFn(args)
 	}
-	return pathOperands(args)
+	return dedupeOperands(append(ops, pathFlagValues(args, s.valueFlags, s.pathValueFlags)...))
+}
+
+// dedupeOperands drops repeated operands while keeping first-seen order. A path
+// named both as a bare operand and as a flag value would otherwise be contained
+// twice and, on an escape, named twice in one deny message.
+func dedupeOperands(operands []string) []string {
+	seen := make(map[string]bool, len(operands))
+	out := operands[:0:0]
+	for _, o := range operands {
+		if seen[o] {
+			continue
+		}
+		seen[o] = true
+		out = append(out, o)
+	}
+	return out
+}
+
+// pathFlagValues returns the values of the flags in pathFlags — the flags whose
+// value names a filesystem path (see utilitySpec.pathValueFlags) — in every
+// spelling the utility accepts: a separate token (`-f FILE`, `--file FILE`), a
+// glued short form (`-fFILE`, `-X/etc/passwd`), an `=`-joined long form
+// (`--exclude-from=FILE`), and the value-taking tail of a short cluster
+// (`grep -rf FILE`).
+//
+// valueFlags is the utility's complete value-taking flag set; pathFlags is a
+// subset of it. Walking with the full set is what makes the cluster and
+// separate-token cases exact: the value of a NON-path flag (`grep -e PATTERN`)
+// is consumed rather than mistaken for the next flag, and inside a cluster the
+// first value-taking character ends the flag run.
+func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []string {
+	if len(pathFlags) == 0 {
+		return nil
+	}
+	var out []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			// Everything after `--` is an operand; the operand walk has it.
+			break
+		}
+		if !strings.HasPrefix(a, "-") || a == "-" {
+			continue // an operand, not a flag
+		}
+		if strings.HasPrefix(a, "--") {
+			name := a
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				if pathFlags[a[:eq]] {
+					out = append(out, a[eq+1:])
+				}
+				continue
+			}
+			if valueFlags[name] {
+				if i+1 < len(args) {
+					if pathFlags[name] {
+						out = append(out, args[i+1])
+					}
+					i++ // consume the value token either way
+				}
+			}
+			continue
+		}
+		// A single-dash token: one short flag, or a bundle of them. Walk it left
+		// to right; the first value-taking character consumes the REST of the
+		// cluster as its value (getopt semantics), or the next token when it sits
+		// at the end.
+		for j := 1; j < len(a); j++ {
+			f := "-" + string(a[j])
+			if !valueFlags[f] {
+				continue // a bool flag; keep walking the cluster
+			}
+			if j+1 < len(a) {
+				if pathFlags[f] {
+					out = append(out, a[j+1:])
+				}
+			} else if i+1 < len(args) {
+				if pathFlags[f] {
+					out = append(out, args[i+1])
+				}
+				i++ // consume the separate value token either way
+			}
+			break
+		}
+	}
+	return out
 }
 
 // readOnlyUtilities maps a program basename to its read-only spec. cat/head/
@@ -93,20 +204,28 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// that turns out to write must not ride the ALLOW just because today's flag
 	// set looks read-only. Each predicate enumerates the utility's known
 	// read-only flags; anything else defers.
-	"cat":      {pathBearing: true, defersForm: catDefers},
-	"head":     {pathBearing: true, defersForm: headTailDefers},
-	"tail":     {pathBearing: true, defersForm: headTailDefers},
-	"wc":       {pathBearing: true, defersForm: wcDefers},
-	"cut":      {pathBearing: true, defersForm: cutDefers},
-	"tr":       {pathBearing: true, defersForm: trDefers},
-	"comm":     {pathBearing: true, defersForm: commDefers},
-	"paste":    {pathBearing: true, defersForm: pasteDefers},
-	"nl":       {pathBearing: true, defersForm: nlDefers},
-	"fold":     {pathBearing: true, defersForm: foldDefers},
-	"fmt":      {pathBearing: true, defersForm: fmtDefers},
-	"column":   {pathBearing: true, defersForm: columnDefers},
-	"rev":      {pathBearing: true, defersForm: revDefers},
-	"realpath": {pathBearing: true, defersForm: realpathDefers},
+	"cat":    {pathBearing: true, defersForm: catDefers},
+	"head":   {pathBearing: true, defersForm: headTailDefers},
+	"tail":   {pathBearing: true, defersForm: headTailDefers},
+	"cut":    {pathBearing: true, defersForm: cutDefers},
+	"tr":     {pathBearing: true, defersForm: trDefers},
+	"comm":   {pathBearing: true, defersForm: commDefers},
+	"paste":  {pathBearing: true, defersForm: pasteDefers},
+	"nl":     {pathBearing: true, defersForm: nlDefers},
+	"fold":   {pathBearing: true, defersForm: foldDefers},
+	"fmt":    {pathBearing: true, defersForm: fmtDefers},
+	"column": {pathBearing: true, defersForm: columnDefers},
+	"rev":    {pathBearing: true, defersForm: revDefers},
+
+	// wc's `--files0-from=LIST` names a file wc READS (and then reads every
+	// path the list names), and realpath's `--relative-to`/`--relative-base`
+	// name a directory it resolves against. Both are dropped by the plain
+	// non-flag walk in their `=`-joined spelling, so both are declared as
+	// pathValueFlags and contained in either spelling.
+	"wc": {pathBearing: true, defersForm: wcDefers,
+		valueFlags: wcValueFlags, pathValueFlags: wcPathValueFlags},
+	"realpath": {pathBearing: true, defersForm: realpathDefers,
+		valueFlags: realpathValueFlags, pathValueFlags: realpathPathValueFlags},
 
 	// ls lists a directory to stdout and has no write mode at all — nothing to
 	// guard beyond the table's standing fail-safe-on-unknown-flag convention,
@@ -127,8 +246,12 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// sort writes a file with `-o`/`--output` (`sort -o f f` clobbers in place).
 	// uniq's optional second path operand is an OUTPUT file (`uniq IN OUT`).
 	// Both must defer when the write form is present; both also fail safe on an
-	// unrecognized flag.
-	"sort": {pathBearing: true, defersForm: sortDefers},
+	// unrecognized flag. sort additionally carries three path-valued flags —
+	// `--files0-from` (a list file it reads), `--random-source` (a file it
+	// reads) and `-T`/`--temporary-directory` (where it spills) — which the
+	// plain walk drops in their glued spelling.
+	"sort": {pathBearing: true, defersForm: sortDefers,
+		valueFlags: sortValueFlags, pathValueFlags: sortPathValueFlags},
 	"uniq": {pathBearing: true, defersForm: uniqDefers},
 
 	// grep never writes a file (it writes only to stdout). It is read-only
@@ -137,8 +260,11 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// defers on anything outside it. Its leading positional is the PATTERN, not a
 	// path, so it carries an operand grammar too: an anchored pattern like
 	// `grep '/etc/passwd' f` would otherwise be tested as an absolute path and
-	// earn a cross-repo deny for a command that reads nothing of the sort.
-	"grep": {pathBearing: true, defersForm: grepDefers, operandsFn: grepFileOperands},
+	// earn a cross-repo deny for a command that reads nothing of the sort. Its
+	// `-f PATFILE` value goes the other way — grep READS that file, so it is a
+	// pathValueFlag and stays contained in every spelling.
+	"grep": {pathBearing: true, defersForm: grepDefers, operandsFn: grepFileOperands,
+		valueFlags: grepValueFlags, pathValueFlags: grepPathValueFlags},
 
 	// diff compares two inputs and writes only to stdout — no output-file flag
 	// exists in its grammar, so there is no write mode to gate beyond the
@@ -146,8 +272,13 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// the process-substitution idiom it anchors (`diff <(a) <(b)`) is the
 	// canonical two-stream comparison, and leaving diff off the track meant that
 	// line could never reach an allow no matter how the substitutions were
-	// graded.
-	"diff": {pathBearing: true, defersForm: diffDefers},
+	// graded. Several diff flags take a FILE value (`-X`/`--exclude-from`,
+	// `--from-file`, `--to-file`, `-S`/`--starting-file`); glued, those tokens
+	// begin with `-` and so were dropped by the plain walk while the
+	// separate-token spelling of the same command was contained. They are
+	// pathValueFlags, so both spellings now earn the same verdict.
+	"diff": {pathBearing: true, defersForm: diffDefers,
+		valueFlags: diffValueFlags, pathValueFlags: diffPathValueFlags},
 
 	// Pure-output, no path operands and no write mode at all: nil defersForm.
 	// printf/echo/seq/true/false/yes/basename/dirname write only to stdout and
@@ -168,15 +299,28 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// withholds the ALLOW for the mutating flag OR any unrecognized flag.
 	// sed and awk also carry an operand grammar: their leading positional is a
 	// SCRIPT / PROGRAM, not a path (sedFileOperands is shared verbatim with the
-	// `sed -i` write track, which has parsed it that way all along).
-	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands},
-	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands},
+	// `sed -i` write track, which has parsed it that way all along). What that
+	// grammar drops is the script TEXT; the script FILE named by `-f`/`--file`
+	// is a file the program reads, so it is declared a pathValueFlag and put
+	// back through containment. gawk's `-i`/`--include` names a source library
+	// it reads and goes in the same set (`-i inplace` never reaches here —
+	// awkDefers defers on the in-place form first).
+	"sed": {pathBearing: true, defersForm: sedDefers, operandsFn: sedFileOperands,
+		valueFlags: sedValueFlags, pathValueFlags: sedPathValueFlags},
+	"awk": {pathBearing: true, defersForm: awkDefers, operandsFn: awkFileOperands,
+		valueFlags: awkOperandValueFlags, pathValueFlags: awkPathValueFlags},
 	// jq's leading positional is a FILTER, which is the same shape of non-path
 	// positional — but jqDefers deliberately does NOT fail safe on an unknown
 	// flag, so an operand grammar here could silently drop a real file operand
 	// out of containment instead of merely losing an allow. A jq filter is not
 	// absolute-path-shaped in practice, so the containment false positive sed
-	// and awk suffer does not arise; left on the plain non-flag walk.
+	// and awk suffer does not arise; left on the plain non-flag walk. Its
+	// file-taking flags (`-f`/`--from-file`, `--slurpfile`, `--rawfile`,
+	// `--argfile`) need no pathValueFlags entry either: jq accepts neither a
+	// glued short form nor an `=`-joined long one (jq 1.8.2 answers both
+	// `-f/dev/null` and `--from-file=/dev/null` with "Unknown option"), so its
+	// file values always arrive as separate non-flag tokens the plain walk
+	// already contains.
 	"jq":   {pathBearing: true, defersForm: jqDefers},
 	"find": {pathBearing: true, defersForm: findDefers},
 	// tee's operands are WRITE destinations, not read sources, and teeDefers
@@ -426,10 +570,17 @@ func headTailDefers(args []string) bool {
 	}.defers(args)
 }
 
+// wcValueFlags is wc's value-taking flag set, and wcPathValueFlags the subset
+// whose value is a path: `--files0-from=LIST` names a file wc opens and reads
+// (and then reads every path the list names).
+var wcValueFlags = map[string]bool{"--files0-from": true}
+
+var wcPathValueFlags = map[string]bool{"--files0-from": true}
+
 // wcDefers: wc has only counting flags (-c/-m/-l/-w/-L and --files0-from value).
 func wcDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{"--files0-from": true},
+		valueFlags: wcValueFlags,
 		boolFlags: map[string]bool{
 			"-c": true, "--bytes": true, "-m": true, "--chars": true,
 			"-l": true, "--lines": true, "-w": true, "--words": true,
@@ -586,11 +737,13 @@ func revDefers(args []string) bool {
 // `-w COLS` take a value while BSD's `-I`/`-T` are bools — are deliberately left
 // unmodelled, so they hit the unknown-flag arm and defer.
 //
-// What that choice does NOT do is hold a containment hole shut. The flag model
-// decides allow-ELIGIBILITY only; it has no say in which tokens are contained.
-// pathOperands does that, and it keeps every token that does not begin with `-`
-// without ever consulting this model — so `ls -I /etc` yields the operand `/etc`
-// either way. The two outcomes are:
+// What that choice does NOT do is hold a containment hole shut. For `ls` the
+// flag model decides allow-ELIGIBILITY only; it has no say in which tokens are
+// contained. pathOperands does that, and it keeps every token that does not
+// begin with `-` without ever consulting this model — so `ls -I /etc` yields
+// the operand `/etc` either way. (A program that declares pathValueFlags does
+// feed flag values into containment, but only by ADDING them; `ls` declares
+// none, since no ls flag takes a path value.) The two outcomes are:
 //
 //	unmodelled          → unknown flag → this predicate defers → DEFER
 //	modelled as a value → allow-eligible → containment runs    → DENY
@@ -648,11 +801,22 @@ func lsDefers(args []string) bool {
 	}.defers(args)
 }
 
+// realpathValueFlags is realpath's value-taking flag set, and
+// realpathPathValueFlags the subset whose value is a path: both
+// `--relative-to` and `--relative-base` name a DIRECTORY realpath resolves the
+// operand against. realpath does not read its contents, but it is a filesystem
+// path the command reaches for, and the separate-token spelling has always been
+// contained — declaring it keeps the glued spelling from earning a laxer
+// verdict than the spaced one.
+var realpathValueFlags = map[string]bool{"--relative-to": true, "--relative-base": true}
+
+var realpathPathValueFlags = map[string]bool{"--relative-to": true, "--relative-base": true}
+
 // realpathDefers: realpath resolves paths to stdout; no write flag. -e/-m/-s/-z/-q
 // and the value flag --relative-to / --relative-base.
 func realpathDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{"--relative-to": true, "--relative-base": true},
+		valueFlags: realpathValueFlags,
 		boolFlags: map[string]bool{
 			"-e": true, "--canonicalize-existing": true, "-m": true,
 			"--canonicalize-missing": true, "-L": true, "--logical": true,
@@ -691,18 +855,29 @@ func grepDefers(args []string) bool {
 	}.defers(args)
 }
 
+// sortValueFlags is sort's value-taking flag set (its write flag `-o` is graded
+// separately, by writeFlags), and sortPathValueFlags the subset whose value is a
+// path: `--files0-from` and `--random-source` name files sort READS, and
+// `-T`/`--temporary-directory` the directory it SPILLS its temporary runs into.
+var sortValueFlags = map[string]bool{
+	"-k": true, "--key": true, "-t": true, "--field-separator": true,
+	"-S": true, "--buffer-size": true, "-T": true, "--temporary-directory": true,
+	"--batch-size": true, "--compress-program": true, "--files0-from": true,
+	"--random-source": true, "--parallel": true, "--sort": true,
+}
+
+var sortPathValueFlags = map[string]bool{
+	"-T": true, "--temporary-directory": true,
+	"--files0-from": true, "--random-source": true,
+}
+
 // sortDefers: sort writes a file with `-o FILE` / `--output=FILE`
 // (`sort -o f f` clobbers f in place). That write form must defer (a review
 // HIGH). All other sort flags are read-only; an unrecognized flag fails safe.
 func sortDefers(args []string) bool {
 	return flagScan{
 		writeFlags: map[string]bool{"-o": true, "--output": true},
-		valueFlags: map[string]bool{
-			"-k": true, "--key": true, "-t": true, "--field-separator": true,
-			"-S": true, "--buffer-size": true, "-T": true, "--temporary-directory": true,
-			"--batch-size": true, "--compress-program": true, "--files0-from": true,
-			"--random-source": true, "--parallel": true, "--sort": true,
-		},
+		valueFlags: sortValueFlags,
 		boolFlags: map[string]bool{
 			"-b": true, "--ignore-leading-blanks": true, "-c": true, "--check": true,
 			"-C": true, "--check=quiet": true, "-d": true, "--dictionary-order": true,
@@ -753,6 +928,19 @@ func uniqDefers(args []string) bool {
 	}.defers(args)
 }
 
+// sedValueFlags is sed's value-taking flag set, shared with sedFileOperands (in
+// classify_inrepo_write.go) so the defer walk and the operand walk cannot drift.
+// sedPathValueFlags is the subset whose value is a PATH: `-f SCRIPTFILE` names a
+// file sed opens and reads its script from. `-e` carries the script inline and
+// `-l` a line length, so neither is a path.
+var sedValueFlags = map[string]bool{
+	"-e": true, "--expression": true,
+	"-f": true, "--file": true,
+	"-l": true, "--line-length": true,
+}
+
+var sedPathValueFlags = map[string]bool{"-f": true, "--file": true}
+
 // sedDefers reports whether a sed invocation must defer rather than allow. sed
 // is read-only EXCEPT for in-place editing (`-i` / `--in-place`, including the
 // BSD/GNU suffix forms `-i.bak` / `--in-place=.bak`). Any flag outside sed's
@@ -760,7 +948,7 @@ func uniqDefers(args []string) bool {
 func sedDefers(args []string) bool {
 	// Known read-only sed flags. `-e`/`-f`/`-l` take a following value; the
 	// value is consumed so it is not mistaken for an unknown flag.
-	valueFlags := map[string]bool{"-e": true, "--expression": true, "-f": true, "--file": true, "-l": true, "--line-length": true}
+	valueFlags := sedValueFlags
 	boolFlags := map[string]bool{
 		"-n": true, "--quiet": true, "--silent": true,
 		"-E": true, "-r": true, "--regexp-extended": true,
@@ -819,6 +1007,14 @@ func sedDefers(args []string) bool {
 // stay read-only. An explicit output-file redirect is caught by
 // sc.hasRedirectToFile in the caller. Any unrecognized flag also defers.
 func awkDefers(args []string) bool {
+	// NOT awkOperandValueFlags: `-i`/`--include` are deliberately absent here.
+	// This walk reaches its attached-short-value arm (`valueFlags[a[:2]]`) only
+	// for flags in THIS map, and `-i` there would recognize the glued
+	// `-iinplace` as a mere value form and make gawk's in-place WRITE
+	// allow-eligible. Left out, that spelling hits the unknown-flag arm and
+	// defers, which is the verdict it must keep. The operand walk has the
+	// opposite need — it must know `-i` takes a value to see the library file —
+	// so the two maps differ on purpose.
 	valueFlags := map[string]bool{"-F": true, "--field-separator": true, "-v": true, "--assign": true, "-f": true, "--file": true}
 	// Flags that write a file → defer (bare, attached, or long-with-value form).
 	writeFlags := map[string]bool{
@@ -896,6 +1092,28 @@ func awkDefers(args []string) bool {
 	return false
 }
 
+// awkOperandValueFlags is the value-taking flag set the awk OPERAND walks use —
+// awkFileOperands and, through the table's valueFlags, pathFlagValues. It adds
+// `-i`/`--include` to the set awkDefers walks, because an operand walk that did
+// not know they take a value would read the library name as a file operand
+// (and, for pathFlagValues, would never find it at all). See awkDefers for why
+// that same addition would be a hole on the DEFER walk.
+var awkOperandValueFlags = map[string]bool{
+	"-F": true, "--field-separator": true,
+	"-v": true, "--assign": true,
+	"-f": true, "--file": true,
+	"-i": true, "--include": true,
+}
+
+// awkPathValueFlags is the subset of awkOperandValueFlags whose value is a PATH:
+// `-f PROGFILE` names the program file awk reads, and `-i`/`--include LIB` a
+// gawk source library it loads. `-F`'s field separator and `-v`'s assignment
+// name no file.
+var awkPathValueFlags = map[string]bool{
+	"-f": true, "--file": true,
+	"-i": true, "--include": true,
+}
+
 // awkFileOperands returns the FILE operands of an awk invocation, excluding the
 // program text. awk's grammar is `awk [FLAGS] {'program' | -f progfile} [var=value
 // | FILE]...`: when no `-f`/`--file` supplied the program, the FIRST non-flag
@@ -907,12 +1125,7 @@ func awkDefers(args []string) bool {
 // command, and awkDefers has already refused any flag outside this grammar, so
 // an unrecognized flag never reaches here.
 func awkFileOperands(args []string) []string {
-	valueFlags := map[string]bool{
-		"-F": true, "--field-separator": true,
-		"-v": true, "--assign": true,
-		"-f": true, "--file": true,
-		"-i": true, "--include": true,
-	}
+	valueFlags := awkOperandValueFlags
 	programSuppliedByFlag := false
 	var operands []string
 	sawDashDash := false
@@ -1052,21 +1265,44 @@ var grepValueFlags = map[string]bool{
 	"--color": true, "--colour": true, "--binary-files": true,
 }
 
+// grepPathValueFlags is the subset of grepValueFlags whose value is a PATH.
+// `-f PATFILE` names a file grep opens and reads its patterns from, so it must
+// stay in containment even though grepFileOperands consumes it as a flag value:
+// `grep -f /etc/passwd README.md` reads /etc/passwd. `-e PATTERN` and the
+// `--include`/`--exclude` globs are not paths — they are matched against names,
+// never opened — and stay out.
+var grepPathValueFlags = map[string]bool{"-f": true, "--file": true}
+
+// diffValueFlags is diff's value-taking flag set, and diffPathValueFlags the
+// subset whose value is a PATH: `-X`/`--exclude-from` names a file of exclusion
+// patterns diff reads, `--from-file`/`--to-file` name the files it compares
+// everything against, and `-S`/`--starting-file` names the directory entry it
+// starts a recursive comparison at. The rest take a pattern (`-I`, `-x`, `-F`),
+// a label (`-L`), a name (`-D`) or a number (`-U`, `-C`, `-W`, `--tabsize`,
+// `--horizon-lines`) and name no file.
+var diffValueFlags = map[string]bool{
+	"-D": true, "--ifdef": true, "-F": true, "--show-function-line": true,
+	"-I": true, "--ignore-matching-lines": true, "-L": true, "--label": true,
+	"-S": true, "--starting-file": true, "-X": true, "--exclude-from": true,
+	"-x": true, "--exclude": true, "-W": true, "--width": true,
+	"--from-file": true, "--to-file": true, "--horizon-lines": true,
+	"--tabsize": true, "--line-format": true, "--GTYPE-group-format": true,
+	"-U": true, "--unified": true, "-C": true, "--context": true,
+}
+
+var diffPathValueFlags = map[string]bool{
+	"-X": true, "--exclude-from": true,
+	"--from-file": true, "--to-file": true,
+	"-S": true, "--starting-file": true,
+}
+
 // diffDefers reports whether a diff invocation must defer. diff writes only to
 // stdout — its grammar has no output-file flag at all — so there is no write
 // mode to gate; the predicate exists only for the table's standing fail-safe:
 // a flag outside the enumerated grammar defers rather than riding the ALLOW.
 func diffDefers(args []string) bool {
 	return flagScan{
-		valueFlags: map[string]bool{
-			"-D": true, "--ifdef": true, "-F": true, "--show-function-line": true,
-			"-I": true, "--ignore-matching-lines": true, "-L": true, "--label": true,
-			"-S": true, "--starting-file": true, "-X": true, "--exclude-from": true,
-			"-x": true, "--exclude": true, "-W": true, "--width": true,
-			"--from-file": true, "--to-file": true, "--horizon-lines": true,
-			"--tabsize": true, "--line-format": true, "--GTYPE-group-format": true,
-			"-U": true, "--unified": true, "-C": true, "--context": true,
-		},
+		valueFlags: diffValueFlags,
 		boolFlags: map[string]bool{
 			"-a": true, "--text": true, "-b": true, "--ignore-space-change": true,
 			"-B": true, "--ignore-blank-lines": true, "-c": true,
