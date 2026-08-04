@@ -1,9 +1,17 @@
 ---
 name: self-approve-blocked-use-comment
-description: When the gh identity is the PR author, --approve/--request-changes are blocked by GitHub; fall back to --comment and report the verdict in the body.
+description: Check gh api user vs the PR author first — the bot identity (claude-for-evoskamp) CAN --approve; only when identity == author fall back to --comment with the verdict in the body.
 metadata:
   type: feedback
 ---
+
+**Check identity before assuming the fallback.** Run
+`gh api user --jq .login` and compare against the PR's `author.login`.
+This repo's credential is now the per-user Claude App bot
+(`claude-for-evoskamp`), which is NOT the author (`evoskamp`), so a
+real `gh pr review <n> --approve --body-file <f>` posts cleanly —
+verified on #227 round 4. The fallback below applies only when the two
+logins match.
 
 When posting a PR review, `gh pr review <n> --approve` (and
 `--request-changes`) fails if the authenticated `gh` user is the PR's

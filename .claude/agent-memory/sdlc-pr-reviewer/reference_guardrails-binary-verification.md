@@ -10,11 +10,14 @@ The `guardrails` plugin ships policy *inside* committed binaries
 so a stale binary would silently ship old behavior even when the Go
 source is correct.
 
-**Do NOT verify by rebuilding and `cmp`-ing against the committed
-binary.** Go embeds build paths / build IDs, so a fresh
-`GOOS=... GOARCH=... go build` almost never reproduces byte-identically
-without a reproducible-build harness. A `differ` result is expected and
-proves nothing.
+**Try a raw `cmp` against a recipe rebuild first — identical is
+conclusive, differing proves nothing.** On #227 round 4 all three
+committed binaries came back byte-identical to a fresh
+README-recipe rebuild in the review worktree (worktree HEAD ==
+builder's state, `-trimpath`), which settles the staleness question in
+one command. When `cmp` differs, that is still expected (vcs stamps,
+build IDs) and NOT evidence of staleness — fall back to the nm-table +
+build-ID + delta-clustering protocol below.
 
 **Do verify by exercising the committed binary directly** with a
 synthetic PreToolUse event on stdin:
@@ -83,6 +86,17 @@ that is contained or carved out, while the pager/dumper track (`less`,
 the bucket you expect proves nothing about the carve-out under review.
 Read the program's classifier arm first, then pick a probe whose
 verdict can actually change.
+
+**Grade a precondition-shield or any deny→allow widening against the
+STATIC spelling's baseline, not against zero.** Before filing a
+widened-hole finding, replay the fully-literal spelling of the same
+operation on the OLD (origin/main) binary. On #227 round 4,
+`gh api graphql … -F body=@/etc/passwd` (gh reads the `@`-file
+client-side) already ALLOWED on main, so the shield admitting the
+dynamic `-F body=@$F` spelling added no capability — a follow-up-issue
+class, not a High on the PR. Blocking only the dynamic spelling while
+static passes would just recreate the two-spellings-two-verdicts
+inconsistency.
 
 **The gate active in YOUR review session is the installed plugin cache's
 binary — main's version, not the PR branch's.** So a deny you receive
