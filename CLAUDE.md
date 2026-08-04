@@ -83,10 +83,16 @@ the host/guest seam the code it describes sits on.
   `claude plugin marketplace list`. State wording is correct there and
   must survive a sweep; say which of the two a given step reads.
 - **Neither.** The apt paragraphs' "hard-secure all-baked config"
-  (`payload/README.md`, `payload/podman-mkosi.sh`,
-  `payload/config-boot.example.yml`, `skills/claude-vm/SKILL.md`) are
-  about apt packages, which really are image bytes, and that gate has no
-  membership test at all. Editing those is churn.
+  (`payload/README.md`, `payload/build-guest-image.sh`,
+  `payload/claude-vm.sh`, `payload/config-boot.example.yml`,
+  `payload/lib/config.sh`, `payload/provisioners/podman-mkosi.sh`,
+  `skills/claude-vm/SKILL.md`) are about apt packages, which really are
+  image bytes, and that gate has no membership test at all. Editing
+  those is churn. Grep the exact phrase before deciding a hit is in this
+  class: the marketplace sibling in
+  `payload/provisioners/podman-mkosi.sh` is spelled "hard-secure
+  all-bake-declared config" and belongs to the Declaration bullet above,
+  not here.
 
 That one derived-egress gate is described in several places, so a doc
 pass that fixes the obvious ones looks complete: `payload/README.md`'s helper

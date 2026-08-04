@@ -217,8 +217,11 @@ egress:
 # Every entry needs BOTH a source and a tag: the guest mounts each share BY its
 # tag, so an entry with an empty or omitted `tag:` is a share nobody can mount
 # and two of them would collide on one tag. Either mistake ABORTS the launch,
-# naming the offending entry by its position in this list (and by its path when
-# it has one), rather than starting the VM without the mount you asked for.
+# naming the offending entry by its position in the MERGED boot config -- mounts
+# is a union list, so that number counts through the global entries before the
+# per-repo ones and need not be the entry's position in this file -- and by its
+# path when it has one, rather than starting the VM without the mount you asked
+# for.
 mounts:                 # extra mounts beyond the repo auto-mount
   - source: ~/.claude/policy
     tag: policy
