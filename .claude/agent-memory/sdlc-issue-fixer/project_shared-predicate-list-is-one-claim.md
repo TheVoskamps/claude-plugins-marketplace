@@ -27,6 +27,20 @@ member behind a right one. Keep whatever practical guidance the grade
 encoded (which surfaces to check last, and under what trigger) — the
 defect is the reason given, not the priority ordering.
 
+**The completeness half.** When the list is scoped by a *quoted
+phrase* — "the apt paragraphs' `hard-secure all-baked config`
+(`a`, `b`, `c`)" — it asserts two things: that the predicate holds for
+each named file, and that the named files are *all* the files carrying
+that phrase. The second half is the one that rots, and it is settled by
+one `grep -rn` for the phrase, not by re-reading the members. On #226
+round 5 the four-file list was missing three real hits and named a
+fourth path that did not exist. Grep the phrase, diff the hit set
+against the list, then read each new hit to confirm the predicate
+before adding it — a near-miss hit may belong to a *different* class
+(there, a sibling spelled "all-**bake-declared**" belonged to the
+opposite bullet), so name that exclusion in the prose rather than
+silently dropping it.
+
 Sibling shapes: [[count-tally-class-includes-back-references]] (the
 tally and its downstream back-references are one claim too),
 [[staleness-check-both-ends-same-source]] (record site and re-read
