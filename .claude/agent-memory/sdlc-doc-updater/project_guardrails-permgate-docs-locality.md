@@ -162,6 +162,28 @@ parameter expansion, `for f in ${Q:-<(cmd)}`, which has no parser node to
 hang a descent off. The lesson about POSITION outlives the fix — reach for
 it before writing "inexact, so it cannot ride the allow track" again.
 
+**Round 5 shape: the false claim rode a WORKED EXAMPLE, not a
+quantifier (#225, PR #227).** The flag-value round's README prose was
+accurate everywhere it generalized ("in every spelling", "appended,
+never substituted" — both hold against `pathFlagValues`/`operands`),
+and false in a parenthetical example: "a per-program operand grammar
+consumed the value in both (right for `grep -e`'s pattern or `diff
+-U`'s number …)". `diff` has NO `operandsFn` — only `valueFlags`/
+`pathValueFlags` — so its non-path flag values fall to `pathOperands`
+and ARE walked as operands; probing gives `diff -U 3 a b` allow (the
+`3` contains as a relative in-repo path, not because a grammar ate it)
+and `diff -I '/re/' a b` / `diff -L '/label/' a b` DENY as cross-repo
+reads. **How to apply:** for every program named in a mechanism
+sentence, check the table entry actually declares that mechanism —
+a program can appear in the same paragraph as a grammar it does not
+have. Same round, same method on the gh side: the doc comment was
+stricter than the README ("the only single-dash tokens that pass are
+the exact `-a` and `-h`"), and probing showed `gh auth status
+-hgithub.com` asks with the SHOW-TOKEN message because the glued
+value's `github.com` contains a `t`. When a Go comment and the README
+describe one screen at different strictness, the comment is usually the
+measured one — probe, then bring the README up to it.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
