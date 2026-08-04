@@ -44,6 +44,18 @@ there is no flag that makes Go stamp your worktree.
    `deleteIssueFieldValue` allowlist entry turned a
    `gh api graphql -f query='mutation { … }'` **ask** into an **allow**.
 
+**The cheapest discriminator on a fix round is the branch's own previous
+binary.** Redirect `git show HEAD:<committed-binary-path>` into a file
+under `.claude/tmp/`, `chmod +x` it, and you have the pre-fix build with
+no rebuild and no container. Write one synthetic `PreToolUse` JSON event
+with the `Write` tool and feed it to both binaries by input redirect. On
+PR #227 the same event read `allow` from the pre-fix binary and `deny`
+from the new one, which proves the *committed* artifact carries the
+round's change — something `go test` cannot show. Pair it with a
+rebuild into `.claude/tmp/` plus `shasum -a 256` against each committed
+binary: with `-trimpath` all three reproduce byte-identically, so equal
+hashes prove the other platforms' binaries came from the same tree.
+
 **Build the discriminator container to match the guest.** The first
 attempt used bare `debian:bookworm-slim`, which has no `git`, and *every*
 Engine B path decision fell back to the same fail-closed `ask` — the old

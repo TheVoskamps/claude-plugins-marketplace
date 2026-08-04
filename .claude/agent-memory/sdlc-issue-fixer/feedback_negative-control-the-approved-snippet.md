@@ -21,6 +21,17 @@ existed to close would have shipped still failing open. One extra arm
 (`rc` is neither 0 nor 2 → deny) closed it; the empirical run is what
 found it, not reading.
 
+**The same move settles a counterfactual you write into a comment.** A
+justification of the shape "keyed on X, not Y, because Y would
+double-count" is a claim about code that does not exist — so make it
+exist for one run: back the file up into `.claude/tmp/`, flip the line to
+Y, re-measure, restore with `/bin/cp -f`. On #227 flipping the descent
+from `stmt.Redirs` to the merged set took the emitted-command count for
+`{ cat; cat; } < <(cat /etc/passwd)` from 3 to 5 — the comment's "once
+per statement inside the construct" was exactly right, and would have
+been a guess otherwise. The same backup/flip/restore loop is how you
+prove a *new* regression test actually fails against the pre-fix code.
+
 **How to apply:** build the doctored cases first, then run *two* wrappers
 over the same trees — the approved snippet and yours — and print the raw
 exit status per case, not just pass/fail. If your version blocks a case the
