@@ -106,7 +106,34 @@ count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
 below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
+**A big README pass by the developer is the HIGH-risk case, not the
+low-risk one (#225, PR #227).** The developer rewrote ~150 README lines
+across eight classifier changes, and the prose was authored in the same
+commit as the code by the agent grading its own claims. What survived
+was a false *reach* claim ("the walk descends into every process
+substitution") covering a genuine widening; probe such claims rather
+than reading the walk — see
+[[feedback_probe-the-gate-binary-not-the-walk]]. Second recurring shape
+in the same pass: a scoping mechanism spelled in the code as an
+ALLOWLIST, described in the README as an *enumeration of the positions
+it does not cover*. Those read as equivalent and are not — the allowlist
+is closed and the enumeration invites "my flag isn't listed, so it's
+safe". Reword to match the code's polarity.
+
+Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
+has one real exception: `.claude/agent-memory/` notes teach agents to
+route around gate verdicts and are silently falsified when a verdict
+changes (#225 had to delete two). doc-updater must not curate them, but
+must know they exist as a surface.
+
 **Gate PACKAGING facts are the exception to the locality rule above.**
+The `CLAUDE.md` trigger for that sweep was narrowed in PR #227: it used
+to fire on any touch of `plugins/guardrails/hooks/bin/`, which every
+classifier PR does. It now fires on a change to the packaging *shape*
+(which `<goos>-<goarch>` dirs exist, `hooks.json` selection/fail-closed
+logic, the build recipe); a plain in-place rebuild mirrors nothing and
+needs no claude-vm edit or version bump.
+
 The "no other markdown describes gate behavior" claim holds for
 *classifier* behavior only; how the gate is *shipped* is mirrored in
 claude-vm's docs, and the cross-plugin sweep obligation that creates

@@ -55,3 +55,11 @@
   "aborts with the path named" is a claim per BRANCH of the validator;
   read the message strings, then sweep — that sentence is always copied
   to several doc surfaces.
+- [Probe the gate binary, not the walk](feedback_probe-the-gate-binary-not-the-walk.md)
+  — settle a gate reach-claim ("descends into every X") with a throwaway
+  _test.go calling classifyBash; the helper is right, its call sites are
+  the scope. Never prescribe a spelling you have not run.
+- [Gate Go comment edits need a binary rebuild](project_permgate-go-comment-edits-need-binary-rebuild.md)
+  — Go embeds file:line, so a comment-only edit under
+  hooks/permission-gate/ invalidates all three committed binaries;
+  gofmt, rebuild, stage them in the doc commit.
