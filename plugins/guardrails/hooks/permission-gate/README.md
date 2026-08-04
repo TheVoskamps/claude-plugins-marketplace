@@ -264,14 +264,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   the table's `pathValueFlags`, and its value goes through containment in
   **every spelling** — separate token, glued (`-X/etc/passwd`),
   `=`-joined, or the value-taking tail of a short cluster (`grep -rf`).
-  Without that declaration the two spellings disagreed: the plain walk
-  keeps only tokens that do not begin with `-`, so `diff -X /etc/passwd`
-  was contained while `diff -X/etc/passwd` was not, and a per-program
-  operand grammar consumed the value in both (right for `grep -e`'s
-  pattern or `diff -U`'s number, wrong for a file the program opens).
+  Without that declaration the separate-token and glued spellings
+  disagreed: the plain walk keeps only tokens that do not begin with
+  `-`, so `diff -X /etc/passwd` was contained while `diff -X/etc/passwd`
+  was not; and where the program carries an operand grammar, that
+  grammar consumed the value in both spellings — right for `grep -e`'s
+  pattern, wrong for a file the program opens.
   The values are **appended** to what the operand walk produced, never
   substituted for it, so the addition can only put more paths through
-  containment. `jq` needs no entry: it accepts neither a glued short nor
+  containment. The declaration does not, in the other direction, exempt
+  a program's non-path flag values from the operand walk: `diff` carries
+  no operand grammar, so `diff -I '/re/' a b` and `diff -L '/label/' a
+  b` still walk the pattern and the label as operands and **deny** them
+  as cross-repo reads of `/re/` and `/label/`. That false deny is left
+  in place deliberately — it costs an allow, not a containment.
+  `jq` needs no entry: it accepts neither a glued short nor
   an `=`-joined long option (jq 1.8.2 answers both `-f/dev/null` and
   `--from-file=/dev/null` with "Unknown option"), so its file values
   always arrive as separate non-flag tokens the plain walk already
@@ -587,13 +594,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   flags against the credential-free set (`-a`/`--active`,
   `-h`/`--hostname`, `--json`, `--jq`, `--template`, `--help`) and
   **asks** on `--show-token` in any spelling — bare, `=`-joined, `-t`,
-  or a bundled short cluster carrying a `t` — and on any flag outside
-  that set, so a credential-printing flag a future gh release adds
-  escalates rather than riding the verb's allow. The cluster rule is
-  deliberately broader than gh's own parser (in `-ht` pflag reads the
-  `t` as `--hostname`'s value): the gate does not model gh's cluster
-  arity, and a missed token print costs a leak while a spurious
-  escalation costs a click.
+  or any single-dash token with a `t` among its characters — and on any
+  flag outside that set, so a credential-printing flag a future gh
+  release adds escalates rather than riding the verb's allow. Only the
+  exact tokens `-a` and `-h` pass as short flags; a glued short form
+  escalates whatever it carries, either as a `t` sighting
+  (`gh auth status -hgithub.com` asks on the `t` in `github.com`) or as
+  an unrecognized flag. That is deliberately broader than gh's own
+  parser (in `-ht` pflag reads the `t` as `--hostname`'s value): the
+  gate does not model gh's short-flag arity, and a missed token print
+  costs a leak while a spurious escalation costs a click.
   **Every other aws op — including
   ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
   `cloudformation delete-stack`, `lambda invoke`, …) — asks (#124)**:
