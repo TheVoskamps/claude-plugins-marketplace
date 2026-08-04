@@ -167,7 +167,10 @@ Notes on the forward-looking keys:
   launch** with a message naming the right file, rather than parsing and
   being silently ignored. `claude.marketplaces` is the exception: allowed
   in both files, unioned and deduped by `name`, with the same name under
-  two differing urls aborting the launch. Which file it lands in still
+  two differing urls aborting the launch. Give every entry a `name:` —
+  the name is what a `plugin@marketplace` ref resolves against and what
+  registration is checked by, so an entry with a url and no name aborts
+  the launch too (issue #226). Which file it lands in still
   decides its build-time failure policy — a bake-file entry must register
   during the image build or the build aborts, so its url has to be
   reachable from the build container, while a boot-file entry is

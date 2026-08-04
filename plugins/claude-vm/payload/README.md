@@ -396,9 +396,10 @@ argv, settings, image identity, and plugin manifests from:
   the url: the name is the key every reader of the effective set matches on,
   so an unnamed entry is dropped by all of them and the operator silently
   gets no marketplace. The second rejects a `mounts` entry with no `source`
-  or no `tag`, naming the mount path: the guest mounts each virtio-fs share
-  *by* its tag, so a tagless entry is a share nobody can mount and two of
-  them collide on one tag. Both read the same `@tsv` records their consumers
+  or no `tag`, naming the entry number — plus the mount path, which only the
+  tagless case has: the guest mounts each virtio-fs share *by* its tag, so a
+  tagless entry is a share nobody can mount and two of them collide on one
+  tag. Both read the same `@tsv` records their consumers
   do, split the same way — see *Splitting a TSV record back apart* below.
 - `claude_vm_marketplace_hosts` / `claude_vm_marketplaces_without_host` /
   `claude_vm_boot_marketplace_egress_needed` — the **derived marketplace
@@ -465,9 +466,11 @@ load rather than silently configuring nothing:
 `claude_vm_check_marketplace_names` aborts on a `claude.marketplaces` entry
 with no `name` (naming the tier, the entry number and the url),
 `claude_vm_check_mounts` aborts on a `mounts` entry with no `source` or no
-`tag` (naming the mount path), and `claude_vm_render_guest_settings` aborts on
-an empty `claude.plugins.enabled` key alongside its existing
-value/unknown-key validation. `claude_vm_mount_specs` guards `.source`/`.tag`
+`tag` (naming the entry number, and the mount path in the tagless case —
+a sourceless entry has no path to name), and
+`claude_vm_render_guest_settings` aborts on an empty
+`claude.plugins.enabled` key alongside its existing value/unknown-key
+validation. `claude_vm_mount_specs` guards `.source`/`.tag`
 with `// ""` so an *omitted* key and an explicit `""` reach that check as the
 same empty field — unguarded, an omitted `tag:` rendered the literal string
 `null`. The one reader with no load-time gate of its own is

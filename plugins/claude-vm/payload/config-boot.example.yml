@@ -216,8 +216,9 @@ egress:
 
 # Every entry needs BOTH a source and a tag: the guest mounts each share BY its
 # tag, so an entry with an empty or omitted `tag:` is a share nobody can mount
-# and two of them would collide on one tag. Either mistake ABORTS the launch
-# with the mount path named, rather than starting the VM without it.
+# and two of them would collide on one tag. Either mistake ABORTS the launch,
+# naming the offending entry by its position in this list (and by its path when
+# it has one), rather than starting the VM without the mount you asked for.
 mounts:                 # extra mounts beyond the repo auto-mount
   - source: ~/.claude/policy
     tag: policy

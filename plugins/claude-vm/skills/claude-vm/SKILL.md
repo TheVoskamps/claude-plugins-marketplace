@@ -308,7 +308,8 @@ github:
   per entry — the guest mounts each share *by* its tag, so an entry with
   an empty or omitted `tag:` is a share nobody can mount and two of them
   would collide on one tag. Either omission aborts the launch at config
-  load with the mount path named.
+  load, naming the entry by its position in the list (and by its path when
+  it has one).
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,
