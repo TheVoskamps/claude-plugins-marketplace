@@ -18,9 +18,15 @@ repo. Harness constraints block the obvious spellings:
   side: every call *starts* at the worktree root, so a single bare
   `git <subcommand>` needs no `cd` at all — the script-file recipe
   below is only for multi-step sequences.
-- Paths under the session scratchpad (`/private/tmp/claude-.../`) are
-  refused as "outside the current repository", including by plain
-  `wc`/`cat`.
+- Paths under the harness scratchpad prefix (`/tmp/claude-<uid>/`) are
+  allowed, not refused: reads anywhere under the prefix pass, and
+  writes pass inside a session-shaped directory
+  (`<project-slug>/<session-id>/{scratchpad,tasks}`). Only a write to
+  the bare prefix root defers. Either location works for scratch; the
+  repo's own `.claude/tmp/` keeps the files with the worktree.
+- `echo ===` as a compound-command separator fails under zsh
+  (`== not found`, from zsh's `=cmd` expansion) — use a quoted string
+  or separate Bash calls.
 
 **How to apply:** write the whole experiment to a `.sh` file under the
 repo's own `.claude/tmp/<task-slug>/` with the Write tool, have the

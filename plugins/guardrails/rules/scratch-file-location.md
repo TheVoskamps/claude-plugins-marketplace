@@ -12,7 +12,10 @@ When an agent needs somewhere to put a file that is not part of the
 deliverable — a sandbox, a test fixture, an intermediate artifact, a
 scratch buffer — it writes under `<repo-root>/.claude/tmp/`. In a
 linked worktree that root is `$(git rev-parse --show-toplevel)`, so the
-destination is `$(git rev-parse --show-toplevel)/.claude/tmp/`.
+destination is `$(git rev-parse --show-toplevel)/.claude/tmp/`. Spell it
+however reads best — the gate resolves that substitution wherever it
+sits in a word (bare, as `"$(…)"`, inline as `"$(…)/.claude/tmp/x"`, or
+as a `cd` target), not only as a bare assignment RHS (#225).
 
 - ✅ `<repo-root>/.claude/tmp/issue-30-scratch/foo.json`
 - ✅ `/tmp/claude-<uid>/<project-slug>/<session-id>/scratchpad/…` — the
@@ -55,7 +58,10 @@ The verdict inside that prefix is graded on where the path lands:
   spelling of each: the `Write`/`Edit` tools and the `Read` tool,
   `cat` of a file there and `ls` of the directory, `cp`/`mv`/`tee`,
   and a shell redirect
-  (`echo x > <scratchpad>/f`). This is the destination to use.
+  (`echo x > <scratchpad>/f`), including a credentialed tool's redirect
+  (`gh pr diff 224 > <scratchpad>/f`, #225 — it is graded as a write
+  destination like any other, not vetoed for being `gh`). This is the
+  destination to use.
 - A path under `bundled-skills/` — harness-installed skill content
   living beside the session directories, not a scratch destination —
   is **allowed to read** and **defers** for a write.
@@ -89,7 +95,10 @@ location:
 - **In-repo** → the permission-gate's containment check treats it as
   `contained`, so the write is allowed (it defers to the normal
   pipeline) rather than blocked as a cross-repo (#148) or
-  worktree-escape (#127) escape.
+  worktree-escape (#127) escape. That holds for a credentialed tool's
+  redirect too — `gh pr diff 224 > .claude/tmp/x.md` is graded on its
+  destination like `tee .claude/tmp/x.md` and allows (#225), where it
+  used to ask purely for being a `gh`/`git`/`aws` redirect.
 - **Gitignored** → scratch artifacts never get committed and never
   pollute a diff.
 - **Inspectable on failure** → because it lives under the repo, a

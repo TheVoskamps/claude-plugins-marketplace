@@ -55,13 +55,28 @@ well as inside it, because it decides what a claude-vm bake file's
 `plugins/claude-vm/payload/README.md`,
 `plugins/claude-vm/payload/config-bake.example.yml`, and
 `plugins/claude-vm/skills/claude-vm/SKILL.md` (both the commented config
-block and the derived-keys section). A PR touching
-`plugins/guardrails/hooks/hooks.json`, `plugins/guardrails/hooks/bin/`,
-or the gate's build recipe must update those surfaces in the same PR,
-and therefore bumps both plugins' versions. Gate *classifier* behavior
-is the opposite: it lives only in
+block and the derived-keys section). What those surfaces mirror is the
+*packaging shape*, so the trigger is a PR that changes it: the set of
+`<goos>-<goarch>` directories under `plugins/guardrails/hooks/bin/`, the
+selection or fail-closed logic in `plugins/guardrails/hooks/hooks.json`,
+or the gate's build recipe. Such a PR must update those surfaces in the
+same PR, and therefore bumps both plugins' versions.
+
+Rebuilding the committed binaries in place — same directories, same
+`uname` selection, still nothing needed in `packages:` — mirrors
+nothing, so it fires no claude-vm sweep and no `claude-vm` version bump.
+Every classifier-change PR touches `hooks/bin/`, so treating the path
+itself as the trigger would demand a no-op edit on every one of them.
+
+Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-markdown in the repo describes it.
+plugin or `/docs` markdown describes it. The exception is
+`.claude/agent-memory/`, where notes teaching agents to route around a
+gate verdict DO describe classifier behavior and are silently falsified
+when the verdict changes. Grep the agent-memory tree — all agent
+subdirectories, not one — for the gate's own message fragments ("not all
+static literals", "resolves outside the current repository", "cannot
+resolve statically") whenever a verdict changes.
 
 ## Keep claude-vm's declaration prose and image-state prose apart
 

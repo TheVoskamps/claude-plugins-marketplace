@@ -30,8 +30,8 @@ systemd's `Minimize=`/`SizeMinBytes=` composition is in
 `repos/systemd/systemd/contents/man/repart.d.xml?ref=vNNN` — both are
 independent lower bounds, so effective size is max(guessed, floor).
 
-**Write fetched files under the repo's own `.claude/tmp/`** — the
-scratchpad path the harness suggests resolves OUTSIDE the worktree and
-the repo-boundary gate blocks reading it back. See
+**Write fetched files under the repo's own `.claude/tmp/`** — it keeps
+them with the worktree for the rest of the review. The harness
+scratchpad works as well; reads and writes there are allowed. See
 [[guardrails-binary-verification]] for the sibling "exercise the real
 artifact, don't trust the description" pattern.

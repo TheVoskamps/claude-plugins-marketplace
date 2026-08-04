@@ -106,7 +106,98 @@ count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
 below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
+**A big README pass by the developer is the HIGH-risk case, not the
+low-risk one (#225, PR #227).** The developer rewrote ~150 README lines
+across eight classifier changes, and the prose was authored in the same
+commit as the code by the agent grading its own claims. What survived
+was a false *reach* claim ("the walk descends into every process
+substitution") covering a genuine widening; probe such claims rather
+than reading the walk — see
+[[feedback_probe-the-gate-binary-not-the-walk]]. Second recurring shape
+in the same pass: a scoping mechanism spelled in the code as an
+ALLOWLIST, described in the README as an *enumeration of the positions
+it does not cover*. Those read as equivalent and are not — the allowlist
+is closed and the enumeration invites "my flag isn't listed, so it's
+safe". Reword to match the code's polarity.
+
+**The fix round re-wrote the same false reach claim one notch
+narrower (#225, PR #227, round 2).** Closing the redirect-position gap,
+the fixer replaced "descends into every process substitution" with "the
+descent covers both positions bash accepts a substitution in" — still
+false: a substitution in a `for`/`select` item list or a `case` word
+reaches neither call site, so `for f in <(cat ../sibling/.env)` ALLOWs.
+The pattern to expect: a completeness claim written from the two call
+sites the author just wired, not from the grammar. When a gap is closed,
+re-probe the OTHER positions the same token can occupy before letting
+any "covers both/all" phrasing stand — a closed gap invites a stronger
+claim than was earned. Round 3 ended the loop by making the claim
+structural rather than enumerated: the descent takes a NODE and finds
+substitutions with `syntax.Walk`, so those `for`/`select`/`case` rows
+now DENY and the README's reach sentence is checkable against one
+mechanism instead of a call-site list.
+
+**Round 3's replacement claim was the SAME defect one class over
+(#225, PR #227, round 3).** Having closed the `<(…)` reach, both the
+README and the `descendProcSubsts` doc comment justified the two
+constructs still unreached — an unquoted `${Q:-<(cmd)}`, and a `$(…)`
+body outside a declaration clause's assignment RHS — with "not an
+allow-track hole, the word is inexact". Probing refutes it: inexactness
+stops the allow track only where the inexact word rides a command the
+walk EMITS. A `for`/`select` item list, a `case` subject word or
+pattern, and a `VAR=… cmd` prefix emit no command of their own, so
+nothing carries the inexactness and the line allows on its remaining
+parts — `for f in $(cat ../sib/.env); do echo x; done`,
+`case $(…) in`, `FOO=$(…) echo hi`,
+`for f in ${Q:-<(cat ../sib/.env)}; do echo x; done`, and even the
+substitution-free `for f in ${UNSET}x` all ALLOW, identically at the
+merge base (pre-existing, not this PR's widening). Generalize the
+lesson: **"inexact, so it cannot ride the allow track" is a claim about
+a word's POSITION, not about the word.** Probe it in a non-emitting
+position before letting it stand, exactly as
+[[feedback_probe-the-gate-binary-not-the-walk]] prescribes for reach
+claims. Round 4 then closed the `$(…)` rows too (`descendCmdSubsts` takes
+a NODE and runs per statement beside `descendProcSubsts`), so those rows
+now DENY; the one row still ALLOWing is the PROCESS substitution inside a
+parameter expansion, `for f in ${Q:-<(cmd)}`, which has no parser node to
+hang a descent off. The lesson about POSITION outlives the fix — reach for
+it before writing "inexact, so it cannot ride the allow track" again.
+
+**Round 5 shape: the false claim rode a WORKED EXAMPLE, not a
+quantifier (#225, PR #227).** The flag-value round's README prose was
+accurate everywhere it generalized ("in every spelling", "appended,
+never substituted" — both hold against `pathFlagValues`/`operands`),
+and false in a parenthetical example: "a per-program operand grammar
+consumed the value in both (right for `grep -e`'s pattern or `diff
+-U`'s number …)". `diff` has NO `operandsFn` — only `valueFlags`/
+`pathValueFlags` — so its non-path flag values fall to `pathOperands`
+and ARE walked as operands; probing gives `diff -U 3 a b` allow (the
+`3` contains as a relative in-repo path, not because a grammar ate it)
+and `diff -I '/re/' a b` / `diff -L '/label/' a b` DENY as cross-repo
+reads. **How to apply:** for every program named in a mechanism
+sentence, check the table entry actually declares that mechanism —
+a program can appear in the same paragraph as a grammar it does not
+have. Same round, same method on the gh side: the doc comment was
+stricter than the README ("the only single-dash tokens that pass are
+the exact `-a` and `-h`"), and probing showed `gh auth status
+-hgithub.com` asks with the SHOW-TOKEN message because the glued
+value's `github.com` contains a `t`. When a Go comment and the README
+describe one screen at different strictness, the comment is usually the
+measured one — probe, then bring the README up to it.
+
+Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
+has one real exception: `.claude/agent-memory/` notes teach agents to
+route around gate verdicts and are silently falsified when a verdict
+changes (#225 had to delete two). doc-updater must not curate them, but
+must know they exist as a surface.
+
 **Gate PACKAGING facts are the exception to the locality rule above.**
+The `CLAUDE.md` trigger for that sweep was narrowed in PR #227: it used
+to fire on any touch of `plugins/guardrails/hooks/bin/`, which every
+classifier PR does. It now fires on a change to the packaging *shape*
+(which `<goos>-<goarch>` dirs exist, `hooks.json` selection/fail-closed
+logic, the build recipe); a plain in-place rebuild mirrors nothing and
+needs no claude-vm edit or version bump.
+
 The "no other markdown describes gate behavior" claim holds for
 *classifier* behavior only; how the gate is *shipped* is mirrored in
 claude-vm's docs, and the cross-plugin sweep obligation that creates

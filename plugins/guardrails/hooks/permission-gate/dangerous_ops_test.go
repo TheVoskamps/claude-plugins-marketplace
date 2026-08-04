@@ -73,9 +73,14 @@ func TestGitConfigInjectionRCE_64(t *testing.T) {
 func TestGitPushRefspecBypass_64(t *testing.T) {
 	// ':branch' (empty source) is a delete — recoverable named-branch delete → ALLOW.
 	wantBucket(t, classifyCmd(t, "git push origin :branch", false), BucketAllow, "push :branch (delete)")
-	// 'sha:branch' / 'local:refs/heads/x' overwrite a remote ref WITHOUT --force → ASK.
-	wantBucket(t, classifyCmd(t, "git push origin local:refs/heads/x", false), BucketAsk, "push local:refs/heads/x")
-	wantBucket(t, classifyCmd(t, "git push origin deadbeef:branch", false), BucketAsk, "push sha:branch")
+	// A plain 'src:dst' does NOT overwrite: receive-pack refuses a
+	// non-fast-forward update unless it is forced, so `local:refs/heads/x` is
+	// exactly as safe as `git push origin x` → ALLOW.
+	wantBucket(t, classifyCmd(t, "git push origin local:refs/heads/x", false), BucketAllow, "push local:refs/heads/x")
+	wantBucket(t, classifyCmd(t, "git push origin deadbeef:branch", false), BucketAllow, "push sha:branch")
+	// The '+' prefix IS the per-ref force marker → ASK on its own merits.
+	wantBucket(t, classifyCmd(t, "git push origin +HEAD:branch", false), BucketAsk, "push +HEAD:branch")
+	wantBucket(t, classifyCmd(t, "git push origin +local:refs/heads/x", false), BucketAsk, "push +src:dst")
 	// --force-with-lease protects the overwrite race → ALLOW even with a refspec.
 	wantBucket(t, classifyCmd(t, "git push --force-with-lease origin local:branch", false), BucketAllow, "push --force-with-lease refspec")
 	// Plain --force / -f → ASK.

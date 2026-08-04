@@ -1,9 +1,17 @@
 ---
 name: self-approve-blocked-use-comment
-description: When the gh identity is the PR author, --approve/--request-changes are blocked by GitHub; fall back to --comment and report the verdict in the body.
+description: Check gh api user vs the PR author first — the bot identity (claude-for-evoskamp) CAN --approve; only when identity == author fall back to --comment with the verdict in the body.
 metadata:
   type: feedback
 ---
+
+**Check identity before assuming the fallback.** Run
+`gh api user --jq .login` and compare against the PR's `author.login`.
+This repo's credential is now the per-user Claude App bot
+(`claude-for-evoskamp`), which is NOT the author (`evoskamp`), so a
+real `gh pr review <n> --approve --body-file <f>` posts cleanly —
+verified on #227 round 4. The fallback below applies only when the two
+logins match.
 
 When posting a PR review, `gh pr review <n> --approve` (and
 `--request-changes`) fails if the authenticated `gh` user is the PR's
@@ -46,8 +54,9 @@ skill will not tell you to.
 runs to hundreds of lines of Markdown full of backticks, quotes, and
 `!`, and inlining it in `gh pr review --body "..."` invites shell
 mangling. Write it with the Write tool to the repo's own
-`.claude/tmp/review-<PR>.md` (the session scratchpad is refused as
-out-of-repo — see [[git-sandbox-via-script-file]]) and post with
+`.claude/tmp/review-<PR>.md` (which keeps the body with the worktree;
+the harness scratchpad is allowed too — see
+[[git-sandbox-via-script-file]]) and post with
 `gh pr review <n> --comment --body-file <path>`. For the self-review
 fallback, `printf 'APPROVED\n\n' > final.md && cat body.md >> final.md`
 prepends the verdict line without re-quoting anything.

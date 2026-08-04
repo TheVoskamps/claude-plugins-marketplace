@@ -15,12 +15,99 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `classify_command.go`, `rules.go`, `readonly_util.go`,
   `forbidden_forms.go`, `engine_a_mcp.go`): parses the Bash command to an AST
   (`mvdan.cc/sh/v3`) and classifies each simple command; branches on
-  MCP tool names. Constructs whose inner command is not statically
-  resolvable — process substitution `<(…)` / `>(…)`, command
-  substitution `$(…)` — are classified conservatively (the word is
-  marked inexact, so the line never rides the allow track) rather than
-  crashing; an earlier nil `ProcSubst` expander panicked on `<(…)`
-  (#5). A parameter expansion (`$P` / `${P}`) whose variable was
+  MCP tool names. A command substitution `$(…)` outside the anchor
+  allowlist, and an **output** process substitution `>(…)`, mark the
+  word inexact rather than crashing; an earlier nil
+  `ProcSubst` expander panicked on `<(…)` (#5). An **input** process
+  substitution `<(…)` is treated as what bash actually passes — a
+  `/dev/fd/N` pipe, never a filesystem path (#225). It no longer marks
+  the enclosing command inexact, and the operand walks skip it rather
+  than reporting it as "a path argument built from an expansion the
+  gate cannot resolve statically", which is what made `comm -3 <(…)
+  <(…)` escalate when there was no path to resolve at all. What makes
+  that sound is that the **substituted command is classified on its own
+  terms**: the walk descends into every process substitution and grades
+  its statements as ordinary commands, so
+  `comm -3 <(cat ../sibling-repo/.env) <(…)` still earns the cross-repo
+  deny from the inner `cat`. `descendProcSubsts` is applied per
+  STATEMENT — to the statement's own redirects and to its command node —
+  and finds the substitutions beneath them with `syntax.Walk` rather
+  than from a list of word positions, so it covers argv, a redirect
+  target, a `for`/`select` item list, a `case` subject word and its
+  patterns, an assignment RHS and its array elements, an inline
+  environment prefix, a declaration clause's RHS, and a `[[ … ]]`
+  operand alike. `cat < <(cat ../sibling-repo/.env)`,
+  `for f in <(cat ../sibling-repo/.env); do echo x; done` and
+  `case <(…) in` all earn the same cross-repo deny the argv spelling
+  does — including when a redirect is written on a compound statement
+  (`{ cat; } < <(…)`) or on a statement that is redirects and nothing
+  else (`< <(…)`). An output substitution (`cat > >(tee
+  ../sibling-repo/out)`) is graded the same way, on its write. The walk
+  stops at each nested statement, which the main walk reaches on its
+  own, so every substitution is graded exactly once however deeply the
+  spellings nest. The substituted command is resolved against the cwd in
+  effect BEFORE the enclosing statement's own `cd`, matching bash: the
+  pipe is set up during word expansion, which precedes the command; and
+  it is walked in a CHILD scope, so an assignment or `cd` inside a
+  substitution does not leak into the enclosing program's resolution
+  state, as in a `( … )` subshell.
+  Command substitutions are graded by the same traversal, over the same
+  nodes: `descendCmdSubsts` finds every `*syntax.CmdSubst` — the `$(…)`
+  spelling and the backtick `` `cmd` `` alike — with `syntax.Walk` and grades
+  its statements as ordinary commands. That closes a hole older than #225. A
+  non-anchor `$(…)` does mark its word inexact, but inexactness stops the
+  allow track **only in a word position that emits a command**: a
+  `for`/`select` item list, a `case` subject word or pattern, an inline
+  `VAR=… cmd` prefix, an array element, a `[[ … ]]` operand and an assignment
+  RHS emit no command of their own, so nothing carried the inexactness
+  forward and the line allowed on its remaining parts. Measured at this
+  branch's merge base,
+  `for f in $(cat ../sibling-repo/.env); do echo x; done`, `case $(…) in`,
+  `case x in $(…))`, `FOO=$(…) echo hi`, `arr=( $(…) )`,
+  `declare -a A=( $(…) )` and `[[ -e $(…) ]] && echo x` all ALLOWed while
+  bash ran the substituted command; each now earns the inner command's own
+  verdict — that command's verdict, not a blanket deny, so it lands wherever
+  the direct spelling lands:
+  `for f in $(cat ../sibling-repo/.env); do echo x; done` DENIES on the
+  cross-repo read, while `for f in $(rm -rf ../sibling-repo/.env); do echo x;
+  done` DEFERS — the same verdict bare `rm -rf ../sibling-repo/.env` earns on
+  its own. The `$(…)` class reaches positions the `<(…)` one cannot, for
+  different reasons: a parameter expansion's default word (`${Q:-$(cmd)}`,
+  which bash expands in *both* quotings — measured on bash 3.2.57 and 5.3.15 —
+  where `<(cmd)` runs only unquoted and the parser reports no
+  `ProcSubst` node in either), and an unquoted
+  here-document body (which bash expands for `$(…)` and takes literally for
+  `<(…)`). In both, `mvdan.cc/sh` reports the `CmdSubst` node, which is what
+  the traversal needs. The single-quoted `'$(cmd)'` and the quoted-delimiter
+  here-document (`<<'EOF'`) need no exception — bash expands neither and the
+  parser reports no node for either.
+  Grading a `$(…)` also strengthens the emitting positions from a defer to
+  the inner command's own verdict, so
+  `echo "$(cat ../sibling-repo/.env)"`, `x=$(…)`, `[[ -f $(…) ]]` and
+  `true > $(…)` now earn the same cross-repo deny the direct spelling
+  `cat ../sibling-repo/.env` does.
+  The one deliberate exception is an allowlisted **anchor** substitution
+  (`$(git rev-parse --show-toplevel)`, `$(git rev-parse --git-common-dir)`,
+  `$(pwd)`), which is skipped rather than graded: `resolveAnchorCmdSubst`
+  admits only a single plain call whose argv equals one of those forms
+  exactly, so the command is already known in full and is read-only, and the
+  value it resolves to still runs through normal containment. `$(pwd)` is
+  what makes the exception load-bearing: measured by deleting the skip, the
+  two git anchors grade as allow and cost nothing, but bare `pwd` earns no
+  high-confidence allow of its own, so descending into `$(pwd)` turns
+  `cat "$(pwd)/a.txt"`, `case "$(pwd)" in …` and `FOO=$(pwd) echo hi` back
+  into prompts — the escalation #132 was filed to remove. The skip is applied
+  uniformly across the allowlist regardless, because one rule for "an anchor
+  is not an ordinary substitution" rots less than three.
+  One hole the measurement turned up is closable by neither class: a
+  PROCESS substitution inside a parameter expansion's word. `mvdan.cc/sh`
+  v3.13.1 reports no `ProcSubst` node for it in either quoting, so there is
+  nothing to hang a descent off. Real bash runs `: ${Q:-<(cmd)}` and does not
+  run `: "${Q:-<(cmd)}"` (measured on bash 3.2.57 and 5.3.15), and
+  `for f in ${Q:-<(cat ../sibling-repo/.env)}; do echo x; done` ALLOWs, here
+  and at the merge base. The `$(…)` spelling of that same shape DENIES: the
+  parser does report the `CmdSubst` node there, in both quotings.
+  A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
   of failing closed on `hasUnknownExpansion` (#60): e.g.
@@ -70,18 +157,25 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `cd <subdir>; cat "$OLDPWD/x"`) resolves against the directory the
   `cd` left, not the event's cwd; before any `cd` in scope, `$OLDPWD` is
   untracked and fails closed. A sibling mechanism, the **command-substitution
-  anchor allowlist** (#132), recognizes an assignment RHS that is EXACTLY one
-  of the anchor command substitutions — `$(git rev-parse --show-toplevel)` (this
+  anchor allowlist** (#132), recognizes one of the anchor command
+  substitutions — `$(git rev-parse --show-toplevel)` (this
   worktree's root), `$(git rev-parse --git-common-dir)` (the shared git dir,
   which a later use still runs through the `.git/` deny), and `$(pwd)` /
   `` `pwd` `` (the cd-tracked running cwd, #129, not the event's raw cwd) —
-  and records its resolved value into the static-assignment map instead of
-  dropping the variable as unresolvable. Matching is exact: extra flags, extra
-  arguments, or the substitution combined with other word parts is not an
-  anchor and falls through to the existing fail-closed drop. Anchor
+  and resolves it to its value instead of dropping the word as unresolvable.
+  Matching on the *substitution* is exact: extra flags, extra arguments, or a
+  compound substitution is not an anchor and falls through to the
+  fail-closed drop. Where the substitution may SIT is not restricted (#225):
+  the allowlist is consulted per word-part, so an anchor resolves bare
+  (`R=$(git rev-parse --show-toplevel)`), wrapped in double quotes
+  (`R="$(…)"` — the spelling every style guide asks for because it survives a
+  space in the path), embedded inline in a larger word
+  (`find "$(…)/.claude" -type f`), and as a `cd` target (`cd "$(…)" && ls`).
+  Before that, only a bare unquoted assignment RHS was recognized, so the
+  correctly-quoted spelling was the one that failed. Anchor
   resolution never bypasses containment or the `.git/` deny — it only lets a
   known-safe location resolve statically instead of failing closed on a
-  dynamic RHS. This is a distinct mechanism from the five-variable
+  dynamic word. This is a distinct mechanism from the five-variable
   `$HOME`/`$USER`/`$TMPDIR`/`$PWD`/`$OLDPWD` allowlist above: that allowlist
   resolves bare *variable* references from authoritative sources, while the
   anchor allowlist resolves specific *command-substitution* forms. A `for x
@@ -127,7 +221,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   (`readonly_util.go`, #31): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
   `comm`, `paste`, `nl`, `fold`, `fmt`, `column`, `rev`, `realpath`,
-  `ls`, `grep`, `printf`, `echo`, `basename`, `dirname`, `true`,
+  `ls`, `grep`, `diff`, `printf`, `echo`, `basename`, `dirname`, `true`,
   `false`, `seq`, `yes`, plus the conditionally-read-only `sed`, `awk`,
   `jq`, `find`, and `tee` — **ALLOWs** the provably non-mutating form
   instead of deferring (a defer then matches no `settings.json` allow
@@ -146,7 +240,50 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   **always-read-only path-bearing utilities too** (not just the
   conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
   utility enumerates its read-only flag grammar, and anything outside it
-  defers. The read still **denies/asks** when a path operand escapes
+  defers. A utility whose leading positional is a PROGRAM rather than a
+  path also carries its own **operand grammar** (#225), the read-track
+  counterpart of the one the write track has always had for `sed -i`:
+  for `sed` the first non-flag token is the script unless `-e`/`-f`
+  supplied one, for `awk` the program text unless `-f` did, for `grep`
+  the pattern unless `-e`/`-f` did. None of them is a path, and
+  testing them as one was not merely wasted work — a `sed -n
+  '/A/,/B/p' f.md` range address begins with `/`, so containment read
+  it as an absolute path and DENIED a command that reads only `f.md`.
+  An `awk` `var=value` operand is dropped too: it is a variable
+  assignment, so it names no file either. `jq` is deliberately NOT given
+  one even though its leading positional is a filter: `jqDefers` does
+  not fail safe on an unknown flag, so a grammar there could silently
+  drop a real file operand out of containment rather than merely lose an
+  allow, and a jq filter is not absolute-path-shaped in practice. Every
+  genuine path operand alongside them is still contained — including one
+  that arrives as a **flag value**. A flag whose value names a path the
+  utility reads (`grep -f PATFILE`, `sed -f SCRIPT`, `awk -f PROG` and
+  gawk's `-i LIB`, `diff -X`/`--exclude-from`/`--from-file`/`--to-file`/
+  `-S`, `wc --files0-from`, `sort --random-source`), writes
+  (`sort -T DIR`) or resolves (`realpath --relative-to`) is declared in
+  the table's `pathValueFlags`, and its value goes through containment in
+  **every spelling** — separate token, glued (`-X/etc/passwd`),
+  `=`-joined, or the value-taking tail of a short cluster (`grep -rf`).
+  Without that declaration the separate-token and glued spellings
+  disagreed: the plain walk keeps only tokens that do not begin with
+  `-`, so `diff -X /etc/passwd` was contained while `diff -X/etc/passwd`
+  was not; and where the program carries an operand grammar, that
+  grammar consumed the value in both spellings — right for `grep -e`'s
+  pattern, wrong for a file the program opens.
+  The values are **appended** to what the operand walk produced, never
+  substituted for it, so the addition can only put more paths through
+  containment. The declaration does not, in the other direction, exempt
+  a program's non-path flag values from the operand walk: `diff` carries
+  no operand grammar, so `diff -I '/re/' a b` and `diff -L '/label/' a
+  b` still walk the pattern and the label as operands and **deny** them
+  as cross-repo reads of `/re/` and `/label/`. That false deny is left
+  in place deliberately — it costs an allow, not a containment.
+  `jq` needs no entry: it accepts neither a glued short nor
+  an `=`-joined long option (jq 1.8.2 answers both `-f/dev/null` and
+  `--from-file=/dev/null` with "Unknown option"), so its file values
+  always arrive as separate non-flag tokens the plain walk already
+  contains. The read
+  still **denies/asks** when a path operand escapes
   containment (#148 cross-repo, #127 worktree) — and an **input
   redirect source** (`cat < f`) is graded by that same containment,
   including for a utility whose own operands are not paths, so
@@ -158,9 +295,13 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `more`, `od`,
   `xxd`, `hexdump`) are deliberately out of this ALLOW set: they keep
   the prior path-reader posture (contained → defer, escape →
-  deny/ask). A redirect target built from a process substitution or
-  unresolved expansion (`wc < <(grep x f)`, `cmd > "$DYNAMIC"`) marks
-  the command unprovable so it cannot ride the allow track.
+  deny/ask). A redirect target built from an unresolved expansion
+  (`cmd > "$DYNAMIC"`) or from an OUTPUT process substitution
+  (`cat > >(tee x)`) marks the command unprovable so it cannot ride the
+  allow track. An INPUT process substitution (`wc -l < <(grep x f)`) is
+  the exception and not a hole: it is exact because it names a `/dev/fd`
+  pipe rather than a path, and the substituted command earns its own
+  verdict from the per-statement descent above.
   `ls` joined the set in #193: it was in neither bash read track, so it
   deferred for every path while `find` and `grep` — both strictly more
   capable — allowed, and the scratchpad carve-out's own worked example
@@ -169,12 +310,15 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   earns the ordinary #148 read deny rather than a defer. Its
   fail-safe predicate models only flags that are bools in **both** GNU
   and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`, `-w`)
-  are left unmodelled and defer. That gap holds no hole shut: the flag
-  model decides allow-*eligibility* only, while `pathOperands` keeps
-  every non-`-` token without consulting it, so `ls -I /etc` yields the
-  operand `/etc` either way — modelling those flags as value-taking
-  would make the verdict `deny` (eligible, then containment), i.e.
-  **stricter** than the current `defer`. They stay unmodelled because a
+  are left unmodelled and defer. That gap holds no hole shut: for `ls`
+  the flag model decides allow-*eligibility* only, while `pathOperands`
+  keeps every non-`-` token without consulting it, so `ls -I /etc`
+  yields the operand `/etc` either way — modelling those flags as
+  value-taking would make the verdict `deny` (eligible, then
+  containment), i.e. **stricter** than the current `defer`. (`ls`
+  declares no `pathValueFlags`, no ls flag taking a path value; where a
+  program does declare them the flag model adds operands to containment,
+  never removes any.) They stay unmodelled because a
   model must not assert an arity that is wrong on one of the two
   platforms: as value flags the predicate misreads BSD's `ls -I .`, and
   as bools it misreads GNU's `ls -w 80 .`.
@@ -187,11 +331,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `tee FILE` — **ALLOWs** when every path operand it writes is provably
   contained in the current worktree via Engine B containment. Each
   program's operands are parsed against its own flag grammar so a flag
-  value or a `sed` script (`s/a/b/`) is never tested as a path. An
+  value or a `sed` script (`s/a/b/`) is never tested as a path — the
+  read track carries the mirror of that grammar for `sed`/`awk`/`grep`
+  (see above); before #225 it had none, so this claim held only here.
+  Not being tested as a *write target* is not the same as being ignored:
+  a flag value that names a file the program READS (`sed -i -f SCRIPT`)
+  is graded by the **read** containment via `containReadSources`,
+  alongside the input-redirect sources, so it can withhold this
+  classifier's ALLOW but never earn one. An
   operand that escapes the repo (#148) or the worktree into the primary
   clone (#127) **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies** (#125); an operand built from an
-  unresolved expansion **asks** (#1); a real-file redirect **defers**
+  unresolved expansion **asks** (#1) — except that a command-substitution
+  operand also carries the substituted command's own verdict, which outranks
+  that ask when it denies (`cp "$(cat ../sibling-repo/.env)" x` denies, while
+  `cp "$(echo hi)" x` asks); a real-file redirect **defers**
   unless every destination is a session-shaped harness scratchpad
   (#193), the same graded veto the read track carries. An **input
   redirect source** is graded by the *read* containment, so
@@ -218,7 +372,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   the guest's credential may do at an already-allowed host. So a
   classifier miss on a **guest-local** effect costs nothing (the box is
   disposable), but a miss on a **credential-carrying remote** operation
-  has no proxy backstop at all, and the two are tiered accordingly:
+  has no proxy backstop at all, and they are tiered accordingly:
   - For **`git`**, the ALLOW default covers only the guest-local
     subcommands (commit, add, checkout, rebase, …), which the
     disposable microVM contains and which git's content-addressed
@@ -255,7 +409,29 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   dangerous outcome without the flag a naive policy keys on:
   (1) a **non-static argv** (command substitution, unresolved variable,
   glob) on any of those tools **denies** — the dynamic token can
-  hide a dangerous op; (2) an **inline environment-assignment prefix**
+  hide a dangerous op. That rationale only reaches a token in a
+  **classification-bearing position**, so #225 scoped the check to
+  those. Scoping is spelled as an allowlist of SHIELDED flags rather
+  than an enumeration of bearing positions, so every position the
+  allowlist does not name stays bearing by default: the noun, the verb,
+  the endpoint, and every unshielded flag value — including the ones the
+  classifiers demonstrably read (`-R`/`--repo`, `-X`/`--method`,
+  `-H`/`--header`, `--hostname`, and a `gh api graphql` `query=` field),
+  and equally a flag nobody has modelled yet. A dynamic token
+  the parser has already established is the value of a `gh` field or
+  output flag (`-f`/`--raw-field`, `-F`/`--field`, `-q`/`--jq`,
+  `-t`/`--template`, `-b`/`--body`, `--title` — the whole of
+  `ghShieldingFlags`, in both the separate-token and the glued
+  `-FitemId=$ID` / `--jq=$Q` spellings) can never become a subcommand,
+  and no longer
+  denies — the ordinary GraphQL chain (`ITEM=$(gh api graphql … --jq
+  …); gh api graphql … -F itemId=$ITEM`) was otherwise unscriptable,
+  with no escape hatch from a deny, which pushed the `issues` plugin's
+  skills into pasting opaque node IDs as literals. Shielding is an
+  ALLOWLIST of flags, and a field flag shields its value only when the
+  KEY is statically pinned and is not `query`, so `-F "$K"=v` still
+  denies. `git` and `aws` have no shielded flags: their argv is
+  classification-bearing end to end. (2) an **inline environment-assignment prefix**
   (`AWS_ENDPOINT_URL=…`, `GIT_SSH_COMMAND=…`, `GH_HOST=…`, `AWS_PAGER=…`,
   in both the bare `VAR=x cmd` and `env VAR=x cmd` forms) **denies** —
   it can redirect egress, swap identity, or inject a pager without
@@ -265,11 +441,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   **denies** — these execute arbitrary commands and defeat any read
   classification (an inert display knob like `-c color.ui=always` still
   allows); (4) **`git push` is classified on its refspec**, not just its
-  flags — a `source:dest` refspec **asks** (it overwrites a remote ref
-  without `--force`), `--mirror`/`--prune` **deny** (bulk remote
-  delete), plain `--force`/`-f` **ask**, while `--force-with-lease`, a
-  clean named-branch delete (`--delete <branch>`, `origin :branch`), and
-  an ordinary fast-forward push **allow**; and **`git remote add`/
+  flags — a `+src:dst` refspec **asks**, because the `+` is git's
+  per-ref equivalent of `--force`; `--mirror`/`--prune` **deny** (bulk
+  remote delete), plain `--force`/`-f` **ask**, while
+  `--force-with-lease`, a
+  clean named-branch delete (`--delete <branch>`, `origin :branch`), an
+  ordinary fast-forward push, and a plain `src:dst` refspec **allow**.
+  A plain `src:dst` was asked on a false premise until #225: git does
+  not overwrite there. `receive-pack` rejects a non-fast-forward ref
+  update unless the update is forced, so `origin HEAD:branch` either
+  fast-forwards or is refused by the remote, exactly like
+  `git push origin branch` — and it is the standard idiom for pushing
+  from a worktree whose local branch name differs from the remote's,
+  which is why the agents hit it on essentially every push. The old code
+  never inspected the `+` at all; `+src:dst` reached the ask only
+  incidentally, because it also contains a colon. And **`git remote add`/
   `set-url`** (which re-aim where a later ALLOWed push sends its
   refspec) **ask** (#163) — the git version of the gh foreign-target
   exfil channel. For `gh`: `gh api` is routed
@@ -394,7 +580,31 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   identifiers, never the secret) and stay ALLOW. The gh analog is `gh
   auth token` (prints the active token) — noun `auth` is not in
   `isGhReadOnly`'s known nouns, so it falls to the #163 fail-closed
-  **ask**. **Every other aws op — including
+  **ask**. `gh auth status` **allows** (#225) without disturbing that:
+  status reports the active account and its scopes, and it is
+  recognized in `classifyGh`'s dedicated `auth` switch rather than by
+  admitting the noun. Admitting it would make every `auth` verb's
+  verdict turn on the verb SPELLING alone — `readVerbs` contains `get`,
+  so an `auth` verb named `get` would ride the read allow whatever it
+  printed — where the switch enumerates the one verb by name. The verb
+  is only half the decision,
+  because `gh auth status` has a credential-printing FLAG of its own:
+  `-t`/`--show-token` prints the live OAuth token in plain text, and
+  with `--json hosts` embeds it in the JSON. So the arm screens the
+  flags against the credential-free set (`-a`/`--active`,
+  `-h`/`--hostname`, `--json`, `--jq`, `--template`, `--help`) and
+  **asks** on `--show-token` in any spelling — bare, `=`-joined, `-t`,
+  or any single-dash token with a `t` among its characters — and on any
+  flag outside that set, so a credential-printing flag a future gh
+  release adds escalates rather than riding the verb's allow. Only the
+  exact tokens `-a` and `-h` pass as short flags; a glued short form
+  escalates whatever it carries, either as a `t` sighting
+  (`gh auth status -hgithub.com` asks on the `t` in `github.com`) or as
+  an unrecognized flag. That is deliberately broader than gh's own
+  parser (in `-ht` pflag reads the `t` as `--hostname`'s value): the
+  gate does not model gh's short-flag arity, and a missed token print
+  costs a leak while a spurious escalation costs a click.
+  **Every other aws op — including
   ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
   `cloudformation delete-stack`, `lambda invoke`, …) — asks (#124)**:
   the gate cannot prove the op read-only, and an aws mutation carries
@@ -659,12 +869,29 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   resolve statically (#1), an unresolvable running cwd (#129), and a
   command whose *other* redirect escapes the region. The lift reaches
   exactly the allow tracks that call `redirectVetoesAllow` — the
-  read-only-utility classifier and the in-repo-write classifier. The
-  credentialed-tool classifiers are untouched: `git`/`gh`/`aws` keep
-  their unconditional redirect-to-file **ask**, and `acli` keeps
-  gating its read-only allow on the ungraded `allowEligible()`, so a
-  redirect there still **defers**. Those guard credentialed command
-  output, a different concern from where a scratch file lands.
+  read-only-utility classifier and the in-repo-write classifier.
+
+  **The credentialed tools grade their redirect too** (#225,
+  `credentialedRedirectAsk`). #193 left `git`/`gh`/`aws` on the
+  ungraded veto, which reproduced the very inconsistency it had just
+  removed one track over: `tee .claude/tmp/x.md` allowed while
+  `gh pr diff 224 > .claude/tmp/x.md` asked, and the ask fired hardest
+  on the two destinations the gate itself designates safe — the in-repo
+  `.claude/tmp/` its own deny messages prescribe, and the scratchpad.
+  The emitted reason was also wrong on the facts: a redirect into a file
+  in this worktree exfiltrates nothing, because the bytes land where the
+  agent can already write with Write/Edit. The genuine risks are
+  **clobber** (overwriting a tracked file with command output) and
+  **escape**, which is what containment decides. So a credentialed
+  redirect is graded as a write operand — the same `readClass=false`
+  predicate `tee`/`cp` are held to — and **allows** when every
+  destination is contained in this worktree or lands in a #193-blessed
+  region. It keeps the **ask** when a destination escapes, sits under
+  `.git/`, cannot be resolved statically (#1), or runs under an
+  invalidated cwd (#129), and the reason names clobber and escape rather
+  than exfiltration. `acli` is untouched: it still gates its read-only
+  allow on the ungraded `allowEligible()`, so a redirect there
+  **defers**.
 
   **Input redirects are contained like operands.** A carve-out is only
   meaningful if the surrounding denial holds, and it did not: an input
@@ -682,7 +909,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `cat < ../sibling-repo/.env` denies exactly as
   `cat ../sibling-repo/.env` does, an in-repo source behaves exactly as
   the operand form, and a session-scratchpad source allows. The write
-  track grades them too (`containInputRedirects`), because
+  track grades them too (`containReadSources`, which grades its
+  path-valued flag values in the same walk), because
   `tee f.md < ../sibling-repo/.env` copies an out-of-repo file into the
   repo while every operand it parses is contained; there the read
   source can only lose the ALLOW, never earn one. Heredocs and
@@ -754,6 +982,25 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   Neither the carve-out nor the root `ask` short-circuits the operand
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
+
+**An unparseable command is a syntax error, not a decision** (#225). A
+parse failure used to **ask**, on the rationale that "an unparseable
+command is often a human-authored one-liner the human can vet". That is
+inverted for a `PreToolUse` hook, which fires on commands the **model**
+authored — a human cannot repair broken syntax by clicking Yes. The gate
+parses with `syntax.NewParser` and no variant override, so it runs
+mvdan/sh's default `LangBash`: bash parity is the design intent, and a
+string the gate cannot parse is one real bash rejects too. Approving it
+runs a command bash will refuse; denying reaches the same outcome one
+click sooner. So a parse error **denies**, with a reason carrying the
+parser's own position and, for a recognizable class — an unescaped
+backtick or `$(` inside double quotes, an unbalanced quote, paren or
+brace — the named cause, so the next attempt is a fix rather than a
+retry. Accepted risk, stated explicitly: if mvdan/sh ever rejects a
+string bash accepts, the deny leaves no escape hatch where the ask had
+one. That is worth taking — the divergence then surfaces as a loud,
+fixable bug report instead of being absorbed into a habitual approval
+click.
 
 The decision is emitted as JSON on stdout with exit 0
 (`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the
@@ -865,7 +1112,7 @@ or itself exits 2 (its own fail-closed backstop), the wrapper writes a
 one-line message naming the exact resolved path to stderr and exits 2 —
 a blocking deny for that tool call.
 
-Three distinct failures are covered, because `[ -x ]` alone answers only
+Distinct failure modes are covered, because `[ -x ]` alone answers only
 "may I try to run this", never "did it run and decide":
 
 1. **Missing, or present without the exec bit.** `[ -x "$gate" ]`:

@@ -21,6 +21,33 @@ existed to close would have shipped still failing open. One extra arm
 (`rc` is neither 0 nor 2 → deny) closed it; the empirical run is what
 found it, not reading.
 
+**The same move settles a counterfactual you write into a comment.** A
+justification of the shape "keyed on X, not Y, because Y would
+double-count" is a claim about code that does not exist — so make it
+exist for one run: back the file up into `.claude/tmp/`, flip the line to
+Y, re-measure, restore with `/bin/cp -f`. On #227 flipping the descent
+from `stmt.Redirs` to the merged set took the emitted-command count for
+`{ cat; cat; } < <(cat /etc/passwd)` from 3 to 5 — the comment's "once
+per statement inside the construct" was exactly right, and would have
+been a guess otherwise. The same backup/flip/restore loop is how you
+prove a *new* regression test actually fails against the pre-fix code —
+and for a whole-file baseline, `git archive --format=tar -o
+.claude/tmp/<slug>/base.tar HEAD <pkg-dir>`, `tar -xf … -C zzbase`,
+`/bin/cp -f` your new test file in, and `go test` there: on #227 that
+printed which rows were already graded (here-string, else arm) versus
+the eleven that flipped, which no reasoning about the diff would have
+separated.
+
+**The cheapest negation of your OWN fix is a nil argument at the one call
+site.** When the fix is "consult a new table / pass a new argument", pass
+`nil` (or an empty slice) there instead of deleting code, run only the new
+test, and read the failures: on #227 round 3 that turned
+`s.pathValueFlags` → `nil` and `ghAuthStatusEscalates(cmd[2:])` →
+`(nil)`, and the two runs printed the reviewer's findings back verbatim —
+17 escaping flag-value rows and every `--show-token` spelling reading
+`allow`. It restores with one Edit, so there is no backup to forget, and
+the failure list doubles as the pre-fix verdict table for the report.
+
 **How to apply:** build the doctored cases first, then run *two* wrappers
 over the same trees — the approved snippet and yours — and print the raw
 exit status per case, not just pass/fail. If your version blocks a case the

@@ -125,6 +125,30 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 					"'gh auth login' targeting a specific host can switch the active identity. "+
 						"Confirm this is intended and not an unprompted identity switch.")
 			}
+		case "status":
+			// A read of WHICH account is active and what scopes its token carries
+			// — but only in the spellings that print no credential. `gh auth
+			// status` has its own credential-printing FLAG (`-t`/`--show-token`,
+			// which also embeds the token in `--json` output), so the verb alone
+			// does not settle the verdict: ghAuthStatusEscalates screens the
+			// flags against the credential-free set and escalates anything else.
+			//
+			// Recognizing `auth` HERE rather than by adding it to isGhReadOnly's
+			// knownNouns keeps the rest of the noun on the fail-closed track by
+			// NAME: admitting the noun would make every `auth` verb's verdict
+			// turn on the verb spelling alone, and `readVerbs` contains `get`,
+			// so an `auth` verb named `get` would ride the read allow whatever
+			// it printed. `gh auth token` keeps its ask either way — the switch
+			// is what makes that structural rather than incidental. The flag
+			// screen above is the other half, which the switch alone never
+			// covered.
+			if d, hit := ghAuthStatusEscalates(cmd[2:]); hit {
+				return d
+			}
+			if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+				return d
+			}
+			return allow("gh auth status reports the active account and scopes without printing a credential")
 		}
 	}
 
@@ -136,7 +160,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// GET-gate. sc is threaded through so the redirect-to-file ASK carve-out the
 	// other gh paths get also applies to an otherwise-allowed gh api form.
 	if cmd[0] == "api" {
-		return classifyGhAPI(args, sc)
+		return classifyGhAPI(args, sc, ev)
 	}
 
 	// DENY tier: irreparable / boundary-weakening gh operations.
@@ -177,9 +201,8 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// the exfil channel — that is consummated only by a WRITE to an
 	// attacker-readable place, which the enumerated-write scoping below covers.
 	if isGhReadOnly(cmd) {
-		if sc.hasRedirectToFile {
-			return ask("gh redirect-to-file",
-				"'gh' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+		if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+			return d
 		}
 		return allow(fmt.Sprintf("gh %s is a read-only subcommand", strings.Join(cmd, " ")))
 	}
@@ -193,9 +216,8 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// uses only enumerated verbs, so the prompt cost is ~zero, and a gh-version
 	// -drift miss now costs one click instead of a silent auto-allow.
 	if isGhRecoverableWrite(cmd) {
-		if sc.hasRedirectToFile {
-			return ask("gh redirect-to-file",
-				"'gh' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+		if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+			return d
 		}
 		// Foreign-target write scoping: an otherwise-ALLOWed gh write whose
 		// explicit target (`-R`/`--repo`, in either the leading-global or the
@@ -228,6 +250,99 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 			"permission gate cannot classify it, so it escalates to a human (fail-closed) rather than "+
 			"auto-allowing. Confirm this is intended; if it is a routine safe operation, it can be added to the "+
 			"gate's enumerated verb set.")
+}
+
+// ghAuthStatusValueFlags and ghAuthStatusBoolFlags are the CREDENTIAL-FREE flags
+// of `gh auth status` (gh 2.96.0: `-a`/`--active`, `-h`/`--hostname`, `--json`,
+// `--jq`, `--template`, and the inherited `--help`). `-t`/`--show-token` is
+// deliberately absent from both: it prints the live OAuth token in plain text,
+// and with `--json hosts` it embeds that token in the JSON.
+//
+// The screen is a WHITELIST, so an unrecognized flag — one a future gh release
+// adds, credential-printing or not — escalates instead of riding the verb's
+// allow. That is the same fail-closed posture parseGhGlobals holds for an
+// unknown leading global, applied to the one read verb whose own flag set can
+// turn it into a credential read.
+var ghAuthStatusValueFlags = map[string]bool{
+	"-h": true, "--hostname": true,
+	"--json": true, "--jq": true, "--template": true,
+}
+
+var ghAuthStatusBoolFlags = map[string]bool{
+	"-a": true, "--active": true, "--help": true,
+}
+
+// ghAuthStatusEscalates screens the flags of a `gh auth status` invocation and
+// returns a terminal ASK for any form the gate cannot vouch for as
+// credential-free. flags is the token slice AFTER `auth status`.
+//
+// `--show-token` is caught in every spelling: the bare long flag, the
+// `=`-joined `--show-token=true`, the short `-t`, and any single-dash token
+// carrying a `t` among its characters. The last is deliberately broader than
+// gh's own parser — in `-ht` pflag reads the `t` as `--hostname`'s value, not as
+// `--show-token` — because the gate does not model gh's cluster arity and a
+// missed credential print costs a leaked token while a spurious escalation
+// costs one click. For the same reason, the only single-dash tokens that pass
+// are the exact `-a` and `-h`; every glued or bundled short form escalates.
+func ghAuthStatusEscalates(flags []string) (Decision, bool) {
+	tokenAsk := func() (Decision, bool) {
+		return ask("gh auth status --show-token (#225)",
+			"'gh auth status' with '-t'/'--show-token' prints the live OAuth token in plain text — including "+
+				"inside '--json' output — which makes it a credential read rather than a status read. Confirm this "+
+				"is intended; drop the flag if the active account and its scopes are what you need. A bundled "+
+				"short-flag cluster carrying a 't' escalates too: the gate does not model gh's cluster arity, so it "+
+				"will not rule out '--show-token' inside one."), true
+	}
+	unknownAsk := func(tok string) (Decision, bool) {
+		return ask("gh auth status unknown-flag (#225)",
+			"'gh auth status "+tok+"' carries a token the permission gate does not recognize as credential-free, "+
+				"so it escalates to a human rather than allowing a form that may print the auth token. The "+
+				"recognized flags are --active, --hostname, --json, --jq, --template and --help (each short flag "+
+				"only in its own separate token)."), true
+	}
+	for i := 0; i < len(flags); i++ {
+		a := flags[i]
+		switch {
+		case strings.HasPrefix(a, "--"):
+			name := a
+			glued := false
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				name, glued = a[:eq], true
+			}
+			if name == "--show-token" {
+				return tokenAsk()
+			}
+			if ghAuthStatusBoolFlags[name] {
+				continue
+			}
+			if ghAuthStatusValueFlags[name] {
+				if !glued && i+1 < len(flags) {
+					i++ // consume the separate value token
+				}
+				continue
+			}
+			return unknownAsk(a)
+		case strings.HasPrefix(a, "-") && a != "-":
+			if strings.ContainsRune(a[1:], 't') {
+				return tokenAsk()
+			}
+			if ghAuthStatusBoolFlags[a] {
+				continue
+			}
+			if ghAuthStatusValueFlags[a] {
+				if i+1 < len(flags) {
+					i++ // consume the separate value token
+				}
+				continue
+			}
+			return unknownAsk(a)
+		default:
+			// `gh auth status` takes no positional argument, so a bare token is a
+			// shape the gate cannot account for.
+			return unknownAsk(a)
+		}
+	}
+	return Decision{}, false
 }
 
 // ghRecoverableWriteVerbs maps each gh noun to the set of write verbs that are
@@ -450,16 +565,6 @@ func classifyghAPIDeny(reason string) Decision {
 	return deny("gh api deny (#64/#113)", reason)
 }
 
-// ghAPIGraphQLRedirectAsk is the redirect-to-file carve-out shared by both
-// `gh api graphql` ALLOW paths — the provably query-only document and
-// the allow-listed-mutations document. Redirecting an allowed graphql
-// call's stdout/stderr into a real file turns a sanctioned read or metadata
-// write into an exfil channel, so it escalates to a human either way.
-func ghAPIGraphQLRedirectAsk() Decision {
-	return ask("gh api graphql redirect-to-file",
-		"'gh api graphql' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
-}
-
 // classifyGhAPI gates `gh api` (bypass gate 1). It walks the argv after
 // `api`, applies the --hostname DENY and the write ASK tiers first, then
 // branches on the endpoint:
@@ -493,7 +598,7 @@ func ghAPIGraphQLRedirectAsk() Decision {
 // args is the full gh argv (after the program), i.e. it still contains the
 // leading `api` token and gh's globals. sc is threaded through only for the
 // redirect-to-file ASK carve-out on an otherwise-allowed form.
-func classifyGhAPI(args []string, sc simpleCommand) Decision {
+func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 	// Walk the tokens after `api`. Track method, body-bearing flags, graphql,
 	// the endpoint positional, and whether the graphql query (if any) was
 	// supplied via a body flag that is NOT a literal string field. hostname
@@ -651,8 +756,8 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 		}
 		res := scanGraphQLDoc(doc)
 		if res.queryOnly {
-			if sc.hasRedirectToFile {
-				return ghAPIGraphQLRedirectAsk()
+			if d, hit := credentialedRedirectAsk("gh api graphql", sc, ev); hit {
+				return d
 			}
 			return allow("gh api graphql is a provably query-only (read) document")
 		}
@@ -669,8 +774,8 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 			// addSubIssue on Mutation { deleteIssue(…) }`). Both signals only ever
 			// withhold the ALLOW: the document falls through to the ASK below.
 			if !res.sawSubscription && !res.sawFragment && allGraphQLMutationFieldsAllowed(res.mutationFields) {
-				if sc.hasRedirectToFile {
-					return ghAPIGraphQLRedirectAsk()
+				if d, hit := credentialedRedirectAsk("gh api graphql", sc, ev); hit {
+					return d
 				}
 				return allow("gh api graphql carries only allow-listed issue-metadata mutations (" +
 					strings.Join(res.mutationFields, ", ") + ")")
@@ -689,9 +794,10 @@ func classifyGhAPI(args []string, sc simpleCommand) Decision {
 
 	// --- REST endpoint (Design B): path-prefix GET-gate. ---
 	rest := classifyGhAPIREST(endpoint, args)
-	if rest.Bucket == BucketAllow && sc.hasRedirectToFile {
-		return ask("gh api redirect-to-file",
-			"'gh api' with stdout/stderr redirected to a real file can exfiltrate. Confirm the target is intended.")
+	if rest.Bucket == BucketAllow {
+		if d, hit := credentialedRedirectAsk("gh api", sc, ev); hit {
+			return d
+		}
 	}
 	return rest
 }
@@ -761,7 +867,7 @@ func isGhReadOnly(cmd []string) bool {
 //     explicit read-only whitelist).
 //
 // Classification is on the parsed operation TOKEN, never a substring match (§4).
-func classifyAws(args []string, sc simpleCommand) Decision {
+func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	// Precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("aws", sc); hit {
 		return d
@@ -813,11 +919,12 @@ func classifyAws(args []string, sc simpleCommand) Decision {
 		return allow("aws configure get <non-secret-key> reads local config only")
 	}
 
-	// A real-file redirect is the residual exfil concern that ASKs (cannot
-	// defer per the never-defer decision).
-	if sc.hasRedirectToFile {
-		return ask("aws redirect-to-file",
-			"'aws' with stdout redirected to a real file can exfiltrate. Confirm the target is intended.")
+	// A real-file redirect is GRADED, not vetoed: see credentialedRedirectAsk
+	// for why an in-worktree destination is the same write the in-repo-write
+	// track already allows through argv, and an escaping or unpinnable one
+	// still ASKs.
+	if d, hit := credentialedRedirectAsk("aws", sc, ev); hit {
+		return d
 	}
 
 	if awsReadOnlyOp(op) {

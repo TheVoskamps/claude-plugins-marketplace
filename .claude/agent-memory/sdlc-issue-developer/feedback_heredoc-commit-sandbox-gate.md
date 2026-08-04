@@ -23,11 +23,11 @@ identical commit (same multi-paragraph body, same trailers) without
 tripping the gate. Clean up the scratch file at end-of-run alongside the
 rest of `.claude/tmp/<task-slug>/`.
 
-**Trap**: the `-F` path argument must be a LITERAL string, not a
-`$(git rev-parse --show-toplevel)/...` substitution — the same static-argv
-gate that blocks `-m "$(cat <<EOF...)"` also blocks
-`git commit -F "$(...)"` (any `$(...)` inside a git argv, regardless of
-which flag it's under, trips "arguments are not all static literals").
-Resolve the absolute worktree path yourself (e.g. from a prior
-`git rev-parse --show-toplevel` call's output) and pass it as a plain
-literal string.
+**Trap**: an ARBITRARY `$(...)` inside a git argv still trips
+"arguments are not all static literals", regardless of which flag it is
+under. The one exception is the anchor allowlist
+(`$(git rev-parse --show-toplevel)`, `--git-common-dir`, `$(pwd)`),
+which #225 taught the gate to resolve in every word position, so
+`git commit -F "$(git rev-parse --show-toplevel)/.claude/tmp/msg"`
+resolves and passes. A relative literal path is simpler and always
+worked; reach for the anchor only when you need an absolute one.

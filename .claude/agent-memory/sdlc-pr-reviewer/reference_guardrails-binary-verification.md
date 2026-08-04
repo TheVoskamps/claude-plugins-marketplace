@@ -10,11 +10,14 @@ The `guardrails` plugin ships policy *inside* committed binaries
 so a stale binary would silently ship old behavior even when the Go
 source is correct.
 
-**Do NOT verify by rebuilding and `cmp`-ing against the committed
-binary.** Go embeds build paths / build IDs, so a fresh
-`GOOS=... GOARCH=... go build` almost never reproduces byte-identically
-without a reproducible-build harness. A `differ` result is expected and
-proves nothing.
+**Try a raw `cmp` against a recipe rebuild first — identical is
+conclusive, differing proves nothing.** On #227 round 4 all three
+committed binaries came back byte-identical to a fresh
+README-recipe rebuild in the review worktree (worktree HEAD ==
+builder's state, `-trimpath`), which settles the staleness question in
+one command. When `cmp` differs, that is still expected (vcs stamps,
+build IDs) and NOT evidence of staleness — fall back to the nm-table +
+build-ID + delta-clustering protocol below.
 
 **Do verify by exercising the committed binary directly** with a
 synthetic PreToolUse event on stdin:
@@ -83,6 +86,47 @@ that is contained or carved out, while the pager/dumper track (`less`,
 the bucket you expect proves nothing about the carve-out under review.
 Read the program's classifier arm first, then pick a probe whose
 verdict can actually change.
+
+**Grade a precondition-shield or any deny→allow widening against the
+STATIC spelling's baseline, not against zero.** Before filing a
+widened-hole finding, replay the fully-literal spelling of the same
+operation on the OLD (origin/main) binary. On #227 round 4,
+`gh api graphql … -F body=@/etc/passwd` (gh reads the `@`-file
+client-side) already ALLOWED on main, so the shield admitting the
+dynamic `-F body=@$F` spelling added no capability — a follow-up-issue
+class, not a High on the PR. Blocking only the dynamic spelling while
+static passes would just recreate the two-spellings-two-verdicts
+inconsistency.
+
+**The gate active in YOUR review session is the installed plugin cache's
+binary — main's version, not the PR branch's.** So a deny you receive
+mid-review is evidence about MAIN's behavior, and can itself
+live-reproduce the pre-fix behavior a PR claims to change (on #208 the
+old gate denied a write to the harness scratchpad, reproducing #193).
+Probe the PR's own binary explicitly (`<pr-bin> < event.json`) whenever
+you need the branch's verdict rather than main's.
+
+**Escape-probe paths must escape the PRIMARY clone, not just the
+worktree.** With probe cwd = a `.claude/worktrees/<agent>` worktree,
+`../sibling-repo/.env` resolves to `.claude/worktrees/sibling-repo/…` —
+inside the primary repository — and the gate ALLOWS it (both main's and
+the PR's binary; pre-existing, not a finding). On #227 round 2 this made
+every "escaping" probe read allow and nearly fabricated a refutation of
+a correct fix. Use `/etc/passwd` or a path above the primary root; keep
+`cat <esc-path>` alone as the control row that must deny.
+
+**Pinning WHICH commit's source a committed binary came from** (used to
+prove #227's doc round staleness): `git archive <commit>
+plugins/guardrails/hooks/permission-gate | tar -x -C <tmp>` for each
+candidate commit, build all candidates in the same environment, then
+byte-compare and `go tool buildid` against the committed binary. An
+exact byte match names the source commit; comment-only .go edits change
+the artifact (pclntab file:line — over 1M differing bytes on #227) while
+`go tool nm` stays byte-identical, so policy-identity and
+provenance-identity are separable claims. A doc round that edits a gate
+`.go` comment without rebuilding leaves binaries that fail the README's
+"only vcs.revision/vcs.modified differ" protocol — a Medium, not
+policy-affecting.
 
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.

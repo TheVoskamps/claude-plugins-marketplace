@@ -18,11 +18,12 @@ path-shaped, not just an explicit target/source file argument, and a `cp
 -r <outside> <inside>` is blocked on the SOURCE side even though the
 WRITE target is safely in-repo.
 
-**Also confirmed**: `run_in_background` task-output files
-(`/private/tmp/claude-*/.../tasks/*.output`) are blocked from `Read` for
-the same reason (already documented in
-[[claude-vm-inspect-raw-image-with-debugfs]]) — this is the same gate,
-not a separate one.
+**The harness scratchpad is the exception**: the gate carves out
+`/tmp/claude-<uid>/`, so `run_in_background` task-output files
+(`<prefix>/<project-slug>/<session-id>/tasks/*.output`) read fine by
+both `Read` and `cat`, and writes land inside a session-shaped
+directory. The deny message for a genuinely out-of-repo path names
+that carve-out as the handoff destination.
 
 **The fix that worked**: don't try to retroactively copy/read an
 already-created out-of-repo path. Instead, set `TMPDIR=<repo>/.claude/tmp/...`

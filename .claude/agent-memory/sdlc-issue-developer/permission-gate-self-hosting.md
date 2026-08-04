@@ -26,8 +26,13 @@ issue #113 (all correctly — do not fight them):
   to the primary clone, not this worktree). Anchor scratch to
   `$(git rev-parse --show-toplevel)/.claude/tmp/` — i.e. the worktree's
   own `.claude/tmp/`, which the gate names in its remediation.
-- `sed -n '/A/,/B/p'` on command output → DENY (the range address
-  resolves as an out-of-repo path). Use `grep` for slicing instead.
+- `sed -n '/A/,/B/p' <in-repo-file>` and a path-shaped `grep` PATTERN
+  used to DENY (the regex was tested as an out-of-repo path). Fixed in
+  #225 by giving the read track a per-program operand grammar, so no
+  workaround is needed once that gate binary is installed. The
+  workaround-era caveat still applies mid-task: the gate adjudicating
+  YOUR calls is the installed plugin cache's binary, so while you are
+  editing the fix it is still main's pre-fix behavior you are hitting.
 - `git -C <abs-path> <sub>` → forbidden form even inside a subagent
   (harness prompts regardless). Just run bare `git <sub>`; the subagent
   cwd is already the worktree root on every Bash call.
@@ -69,5 +74,6 @@ PreToolUse event JSON (`{"hook_event_name":"PreToolUse",
 "tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"..."}}`) into
 the locally rebuilt binary and reading
 `.hookSpecificOutput.permissionDecision` — no live GitHub calls needed.
-Build both committed binaries with the README's exact commands
-(CGO_ENABLED=0, -trimpath, into `../bin/<goos>-<goarch>/`).
+Build all three committed binaries with the README's exact commands
+(CGO_ENABLED=0, -trimpath, into `../bin/<goos>-<goarch>/`):
+`darwin-arm64`, `linux-amd64`, `linux-arm64`.
