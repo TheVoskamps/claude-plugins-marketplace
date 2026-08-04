@@ -52,7 +52,7 @@ This skill is **idempotent**. Before writing anything it checks whether
 - **If a file does not exist**: this is the create path for that file.
   Propose the full default file, get approval, write it.
 - **If a file already exists**: **do not clobber it.** Read it, show the
-  user what is there, and offer two choices:
+  user what is there, and offer these choices:
   1. **Leave** the existing file untouched (the default, safe choice).
   2. **Merge** the resolved defaults in for any keys the existing file
      is missing, preserving every key the user already set.
@@ -92,11 +92,11 @@ the two global files each key is written into (its bake/boot placement):
 | `claude.plugins.update_at_boot` | boot | `true` | refresh the marketplaces and update the installed plugins at boot — the freshness path for BAKED plugins |
 | `claude.plugins.add_marketplace_uris_to_allowlist` | boot | `auto` | marketplace-URI analogue of `add_apt_uris_to_allowlist` |
 | `claude.plugins.enabled` | boot | omitted | optional map (plugin ref → boolean) mirroring settings.json's `enabledPlugins`; overrides the default-enabled state per plugin (`false` = installed-but-disabled) |
-| `claude.marketplaces` (boot file) | boot | `[]` | marketplaces only an `install_at_boot` ref needs (union+dedup with the bake file's, by `name`) |
+| `claude.marketplaces` (boot file) | boot | `[]` | marketplaces only an `install_at_boot` ref needs (union+dedup with the bake file's, by `name`); the url only has to be reachable from the GUEST — the build pre-registers it best-effort and a failure there only warns |
 | `github.auth` | boot | `none` | whether the guest is seeded with a GitHub auth token derived from the host |
 | `packages:` (bake file) | bake | `[]` | apt packages BAKED into the guest image (a flat list; present with no network at boot) |
 | `apt_sources` (bake file) | bake | `[]` | third-party apt repos rendered into the image at build time |
-| `claude.marketplaces` (bake file) | bake | `[]` | marketplaces registered INTO the image at build time (union+dedup with the boot file's, by `name`) |
+| `claude.marketplaces` (bake file) | bake | `[]` | marketplaces registered INTO the image at build time (union+dedup with the boot file's, by `name`); registering one declared HERE is a build precondition — a failed add aborts the build, where a boot-declared one only warns |
 | `claude.plugins.bake` | bake | `[]` | `plugin@marketplace` refs INSTALLED into the image at build time; a BAKE key because they change the image's bytes |
 | `image.root_headroom_mb` | bake | `1024` | extra MiB of FREE SPACE in the guest root filesystem above its base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
 
@@ -167,7 +167,15 @@ Notes on the forward-looking keys:
   launch** with a message naming the right file, rather than parsing and
   being silently ignored. `claude.marketplaces` is the exception: allowed
   in both files, unioned and deduped by `name`, with the same name under
-  two differing urls aborting the launch.
+  two differing urls aborting the launch. Give every entry a `name:` —
+  the name is what a `plugin@marketplace` ref resolves against and what
+  registration is checked by, so an entry with a url and no name aborts
+  the launch too (issue #226). Which file it lands in still
+  decides its build-time failure policy — a bake-file entry must register
+  during the image build or the build aborts, so its url has to be
+  reachable from the build container, while a boot-file entry is
+  pre-registered best-effort and a url the build cannot reach only warns
+  (issue #226).
 - **Prefer an explicit `https://` marketplace url.** The launcher derives
   the guest's marketplace egress hosts from the url; the `owner/repo`
   GitHub shorthand yields no derivable host, so it needs `github.com`
@@ -323,7 +331,10 @@ claude:
     ask: []
     deny: []
   marketplaces: []      # {name, url} entries a boot-time install needs (union+
-                        # dedup by name with the bake file's). Write on request.
+                        # dedup by name with the bake file's). One declared HERE
+                        # only has to be reachable from the GUEST -- the build
+                        # pre-registers it as an optimization and a url it cannot
+                        # reach only warns. Write on request.
   plugins:
     # bake: is a BAKE key -- it lives in config-bake.yml. Writing it here aborts
     # the launch.

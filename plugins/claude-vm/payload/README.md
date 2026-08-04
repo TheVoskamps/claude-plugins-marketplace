@@ -145,14 +145,14 @@ bearer token alone is **not** sufficient for the interactive TUI to treat
 itself as onboarded and logged in: current Claude Code also decides "am I
 onboarded / logged in" from state in `~/.claude.json`. A fresh throwaway
 guest lacks that state, so without it every launch hits the
-onboarding/login wall despite the mounted credential. Beyond identity, two
+onboarding/login wall despite the mounted credential. Beyond identity, these
 keys matter: `hasCompletedOnboarding` (absent → claude runs its onboarding
 flow) and `autoUpdates` (unset → claude tries to self-update and fails
 against its RO-mounted binary in the egress-confined guest).
 
 So the launcher **also seeds the guest's identity + onboarding state**
 (issue #88): it reads your host `~/.claude.json` and emits a seed carrying
-`userID` and `oauthAccount` selected from the host, plus four synthesized
+`userID` and `oauthAccount` selected from the host, plus synthesized
 keys: `hasCompletedOnboarding: true` (skip the wall), `autoUpdates: false`
 (no self-update), and `lastOnboardingVersion` / `lastReleaseNotesSeen`
 stamped with the resolved claude version. It **additively** carries a few
@@ -342,8 +342,8 @@ argv, settings, image identity, and plugin manifests from:
   overrides per key), and `extraKnownMarketplaces` (the effective
   marketplace set, each entry rendered `{"source":"git","url":…}` for an
   http(s) url or `{"source":"github","repo":…}` for an `owner/repo`
-  shorthand). Validates the `enabled` map once (boolean values;
-  keys must name installed refs) and returns non-zero on a typo so the
+  shorthand). Validates the `enabled` map once (non-empty keys; boolean
+  values; keys must name installed refs) and returns non-zero on a typo so the
   launcher aborts. Reads the claude-vm config only — never the host
   `~/.claude/settings.json`.
 - `claude_vm_bake_config_json` / `claude_vm_bake_hash` /
@@ -370,12 +370,17 @@ argv, settings, image identity, and plugin manifests from:
   (issue #107). `claude_vm_effective_marketplaces` emits the bake ++ boot
   union as `name<TAB>url` lines, deduped by `name`, which the launcher writes
   to `plugin-marketplaces.tsv` on the `runconfig` share;
-  `claude_vm_baked_marketplace_names` names the ones the image already
-  registered, so the boot phase adds only the rest;
+  `claude_vm_baked_marketplace_names` names the bake-declared ones, the set
+  the image is guaranteed to carry, and is read host-side only — by the
+  derived-egress gate and by the `origin` stamp below, never by the guest,
+  whose boot phase asks the CLI what is actually registered;
   `claude_vm_bake_plugins_json` emits the build's plugin CONTENT (the
   effective marketplaces plus the bake doc's sorted `claude.plugins.bake`) as
-  compact JSON, the sibling of `claude_vm_bake_config_json`. All pure and
-  unit-tested.
+  compact JSON, the sibling of `claude_vm_bake_config_json`. Each marketplace
+  entry in that JSON carries an `origin` of `bake` or `boot` (issue #226),
+  decided by whether the name appears in the bake doc, which is what lets the
+  provisioner apply a different build-time failure policy per entry — see
+  *Bake path* below. All pure and unit-tested.
 - `claude_vm_check_plugin_key_placement` / `claude_vm_check_marketplace_conflicts`
   — the **abort guards** (issue #107). The first rejects a `claude.plugins`
   sub-key written into the file type that never reads it (`bake` in a boot
@@ -384,6 +389,18 @@ argv, settings, image identity, and plugin manifests from:
   marketplace `name` carrying differing `url`s across the tiers, the same
   shape as `claude_vm_check_apt_sources_conflicts`. Both turn a silent no-op
   into a loud launch abort.
+- `claude_vm_check_marketplace_names` / `claude_vm_check_mounts` — the
+  **malformed-entry guards** (issue #226), same shape and same abort-at-load
+  wiring as the pair above. The first rejects a `claude.marketplaces` entry
+  with no `name` in either document, naming the tier, the entry number and
+  the url: the name is the key every reader of the effective set matches on,
+  so an unnamed entry is dropped by all of them and the operator silently
+  gets no marketplace. The second rejects a `mounts` entry with no `source`
+  or no `tag`, naming the entry number — plus the mount path, which only the
+  tagless case has: the guest mounts each virtio-fs share *by* its tag, so a
+  tagless entry is a share nobody can mount and two of them collide on one
+  tag. Both read the same `@tsv` records their consumers
+  do, split the same way — see *Splitting a TSV record back apart* below.
 - `claude_vm_marketplace_hosts` / `claude_vm_marketplaces_without_host` /
   `claude_vm_boot_marketplace_egress_needed` — the **derived marketplace
   egress** helpers (issue #107), the plugin-side siblings of the apt egress
@@ -392,8 +409,84 @@ argv, settings, image identity, and plugin manifests from:
   host and is instead named by `claude_vm_marketplaces_without_host` so the
   launcher can warn per entry. `claude_vm_boot_marketplace_egress_needed`
   decides whether `auto` derives anything at all: `always`, a nonempty
-  `install_at_boot`, a boot-declared marketplace the image does not carry, or
-  `update_at_boot` true with at least one marketplace configured.
+  `install_at_boot`, a marketplace declared in the boot doc whose name is not
+  bake-declared, or `update_at_boot` true with at least one marketplace
+  configured. That third test is deliberately conservative rather than exact:
+  since #226 the build only *tries* to pre-register a boot-declared
+  marketplace, and the host cannot know whether it succeeded, so the gate
+  derives egress for one even when the image turns out to carry it.
+
+*Splitting a TSV record back apart (issue #226).* The helpers above emit
+multi-field records through yq's `@tsv` over a fixed-length array, so every
+line always carries every separator — but a consumer must **not** take one
+apart with `IFS=$'\t' read -r a b c`. A tab is IFS *whitespace*, so `read`
+collapses a run of tabs into a single separator *and* strips a leading one:
+a record whose **middle** field is empty loses that field silently and shifts
+every later field left, and one whose **leading** field is empty loses that.
+Under #226 the middle-field case turned a marketplace entry with no url
+(`name<TAB><TAB>origin`) into one whose origin was read as its url, making
+the no-url boot branch unreachable and aborting the very build the issue
+exists to keep alive. The same read shape sat on the other three-field
+records too: an `apt_sources` entry with a `key_url` but no `repo` handed the key
+url to `render_apt_source` as the repo *line* (writing a `sources.list.d`
+entry that points at the key, with no key fetched), and a `mounts` entry with
+an empty `tag` handed vfkit the `ro`/`rw` mode as the mount *tag*. The
+two-field records carry the leading-field case: a `claude.marketplaces` entry
+with a `url` but no `name` (`<TAB>url`) read its **url as its name**, so the
+effective set and the bake manifest each carried a marketplace called
+`https://…` with an empty url, and the guest's boot phase then rejected that
+url-as-a-name for containing characters outside `[A-Za-z0-9._-]` — a
+diagnostic about a marketplace nobody configured, while the entry the operator
+did configure went unmentioned. A `claude.plugins.enabled` map with an empty
+key (`<TAB>true`) likewise aborted the render blaming a plugin named `true`.
+
+**Every** reader — the marketplace and `apt_sources` loops in
+`provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop and
+`boot_plugin_phase`'s marketplace loop in `build-guest-image.sh`, the
+extra-mount loop in `claude-vm.sh`, and every two-field reader in
+`lib/config.sh` (`claude_vm_effective_marketplaces`,
+`claude_vm_marketplaces_without_host`,
+`claude_vm_boot_marketplace_egress_needed`, `claude_vm_bake_plugins_json`,
+both loops in `claude_vm_render_guest_settings`, and the two load-time gates
+described below) — therefore reads the whole line with `IFS= read -r` and
+splits it with `${rec%%$TAB*}` / `${rec#*$TAB}` parameter expansions, which
+are total exactly because `@tsv` always writes every separator. No
+`IFS=$'\t' read` survives in the payload's shipped code; the only ones left
+are the negative controls in `test/config-test.sh`, which exist precisely to
+be contrasted with. Write any new record reader the same way.
+
+Note that an *empty result set* from one of these emitters is one **empty
+line**, not zero bytes (yq prints a newline for `.mounts // [] | .[]` when
+there are no mounts). Every reader skips a wholly empty record before judging
+its fields — a validator that forgot to would reject every ordinary config.
+
+*Splitting is half of it.* A correct split makes an empty key field visible;
+it does not make such an entry usable, so the launcher rejects one at config
+load rather than silently configuring nothing:
+`claude_vm_check_marketplace_names` aborts on a `claude.marketplaces` entry
+with no `name` (naming the tier, the entry number and the url),
+`claude_vm_check_mounts` aborts on a `mounts` entry with no `source` or no
+`tag` (naming the entry number, and the mount path in the tagless case —
+a sourceless entry has no path to name), and
+`claude_vm_render_guest_settings` aborts on an empty
+`claude.plugins.enabled` key alongside its existing value/unknown-key
+validation. `claude_vm_mount_specs` guards `.source`/`.tag`
+with `// ""` so an *omitted* key and an explicit `""` reach that check as the
+same empty field — unguarded, an omitted `tag:` rendered the literal string
+`null`. The one reader with no load-time gate of its own is
+`boot_plugin_phase`, which runs in the guest: the host has already aborted the
+launch before `plugin-marketplaces.tsv` is written, so there the hand split,
+the name guard and a logged warning are the floor.
+
+Each split and each gate is pinned by a test that *runs* the real code against
+records from the real emitter, asserting on the values the split produced
+rather than grepping the source; the load-time gates are driven through the
+launcher's own load block, sliced out of `claude-vm.sh`. The `apt_sources`,
+mount, two-field and `boot_plugin_phase` cases add a negative control — the
+pre-fix collapsing `read` rebuilt from the same captured lines, so the control
+cannot drift away from the code it is contrasted with; the build-time
+marketplace loop instead asserts on the observable outcome (a no-url boot
+entry logs its skip and never tries to add `boot` as a url).
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -615,6 +708,28 @@ has them. The launcher therefore resolves the verified binary **before** the
 image build (an ordering change from #49's original sequence), which also means
 a signature/checksum failure now aborts before a multi-minute build.
 
+*Bake-declared vs. boot-declared marketplaces (issue #226).* That
+fail-the-build policy is scoped to what the image must **carry**: every
+`claude.plugins.bake` ref, and every marketplace declared in a bake file. A
+marketplace declared only in a **boot** file is pre-registered here purely as
+an optimization — it saves the guest one network add — and its url only has to
+be reachable from the **guest**. A guest-local path (`/mnt/repo`), a private
+source needing host-only credentials, or an https host outside the build
+container's egress is legal and simply cannot be added at build time, so the
+build logs its reason and continues. A boot-declared entry is skipped rather
+than fatal on each of the paths that abort a bake-declared one: it carries no
+`url` at all, the `claude plugin marketplace add` fails, or the add succeeds
+but registers under a name that does not match the configured one. Each path
+logs its own message against the entry it happened to, and
+`boot_plugin_phase` adds the marketplace at boot, which it already does for
+any marketplace the image does not carry. The provisioner tells the two apart
+by the `origin` field `claude_vm_bake_plugins_json` stamps on each manifest
+entry, defaulting to the strict `bake` reading when the field is absent. When
+*nothing* lands — no `bake:` refs and every boot-declared add skipped — the
+build ships no baked plugin tree instead of failing the "expected
+/root/.claude/plugins" check, and its summary line points back at the
+per-entry messages rather than naming one cause.
+
 *Boot path.* `build-guest-image.sh`'s `boot_plugin_phase` runs after the
 claude-fetch seam (it needs the verified binary) and before claude launches,
 blocking, in this order: (1) add any configured marketplace the image does not
@@ -643,9 +758,13 @@ packages from *outside* the image with the build container's own tooling.
 *Derived egress.* `add_marketplace_uris_to_allowlist` (`auto` default |
 `always`) mirrors `add_apt_uris_to_allowlist`. Under `auto` the marketplace
 hosts are added **iff** boot-side work will actually run: a nonempty
-`install_at_boot`, a marketplace declared in a boot file that is not already
-baked, or `update_at_boot` true with at least one marketplace configured.
-Everything baked + `update_at_boot: false` + `auto` therefore derives
+`install_at_boot`, a marketplace declared in a boot file whose name is not
+also bake-declared, or `update_at_boot` true with at least one marketplace
+configured. That middle test reads the *declaration*, not the image: since
+issue #226 the build only *tries* to pre-register a boot-declared
+marketplace and the host cannot know whether it succeeded, so the gate
+derives the host either way.
+Everything bake-declared + `update_at_boot: false` + `auto` therefore derives
 **nothing** — and the guest still has working plugins, because the baked ones
 need no marketplace at all. Every derived addition is logged. A marketplace
 whose `url` is an `owner/repo` GitHub shorthand yields no derivable host; the
@@ -679,7 +798,7 @@ tool ran completely unadjudicated.
 
 **Mid-session apt proxying, metadata diet, and root headroom (issue #106
 real-run fixes).** Real-hardware testing of the boot-time apt work above
-found three more problems. First, an **interactive** `apt-get install` (run
+found further problems. First, an **interactive** `apt-get install` (run
 by the in-guest claude mid-session, not by `boot_apt_phase`) got no proxy at
 all: apt honors only lowercase `http_proxy`/`https_proxy` (never the
 uppercase forms `run.env` used to carry alone), and curl deliberately
@@ -864,7 +983,7 @@ preconditions for the verified cache and credential selection up front:
 Each failed check prints the exact remediation command(s) (`brew install
 gnupg`, the `curl … | gpg --import` + `gpg --fingerprint` pin steps,
 `xcode-select --install` for `python3`) rather than a bare error.
-Without this gate, a cold boot would otherwise pay for three network
+Without this gate, a cold boot would otherwise pay for the network
 fetches (channel pointer + manifest + signature) and a guest-image build
 before aborting on a condition knowable at startup. The deep checks in
 this library (gpg-on-PATH at the verify step, the unset-pin hard-abort)
@@ -889,8 +1008,21 @@ union, single-layer and no-layer fallbacks, de-duplication) with no VM
 and no network, plus the pure helpers built on it — the settings render,
 the bake/identity hashing, and (issue #107) the marketplace/plugin
 helpers: effective-set dedup, the placement and name-conflict aborts,
-derived-egress `auto` semantics, and the bake-plugin manifest. Requires
-`yq` (mikefarah v4+); skips cleanly when absent.
+derived-egress `auto` semantics, and the bake-plugin manifest. Issue #226
+added cases that leave pure-helper territory, each *run* against records from
+the real emitter rather than grepped for out of the source: `boot_apt_phase`
+and `boot_plugin_phase` (sliced out of `build-guest-image.sh`, the former with
+`render_apt_source_boot` swapped for a recorder), the launcher's extra-mount
+loop, and the launcher's whole config-load gate block (both sliced out of
+`claude-vm.sh` by line range, since they are bare top-level code rather than
+functions). Together they assert that a record's empty middle field survives
+the split, that an empty *leading* field does too, and that a mounts or
+`claude.marketplaces` entry missing its key field aborts the launch with a
+message naming it — see *Splitting a TSV record back apart* above. The split
+cases each carry a negative control that rebuilds the pre-fix collapsing
+`read` from the same captured lines, so the control cannot drift away from
+the code it contrasts with. Requires `yq` (mikefarah v4+); skips cleanly when
+absent.
 
 `endpoint-test.sh` exercises the per-run endpoint primitives in
 `lib/endpoint.sh` (issue #179): kernel-assigned free-TCP-port acquisition,
@@ -986,7 +1118,17 @@ bake step: that the generated in-container script stages
 `claude plugin marketplace add` / `claude plugin install` under `HOME=/root`,
 copies only `/root/.claude/plugins` into the image, and that a build with a
 nonempty manifest but no `CLAUDE_VM_GUEST_CLAUDE_BIN` aborts instead of
-shipping a plugin-less image. It does not run a real `mkosi build` (no
+shipping a plugin-less image. Issue #226 added the per-entry failure policy,
+asserted by *running* the generated marketplace loop rather than grepping it:
+the loop is sliced out of the captured `build-in-container.sh` and driven
+against a stub `claude` whose exit status the test controls, so a failed add
+(or a name mismatch) on a bake-declared entry still aborts, the same entry
+declared `origin: boot` warns and continues, and an entry with no `origin`
+falls back to the strict reading. The generated `apt_sources` loop is driven
+the same way, against a real `bake-config.json` with `render_apt_source`
+stubbed to record its argv, pinning that an entry with a `key_url` but no
+`repo` keeps the key url in the third field — with a negative control
+rebuilt from the same captured lines. It does not run a real `mkosi build` (no
 container, no network); that gap is covered by `host-acceptance.sh`.
 
 `host-acceptance.sh` is the self-contained on-host acceptance test for

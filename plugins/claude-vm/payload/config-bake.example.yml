@@ -79,7 +79,11 @@ image:
 # `claude plugin install` for every `bake:` ref -- so the image ships a real
 # /root/.claude/plugins that claude loads with NO marketplace egress at boot.
 # A failed add/install FAILS THE BUILD rather than quietly shipping an image
-# without the plugin you asked for.
+# without the plugin you asked for. That strictness covers exactly what the
+# image must CARRY: the marketplaces declared HERE and every `bake:` ref. The
+# build also pre-registers marketplaces declared only in the BOOT file, but
+# that is an optimization and a failure there only warns -- see the boot
+# file's `marketplaces` comment.
 #
 # The guest's Claude surface comes from THESE configs only -- the host's
 # ~/.claude/settings.json and the host's own installed plugins are never copied
@@ -106,6 +110,10 @@ image:
 # launcher derives the guest's marketplace egress from the url's host, and a
 # shorthand yields no host to derive (it resolves against github.com, which you
 # then have to keep in the boot file's egress.allow yourself).
+#
+# `name:` is mandatory on every entry: it is what a plugin@marketplace ref
+# resolves against and what registration is checked by, so an entry with a url
+# and no name ABORTS the launch rather than being ignored.
 claude:
   marketplaces:
     - name: thevoskamps

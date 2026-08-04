@@ -609,14 +609,89 @@ claude_vm_egress_hosts() {
   yq eval '.egress.allow // [] | .[]' "$file" 2>/dev/null
 }
 
+# ---------------------------------------------------------------------
+# TSV RECORDS: emit with yq @tsv, split BY HAND (issue #226).
+#
+# Several helpers below move multi-field records around as yq `@tsv` lines. No
+# reader of one may take it apart with `IFS=$'\t' read -r a b`. A tab is IFS
+# WHITESPACE, so `read` collapses a RUN of tabs into ONE separator and also
+# strips a LEADING one: a record whose first field is empty loses it and every
+# later field shifts left, and one whose middle field is empty loses that. Both
+# are silent -- the reader gets a wrong-but-plausible value, never an error.
+#
+# Every reader therefore takes the whole line with `IFS= read -r` and splits it
+# with `${rec%%$TAB*}` / `${rec#*$TAB}` parameter expansions, which do not care
+# whether a field is empty. Those expansions are TOTAL because `@tsv` over a
+# fixed-length array always writes every separator (an N-element array yields
+# N-1 tabs) and escapes any tab or newline inside a value, so a record can
+# neither lose a separator nor grow a stray one.
+#
+# Splitting correctly makes an empty key field VISIBLE rather than harmless;
+# it does not make such an entry usable. Rejecting one is the other half, and
+# it happens at config load: claude_vm_check_mounts (below),
+# claude_vm_check_marketplace_names, and the empty-ref branch inside
+# claude_vm_render_guest_settings. payload/README.md -> *Splitting a TSV record
+# back apart* carries the full write-up.
+# ---------------------------------------------------------------------
+
 # Emit mounts as tab-separated "source<TAB>tag<TAB>mode" lines from a
 # merged-config file. mode defaults to "ro" when unset on a mount entry.
+#
+# `source` and `tag` are guarded with `// ""` for the same reason every other
+# @tsv emitter in this file is: an UNGUARDED `.tag` renders an OMITTED key as
+# the literal four-character string `null`, which vfkit would then take as the
+# mount tag. With the guard, an omitted key and an explicit `tag: ""` both
+# reach the reader as a genuinely empty field, so one check
+# (claude_vm_check_mounts) covers both spellings.
 claude_vm_mount_specs() {
   local file="$1"
   yq eval '
     .mounts // [] | .[]
-    | [.source, .tag, (.mode // "ro")] | @tsv
+    | [(.source // ""), (.tag // ""), (.mode // "ro")] | @tsv
   ' "$file" 2>/dev/null
+}
+
+# Abort (non-zero + a claude-vm: diagnostic) when a `mounts` entry cannot
+# produce a usable virtio-fs share: no `source` (no host path to share) or no
+# `tag` (nothing for the guest to mount it by). Both an omitted key and an
+# explicit empty string count, since claude_vm_mount_specs normalizes them to
+# the same empty field.
+#
+# LOUD, not silent. A tagless entry used to reach vfkit as
+# `mountTag=` (or, before the `// ""` guard above, as `mountTag=null`), and two
+# such entries would collide on that one tag -- a share the guest cannot mount,
+# reported nowhere. A sourceless entry was silently dropped by the launcher's
+# extra-mount loop. Either way the operator asked for a mount and did not get
+# one, which is a config error and belongs at load time.
+#
+#   $1 -- merged BOOT document file path (mounts is a BOOT key)
+claude_vm_check_mounts() {
+  local boot_doc="$1" mnt_tab record src rest tag idx=0 bad=0
+  [ -n "$boot_doc" ] && [ -f "$boot_doc" ] || return 0
+  mnt_tab=$'\t'
+  while IFS= read -r record; do
+    # An EMPTY result set is one empty line, not zero bytes: yq prints a
+    # newline for `.mounts // [] | .[]` when there are no mounts at all.
+    # Skip that, and do not let it consume an entry number. A real entry --
+    # even `- {}` -- always carries its separators and so is never empty.
+    [ -n "$record" ] || continue
+    idx=$((idx + 1))
+    src=${record%%$mnt_tab*}
+    rest=${record#*$mnt_tab}
+    tag=${rest%%$mnt_tab*}
+    if [ -z "$src" ]; then
+      echo "claude-vm: mounts entry #${idx} has no source -- there is no host path to share." >&2
+      bad=1
+      continue
+    fi
+    if [ -z "$tag" ]; then
+      echo "claude-vm: mounts entry #${idx} ('$src') has no tag -- the guest mounts each share BY its tag," >&2
+      echo "claude-vm:   so an entry without one can never be mounted, and two of them would collide." >&2
+      echo "claude-vm:   give that entry a unique, non-empty 'tag:' in your config-boot.yml." >&2
+      bad=1
+    fi
+  done < <(claude_vm_mount_specs "$boot_doc")
+  [ "$bad" -eq 0 ]
 }
 
 # ---------------------------------------------------------------------
@@ -1113,6 +1188,46 @@ claude_vm_check_marketplace_conflicts() {
   return 0
 }
 
+# Abort (non-zero + a claude-vm: diagnostic) when a claude.marketplaces entry
+# carries no `name`, in either document. The name is the KEY of every
+# marketplace record this file emits: the effective set de-duplicates by it,
+# the origin stamp is a membership test on it, the guest's boot phase asks the
+# CLI whether a marketplace of that name is registered, and a
+# `plugin@marketplace` ref resolves against it. An entry with a url but no name
+# is therefore unusable everywhere, and every reader's `[ -n "$name" ] || continue`
+# guard would drop it without a word -- the operator declared a marketplace and
+# silently got none. Say so at load instead.
+#
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+claude_vm_check_marketplace_names() {
+  local bake_doc="$1" boot_doc="$2" f tier mp_tab record name url idx bad=0
+  mp_tab=$'\t'
+  for tier in BAKE BOOT; do
+    case "$tier" in
+      BAKE) f="$bake_doc" ;;
+      *)    f="$boot_doc" ;;
+    esac
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    idx=0
+    while IFS= read -r record; do
+      # Same empty-result-set guard as claude_vm_check_mounts: yq prints one
+      # empty line for a document that declares no claude.marketplaces at all.
+      [ -n "$record" ] || continue
+      idx=$((idx + 1))
+      name=${record%%$mp_tab*}
+      url=${record#*$mp_tab}
+      [ -n "$name" ] && continue
+      echo "claude-vm: claude.marketplaces entry #${idx} in the merged ${tier} config has no name (url: '${url}')." >&2
+      echo "claude-vm:   the name is what a 'plugin@marketplace' ref resolves against and what the guest" >&2
+      echo "claude-vm:   checks registration by, so an unnamed entry can never be used." >&2
+      echo "claude-vm:   give every claude.marketplaces entry a 'name:'." >&2
+      bad=1
+    done < <(claude_vm_marketplaces "$f")
+  done
+  [ "$bad" -eq 0 ]
+}
+
 # Emit the EFFECTIVE marketplace set as "name<TAB>url" lines: the union of both
 # documents' claude.marketplaces, BAKE entries first, de-duplicated by NAME
 # (conflicting urls under one name already aborted in
@@ -1121,11 +1236,21 @@ claude_vm_check_marketplace_conflicts() {
 # consume this same set, so a plugin ref resolves identically in either place.
 #   $1 -- merged BAKE document file path
 #   $2 -- merged BOOT document file path
+#
+# Records are split by hand, per the TSV RECORDS note above: an entry with a
+# url but no name would otherwise read its URL as its name and be emitted as a
+# marketplace called `https://...`. claude_vm_check_marketplace_names rejects
+# that entry at load; the `[ -n "$name" ]` guard here is the floor for any
+# caller that runs without the load-time guards (the unit tests, and any future
+# non-launcher consumer).
 claude_vm_effective_marketplaces() {
-  local bake_doc="$1" boot_doc="$2" f seen="" name url
+  local bake_doc="$1" boot_doc="$2" f seen="" mp_tab record name url
+  mp_tab=$'\t'
   for f in "$bake_doc" "$boot_doc"; do
     [ -n "$f" ] && [ -f "$f" ] || continue
-    while IFS=$'\t' read -r name url; do
+    while IFS= read -r record; do
+      name=${record%%$mp_tab*}
+      url=${record#*$mp_tab}
       [ -n "$name" ] || continue
       case " $seen " in
         *" $name "*) continue ;;
@@ -1137,10 +1262,18 @@ claude_vm_effective_marketplaces() {
 }
 
 # Emit the marketplace NAMES declared in the merged BAKE document, one per
-# line, de-duplicated. These are already registered inside the image, so the
-# boot path only has to ADD the ones this set does not cover -- which is also
-# what decides whether a boot-side marketplace add (and therefore marketplace
-# egress) is needed at all.
+# line, de-duplicated. This is the set the image is GUARANTEED to carry: a
+# bake-declared marketplace that fails to register aborts the build, while a
+# boot-declared one is only pre-registered best-effort (see the ORIGIN MARKER
+# note on claude_vm_bake_plugins_json below, issue #226).
+#
+# Its callers are host-side: claude_vm_boot_marketplace_egress_needed, where a
+# boot-declared name outside this set may still need an add at boot and so
+# derives marketplace egress; and claude_vm_bake_plugins_json, which stamps
+# each manifest entry's `origin` from it. The guest's own boot path does NOT
+# read this set -- build-guest-image.sh's plugin_marketplace_registered asks
+# the CLI what is actually registered, which is what lets it pick up a
+# boot-declared marketplace the build could not pre-register.
 #   $1 -- merged BAKE document file path
 claude_vm_baked_marketplace_names() {
   local bake_doc="$1"
@@ -1189,8 +1322,12 @@ claude_vm_marketplace_hosts() {
 #   $1 -- merged BAKE document file path
 #   $2 -- merged BOOT document file path
 claude_vm_marketplaces_without_host() {
-  local bake_doc="$1" boot_doc="$2" name url
-  while IFS=$'\t' read -r name url; do
+  local bake_doc="$1" boot_doc="$2" mp_tab record name url
+  mp_tab=$'\t'
+  # Hand split, per the TSV RECORDS note above.
+  while IFS= read -r record; do
+    name=${record%%$mp_tab*}
+    url=${record#*$mp_tab}
     [ -n "$name" ] || continue
     case "$url" in
       http://*|https://*) ;;
@@ -1202,8 +1339,8 @@ claude_vm_marketplaces_without_host() {
 # True (exit 0) when a BOOT-SIDE marketplace ensure/install/update will run and
 # therefore needs the marketplace hosts reachable from the guest. False means
 # "auto, and nothing boot-side to do" -- the hard-secure config (everything
-# baked, updates off, `auto`) derives NOTHING and still has working plugins,
-# because the baked ones are already inside the image.
+# bake-declared, updates off, `auto`) derives NOTHING and still has working
+# plugins, because the baked ones need no marketplace at all.
 #
 #   $1 -- merged BOOT document file path
 #   $2 -- merged BAKE document file path
@@ -1211,8 +1348,9 @@ claude_vm_marketplaces_without_host() {
 # True iff ANY of:
 #   - claude.plugins.add_marketplace_uris_to_allowlist is "always"
 #   - claude.plugins.install_at_boot is nonempty      (a boot-side install)
-#   - a marketplace is configured in the BOOT doc that is NOT already baked
-#     (the boot path must ADD it before anything can resolve against it)
+#   - a marketplace is configured in the BOOT doc that is NOT bake-declared
+#     (the build pre-registers those best-effort only, so the boot path may
+#     still have to ADD it before anything can resolve against it)
 #   - claude.plugins.update_at_boot is true AND at least one marketplace is
 #     configured anywhere (with no marketplaces there is nothing to update, so
 #     the default-true knob must not allowlist hosts for a config that has none)
@@ -1227,11 +1365,19 @@ claude_vm_boot_marketplace_egress_needed() {
   if [ -n "$(claude_vm_list_items "$boot_doc" '.claude.plugins.install_at_boot')" ]; then
     return 0
   fi
-  # A boot-declared marketplace the image does not already carry must be added
+  # The build pre-registers a boot-declared marketplace best-effort only
+  # (issue #226), so one outside the bake-declared set may still need adding
   # at boot, which is itself marketplace egress.
-  local baked_names name
+  local baked_names mp_tab record name
+  mp_tab=$'\t'
   baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
-  while IFS=$'\t' read -r name _; do
+  # Hand split, per the TSV RECORDS note above. Only the name is used here, but
+  # the split still has to be total: a tab-IFS read strips a LEADING empty
+  # field, so an entry with a url and no name handed this loop the URL as its
+  # name, and the membership test below then compared a URL against a set of
+  # NAMES -- deriving marketplace egress from a comparison that cannot match.
+  while IFS= read -r record; do
+    name=${record%%$mp_tab*}
     [ -n "$name" ] || continue
     case "
 $baked_names
@@ -1250,7 +1396,8 @@ $name
 }
 
 # Emit the CANONICAL bake-plugin manifest as compact JSON on stdout: the
-# marketplaces the image build must register and the plugin refs it must
+# marketplaces the image build registers -- some as a hard requirement, some
+# best-effort, see the ORIGIN MARKER note below -- and the plugin refs it must
 # install. This is what the launcher hands build-guest-image.sh (and it, the
 # provisioner) as build CONTENT -- the sibling of claude_vm_bake_config_json
 # for packages/apt_sources.
@@ -1259,30 +1406,72 @@ $name
 #   $2 -- merged BOOT document file path
 #
 # `marketplaces` is the EFFECTIVE set (bake ++ boot, deduped by name): the
-# image registers every configured marketplace, not only the bake-declared
-# ones, so a boot-side install has its marketplace already present and needs no
-# network to add it. Only the marketplace REGISTRATION is baked that way -- a
-# boot-only marketplace still contributes no plugin to the bake set, and,
-# because it lives in a boot file, still never moves the image-identity hash.
+# build tries to register every configured marketplace, not only the
+# bake-declared ones, so a boot-side install usually finds its marketplace
+# already present and needs no network to add it. Only the marketplace
+# REGISTRATION is baked that way -- a boot-only marketplace still contributes
+# no plugin to the bake set, and, because it lives in a boot file, still never
+# moves the image-identity hash.
 # `bake` is claude.plugins.bake from the BAKE doc only, with null/empty entries
 # stripped (same hazard as a stray `-` in a package list) and sorted for a
 # stable canonical form.
+#
+# ORIGIN MARKER (issue #226). Every marketplace entry carries `origin`, either
+# `bake` (the name is declared in the BAKE doc) or `boot` (it reached the
+# effective set from a BOOT file only). It exists because the two origins have
+# DIFFERENT build-time failure policies, and the flat set the provisioner used
+# to receive could not tell them apart:
+#
+#   bake -- registering it is a build PRECONDITION. The image is cached under
+#           an identity hash that covers the bake files, so an image missing a
+#           bake-declared marketplace would be reused by every later launch.
+#           A failed add aborts the build.
+#   boot -- registering it here is an OPTIMIZATION, never a precondition. Its
+#           url only has to be reachable from the GUEST: a guest-local path
+#           (`/mnt/repo`), a private source needing host-only credentials, or
+#           an https host outside the build container's egress are all legal
+#           and simply cannot be added at build time. A failed add warns and
+#           continues, leaving the registration to the guest boot launcher's
+#           boot_plugin_phase, which already adds any marketplace the image
+#           does not carry.
 #
 # NOTE ON IDENTITY: this JSON is build CONTENT, not the cache key. Since #179
 # the cache key is the whole-file raw-byte hash of the BAKE FILES, which
 # already covers claude.marketplaces + claude.plugins.bake now that they live
 # there -- that IS the "extend the bake-hash with marketplace/plugin refs" the
 # issue asks for, achieved by placement instead of by a new key-picked hash.
-# A boot-file-only marketplace deliberately does NOT rebuild the image; its
-# registration is added at boot instead.
+# A boot-file-only marketplace deliberately does NOT rebuild the image, and
+# (per the origin marker above) never fails one either; its registration is
+# added at boot whenever the build could not pre-register it.
 claude_vm_bake_plugins_json() {
-  local bake_doc="$1" boot_doc="$2" mps name url first=1
+  local bake_doc="$1" boot_doc="$2" mps mp_tab record name url origin baked_names first=1
   mps=""
-  while IFS=$'\t' read -r name url; do
+  mp_tab=$'\t'
+  # Membership test against the BAKE doc's own names decides each entry's
+  # origin. Same newline-delimited idiom claude_vm_boot_marketplace_egress_needed
+  # uses, so a name is compared whole rather than as a substring.
+  baked_names="$(claude_vm_baked_marketplace_names "$bake_doc")"
+  # Hand split, per the TSV RECORDS note above.
+  while IFS= read -r record; do
+    name=${record%%$mp_tab*}
+    url=${record#*$mp_tab}
     [ -n "$name" ] || continue
+    origin="boot"
+    case "
+$baked_names
+" in
+      *"
+$name
+"*) origin="bake" ;;
+    esac
     if [ "$first" -eq 1 ]; then first=0; else mps="${mps},"; fi
-    mps="${mps}$(CLAUDE_VM_MP_NAME="$name" CLAUDE_VM_MP_URL="$url" yq eval -o=json -I=0 -n '
-      {"name": strenv(CLAUDE_VM_MP_NAME), "url": strenv(CLAUDE_VM_MP_URL)}
+    mps="${mps}$(CLAUDE_VM_MP_NAME="$name" CLAUDE_VM_MP_URL="$url" CLAUDE_VM_MP_ORIGIN="$origin" \
+      yq eval -o=json -I=0 -n '
+      {
+        "name": strenv(CLAUDE_VM_MP_NAME),
+        "url": strenv(CLAUDE_VM_MP_URL),
+        "origin": strenv(CLAUDE_VM_MP_ORIGIN)
+      }
     ' 2>/dev/null)"
   done < <(claude_vm_effective_marketplaces "$bake_doc" "$boot_doc")
   CLAUDE_VM_MPS="[${mps}]" yq eval -o=json -I=0 '
@@ -1409,12 +1598,33 @@ claude_vm_render_guest_settings() {
 
   # Read the claude.plugins.enabled override map as tab-separated
   # "ref<TAB>value" lines. yq emits nothing when the key is absent.
-  # Validate each entry HERE, once: value must be a boolean, key must be an
-  # installed ref. Build an associative override map keyed by ref.
+  # Validate each entry HERE, once: key must be non-empty and must name an
+  # installed ref, value must be a boolean. Build an associative override map
+  # keyed by ref.
+  #
+  # Records are split by hand, per the TSV RECORDS note near the top of this
+  # file. An empty KEY (`enabled: { "": true }`) leads the record with an empty
+  # field, and a tab-IFS read strips it: this loop used to see ov_ref=true /
+  # ov_val="" and abort with a message blaming a plugin called `true`. It now
+  # sees the empty ref and says so. That entry ABORTS rather than being skipped
+  # -- an override no plugin can ever match is a typo, and this render is the
+  # single place claude.plugins.enabled is validated.
   local -A enabled_override=()
-  local line ov_ref ov_val
-  while IFS=$'\t' read -r ov_ref ov_val; do
-    [ -n "$ov_ref" ] || continue
+  local ov_tab ov_record ov_ref ov_val ov_idx=0
+  ov_tab=$'\t'
+  while IFS= read -r ov_record; do
+    # An ABSENT enabled map is one empty line, not zero bytes (yq prints a
+    # newline for `{} | to_entries | .[]`). Skip it before the empty-ref abort
+    # below, which would otherwise fire on every config that sets no overrides.
+    [ -n "$ov_record" ] || continue
+    ov_idx=$((ov_idx + 1))
+    ov_ref=${ov_record%%$ov_tab*}
+    ov_val=${ov_record#*$ov_tab}
+    if [ -z "$ov_ref" ]; then
+      echo "claude-vm: claude.plugins.enabled entry #${ov_idx} has an empty plugin ref (value: '$ov_val')" >&2
+      echo "claude-vm:   every key must name a plugin ref from claude.plugins.bake or install_at_boot" >&2
+      return 1
+    fi
     case "$ov_val" in
       true|false) : ;;
       *)
@@ -1461,8 +1671,12 @@ claude_vm_render_guest_settings() {
   # what claude itself writes: an http(s) url -> {"source":"git","url":...};
   # anything else is treated as the `owner/repo` GitHub shorthand ->
   # {"source":"github","repo":...}. A urlless entry contributes nothing.
-  local mp_yaml="" mp_name mp_url mp_src
-  while IFS=$'\t' read -r mp_name mp_url; do
+  local mp_yaml="" mp_tab mp_record mp_name mp_url mp_src
+  mp_tab=$'\t'
+  # Hand split, per the TSV RECORDS note near the top of this file.
+  while IFS= read -r mp_record; do
+    mp_name=${mp_record%%$mp_tab*}
+    mp_url=${mp_record#*$mp_tab}
     [ -n "$mp_name" ] && [ -n "$mp_url" ] || continue
     case "$mp_url" in
       http://*|https://*)

@@ -124,6 +124,16 @@ file silently shadows future changes to the global default.
   files — union, deduped by `name`; the same name with DIFFERING content
   (`{repo, key_url}` / `url`) aborts the launch, so keep each name's
   content identical across files or give it a unique name. A
+  `claude.marketplaces` entry with a url and no `name` aborts the launch
+  as well (issue #226) — the name is what every consumer matches on.
+  Which file a marketplace lands in decides its build-time failure
+  policy: one in the bake file must register at build time or the build
+  aborts, so its url has to be reachable from the build container, while
+  one in the boot
+  file only has to be reachable from the **guest** — put a guest-local
+  path like `/mnt/repo`, or a private source needing host-only
+  credentials, in the boot file, where a build that cannot reach it
+  warns and the guest adds it at boot (issue #226). A
   `claude.plugins` sub-key written into the wrong file type aborts the
   launch too: `bake` belongs in the bake file, `install_at_boot` /
   `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` in
@@ -208,7 +218,9 @@ repo use?" The common cases:
   repo, while global stays `4096`).
 - Extra `egress.allow` hosts this repo's build/test needs (e.g. a
   package registry). These union with the global allowlist.
-- Extra `mounts` this repo needs.
+- Extra `mounts` this repo needs. Write both a `source:` and a `tag:` on
+  every entry, and keep each tag unique: the guest mounts each share *by*
+  its tag, so an entry missing either key aborts the launch (issue #226).
 - Extra apt packages this repo's build needs beyond the global set:
   baked into the image (bake file `packages:`) or installed at boot
   (boot file `packages:`), plus any third-party `apt_sources` (either

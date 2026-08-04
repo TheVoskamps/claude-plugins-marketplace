@@ -38,6 +38,26 @@ the same file, or in sibling files that merely reference the changed
 concept, do not. A thorough README pass is not a substitute for a
 grep-based sweep.
 
+A further class: `lib/config.sh` helper headers routinely name their
+*downstream consumer* ("these are already registered inside the image, so
+the boot path only has to ADD the rest"), and that clause rots
+independently of the code. `payload/README.md`'s helper bullets repeat the
+same consumer claim verbatim, so a wrong one is wrong in two places. A
+`grep -rn <helper_name>` settles who actually calls a helper in one call;
+the prose around the helper never does.
+
+Another class: prose that describes a gate by the state it *approximates*
+rather than the state it *tests*. While the two coincide the wording is
+harmless; the moment a guarantee is relaxed they diverge and every such
+description is wrong at once. So when a guarantee is relaxed, reread every
+gate description for approximations that were previously exact, and grep
+the *criterion wording* rather than the helper name — a paragraph that
+describes a gate without naming it is invisible to a name-based grep.
+Likewise, when a per-entry policy gains skip paths, count them in the code
+and check the prose enumerates the same set. The claude-vm derived-egress
+marketplace gate is the worked example; the root `CLAUDE.md` carries its
+declaration-vs-image-state seam and the three places it is described.
+
 **How to apply:** after any claude-vm config-schema or identity-hashing
 redesign, grep the whole plugin (not just the README) for: the OLD
 filename/keyword the redesign retired, and the exact names of any deleted

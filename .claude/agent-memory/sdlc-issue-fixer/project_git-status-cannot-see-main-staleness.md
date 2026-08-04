@@ -1,6 +1,6 @@
 ---
 name: git-status-cannot-see-main-staleness
-description: git status compares against the branch's own remote ref and never against main, so only git merge-base --is-ancestor origin/main HEAD detects that a branch is behind; if a real conflict makes a rebase necessary, re-derive from the rebased tree, prove it disturbed nothing with a changed-path set check (patch-id flags benign context shifts too), push with an explicit-SHA lease, and resolve MEMORY.md as a union that honors a Curate commit's deletions
+description: git status compares against the branch's own remote ref and never against main, so only git merge-base --is-ancestor origin/main HEAD detects that a branch is behind; a CONFLICTING PR never self-heals because auto-rebase-prs.yml drops DIRTY; if a real conflict makes a rebase necessary, re-derive from the rebased tree, prove it disturbed nothing with a changed-path set check (patch-id flags benign context shifts too), push with an explicit-SHA lease, re-check any SHA already quoted in the PR body, and resolve MEMORY.md as a union that honors a Curate commit's deletions
 metadata:
   type: project
 ---
@@ -17,6 +17,12 @@ against a file main has since rewritten — `git diff --name-only
 Being behind main is not by itself something to act on. A rebase is a
 response to an actual conflict, not a precondition for editing a file.
 
+**Nothing else will do it for you.** This repo's `auto-rebase-prs.yml`
+acts only on `mergeStateStatus` of `BEHIND` or `BLOCKED`, and its own
+comments say `DIRTY` is deliberately dropped. So a PR reading
+`CONFLICTING`/`DIRTY` never self-heals — do not end a run assuming the
+sweep will pick it up.
+
 **If a rebase is warranted:**
 
 1. `git rebase origin/main`, resolve, then re-derive the change from
@@ -28,7 +34,14 @@ response to an actual conflict, not a precondition for editing a file.
    <branch>`. `git-workflow.md` sanctions `--force-with-lease` exactly
    for "after rebasing a branch onto the default branch's HEAD".
 3. Verify with `gh pr view <N> --json mergeable` — it should flip
-   `CONFLICTING` → `MERGEABLE`.
+   `CONFLICTING` → `MERGEABLE`. (`BLOCKED` alongside `MERGEABLE` is
+   just pending review/checks, not a conflict.)
+4. **Re-check any commit SHA you already published.** A rebase rewrites
+   every replayed commit, so a SHA quoted in the PR body — the exact
+   thing a "completion commit reference" asks for — is left dangling.
+   Order the work rebase-then-quote when you can; when you cannot,
+   `grep -c <old-sha>` the live body afterwards and re-edit. The same
+   applies to a SHA quoted in a review comment or a report.
 
 Feature-branch commits in this repo are unsigned (`git log
 --format=%G?` shows `N` before *and* after), so a rebase strips no

@@ -41,9 +41,17 @@
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
   still misses file headers, user-facing error messages, and
-  security-provenance comments elsewhere in the same/sibling files.
+  security-provenance comments elsewhere in the same/sibling files; also
+  covers helper headers that name a downstream consumer that never calls
+  them — grep for the helper name; and gate prose that names the state a
+  gate approximates rather than the one it tests (the claude-vm
+  declaration-vs-image-state seam itself is in the root CLAUDE.md).
 - [skill-extraction doc surfaces](project_skill-extraction-doc-surfaces.md)
   — a round that extracts duplicated cross-plugin behavior into a new
   skill misses docs/plugin-authoring-constraints.md's pattern list and
   the consumer README's new `dependencies` edge; no CLAUDE.md sweep
   section.
+- [diagnostic detail claims](feedback_diagnostic-detail-claims.md) —
+  "aborts with the path named" is a claim per BRANCH of the validator;
+  read the message strings, then sweep — that sentence is always copied
+  to several doc surfaces.

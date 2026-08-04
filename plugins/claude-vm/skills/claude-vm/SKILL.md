@@ -208,7 +208,10 @@ image:
 # pointed at the image root and drives its own CLI (`claude plugin marketplace
 # add` / `claude plugin install`), so the image ships a real
 # /root/.claude/plugins that loads with NO marketplace egress at boot. A failed
-# add/install FAILS THE BUILD rather than shipping an image without them.
+# add/install FAILS THE BUILD rather than shipping an image without them --
+# for the marketplaces declared HERE and every `bake:` ref. A marketplace
+# declared only in the boot file is pre-registered as an optimization, and a
+# failure there only warns (the guest adds it at boot).
 # Placement here (not in the boot file) is what puts these under the whole-file
 # image-identity hash; writing `claude.plugins.bake` into a boot file aborts the
 # launch. Prefer an explicit https:// url over the `owner/repo` shorthand so the
@@ -246,7 +249,10 @@ claude:
     deny: []
   marketplaces: []                # {name, url} entries. Allowed in BOTH file
                                   # types (like apt_sources); `name` must match
-                                  # the marketplace's OWN manifest name.
+                                  # the marketplace's OWN manifest name. One
+                                  # declared HERE only has to be reachable from
+                                  # the GUEST -- a url the image build cannot
+                                  # reach warns and is added at boot instead.
   plugins:
     # bake: lives in the BAKE file -- see the bake-file block above.
     install_at_boot: []           # plugin@marketplace refs installed at boot
@@ -298,7 +304,14 @@ github:
   `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
   file instead of a hand-maintained allowlist baked into the command.
 - `mounts` generates the extra `virtio-fs` device flags. A leading `~`
-  in `source` expands to `$HOME`.
+  in `source` expands to `$HOME`. Both `source` and `tag` are mandatory
+  per entry — the guest mounts each share *by* its tag, so an entry with
+  an empty or omitted `tag:` is a share nobody can mount and two of them
+  would collide on one tag. Either omission aborts the launch at config
+  load, naming the entry by its position in the merged boot config —
+  `mounts` is a union list, so that number counts through the global
+  entries before the per-repo ones and need not be the entry's position
+  in either file on its own — and by its path when it has one.
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,
@@ -392,7 +405,9 @@ lands in a sibling slice under #39. It resolves correctly through
   derived addition is logged.
 - **Marketplaces and plugins** (issue #107). `claude.marketplaces` (union of
   `{name, url}`, allowed in both file types, deduped by `name`, conflicting
-  urls under one name abort) declares the marketplaces the guest knows.
+  urls under one name abort, and — since issue #226 — an entry with a url but
+  no `name` aborts too, since the name is what every consumer matches on)
+  declares the marketplaces the guest knows.
   `claude.plugins.bake` (BAKE file) is installed **into the image** at build
   time; `claude.plugins.install_at_boot` (BOOT file) is installed **at boot**,
   blocking, before claude starts.
@@ -401,7 +416,15 @@ lands in a sibling slice under #39. It resolves correctly through
     CLI (`claude plugin marketplace add` / `claude plugin install`) — the
     registry format is claude's and is never hand-written. A failed
     add/install **fails the build**, so a cached image never silently lacks a
-    configured plugin.
+    configured plugin. That strictness covers what the image must **carry**:
+    every `bake:` ref and every marketplace declared in a bake file. A
+    marketplace declared only in a **boot** file is pre-registered here as an
+    optimization, and its url only has to be reachable from the *guest* — a
+    guest-local path (`/mnt/repo`), a private source, or an https host outside
+    the build container's egress. A boot-declared entry warns and leaves the
+    registration to the boot path on each of the paths that fail a
+    bake-declared one: no `url` at all, a failed add, or an add that registers
+    under a name other than the configured one (issue #226).
   - The boot path ensures any marketplace the image does not already carry,
     then (when `update_at_boot` is `true`, the default) refreshes the
     marketplaces and updates the installed plugins, then installs the
@@ -415,10 +438,15 @@ lands in a sibling slice under #39. It resolves correctly through
     add/update fails (fail-soft) and `update_at_boot` would be inert.
   - `.add_marketplace_uris_to_allowlist` (`auto` default | `always`) mirrors
     `add_apt_uris_to_allowlist`: under `auto`, marketplace hosts are added to
-    the guest egress allowlist only when boot-side work will actually run (a
-    nonempty `install_at_boot`, a marketplace not already baked, or
-    `update_at_boot` true with at least one marketplace configured).
-    Everything baked + `update_at_boot: false` + `auto` derives **nothing** —
+    the guest egress allowlist only when boot-side work can actually run (a
+    nonempty `install_at_boot`, a marketplace declared in the boot file that is
+    not also bake-declared, or `update_at_boot` true with at least one
+    marketplace configured). The middle test reads the *declaration*, not the
+    image: the build's pre-registration of a boot-declared marketplace is
+    best-effort since #226 and the host cannot know whether it succeeded, so
+    the gate derives the host either way.
+    Everything bake-declared + `update_at_boot: false` + `auto` derives
+    **nothing** —
     and the guest still has working plugins, because the baked ones need no
     marketplace. Every derived addition is logged. A `owner/repo` shorthand
     url yields no derivable host (keep `github.com` in `egress.allow`
@@ -494,7 +522,7 @@ Remote-Control-attached for AFK observation/replies — those flags reach
 the in-guest claude via the existing `CLAUDE_ARGS` plumbing; no extra
 transport is involved.
 
-Two ways to turn on Remote Control:
+Ways to turn on Remote Control:
 
 - **Per-launch, via CLI** — pass `--remote-control` (and optionally
   `--name <n>`) after the repo path, as above.

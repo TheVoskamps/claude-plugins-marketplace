@@ -72,10 +72,14 @@ fi
 
 # Baked marketplaces + plugins (issue #107). build-guest-image.sh exports the
 # canonical manifest (from claude_vm_bake_plugins_json) as
-# CLAUDE_VM_BAKE_PLUGINS: {"marketplaces":[{name,url}...],"bake":[refs...]}.
-# Empty/unset normalizes to the empty canonical form so the in-container parser
-# always sees valid JSON, and an empty manifest means the plugin bake step is
-# skipped entirely -- the recipe is then exactly the pre-#107 image.
+# CLAUDE_VM_BAKE_PLUGINS:
+# {"marketplaces":[{name,url,origin}...],"bake":[refs...]}. Each marketplace
+# entry's origin is 'bake' or 'boot' (issue #226) and selects the build-time
+# failure policy for that entry -- see the FAIL HARD ON THE BAKED SET note
+# above the in-container plugin step. Empty/unset normalizes to the empty
+# canonical form so the in-container parser always sees valid JSON, and an
+# empty manifest means the plugin bake step is skipped entirely -- the recipe
+# is then exactly the pre-#107 image.
 BAKE_PLUGINS="${CLAUDE_VM_BAKE_PLUGINS:-}"
 if [ -z "$BAKE_PLUGINS" ]; then
   BAKE_PLUGINS='{"marketplaces":[],"bake":[]}'
@@ -668,10 +672,11 @@ Packages=
     # ERR_STREAM_PREMATURE_CLOSE: git ... clone --depth 1 ..." -- which would
     # make claude.plugins.update_at_boot (default true) permanently inert and
     # any boot-added marketplace unreachable. The security boundary for a
-    # hard-secure all-baked config (add_marketplace_uris_to_allowlist: auto,
-    # nothing to do at boot) is the egress allowlist leaving the marketplace
-    # hosts unreachable, NOT the absence of git. The fail-soft failure policy
-    # (a failed add/update warns and continues to claude) is unchanged.
+    # hard-secure all-bake-declared config (add_marketplace_uris_to_allowlist:
+    # auto, nothing to do at boot) is the egress allowlist leaving the
+    # marketplace hosts unreachable, NOT the absence of git. The fail-soft
+    # failure policy (a failed add/update warns and continues to claude) is
+    # unchanged.
     git
 
 [Build]
@@ -693,6 +698,14 @@ CONF
 # set security.* xattrs). v26 reworked that copy step and builds cleanly
 # (issue #71, Bug 3). v26 is installed from the pinned upstream tag into a
 # venv; pefile is required by v26's UKI/EFI step.
+#
+# EVERYTHING below the <<INNER line, COMMENT PROSE INCLUDED, goes through the
+# host shell: the heredoc is unquoted so the host can substitute values like
+# $MKOSI_REF and $BAKE_PLUGINS_ACTIVE into it. A `backtick pair` or an
+# unescaped $(...) written in a comment therefore RUNS on the host at
+# generation time -- the 'hashed:: command not found' defect
+# podman-mkosi-test.sh regression-tests. Escape a runtime reference as \$var,
+# and spell comment prose without backticks.
 MKOSI_REF='v26'
 cat > "$STAGE/build-in-container.sh" <<INNER
 #!/usr/bin/env bash
@@ -1025,6 +1038,16 @@ fi
 SANDBOX_KEYRINGS=/work/recipe/mkosi.sandbox/etc/apt/keyrings
 SANDBOX_SOURCES=/work/recipe/mkosi.sandbox/etc/apt/sources.list.d
 APT_KEYRINGS_RT=/etc/apt/keyrings
+# Split each record BY HAND, for the reason spelled out at the marketplace
+# loop below: a tab is IFS WHITESPACE, so 'IFS=<tab> read -r a b c' collapses a
+# RUN of tabs into one separator and an empty MIDDLE field vanishes, shifting
+# every later field left. An apt_sources entry that carries a key_url but no
+# repo emits name<TAB><TAB>key_url -- the collapsing read handed the KEY URL to
+# render_apt_source as the repo LINE and left the key unfetched, writing a
+# sources.list.d entry that points at the key. The emitter below joins all
+# three fields, so both separators are always present and the three expansions
+# are total.
+AS_TAB=\$'\t'
 python3 -c '
 import json
 d=json.load(open("/work/recipe/bake-config.json"))
@@ -1033,7 +1056,11 @@ for s in d.get("apt_sources",[]):
     repo=s.get("repo","") or ""
     key_url=s.get("key_url","") or ""
     print("\t".join([name,repo,key_url]))
-' | while IFS=\$'\t' read -r as_name as_repo as_key_url; do
+' | while IFS= read -r as_record; do
+  as_name=\${as_record%%\$AS_TAB*}
+  as_rest=\${as_record#*\$AS_TAB}
+  as_repo=\${as_rest%%\$AS_TAB*}
+  as_key_url=\${as_rest#*\$AS_TAB}
   [ -n "\$as_name" ] || continue
   render_apt_source "\$as_name" "\$as_repo" "\$as_key_url" \\
     "\$SANDBOX_KEYRINGS" "\$SANDBOX_SOURCES" "\$APT_KEYRINGS_RT"
@@ -1062,10 +1089,22 @@ done
 # onboarding/telemetry/identity state behind, and the guest's identity comes
 # from the host launcher's per-run seed, never from the image.
 #
-# FAIL HARD, unlike the guest's boot-time phase. At boot a failed install must
-# not brick an interactive session, so it warns and continues. At BUILD time
-# the opposite is right: a silently plugin-less image would be cached under a
+# FAIL HARD ON THE BAKED SET, unlike the guest's boot-time phase. At boot a
+# failed install must not brick an interactive session, so it warns and
+# continues. At BUILD time the opposite is right for anything the image is
+# supposed to CARRY: a silently plugin-less image would be cached under a
 # version stamp claiming it has them, and every later launch would reuse it.
+# So a bake-declared marketplace and every claude.plugins.bake ref abort the
+# build when they fail.
+#
+# The one exception is a BOOT-DECLARED marketplace (issue #226). Pre-registering
+# those here is an optimization -- it saves the guest a network add -- and never
+# a precondition, because a boot file moves no image bytes and the guest's
+# boot_plugin_phase adds any marketplace the image does not carry. Their urls
+# only have to be reachable from the GUEST, so a guest-local path (/mnt/repo),
+# a private source, or an https host outside this container's egress is legal
+# and simply cannot be added from here. Each manifest entry therefore carries
+# an origin (bake|boot) that selects the failure policy for that entry.
 if [ "${BAKE_PLUGINS_ACTIVE}" -eq 1 ]; then
   echo "podman-mkosi(inner): baking marketplaces + plugins into the image root..." >&2
   export HOME=/root
@@ -1103,22 +1142,60 @@ if [ "${BAKE_PLUGINS_ACTIVE}" -eq 1 ]; then
     return 1
   }
 
+  # How many marketplaces/plugins actually landed in /root/.claude/plugins.
+  # Only a boot-declared entry can be skipped without aborting, so this counter
+  # is nonzero for every build that has a hard requirement -- which is what lets
+  # the tree-existence check below stay fatal in exactly those cases.
+  BAKED_ITEMS=0
+
   # Marketplaces first: a plugin ref cannot resolve until its marketplace is
-  # registered. name<TAB>url, in the canonical manifest's order.
+  # registered. name<TAB>url<TAB>origin, in the canonical manifest's order.
+  # A manifest entry with no origin is read as 'bake' -- the fail-safe reading,
+  # so an older or hand-written manifest keeps the strict policy.
   python3 -c '
 import json
 d=json.load(open("/work/recipe/bake-plugins.json"))
 for m in d.get("marketplaces",[]):
-    print("\t".join([m.get("name","") or "", m.get("url","") or ""]))
+    print("\t".join([m.get("name","") or "", m.get("url","") or "",
+                     m.get("origin","") or "bake"]))
 ' > /work/recipe/.bake-marketplaces.tsv
-  while IFS=\$'\t' read -r mp_name mp_url; do
+  # Split each record BY HAND rather than with 'IFS=<tab> read -r a b c'. A tab
+  # is an IFS WHITESPACE character, so read collapses a RUN of tabs into one
+  # separator: on the perfectly ordinary record for an entry with no url,
+  # name<TAB><TAB>origin, the empty MIDDLE field vanishes and the origin is read
+  # as the url, leaving the origin empty and defaulting it to the strict policy.
+  # The no-url boot branch just below would then be unreachable and such an
+  # entry would abort the build -- the exact failure issue #226 exists to stop.
+  # The emitter above always writes both separators, so the three expansions
+  # below are total.
+  MP_TAB=\$'\t'
+  while IFS= read -r mp_record; do
+    mp_name=\${mp_record%%\$MP_TAB*}
+    mp_rest=\${mp_record#*\$MP_TAB}
+    mp_url=\${mp_rest%%\$MP_TAB*}
+    mp_origin=\${mp_rest#*\$MP_TAB}
     [ -n "\$mp_name" ] || continue
+    [ -n "\$mp_origin" ] || mp_origin=bake
     if [ -z "\$mp_url" ]; then
+      if [ "\$mp_origin" = boot ]; then
+        echo "podman-mkosi(inner): boot-declared marketplace '\$mp_name' has no url to pre-register it from;" >&2
+        echo "podman-mkosi(inner): skipping it here. The guest boot phase reports it if it still cannot resolve." >&2
+        continue
+      fi
       echo "podman-mkosi(inner): marketplace '\$mp_name' has no url; cannot register it in the image." >&2
       exit 1
     fi
     echo "podman-mkosi(inner): adding marketplace '\$mp_name' from \$mp_url" >&2
     if ! "\$GUEST_CLAUDE" plugin marketplace add "\$mp_url"; then
+      if [ "\$mp_origin" = boot ]; then
+        echo "podman-mkosi(inner): WARNING -- 'claude plugin marketplace add \$mp_url' failed for '\$mp_name'," >&2
+        echo "podman-mkosi(inner): which is declared in a BOOT file only. Pre-registering it in the image is" >&2
+        echo "podman-mkosi(inner): an optimization, not a requirement, so the build continues and the guest" >&2
+        echo "podman-mkosi(inner): adds it at boot. Expected whenever the url is reachable from the guest but" >&2
+        echo "podman-mkosi(inner): not from a build container -- a guest-local path, a private source, or a" >&2
+        echo "podman-mkosi(inner): host outside this container's egress." >&2
+        continue
+      fi
       echo "podman-mkosi(inner): 'claude plugin marketplace add \$mp_url' FAILED." >&2
       echo "podman-mkosi(inner): the build container has network, so this is most likely a bad url or an" >&2
       echo "podman-mkosi(inner): unreachable/private marketplace source. Refusing to bake an image whose" >&2
@@ -1130,12 +1207,20 @@ for m in d.get("marketplaces",[]):
     # plugin-at-marketplace ref written against that name would fail to
     # resolve -- inside the image, where it is far more expensive to notice.
     if ! marketplace_registered "\$mp_name"; then
+      if [ "\$mp_origin" = boot ]; then
+        echo "podman-mkosi(inner): WARNING -- added \$mp_url but no marketplace named '\$mp_name' is registered." >&2
+        echo "podman-mkosi(inner): claude derives a marketplace's name from ITS OWN manifest; set" >&2
+        echo "podman-mkosi(inner): claude.marketplaces[].name to that name so plugin refs resolve. '\$mp_name'" >&2
+        echo "podman-mkosi(inner): is boot-declared, so the build continues and the guest reports it again." >&2
+        continue
+      fi
       echo "podman-mkosi(inner): added \$mp_url but no marketplace named '\$mp_name' is registered." >&2
       echo "podman-mkosi(inner): claude derives a marketplace's name from ITS OWN manifest; set" >&2
       echo "podman-mkosi(inner): claude.marketplaces[].name to that name so plugin refs resolve." >&2
       "\$GUEST_CLAUDE" plugin marketplace list >&2 || true
       exit 1
     fi
+    BAKED_ITEMS=\$((BAKED_ITEMS + 1))
   done < /work/recipe/.bake-marketplaces.tsv
 
   # Then the plugins.bake refs, into the same /root/.claude/plugins tree.
@@ -1155,26 +1240,46 @@ for p in d.get("bake",[]):
       echo "podman-mkosi(inner): configured plugin." >&2
       exit 1
     fi
+    BAKED_ITEMS=\$((BAKED_ITEMS + 1))
   done < /work/recipe/.bake-plugins.list
 
   # Copy ONLY the plugins tree into the image. mkosi.extra is copied verbatim
   # into the rootfs after package installation, which is fine here -- plugins
   # need no package manager.
-  if [ ! -d /root/.claude/plugins ]; then
-    echo "podman-mkosi(inner): expected /root/.claude/plugins after the plugin installs, but it does not exist." >&2
-    exit 1
-  fi
   #
-  # Moved with a tar PIPE, deliberately NOT 'cp -a'. mkosi.extra lives under
-  # /work/recipe, a bind mount from the macOS host, and that mount cannot hold
-  # security.* xattrs -- the same EOPNOTSUPP that forced the output copy off
-  # 'cp --preserve=...,xattr' (issue #71, Bug 3). GNU tar does not carry xattrs
-  # unless asked, and extracting as root preserves the exact modes, which
-  # matters: plugin hooks are executable files.
-  mkdir -p /work/recipe/mkosi.extra/root/.claude/plugins
-  tar -C /root/.claude/plugins -cf - . \\
-    | tar -C /work/recipe/mkosi.extra/root/.claude/plugins -xf -
-  echo "podman-mkosi(inner): baked plugin tree -> /root/.claude/plugins (\$(du -sh /root/.claude/plugins | cut -f1))" >&2
+  # BAKED_ITEMS == 0 is the one legitimate reason to ship no baked plugin tree
+  # (issue #226): there were no claude.plugins.bake refs, and every configured
+  # marketplace was boot-declared and left to the guest. Several paths above
+  # reach that, and each logs its own reason against the entry it happened to,
+  # so nothing here names a cause -- restating one would go stale the moment a
+  # path is added, and would be wrong for the other paths today. The invariant
+  # this branch rests on is only that a boot-declared entry is the sole kind
+  # that may be skipped without aborting. The guest adds those marketplaces at
+  # boot. EVERY other build carries at least one hard requirement that must have
+  # succeeded to reach this line, so a missing tree there still means the CLI
+  # produced nothing and the build aborts, exactly as before.
+  if [ "\$BAKED_ITEMS" -eq 0 ]; then
+    echo "podman-mkosi(inner): nothing was pre-registered at bake time -- no plugin is baked, and every" >&2
+    echo "podman-mkosi(inner): configured marketplace is boot-declared and was left to the guest; the" >&2
+    echo "podman-mkosi(inner): message logged against each one above gives its reason. Shipping no baked" >&2
+    echo "podman-mkosi(inner): plugin tree; the guest adds them at boot." >&2
+  else
+    if [ ! -d /root/.claude/plugins ]; then
+      echo "podman-mkosi(inner): expected /root/.claude/plugins after the plugin installs, but it does not exist." >&2
+      exit 1
+    fi
+    #
+    # Moved with a tar PIPE, deliberately NOT 'cp -a'. mkosi.extra lives under
+    # /work/recipe, a bind mount from the macOS host, and that mount cannot hold
+    # security.* xattrs -- the same EOPNOTSUPP that forced the output copy off
+    # 'cp --preserve=...,xattr' (issue #71, Bug 3). GNU tar does not carry xattrs
+    # unless asked, and extracting as root preserves the exact modes, which
+    # matters: plugin hooks are executable files.
+    mkdir -p /work/recipe/mkosi.extra/root/.claude/plugins
+    tar -C /root/.claude/plugins -cf - . \\
+      | tar -C /work/recipe/mkosi.extra/root/.claude/plugins -xf -
+    echo "podman-mkosi(inner): baked plugin tree -> /root/.claude/plugins (\$(du -sh /root/.claude/plugins | cut -f1))" >&2
+  fi
   rm -f /work/recipe/.bake-marketplaces.tsv /work/recipe/.bake-plugins.list
 fi
 # -------------------------------------------------------------------------

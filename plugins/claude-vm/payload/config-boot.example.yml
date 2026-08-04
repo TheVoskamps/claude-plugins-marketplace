@@ -132,6 +132,20 @@ claude:
   # `name` must match the marketplace's own manifest name; prefer an explicit
   # https:// url over the `owner/repo` GitHub shorthand so the launcher can
   # derive its egress host (see add_marketplace_uris_to_allowlist below).
+  #
+  # A marketplace declared HERE is a BOOT-TIME concern end to end. The image
+  # build does try to pre-register it, purely so the guest needs no network to
+  # add it -- but that is an optimization, and when the build cannot reach the
+  # url it logs a warning and carries on, leaving the registration to boot. So
+  # a url that is legal in the GUEST but unreachable from a build container --
+  # a guest-local path like /mnt/repo, a private source needing host-only
+  # credentials, an https host outside the build container's egress -- is fine
+  # here and never fails an image build. (A marketplace declared in
+  # config-bake.yml is the opposite: the image must carry it, so a failed add
+  # aborts the build.)
+  # `name:` is mandatory on every entry: it is what a plugin@marketplace ref
+  # resolves against and what the guest checks registration by, so an entry
+  # with a url and no name ABORTS the launch rather than being ignored.
   marketplaces: []        # {name, url} entries (list, union)
   plugins:
     # NOTE: `bake:` is NOT a boot key -- baked plugins change the image's bytes,
@@ -159,9 +173,13 @@ claude:
                           # marketplace hosts are added to the guest egress
                           # allowlist IFF boot-side marketplace work will actually
                           # run: install_at_boot is nonempty, OR a marketplace
-                          # declared here is not already baked into the image, OR
-                          # update_at_boot is true and at least one marketplace is
-                          # configured. Everything baked + update_at_boot: false +
+                          # declared here is not ALSO declared in config-bake.yml,
+                          # OR update_at_boot is true and at least one marketplace
+                          # is configured. That middle test reads the DECLARATION,
+                          # not the image: the build only TRIES to pre-register a
+                          # marketplace declared here and the host cannot know
+                          # whether it succeeded, so the hosts are derived either
+                          # way. Everything bake-declared + update_at_boot: false +
                           # "auto" derives NOTHING -- and the guest still has
                           # working plugins, because the baked ones need no
                           # marketplace at all. "always" keeps the URIs allowlisted
@@ -196,6 +214,14 @@ egress:
     - github.com
     - claude.ai
 
+# Every entry needs BOTH a source and a tag: the guest mounts each share BY its
+# tag, so an entry with an empty or omitted `tag:` is a share nobody can mount
+# and two of them would collide on one tag. Either mistake ABORTS the launch,
+# naming the offending entry by its position in the MERGED boot config -- mounts
+# is a union list, so that number counts through the global entries before the
+# per-repo ones and need not be the entry's position in this file -- and by its
+# path when it has one, rather than starting the VM without the mount you asked
+# for.
 mounts:                 # extra mounts beyond the repo auto-mount
   - source: ~/.claude/policy
     tag: policy

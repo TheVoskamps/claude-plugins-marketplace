@@ -803,7 +803,24 @@ boot_apt_phase() {
   if [ -s "$APT_INSTALL_LIST" ]; then
     if [ -s "$APT_SOURCES_TSV" ]; then
       log "claude-vm: boot-time apt: rendering apt_sources for install_at_boot."
-      while IFS=$'\t' read -r as_name as_repo as_key_url; do
+      # Split each record BY HAND rather than with 'IFS=<tab> read -r a b c'. A
+      # tab is IFS WHITESPACE, so read collapses a RUN of tabs into one
+      # separator: an empty MIDDLE field vanishes and every later field shifts
+      # left. An apt_sources entry that carries a key_url but no repo is
+      # emitted as name<TAB><TAB>key_url, and the collapsing read handed the KEY
+      # URL to render_apt_source_boot as the repo LINE, then rendered it into
+      # the guest's live /etc/apt with no key fetched to verify it. The emitter
+      # (claude_vm_apt_sources, via yq @tsv) joins all three fields, and the
+      # boot-tier filter over it passes each surviving line through verbatim,
+      # so both separators are always present and the three expansions below
+      # are total. Same split as the build-time twin in podman-mkosi.sh.
+      local as_tab as_record as_rest
+      as_tab=$'\t'
+      while IFS= read -r as_record; do
+        as_name=${as_record%%$as_tab*}
+        as_rest=${as_record#*$as_tab}
+        as_repo=${as_rest%%$as_tab*}
+        as_key_url=${as_rest#*$as_tab}
         [ -n "$as_name" ] || continue
         render_apt_source_boot "$as_name" "$as_repo" "$as_key_url" || true
       done < "$APT_SOURCES_TSV"
@@ -924,8 +941,11 @@ log "claude-vm: linked native-install path $CLAUDE_HOME/.local/bin/claude -> $CL
 #
 # Steps, in this order (each skipped when it has nothing to do):
 #   1. ENSURE: add any configured marketplace the image does not already carry.
-#      A baked marketplace is already registered, so the common case adds
-#      nothing and needs no network at all.
+#      This step reads the IMAGE, not the bake declaration -- it asks the CLI
+#      what is registered. A bake-declared marketplace is registered by the
+#      build as a precondition, and a boot-declared one usually is too (the
+#      build pre-registers it best-effort), so the common case adds nothing and
+#      needs no network at all.
 #   2. UPDATE marketplaces: `claude plugin marketplace update` refreshes every
 #      registered marketplace from its source. This is the freshness mechanism
 #      for BAKED plugins -- they are frozen at image-build time and the image
@@ -986,10 +1006,39 @@ boot_plugin_phase() {
   fi
 
   # Step 1: ensure every configured marketplace is registered.
-  local mp_name mp_url
+  #
+  # Split each record BY HAND rather than with 'IFS=<tab> read -r a b'. A tab is
+  # IFS WHITESPACE, so read strips a LEADING empty field: a marketplace entry
+  # with a url but no name is emitted as <TAB>url, and the collapsing read took
+  # the URL as the NAME, leaving the url empty. Measured against the pre-fix
+  # code, that produced a diagnostic about a marketplace that does not exist and
+  # never touched the real entry -- an ordinary https url tripped the name
+  # charset guard below ("name 'https://...' contains characters outside
+  # [A-Za-z0-9._-]"), and a charset-clean one (a bare host, say) reached the
+  # no-url branch and was reported as a marketplace named after its own url
+  # with nothing to add it from. The
+  # expansions below are total because the host writes this file with
+  # claude_vm_effective_marketplaces, whose printf always emits the separator.
+  #
+  # This is a GUEST-side read with no load-time gate of its own: the host's
+  # claude_vm_check_marketplace_names aborts the launch before this file is ever
+  # written, so a nameless record cannot reach the guest by the ordinary path.
+  # The split, the name guard, and the warning below are this side's floor for
+  # the paths that are not the ordinary one -- a hand-edited runconfig share, or
+  # a future writer of this file. A record with content but no name WARNS rather
+  # than disappearing; a wholly blank line is just skipped.
+  local mp_tab mp_record mp_name mp_url
+  mp_tab=$'\t'
   if [ "$have_marketplaces" -eq 1 ]; then
-    while IFS=$'\t' read -r mp_name mp_url; do
-      [ -n "$mp_name" ] || continue
+    while IFS= read -r mp_record; do
+      mp_name=${mp_record%%$mp_tab*}
+      mp_url=${mp_record#*$mp_tab}
+      if [ -z "$mp_name" ]; then
+        if [ -n "$mp_url" ]; then
+          log "claude-vm: WARNING -- a configured marketplace has no name (url '$mp_url'); skipping it. Plugins from it will not resolve."
+        fi
+        continue
+      fi
       case "$mp_name" in
         *[!A-Za-z0-9._-]*)
           log "claude-vm: marketplace name '$mp_name' contains characters outside [A-Za-z0-9._-]; skipping."
@@ -1017,7 +1066,7 @@ boot_plugin_phase() {
   if [ "$do_update" = "true" ] && [ "$have_marketplaces" -eq 1 ]; then
     log "claude-vm: boot-time plugins: refreshing marketplaces (claude.plugins.update_at_boot)."
     if ! "$CLAUDE_BIN" plugin marketplace update >/dev/null 2>&1; then
-      log "claude-vm: WARNING -- 'claude plugin marketplace update' failed; continuing with the marketplaces as baked."
+      log "claude-vm: WARNING -- 'claude plugin marketplace update' failed; continuing with the marketplaces as currently registered."
     fi
   fi
 

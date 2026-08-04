@@ -1707,6 +1707,79 @@ if [ -n "${BAP_START:-}" ] && [ -n "${BAP_END:-}" ] && command -v boot_apt_phase
   UPDATE_CALLS_EMPTY="$(grep -c '^ *update ' "$BAP_CALLS" || true)"
   assert_eq "boot_apt_phase: no install_at_boot and update_at_boot=false runs no update" \
     "0" "$UPDATE_CALLS_EMPTY"
+
+  # -------------------------------------------------------------------
+  # boot_apt_phase: an apt_sources record's empty MIDDLE field must survive.
+  #
+  # The records are name<TAB>repo<TAB>key_url. A tab is IFS WHITESPACE, so
+  # 'IFS=<tab> read -r a b c' collapses a RUN of tabs into ONE separator: an
+  # entry with a key_url but no repo is emitted as name<TAB><TAB>key_url, the
+  # empty middle field vanishes, and the KEY URL arrives as the repo LINE --
+  # rendered straight into the guest's live /etc/apt with no key fetched. Same
+  # class as the marketplace record split in podman-mkosi.sh (issue #226).
+  #
+  # Driven through the REAL extracted boot_apt_phase, with
+  # render_apt_source_boot swapped for a recorder so the assertion is on the
+  # three values the split actually produced. The records come from the real
+  # emitter (claude_vm_apt_sources) rather than hand-typed tabs, so the test
+  # would notice the emitter changing shape underneath the reader.
+  # -------------------------------------------------------------------
+  BAP_ARGV="$WORK/boot-apt-argv.log"
+  render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$BAP_ARGV"; }
+
+  BAP_AS_YML="$WORK/bap-apt-sources.yml"
+  cat > "$BAP_AS_YML" <<'YML'
+apt_sources:
+  - name: nr
+    key_url: https://k.example/key.asc
+  - name: gh
+    repo: "deb https://cli.github.com/packages stable main"
+    key_url: https://cli.github.com/packages/k.gpg
+  - name: nk
+    repo: "deb https://r.example x main"
+YML
+  APT_SOURCES_TSV="$WORK/bap-apt-sources.tsv"
+  claude_vm_apt_sources "$BAP_AS_YML" > "$APT_SOURCES_TSV"
+  APT_INSTALL_LIST="$WORK/apt-install-baseonly.list"
+  CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT="false"
+  : > "$BAP_ARGV"
+  ( boot_apt_phase >/dev/null 2>&1 || true )
+
+  assert_eq "boot_apt_phase: an apt_source with no repo keeps the key_url in field 3" \
+    "nr||https://k.example/key.asc" "$(sed -n 1p "$BAP_ARGV")"
+  assert_eq "boot_apt_phase: a fully-populated apt_source splits into the same three fields" \
+    "gh|deb https://cli.github.com/packages stable main|https://cli.github.com/packages/k.gpg" \
+    "$(sed -n 2p "$BAP_ARGV")"
+  assert_eq "boot_apt_phase: a trailing empty key_url lands empty" \
+    "nk|deb https://r.example x main|" "$(sed -n 3p "$BAP_ARGV")"
+
+  # NEGATIVE CONTROL: rebuild the pre-fix collapsing read from the SAME
+  # extracted lines (swap the read line back, drop the four hand-split
+  # expansions) and show it hands the key url over as the repo line. Sourced
+  # and run inside a subshell so the good definition above survives.
+  BAP_OLD_SRC="$WORK/boot_apt_phase_old.sh"
+  BAP_OLD_READ="      while IFS=\$'\\t' read -r as_name as_repo as_key_url; do"
+  BAP_OLD_READ_AWK="      while IFS=\$'\\\\t' read -r as_name as_repo as_key_url; do"
+  awk -v oldread="$BAP_OLD_READ_AWK" '
+    $0 == "      while IFS= read -r as_record; do" { print oldread; next }
+    $0 ~ /^        as_(name|rest|repo|key_url)=/ { next }
+    { print }
+  ' "$BAP_SRC" > "$BAP_OLD_SRC"
+  assert_eq "boot_apt_phase: the control really carries the old tab-IFS read" \
+    "1" "$(grep -cF -- "$BAP_OLD_READ" "$BAP_OLD_SRC" || true)"
+  : > "$BAP_ARGV"
+  (
+    # shellcheck source=/dev/null
+    . "$BAP_OLD_SRC"
+    render_apt_source_boot() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "$BAP_ARGV"; }
+    boot_apt_phase >/dev/null 2>&1 || true
+  )
+  assert_eq "boot_apt_phase: NEGATIVE CONTROL -- the old read misreads the key_url as the repo" \
+    "nr|https://k.example/key.asc|" "$(sed -n 1p "$BAP_ARGV")"
+
+  # Restore the inert stub so any later use of the extracted phase behaves as
+  # the surrounding tests expect.
+  render_apt_source_boot() { :; }
 else
   echo "SKIP: boot_apt_phase extraction from build-guest-image.sh failed; fallback-update tests skipped." >&2
 fi
@@ -1951,7 +2024,8 @@ fi
 #
 # Covers the pure, host-side-verifiable half of the slice: the bake/boot
 # placement guard, the marketplace name-conflict guard, the effective
-# marketplace union, the canonical bake-plugin manifest, the derived-egress
+# marketplace union, the canonical bake-plugin manifest (including its
+# per-entry bake/boot origin marker, issue #226), the derived-egress
 # gate (including the hard-secure "derives nothing" case, acceptance criterion
 # 1), and the extraKnownMarketplaces render.
 #
@@ -2066,6 +2140,44 @@ assert_eq "bake-manifest: marketplaces carry the effective set" \
   "2" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces | length' - 2>/dev/null)"
 assert_eq "bake-manifest: install_at_boot refs are NOT baked" \
   "false" "$(printf '%s' "$BP_JSON" | yq -p=json eval '[.bake[] == "cc-tools@thevoskamps"] | any' - 2>/dev/null)"
+# Origin marker (issue #226): the provisioner needs to tell a bake-declared
+# marketplace (registering it is a build PRECONDITION -- a failed add aborts)
+# from a boot-declared one (pre-registering it is an OPTIMIZATION -- a failed
+# add warns and the guest adds it at boot). The flat set carried no such
+# distinction, so an unreachable-at-build-time boot url failed the whole build.
+assert_eq "bake-manifest: a bake-declared marketplace is marked origin=bake" \
+  "bake" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces[] | select(.name == "thevoskamps") | .origin' - 2>/dev/null)"
+assert_eq "bake-manifest: a boot-declared marketplace is marked origin=boot" \
+  "boot" "$(printf '%s' "$BP_JSON" | yq -p=json eval '.marketplaces[] | select(.name == "official") | .origin' - 2>/dev/null)"
+assert_eq "bake-manifest: every marketplace entry carries an origin" \
+  "0" "$(printf '%s' "$BP_JSON" | yq -p=json eval '[.marketplaces[] | select(has("origin") | not)] | length' - 2>/dev/null)"
+# A name in BOTH docs is bake-declared: it is under the image-identity hash
+# either way, so the strict policy applies (the de-dupe keeps the bake entry).
+assert_eq "bake-manifest: a name in both docs counts as bake-declared" \
+  "bake" \
+  "$(claude_vm_bake_plugins_json "$MP_BAKE" "$MP_BOOT_DUP" | yq -p=json eval '.marketplaces[] | select(.name == "thevoskamps") | .origin' - 2>/dev/null)"
+# The reproduce case from issue #226: a boot-only marketplace whose url is a
+# guest-local path, with NOTHING in the bake doc. Nothing here is a build
+# precondition, so the entry must be marked boot.
+MP_BAKE_BARE="$WORK/mp-bake-bare.yml"
+printf 'packages:\n  - git\n' > "$MP_BAKE_BARE"
+MP_BOOT_LOCAL="$WORK/mp-boot-local.yml"
+cat > "$MP_BOOT_LOCAL" <<'YML'
+claude:
+  marketplaces:
+    - name: thevoskamps
+      url: /mnt/repo
+  plugins:
+    install_at_boot:
+      - guardrails@thevoskamps
+    update_at_boot: false
+YML
+assert_eq "bake-manifest: a boot-only local-path marketplace is origin=boot" \
+  "boot" \
+  "$(claude_vm_bake_plugins_json "$MP_BAKE_BARE" "$MP_BOOT_LOCAL" | yq -p=json eval '.marketplaces[0].origin' - 2>/dev/null)"
+assert_eq "bake-manifest: ... and contributes no bake ref" \
+  "0" \
+  "$(claude_vm_bake_plugins_json "$MP_BAKE_BARE" "$MP_BOOT_LOCAL" | yq -p=json eval '.bake | length' - 2>/dev/null)"
 # Empty config -> the stable empty canonical form the provisioner tests for.
 EMPTY_DOC="$WORK/mp-empty.yml"
 printf '{}\n' > "$EMPTY_DOC"
@@ -2074,19 +2186,19 @@ assert_eq "bake-manifest: no plugins configured -> stable empty form" \
   "$(claude_vm_bake_plugins_json "$EMPTY_DOC" "$EMPTY_DOC")"
 
 # Derived egress gate. The HARD-SECURE case is acceptance criterion 1:
-# everything baked, updates off, "auto" -> derives NOTHING.
+# everything bake-declared, updates off, "auto" -> derives NOTHING.
 MP_BOOT_HARD="$WORK/mp-boot-hard.yml"
 printf 'claude:\n  plugins:\n    update_at_boot: false\n    add_marketplace_uris_to_allowlist: auto\n' > "$MP_BOOT_HARD"
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT_HARD" "$MP_BAKE"; then
-  assert_eq "egress: hard-secure (all baked, updates off, auto) derives nothing" "no" "yes"
+  assert_eq "egress: hard-secure (all bake-declared, updates off, auto) derives nothing" "no" "yes"
 else
-  assert_eq "egress: hard-secure (all baked, updates off, auto) derives nothing" "no" "no"
+  assert_eq "egress: hard-secure (all bake-declared, updates off, auto) derives nothing" "no" "no"
 fi
 # ... and each individual trigger flips it back on.
 if claude_vm_boot_marketplace_egress_needed "$MP_BOOT" "$MP_BAKE"; then
-  assert_eq "egress: boot-only marketplace needs a boot-side add" "yes" "yes"
+  assert_eq "egress: a boot-declared marketplace outside the bake set derives" "yes" "yes"
 else
-  assert_eq "egress: boot-only marketplace needs a boot-side add" "yes" "no"
+  assert_eq "egress: a boot-declared marketplace outside the bake set derives" "yes" "no"
 fi
 MP_BOOT_INSTALL="$WORK/mp-boot-install.yml"
 printf 'claude:\n  plugins:\n    install_at_boot:\n      - x@thevoskamps\n    update_at_boot: false\n' > "$MP_BOOT_INSTALL"
@@ -2167,7 +2279,8 @@ assert_eq "render: no marketplaces -> empty extraKnownMarketplaces object" \
 #
 # The behaviors that matter and are checkable host-side:
 #   - nothing configured        -> no CLI calls at all (no network, no noise)
-#   - everything already baked  -> no marketplace ADD (the common warm case)
+#   - every marketplace already registered in the image
+#                               -> no marketplace ADD (the common warm case)
 #   - a marketplace the image lacks -> exactly one add for it
 #   - update_at_boot: false     -> no marketplace update, no plugin update
 #   - update_at_boot: true      -> marketplace update BEFORE the installs, and
@@ -2228,15 +2341,16 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   assert_eq "boot_plugin_phase: nothing configured runs no claude calls" \
     "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
 
-  # Everything baked (marketplace already registered), updates OFF -> the
-  # hard-secure warm case: no add, no update, no install.
+  # The marketplace already registered in the image, updates OFF -> the
+  # hard-secure warm case: no add, no update, no install. This phase reads the
+  # image (what `plugin marketplace list` reports), not the bake declaration.
   : > "$CLAUDE_CALL_LOG"
   PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp.tsv"
   printf 'thevoskamps\thttps://github.com/TheVoskamps/claude-plugins-marketplace.git\n' > "$PLUGIN_MARKETPLACES_TSV"
   printf 'Configured marketplaces:\n\n  x thevoskamps\n' > "$MP_LIST_FILE"
   CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
   ( boot_plugin_phase >/dev/null 2>&1 || true )
-  assert_eq "boot_plugin_phase: already-baked marketplace is not re-added" \
+  assert_eq "boot_plugin_phase: an already-registered marketplace is not re-added" \
     "0" "$(grep -c 'marketplace add' "$CLAUDE_CALL_LOG" || true)"
   assert_eq "boot_plugin_phase: update_at_boot=false runs no marketplace update" \
     "0" "$(grep -c 'marketplace update' "$CLAUDE_CALL_LOG" || true)"
@@ -2312,6 +2426,405 @@ if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_ph
   CLAUDE_STUB_EXIT=0
 else
   echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; plugin-phase tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 31: the launcher's extra-mount loop splits its records by hand
+# (issue #226 class completion).
+#
+# claude_vm_mount_specs emits source<TAB>tag<TAB>mode. A tab is IFS
+# WHITESPACE, so 'IFS=<tab> read -r src tag mode' collapses a RUN of tabs into
+# ONE separator: a mounts entry written with an empty tag is emitted as
+# source<TAB><TAB>mode, the empty middle field vanishes, and the MODE is taken
+# as the mount TAG -- the share goes out as mountTag=ro (or rw), and two such
+# entries share that one tag. Same class as the marketplace record split in
+# podman-mkosi.sh.
+#
+# The loop is bare top-level code in claude-vm.sh (not a function), so it is
+# sliced out by line range -- the same extraction the boot_apt_phase and
+# boot_plugin_phase tests above use on build-guest-image.sh -- and run against
+# the REAL emitter, with the resulting --device flags printed for assertion.
+# ---------------------------------------------------------------------
+LAUNCHER="$TEST_DIR/../claude-vm.sh"
+MNT_START=""
+MNT_END=""
+if [ -f "$LAUNCHER" ]; then
+  MNT_START="$(grep -n '^EXTRA_MOUNT_FLAGS=()$' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  MNT_END="$(awk -v start="${MNT_START:-0}" 'NR >= start && /^done < <\(claude_vm_mount_specs/ { print NR; exit }' "$LAUNCHER")"
+fi
+if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
+  # The pre-fix line, rebuilt exactly. The dollar is escaped so this test
+  # file's own shell does not expand it; awk's -v runs backslash escapes on the
+  # value it is handed, so the awk copy doubles the backslash.
+  MNT_OLD_READ="while IFS=\$'\\t' read -r src tag mode; do"
+  MNT_OLD_READ_AWK="while IFS=\$'\\\\t' read -r src tag mode; do"
+
+  # write_mnt_slice <out-file> <new|old> -- wrap the captured loop in a
+  # runnable harness. Mode "old" rebuilds the collapsing read from the SAME
+  # captured lines, so the negative control cannot drift from the real code.
+  write_mnt_slice() {
+    local out="$1" mode="$2"
+    {
+      echo '#!/usr/bin/env bash'
+      echo 'set -uo pipefail'
+      printf '. %s\n' "\"$LIB\""
+      echo 'MERGED_BOOT="$1"'
+      awk -v start="$MNT_START" -v end="$MNT_END" \
+          -v mode="$mode" -v oldread="$MNT_OLD_READ_AWK" '
+        NR < start || NR > end { next }
+        mode == "old" && $0 == "while IFS= read -r mount_record; do" { print oldread; next }
+        mode == "old" && $0 ~ /^  (src|mount_rest|tag|mode)=\$\{mount_(record|rest)/ { next }
+        { print }
+      ' "$LAUNCHER"
+      echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
+    } > "$out"
+  }
+
+  MNT_SLICE="$WORK/mount-loop.sh"
+  MNT_SLICE_OLD="$WORK/mount-loop-old.sh"
+  write_mnt_slice "$MNT_SLICE" new
+  write_mnt_slice "$MNT_SLICE_OLD" old
+
+  MNT_YML="$WORK/mount-loop-boot.yml"
+  cat > "$MNT_YML" <<'YML'
+mounts:
+  - source: /a/empty-tag
+    tag: ""
+    mode: rw
+  - source: /a/normal
+    tag: work
+    mode: rw
+YML
+
+  assert_eq "mount-split: an empty tag stays empty rather than swallowing the mode" \
+    "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=" \
+    "$(bash "$MNT_SLICE" "$MNT_YML" 2>/dev/null | sed -n 1,2p | tr '\n' ' ' | sed 's/ $//')"
+  assert_eq "mount-split: a fully-populated entry keeps its own tag" \
+    "--device virtio-fs,sharedDir=/a/normal,mountTag=work" \
+    "$(bash "$MNT_SLICE" "$MNT_YML" 2>/dev/null | sed -n 3,4p | tr '\n' ' ' | sed 's/ $//')"
+
+  # NEGATIVE CONTROL: the pre-fix read promotes the MODE into the tag slot.
+  assert_eq "mount-split: the control really carries the old tab-IFS read" \
+    "1" "$(grep -cF -- "$MNT_OLD_READ" "$MNT_SLICE_OLD" || true)"
+  assert_eq "mount-split: NEGATIVE CONTROL -- the old read mounts the empty-tag share as 'rw'" \
+    "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=rw" \
+    "$(bash "$MNT_SLICE_OLD" "$MNT_YML" 2>/dev/null | sed -n 1,2p | tr '\n' ' ' | sed 's/ $//')"
+else
+  echo "SKIP: extra-mount loop extraction from claude-vm.sh failed; mount-split tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 32: the launcher's config-load gates reject a malformed entry
+# (issue #226 class completion).
+#
+# Splitting a record correctly makes an empty key field VISIBLE; it does not
+# make such an entry usable. Two guards turn the newly-visible cases into a
+# launch abort:
+#
+#   claude_vm_check_mounts            -- a mounts entry with no source, or with
+#                                        no tag (omitted OR explicitly ""). The
+#                                        guest mounts each share BY its tag.
+#   claude_vm_check_marketplace_names -- a claude.marketplaces entry with a url
+#                                        but no name, in either document.
+#
+# Driven through the LAUNCHER's own load block, sliced out of claude-vm.sh by
+# line range (the same extraction Test 31 uses on its mount loop), so these
+# assert that the gates are wired into the launch path -- not merely that the
+# helpers return non-zero when called directly. The slice runs the real
+# claude_vm_merge_config over real per-tier files, so a fixture reaches the
+# gates exactly as an operator's config would.
+# ---------------------------------------------------------------------
+GATE_START=""
+GATE_END=""
+if [ -f "$LAUNCHER" ]; then
+  GATE_START="$(grep -nF 'MERGED_BAKE="$(claude_vm_mktemp claude-vm-merged-bake)"' "$LAUNCHER" | head -1 | cut -d: -f1)"
+  GATE_END="$(grep -nF 'aborting -- move the misplaced claude.plugins key(s)' "$LAUNCHER" | head -1 | cut -d: -f1)"
+fi
+if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
+  GATE_SLICE="$WORK/config-load-gates.sh"
+  {
+    echo '#!/usr/bin/env bash'
+    echo 'set -uo pipefail'
+    printf '. %s\n' "\"$LIB\""
+    echo 'GLOBAL_BAKE_CONFIG="$1"'
+    echo 'REPO_BAKE_CONFIG="$2"'
+    echo 'GLOBAL_BOOT_CONFIG="$3"'
+    echo 'REPO_BOOT_CONFIG="$4"'
+    awk -v start="$GATE_START" -v end="$GATE_END" 'NR >= start && NR <= end' "$LAUNCHER"
+    echo 'echo GATE-OK'
+  } > "$GATE_SLICE"
+
+  # run_gates <bake-file> <boot-file> -- run the sliced load block over one
+  # pair of repo-tier files and print "<rc>|<merged stdout+stderr, one line>".
+  # TMPDIR is pointed at $WORK so the block's own merged tempfiles land where
+  # this suite's trap already cleans up.
+  run_gates() {
+    local bake="$1" boot="$2" out rc
+    out="$(TMPDIR="$WORK" bash "$GATE_SLICE" "" "$bake" "" "$boot" 2>&1)"
+    rc=$?
+    printf '%s|%s\n' "$rc" "$(printf '%s' "$out" | tr '\n' ' ')"
+  }
+
+  GATE_NONE_BAKE="$WORK/gate-none-bake.yml"; printf 'packages:\n  - git\n'   > "$GATE_NONE_BAKE"
+  GATE_NONE_BOOT="$WORK/gate-none-boot.yml"; printf 'cpus: 2\nmem: 4096\n'   > "$GATE_NONE_BOOT"
+
+  # A config that declares NEITHER mounts nor marketplaces must pass. This is
+  # the regression guard for the empty-result-set shape: yq prints ONE EMPTY
+  # LINE (not zero bytes) for `.mounts // [] | .[]`, and a gate that read that
+  # line as an entry would reject every ordinary config on earth.
+  assert_eq "load-gates: a config with no mounts and no marketplaces passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$GATE_NONE_BOOT")"
+
+  GATE_OK_BOOT="$WORK/gate-ok-boot.yml"
+  cat > "$GATE_OK_BOOT" <<'YML'
+mounts:
+  - source: /a/one
+    tag: one
+    mode: ro
+claude:
+  marketplaces:
+    - name: mp
+      url: https://example.invalid/mp.git
+YML
+  assert_eq "load-gates: a well-formed mounts + marketplaces config passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$GATE_OK_BOOT")"
+
+  # A mounts entry whose `tag:` key is OMITTED. Before the `// ""` guard on
+  # claude_vm_mount_specs this rendered the literal string `null` and sailed
+  # through to vfkit as mountTag=null; it is now an empty field and a hard stop.
+  GATE_NOTAG_BOOT="$WORK/gate-notag-boot.yml"
+  printf 'mounts:\n  - source: /a/omitted-tag\n    mode: rw\n' > "$GATE_NOTAG_BOOT"
+  GATE_NOTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOTAG_BOOT")"
+  assert_eq "load-gates: an OMITTED mount tag aborts the launch" \
+    "1" "${GATE_NOTAG%%|*}"
+  case "$GATE_NOTAG" in
+    *"mounts entry #1 ('/a/omitted-tag') has no tag"*)
+      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the omitted-tag abort names the mount path" "named" "$GATE_NOTAG" ;;
+  esac
+
+  # ...and an EXPLICITLY empty tag, the other spelling of the same mistake.
+  GATE_EMPTYTAG_BOOT="$WORK/gate-emptytag-boot.yml"
+  printf 'mounts:\n  - source: /a/empty-tag\n    tag: ""\n    mode: rw\n' > "$GATE_EMPTYTAG_BOOT"
+  GATE_EMPTYTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_EMPTYTAG_BOOT")"
+  assert_eq "load-gates: an EXPLICITLY empty mount tag aborts the launch" \
+    "1" "${GATE_EMPTYTAG%%|*}"
+  case "$GATE_EMPTYTAG" in
+    *"mounts entry #1 ('/a/empty-tag') has no tag"*)
+      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the empty-tag abort names the mount path" "named" "$GATE_EMPTYTAG" ;;
+  esac
+
+  # A mounts entry with no source at all: nothing to share, and nothing to name
+  # it by. Previously the launcher's loop dropped it without a word.
+  GATE_NOSRC_BOOT="$WORK/gate-nosrc-boot.yml"
+  printf 'mounts:\n  - tag: orphan\n    mode: ro\n' > "$GATE_NOSRC_BOOT"
+  GATE_NOSRC="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOSRC_BOOT")"
+  assert_eq "load-gates: a mount with no source aborts the launch" \
+    "1" "${GATE_NOSRC%%|*}"
+  case "$GATE_NOSRC" in
+    *"mounts entry #1 has no source"*)
+      assert_eq "load-gates: the no-source abort says which entry" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the no-source abort says which entry" "named" "$GATE_NOSRC" ;;
+  esac
+
+  # A claude.marketplaces entry with a url but no name, in the BOOT document.
+  GATE_NONAME_BOOT="$WORK/gate-noname-boot.yml"
+  cat > "$GATE_NONAME_BOOT" <<'YML'
+claude:
+  marketplaces:
+    - name: fine
+      url: https://example.invalid/fine.git
+    - url: https://example.invalid/nameless.git
+YML
+  GATE_NONAME="$(run_gates "$GATE_NONE_BAKE" "$GATE_NONAME_BOOT")"
+  assert_eq "load-gates: a nameless marketplace aborts the launch" \
+    "1" "${GATE_NONAME%%|*}"
+  case "$GATE_NONAME" in
+    *"claude.marketplaces entry #2 in the merged BOOT config has no name (url: 'https://example.invalid/nameless.git')"*)
+      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the nameless-marketplace abort names tier, index and url" "named" "$GATE_NONAME" ;;
+  esac
+
+  # ...and the same entry in the BAKE document, which is a different tier label
+  # and a different reader (the origin stamp, the baked-name set).
+  GATE_NONAME_BAKE="$WORK/gate-noname-bake.yml"
+  cat > "$GATE_NONAME_BAKE" <<'YML'
+claude:
+  marketplaces:
+    - url: https://example.invalid/bake-nameless.git
+YML
+  GATE_NONAME_B="$(run_gates "$GATE_NONAME_BAKE" "$GATE_NONE_BOOT")"
+  assert_eq "load-gates: a nameless marketplace in a BAKE file aborts too" \
+    "1" "${GATE_NONAME_B%%|*}"
+  case "$GATE_NONAME_B" in
+    *"in the merged BAKE config has no name"*)
+      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "$GATE_NONAME_B" ;;
+  esac
+else
+  echo "SKIP: config-load gate block extraction from claude-vm.sh failed; load-gate tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 33: the TWO-field record readers split by hand too
+# (issue #226 class completion).
+#
+# A tab is IFS WHITESPACE, so `IFS=$'\t' read -r a b` does not only collapse a
+# run of tabs -- it also STRIPS A LEADING one. A two-field record has no middle
+# field to lose, but it does have a leading one: `<TAB>url`, the record for a
+# marketplace declared with a url and no name, arrives as name=url / url="".
+# Every reader is therefore hand-split like its three-field siblings.
+#
+# Driven against the REAL emitters, with a negative control rebuilt from the
+# SAME captured lines so the control cannot drift away from the code it is
+# contrasted with.
+# ---------------------------------------------------------------------
+TF_BOOT="$WORK/twofield-boot.yml"
+cat > "$TF_BOOT" <<'YML'
+claude:
+  marketplaces:
+    - url: https://example.invalid/nameless.git
+    - name: named
+      url: https://example.invalid/named.git
+YML
+TF_BAKE="$WORK/twofield-bake.yml"
+printf '{}\n' > "$TF_BAKE"
+
+# The emitter really does produce a LEADING empty field for that entry -- the
+# premise every assertion below rests on.
+TF_LINES="$WORK/twofield-lines.tsv"
+claude_vm_marketplaces "$TF_BOOT" > "$TF_LINES"
+assert_eq "two-field: the emitter leads a nameless entry with an EMPTY field" \
+  "1" "$(grep -c '^	https://example.invalid/nameless.git$' "$TF_LINES" || true)"
+
+# claude_vm_effective_marketplaces drops the nameless entry and keeps its
+# well-formed sibling.
+assert_eq "two-field: effective set drops the nameless entry, keeps the named one" \
+  "named," "$(claude_vm_effective_marketplaces "$TF_BAKE" "$TF_BOOT" | cut -f1 | tr '\n' ',')"
+
+# NEGATIVE CONTROL: the pre-fix read, rebuilt over the SAME captured emitter
+# lines, promotes the URL into the name slot -- so the launcher would have
+# written a marketplace literally named `https://example.invalid/nameless.git`
+# into plugin-marketplaces.tsv, with an empty url.
+TF_OLD_NAME=""
+while IFS=$'\t' read -r tf_name tf_url; do
+  [ -n "$tf_name" ] || continue
+  [ -n "$TF_OLD_NAME" ] || TF_OLD_NAME="$tf_name"
+done < "$TF_LINES"
+assert_eq "two-field: NEGATIVE CONTROL -- the old tab-IFS read takes the url as the name" \
+  "https://example.invalid/nameless.git" "$TF_OLD_NAME"
+
+# claude_vm_bake_plugins_json is the manifest the provisioner registers from:
+# the nameless entry must not reach it under a url-shaped name.
+TF_JSON="$(claude_vm_bake_plugins_json "$TF_BAKE" "$TF_BOOT")"
+assert_eq "two-field: the bake manifest carries only the named marketplace" \
+  "named" "$(printf '%s' "$TF_JSON" | yq -p=json eval '[.marketplaces[].name] | join(",")' - 2>/dev/null)"
+
+# claude_vm_mount_specs normalizes an OMITTED tag to an empty field rather than
+# the literal string `null` -- the premise claude_vm_check_mounts rests on, and
+# the reason one check covers both spellings.
+TF_MNT="$WORK/twofield-mounts.yml"
+printf 'mounts:\n  - source: /a/omitted-tag\n    mode: rw\n' > "$TF_MNT"
+assert_eq "mount-specs: an omitted tag emits an EMPTY field, not the string 'null'" \
+  "/a/omitted-tag		rw" "$(claude_vm_mount_specs "$TF_MNT")"
+
+# claude.plugins.enabled with an EMPTY key: leading empty field again, this
+# time on yq's `to_entries` output. The old read reported it as a plugin named
+# `true`; it is now named as the empty ref it is, and it ABORTS rather than
+# being skipped.
+TF_ENA_BOOT="$WORK/twofield-enabled-boot.yml"
+printf 'claude:\n  plugins:\n    enabled:\n      "": true\n' > "$TF_ENA_BOOT"
+TF_ENA_BAKE="$WORK/twofield-enabled-bake.yml"
+printf 'claude:\n  plugins:\n    bake:\n      - real@mp\n' > "$TF_ENA_BAKE"
+TF_ENA_ERR="$(claude_vm_render_guest_settings "$TF_ENA_BOOT" "$TF_ENA_BAKE" 2>&1 >/dev/null)"
+if claude_vm_render_guest_settings "$TF_ENA_BOOT" "$TF_ENA_BAKE" >/dev/null 2>&1; then
+  assert_eq "two-field: an empty claude.plugins.enabled ref aborts the render" "abort" "rendered"
+else
+  assert_eq "two-field: an empty claude.plugins.enabled ref aborts the render" "abort" "abort"
+fi
+case "$TF_ENA_ERR" in
+  *"claude.plugins.enabled entry #1 has an empty plugin ref (value: 'true')"*)
+    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "named" ;;
+  *)
+    assert_eq "two-field: the empty-ref abort names the entry and its value" "named" "$TF_ENA_ERR" ;;
+esac
+
+# ---------------------------------------------------------------------
+# Test 34: the GUEST-side reader (boot_plugin_phase) splits by hand too.
+#
+# This one sits inside build-guest-image.sh's <<'BOOT' heredoc and runs in the
+# guest, where no config-load gate exists: the host's
+# claude_vm_check_marketplace_names has already aborted the launch before
+# plugin-marketplaces.tsv is written, so a nameless record cannot arrive by the
+# ordinary path. The hand split plus the name guard is this side's floor for
+# the paths that are not the ordinary one, and the phase WARNS rather than
+# silently dropping the record.
+#
+# Reuses Test 30's extraction (BPP_START/BPP_END). `log` is redefined here to
+# capture, so the warning itself is assertable.
+# ---------------------------------------------------------------------
+if [ -n "${BPP_START:-}" ] && [ -n "${BPP_END:-}" ] && command -v boot_plugin_phase >/dev/null 2>&1; then
+  BPP_LOG="$WORK/bpp-log.txt"
+  log() { printf '%s\n' "$*" >> "$BPP_LOG"; }
+
+  : > "$CLAUDE_CALL_LOG"
+  : > "$BPP_LOG"
+  printf 'No marketplaces configured\n' > "$MP_LIST_FILE"
+  : > "$PLUGIN_LIST_FILE"
+  PLUGIN_MARKETPLACES_TSV="$WORK/bpp-mp-noname.tsv"
+  printf '\texample.invalid\n' > "$PLUGIN_MARKETPLACES_TSV"
+  PLUGIN_INSTALL_LIST="$WORK/bpp-install-empty.list"; : > "$PLUGIN_INSTALL_LIST"
+  CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT="false"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: a nameless record makes no CLI call at all" \
+    "0" "$(grep -c . "$CLAUDE_CALL_LOG" || true)"
+  assert_eq "boot_plugin_phase: a nameless record is WARNED about, not dropped silently" \
+    "1" "$(grep -c "a configured marketplace has no name (url 'example.invalid')" "$BPP_LOG" || true)"
+
+  # A wholly blank line is skipped without a warning -- the record has no
+  # content to complain about.
+  : > "$CLAUDE_CALL_LOG"
+  : > "$BPP_LOG"
+  printf '\n' > "$PLUGIN_MARKETPLACES_TSV"
+  ( boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: a blank record is skipped with no warning" \
+    "0" "$(grep -c . "$BPP_LOG" || true)"
+
+  # NEGATIVE CONTROL: rebuild the phase with the pre-fix collapsing read (the
+  # substitution runs over the SAME extracted lines, so it cannot drift), and
+  # source it in a SUBSHELL so the redefinition does not leak. The old read
+  # strips the leading empty field, so the phase asks the CLI whether a
+  # marketplace named `example.invalid` is registered -- one CLI call where the
+  # fixed code makes none.
+  BPP_OLD_READ_AWK="    while IFS=\$'\\\\t' read -r mp_name mp_url; do"
+  BPP_OLD_SRC="$WORK/boot_plugin_phase_old.sh"
+  {
+    echo 'log() { printf "%s\n" "$*" >> "$BPP_LOG"; }'
+    awk -v start="$BPP_START" -v end="$BPP_END" -v oldread="$BPP_OLD_READ_AWK" '
+      NR < start || NR > end { next }
+      $0 ~ /^ *while IFS= read -r mp_record; do$/ { print oldread; next }
+      $0 ~ /^ *mp_(name|url)=\$\{mp_record/ { next }
+      { print }
+    ' "$BUILD_GUEST_IMAGE"
+  } > "$BPP_OLD_SRC"
+  assert_eq "boot_plugin_phase: the control really carries the old tab-IFS read" \
+    "1" "$(grep -cF -- "read -r mp_name mp_url; do" "$BPP_OLD_SRC" || true)"
+
+  : > "$CLAUDE_CALL_LOG"
+  : > "$BPP_LOG"
+  printf '\texample.invalid\n' > "$PLUGIN_MARKETPLACES_TSV"
+  # shellcheck source=/dev/null
+  ( . "$BPP_OLD_SRC"; boot_plugin_phase >/dev/null 2>&1 || true )
+  assert_eq "boot_plugin_phase: NEGATIVE CONTROL -- the old read queries the registry for a marketplace named after the url" \
+    "1" "$(grep -c '^plugin marketplace list$' "$CLAUDE_CALL_LOG" || true)"
+else
+  echo "SKIP: boot_plugin_phase extraction from build-guest-image.sh failed; guest-side two-field tests skipped." >&2
 fi
 
 # ---------------------------------------------------------------------

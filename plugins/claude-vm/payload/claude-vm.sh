@@ -147,6 +147,17 @@ claude_vm_check_apt_sources_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
 # Same guard for claude.marketplaces (issue #107): one name with two urls would
 # silently decide which code a `plugin@marketplace` ref resolves to.
 claude_vm_check_marketplace_conflicts "$MERGED_BAKE" "$MERGED_BOOT" || exit 1
+# A claude.marketplaces entry with no name (issue #226): the name is the key
+# every reader of the effective set matches on, so a nameless entry is dropped
+# by every one of them. Abort instead of silently configuring nothing.
+claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
+  || { echo "claude-vm: aborting -- name every claude.marketplaces entry as described above." >&2; exit 1; }
+# A mounts entry with no source or no tag (issue #226): the guest mounts each
+# virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
+# two of them collide on one tag. Abort rather than launching without the mount
+# the operator asked for.
+claude_vm_check_mounts "$MERGED_BOOT" \
+  || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
 # claude.plugins is the one map that legitimately appears in BOTH file types
 # (bake refs in a bake file; install_at_boot/update_at_boot/enabled in a boot
 # file), which makes a misplaced sub-key easy to write and -- absent this guard
@@ -215,7 +226,9 @@ CLAUDE_VM_BAKE_CONFIG="$(claude_vm_bake_config_json "$MERGED_BAKE")" \
 export CLAUDE_VM_BAKE_CONFIG
 
 # Baked marketplaces + plugins (issue #107). The build CONTENT sibling of
-# CLAUDE_VM_BAKE_CONFIG: the marketplaces the image must register and the
+# CLAUDE_VM_BAKE_CONFIG: the marketplaces the image build registers -- the
+# bake-declared ones as a hard requirement, the boot-declared ones best-effort
+# (issue #226, and each entry carries the `origin` that says which) -- and the
 # claude.plugins.bake refs it must install into /root/.claude/plugins. Like
 # CLAUDE_VM_BAKE_CONFIG this is CONTENT, not the cache key -- the cache key is
 # the whole-file raw-byte hash of the BAKE FILES, which already covers
@@ -1211,12 +1224,15 @@ claude_vm_boot_apt_sources "$MERGED_BOOT" "$MERGED_BAKE" > "$CONFIG_DIR/apt-sour
 # these line-by-line in plain bash).
 #
 #   plugin-marketplaces.tsv -- name<TAB>url per line: the EFFECTIVE marketplace
-#                              set (bake ++ boot, deduped by name). The image
-#                              already registered these at build time, so at
-#                              boot the launcher only ADDS the ones missing
-#                              from the image -- which is exactly the
-#                              boot-only-marketplace case, and the reason a
-#                              boot-only marketplace still needs egress.
+#                              set (bake ++ boot, deduped by name). The build
+#                              registers the bake-declared ones (a failure
+#                              there aborts it) and pre-registers the
+#                              boot-declared ones best-effort (issue #226), so
+#                              at boot the launcher only ADDS what the image
+#                              turns out not to carry -- a boot-declared
+#                              marketplace the build did not pre-register, for
+#                              whichever reason the build logged, which is also
+#                              why a boot-only marketplace still needs egress.
 #   plugin-install.list     -- one `plugin@marketplace` ref per line, from the
 #                              BOOT document's claude.plugins.install_at_boot.
 #                              The BAKE document's claude.plugins.bake is NOT
@@ -1298,16 +1314,22 @@ fi
 # The plugin-side sibling of the apt derivation above, with the same auto/always
 # semantics. Marketplace URL hosts are added to the allowlist IFF a boot-side
 # ensure/install/update will actually run (claude_vm_boot_marketplace_egress_needed:
-# a boot-only marketplace to add, a nonempty install_at_boot, or update_at_boot
-# true with at least one marketplace configured) OR the operator opted in with
+# a marketplace declared in a boot file whose name is not also bake-declared, a
+# nonempty install_at_boot, or update_at_boot true with at least one marketplace
+# configured) OR the operator opted in with
 # claude.plugins.add_marketplace_uris_to_allowlist: always.
 #
-# "auto" (the default) with everything baked and updates off derives NOTHING --
-# and the guest STILL has working plugins, because the baked ones are inside
-# the image and need no marketplace at all. That is the hard-secure posture the
-# issue's first acceptance criterion names. Every derived addition is logged, so
-# the allowlist never grows silently. Runs AFTER the warm-boot tightening so a
-# dropped claude.ai/downloads.claude.ai entry is never re-introduced here.
+# The bake-declared membership test reads the DECLARATION, not the image: since
+# issue #226 the build only TRIES to pre-register a boot-declared marketplace, and
+# the host cannot know whether it succeeded, so the gate derives the host either
+# way.
+#
+# "auto" (the default) with everything bake-declared and updates off derives
+# NOTHING -- and the guest STILL has working plugins, because the baked ones need
+# no marketplace at all. That is the hard-secure posture the issue's first
+# acceptance criterion names. Every derived addition is logged, so the allowlist
+# never grows silently. Runs AFTER the warm-boot tightening so a dropped
+# claude.ai/downloads.claude.ai entry is never re-introduced here.
 #
 # A marketplace whose `url` is not an http(s) URI (the `owner/repo` GitHub
 # shorthand, or a local path) derives no host -- claude_vm_marketplace_hosts
@@ -1377,7 +1399,28 @@ fi
 # below; these are the user's EXTRA mounts.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
-while IFS=$'\t' read -r src tag mode; do
+# Split each record BY HAND rather than with 'IFS=<tab> read -r src tag mode'.
+# A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
+# an empty MIDDLE field vanishes and every later field shifts left. A mounts
+# entry written with an empty tag is emitted as source<TAB><TAB>mode, and the
+# collapsing read took the MODE as the mount TAG -- the share went out as
+# mountTag=ro (or rw), and two such entries would share that one tag. The
+# emitter (claude_vm_mount_specs, via yq @tsv) joins all three fields, so both
+# separators are always present and the three expansions below are total.
+#
+# Since #226 a sourceless or tagless entry never reaches here at all --
+# claude_vm_check_mounts rejected it at config load, above. The split and the
+# `-z "$src"` guard stay as this loop's floor: the split is what makes such an
+# entry legible to that check in the first place (the check reads the same
+# records, split the same way), and the guard keeps the loop honest for any
+# caller that runs it without the load-time gate, such as the unit test that
+# slices it out.
+MOUNT_TAB=$'\t'
+while IFS= read -r mount_record; do
+  src=${mount_record%%$MOUNT_TAB*}
+  mount_rest=${mount_record#*$MOUNT_TAB}
+  tag=${mount_rest%%$MOUNT_TAB*}
+  mode=${mount_rest#*$MOUNT_TAB}
   [ -z "$src" ] && continue
   # Expand a leading ~ to $HOME (config is YAML, not shell).
   case "$src" in
