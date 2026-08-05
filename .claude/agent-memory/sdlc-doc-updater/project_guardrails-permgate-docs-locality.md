@@ -184,6 +184,29 @@ value's `github.com` contains a `t`. When a Go comment and the README
 describe one screen at different strictness, the comment is usually the
 measured one — probe, then bring the README up to it.
 
+**Round 6 shape: the false claim was the SCOPE JUSTIFICATION (#229, PR
+#232).** A new track (grading the local files a `gh` publish verb sends
+to GitHub) shipped with an accurate mechanism paragraph and one false
+sentence explaining what it deliberately left out: "every `gh api` form
+carrying a request body already asks for method reasons, so there is no
+allow to close". Probing refutes it — `gh api -X GET -F q=@/etc/passwd
+repos/o/r` ALLOWs (classifyGhAPI's explicit-GET carve-out falls through
+to the REST allowlist), and the graphql `-F query=@file` form DENIES
+rather than asking. The same sentence also lumped `-f`/`-F` as doing
+`@file` expansion when only `-F`/`--field` and `--input` do — the
+slash-joined-list defect again, in a sentence whose whole job was to say
+why the omission was safe. **How to apply:** an "out of scope because X
+already covers it" sentence is a claim about the OTHER track; go read
+that track's code and probe the exact form it names, exactly as for a
+reach claim. Two more per-round finds worth the same reflex: a doc
+comment that names the test asserting an invariant
+(`TestGhFileSpecsAreWellFormed` — no such test; it is
+`TestGhFileSpecsPathFlagsAreValueFlags_229`, so grep the name), and a
+"reaches here rather than the precondition deny because `-F` is
+shielded" claim that probing flips (`gh pr comment -F $BODY` denies —
+gh FIELD flags shield a dynamic value only when the `key=` is pinned;
+what reaches the new ask is `-t`/`--template`).
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
