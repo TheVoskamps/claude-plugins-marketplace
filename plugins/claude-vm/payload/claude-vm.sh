@@ -154,8 +154,13 @@ claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
   || { echo "claude-vm: aborting -- name every claude.marketplaces entry as described above." >&2; exit 1; }
 # A mounts entry with no source or no tag (issue #226): the guest mounts each
 # virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
-# two of them collide on one tag. Abort rather than launching without the mount
-# the operator asked for.
+# two of them collide on one tag. Since issue #157 the same call also rejects a
+# malformed, reserved or repeated tag, a mode outside ro|rw, a source that is
+# not on the host, and a guest `path:` that is relative, carries `..`, or lands
+# on a reserved or already-used mountpoint -- the whole mounts contract is
+# enforced here, in one pass, so the launcher below can assume every record it
+# reads is usable. Abort rather than launching without the mount the operator
+# asked for.
 claude_vm_check_mounts "$MERGED_BOOT" \
   || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
 # claude.plugins is the one map that legitimately appears in BOTH file types

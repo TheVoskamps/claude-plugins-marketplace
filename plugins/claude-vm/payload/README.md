@@ -668,7 +668,7 @@ stripped during canonicalization rather than passed through as a literal
 
 **Extra mounts, guest side (issue #157).** vfkit only *shares* a directory
 under a virtio-fs tag; something inside the guest must still mount that tag
-somewhere. The image's baked `/etc/fstab` knows only the four built-in tags
+somewhere. The image's baked `/etc/fstab` knows only the built-in tags
 (`repo`, `runconfig`, `claudebin`, `claudecreds`) and cannot know the
 operator's, because `mounts` is a **boot** key: it must not change the image's
 bytes, so it stays out of the image-identity hash and two configs differing
@@ -1122,9 +1122,11 @@ cases each carry a negative control that rebuilds the pre-fix collapsing
 `read` from the same captured lines, so the control cannot drift away from
 the code it contrasts with.
 
-Issue #157 extended all three of those surfaces for the completed `mounts`
-feature. The launcher's extra-mount loop is now also run for the manifest it
-writes (a directory entry defaulting to `/mnt/<tag>`, a `path:` override, a
+Issue #157 extended two of those surfaces for the completed `mounts` feature —
+the launcher's extra-mount loop and its config-load gate block — and added a
+slice of its own, the guest's `boot_mount_phase`. The extra-mount loop is now
+also run for the manifest it writes (a directory entry defaulting to
+`/mnt/<tag>`, a `path:` override, a
 single-file entry naming its basename) and for the wrap directory it builds —
 including that the wrap entry is a **hard link** to the source, asserted by
 comparing inode numbers rather than content, since a copy would match on

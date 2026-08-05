@@ -406,6 +406,8 @@ emit_boot_launcher() {
 # getty on /dev/hvc1 (serial-getty@hvc1 drop-in), so it has a real controlling
 # terminal -- the vfkit `virtio-serial,stdio` console the launching terminal is
 # bridged to. It loads the run environment (proxy + args + geometry + renderer),
+# mounts the operator's configured `mounts:` shares at their guest paths so
+# every later step sees a fully-assembled filesystem (issue #157),
 # installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
 # into $HOME/.claude/.credentials.json so claude authenticates as the host
 # operator (issue #50) AND the host's identity seed (userID + oauthAccount +

@@ -218,9 +218,24 @@ repo use?" The common cases:
   repo, while global stays `4096`).
 - Extra `egress.allow` hosts this repo's build/test needs (e.g. a
   package registry). These union with the global allowlist.
-- Extra `mounts` this repo needs. Write both a `source:` and a `tag:` on
-  every entry, and keep each tag unique: the guest mounts each share *by*
-  its tag, so an entry missing either key aborts the launch (issue #226).
+- Extra `mounts` this repo needs. Each entry takes a `source:` (a host
+  directory, or a single file) and a `tag:`, plus an optional `mode:`
+  (`ro` default, or `rw`) and an optional absolute `path:` (the guest
+  mountpoint, default `/mnt/<tag>`). The guest mounts each share *by*
+  its tag, and every mistake aborts the launch rather than booting
+  without the mount: a missing `source:`/`tag:` (issue #226), a
+  `source:` that is not on the host, a `tag:` that is reserved
+  (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
+  `[A-Za-z0-9._-]`, or repeated, a `mode:` other than `ro`/`rw`, and a
+  `path:` that is relative, carries `..`, or collides with one of
+  claude-vm's own mountpoints or another entry's (issue #157). The tag
+  and path checks run over the **merged** global+repo list, so a
+  per-repo entry can collide with a global one — check Step 2's global
+  `mounts` before writing a tag or path.
+  **`mode: rw` pierces the VM isolation boundary for that path**: it is
+  an enforced mount option, and the guest's writes land on the host
+  directory live, with no copy-back step. Only write `rw` when the user
+  asks for it explicitly.
 - Extra apt packages this repo's build needs beyond the global set:
   baked into the image (bake file `packages:`) or installed at boot
   (boot file `packages:`), plus any third-party `apt_sources` (either
