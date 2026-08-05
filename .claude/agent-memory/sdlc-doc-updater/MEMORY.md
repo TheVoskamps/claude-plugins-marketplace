@@ -25,8 +25,9 @@
 - [claude-vm config-wizard skills lag](project_claude-vm-config-wizard-skills-lag.md)
   — claude-vm feature work leaves the two config-WIZARD SKILL.md files stale;
   a wrong bake/boot placement there makes the wizard write a config that
-  cannot launch; also check payload/README.md's helper-function list, and
-  the call-site/file-header comments that summarize a changed validator.
+  cannot launch; also check payload/README.md's helper-function list, the
+  call-site/file-header comments that summarize a changed validator, and
+  behavioral caveats about a value the wizard offers.
 - [issue-ref sweep artifacts](project_issue-ref-sweep-artifacts.md) —
   a mechanical `#N`-removal sweep breaks grammar ACROSS comment line
   wraps (line greps miss it) and turns refs into unnamed "this issue"
@@ -56,6 +57,10 @@
   "aborts with the path named" is a claim per BRANCH of the validator;
   read the message strings, then sweep — that sentence is always copied
   to several doc surfaces.
+- [Widened guard, narrow prose](feedback_widened-guard-narrow-prose.md)
+  — after equality is widened to a relation (overlap/ancestor/range),
+  the rationale comment on each protected VALUE still spells the narrow
+  case; grep the old vocabulary, not the guard.
 - [Probe the gate binary, not the walk](feedback_probe-the-gate-binary-not-the-walk.md)
   — settle a gate reach-claim ("descends into every X") with a throwaway
   _test.go calling classifyBash; the helper is right, its call sites are

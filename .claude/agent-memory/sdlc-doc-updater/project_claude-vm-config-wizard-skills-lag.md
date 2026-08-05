@@ -41,6 +41,15 @@ where the cross-tier warning belongs — the tag/path collision checks run
 over the MERGED global+repo list, so a per-repo entry can collide with a
 global one the wizard just read in its "show the global basis" step.
 
+The wizard lag survives a fixer round too: #157's second round added the
+`rw` single-file `EBUSY`/rename caveat to `payload/README.md`,
+`skills/claude-vm/SKILL.md` and `config-boot.example.yml` and skipped
+`claude-vm-config-repo/SKILL.md`, even while editing that very file for
+the widened `path:` overlap rule. A **behavioral caveat about a value the
+wizard offers** (here: proposing a single file as a `source:`) is a wizard
+concern for the same reason a validation gate is — the wizard is what
+talks the operator into the entry.
+
 A fourth class, also #157: the launcher's **call-site** comment for a
 validator (`claude_vm_check_mounts` in `claude-vm.sh`) and the emitted boot
 launcher's **file-header step list** in `build-guest-image.sh` both go stale
