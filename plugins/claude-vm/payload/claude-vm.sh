@@ -1422,27 +1422,66 @@ fi
 # beyond what CONFIG_DIR already has.
 #
 # SINGLE-FILE SOURCES. virtio-fs shares directories only, so a file source is
-# WRAPPED: the launcher makes a per-entry directory under $RUN and puts the file
-# in it (the same shape the claudecreds mount uses for the credential file),
-# shares THAT, and the guest bind-mounts the one file out of it onto the target
-# path -- so nothing else from the file's real parent directory is exposed. The
-# wrap entry is a HARD LINK, not a copy: a copy would make `mode: rw` a lie
-# (guest writes would land in the throwaway wrap dir and never reach the host
-# file), whereas a hard link is the same inode, so an rw single-file mount
-# writes through live exactly like an rw directory mount. `ln` fails across
+# WRAPPED: the launcher makes a per-entry directory under $MOUNT_WRAP_DIR and
+# puts the file in it (the same shape the claudecreds mount uses for the
+# credential file), shares THAT, and the guest bind-mounts the one file out of
+# it onto the target path -- so nothing else from the file's real parent
+# directory is exposed. The wrap entry is a HARD LINK, not a copy: a copy would
+# make `mode: rw` a lie (guest writes would land in the throwaway wrap dir and
+# never reach the host file), whereas a hard link is the same inode, so an rw
+# single-file mount writes through to the host file live. `ln` fails across
 # filesystems, and that is a hard abort rather than a silent downgrade to a
 # copy -- see the message for the fix.
+#
+# A caveat the directory shape does not have: a file bind mount cannot be
+# REPLACED by rename(2) inside the guest (the kernel returns EBUSY), so an rw
+# single-file mount takes in-place writes but refuses the write-temp-then-
+# rename pattern `git config`, `sed -i` and most editors use. Mount the
+# containing directory when the guest needs to replace the file rather than
+# edit it.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
 MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 : > "$MOUNTS_TSV"
-# Parent of the per-entry single-file wrap dirs, alongside the run's other
-# artifacts under $RUN. $RUN is RETAINED after the run (cleanup() shreds only
-# $CREDS_DIR; the diff/apply skills read the rest), and that is harmless here:
-# a hard link is an extra NAME for the operator's file, not a copy of its
-# bytes, so nothing is duplicated and deleting the run dir never touches their
-# data.
-MOUNT_WRAP_DIR="$RUN/mount-wrap"
+# Parent of the per-entry single-file wrap dirs. Every entry in it is a HARD
+# LINK to the operator's file -- the same inode -- so whatever can write inside
+# this directory can write that file, whatever the entry's `mode:` says. It
+# must therefore sit OUTSIDE the directories claude-vm itself hands the guest,
+# or `mode: ro` is only as strong as the weakest path to the inode.
+#
+# $RUN is the natural home: it is where the run's other artifacts live, and it
+# is the best available guess at the source file's own volume, which a hard
+# link cannot cross. Under repo.mount: clone that is also SAFE -- the repo
+# share is $RUN/worktree, a sibling of this directory, so the guest never sees
+# the wrap dir at all. Under repo.mount: live the repo share is $REPO_SRC
+# itself and $RUN lives inside it (<repo>/.claude/tmp/<run-id>), and the guest
+# fstab mounts tag `repo` RW -- so a wrap dir under $RUN would be reachable and
+# writable from the guest at /mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/,
+# a second read-write path to the very inode a `mode: ro` single-file mount
+# promises the guest cannot write.
+#
+# So: test $RUN against the ACTUAL repo share rather than against REPO_MOUNT,
+# which keeps this correct if a future mount strategy changes what is shared,
+# and fall back to a per-run dir under $TMPDIR -- outside the repo, and outside
+# the other shares claude-vm builds for itself ($RUN/config, $RUN/creds, and
+# the verified-binary cache under ~/.config/claude-vm). That dir is NOT covered
+# by the run-dir retention, so cleanup() removes it (removing hard links, never
+# the operator's file).
+MOUNT_WRAP_TMPDIR=""
+case "$RUN/" in
+  "$MOUNT_SHARED_DIR"/*)
+    MOUNT_WRAP_TMPDIR="$(claude_vm_mktemp -d claude-vm-wrap)"
+    MOUNT_WRAP_DIR="$MOUNT_WRAP_TMPDIR"
+    ;;
+  *)
+    # $RUN is RETAINED after the run (cleanup() shreds only $CREDS_DIR; the
+    # diff/apply skills read the rest), so the wrap dir and its links outlive
+    # the VM. That duplicates no bytes -- a hard link is an extra NAME for the
+    # operator's file -- but it does mean the file's data survives deletion of
+    # the original until the run dir is removed.
+    MOUNT_WRAP_DIR="$RUN/mount-wrap"
+    ;;
+esac
 # Split each record BY HAND rather than with 'IFS=<tab> read -r src tag mode'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
 # an empty MIDDLE field vanishes and every later field shifts left. A mounts
@@ -1489,9 +1528,9 @@ while IFS= read -r mount_record; do
       echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
       echo "claude-vm:   hard-linking it into a wrap directory at $mount_shared_dir -- but that link" >&2
       echo "claude-vm:   could not be created. A hard link cannot cross filesystems, so this usually means" >&2
-      echo "claude-vm:   the source is on a different volume than this run directory. Either put a copy of" >&2
-      echo "claude-vm:   the file on the same volume and point 'source:' at that, or mount its containing" >&2
-      echo "claude-vm:   DIRECTORY instead (source: $(dirname "$src"))." >&2
+      echo "claude-vm:   the source is on a different volume than that wrap directory. Either put a copy" >&2
+      echo "claude-vm:   of the file on the same volume and point 'source:' at that, or mount its" >&2
+      echo "claude-vm:   containing DIRECTORY instead (source: $(dirname "$src"))." >&2
       exit 1
     fi
   fi
@@ -1772,6 +1811,16 @@ cleanup() {
   # Guarded for an early-trap fire (before SOCK_DIR is set).
   if [ -n "${SOCK_DIR:-}" ]; then
     rm -rf "$SOCK_DIR"
+  fi
+  # Remove the single-file mount wrap dir when it was sited under $TMPDIR
+  # rather than under $RUN (repo.mount: live -- see MOUNT_WRAP_DIR above).
+  # Like SOCK_DIR it is outside the run dir, so the run-dir retention does not
+  # cover it. Its entries are hard links: removing them drops an extra NAME for
+  # the operator's file and never the file itself. Empty when the wrap dir
+  # went under $RUN, which is retained with the rest of the run dir. Guarded
+  # for an early-trap fire (before MOUNT_WRAP_TMPDIR is set).
+  if [ -n "${MOUNT_WRAP_TMPDIR:-}" ]; then
+    rm -rf "$MOUNT_WRAP_TMPDIR"
   fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then

@@ -2469,6 +2469,12 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
   # $RUN and $CONFIG_DIR are the run-dir paths the real launcher has already
   # created by the time this loop runs; the harness supplies them so the wrap
   # dir and mounts.tsv land inside the suite's own temp tree.
+  #
+  # $MOUNT_SHARED_DIR is the directory the launcher shares as tag `repo`, which
+  # the loop tests $RUN against to decide where the single-file wrap dir may
+  # live. It defaults to $RUN/worktree -- what repo.mount: clone really sets --
+  # so the calls below that do not care read as they always did; the live-mode
+  # case passes its own.
   write_mnt_slice() {
     local out="$1" mode="$2"
     {
@@ -2477,6 +2483,7 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
       printf '. %s\n' "\"$LIB\""
       echo 'MERGED_BOOT="$1"'
       echo 'RUN="$2"'
+      echo 'MOUNT_SHARED_DIR="${3:-$RUN/worktree}"'
       echo 'CONFIG_DIR="$RUN/config"'
       echo 'mkdir -p "$CONFIG_DIR"'
       awk -v start="$MNT_START" -v end="$MNT_END" \
@@ -2574,6 +2581,52 @@ YML
     "$(printf '%s\n' "$MNT_OUT2" | grep -x -- "virtio-fs,sharedDir=$MNT_SRC_DIR,mountTag=data")"
   assert_eq "directory mount: no wrap dir is created for a directory source" \
     "absent" "$([ -e "$MNT_RUN2/mount-wrap/data" ] && echo present || echo absent)"
+
+  # ---- the wrap dir must sit outside the repo share (issue #157 review) ----
+  #
+  # The wrap entry is a hard link to the operator's file, so anything that can
+  # write INSIDE the wrap dir can write that file whatever `mode:` says. Under
+  # repo.mount: clone the repo share is $RUN/worktree and the wrap dir is a
+  # sibling, so $RUN is fine. Under repo.mount: live the share is the REPO
+  # ITSELF and $RUN lives inside it (<repo>/.claude/tmp/<run-id>) -- and the
+  # guest fstab mounts tag `repo` rw, so a wrap dir under $RUN would give the
+  # guest a second, WRITABLE path to the inode a `mode: ro` single-file mount
+  # promises it cannot write. The loop must move the wrap dir out.
+  #
+  # Asserted on the sharedDir the loop actually hands vfkit, since that -- not
+  # the variable -- is what decides whether the guest can reach the directory.
+  MNT_WRAP_SHARED() {
+    printf '%s\n' "$1" | sed -n 's/^virtio-fs,sharedDir=\(.*\),mountTag=cfg$/\1/p'
+  }
+
+  # CLONE shape: the share is $RUN/worktree, so the wrap dir stays under $RUN.
+  assert_eq "single-file wrap (clone): the wrap dir stays under \$RUN, beside the worktree share" \
+    "$MNT_RUN2/mount-wrap/cfg" "$(MNT_WRAP_SHARED "$MNT_OUT2")"
+
+  # LIVE shape: $RUN sits INSIDE the shared repo, mirroring
+  # <repo>/.claude/tmp/<run-id>. TMPDIR is pointed at $WORK so the fallback dir
+  # the loop creates lands where this suite's trap already cleans up.
+  MNT_LIVE_SHARE="$WORK/mount-live-repo"
+  MNT_RUN3="$MNT_LIVE_SHARE/.claude/tmp/run3"
+  mkdir -p "$MNT_RUN3"
+  MNT_OUT3="$(TMPDIR="$WORK" bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN3" "$MNT_LIVE_SHARE" 2>&1)"
+  MNT_WRAP3="$(MNT_WRAP_SHARED "$MNT_OUT3")"
+  assert_eq "single-file wrap (live): the shared wrap dir is OUTSIDE the rw repo share" \
+    "outside" "$(case "$MNT_WRAP3/" in "$MNT_LIVE_SHARE"/*) echo inside ;; *) echo outside ;; esac)"
+  assert_eq "single-file wrap (live): it is still a real per-entry dir holding the one file" \
+    "mount-src-file.txt" "$(ls "$MNT_WRAP3" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
+  # Still a hard link, so moving the wrap dir did not quietly become a copy --
+  # which would make `mode: rw` a lie for exactly the mode this case is about.
+  assert_eq "single-file wrap (live): the wrap entry is still a HARD LINK to the source" \
+    "same" "$([ "$(ls -i "$MNT_SRC_FILE" | awk '{print $1}')" = "$(ls -i "$MNT_WRAP3/mount-src-file.txt" | awk '{print $1}')" ] && echo same || echo different)"
+  # NEGATIVE CONTROL: the pre-fix siting was $RUN/mount-wrap unconditionally.
+  # Computed against this very fixture, that path is inside the live share --
+  # which is the defect, and is why the assertion above is not vacuous.
+  assert_eq "single-file wrap (live): NEGATIVE CONTROL -- the pre-fix \$RUN/mount-wrap is INSIDE the share" \
+    "inside" "$(case "$MNT_RUN3/mount-wrap/" in "$MNT_LIVE_SHARE"/*) echo inside ;; *) echo outside ;; esac)"
+  # ...and nothing was left behind under $RUN in the live case.
+  assert_eq "single-file wrap (live): no wrap dir is created under \$RUN" \
+    "absent" "$([ -e "$MNT_RUN3/mount-wrap" ] && echo present || echo absent)"
 else
   echo "SKIP: extra-mount loop extraction from claude-vm.sh failed; mount-split tests skipped." >&2
 fi
@@ -2711,6 +2764,51 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   gate_mount_case "a path over a RESERVED mountpoint (trailing slash)" \
     "$(printf 'mounts:\n  - source: %s\n    tag: sneaky\n    path: /mnt/repo/\n' "$GATE_SRC_A")" \
     "a guest path claude-vm"
+
+  # ABOVE the reserved mountpoints rather than on one. /mnt covers all four
+  # built-in shares at once, and the boot then fails far downstream -- the
+  # settings step aborts with "this indicates a launcher fault", never naming
+  # the config line that caused it. String equality accepted this.
+  gate_mount_case "a path ABOVE the reserved mountpoints (/mnt)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: allofthem\n    path: /mnt\n' "$GATE_SRC_A")" \
+    "which overlaps '/mnt/repo'"
+
+  # The guest root is the extreme of the same case.
+  gate_mount_case "a path ABOVE everything (/)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: root\n    path: /\n' "$GATE_SRC_A")" \
+    "which overlaps '/mnt/repo'"
+
+  # BELOW a reserved mountpoint: the guest mkdir -p's the path INSIDE the
+  # host's shared repo tree (creating a directory in the operator's own repo
+  # under repo.mount: live) and then hides whatever the repo really has there.
+  gate_mount_case "a path INSIDE a reserved mountpoint (/mnt/repo/sub)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: inrepo\n    path: /mnt/repo/sub\n' "$GATE_SRC_A")" \
+    "which overlaps '/mnt/repo'"
+
+  # The guest-side wrap mountpoint is reserved too: every single-file mount is
+  # staged through it, so an entry landing on it (or above it, as /run does)
+  # would shadow the staging directory.
+  gate_mount_case "a path on the guest WRAP mountpoint" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: wrap\n    path: /run/claude-vm/mount-wrap\n' "$GATE_SRC_A")" \
+    "which overlaps '/run/claude-vm/mount-wrap'"
+
+  # That wrap mountpoint is a value on BOTH sides of the host/guest seam: the
+  # host reserves it, and the boot launcher baked into the image mounts there.
+  # The guest launcher is a baked script and cannot source lib/config.sh, so
+  # the value is restated -- assert the two spellings are equal, or the gate
+  # above reserves a guest path nothing actually uses while the one the guest
+  # does use stays claimable.
+  assert_eq "reserved wrap mountpoint: the host constant equals the guest launcher's MOUNT_WRAP_MNT" \
+    "$CLAUDE_VM_GUEST_WRAP_MOUNT" \
+    "$(sed -n 's/^MOUNT_WRAP_MNT=//p' "$TEST_DIR/../build-guest-image.sh" | head -1)"
+
+  # ...and the guard must not over-reach: a path that merely shares a PREFIX
+  # with a reserved mountpoint, without sharing a component boundary, is a
+  # perfectly ordinary mountpoint and must still pass.
+  printf 'mounts:\n  - source: %s\n    tag: near\n    path: /mnt/repofoo\n' "$GATE_SRC_A" \
+    > "$WORK/gate-near-boot.yml"
+  assert_eq "load-gates: a path that only PREFIX-matches a reserved mountpoint passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-near-boot.yml")"
 
   # Two entries resolving to the same guest path: the later mount shadows the
   # earlier one, so one of the two directories is simply unreachable. Distinct

@@ -139,6 +139,15 @@ CLAUDE_VM_GUEST_MOUNT_ROOT=/mnt
 # operator's own directory. Space-delimited, matched with a space-padded `case`
 # so no name is a prefix-match of another.
 CLAUDE_VM_RESERVED_MOUNT_TAGS="repo runconfig claudebin claudecreds"
+# The guest path the boot launcher stages a single-file mount's wrap share at
+# before bind-mounting the one file onto its target -- build-guest-image.sh's
+# MOUNT_WRAP_MNT, restated here because the boot launcher is a script baked
+# into the image and cannot source this file. Kept in the reserved-mountpoint
+# set for the same reason the built-in shares are: an operator `path:` landing
+# on it -- or above it -- would shadow the staging directory every single-file
+# mount passes through. The two spellings must stay equal; each side's comment
+# names the other.
+CLAUDE_VM_GUEST_WRAP_MOUNT=/run/claude-vm/mount-wrap
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized ABOVE the measured/estimated base image content, so a
@@ -725,6 +734,34 @@ claude_vm_mount_guest_path() {
   printf '%s\n' "$path"
 }
 
+# Do two NORMALIZED absolute guest paths name overlapping mount territory --
+# equal, or one a proper ancestor of the other? Returns 0 when they overlap.
+#
+# Mount collisions are not a string-equality relation, which is what the
+# reserved-mountpoint guard originally tested. A path ABOVE a reserved
+# mountpoint swallows it (`path: /mnt` covers every built-in share at once,
+# `path: /` covers the guest root), and a path BELOW one lands INSIDE somebody
+# else's share (`path: /mnt/repo/sub` makes the guest mkdir a directory in the
+# host's shared repo tree, then hides whatever the repo really has there).
+# Equal, above and below are the ways two mountpoints interfere, so the guard
+# tests the relation rather than the string.
+#
+# The test appends a `/` to each side so a prefix match can only land on a
+# component boundary: `/mnt/repo/` prefixes `/mnt/repo/sub/` but not
+# `/mnt/repofoo/`. `/` is already its own separator and is left alone, which is
+# what makes the guest root an ancestor of everything.
+#   $1, $2 -- normalized absolute guest paths (claude_vm_mount_guest_path
+#             output, or a reserved mountpoint constant)
+claude_vm_guest_paths_overlap() {
+  local a="$1" b="$2"
+  [ "$a" = "$b" ] && return 0
+  [ "$a" = "/" ] || a="$a/"
+  [ "$b" = "/" ] || b="$b/"
+  case "$b" in "$a"*) return 0 ;; esac
+  case "$a" in "$b"*) return 0 ;; esac
+  return 1
+}
+
 # Abort (non-zero + a claude-vm: diagnostic) when a `mounts` entry cannot
 # produce a usable mount. Hard abort, never warn-and-limp: every case below
 # ends with the operator not getting the mount they asked for, and a VM that
@@ -765,23 +802,34 @@ claude_vm_mount_guest_path() {
 #   - a `path` that is not absolute: it becomes the guest `mount` target, which
 #     would resolve against the boot launcher's cwd rather than where the
 #     operator meant.
-#   - a `path` colliding with a reserved guest mountpoint, or with another
-#     entry's effective mountpoint: the later mount shadows the earlier one, so
-#     one configured mount is silently unreachable.
+#   - a `path` overlapping a reserved guest mountpoint -- landing ON one,
+#     ABOVE one, or INSIDE one. All three are the same defect: `/mnt/repo`
+#     replaces the working tree, `/mnt` (or `/`) swallows every built-in share
+#     at once, and `/mnt/repo/sub` makes the guest create a directory inside
+#     the host's shared repo tree and hides whatever the repo has there.
+#   - a `path` colliding with another entry's effective mountpoint: the later
+#     mount shadows the earlier one, so one configured mount is silently
+#     unreachable.
 #
 #   $1 -- merged BOOT document file path (mounts is a BOOT key)
 claude_vm_check_mounts() {
   local boot_doc="$1" mnt_tab record src rest tag mode path gpath expanded
-  local idx=0 bad=0 seen_tags=" " seen_paths=" " reserved_tags=" " reserved_paths=" " rtag
+  local idx=0 bad=0 seen_tags=" " seen_paths=" " reserved_tags=" " rtag rpath
+  local -a reserved_paths=()
   [ -n "$boot_doc" ] && [ -f "$boot_doc" ] || return 0
   mnt_tab=$'\t'
-  # Space-padded sets for the two `case` membership tests below. The reserved
-  # PATHS are derived from the reserved TAGS so the two can never drift apart:
-  # the built-in shares are mounted at <root>/<tag> by the image's own fstab.
+  # Space-padded set for the tag membership tests below, and an ARRAY of
+  # reserved mountpoints for the overlap test (which is a relation between two
+  # paths, not a membership test, so it cannot ride a padded string). The
+  # reserved PATHS are derived from the reserved TAGS so the two can never
+  # drift apart: the built-in shares are mounted at <root>/<tag> by the image's
+  # own fstab. The guest wrap mountpoint joins them -- it is not tag-derived,
+  # since the boot launcher creates it rather than the fstab.
   for rtag in $CLAUDE_VM_RESERVED_MOUNT_TAGS; do
     reserved_tags="${reserved_tags}${rtag} "
-    reserved_paths="${reserved_paths}$(claude_vm_mount_guest_path "$rtag" "") "
+    reserved_paths+=("$(claude_vm_mount_guest_path "$rtag" "")")
   done
+  reserved_paths+=("$CLAUDE_VM_GUEST_WRAP_MOUNT")
   while IFS= read -r record; do
     # An EMPTY result set is one empty line, not zero bytes: yq prints a
     # newline for `.mounts // [] | .[]` when there are no mounts at all.
@@ -879,15 +927,17 @@ claude_vm_check_mounts() {
       esac
     fi
     gpath="$(claude_vm_mount_guest_path "$tag" "$path")"
-    case "$reserved_paths" in
-      *" $gpath "*)
-        echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', a guest path claude-vm" >&2
-        echo "claude-vm:   reserves for its own shares ($CLAUDE_VM_RESERVED_MOUNT_TAGS under" >&2
-        echo "claude-vm:   $CLAUDE_VM_GUEST_MOUNT_ROOT). Mounting over one hides the repo, the run config," >&2
-        echo "claude-vm:   the verified claude binary or the OAuth credential from the rest of the boot." >&2
-        bad=1
-        ;;
-    esac
+    for rpath in "${reserved_paths[@]}"; do
+      claude_vm_guest_paths_overlap "$gpath" "$rpath" || continue
+      echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', which overlaps '$rpath' --" >&2
+      echo "claude-vm:   a guest path claude-vm reserves for its own use ($CLAUDE_VM_RESERVED_MOUNT_TAGS" >&2
+      echo "claude-vm:   under $CLAUDE_VM_GUEST_MOUNT_ROOT, plus $CLAUDE_VM_GUEST_WRAP_MOUNT, where a" >&2
+      echo "claude-vm:   single-file mount is staged). Mounting ON a reserved path, ABOVE it or INSIDE it" >&2
+      echo "claude-vm:   hides the repo, the run config, the verified claude binary or the OAuth credential" >&2
+      echo "claude-vm:   from the rest of the boot -- or writes your mountpoint into the share it lands in." >&2
+      bad=1
+      break
+    done
     case "$seen_paths" in
       *" $gpath "*)
         echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', where an earlier entry already" >&2

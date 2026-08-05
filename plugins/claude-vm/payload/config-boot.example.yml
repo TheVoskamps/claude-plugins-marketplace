@@ -250,14 +250,26 @@ egress:
 # single-file mount edits your host file live. A file source usually wants an
 # explicit `path:`, since the useful destination is rarely /mnt/<tag>.
 #
+# A CAVEAT a directory mount does not have: the guest cannot REPLACE a
+# single-file mount by renaming another file over it -- the kernel refuses a
+# rename onto a file bind mount with EBUSY ("Resource busy"). In-place edits go
+# straight through to your host file, but `git config`, `sed -i` and most
+# editors write a temp file and rename it into place, and those fail. It is a
+# loud failure, not a silent one. Mount the containing DIRECTORY instead when
+# you want the guest to be able to rewrite the file wholesale -- which for
+# ~/.gitconfig, the example above, is the usual case.
+#
 # EVERY mistake below aborts the launch rather than booting a VM without the
 # mount you asked for: a missing source or tag, a source that is not on the
 # host, a tag that is reserved, malformed, or repeated, a mode other than
-# ro/rw, a relative `path:`, or a `path:` that lands on one of claude-vm's own
-# mountpoints or on another entry's. The diagnostic names the offending entry
-# by its position in the MERGED boot config -- mounts is a union list, so that
-# number counts through the global entries before the per-repo ones and need
-# not be the entry's position in this file -- and by its path.
+# ro/rw, a relative `path:`, or a `path:` that overlaps one of claude-vm's own
+# guest mountpoints or another entry's. Overlapping means landing ON one,
+# ABOVE one (`path: /mnt` would swallow every built-in share at once, `path: /`
+# the whole guest root) or INSIDE one (`path: /mnt/repo/sub` would put your
+# mountpoint inside the shared repo tree). The diagnostic names the offending
+# entry by its position in the MERGED boot config -- mounts is a union list, so
+# that number counts through the global entries before the per-repo ones and
+# need not be the entry's position in this file -- and by its path.
 #
 # Every entry below is COMMENTED OUT on purpose. A `source:` that is not on the
 # host aborts the launch, so shipping live entries here would make a

@@ -327,18 +327,24 @@ github:
   directory (hard-linking it, so `rw` still writes through to the host
   file) and the guest bind-mounts just that one file onto `path:`.
   Nothing else from the file's real parent directory reaches the guest.
+  A caveat a directory mount does not have: the kernel refuses a
+  `rename(2)` onto a file bind mount with `EBUSY`, so an `rw` single-file
+  mount takes in-place edits but **not** the write-a-temp-then-rename
+  pattern `git config`, `sed -i` and most editors use. Mount the
+  containing directory when the guest needs to replace the file.
 
   Every mistake aborts the launch at config load rather than booting a VM
   without the mount you asked for: a missing `source`/`tag`, a `source`
   that is not on the host, a `tag` that is reserved
   (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
   `[A-Za-z0-9._-]`, or repeated, a `mode` other than `ro`/`rw`, and a
-  `path` that is relative, carries `..`, lands on one of claude-vm's own
-  mountpoints, or duplicates another entry's. The diagnostic names the
-  entry by its position in the merged boot config — `mounts` is a union
-  list, so that number counts through the global entries before the
-  per-repo ones and need not be the entry's position in either file on
-  its own — and by its path when it has one.
+  `path` that is relative, carries `..`, overlaps one of claude-vm's own
+  guest mountpoints — landing on one, above one (`/mnt`, `/`) or inside
+  one (`/mnt/repo/sub`) — or duplicates another entry's. The diagnostic
+  names the entry by its position in the merged boot config — `mounts` is
+  a union list, so that number counts through the global entries before
+  the per-repo ones and need not be the entry's position in either file
+  on its own — and by its path when it has one.
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,

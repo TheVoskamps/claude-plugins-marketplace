@@ -227,8 +227,11 @@ repo use?" The common cases:
   `source:` that is not on the host, a `tag:` that is reserved
   (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
   `[A-Za-z0-9._-]`, or repeated, a `mode:` other than `ro`/`rw`, and a
-  `path:` that is relative, carries `..`, or collides with one of
-  claude-vm's own mountpoints or another entry's (issue #157). The tag
+  `path:` that is relative, carries `..`, overlaps one of claude-vm's own
+  guest mountpoints, or duplicates another entry's (issue #157).
+  *Overlaps* is wider than equals: a `path:` above a reserved mountpoint
+  (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) is rejected too, so never
+  offer a `path:` under `/mnt/<built-in tag>`. The tag
   and path checks run over the **merged** global+repo list, so a
   per-repo entry can collide with a global one — check Step 2's global
   `mounts` before writing a tag or path.

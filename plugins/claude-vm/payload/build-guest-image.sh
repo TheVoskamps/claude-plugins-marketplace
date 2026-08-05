@@ -516,7 +516,12 @@ set +a
 MOUNTS_TSV="$RUNCONFIG_MNT/mounts.tsv"
 # Where a single-file source's wrap share is mounted before its one file is
 # bind-mounted onto the target. Under /run (a tmpfs, cleared each boot) so it
-# never collides with anything the operator can name via `path:`.
+# holds nothing across boots. It is not merely UNLIKELY to collide with an
+# operator `path:` -- the host validator reserves it, as
+# CLAUDE_VM_GUEST_WRAP_MOUNT in lib/config.sh, and rejects any entry whose
+# effective mountpoint lands on it or above it. This launcher is baked into
+# the image and cannot source that file, so the value is restated here; the
+# two must stay equal, and each side's comment names the other.
 MOUNT_WRAP_MNT=/run/claude-vm/mount-wrap
 
 boot_mount_phase() {
