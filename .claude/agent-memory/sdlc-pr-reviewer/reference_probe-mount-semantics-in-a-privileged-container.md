@@ -1,6 +1,6 @@
 ---
 name: probe-mount-semantics-in-a-privileged-container
-description: Kernel mount-semantics claims in a claude-vm PR (ro inheritance through a bind, write-through, EBUSY) are settled by a privileged podman container, not by reasoning; two facts already established for FILE bind mounts.
+description: Kernel mount-semantics claims in a claude-vm PR (ro inheritance through a bind, write-through, EBUSY, and whether root can remount a ro share rw) are settled by a privileged podman container plus the vfkit source, not by reasoning; facts already established for FILE bind mounts.
 metadata:
   type: reference
 ---
@@ -45,3 +45,26 @@ and therefore the stronger evidence.
   writers but *not* `git config`, `sed -i` or an editor that writes a
   temp file and renames — the failure is loud, not silent, but "behaves
   exactly like an `rw` directory mount" is an over-claim worth a Low.
+  Probe the named tools, not just `mv`: real `git config` fails
+  `error: could not write config file …: Resource busy`, GNU `sed -i`
+  fails `sed: cannot rename …: Device or resource busy`, and both
+  succeed through a **directory** mount (the contrast that makes the
+  sentence true). `docker.io/library/debian:12` has `sed` but no `git`;
+  `docker.io/alpine/git` has git and needs `--entrypoint sh`.
+
+**`ro` is a guest-side flag, not a host-side export (PR #231 round 2).**
+vfkit's virtio-fs device has **no** read-only knob — `VirtioFs` in
+`crc-org/vfkit` `pkg/config/virtio.go` is `DirectorySharingConfig` +
+`SharedDir` (so `sharedDir` + `mountTag`), while `virtio-blk` and USB
+mass storage do parse a `readonly` option. Read it with
+`gh api repos/crc-org/vfkit/contents/pkg/config/virtio.go --jq .content
+| base64 -d`. So the host always shares read-write and `mode: ro` is a
+VFS flag inside a guest whose boot launcher runs as root. In the
+container, root lifts exactly that: a `ro` bind refuses a write
+(`Read-only file system`), `mount -o remount,rw,bind <mnt>` succeeds,
+and the next write lands on the source. Virtiofs in a real guest is
+**not** proven by that (different fs, one command to check:
+`mount -o remount,rw /mnt/<tag>` in a booted guest), so raise it as a
+labelled question, not a finding — but do raise it whenever a claude-vm
+doc frames `ro` as something the guest "cannot write", because a fix
+justified by that promise inherits its strength.

@@ -10,6 +10,19 @@ fixer adds the remedy to exactly those files — not to every consumer
 of the rule. The unnamed consumer is the one nobody re-opens on the
 next round.
 
+**The same shape when a GUARD is widened, and the leftovers are
+comments in `.sh` files.** On PR #231 round 2 the fixer widened a
+reserved-mountpoint check from equality to an overlap relation and then
+swept the narrow vocabulary ("lands on it or above it") out of the two
+constants' comments and every `.md` surface — but the launcher's
+*call-site* comment summarizing the same validator kept "lands on a
+reserved … mountpoint" one file away. A doc sweep naturally visits
+prose surfaces and the guard itself; the stragglers are the summary
+comments elsewhere in the *code* (a call site, an emitted script's
+header step list). Grep the narrow relation's vocabulary across the
+whole plugin, `.sh` included, and grade what survives as a Low — the
+code is right, only the sentence is narrow.
+
 **Why:** on PR #224 round 1, the empty-intersection finding named
 `pr-create` and `pr-link-issue`; the fixer added a case split there
 including a "`B` empty — branch doesn't match the convention: use
