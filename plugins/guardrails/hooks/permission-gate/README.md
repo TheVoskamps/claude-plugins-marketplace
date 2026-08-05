@@ -576,9 +576,11 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   operand, and its argument validator accepts zero operands whenever
   stdin is not a TTY — so the spec carries `defaultsToStdin` and
   `gh gist create < /etc/passwd` is graded exactly as the explicit
-  spelling is. It is the only verb in the table that does: `pr comment`,
-  `gist edit` and `release create` each require an explicit `-` or a
-  filename. A published path the gate cannot resolve statically
+  spelling is. It is the only verb in the table that does — no other one
+  reads stdin unless the invocation names it: `pr comment` and `release
+  create` document `-` on their `-F` flag and read stdin only when given
+  it, and `gist edit` takes its file as a positional with no stdin
+  spelling of its own. A published path the gate cannot resolve statically
   **asks** (fail-closed — containment has nothing to grade), and that
   question is asked of the PATH TOKENS rather than of the whole
   command, so `gh pr create --title "$TITLE" --body-file

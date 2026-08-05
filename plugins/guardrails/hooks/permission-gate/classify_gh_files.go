@@ -160,7 +160,7 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 // Flag sets transcribed from `gh <noun> <verb> --help` (gh 2.97.0). A flag gh
 // annotates `file` is a pathValueFlag; one it annotates `string`, `text`,
 // `name`, `title`, `login`, `handle`, `branch`, `number` or `numbers` is not.
-// Two annotations needed a closer read than the type alone:
+// Some annotations needed a closer read than the type alone:
 //
 //   - `--recover` (pr create, issue create) is annotated `string` but names a
 //     JSON file gh reads to prefill the title and body it then publishes. It is
@@ -346,9 +346,11 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		// []string{"-"} }`, and its Args validator accepts zero operands whenever
 		// stdin is not a TTY, so `gh gist create < /etc/passwd` publishes the file
 		// with nothing in argv naming it. ghStdinDefault is what puts that
-		// implicit `-` through the same grading the explicit one gets.
-		// `pr comment`, `gist edit` and `release create` each require an explicit
-		// `-` or a filename, so none of them carries the marker.
+		// implicit `-` through the same grading the explicit one gets. No other
+		// verb here reads stdin unless the invocation names it — `pr comment` and
+		// `release create` document `-` on their `-F` flag, and `gist edit` takes
+		// its file as a positional with no stdin spelling at all — so none of them
+		// carries the marker.
 		"create": ghStdinDefault(ghSpec(
 			map[string]bool{"-d": true, "--desc": true, "-f": true, "--filename": true},
 			map[string]bool{"-p": true, "--public": true, "-w": true, "--web": true},
@@ -410,9 +412,12 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		// because a FIELD flag shields its value only when the `key=` is
 		// statically pinned. What does reach here is a dynamic value on a
 		// non-field entry of gh's shield table (classify_command.go), whose value
-		// was established as non-classification-bearing for `gh api`:
-		// `-t`/`--template` is one, and on `gh pr create` that flag names a local
-		// template FILE, so its value IS classification-bearing now. Fail closed
+		// was established as non-classification-bearing for `gh api`: `--template`
+		// is one, and on `gh pr create` that flag names a local template FILE, so
+		// its value IS classification-bearing now. Only that LONG spelling reaches
+		// here — the shield table's `-t` is `gh pr create`'s `--title` and names no
+		// file, and the verb's short template flag `-T` is not shielded at all, so
+		// `gh pr create -T $X` still denies at the precondition. Fail closed
 		// ASK — the same posture the read and write tracks hold for a dynamic
 		// path.
 		//
@@ -458,8 +463,8 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 // here because the precondition already accepted the same dynamic token on the
 // same grounds.
 //
-// It fails closed — back to the whole-command bool — in the two cases where the
-// per-token answer is not available: a hand-built simpleCommand carrying no
+// It fails closed — back to the whole-command bool — wherever the per-token
+// answer is not available: a hand-built simpleCommand carrying no
 // argMeta, and a path with no argv token of its own. The latter is an
 // input-redirect source substituted for a `-`: a redirect WORD's dynamism sets
 // hasUnknownExpansion but occupies no argv slot, so there is no per-token

@@ -541,7 +541,7 @@ func TestGhFileSpecsCoverEveryRecoverableWrite_229(t *testing.T) {
 			}
 		}
 	}
-	// The two publish verbs that ASK above isGhRecoverableWrite need a spec too,
+	// The publish verbs that ASK above isGhRecoverableWrite need a spec too,
 	// so an ESCAPING path denies rather than riding the publish click-through.
 	publishAsk := map[string]map[string]bool{
 		"release": {"create": true},
@@ -571,8 +571,9 @@ func TestGhFileSpecsCoverEveryRecoverableWrite_229(t *testing.T) {
 
 // `gh gist create` is the only verb in the table that reads stdin with no marker
 // in argv: gh's createRun substitutes `-` when the invocation carries no file
-// operand, while `pr comment`, `gist edit` and `release create` each require an
-// explicit `-` or a filename. Pinned so a spec cannot pick the marker up by
+// operand, while every other verb here reads stdin only when the invocation
+// names it — `pr comment` and `release create` through the `-` their `-F`
+// documents, `gist edit` not at all. Pinned so a spec cannot pick the marker up by
 // copy-paste, which would grade an input redirect on a verb that never reads it.
 func TestGhFileSpecsStdinDefaultIsGistCreateOnly_229(t *testing.T) {
 	for noun, verbs := range ghFileSpecs {
