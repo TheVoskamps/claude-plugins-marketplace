@@ -119,6 +119,36 @@ not the helper name — the Derived egress paragraph never names the
 helper. When the per-entry policy gains skip paths, count them in the
 code and check the prose enumerates the same set.
 
+## Sweep every "no read-only mounts" surface when read-only lands
+
+`plugins/claude-vm` extra mounts are read-write only, and the config
+carries no `mode:` key: read-only cannot be enforced on this stack
+(vfkit's virtio-fs device has no read-only export, and the guest session
+is root, so a guest-side `-o ro` is undoable from inside). Issue #233
+carries the enforced design — a read-only block device, so the
+hypervisor refuses the write and guest root is irrelevant — and it need
+not spell its config surface `mode:`.
+
+Until it lands, an explicitly-supplied `mode:` is a hard abort at config
+load rather than an ignored key, because silently accepting `mode: ro`
+leaves an operator believing a share is read-only when the guest can
+write it. The abort is a *presence* test (`claude_vm_mount_mode_entries`
+asks yq `has("mode")`), since `mode: ""` and a valueless `mode:` render
+as the same empty field an omitted key does.
+
+The "there is no read-only option" claim is restated on every surface an
+operator or an agent can reach, so a PR that adds enforced read-only in
+one place leaves the rest asserting the opposite: `payload/README.md`
+(*No read-only mounts*), `payload/config-boot.example.yml`'s boxed
+`mounts` warning, `payload/lib/config.sh`'s extra-mount block and the
+abort's own operator message, `payload/claude-vm.sh`'s extra-mount
+block, `payload/build-guest-image.sh`'s `boot_mount_phase` block and its
+`-o rw` comment, `skills/claude-vm/SKILL.md`, and
+`skills/claude-vm-config-repo/SKILL.md`. `payload/test/config-test.sh`
+pins the abort in every spelling. Grep `read-only` across
+`plugins/claude-vm/` rather than fixing the surfaces a diff happens to
+touch.
+
 ## Never split a claude-vm TSV record with a tab-IFS `read`
 
 `plugins/claude-vm` moves multi-field records between its scripts as

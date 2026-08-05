@@ -795,8 +795,19 @@ from inside the very session it would restrain. A config that still sets
 `mode:` **aborts the launch** rather than having the key ignored: silently
 accepting `mode: ro` would leave an operator believing a share is read-only
 when it is not, which is the exact failure this removal exists to eliminate.
+That abort is a **presence** test rather than a value one: `mode: ""` and a
+valueless `mode:` render as the same empty field an *omitted* key does, so
+`claude_vm_mount_mode_entries` asks yq `has("mode")` and emits only the entries
+that carry the key. It stays a separate emitter with its own loop in
+`claude_vm_check_mounts` rather than another field on
+`claude_vm_mount_specs`, so the whole deprecation gate is one function and one
+loop to delete when the replacement lands — not a field every `mounts` reader
+has to carry meanwhile.
 Enforced read-only, at the hypervisor boundary (a read-only block device, so
-guest root is irrelevant), is tracked as **issue #233**.
+guest root is irrelevant), is tracked as **issue #233**. Its config surface
+need not be spelled `mode:`, and whatever it is spelled, every surface listed
+in the root `CLAUDE.md`'s *no read-only mounts* sweep says today that no such
+key exists.
 
 *Single-file sources.* virtio-fs shares directories only, so a file source is
 **wrapped**: the launcher makes a per-entry directory, puts the file in it,
