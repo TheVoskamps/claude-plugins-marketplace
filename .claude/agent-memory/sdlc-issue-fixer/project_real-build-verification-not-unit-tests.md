@@ -90,3 +90,12 @@ launcher you emit still boots, which is exactly the risk a heredoc edit
 carries (cf. [[backtick-comments-in-unquoted-heredocs]]; this heredoc is
 quoted, so backticks in comments are literal — check the delimiter
 before relying on that).
+
+**Addendum (issue #157 PR #231, owner round): the harness's criteria are
+the limit of what it verifies.** host-acceptance.sh attaches only the
+four built-in shares and writes no `mounts.tsv`, so it cannot say
+anything about a `mounts:` change. Reuse its criterion-(b) choreography
+in a scratch script and add the missing pieces —
+[[real-boot-that-exercises-mounts-from-a-worktree]] has the recipe, the
+AF_UNIX/gvproxy blocker a worktree path hits, and the launcher-rev trap
+that makes a boot-test measure a stale image.
