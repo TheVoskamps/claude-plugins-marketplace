@@ -219,30 +219,44 @@ repo use?" The common cases:
 - Extra `egress.allow` hosts this repo's build/test needs (e.g. a
   package registry). These union with the global allowlist.
 - Extra `mounts` this repo needs. Each entry takes a `source:` (a host
-  directory, or a single file) and a `tag:`, plus an optional `mode:`
-  (`ro` default, or `rw`) and an optional absolute `path:` (the guest
-  mountpoint, default `/mnt/<tag>`). The guest mounts each share *by*
-  its tag, and every mistake aborts the launch rather than booting
-  without the mount: a missing `source:`/`tag:` (issue #226), a
-  `source:` that is not on the host, a `tag:` that is reserved
+  directory, or a single file) and a `tag:`, plus an optional absolute
+  `path:` (the guest mountpoint, default `/mnt/<tag>`). The guest mounts
+  each share *by* its tag, and every mistake aborts the launch rather
+  than booting without the mount: a missing `source:`/`tag:` (issue
+  #226), a `source:` that is not on the host, a `tag:` that is reserved
   (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
-  `[A-Za-z0-9._-]`, or repeated, a `mode:` other than `ro`/`rw`, and a
+  `[A-Za-z0-9._-]`, or repeated, a `mode:` key at all, and a
   `path:` that is relative, carries `..`, overlaps one of claude-vm's own
-  guest mountpoints, or duplicates another entry's (issue #157).
+  guest mountpoints, shadows a guest OS path, or duplicates another
+  entry's (issue #157).
   *Overlaps* is wider than equals: a `path:` above a reserved mountpoint
   (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) is rejected too, so never
   offer a `path:` under `/mnt/<built-in tag>`. The tag
   and path checks run over the **merged** global+repo list, so a
   per-repo entry can collide with a global one — check Step 2's global
   `mounts` before writing a tag or path.
-  **`mode: rw` pierces the VM isolation boundary for that path**: it is
-  an enforced mount option, and the guest's writes land on the host
-  directory live, with no copy-back step. Only write `rw` when the user
-  asks for it explicitly.
+  **Every mount is read-write and pierces the VM isolation boundary for
+  that path**: the guest's writes land on the host path live, with no
+  copy-back step. There is **no `mode:` key** — read-only cannot be
+  enforced on this stack (vfkit's virtio-fs device has no read-only
+  export and the guest runs as root), so a config that sets one aborts
+  the launch; issue #233 tracks enforcing it at the hypervisor. Never
+  offer a mount of anything the user would mind an autonomous agent
+  rewriting, and say so plainly when they ask for one.
+  The guest OS's own paths — `/bin /boot /dev /etc /home /lib` (and its
+  `/lib32`, `/lib64`, `/libx32` spellings), `/proc /root /run /sbin /sys
+  /tmp /usr /var`, listed authoritatively as
+  `CLAUDE_VM_GUEST_SYSTEM_PATHS` in `payload/lib/config.sh` — are
+  protected by **shape**: a directory
+  `source:` may not land on, above or inside one — offer `/mnt/<tag>`,
+  `/srv` or `/opt` — while a single-file `source:` may not land on or
+  above one and may sit inside only `/root`, `/home` or `/tmp`. So
+  `path: /root/.gitconfig` for a file is fine; `path: /root` for a
+  directory is not.
   A single-file `source:` is shared by wrapping it in a per-entry
   directory and bind-mounting the one file in the guest, so it carries a
   caveat a directory mount does not: the kernel refuses a `rename(2)`
-  onto a file bind mount with `EBUSY`, so an `rw` single-file mount takes
+  onto a file bind mount with `EBUSY`, so a single-file mount takes
   in-place edits but not the write-a-temp-then-rename pattern
   `git config`, `sed -i` and most editors use. When the user wants the
   guest to rewrite a file wholesale — `~/.gitconfig` is the usual case —

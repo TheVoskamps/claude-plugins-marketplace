@@ -155,12 +155,16 @@ claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
 # A mounts entry with no source or no tag (issue #226): the guest mounts each
 # virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
 # two of them collide on one tag. Since issue #157 the same call also rejects a
-# malformed, reserved or repeated tag, a mode outside ro|rw, a source that is
-# not on the host, and a guest `path:` that is relative, carries `..`, or lands
-# on a reserved or already-used mountpoint -- the whole mounts contract is
-# enforced here, in one pass, so the launcher below can assume every record it
-# reads is usable. Abort rather than launching without the mount the operator
-# asked for.
+# malformed, reserved or repeated tag, a source that is not on the host, a
+# `mode:` key (read-only is unenforceable on this stack -- issue #233), and a
+# guest `path:` that is relative, carries `..`, or OVERLAPS a reserved
+# mountpoint, a guest OS path or another entry's mountpoint. Overlap, not
+# equality: landing on one, above one or inside one is rejected alike, and for a
+# guest OS path the rule is by shape -- a directory mount may not overlap one at
+# all, while a single-file mount may sit inside /root, /home or /tmp. The whole
+# mounts contract is enforced here, in one pass, so the launcher below can
+# assume every record it reads is usable. Abort rather than launching without
+# the mount the operator asked for.
 claude_vm_check_mounts "$MERGED_BOOT" \
   || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
 # claude.plugins is the one map that legitimately appears in BOTH file types
@@ -1411,7 +1415,7 @@ fi
 # VM and then never appeared inside it. The manifest below (mounts.tsv, on the
 # same runconfig share as run.env and the apt/plugin manifests) closes that gap:
 #
-#   <tag><TAB><mode><TAB><guest-path><TAB><file>
+#   <tag><TAB><guest-path><TAB><file>
 #
 # with <file> EMPTY for an ordinary directory mount and set to the file's
 # basename for a single-file mount. It rides a manifest file rather than run.env
@@ -1421,20 +1425,25 @@ fi
 # operator-supplied strings. Not a secret, so it needs no umask tightening
 # beyond what CONFIG_DIR already has.
 #
+# EVERY extra mount is READ-WRITE and the record carries no mode: vfkit's
+# virtio-fs device has no read-only export and the guest session is root, so
+# `ro` would be a promise this stack cannot keep. lib/config.sh's extra-mount
+# block has the verified detail; issue #233 carries the enforced version.
+#
 # SINGLE-FILE SOURCES. virtio-fs shares directories only, so a file source is
 # WRAPPED: the launcher makes a per-entry directory under $MOUNT_WRAP_DIR and
 # puts the file in it (the same shape the claudecreds mount uses for the
 # credential file), shares THAT, and the guest bind-mounts the one file out of
 # it onto the target path -- so nothing else from the file's real parent
 # directory is exposed. The wrap entry is a HARD LINK, not a copy: a copy would
-# make `mode: rw` a lie (guest writes would land in the throwaway wrap dir and
-# never reach the host file), whereas a hard link is the same inode, so an rw
-# single-file mount writes through to the host file live. `ln` fails across
+# make the write-through a lie (guest writes would land in the throwaway wrap
+# dir and never reach the host file), whereas a hard link is the same inode, so
+# a single-file mount writes through to the host file live. `ln` fails across
 # filesystems, and that is a hard abort rather than a silent downgrade to a
 # copy -- see the message for the fix.
 #
 # A caveat the directory shape does not have: a file bind mount cannot be
-# REPLACED by rename(2) inside the guest (the kernel returns EBUSY), so an rw
+# REPLACED by rename(2) inside the guest (the kernel returns EBUSY), so a
 # single-file mount takes in-place writes but refuses the write-temp-then-
 # rename pattern `git config`, `sed -i` and most editors use. Mount the
 # containing directory when the guest needs to replace the file rather than
@@ -1445,9 +1454,9 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 : > "$MOUNTS_TSV"
 # Parent of the per-entry single-file wrap dirs. Every entry in it is a HARD
 # LINK to the operator's file -- the same inode -- so whatever can write inside
-# this directory can write that file, whatever the entry's `mode:` says. It
-# must therefore sit OUTSIDE the directories claude-vm itself hands the guest,
-# or `mode: ro` is only as strong as the weakest path to the inode.
+# this directory can write that file. It must therefore sit OUTSIDE the
+# directories claude-vm itself hands the guest, or a single-file mount quietly
+# exposes the operator's file through a second path as well as its own.
 #
 # $RUN is the natural home: it is where the run's other artifacts live, and it
 # is the best available guess at the source file's own volume, which a hard
@@ -1457,8 +1466,9 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # itself and $RUN lives inside it (<repo>/.claude/tmp/<run-id>), and the guest
 # fstab mounts tag `repo` RW -- so a wrap dir under $RUN would be reachable and
 # writable from the guest at /mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/,
-# a second read-write path to the very inode a `mode: ro` single-file mount
-# promises the guest cannot write.
+# exposing the operator's file at a second guest path they never configured
+# (and one that survives the entry's own mountpoint being skipped by the guest's
+# occupancy check).
 #
 # So: test $RUN against the ACTUAL repo share rather than against REPO_MOUNT,
 # which keeps this correct if a future mount strategy changes what is shared,
@@ -1482,16 +1492,14 @@ case "$RUN/" in
     MOUNT_WRAP_DIR="$RUN/mount-wrap"
     ;;
 esac
-# Split each record BY HAND rather than with 'IFS=<tab> read -r src tag mode'.
+# Split each record BY HAND rather than with 'IFS=<tab> read -r src tag path'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
 # an empty MIDDLE field vanishes and every later field shifts left. A mounts
-# entry written with an empty tag is emitted as source<TAB><TAB>mode<TAB>path,
-# and the collapsing read took the MODE as the mount TAG -- the share went out
-# as mountTag=ro (or rw), and two such entries would share that one tag. Since
-# #157 the record has FOUR fields with TWO optional middle ones (mode, path),
-# so the hazard is strictly wider than it was. The emitter
-# (claude_vm_mount_specs, via yq @tsv) joins all four fields, so every separator
-# is always present and the four expansions below are total.
+# entry written with an empty tag is emitted as source<TAB><TAB>path, and the
+# collapsing read takes the PATH as the mount TAG -- the share goes out as
+# mountTag=/srv/whatever, and two such entries would collide on it. The emitter
+# (claude_vm_mount_specs, via yq @tsv) joins all three fields, so every
+# separator is always present and the three expansions below are total.
 #
 # Since #226 a sourceless or tagless entry never reaches here at all --
 # claude_vm_check_mounts rejected it at config load, above. The split and the
@@ -1505,8 +1513,6 @@ while IFS= read -r mount_record; do
   src=${mount_record%%$MOUNT_TAB*}
   mount_rest=${mount_record#*$MOUNT_TAB}
   tag=${mount_rest%%$MOUNT_TAB*}
-  mount_rest=${mount_rest#*$MOUNT_TAB}
-  mode=${mount_rest%%$MOUNT_TAB*}
   mount_path=${mount_rest#*$MOUNT_TAB}
   [ -z "$src" ] && continue
   # Expand a leading ~ to $HOME (config is YAML, not shell). Shared with
@@ -1535,7 +1541,7 @@ while IFS= read -r mount_record; do
     fi
   fi
   EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$mount_shared_dir,mountTag=$tag")
-  printf '%s\t%s\t%s\t%s\n' "$tag" "$mode" "$mount_guest_path" "$mount_file" >> "$MOUNTS_TSV"
+  printf '%s\t%s\t%s\n' "$tag" "$mount_guest_path" "$mount_file" >> "$MOUNTS_TSV"
 done < <(claude_vm_mount_specs "$MERGED_BOOT")
 
 # ---------------------------------------------------------------------

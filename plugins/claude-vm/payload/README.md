@@ -414,24 +414,51 @@ argv, settings, image identity, and plugin manifests from:
   `claudebin`, `claudecreds` — the launcher always attaches those and the
   image's fstab always mounts them); a `tag` repeated across the merged
   global+repo list (two devices, one guest mount, kernel-enumeration order
-  deciding which wins); a `mode` other than `ro`/`rw` (an enforced mount
-  option since #157, so a typo must not quietly become the default); a
-  `source` that does not exist on the host (otherwise vfkit fails minutes
-  into the launch with a message about a device rather than about the config
-  line); and a `path` that is relative, carries a `..` segment, *overlaps* a
+  deciding which wins); a `source` that does not exist on the host (otherwise
+  vfkit fails minutes into the launch with a message about a device rather
+  than about the config line); a `mode` key at all (see *No read-only mounts*
+  below); and a `path` that is relative, carries a `..` segment, *overlaps* a
   reserved guest mountpoint — landing on one, above one or inside one, see
-  `claude_vm_guest_paths_overlap` below — or duplicates another entry's
-  effective mountpoint. The reserved mountpoints are the built-in tags'
-  own (`<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>`, derived from the tag list so
-  the sets cannot drift apart) plus `CLAUDE_VM_GUEST_WRAP_MOUNT`, the
-  guest path every single-file mount is staged through.
+  `claude_vm_guest_paths_overlap` below — shadows a guest OS path, or
+  duplicates another entry's effective mountpoint. The reserved mountpoints
+  are the built-in tags' own (`<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>`, derived
+  from the tag list so the sets cannot drift apart) plus
+  `CLAUDE_VM_GUEST_WRAP_MOUNT`, the guest path every single-file mount is
+  staged through.
+
+  *Guest OS paths, by shape.* `CLAUDE_VM_GUEST_SYSTEM_PATHS` is the guest's
+  own directory set. Linux **stacks** a mount, so an entry landing on one
+  hides the image's files there for the life of the VM — and
+  `boot_mount_phase` runs first, so the damage always precedes the step that
+  would have noticed (`path: /root` hides `$HOME` before the credential seed
+  writes `/root/.claude` into it, and the boot then fails somewhere else
+  entirely). The rule splits by shape, because a directory mount hides a whole
+  subtree while a single-file bind replaces exactly one file: a **directory**
+  source may not land on, above, or inside a system path, while a **single
+  file** may not land on or above one and may sit inside only
+  `CLAUDE_VM_GUEST_USER_FILE_PATHS` (`/root`, `/home`, `/tmp`), whose contents
+  are user data rather than package files. That split is what keeps #157's own
+  `path: /root/.gitconfig` case working while `path: /root` and
+  `path: /etc/ld.so.preload` do not. `/mnt` is deliberately **not** in the
+  system set — it is claude-vm's own mount root, and `/mnt/<tag>` is the
+  default mountpoint — and neither are `/media`, `/opt` and `/srv`, the FHS
+  mount-something-here directories that ship empty. Membership was measured
+  rather than recalled: a stock `debian:12` rootfs was enumerated directory by
+  directory, and `/bin /dev /etc /lib /proc /root /run /sbin /sys /usr /var`
+  all carry content while `/boot /home /media /mnt /opt /srv /tmp` ship empty
+  (`/boot`, `/home` and `/tmp` are in the set anyway — `/boot` is populated in
+  a bootable image rather than a container rootfs, and the other two are
+  OS-owned working areas). The host list is necessarily a **denylist**, since
+  the launcher cannot read the image's filesystem; the guest's own occupancy
+  check (below) is the observation that can.
 
 - `claude_vm_expand_mount_source` / `claude_vm_mount_guest_path` /
-  `claude_vm_guest_paths_overlap` — the pure helpers the mount contract is
-  defined by, so the validator and the launcher can never disagree about
-  what a config line means. The first expands a leading `~` to `$HOME`
-  (the config is YAML, not shell, so nothing else does). The second
-  returns an entry's guest mountpoint — its `path:` when set, else
+  `claude_vm_guest_path_covers` / `claude_vm_guest_paths_overlap` /
+  `claude_vm_guest_system_path_containing` — the pure helpers the mount
+  contract is defined by, so the validator and the launcher can never
+  disagree about what a config line means. The first expands a leading `~`
+  to `$HOME` (the config is YAML, not shell, so nothing else does). The
+  second returns an entry's guest mountpoint — its `path:` when set, else
   `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>` — with repeated slashes collapsed
   and trailing slashes dropped. That normalization is load-bearing rather
   than cosmetic: without it `path: /mnt/repo/` is a different string from
@@ -439,18 +466,26 @@ argv, settings, image identity, and plugin manifests from:
   naming the same guest directory. `..` is deliberately *not* resolved —
   that needs the guest's filesystem, and a symlink mid-path changes the
   answer — so the validator rejects a path carrying one instead of
-  guessing. The third answers whether two normalized guest paths overlap:
-  equal, or one a proper ancestor of the other. Mount interference is not
-  a string-equality relation, which is what the reserved-mountpoint guard
+  guessing.
+
+  `claude_vm_guest_path_covers` is the directed relation: is path A equal to
+  B, or a proper ancestor of it? It appends a `/` to each side so a prefix
+  match can only land on a component boundary, which is what keeps an
+  ordinary `/mnt/repofoo` from reading as a collision with `/mnt/repo`.
+  `claude_vm_guest_paths_overlap` is covers-either-way, so the
+  component-boundary logic lives in one place. Mount interference is not a
+  string-equality relation, which is what the reserved-mountpoint guard
   originally tested and why `path: /mnt` and `path: /` both used to pass
   validation and then break the boot far downstream. A path *above* a
   reserved mountpoint swallows it (`/mnt` covers every built-in share at
   once, `/` covers the guest root); a path *below* one lands inside
   somebody else's share (`/mnt/repo/sub` makes the guest create a
   directory in the host's shared repo tree, then hides whatever the repo
-  really has there). The test appends a `/` to each side so a prefix match
-  can only land on a component boundary, which is what keeps an ordinary
-  `/mnt/repofoo` from reading as a collision with `/mnt/repo`.
+  really has there). `claude_vm_guest_system_path_containing` names *which*
+  system path a mountpoint sits strictly inside, which is what the
+  single-file rule needs — it must tell `/root/.gitconfig` (fine) from
+  `/etc/ld.so.preload` (a mount over a system file), and only the containing
+  directory distinguishes them.
 - `claude_vm_marketplace_hosts` / `claude_vm_marketplaces_without_host` /
   `claude_vm_boot_marketplace_egress_needed` — the **derived marketplace
   egress** helpers (issue #107), the plugin-side siblings of the apt egress
@@ -480,7 +515,9 @@ exists to keep alive. The same read shape sat on the other three-field
 records too: an `apt_sources` entry with a `key_url` but no `repo` handed the key
 url to `render_apt_source` as the repo *line* (writing a `sources.list.d`
 entry that points at the key, with no key fetched), and a `mounts` entry with
-an empty `tag` handed vfkit the `ro`/`rw` mode as the mount *tag*. The
+an empty `tag` handed vfkit the `ro`/`rw` mode as the mount *tag* (that record
+carried a `mode` field at the time; today the same empty tag would swallow the
+guest `path` instead, which is what the test drives). The
 two-field records carry the leading-field case: a `claude.marketplaces` entry
 with a `url` but no `name` (`<TAB>url`) read its **url as its name**, so the
 effective set and the bake manifest each carried a marketplace called
@@ -490,11 +527,13 @@ diagnostic about a marketplace nobody configured, while the entry the operator
 did configure went unmentioned. A `claude.plugins.enabled` map with an empty
 key (`<TAB>true`) likewise aborted the render blaming a plugin named `true`.
 
-Issue #157 widened the `mounts` record from three fields to **four**
-(`source`, `tag`, `mode`, `path`), with **two optional middle fields** rather
-than one — the worst case for the collapsing read, and the reason the guest
-side was written with a hand split from the start rather than gaining one
-later.
+The `mounts` record is `source`, `tag`, `path` — three fields, with `tag` the
+optional **middle** one, so an entry with no tag still emits
+`source<TAB><TAB>path` and the collapsing read would hand the *path* to the tag
+slot. (Issue #157 briefly carried a fourth `mode` field; removing read-only
+support removed it again, and the guest's own manifest lost the same field.)
+The guest side was written with a hand split from the start rather than gaining
+one later.
 
 **Every** reader — the marketplace and `apt_sources` loops in
 `provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop,
@@ -694,7 +733,7 @@ writes onto the `runconfig` share alongside `run.env` and the apt/plugin
 manifests:
 
 ```text
-mounts.tsv -- <tag><TAB><mode><TAB><guest-path><TAB><file>
+mounts.tsv -- <tag><TAB><guest-path><TAB><file>
 ```
 
 It rides a manifest file rather than `run.env` for the same reason
@@ -711,46 +750,81 @@ claude itself — sees a fully-assembled filesystem. Its failure policy matches
 naming the tag to the `hvc0` diagnostic log and continues to claude, because a
 missing optional mount must never brick an interactive session. Every
 *config-level* mistake was already rejected host-side by
-`claude_vm_check_mounts` before the VM started, so what is left here is
-runtime failure, not operator error. `mount`'s own stderr is captured and
-re-logged rather than left to land on `hvc1`, the interactive console.
+`claude_vm_check_mounts` before the VM started, so what is left here is runtime
+failure plus the one thing only this side can see. `mount`'s own stderr is
+captured and re-logged rather than left to land on `hvc1`, the interactive
+console.
 
-`mode` is a real mount option, not the advisory string it was before #157.
-`ro` is enforced by the kernel — a write inside the guest fails with `EROFS`.
-**`rw` writes straight through to the host directory, live**: no copy-back
-step, no review, no undo (`repo.copy_back` governs the *repo* mount only and
-has nothing to do with these). That deliberately pierces the VM isolation
-boundary for that one path, which is why `ro` is the default and why
-`config-boot.example.yml` says so at length.
+*The occupancy check.* Linux **stacks** a mount: mounting over an occupied
+path does not merge or fail, it hides what was there for the whole session —
+and because this phase runs first, the damage always lands before the step that
+would have noticed. The host rejects every guest OS path it knows of, but that
+list is a denylist: the launcher cannot read the image's filesystem. The guest
+can, so it looks before it mounts. A **directory** mountpoint that already
+exists and is non-empty, one that exists and is not a directory, or a
+**single-file** target that already exists at all, is warned about on `hvc0`
+and **skipped**. Skipping loses a mount the operator asked for and says so
+loudly; shadowing loses part of the OS and says nothing. `/root/.bashrc` is the
+concrete single-file case — it ships in the image, and the launcher's own
+post-mortem shell sources it — while `/root/.gitconfig`, the shape these docs
+advertise, does not exist in the image and mounts normally. Emptiness is tested
+with a pure-shell glob rather than `ls`, so the check cannot itself fail on a
+missing binary at the one point in the boot where it must not.
+
+*No read-only mounts.* Every extra mount is **read-write**, and neither the
+config nor the manifest carries a mode. Writes go straight through to the host
+path, live: no copy-back step, no review, no undo (`repo.copy_back` governs the
+*repo* mount only and has nothing to do with these). That deliberately pierces
+the VM isolation boundary for that one path, which is why
+`config-boot.example.yml` says so at length. Read-only is not merely unset — it
+is unenforceable here, and shipping it under the name `ro` would be a false
+claim. Verified against **vfkit v0.6.4**: its virtio-fs device has no
+read-only option and validates option keys strictly, so
+`--device virtio-fs,…,readOnly=true` fails with
+`Error: unknown option for virtio-fs devices: readOnly` (and `readonly`, and a
+bare `ro`, fail the same way). The block-backed devices *do* carry the key —
+`virtio-blk,…,readonly=true` fails on the **value**
+(`unexpected value for virtio-blk 'readonly' option`), while an actually
+unknown key on the same device gives the `unknown option` wording — so the gap
+is specific to virtio-fs rather than a quirk of the parser. vfkit drives
+Virtualization.framework directly, so there is no virtiofsd in between to hand
+a read-only export to either. The host therefore exports every share
+read-write, and the guest session runs as **root** (autologin getty,
+`HOME=/root`), so a `-o ro` inside the guest is guest-side only and undoable
+from inside the very session it would restrain. A config that still sets
+`mode:` **aborts the launch** rather than having the key ignored: silently
+accepting `mode: ro` would leave an operator believing a share is read-only
+when it is not, which is the exact failure this removal exists to eliminate.
+Enforced read-only, at the hypervisor boundary (a read-only block device, so
+guest root is irrelevant), is tracked as **issue #233**.
 
 *Single-file sources.* virtio-fs shares directories only, so a file source is
 **wrapped**: the launcher makes a per-entry directory, puts the file in it,
 shares *that*, and the guest mounts the wrap at a hidden
 `/run/claude-vm/mount-wrap/<tag>` and then bind-mounts the one named file onto
 the target path — so nothing else from the file's real parent directory is
-exposed. The wrap entry is a **hard link, not a copy**: a copy would make
-`mode: rw` a lie, since guest writes would land in the throwaway wrap dir and
-never reach the host file, whereas a hard link is the same inode and an `rw`
+exposed. The wrap entry is a **hard link, not a copy**: a copy would make the
+write-through a lie, since guest writes would land in the throwaway wrap dir
+and never reach the host file, whereas a hard link is the same inode and a
 single-file mount writes through to the host file live. `ln` fails across
 filesystems, and that is a hard abort naming the fix (move the file onto the
 wrap directory's filesystem, or mount its containing directory) rather than a
-silent downgrade to copy semantics. The bind inherits its read-only-ness from
-the underlying wrap mount, so a `ro` single-file mount rejects writes for
-exactly the reason a `ro` directory mount does.
+silent downgrade to copy semantics.
 
 *Where the wrap directory lives.* Because the wrap entry is the same inode as
-the operator's file, anything that can write **inside** the wrap directory can
-write that file, whatever the entry's `mode:` says — so the wrap directory has
-to sit outside the directories claude-vm itself hands the guest, and `$RUN`
+the operator's file, anything that can reach **inside** the wrap directory can
+read and write that file — so the wrap directory has to sit outside the
+directories claude-vm itself hands the guest, and `$RUN`
 only sometimes does. Under `repo.mount: clone` the repo share is
 `$RUN/worktree` and the wrap
 dir is its sibling, invisible to the guest. Under `repo.mount: live` the share
 is the repo itself, `$RUN` is `<repo>/.claude/tmp/<run-id>` *inside* it, and
 the guest's fstab mounts tag `repo` **rw** — so a wrap dir under `$RUN` would
 be reachable and writable from the guest at
-`/mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/`: a second, read-write path
-to the very inode a `mode: ro` single-file mount promises the guest cannot
-write. The launcher therefore tests `$RUN` against the *actual* repo share —
+`/mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/`: the operator's file exposed
+at a second guest path they never configured, and one that survives the entry's
+own mountpoint being skipped by the occupancy check above. The launcher
+therefore tests `$RUN` against the *actual* repo share —
 not against `repo.mount`, so the test survives a change of mount strategy —
 and falls back to a per-run directory under `$TMPDIR`, which none of the
 shares claude-vm builds for itself (the repo share, `$RUN/config`,
@@ -763,7 +837,7 @@ which means a link to a host file living *outside* the repo persists under
 duplicated (a hard link is a name, not a copy), but the file's data does
 survive deletion of the original.
 
-*What an `rw` single-file mount cannot do.* A file bind mount cannot be
+*What a single-file mount cannot do.* A file bind mount cannot be
 replaced by `rename(2)` — the kernel returns `EBUSY` — so the
 write-a-temp-file-then-rename pattern fails on a single-file mount while
 working fine on a directory mount, which is where the single-file and
@@ -1189,22 +1263,40 @@ also run for the manifest it writes (a directory entry defaulting to
 single-file entry naming its basename) and for the wrap directory it builds —
 including that the wrap entry is a **hard link** to the source, asserted by
 comparing inode numbers rather than content, since a copy would match on
-content and silently break `rw` write-through. The config-load gate block is
+content and silently break write-through. The config-load gate block is
 run once per rejected config, each asserting both the non-zero exit and a
-diagnostic naming the actual problem: a reserved tag, a duplicate tag, an
-invalid mode, a missing host source, a relative `path`, a `path` with a `..`
+diagnostic naming the actual problem: a reserved tag, a duplicate tag, a
+`mode:` key (in every spelling — `ro`, `rw`, a typo, an explicit `""`, and a
+valueless `mode:`, since only a *presence* test tells the last two from an
+omitted key), a missing host source, a relative `path`, a `path` with a `..`
 segment, a `path` over a reserved mountpoint (spelled with a trailing slash,
 so the normalization is what catches it), a duplicate guest path, and a tag
-carrying a comma. And `boot_mount_phase` is sliced out of
-`build-guest-image.sh` and run with `mount` replaced by a shell function
-recording its argv — so the assertions are about *which* mount calls the phase
-makes, with which options, in what order: the mode reaching `mount(8)` as a
-real `-o` option, a `path:` override used verbatim, a single-file entry
-mounting its wrap share first and then binding exactly the one named file, a
-failing mount still returning 0, and the same empty-middle-field split with
-its own negative control. What those cases deliberately cannot assert is that
-the kernel then *enforces* `ro`, or that an `rw` write reaches the host —
-that needs a real guest.
+carrying a comma. The guest-OS-path rule is driven from both sides at once: a
+**directory** on `/root`, on `/etc`, and inside `/usr`, `/root` and `/var` all
+abort, while a **single file** inside `/root` and `/tmp` passes and the same
+in-`/root` path with a *directory* source aborts — one pair of assertions
+differing only in what the source is, which is the whole
+directory-versus-file distinction. The passing side is pinned too: the default
+`/mnt/<tag>`, `/srv/custom`, `/opt/tools` and the component-boundary near-miss
+`/etcetera`.
+
+And `boot_mount_phase` is sliced out of `build-guest-image.sh` — from
+`boot_dir_is_nonempty` through the end of the phase, since a slice that took
+only the phase would leave the occupancy helper undefined and every occupancy
+assertion would pass while testing nothing — and run with `mount` replaced by a
+shell function recording its argv. So the assertions are about *which* mount
+calls the phase makes, with which options, in what order: `-o rw` reaching
+`mount(8)`, a `path:` override used verbatim, a single-file entry mounting its
+wrap share first and then binding exactly the one named file, a failing mount
+still returning 0, and the same empty-middle-field split with its own negative
+control. The occupancy decisions are real filesystem observations and are
+settled here rather than deferred: an occupied directory mountpoint, a
+mountpoint holding only a dotfile, and an existing single-file target each
+produce **no** mount call and a warning, while an *empty* existing mountpoint
+still mounts — without that last one the check could have been "skip whenever
+the path exists", which would break the default `/mnt/<tag>` on any image that
+ships those directories. What these cases deliberately cannot assert is that a
+guest write reaches the host — that needs a real guest.
 
 Requires `yq` (mikefarah v4+); skips cleanly when absent.
 

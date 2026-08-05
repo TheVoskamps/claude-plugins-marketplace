@@ -286,15 +286,12 @@ egress:
     - claude.ai
 
 mounts:                           # extra mounts beyond the repo auto-mount
-  - source: ~/.claude/policy
+  - source: ~/.claude/policy      # ALWAYS read-write -- see below
     tag: policy
-    mode: ro                      # ro (default) | rw -- ENFORCED, see below
   - source: ~/datasets/foo
     tag: data
-    mode: ro
   - source: ~/.gitconfig          # a single FILE works too
     tag: gitconfig
-    mode: ro
     path: /root/.gitconfig        # optional guest mountpoint override
 
 github:
@@ -314,21 +311,31 @@ github:
   an entry with an empty or omitted `tag:` is a share nobody can mount
   and two of them would collide on one tag.
 
-  **`mode: rw` pierces the VM isolation boundary for that one path.** It
-  is an enforced guest mount option, not a hint: `ro` writes fail with
-  `EROFS`, and `rw` writes land on the host directory **live** — no
-  copy-back step, no review, no undo (`repo.copy_back` governs the *repo*
-  mount only). Everything else about the VM still holds; that one
-  directory is simply outside it, on purpose. `ro` is the default so
-  that piercing the boundary is always deliberate.
+  **Every extra mount is read-write, and pierces the VM isolation
+  boundary for that one path.** Guest writes land on the host path
+  **live** — no copy-back step, no review, no undo (`repo.copy_back`
+  governs the *repo* mount only). Everything else about the VM still
+  holds; that one path is simply outside it, on purpose.
+
+  **There is no read-only option, and no `mode:` key.** Read-only cannot
+  be enforced on this stack: vfkit's virtio-fs device has no read-only
+  export (it rejects `readOnly`/`readonly`/`ro` as unknown option keys —
+  verified against vfkit v0.6.4), and the guest session runs as root, so
+  a guest-side `ro` is undoable from inside the guest. A config that
+  still sets `mode:` **aborts the launch** rather than having the key
+  ignored, so nobody believes a share is read-only when it is not.
+  Enforced read-only at the hypervisor boundary is tracked as issue #233.
+  Never point a mount at anything you would mind an autonomous agent
+  rewriting; to give the guest read access to something you care about,
+  mount a disposable copy.
 
   A single **file** `source` works as well as a directory: virtio-fs
   shares directories only, so the launcher wraps the file in a per-entry
-  directory (hard-linking it, so `rw` still writes through to the host
-  file) and the guest bind-mounts just that one file onto `path:`.
+  directory (hard-linking it, so writes still reach the host file) and
+  the guest bind-mounts just that one file onto `path:`.
   Nothing else from the file's real parent directory reaches the guest.
   A caveat a directory mount does not have: the kernel refuses a
-  `rename(2)` onto a file bind mount with `EBUSY`, so an `rw` single-file
+  `rename(2)` onto a file bind mount with `EBUSY`, so a single-file
   mount takes in-place edits but **not** the write-a-temp-then-rename
   pattern `git config`, `sed -i` and most editors use. Mount the
   containing directory when the guest needs to replace the file.
@@ -337,14 +344,32 @@ github:
   without the mount you asked for: a missing `source`/`tag`, a `source`
   that is not on the host, a `tag` that is reserved
   (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
-  `[A-Za-z0-9._-]`, or repeated, a `mode` other than `ro`/`rw`, and a
+  `[A-Za-z0-9._-]`, or repeated, a `mode` key, and a
   `path` that is relative, carries `..`, overlaps one of claude-vm's own
   guest mountpoints — landing on one, above one (`/mnt`, `/`) or inside
-  one (`/mnt/repo/sub`) — or duplicates another entry's. The diagnostic
+  one (`/mnt/repo/sub`) — shadows a guest OS path, or duplicates another
+  entry's. The diagnostic
   names the entry by its position in the merged boot config — `mounts` is
   a union list, so that number counts through the global entries before
   the per-repo ones and need not be the entry's position in either file
   on its own — and by its path when it has one.
+
+  **The guest OS's own paths are protected, by shape.** They are
+  `/bin /boot /dev /etc /home /lib` (and its `/lib32`, `/lib64`,
+  `/libx32` spellings), `/proc /root /run /sbin /sys /tmp /usr /var` —
+  `CLAUDE_VM_GUEST_SYSTEM_PATHS` in `payload/lib/config.sh` is the one
+  authoritative list. Linux stacks a
+  mount, so landing on one hides the image's own files for the whole
+  session, and the mount phase runs first, so the breakage surfaces later
+  as something unrelated. A **directory** source may not land on, above
+  or inside one of those paths — use `/mnt/<tag>` (the default), `/srv`
+  or `/opt`. A single **file** may not land on or above one, and may sit
+  inside only `/root`, `/home` or `/tmp`, which is what makes
+  `path: /root/.gitconfig` legal while `path: /etc/ld.so.preload` is not.
+  The guest checks as well, since only it can see the image: a mountpoint
+  that already exists and is non-empty, or a single-file target that
+  exists at all, is warned about on the boot console and **skipped**
+  rather than mounted over.
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,

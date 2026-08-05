@@ -121,14 +121,36 @@ CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
 
 # Extra-mount defaults + reserved names (issue #157).
 #
-# mode: an entry without an explicit `mode:` is mounted READ-ONLY. Read-only is
-# the conservative default because an `rw` extra mount deliberately pierces the
-# VM isolation boundary for that one directory -- the guest writes straight
-# through to the host path, live, with no copy-back step in between.
+# EVERY extra mount is READ-WRITE, and there is no `mode:` key. Read-only cannot
+# be enforced anywhere on this stack, so offering it under the name `ro` would
+# be a false promise:
+#
+#   - vfkit's virtio-fs device has no read-only option at all. It validates
+#     device option keys strictly, and every spelling is rejected as an UNKNOWN
+#     key -- verified against vfkit v0.6.4:
+#       --device virtio-fs,...,readOnly=true
+#         -> Error: unknown option for virtio-fs devices: readOnly
+#     (`readonly` and a bare `ro` fail the same way). The block-backed devices
+#     DO carry the key -- `virtio-blk,...,readonly=true` fails on the VALUE
+#     ("unexpected value for virtio-blk 'readonly' option"), so there the key
+#     itself is recognized -- which is what makes the virtio-fs gap specific
+#     rather than a quirk of the option parser. vfkit drives
+#     Virtualization.framework directly, so there is no virtiofsd in between to
+#     hand a read-only export to either.
+#   - So the host exports every share read-write, and the guest session runs as
+#     ROOT (autologin getty, HOME=/root). A `-o ro` passed to the guest's own
+#     `mount` is therefore guest-side only and undoable from inside by the very
+#     session it would be restraining.
+#
+# Issue #233 carries the enforced-read-only design (a read-only block device, so
+# the HYPERVISOR refuses the write and guest root is irrelevant) and will pick
+# its own config surface, which need not be spelled `mode:`. Until then an
+# explicitly-supplied `mode:` is a hard abort at config load
+# (claude_vm_check_mounts) rather than an ignored key: silently accepting it
+# would leave an operator believing they had read-only when they do not.
 #
 # The guest mountpoint defaults to `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>`; a
 # per-entry `path:` overrides it.
-CLAUDE_VM_DEFAULT_MOUNT_MODE=ro
 CLAUDE_VM_GUEST_MOUNT_ROOT=/mnt
 # The virtio-fs tags the launcher ALWAYS attaches (claude-vm.sh's vfkit
 # invocation) and the guest image's baked /etc/fstab already mounts
@@ -150,6 +172,55 @@ CLAUDE_VM_RESERVED_MOUNT_TAGS="repo runconfig claudebin claudecreds"
 # launcher mkdirs and mounts a share over per single-file entry. The two
 # spellings must stay equal; each side's comment names the other.
 CLAUDE_VM_GUEST_WRAP_MOUNT=/run/claude-vm/mount-wrap
+
+# The guest OS's OWN directories. Linux STACKS a mount: mounting over an
+# occupied path does not merge or fail, it hides what was there for the life of
+# the VM. So an extra mount landing on a guest system path takes the OS's own
+# files out from under the boot -- `path: /etc` hides every configuration file,
+# `path: /usr` hides the boot launcher itself
+# (/usr/local/lib/claude-vm/boot-launcher.sh) and every binary, `path: /root`
+# hides the session's HOME before the credential seed writes /root/.claude into
+# it. The mount phase runs FIRST in the boot launcher, so the damage always
+# lands before the phase that would have noticed, and surfaces later as
+# something unrelated.
+#
+# This set is the HOST's half of the guard and is necessarily a DENYLIST: the
+# launcher cannot read the guest image's filesystem, so it cannot enumerate what
+# is actually there. Its job is to fail fast, before the VM starts, naming the
+# config entry. The guest's own occupancy check (build-guest-image.sh's
+# boot_mount_phase) is the real observation and catches what a denylist cannot.
+#
+# Membership was measured, not recalled: a stock debian:12 rootfs (the guest's
+# base) was enumerated directory by directory, and /bin /dev /etc /lib /proc
+# /root /run /sbin /sys /usr /var all carry content while /boot /home /media
+# /mnt /opt /srv /tmp ship empty. /boot, /home and /tmp are in the set anyway --
+# /boot is populated in a bootable image rather than in a container rootfs,
+# /home and /tmp are OS-owned working areas, and /tmp in particular must stay
+# writable and private for the session. The /lib{32,64,x32} spellings do not
+# exist on arm64 (the guest's architecture) and are listed for the amd64 shape.
+#
+# DELIBERATELY ABSENT: /mnt, /media, /opt, /srv. /mnt is claude-vm's OWN mount
+# root -- the default mountpoint is /mnt/<tag>, so denying it would deny the
+# default -- and its built-in shares are already covered by the reserved-path
+# set above. /media, /opt and /srv are the FHS's mount-something-here
+# directories and ship empty, which is exactly what makes them a safe
+# destination for an operator's share.
+#
+# Space-delimited, matched by the OVERLAP relation rather than by membership,
+# for the same reason the reserved mountpoints are.
+CLAUDE_VM_GUEST_SYSTEM_PATHS="/bin /boot /dev /etc /home /lib /lib32 /lib64 /libx32 /proc /root /run /sbin /sys /tmp /usr /var"
+# The subset of the above whose CONTENTS are user data rather than package
+# files: the guest session's HOME (/root -- claude runs as root), the
+# conventional user-home root, and the scratch area. A SINGLE-FILE mount may
+# land inside one of these, which is what keeps issue #157's own shipped
+# acceptance case (`path: /root/.gitconfig`) working; inside any OTHER system
+# path every file belongs to a package, so a single-file mount there is a
+# mount over a system FILE and is rejected.
+#
+# A file bind replaces exactly one file, while a directory mount hides an entire
+# subtree -- that asymmetry is the whole reason the two shapes do not get the
+# same rule.
+CLAUDE_VM_GUEST_USER_FILE_PATHS="/home /root /tmp"
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized ABOVE the measured/estimated base image content, so a
@@ -666,28 +737,54 @@ claude_vm_egress_hosts() {
 # back apart* carries the full write-up.
 # ---------------------------------------------------------------------
 
-# Emit mounts as tab-separated "source<TAB>tag<TAB>mode<TAB>path" lines from a
-# merged-config file. mode defaults to CLAUDE_VM_DEFAULT_MOUNT_MODE (ro) when
-# unset on a mount entry; `path` (issue #157, the guest mountpoint override) is
+# Emit mounts as tab-separated "source<TAB>tag<TAB>path" lines from a
+# merged-config file. `path` (issue #157, the guest mountpoint override) is
 # emitted EMPTY when unset, and the effective mountpoint is then derived by
 # claude_vm_mount_guest_path below rather than defaulted here -- the default
 # depends on the entry's own tag, which a yq default expression cannot see.
 #
-# `source`, `tag` and `path` are guarded with `// ""` for the same reason every
-# other @tsv emitter in this file is: an UNGUARDED `.tag` renders an OMITTED key
-# as the literal four-character string `null`, which vfkit would then take as
-# the mount tag. With the guard, an omitted key and an explicit `tag: ""` both
-# reach the reader as a genuinely empty field, so one check
-# (claude_vm_check_mounts) covers both spellings.
+# Every field is guarded with `// ""` for the same reason every other @tsv
+# emitter in this file is: an UNGUARDED `.tag` renders an OMITTED key as the
+# literal four-character string `null`, which vfkit would then take as the mount
+# tag. With the guard, an omitted key and an explicit `tag: ""` both reach the
+# reader as a genuinely empty field, so one check (claude_vm_check_mounts)
+# covers both spellings.
 #
-# FOUR fields since issue #157, with TWO optional MIDDLE ones (`mode`, `path`)
-# -- exactly the shape the collapsing `IFS=$'\t' read` destroys. Every reader
-# splits by hand; see the TSV RECORDS block above.
+# THREE fields: `tag` is an optional MIDDLE one -- exactly the shape the
+# collapsing `IFS=$'\t' read` destroys, since an entry with no tag emits
+# `source<TAB><TAB>path` and the collapse would hand the PATH to the tag slot.
+# Every reader splits by hand; see the TSV RECORDS block above. (The record
+# carried a fourth field, `mode`, until read-only support was removed -- see the
+# extra-mount block near the top of this file and issue #233.)
 claude_vm_mount_specs() {
   local file="$1"
   yq eval '
     .mounts // [] | .[]
-    | [(.source // ""), (.tag // ""), (.mode // "'"$CLAUDE_VM_DEFAULT_MOUNT_MODE"'"), (.path // "")] | @tsv
+    | [(.source // ""), (.tag // ""), (.path // "")] | @tsv
+  ' "$file" 2>/dev/null
+}
+
+# Emit "entry-number<TAB>source" for every `mounts` entry that CARRIES a `mode:`
+# key, from a merged-config file. Feeds claude_vm_check_mounts's abort on a key
+# this stack cannot honour (see the extra-mount block near the top of this file).
+#
+# It is a separate emitter rather than another field on claude_vm_mount_specs
+# because it asks a different question -- is the key PRESENT? -- which no value
+# can answer: `mode: ""`, `mode:` (a null) and an omitted `mode:` all render as
+# the same empty field, and the first two are supplied while the third is not.
+# `has("mode")` distinguishes them (verified against yq v4.53.3 over all three
+# spellings plus a `- {}` entry, which does not error). Keeping it separate also
+# means the whole deprecation gate is one function and one call to delete when
+# #233 lands its own surface, rather than a field every mounts reader carries.
+#
+# The entry number is `to_entries`' index + 1, so it counts through the MERGED
+# list exactly the way claude_vm_check_mounts's own idx does.
+claude_vm_mount_mode_entries() {
+  local file="$1"
+  yq eval '
+    .mounts // [] | to_entries | .[]
+    | select(.value | has("mode"))
+    | [(.key + 1), (.value.source // "")] | @tsv
   ' "$file" 2>/dev/null
 }
 
@@ -736,8 +833,31 @@ claude_vm_mount_guest_path() {
   printf '%s\n' "$path"
 }
 
+# Does NORMALIZED absolute guest path $1 COVER $2 -- is it equal to it, or a
+# proper ancestor of it? Returns 0 when it does. The directed half of the
+# overlap relation below, and a guard in its own right: a mount at a path that
+# covers something hides that something, while a mount at a path merely INSIDE
+# something is a different (and for a single file, permitted) shape.
+#
+# The test appends a `/` to each side so a prefix match can only land on a
+# component boundary: `/mnt/repo/` prefixes `/mnt/repo/sub/` but not
+# `/mnt/repofoo/`. `/` is already its own separator and is left alone, which is
+# what makes the guest root an ancestor of everything.
+#   $1, $2 -- normalized absolute guest paths (claude_vm_mount_guest_path
+#             output, or a reserved/system mountpoint constant)
+claude_vm_guest_path_covers() {
+  local a="$1" b="$2"
+  [ "$a" = "$b" ] && return 0
+  [ "$a" = "/" ] || a="$a/"
+  [ "$b" = "/" ] || b="$b/"
+  case "$b" in "$a"*) return 0 ;; esac
+  return 1
+}
+
 # Do two NORMALIZED absolute guest paths name overlapping mount territory --
 # equal, or one a proper ancestor of the other? Returns 0 when they overlap.
+# Symmetric, and defined as covers-either-way so the component-boundary logic
+# lives in exactly one place.
 #
 # Mount collisions are not a string-equality relation, which is what the
 # reserved-mountpoint guard originally tested. A path ABOVE a reserved
@@ -747,20 +867,31 @@ claude_vm_mount_guest_path() {
 # host's shared repo tree, then hides whatever the repo really has there).
 # Equal, above and below are the ways two mountpoints interfere, so the guard
 # tests the relation rather than the string.
-#
-# The test appends a `/` to each side so a prefix match can only land on a
-# component boundary: `/mnt/repo/` prefixes `/mnt/repo/sub/` but not
-# `/mnt/repofoo/`. `/` is already its own separator and is left alone, which is
-# what makes the guest root an ancestor of everything.
-#   $1, $2 -- normalized absolute guest paths (claude_vm_mount_guest_path
-#             output, or a reserved mountpoint constant)
+#   $1, $2 -- normalized absolute guest paths
 claude_vm_guest_paths_overlap() {
-  local a="$1" b="$2"
-  [ "$a" = "$b" ] && return 0
-  [ "$a" = "/" ] || a="$a/"
-  [ "$b" = "/" ] || b="$b/"
-  case "$b" in "$a"*) return 0 ;; esac
-  case "$a" in "$b"*) return 0 ;; esac
+  claude_vm_guest_path_covers "$1" "$2" && return 0
+  claude_vm_guest_path_covers "$2" "$1" && return 0
+  return 1
+}
+
+# Which guest SYSTEM path does a normalized mountpoint sit inside, if any?
+# Prints that system path and returns 0; prints nothing and returns 1 when the
+# mountpoint is not under one. "Inside" is strict: a mountpoint EQUAL to a
+# system path is not inside it, it IS it, and that is the covers case above.
+#
+# Used only by the single-FILE rule, which needs to know not merely THAT the
+# target is under a system path but WHICH one -- /root/.gitconfig is the
+# sanctioned shape, /etc/ld.so.preload is a mount over a system file.
+#   $1 -- normalized absolute guest mountpoint
+claude_vm_guest_system_path_containing() {
+  local gpath="$1" sp
+  for sp in $CLAUDE_VM_GUEST_SYSTEM_PATHS; do
+    [ "$gpath" = "$sp" ] && continue
+    if claude_vm_guest_path_covers "$sp" "$gpath"; then
+      printf '%s\n' "$sp"
+      return 0
+    fi
+  done
   return 1
 }
 
@@ -795,9 +926,6 @@ claude_vm_guest_paths_overlap() {
 #     under one tag, and one guest mount that resolves to whichever the kernel
 #     enumerated first. Nondeterministic, so one of the two mounts is simply
 #     the wrong directory.
-#   - a `mode` other than ro|rw: it is now an enforced mount option, not the
-#     advisory string it was before #157, so a typo (`read-only`, `RW`) must not
-#     silently become the default.
 #   - a `source` that does not exist on the host: vfkit fails to start (or
 #     shares an empty dir) minutes into a launch, with a message about a device
 #     rather than about the config line that caused it.
@@ -809,14 +937,35 @@ claude_vm_guest_paths_overlap() {
 #     replaces the working tree, `/mnt` (or `/`) swallows every built-in share
 #     at once, and `/mnt/repo/sub` makes the guest create a directory inside
 #     the host's shared repo tree and hides whatever the repo has there.
+#   - a `path` shadowing a guest SYSTEM path (CLAUDE_VM_GUEST_SYSTEM_PATHS).
+#     Linux stacks a mount, so whatever was at that path becomes unreachable
+#     for the life of the VM, and the mount phase runs first -- `path: /root`
+#     hides HOME before the credential seed writes /root/.claude into it. The
+#     rule differs by SHAPE, because a directory mount hides a whole subtree
+#     while a single-file bind replaces exactly one file:
+#       * a DIRECTORY source may not land on, above, or inside a system path;
+#       * a single-FILE source may not land on or above one, and may sit
+#         INSIDE only /root, /home or /tmp (CLAUDE_VM_GUEST_USER_FILE_PATHS),
+#         whose contents are user data. Inside any other system path every
+#         file belongs to a package, so the bind would replace a system file.
+#     That split is what keeps this issue's own `path: /root/.gitconfig` case
+#     working while `path: /root` and `path: /etc/ld.so.preload` do not.
 #   - a `path` colliding with another entry's effective mountpoint: the later
 #     mount shadows the earlier one, so one configured mount is silently
 #     unreachable.
 #
+# A `mode:` key on ANY entry is also an abort, checked before the loop over its
+# own emitter (claude_vm_mount_mode_entries). It is not a malformed value but a
+# key this stack cannot honour at all: see the extra-mount block near the top of
+# this file for why read-only is unenforceable here, and issue #233 for the
+# design that will enforce it. Ignoring the key would leave the operator
+# believing a share is read-only when the guest can write it.
+#
 #   $1 -- merged BOOT document file path (mounts is a BOOT key)
 claude_vm_check_mounts() {
-  local boot_doc="$1" mnt_tab record src rest tag mode path gpath expanded
+  local boot_doc="$1" mnt_tab record src rest tag path gpath expanded
   local idx=0 bad=0 seen_tags=" " seen_paths=" " reserved_tags=" " rtag rpath
+  local mode_idx mode_src sp container
   local -a reserved_paths=()
   [ -n "$boot_doc" ] && [ -f "$boot_doc" ] || return 0
   mnt_tab=$'\t'
@@ -832,6 +981,21 @@ claude_vm_check_mounts() {
     reserved_paths+=("$(claude_vm_mount_guest_path "$rtag" "")")
   done
   reserved_paths+=("$CLAUDE_VM_GUEST_WRAP_MOUNT")
+  # The `mode:` abort, over its own emitter. Same empty-line skip and hand split
+  # as the main loop -- an empty result set is one empty LINE here too.
+  while IFS= read -r record; do
+    [ -n "$record" ] || continue
+    mode_idx=${record%%$mnt_tab*}
+    mode_src=${record#*$mnt_tab}
+    echo "claude-vm: mounts entry #${mode_idx} ('$mode_src') sets 'mode:'. claude-vm no longer has that key:" >&2
+    echo "claude-vm:   every extra mount is READ-WRITE, and read-only cannot be enforced on this stack --" >&2
+    echo "claude-vm:   vfkit's virtio-fs device has no read-only option, and the guest session is root, so" >&2
+    echo "claude-vm:   a guest-side 'ro' is undoable from inside the guest it would be restraining." >&2
+    echo "claude-vm:   Enforced read-only is tracked as issue #233. Remove the 'mode:' line -- claude-vm" >&2
+    echo "claude-vm:   aborts rather than ignoring it, so you never believe a share is read-only when it" >&2
+    echo "claude-vm:   is not. Do not point a mount at anything you would mind the guest rewriting." >&2
+    bad=1
+  done < <(claude_vm_mount_mode_entries "$boot_doc")
   while IFS= read -r record; do
     # An EMPTY result set is one empty line, not zero bytes: yq prints a
     # newline for `.mounts // [] | .[]` when there are no mounts at all.
@@ -842,8 +1006,6 @@ claude_vm_check_mounts() {
     src=${record%%$mnt_tab*}
     rest=${record#*$mnt_tab}
     tag=${rest%%$mnt_tab*}
-    rest=${rest#*$mnt_tab}
-    mode=${rest%%$mnt_tab*}
     path=${rest#*$mnt_tab}
     if [ -z "$src" ]; then
       echo "claude-vm: mounts entry #${idx} has no source -- there is no host path to share." >&2
@@ -886,15 +1048,6 @@ claude_vm_check_mounts() {
         bad=1
         ;;
       *) seen_tags="$seen_tags$tag " ;;
-    esac
-    case "$mode" in
-      ro|rw) : ;;
-      *)
-        echo "claude-vm: mounts entry #${idx} ('$src') has mode '$mode'; the only valid modes are 'ro' and 'rw'." >&2
-        echo "claude-vm:   mode is an enforced guest mount option, so an unrecognized value cannot be" >&2
-        echo "claude-vm:   quietly treated as read-only. Omit 'mode:' to get the default ($CLAUDE_VM_DEFAULT_MOUNT_MODE)." >&2
-        bad=1
-        ;;
     esac
     expanded="$(claude_vm_expand_mount_source "$src")"
     if [ ! -e "$expanded" ]; then
@@ -940,6 +1093,59 @@ claude_vm_check_mounts() {
       bad=1
       break
     done
+    # The guest OS's own directories. Split by SHAPE: the host already knows
+    # which shape an entry is, because it stats the source to decide whether to
+    # wrap it (`-f` is true for a regular file and false for a directory, the
+    # same one-line test the launcher's extra-mount loop makes). A source that
+    # is not there at all was rejected above; it falls to the DIRECTORY rule
+    # here, which is the stricter of the two.
+    if [ -f "$expanded" ]; then
+      # SINGLE FILE: a bind replaces exactly one file, so sitting inside a
+      # system path is fine where the files are the user's. Landing ON a system
+      # path or ABOVE one is not -- `path: /etc` binds a file over the whole
+      # directory, `path: /` over the guest root.
+      for sp in $CLAUDE_VM_GUEST_SYSTEM_PATHS; do
+        claude_vm_guest_path_covers "$gpath" "$sp" || continue
+        echo "claude-vm: mounts entry #${idx} ('$src') would mount its single file at '$gpath', which is the" >&2
+        echo "claude-vm:   guest OS path '$sp' or sits above it. A file mounted there replaces the whole" >&2
+        echo "claude-vm:   directory for the life of the VM -- Linux stacks a mount rather than merging it." >&2
+        echo "claude-vm:   Give the entry a 'path:' naming the FILE it should become, e.g." >&2
+        echo "claude-vm:   /root/.gitconfig." >&2
+        bad=1
+        break
+      done
+      if container="$(claude_vm_guest_system_path_containing "$gpath")"; then
+        case " $CLAUDE_VM_GUEST_USER_FILE_PATHS " in
+          *" $container "*) : ;;
+          *)
+            echo "claude-vm: mounts entry #${idx} ('$src') would mount its single file at '$gpath', inside the" >&2
+            echo "claude-vm:   guest OS directory '$container', where every file belongs to a system package." >&2
+            echo "claude-vm:   Mounting over one replaces it for the life of the VM, and the mount phase runs" >&2
+            echo "claude-vm:   before everything else in the boot, so the rest of the boot never sees the" >&2
+            echo "claude-vm:   file the image shipped. A single-file mount may sit inside" >&2
+            echo "claude-vm:   $CLAUDE_VM_GUEST_USER_FILE_PATHS (user data), or anywhere outside the OS tree" >&2
+            echo "claude-vm:   ($CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>, /srv, /opt)." >&2
+            bad=1
+            ;;
+        esac
+      fi
+    else
+      # DIRECTORY: hides an entire subtree, so ON, ABOVE and INSIDE a system
+      # path are all the same defect and all rejected.
+      for sp in $CLAUDE_VM_GUEST_SYSTEM_PATHS; do
+        claude_vm_guest_paths_overlap "$gpath" "$sp" || continue
+        echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', which overlaps the guest OS" >&2
+        echo "claude-vm:   path '$sp'. Linux STACKS a mount: whatever the image has there becomes" >&2
+        echo "claude-vm:   unreachable for the life of the VM, and the mount phase runs FIRST, so the" >&2
+        echo "claude-vm:   breakage surfaces later as something unrelated (path: /root hides HOME before the" >&2
+        echo "claude-vm:   credential seed writes /root/.claude into it). Mount a directory under" >&2
+        echo "claude-vm:   $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag> (the default), /srv or /opt instead. A single" >&2
+        echo "claude-vm:   FILE source may land inside $CLAUDE_VM_GUEST_USER_FILE_PATHS -- it replaces one" >&2
+        echo "claude-vm:   file rather than a whole subtree." >&2
+        bad=1
+        break
+      done
+    fi
     case "$seen_paths" in
       *" $gpath "*)
         echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', where an earlier entry already" >&2

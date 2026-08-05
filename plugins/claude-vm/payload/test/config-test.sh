@@ -71,7 +71,6 @@ egress:
 mounts:
   - source: ~/.claude/policy
     tag: policy
-    mode: ro
 packages:
   - htop
 update_at_boot: false
@@ -113,7 +112,6 @@ egress:
 mounts:
   - source: ~/datasets/foo
     tag: data
-    mode: ro
 packages:
   - build-essential
 update_at_boot: true
@@ -512,13 +510,13 @@ cat > "$DUP_G" <<'YML'
 mounts:
   - source: ~/shared
     tag: shared
-    mode: ro
+    path: /srv/shared
 YML
 cat > "$DUP_R" <<'YML'
 mounts:
   - source: ~/shared
     tag: shared
-    mode: ro
+    path: /srv/shared
 YML
 MERGED_D="$WORK/merged-dup.yml"
 claude_vm_merge_config "$DUP_G" "$DUP_R" > "$MERGED_D"
@@ -2433,14 +2431,12 @@ fi
 # single-file source, and writes the guest manifest (issue #226 class
 # completion, extended by issue #157).
 #
-# claude_vm_mount_specs emits source<TAB>tag<TAB>mode<TAB>path. A tab is IFS
-# WHITESPACE, so 'IFS=<tab> read -r src tag mode path' collapses a RUN of tabs
-# into ONE separator: a mounts entry written with an empty tag is emitted as
-# source<TAB><TAB>mode<TAB>path, the empty middle field vanishes, and the MODE
-# is taken as the mount TAG -- the share goes out as mountTag=ro (or rw), and
-# two such entries share that one tag. Since #157 the record has FOUR fields
-# with TWO optional middle ones (mode, path), so the hazard is wider than the
-# three-field shape #226 fixed. Same class as the marketplace record split in
+# claude_vm_mount_specs emits source<TAB>tag<TAB>path. A tab is IFS WHITESPACE,
+# so 'IFS=<tab> read -r src tag path' collapses a RUN of tabs into ONE
+# separator: a mounts entry written with an empty tag is emitted as
+# source<TAB><TAB>path, the empty middle field vanishes, and the PATH is taken
+# as the mount TAG -- the share goes out as mountTag=/srv/whatever, and two such
+# entries share that one tag. Same class as the marketplace record split in
 # podman-mkosi.sh.
 #
 # The loop is bare top-level code in claude-vm.sh (not a function), so it is
@@ -2460,8 +2456,8 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
   # The pre-fix line, rebuilt exactly. The dollar is escaped so this test
   # file's own shell does not expand it; awk's -v runs backslash escapes on the
   # value it is handed, so the awk copy doubles the backslash.
-  MNT_OLD_READ="while IFS=\$'\\t' read -r src tag mode mount_path; do"
-  MNT_OLD_READ_AWK="while IFS=\$'\\\\t' read -r src tag mode mount_path; do"
+  MNT_OLD_READ="while IFS=\$'\\t' read -r src tag mount_path; do"
+  MNT_OLD_READ_AWK="while IFS=\$'\\\\t' read -r src tag mount_path; do"
 
   # write_mnt_slice <out-file> <new|old> -- wrap the captured loop in a
   # runnable harness. Mode "old" rebuilds the collapsing read from the SAME
@@ -2490,7 +2486,7 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
           -v mode="$mode" -v oldread="$MNT_OLD_READ_AWK" '
         NR < start || NR > end { next }
         mode == "old" && $0 == "while IFS= read -r mount_record; do" { print oldread; next }
-        mode == "old" && $0 ~ /^  (src|mount_rest|tag|mode|mount_path)=\$\{mount_(record|rest)/ { next }
+        mode == "old" && $0 ~ /^  (src|mount_rest|tag|mount_path)=\$\{mount_(record|rest)/ { next }
         { print }
       ' "$LAUNCHER"
       echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
@@ -2507,25 +2503,25 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
 mounts:
   - source: /a/empty-tag
     tag: ""
-    mode: rw
+    path: /srv/swallowed
   - source: /a/normal
     tag: work
-    mode: rw
+    path: /srv/work
 YML
 
   MNT_RUN="$WORK/mount-loop-run"
-  assert_eq "mount-split: an empty tag stays empty rather than swallowing the mode" \
+  assert_eq "mount-split: an empty tag stays empty rather than swallowing the path" \
     "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=" \
     "$(bash "$MNT_SLICE" "$MNT_YML" "$MNT_RUN" 2>/dev/null | sed -n 1,2p | tr '\n' ' ' | sed 's/ $//')"
   assert_eq "mount-split: a fully-populated entry keeps its own tag" \
     "--device virtio-fs,sharedDir=/a/normal,mountTag=work" \
     "$(bash "$MNT_SLICE" "$MNT_YML" "$MNT_RUN" 2>/dev/null | sed -n 3,4p | tr '\n' ' ' | sed 's/ $//')"
 
-  # NEGATIVE CONTROL: the pre-fix read promotes the MODE into the tag slot.
+  # NEGATIVE CONTROL: the pre-fix read promotes the PATH into the tag slot.
   assert_eq "mount-split: the control really carries the old tab-IFS read" \
     "1" "$(grep -cF -- "$MNT_OLD_READ" "$MNT_SLICE_OLD" || true)"
-  assert_eq "mount-split: NEGATIVE CONTROL -- the old read mounts the empty-tag share as 'rw'" \
-    "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=rw" \
+  assert_eq "mount-split: NEGATIVE CONTROL -- the old read mounts the empty-tag share as '/srv/swallowed'" \
+    "--device virtio-fs,sharedDir=/a/empty-tag,mountTag=/srv/swallowed" \
     "$(bash "$MNT_SLICE_OLD" "$MNT_YML" "$MNT_RUN" 2>/dev/null | sed -n 1,2p | tr '\n' ' ' | sed 's/ $//')"
 
   # ---- issue #157: the guest manifest and the single-file wrap ----
@@ -2537,9 +2533,9 @@ YML
   MNT_YML2="$WORK/mount-loop-boot2.yml"
   {
     printf 'mounts:\n'
-    printf '  - source: %s\n    tag: data\n    mode: rw\n' "$MNT_SRC_DIR"
-    printf '  - source: %s\n    tag: elsewhere\n    mode: ro\n    path: /srv/elsewhere\n' "$MNT_SRC_DIR"
-    printf '  - source: %s\n    tag: cfg\n    mode: ro\n    path: /root/.gitconfig\n' "$MNT_SRC_FILE"
+    printf '  - source: %s\n    tag: data\n' "$MNT_SRC_DIR"
+    printf '  - source: %s\n    tag: elsewhere\n    path: /srv/elsewhere\n' "$MNT_SRC_DIR"
+    printf '  - source: %s\n    tag: cfg\n    path: /root/.gitconfig\n' "$MNT_SRC_FILE"
   } > "$MNT_YML2"
   MNT_RUN2="$WORK/mount-loop-run2"
   MNT_OUT2="$(bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN2" 2>&1)"
@@ -2547,16 +2543,22 @@ YML
 
   # A directory source is shared as-is, and defaults to /mnt/<tag>.
   assert_eq "mounts.tsv: a directory mount defaults to /mnt/<tag> and carries an empty file field" \
-    "data	rw	/mnt/data	" "$(sed -n 1p "$MNT_TSV2" 2>/dev/null)"
+    "data	/mnt/data	" "$(sed -n 1p "$MNT_TSV2" 2>/dev/null)"
   # An explicit path: overrides the default mountpoint.
   assert_eq "mounts.tsv: an explicit path: overrides /mnt/<tag>" \
-    "elsewhere	ro	/srv/elsewhere	" "$(sed -n 2p "$MNT_TSV2" 2>/dev/null)"
-  # A single-file source names its basename in the 4th field, so the guest
+    "elsewhere	/srv/elsewhere	" "$(sed -n 2p "$MNT_TSV2" 2>/dev/null)"
+  # A single-file source names its basename in the 3rd field, so the guest
   # knows to bind-mount one file out of the wrap share.
   assert_eq "mounts.tsv: a single-file mount names its basename in the file field" \
-    "cfg	ro	/root/.gitconfig	mount-src-file.txt" "$(sed -n 3p "$MNT_TSV2" 2>/dev/null)"
-  assert_eq "mounts.tsv: every record carries exactly 3 separators" \
-    "3" "$(sed -n 1p "$MNT_TSV2" 2>/dev/null | tr -cd '\t' | wc -c | tr -d ' ')"
+    "cfg	/root/.gitconfig	mount-src-file.txt" "$(sed -n 3p "$MNT_TSV2" 2>/dev/null)"
+  assert_eq "mounts.tsv: every record carries exactly 2 separators" \
+    "2" "$(sed -n 1p "$MNT_TSV2" 2>/dev/null | tr -cd '\t' | wc -c | tr -d ' ')"
+  # No record carries a mode field any more -- read-only is unenforceable on
+  # this stack (issue #233), so there is nothing for the guest to read. Asserted
+  # on the whole manifest rather than one line, since a leftover field would
+  # more likely appear on the shape that used to carry a non-default one.
+  assert_eq "mounts.tsv: no record carries a mode field" \
+    "0" "$(grep -c '	ro	\|	rw	' "$MNT_TSV2" 2>/dev/null || true)"
 
   # The file source is shared via its WRAP dir, not its real parent -- that is
   # what keeps the rest of the parent directory out of the guest.
@@ -2585,13 +2587,14 @@ YML
   # ---- the wrap dir must sit outside the repo share (issue #157 review) ----
   #
   # The wrap entry is a hard link to the operator's file, so anything that can
-  # write INSIDE the wrap dir can write that file whatever `mode:` says. Under
+  # reach INSIDE the wrap dir can read and write that file. Under
   # repo.mount: clone the repo share is $RUN/worktree and the wrap dir is a
   # sibling, so $RUN is fine. Under repo.mount: live the share is the REPO
   # ITSELF and $RUN lives inside it (<repo>/.claude/tmp/<run-id>) -- and the
-  # guest fstab mounts tag `repo` rw, so a wrap dir under $RUN would give the
-  # guest a second, WRITABLE path to the inode a `mode: ro` single-file mount
-  # promises it cannot write. The loop must move the wrap dir out.
+  # guest fstab mounts tag `repo` rw, so a wrap dir under $RUN would expose the
+  # operator's file at a second guest path they never configured, one that
+  # survives the entry's own mountpoint being skipped by the guest's occupancy
+  # check. The loop must move the wrap dir out.
   #
   # Asserted on the sharedDir the loop actually hands vfkit, since that -- not
   # the variable -- is what decides whether the guest can reach the directory.
@@ -2616,7 +2619,7 @@ YML
   assert_eq "single-file wrap (live): it is still a real per-entry dir holding the one file" \
     "mount-src-file.txt" "$(ls "$MNT_WRAP3" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
   # Still a hard link, so moving the wrap dir did not quietly become a copy --
-  # which would make `mode: rw` a lie for exactly the mode this case is about.
+  # which would make the documented write-through a lie.
   assert_eq "single-file wrap (live): the wrap entry is still a HARD LINK to the source" \
     "same" "$([ "$(ls -i "$MNT_SRC_FILE" | awk '{print $1}')" = "$(ls -i "$MNT_WRAP3/mount-src-file.txt" | awk '{print $1}')" ] && echo same || echo different)"
   # NEGATIVE CONTROL: the pre-fix siting was $RUN/mount-wrap unconditionally.
@@ -2701,7 +2704,7 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   GATE_OK_BOOT="$WORK/gate-ok-boot.yml"
   {
     printf 'mounts:\n'
-    printf '  - source: %s\n    tag: one\n    mode: ro\n' "$GATE_SRC_A"
+    printf '  - source: %s\n    tag: one\n' "$GATE_SRC_A"
     printf 'claude:\n  marketplaces:\n    - name: mp\n      url: https://example.invalid/mp.git\n'
   } > "$GATE_OK_BOOT"
   assert_eq "load-gates: a well-formed mounts + marketplaces config passes" \
@@ -2739,11 +2742,41 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
     "$(printf 'mounts:\n  - source: %s\n    tag: dup\n  - source: %s\n    tag: dup\n' "$GATE_SRC_A" "$GATE_SRC_B")" \
     "repeats the tag 'dup'"
 
-  # mode is an enforced mount option since #157, so an unrecognized spelling
-  # must not be quietly treated as the ro default.
-  gate_mount_case "an invalid MODE" \
+  # `mode:` is gone: read-only cannot be enforced on this stack (issue #233), so
+  # the key is rejected rather than ignored -- an ignored `mode: ro` would leave
+  # the operator believing a share the guest can write is read-only. EVERY
+  # spelling aborts, the once-valid ones included: `ro` is the dangerous one
+  # (silently accepting it is the false promise), `rw` names a mode that no
+  # longer exists as a key, and a typo was already an abort.
+  gate_mount_case "a 'mode: ro' key" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode: ro\n' "$GATE_SRC_A")" \
+    "sets 'mode:'"
+  gate_mount_case "a 'mode: rw' key" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode: rw\n' "$GATE_SRC_A")" \
+    "sets 'mode:'"
+  gate_mount_case "a misspelled mode" \
     "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode: read-only\n' "$GATE_SRC_A")" \
-    "has mode 'read-only'"
+    "sets 'mode:'"
+  # An explicitly EMPTY mode, and a `mode:` with no value at all (a YAML null).
+  # Both render as the same empty field a value-based check cannot tell from an
+  # omitted key, which is why the gate asks whether the KEY is present.
+  gate_mount_case "an explicitly empty mode" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode: ""\n' "$GATE_SRC_A")" \
+    "sets 'mode:'"
+  gate_mount_case "a valueless mode key" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode:\n' "$GATE_SRC_A")" \
+    "sets 'mode:'"
+  # The diagnostic must point at the issue that will bring read-only back, or
+  # the operator is told "no" with nowhere to go.
+  gate_mount_case "the mode abort naming issue #233" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode: ro\n' "$GATE_SRC_A")" \
+    "issue #233"
+  # ...and the entry NUMBER counts through the merged list the same way every
+  # other mounts diagnostic does, so a second-entry mistake is not reported as
+  # the first's.
+  gate_mount_case "the mode abort naming the right entry number" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: clean\n  - source: %s\n    tag: m\n    mode: ro\n' "$GATE_SRC_A" "$GATE_SRC_B")" \
+    "mounts entry #2 ('$GATE_SRC_B') sets 'mode:'"
 
   # A source that is not on the host: vfkit would fail minutes into the launch
   # with a message about a device rather than about this config line.
@@ -2810,6 +2843,94 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   assert_eq "load-gates: a path that only PREFIX-matches a reserved mountpoint passes" \
     "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-near-boot.yml")"
 
+  # ---- the guest OS's own paths (the CRITICAL case) ----
+  #
+  # Linux STACKS a mount, so an extra mount landing on a guest system path hides
+  # the OS's own files for the life of the VM -- and boot_mount_phase runs
+  # FIRST, so the damage lands before the phase that would have noticed. The
+  # rule is by SHAPE, because a directory mount hides a subtree while a
+  # single-file bind replaces one file. $GATE_SRC_A is a DIRECTORY and
+  # $GATE_SRC_FILE a FILE, which is how each case below picks its shape -- the
+  # gate stats the source exactly as the launcher's loop does.
+  GATE_SRC_FILE="$WORK/gate-src-file.txt"; printf 'x\n' > "$GATE_SRC_FILE"
+
+  # ON a system path. /root is the motivating one: the credential seed writes
+  # /root/.claude AFTER this phase, so a directory mounted at /root swallows
+  # HOME and the failure surfaces later as something unrelated.
+  gate_mount_case "a DIRECTORY on the guest HOME (/root)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: home\n    path: /root\n' "$GATE_SRC_A")" \
+    "overlaps the guest OS"
+  gate_mount_case "a DIRECTORY on /etc" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: etc\n    path: /etc\n' "$GATE_SRC_A")" \
+    "overlaps the guest OS"
+  # INSIDE one: /usr/local/lib/claude-vm is where the boot launcher itself is
+  # installed, and /etc/systemd holds the units that start it.
+  gate_mount_case "a DIRECTORY inside /usr" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: u\n    path: /usr/local/lib\n' "$GATE_SRC_A")" \
+    "overlaps the guest OS"
+  gate_mount_case "a DIRECTORY inside /root" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: rsub\n    path: /root/.claude\n' "$GATE_SRC_A")" \
+    "overlaps the guest OS"
+  gate_mount_case "a DIRECTORY inside /var" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: v\n    path: /var/lib/whatever\n' "$GATE_SRC_A")" \
+    "overlaps the guest OS"
+
+  # A single FILE may sit INSIDE /root -- this is issue #157's own shipped
+  # acceptance case, and a blanket "nothing overlapping a system path" rule
+  # would have killed it. /home and /tmp are the same class.
+  printf 'mounts:\n  - source: %s\n    tag: cfg\n    path: /root/.gitconfig\n' "$GATE_SRC_FILE" \
+    > "$WORK/gate-sysfile-ok.yml"
+  assert_eq "load-gates: a single FILE inside the guest HOME (/root/.gitconfig) passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-sysfile-ok.yml")"
+  printf 'mounts:\n  - source: %s\n    tag: t\n    path: /tmp/seed.json\n' "$GATE_SRC_FILE" \
+    > "$WORK/gate-sysfile-tmp.yml"
+  assert_eq "load-gates: a single FILE inside /tmp passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-sysfile-tmp.yml")"
+
+  # ...but the SAME path with a DIRECTORY source does not. This pair is the
+  # whole directory-vs-file distinction in two assertions: same mountpoint
+  # class, opposite verdicts, decided only by what the source is.
+  gate_mount_case "a DIRECTORY at that same in-/root path" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: cfgdir\n    path: /root/.gitconfig\n' "$GATE_SRC_A")" \
+    "overlaps the guest OS"
+
+  # A single FILE inside a package-owned directory IS a mount over a system
+  # file. /etc/ld.so.preload is the sharpest example -- a file bound there runs
+  # attacker-chosen code in every process the guest starts.
+  gate_mount_case "a single FILE inside /etc" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: pre\n    path: /etc/ld.so.preload\n' "$GATE_SRC_FILE")" \
+    "where every file belongs to a system package"
+  gate_mount_case "a single FILE inside /usr" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: bin\n    path: /usr/local/lib/claude-vm/boot-launcher.sh\n' "$GATE_SRC_FILE")" \
+    "where every file belongs to a system package"
+  # A single FILE landing ON a system directory, or above one: the bind would
+  # replace the whole directory, so the file rule rejects it too.
+  gate_mount_case "a single FILE on a system directory (/etc)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: etcf\n    path: /etc\n' "$GATE_SRC_FILE")" \
+    "or sits above it"
+
+  # The guard must not over-reach. /mnt is claude-vm's OWN mount root, so the
+  # /mnt/<tag> DEFAULT has to keep working, and the FHS mount-here directories
+  # ship empty, which is what makes them the right destination for a share.
+  printf 'mounts:\n  - source: %s\n    tag: plain\n' "$GATE_SRC_A" \
+    > "$WORK/gate-default-mnt.yml"
+  assert_eq "load-gates: the DEFAULT /mnt/<tag> mountpoint still passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-default-mnt.yml")"
+  printf 'mounts:\n  - source: %s\n    tag: s\n    path: /srv/custom\n' "$GATE_SRC_A" \
+    > "$WORK/gate-srv.yml"
+  assert_eq "load-gates: a directory at /srv/custom still passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-srv.yml")"
+  printf 'mounts:\n  - source: %s\n    tag: o\n    path: /opt/tools\n' "$GATE_SRC_A" \
+    > "$WORK/gate-opt.yml"
+  assert_eq "load-gates: a directory at /opt/tools still passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-opt.yml")"
+  # ...and a system path is matched on a COMPONENT boundary, so an ordinary
+  # /etc-prefixed name that is not under /etc is not a collision.
+  printf 'mounts:\n  - source: %s\n    tag: etcish\n    path: /etcetera\n' "$GATE_SRC_A" \
+    > "$WORK/gate-etcetera.yml"
+  assert_eq "load-gates: a path that only PREFIX-matches a system path passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-etcetera.yml")"
+
   # Two entries resolving to the same guest path: the later mount shadows the
   # earlier one, so one of the two directories is simply unreachable. Distinct
   # tags, so this is NOT the duplicate-tag case -- the second entry's default
@@ -2832,7 +2953,6 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
 
   # A single FILE source is legal (it is wrapped by the launcher), so the
   # host-existence check must accept it rather than demanding a directory.
-  GATE_SRC_FILE="$WORK/gate-src-file.txt"; printf 'x\n' > "$GATE_SRC_FILE"
   printf 'mounts:\n  - source: %s\n    tag: f\n    path: /root/.gitconfig\n' "$GATE_SRC_FILE" \
     > "$WORK/gate-file-boot.yml"
   assert_eq "load-gates: a single-FILE source with a path override passes" \
@@ -2849,7 +2969,7 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # claude_vm_mount_specs this rendered the literal string `null` and sailed
   # through to vfkit as mountTag=null; it is now an empty field and a hard stop.
   GATE_NOTAG_BOOT="$WORK/gate-notag-boot.yml"
-  printf 'mounts:\n  - source: /a/omitted-tag\n    mode: rw\n' > "$GATE_NOTAG_BOOT"
+  printf 'mounts:\n  - source: /a/omitted-tag\n' > "$GATE_NOTAG_BOOT"
   GATE_NOTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOTAG_BOOT")"
   assert_eq "load-gates: an OMITTED mount tag aborts the launch" \
     "1" "${GATE_NOTAG%%|*}"
@@ -2862,7 +2982,7 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
 
   # ...and an EXPLICITLY empty tag, the other spelling of the same mistake.
   GATE_EMPTYTAG_BOOT="$WORK/gate-emptytag-boot.yml"
-  printf 'mounts:\n  - source: /a/empty-tag\n    tag: ""\n    mode: rw\n' > "$GATE_EMPTYTAG_BOOT"
+  printf 'mounts:\n  - source: /a/empty-tag\n    tag: ""\n' > "$GATE_EMPTYTAG_BOOT"
   GATE_EMPTYTAG="$(run_gates "$GATE_NONE_BAKE" "$GATE_EMPTYTAG_BOOT")"
   assert_eq "load-gates: an EXPLICITLY empty mount tag aborts the launch" \
     "1" "${GATE_EMPTYTAG%%|*}"
@@ -2876,7 +2996,7 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # A mounts entry with no source at all: nothing to share, and nothing to name
   # it by. Previously the launcher's loop dropped it without a word.
   GATE_NOSRC_BOOT="$WORK/gate-nosrc-boot.yml"
-  printf 'mounts:\n  - tag: orphan\n    mode: ro\n' > "$GATE_NOSRC_BOOT"
+  printf 'mounts:\n  - tag: orphan\n' > "$GATE_NOSRC_BOOT"
   GATE_NOSRC="$(run_gates "$GATE_NONE_BAKE" "$GATE_NOSRC_BOOT")"
   assert_eq "load-gates: a mount with no source aborts the launch" \
     "1" "${GATE_NOSRC%%|*}"
@@ -2984,21 +3104,46 @@ assert_eq "two-field: the bake manifest carries only the named marketplace" \
 
 # claude_vm_mount_specs normalizes an OMITTED tag to an empty field rather than
 # the literal string `null` -- the premise claude_vm_check_mounts rests on, and
-# the reason one check covers both spellings. Since issue #157 the record has
-# FOUR fields (source, tag, mode, path) with TWO optional middle ones, so the
-# trailing `path` field is present-and-empty here too.
+# the reason one check covers both spellings. The record is THREE fields
+# (source, tag, path) with `tag` the optional MIDDLE one.
 TF_MNT="$WORK/twofield-mounts.yml"
-printf 'mounts:\n  - source: /a/omitted-tag\n    mode: rw\n' > "$TF_MNT"
+printf 'mounts:\n  - source: /a/omitted-tag\n' > "$TF_MNT"
 assert_eq "mount-specs: an omitted tag emits an EMPTY field, not the string 'null'" \
-  "/a/omitted-tag		rw	" "$(claude_vm_mount_specs "$TF_MNT")"
-# ...and an omitted `path:` likewise, so the record always carries all three
+  "/a/omitted-tag		" "$(claude_vm_mount_specs "$TF_MNT")"
+# ...and an omitted `path:` likewise, so the record always carries both
 # separators and a hand split is total.
 TF_MNT_PATH="$WORK/twofield-mounts-path.yml"
 printf 'mounts:\n  - source: /a/with-path\n    tag: wp\n    path: /srv/wp\n' > "$TF_MNT_PATH"
-assert_eq "mount-specs: an explicit path rides the 4th field; mode defaults to ro" \
-  "/a/with-path	wp	ro	/srv/wp" "$(claude_vm_mount_specs "$TF_MNT_PATH")"
-assert_eq "mount-specs: every record carries exactly 3 separators" \
-  "3" "$(claude_vm_mount_specs "$TF_MNT" | head -1 | tr -cd '\t' | wc -c | tr -d ' ')"
+assert_eq "mount-specs: an explicit path rides the 3rd field" \
+  "/a/with-path	wp	/srv/wp" "$(claude_vm_mount_specs "$TF_MNT_PATH")"
+assert_eq "mount-specs: every record carries exactly 2 separators" \
+  "2" "$(claude_vm_mount_specs "$TF_MNT" | head -1 | tr -cd '\t' | wc -c | tr -d ' ')"
+# ...and `mode` is gone from the record entirely, whatever the config says. A
+# leftover mode field would shift `path` into the guest's `file` slot.
+TF_MNT_MODE="$WORK/twofield-mounts-mode.yml"
+printf 'mounts:\n  - source: /a/with-mode\n    tag: wm\n    mode: ro\n    path: /srv/wm\n' > "$TF_MNT_MODE"
+assert_eq "mount-specs: a config that still sets mode: emits no mode field" \
+  "/a/with-mode	wm	/srv/wm" "$(claude_vm_mount_specs "$TF_MNT_MODE")"
+
+# claude_vm_mount_mode_entries: the PRESENCE test behind the `mode:` abort. It
+# has to distinguish a supplied key from an omitted one, which no VALUE can do
+# -- `mode: ""` and `mode:` (a null) both render as the same empty field an
+# omitted key renders as.
+TF_MODE_ENTRIES="$WORK/mode-entries.yml"
+{
+  printf 'mounts:\n'
+  printf '  - source: /a/none\n    tag: none\n'
+  printf '  - source: /a/set\n    tag: set\n    mode: ro\n'
+  printf '  - source: /a/empty\n    tag: empty\n    mode: ""\n'
+  printf '  - source: /a/null\n    tag: null-mode\n    mode:\n'
+} > "$TF_MODE_ENTRIES"
+assert_eq "mode-entries: every SPELLING of a supplied mode is reported, by entry number" \
+  "2	/a/set 3	/a/empty 4	/a/null" \
+  "$(claude_vm_mount_mode_entries "$TF_MODE_ENTRIES" | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "mode-entries: an entry with no mode key is NOT reported" \
+  "0" "$(claude_vm_mount_mode_entries "$TF_MODE_ENTRIES" | grep -c '/a/none' || true)"
+assert_eq "mode-entries: a config with no mounts at all reports nothing" \
+  "0" "$(claude_vm_mount_mode_entries "$TF_MNT_PATH" | grep -c . || true)"
 
 # claude_vm_mount_guest_path: the default is /mnt/<tag>, an explicit path wins,
 # and both are normalized so the collision checks below compare like with like.
@@ -3012,6 +3157,30 @@ assert_eq "guest-path: repeated slashes collapse" \
   "/mnt/repo" "$(claude_vm_mount_guest_path data ///mnt//repo)"
 assert_eq "guest-path: root itself survives normalization" \
   "/" "$(claude_vm_mount_guest_path data /)"
+
+# claude_vm_guest_path_covers is the DIRECTED half of the overlap relation, and
+# the single-file rule's whole basis: a file may sit INSIDE a system path but
+# may not cover one.
+_covers() { claude_vm_guest_path_covers "$1" "$2" && echo yes || echo no; }
+assert_eq "covers: a path covers itself" "yes" "$(_covers /etc /etc)"
+assert_eq "covers: an ancestor covers its descendant" "yes" "$(_covers /etc /etc/hosts)"
+assert_eq "covers: a descendant does NOT cover its ancestor" "no" "$(_covers /etc/hosts /etc)"
+assert_eq "covers: / covers everything" "yes" "$(_covers / /root/.gitconfig)"
+assert_eq "covers: a component-boundary prefix is not enough" "no" "$(_covers /etc /etcetera)"
+
+# claude_vm_guest_system_path_containing names WHICH system path a mountpoint is
+# under, which is what lets /root/.gitconfig pass while /etc/ld.so.preload does
+# not. Strictly inside: a path EQUAL to a system path is not "inside" it.
+assert_eq "system-container: /root/.gitconfig is inside /root" \
+  "/root" "$(claude_vm_guest_system_path_containing /root/.gitconfig)"
+assert_eq "system-container: /etc/ld.so.preload is inside /etc" \
+  "/etc" "$(claude_vm_guest_system_path_containing /etc/ld.so.preload)"
+assert_eq "system-container: /root itself is not INSIDE a system path" \
+  "" "$(claude_vm_guest_system_path_containing /root)"
+assert_eq "system-container: an ordinary mountpoint is under none of them" \
+  "" "$(claude_vm_guest_system_path_containing /srv/custom)"
+assert_eq "system-container: the DEFAULT /mnt/<tag> is under none of them" \
+  "" "$(claude_vm_guest_system_path_containing /mnt/data)"
 
 # claude.plugins.enabled with an EMPTY key: leading empty field again, this
 # time on yq's `to_entries` output. The old read reported it as a plugin named
@@ -3118,25 +3287,33 @@ fi
 #
 # So these assert WHICH mount calls the phase issues, with which options, in
 # what order -- not merely that it does not crash. What they CANNOT assert is
-# that the kernel then enforces `ro`, or that an `rw` write reaches the host:
-# that needs a real guest, and is covered by the acceptance criteria on issue
-# #157 rather than here.
+# that a guest write reaches the host: that needs a real guest, and is covered
+# by the acceptance criteria on issue #157 rather than here. The OCCUPANCY
+# decisions, by contrast, are real filesystem observations and ARE decided here:
+# the phase looks at a real directory in the suite's temp tree.
 #
 # The behaviors checked:
 #   - no manifest / empty manifest -> no mount calls at all
-#   - a directory entry            -> one `mount -t virtiofs -o <mode>` at the
+#   - a directory entry            -> one `mount -t virtiofs -o rw` at the
 #                                     manifest's guest path
-#   - mode ro vs rw                -> the option actually passed through
+#   - an OCCUPIED directory target -> a WARNING and NO mount (never shadow)
+#   - an occupied single-file target -> the same
 #   - a single-file entry          -> wrap mount FIRST, then a --bind of the one
 #                                     named file onto the target, with the
-#                                     target created if absent
+#                                     target created (it cannot already exist)
 #   - a failing mount              -> a WARNING and the phase still returns 0
 #                                     (fail-soft, like its two sibling phases)
 #   - a record with an empty MIDDLE field survives the hand split
+#
+# The slice spans boot_dir_is_nonempty THROUGH boot_mount_phase: the helper is
+# what the occupancy check calls, and a slice that took only the phase would
+# leave it undefined -- the call would fail, the check would read as "empty",
+# and every occupancy assertion below would pass for the wrong reason.
 # ---------------------------------------------------------------------
-BMP_START="$(grep -n '^boot_mount_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
-if [ -n "$BMP_START" ]; then
-  BMP_END="$(awk -v start="$BMP_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
+BMP_START="$(grep -n '^boot_dir_is_nonempty() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+BMP_PHASE_START="$(grep -n '^boot_mount_phase() {' "$BUILD_GUEST_IMAGE" | head -1 | cut -d: -f1)"
+if [ -n "$BMP_START" ] && [ -n "$BMP_PHASE_START" ]; then
+  BMP_END="$(awk -v start="$BMP_PHASE_START" 'NR > start && /^}/ { print NR; exit }' "$BUILD_GUEST_IMAGE")"
 fi
 if [ -n "${BMP_START:-}" ] && [ -n "${BMP_END:-}" ]; then
   BMP_SRC="$WORK/boot_mount_phase.sh"
@@ -3158,6 +3335,13 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # temp tree (and fail for a reason that has nothing to do with the code).
   BMP_GUEST="$WORK/bmp-guest"
   MOUNT_WRAP_MNT="$BMP_GUEST/run/mount-wrap"
+
+  # The slice must carry the occupancy helper as well as the phase. An
+  # undefined boot_dir_is_nonempty returns non-zero (command not found), which
+  # reads as "not occupied" -- every occupancy assertion below would then pass
+  # while testing nothing.
+  assert_eq "boot_mount_phase: the slice carries boot_dir_is_nonempty too" \
+    "defined" "$(command -v boot_dir_is_nonempty >/dev/null 2>&1 && echo defined || echo missing)"
 
   run_bmp() {
     : > "$BMP_LOG"
@@ -3181,32 +3365,107 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   assert_eq "boot_mount_phase: an empty manifest issues no mount calls" \
     "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
 
-  # A read-only directory mount: the mode reaches the kernel as a mount OPTION,
-  # which is the whole point of issue #157 -- before it, `mode:` was a string
-  # recorded in the config and read by nobody.
-  MOUNTS_TSV="$WORK/bmp-dir-ro.tsv"
-  printf 'data\tro\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  # A directory mount. The record is <tag><TAB><guest-path><TAB><file>: no mode
+  # field, because read-only is unenforceable on this stack (issue #233), and
+  # the mount is read-write and says so to mount(8).
+  MOUNTS_TSV="$WORK/bmp-dir.tsv"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
   assert_eq "boot_mount_phase: a directory mount returns 0" "0" "$(run_bmp)"
-  assert_eq "boot_mount_phase: a ro directory mount passes -o ro to mount(8)" \
-    "-t virtiofs -o ro data $BMP_GUEST/mnt/data" "$(cat "$MOUNT_CALL_LOG")"
+  assert_eq "boot_mount_phase: a directory mount passes -o rw to mount(8)" \
+    "-t virtiofs -o rw data $BMP_GUEST/mnt/data" "$(cat "$MOUNT_CALL_LOG")"
   assert_eq "boot_mount_phase: the mountpoint is created before mounting" \
     "present" "$([ -d "$BMP_GUEST/mnt/data" ] && echo present || echo absent)"
-
-  # ...and rw, so the option is genuinely read from the record rather than
-  # hardcoded. This is the mode that writes STRAIGHT THROUGH to the host.
-  MOUNTS_TSV="$WORK/bmp-dir-rw.tsv"
-  printf 'work\trw\t%s/mnt/work\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
-  run_bmp >/dev/null
-  assert_eq "boot_mount_phase: an rw directory mount passes -o rw to mount(8)" \
-    "-t virtiofs -o rw work $BMP_GUEST/mnt/work" "$(cat "$MOUNT_CALL_LOG")"
 
   # A `path:` override reaches mount(8) as the mountpoint. The host resolved it
   # into the manifest, so the guest simply obeys.
   MOUNTS_TSV="$WORK/bmp-path.tsv"
-  printf 'elsewhere\tro\t%s/srv/somewhere-else\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'elsewhere\t%s/srv/somewhere-else\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
   run_bmp >/dev/null
   assert_eq "boot_mount_phase: a path override is used as the mountpoint verbatim" \
-    "-t virtiofs -o ro elsewhere $BMP_GUEST/srv/somewhere-else" "$(cat "$MOUNT_CALL_LOG")"
+    "-t virtiofs -o rw elsewhere $BMP_GUEST/srv/somewhere-else" "$(cat "$MOUNT_CALL_LOG")"
+
+  # ---- OCCUPANCY: the half only the guest can judge (issue #157 review) ----
+  #
+  # Linux STACKS a mount, so mounting over an occupied path hides what was there
+  # for the life of the VM, and this phase runs FIRST so nothing later in the
+  # boot ever sees the original. The host rejects every guest OS path it knows
+  # of, but it cannot read the image's filesystem -- this side can. An occupied
+  # DIRECTORY mountpoint is warned about and SKIPPED.
+  MOUNTS_TSV="$WORK/bmp-occupied.tsv"
+  printf 'data\t%s/etc\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  mkdir -p "$BMP_GUEST/etc"
+  printf 'root:x:0:0\n' > "$BMP_GUEST/etc/passwd"
+  BMP_OCC_RC=0
+  boot_mount_phase >/dev/null 2>&1 || BMP_OCC_RC=$?
+  assert_eq "boot_mount_phase: an OCCUPIED directory mountpoint issues NO mount call" \
+    "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+  assert_eq "boot_mount_phase: skipping an occupied mountpoint is still a clean return" \
+    "0" "$BMP_OCC_RC"
+  case "$(cat "$BMP_LOG")" in
+    *"already exists and is NOT EMPTY"*)
+      assert_eq "boot_mount_phase: the occupied mountpoint is WARNED about" "warned" "warned" ;;
+    *)
+      assert_eq "boot_mount_phase: the occupied mountpoint is WARNED about" "warned" "$(cat "$BMP_LOG")" ;;
+  esac
+  # There is deliberately no "the occupying file survived" assertion here: the
+  # stubbed `mount` never really mounts, so that would hold whether or not the
+  # check exists. "No mount call was issued" is the whole observable fact on
+  # this side; that the content then stays visible is what a real boot shows.
+
+  # An EMPTY existing directory is not occupancy: mkdir -p on an existing empty
+  # mountpoint is the ordinary case, and it must still mount. Without this the
+  # check could be "skip whenever the path exists", which would break the
+  # default /mnt/<tag> on any image that ships those directories.
+  MOUNTS_TSV="$WORK/bmp-empty-dir.tsv"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  mkdir -p "$BMP_GUEST/mnt/data"
+  boot_mount_phase >/dev/null 2>&1
+  assert_eq "boot_mount_phase: an EMPTY existing mountpoint still mounts" \
+    "-t virtiofs -o rw data $BMP_GUEST/mnt/data" "$(cat "$MOUNT_CALL_LOG")"
+  # A directory holding only a DOTFILE is occupied -- the glob has to see it, or
+  # ~/.gitconfig-shaped content reads as empty.
+  MOUNTS_TSV="$WORK/bmp-dotfile-dir.tsv"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  mkdir -p "$BMP_GUEST/mnt/data"
+  printf 'x\n' > "$BMP_GUEST/mnt/data/.hidden"
+  boot_mount_phase >/dev/null 2>&1
+  assert_eq "boot_mount_phase: a mountpoint holding only a DOTFILE counts as occupied" \
+    "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+
+  # An existing NON-directory is not a mountpoint for a directory share at all.
+  MOUNTS_TSV="$WORK/bmp-notadir.tsv"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  mkdir -p "$BMP_GUEST/mnt"
+  printf 'x\n' > "$BMP_GUEST/mnt/data"
+  boot_mount_phase >/dev/null 2>&1
+  assert_eq "boot_mount_phase: a mountpoint that exists and is NOT a directory issues no mount call" \
+    "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+
+  # The single-file spelling of the same rule: a target that already exists is a
+  # file the image shipped (/root/.bashrc is the live example -- the launcher's
+  # own post-mortem shell would source the operator's file instead of it).
+  MOUNTS_TSV="$WORK/bmp-file-occupied.tsv"
+  printf 'cfg\t%s/root/.bashrc\tbashrc\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
+  mkdir -p "$BMP_GUEST/root"
+  printf 'image-owned\n' > "$BMP_GUEST/root/.bashrc"
+  mkdir -p "$MOUNT_WRAP_MNT/cfg"
+  printf 'operator-owned\n' > "$MOUNT_WRAP_MNT/cfg/bashrc"
+  boot_mount_phase >/dev/null 2>&1
+  assert_eq "boot_mount_phase: an OCCUPIED single-file target issues NO mount call" \
+    "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+  assert_eq "boot_mount_phase: the image's own file is left in place" \
+    "image-owned" "$(cat "$BMP_GUEST/root/.bashrc" 2>/dev/null)"
+  case "$(cat "$BMP_LOG")" in
+    *"ALREADY EXISTS in the guest"*)
+      assert_eq "boot_mount_phase: the occupied single-file target is WARNED about" "warned" "warned" ;;
+    *)
+      assert_eq "boot_mount_phase: the occupied single-file target is WARNED about" "warned" "$(cat "$BMP_LOG")" ;;
+  esac
 
   # A SINGLE-FILE entry: mount the wrap share out of the way FIRST, then bind
   # the one named file onto the target. Order is asserted (the bind's source
@@ -3214,7 +3473,7 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # named file is bound -- that is what keeps the rest of the host file's real
   # parent directory out of the guest.
   MOUNTS_TSV="$WORK/bmp-file.tsv"
-  printf 'cfg\tro\t%s/root/.gitconfig\tgitconfig\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'cfg\t%s/root/.gitconfig\tgitconfig\n' "$BMP_GUEST" > "$MOUNTS_TSV"
   # The stubbed `mount` never really mounts, so materialize the file the bind
   # step looks for inside the wrap mountpoint the phase creates.
   BMP_FILE_RC=0
@@ -3224,7 +3483,7 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   boot_mount_phase >/dev/null 2>&1 || BMP_FILE_RC=$?
   assert_eq "boot_mount_phase: a single-file mount returns 0" "0" "$BMP_FILE_RC"
   assert_eq "boot_mount_phase: the wrap share is mounted FIRST, at the hidden wrap path" \
-    "-t virtiofs -o ro cfg $MOUNT_WRAP_MNT/cfg" "$(sed -n 1p "$MOUNT_CALL_LOG")"
+    "-t virtiofs -o rw cfg $MOUNT_WRAP_MNT/cfg" "$(sed -n 1p "$MOUNT_CALL_LOG")"
   assert_eq "boot_mount_phase: then exactly the one named file is bound onto the target" \
     "--bind $MOUNT_WRAP_MNT/cfg/gitconfig $BMP_GUEST/root/.gitconfig" \
     "$(sed -n 2p "$MOUNT_CALL_LOG")"
@@ -3237,7 +3496,7 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # mount that fails warns loudly on the hvc0 diagnostic log and the boot
   # continues to claude. A missing optional mount must never brick a session.
   MOUNTS_TSV="$WORK/bmp-failing.tsv"
-  printf 'data\tro\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'data\t%s/mnt/data\t\n' "$BMP_GUEST" > "$MOUNTS_TSV"
   MOUNT_STUB_EXIT=1
   assert_eq "boot_mount_phase: a FAILING mount still returns 0 (fail-soft)" "0" "$(run_bmp)"
   case "$(cat "$BMP_LOG")" in
@@ -3249,11 +3508,16 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   MOUNT_STUB_EXIT=0
 
   # The hand split, on the guest side this time. A record whose MIDDLE field is
-  # empty is the shape `IFS=$'\t' read -r tag mode path file` destroys: it
-  # collapses the run of tabs, so `path` would receive the file name and the
-  # mount would land at a relative path named after the file. The negative
-  # control is rebuilt from the SAME captured lines so it cannot drift from the
-  # code it contrasts with.
+  # empty is the shape `IFS=$'\t' read -r tag path file` destroys: it collapses
+  # the run of tabs, so `path` would receive the file name and the mount would
+  # land at a relative path named after the file. The negative control is
+  # rebuilt from the SAME captured lines so it cannot drift from the code it
+  # contrasts with.
+  #
+  # The host never writes an empty guest path -- it always resolves one -- so
+  # this record is SYNTHETIC. The split has to be total anyway: it is what makes
+  # a malformed record visible as malformed, and the guard below it is what
+  # turns that into a skip rather than a mount somewhere arbitrary.
   BMP_OLD_SRC="$WORK/boot_mount_phase-old.sh"
   {
     echo 'log() { printf "%s\n" "$*" >> "$BMP_LOG"; }'
@@ -3261,9 +3525,9 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     awk -v start="$BMP_START" -v end="$BMP_END" '
       NR < start || NR > end { next }
       $0 ~ /^ *while IFS= read -r record; do$/ {
-        print "  while IFS=$\047\\t\047 read -r tag mode path file; do"; next
+        print "  while IFS=$\047\\t\047 read -r tag path file; do"; next
       }
-      $0 ~ /^ *(tag|mode|path|file|rest)=\$\{(record|rest)/ { next }
+      $0 ~ /^ *(tag|path|file|rest)=\$\{(record|rest)/ { next }
       # The collapsing read never binds $record, and the suite runs under
       # `set -u`, so the empty-record guard would abort the control before it
       # reached the split it exists to demonstrate. The malformed-record guard
@@ -3273,20 +3537,23 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     ' "$BUILD_GUEST_IMAGE"
   } > "$BMP_OLD_SRC"
   assert_eq "boot_mount_phase: the control really carries the old tab-IFS read" \
-    "1" "$(grep -c -- 'read -r tag mode path file; do' "$BMP_OLD_SRC" || true)"
+    "1" "$(grep -c -- 'read -r tag path file; do' "$BMP_OLD_SRC" || true)"
 
-  # An entry with an empty MODE field, so the middle-field collapse is visible:
-  # correct behavior warns about the unknown mode and falls back to ro at the
-  # RIGHT path; the old read shifts the path into `mode` and the file name into
-  # `path`.
+  # A record with an empty PATH field, so the middle-field collapse is visible:
+  # the correct split sees an empty path, calls the record malformed and mounts
+  # NOTHING; the old read shifts the file name into `path` and mounts there.
   MOUNTS_TSV="$WORK/bmp-emptymid.tsv"
-  printf 'cfg\t\t%s/root/.gitconfig\tgitconfig\n' "$BMP_GUEST" > "$MOUNTS_TSV"
+  printf 'cfg\t\tgitconfig\n' > "$MOUNTS_TSV"
   : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
-  mkdir -p "$MOUNT_WRAP_MNT/cfg"
-  printf 'host-content\n' > "$MOUNT_WRAP_MNT/cfg/gitconfig"
   boot_mount_phase >/dev/null 2>&1 || true
-  assert_eq "boot_mount_phase: an empty MIDDLE field keeps the guest path in the path slot" \
-    "-t virtiofs -o ro cfg $MOUNT_WRAP_MNT/cfg" "$(sed -n 1p "$MOUNT_CALL_LOG")"
+  assert_eq "boot_mount_phase: an empty MIDDLE field is seen as an empty path, and nothing is mounted" \
+    "0" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
+  case "$(cat "$BMP_LOG")" in
+    *"malformed mounts.tsv record (tag='cfg' path='')"*)
+      assert_eq "boot_mount_phase: the malformed record is named with its own empty path" "named" "named" ;;
+    *)
+      assert_eq "boot_mount_phase: the malformed record is named with its own empty path" "named" "$(cat "$BMP_LOG")" ;;
+  esac
 
   : > "$BMP_LOG"; : > "$MOUNT_CALL_LOG"; rm -rf "$BMP_GUEST"
   # The control really does mkdir its (wrong) mountpoint, and that mountpoint is
@@ -3294,13 +3561,12 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
   # temp tree instead of the caller's working directory.
   # shellcheck source=/dev/null
   ( cd "$WORK" && . "$BMP_OLD_SRC" && boot_mount_phase >/dev/null 2>&1 || true )
-  # The collapse shifts every field one slot left: the guest PATH is read as the
-  # mode (rejected, so it silently falls back to ro) and the FILE NAME is read
-  # as the path. So the share is mounted at a RELATIVE path named after the
-  # host file -- not at the target the operator configured, and not as a
-  # single-file bind at all, since `file` collapses to empty.
+  # The collapse shifts every field one slot left: the FILE NAME is read as the
+  # path. So the share is mounted at a RELATIVE path named after the host file
+  # -- not skipped as the malformed record it is, and not a single-file bind at
+  # all, since `file` collapses to empty.
   assert_eq "boot_mount_phase: NEGATIVE CONTROL -- the old read mounts at a relative path named after the file" \
-    "-t virtiofs -o ro cfg gitconfig" "$(sed -n 1p "$MOUNT_CALL_LOG")"
+    "-t virtiofs -o rw cfg gitconfig" "$(sed -n 1p "$MOUNT_CALL_LOG")"
   assert_eq "boot_mount_phase: NEGATIVE CONTROL -- and the single-file bind never happens" \
     "1" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
 else

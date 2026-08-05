@@ -222,33 +222,41 @@ egress:
 #   tag:    the virtio-fs tag, [A-Za-z0-9._-] only. Unique across the merged
 #           global+repo list, and not one of claude-vm's own reserved tags
 #           (repo, runconfig, claudebin, claudecreds).
-#   mode:   ro (DEFAULT) | rw. An ENFORCED guest mount option, not a hint.
 #   path:   optional absolute guest mountpoint; defaults to /mnt/<tag>.
 #
 # ############################################################################
-# ## mode: rw PIERCES THE VM ISOLATION BOUNDARY FOR THAT ONE PATH.          ##
+# ## EVERY EXTRA MOUNT IS READ-WRITE, AND PIERCES THE VM ISOLATION          ##
+# ## BOUNDARY FOR THAT ONE PATH.                                            ##
 # ##                                                                        ##
-# ## An `rw` mount writes STRAIGHT THROUGH to the host directory, LIVE. The ##
-# ## guest's writes, deletions and renames land on your real files the      ##
-# ## instant they happen. There is no copy-back step, no review, and no     ##
-# ## undo -- `repo.copy_back` governs the REPO mount only and has nothing   ##
-# ## to do with these. Everything else about the VM (the egress allowlist,  ##
-# ## the throwaway per-run image clone, the discarded guest state) still    ##
-# ## holds; this one directory is simply outside it, on purpose.            ##
+# ## The guest writes STRAIGHT THROUGH to the host path, LIVE. Its writes,  ##
+# ## deletions and renames land on your real files the instant they happen. ##
+# ## There is no copy-back step, no review, and no undo -- `repo.copy_back` ##
+# ## governs the REPO mount only and has nothing to do with these.          ##
+# ## Everything else about the VM (the egress allowlist, the throwaway      ##
+# ## per-run image clone, the discarded guest state) still holds; this one  ##
+# ## path is simply outside it, on purpose.                                 ##
 # ##                                                                        ##
-# ## So: `ro` unless you specifically want the guest editing your host      ##
-# ## files, and never point `rw` at a directory you would mind an           ##
-# ## autonomous agent rewriting. `ro` is the default precisely so that      ##
-# ## piercing the boundary is always something you typed on purpose.        ##
+# ## THERE IS NO READ-ONLY OPTION YET. Read-only cannot be enforced on this ##
+# ## stack: vfkit's virtio-fs device has no read-only export, and the guest ##
+# ## session runs as root, so any `ro` claude-vm made inside the guest      ##
+# ## could be undone from inside the guest. Rather than offer a promise it  ##
+# ## cannot keep, claude-vm has no `mode:` key at all, and a config that    ##
+# ## still sets one ABORTS the launch instead of ignoring it. Enforced      ##
+# ## read-only, at the hypervisor boundary, is tracked as issue #233.       ##
+# ##                                                                        ##
+# ## So: never point a mount at anything you would mind an autonomous agent ##
+# ## rewriting or deleting. If you want the guest to READ something without ##
+# ## being able to change it, copy it somewhere disposable and mount the    ##
+# ## copy.                                                                  ##
 # ############################################################################
 #
 # A single FILE source works too (virtio-fs itself shares directories only, so
 # the launcher wraps the file in a per-entry directory and the guest bind-mounts
 # just that one file onto `path:`). Nothing else from the file's real parent
-# directory is exposed to the guest. `mode:` means the same thing it does for a
-# directory, `rw` included -- the wrap entry is a hard link, so an rw
-# single-file mount edits your host file live. A file source usually wants an
-# explicit `path:`, since the useful destination is rarely /mnt/<tag>.
+# directory is exposed to the guest. The wrap entry is a hard link, so a
+# single-file mount edits your host file live, exactly as a directory mount
+# does. A file source usually wants an explicit `path:`, since the useful
+# destination is rarely /mnt/<tag>.
 #
 # A CAVEAT a directory mount does not have: the guest cannot REPLACE a
 # single-file mount by renaming another file over it -- the kernel refuses a
@@ -257,42 +265,64 @@ egress:
 # editors write a temp file and rename it into place, and those fail. It is a
 # loud failure, not a silent one. Mount the containing DIRECTORY instead when
 # you want the guest to be able to rewrite the file wholesale -- which for
-# ~/.gitconfig, the example above, is the usual case.
+# ~/.gitconfig, the example below, is the usual case.
 #
 # EVERY mistake below aborts the launch rather than booting a VM without the
 # mount you asked for: a missing source or tag, a source that is not on the
-# host, a tag that is reserved, malformed, or repeated, a mode other than
-# ro/rw, a relative `path:`, or a `path:` that overlaps one of claude-vm's own
-# guest mountpoints or another entry's. Overlapping means landing ON one,
-# ABOVE one (`path: /mnt` would swallow every built-in share at once, `path: /`
-# the whole guest root) or INSIDE one (`path: /mnt/repo/sub` would put your
-# mountpoint inside the shared repo tree). The diagnostic names the offending
-# entry by its position in the MERGED boot config -- mounts is a union list, so
-# that number counts through the global entries before the per-repo ones and
-# need not be the entry's position in this file -- and by its path.
+# host, a tag that is reserved, malformed, or repeated, a `mode:` key, a
+# relative `path:`, or a `path:` that overlaps one of claude-vm's own guest
+# mountpoints or another entry's. Overlapping means landing ON one, ABOVE one
+# (`path: /mnt` would swallow every built-in share at once, `path: /` the whole
+# guest root) or INSIDE one (`path: /mnt/repo/sub` would put your mountpoint
+# inside the shared repo tree).
+#
+# A `path:` may not shadow the GUEST OS either (/bin /boot /dev /etc /home /lib
+# and its /lib32, /lib64, /libx32 spellings, /proc /root /run /sbin /sys /tmp
+# /usr /var -- CLAUDE_VM_GUEST_SYSTEM_PATHS in lib/config.sh is the one
+# authoritative list). Linux stacks a mount, so
+# whatever the image has at that path becomes unreachable for the whole
+# session, and the mount phase runs first -- `path: /root` would hide the
+# session's HOME before claude-vm writes its credential into it. The rule
+# differs by shape, because a directory mount hides a whole subtree while a
+# single file replaces exactly one file:
+#
+#   - a DIRECTORY source may not land on, above, or inside one of those paths.
+#     Mount it under /mnt/<tag> (the default), /srv or /opt.
+#   - a single FILE source may not land on or above one, and may sit INSIDE
+#     only /root, /home or /tmp, whose contents are yours rather than the
+#     package manager's. That is what makes `path: /root/.gitconfig` below
+#     legal while `path: /etc/ld.so.preload` is not.
+#
+# The guest checks too, and it is the one that can actually see the image: a
+# mountpoint that already exists and is not empty (or a single-file target that
+# already exists at all) is WARNED about on the boot console and SKIPPED rather
+# than mounted over.
+#
+# The diagnostic names the offending entry by its position in the MERGED boot
+# config -- mounts is a union list, so that number counts through the global
+# entries before the per-repo ones and need not be the entry's position in this
+# file -- and by its path.
 #
 # Every entry below is COMMENTED OUT on purpose. A `source:` that is not on the
 # host aborts the launch, so shipping live entries here would make a
 # copied-verbatim config refuse to boot until you happened to have a
 # ~/datasets/foo. Uncomment the ones you want and point them at real paths.
 mounts:
-  # A read-only reference directory, mounted at /mnt/policy:
+  # A reference directory, mounted at /mnt/policy. Read-write, like all of
+  # them -- the guest can change what it finds there.
   # - source: ~/.claude/policy
   #   tag: policy
-  #   mode: ro
   # - source: ~/datasets/foo
   #   tag: data
-  #   mode: ro
   # A single file, placed where the guest expects it rather than under /mnt:
   # - source: ~/.gitconfig
   #   tag: gitconfig
-  #   mode: ro
   #   path: /root/.gitconfig
-  # A scratch directory the guest may write to. Read the warning above first:
-  # these writes hit the host immediately.
+  # A scratch directory. Read the warning above first: these writes hit the
+  # host immediately, and this is the shape to prefer -- a directory you would
+  # not mind losing.
   # - source: ~/claude-vm-scratch
   #   tag: scratch
-  #   mode: rw
 
 # Guest GitHub auth.
 github:
