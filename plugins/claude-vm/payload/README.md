@@ -401,6 +401,40 @@ argv, settings, image identity, and plugin manifests from:
   tagless entry is a share nobody can mount and two of them collide on one
   tag. Both read the same `@tsv` records their consumers
   do, split the same way — see *Splitting a TSV record back apart* below.
+
+  Issue #157 extended `claude_vm_check_mounts` rather than adding a second
+  gate the launcher would have to remember to call, so the whole `mounts`
+  contract is enforced in one function and one pass. Its added rejections,
+  each a config an operator can write today that would otherwise produce a
+  VM that boots and looks fine while the mount is missing, shadowed, or
+  somewhere else: a `tag` outside `[A-Za-z0-9._-]` (the tag travels inside
+  vfkit's comma-delimited device string *and* as a guest
+  `mount -t virtiofs` argument); a `tag` colliding with one of the reserved
+  built-ins in `CLAUDE_VM_RESERVED_MOUNT_TAGS` (`repo`, `runconfig`,
+  `claudebin`, `claudecreds` — the launcher always attaches those and the
+  image's fstab always mounts them); a `tag` repeated across the merged
+  global+repo list (two devices, one guest mount, kernel-enumeration order
+  deciding which wins); a `mode` other than `ro`/`rw` (an enforced mount
+  option since #157, so a typo must not quietly become the default); a
+  `source` that does not exist on the host (otherwise vfkit fails minutes
+  into the launch with a message about a device rather than about the config
+  line); and a `path` that is relative, carries a `..` segment, lands on a
+  reserved guest mountpoint, or duplicates another entry's effective
+  mountpoint.
+
+- `claude_vm_expand_mount_source` / `claude_vm_mount_guest_path` — the two
+  pure helpers the mount contract is defined by, so the validator and the
+  launcher can never disagree about what a config line means. The first
+  expands a leading `~` to `$HOME` (the config is YAML, not shell, so
+  nothing else does); the second returns an entry's guest mountpoint —
+  its `path:` when set, else `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>` — with
+  repeated slashes collapsed and trailing slashes dropped. That
+  normalization is load-bearing rather than cosmetic: without it
+  `path: /mnt/repo/` is a different string from `/mnt/repo` and walks
+  straight past the reserved-mountpoint guard while naming the same guest
+  directory. `..` is deliberately *not* resolved — that needs the guest's
+  filesystem, and a symlink mid-path changes the answer — so the validator
+  rejects a path carrying one instead of guessing.
 - `claude_vm_marketplace_hosts` / `claude_vm_marketplaces_without_host` /
   `claude_vm_boot_marketplace_egress_needed` — the **derived marketplace
   egress** helpers (issue #107), the plugin-side siblings of the apt egress
@@ -440,9 +474,16 @@ diagnostic about a marketplace nobody configured, while the entry the operator
 did configure went unmentioned. A `claude.plugins.enabled` map with an empty
 key (`<TAB>true`) likewise aborted the render blaming a plugin named `true`.
 
+Issue #157 widened the `mounts` record from three fields to **four**
+(`source`, `tag`, `mode`, `path`), with **two optional middle fields** rather
+than one — the worst case for the collapsing read, and the reason the guest
+side was written with a hand split from the start rather than gaining one
+later.
+
 **Every** reader — the marketplace and `apt_sources` loops in
-`provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop and
-`boot_plugin_phase`'s marketplace loop in `build-guest-image.sh`, the
+`provisioners/podman-mkosi.sh`, `boot_apt_phase`'s `apt_sources` loop,
+`boot_plugin_phase`'s marketplace loop and `boot_mount_phase`'s mount loop in
+`build-guest-image.sh`, the
 extra-mount loop in `claude-vm.sh`, and every two-field reader in
 `lib/config.sh` (`claude_vm_effective_marketplaces`,
 `claude_vm_marketplaces_without_host`,
@@ -473,10 +514,11 @@ a sourceless entry has no path to name), and
 validation. `claude_vm_mount_specs` guards `.source`/`.tag`
 with `// ""` so an *omitted* key and an explicit `""` reach that check as the
 same empty field — unguarded, an omitted `tag:` rendered the literal string
-`null`. The one reader with no load-time gate of its own is
-`boot_plugin_phase`, which runs in the guest: the host has already aborted the
-launch before `plugin-marketplaces.tsv` is written, so there the hand split,
-the name guard and a logged warning are the floor.
+`null`. The readers with no load-time gate of their own are the two that run
+in the **guest** — `boot_plugin_phase` and (issue #157) `boot_mount_phase`.
+Neither needs one: the host has already aborted the launch before
+`plugin-marketplaces.tsv` or `mounts.tsv` is written, so there the hand split,
+a key-field guard and a logged warning are the floor.
 
 Each split and each gate is pinned by a test that *runs* the real code against
 records from the real emitter, asserting on the values the split produced
@@ -623,6 +665,63 @@ produced an apt "Malformed entry (URI parse)" failure. Bake `packages:`
 entries that are null or empty (e.g. a stray `-` in the YAML list) are
 stripped during canonicalization rather than passed through as a literal
 `"None"` package name, which would otherwise fail the image build.
+
+**Extra mounts, guest side (issue #157).** vfkit only *shares* a directory
+under a virtio-fs tag; something inside the guest must still mount that tag
+somewhere. The image's baked `/etc/fstab` knows only the four built-in tags
+(`repo`, `runconfig`, `claudebin`, `claudecreds`) and cannot know the
+operator's, because `mounts` is a **boot** key: it must not change the image's
+bytes, so it stays out of the image-identity hash and two configs differing
+only in `mounts` share one cached image. So the mounting happens at boot, in
+the boot launcher's `boot_mount_phase`, driven by a manifest the launcher
+writes onto the `runconfig` share alongside `run.env` and the apt/plugin
+manifests:
+
+```text
+mounts.tsv -- <tag><TAB><mode><TAB><guest-path><TAB><file>
+```
+
+It rides a manifest file rather than `run.env` for the same reason
+`apt-install.list` and `plugin-marketplaces.tsv` do — `run.env` is sourced
+under `set -a` and carries scalars, while this is a variable-length list of
+records whose fields are arbitrary operator-supplied strings. It is not a
+secret and needs no umask tightening beyond `CONFIG_DIR`'s own.
+
+The phase runs **first**, immediately after `run.env` is sourced and before
+the credential/seed/settings install and the apt and plugin phases: an extra
+mount depends on none of them, and going first means every later phase — and
+claude itself — sees a fully-assembled filesystem. Its failure policy matches
+`boot_apt_phase` and `boot_plugin_phase`: a failed mount logs a loud warning
+naming the tag to the `hvc0` diagnostic log and continues to claude, because a
+missing optional mount must never brick an interactive session. Every
+*config-level* mistake was already rejected host-side by
+`claude_vm_check_mounts` before the VM started, so what is left here is
+runtime failure, not operator error. `mount`'s own stderr is captured and
+re-logged rather than left to land on `hvc1`, the interactive console.
+
+`mode` is a real mount option, not the advisory string it was before #157.
+`ro` is enforced by the kernel — a write inside the guest fails with `EROFS`.
+**`rw` writes straight through to the host directory, live**: no copy-back
+step, no review, no undo (`repo.copy_back` governs the *repo* mount only and
+has nothing to do with these). That deliberately pierces the VM isolation
+boundary for that one path, which is why `ro` is the default and why
+`config-boot.example.yml` says so at length.
+
+*Single-file sources.* virtio-fs shares directories only, so a file source is
+**wrapped**: the launcher makes a per-entry directory under `$RUN`, puts the
+file in it, shares *that*, and the guest mounts the wrap at a hidden
+`/run/claude-vm/mount-wrap/<tag>` and then bind-mounts the one named file onto
+the target path — so nothing else from the file's real parent directory is
+exposed. The wrap entry is a **hard link, not a copy**: a copy would make
+`mode: rw` a lie, since guest writes would land in the throwaway wrap dir and
+never reach the host file, whereas a hard link is the same inode and an `rw`
+single-file mount writes through live exactly like an `rw` directory mount.
+`ln` fails across filesystems, and that is a hard abort naming the fix (move
+the file onto the run directory's filesystem, or mount its containing
+directory) rather than a silent downgrade to copy semantics. The bind
+inherits its read-only-ness from the underlying wrap mount, so a `ro`
+single-file mount rejects writes for exactly the reason a `ro` directory mount
+does.
 
 **Boot-time package install/update (issue #106).** Unlike the bake file's
 `packages:`, the boot file's `packages:` and `update_at_boot` run **inside the
@@ -1021,8 +1120,32 @@ the split, that an empty *leading* field does too, and that a mounts or
 message naming it — see *Splitting a TSV record back apart* above. The split
 cases each carry a negative control that rebuilds the pre-fix collapsing
 `read` from the same captured lines, so the control cannot drift away from
-the code it contrasts with. Requires `yq` (mikefarah v4+); skips cleanly when
-absent.
+the code it contrasts with.
+
+Issue #157 extended all three of those surfaces for the completed `mounts`
+feature. The launcher's extra-mount loop is now also run for the manifest it
+writes (a directory entry defaulting to `/mnt/<tag>`, a `path:` override, a
+single-file entry naming its basename) and for the wrap directory it builds —
+including that the wrap entry is a **hard link** to the source, asserted by
+comparing inode numbers rather than content, since a copy would match on
+content and silently break `rw` write-through. The config-load gate block is
+run once per rejected config, each asserting both the non-zero exit and a
+diagnostic naming the actual problem: a reserved tag, a duplicate tag, an
+invalid mode, a missing host source, a relative `path`, a `path` with a `..`
+segment, a `path` over a reserved mountpoint (spelled with a trailing slash,
+so the normalization is what catches it), a duplicate guest path, and a tag
+carrying a comma. And `boot_mount_phase` is sliced out of
+`build-guest-image.sh` and run with `mount` replaced by a shell function
+recording its argv — so the assertions are about *which* mount calls the phase
+makes, with which options, in what order: the mode reaching `mount(8)` as a
+real `-o` option, a `path:` override used verbatim, a single-file entry
+mounting its wrap share first and then binding exactly the one named file, a
+failing mount still returning 0, and the same empty-middle-field split with
+its own negative control. What those cases deliberately cannot assert is that
+the kernel then *enforces* `ro`, or that an `rw` write reaches the host —
+that needs a real guest.
+
+Requires `yq` (mikefarah v4+); skips cleanly when absent.
 
 `endpoint-test.sh` exercises the per-run endpoint primitives in
 `lib/endpoint.sh` (issue #179): kernel-assigned free-TCP-port acquisition,

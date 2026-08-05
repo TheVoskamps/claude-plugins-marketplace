@@ -119,6 +119,27 @@ CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_UPDATE_AT_BOOT=true
 CLAUDE_VM_DEFAULT_CLAUDE_PLUGINS_ADD_MARKETPLACE_URIS_TO_ALLOWLIST=auto
 CLAUDE_VM_DEFAULT_GITHUB_AUTH=none
 
+# Extra-mount defaults + reserved names (issue #157).
+#
+# mode: an entry without an explicit `mode:` is mounted READ-ONLY. Read-only is
+# the conservative default because an `rw` extra mount deliberately pierces the
+# VM isolation boundary for that one directory -- the guest writes straight
+# through to the host path, live, with no copy-back step in between.
+#
+# The guest mountpoint defaults to `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>`; a
+# per-entry `path:` overrides it.
+CLAUDE_VM_DEFAULT_MOUNT_MODE=ro
+CLAUDE_VM_GUEST_MOUNT_ROOT=/mnt
+# The virtio-fs tags the launcher ALWAYS attaches (claude-vm.sh's vfkit
+# invocation) and the guest image's baked /etc/fstab already mounts
+# (provisioners/podman-mkosi.sh). An extra mount reusing one of these names
+# would attach a second device under a tag the fstab also claims -- the guest
+# would mount whichever the kernel enumerated, so the repo/run-config/binary/
+# credential share the rest of the boot depends on could silently become the
+# operator's own directory. Space-delimited, matched with a space-padded `case`
+# so no name is a prefix-match of another.
+CLAUDE_VM_RESERVED_MOUNT_TAGS="repo runconfig claudebin claudecreds"
+
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root
 # partition is sized ABOVE the measured/estimated base image content, so a
 # live session has room to grow without hitting ENOSPC. A real guest boot hit
@@ -634,41 +655,133 @@ claude_vm_egress_hosts() {
 # back apart* carries the full write-up.
 # ---------------------------------------------------------------------
 
-# Emit mounts as tab-separated "source<TAB>tag<TAB>mode" lines from a
-# merged-config file. mode defaults to "ro" when unset on a mount entry.
+# Emit mounts as tab-separated "source<TAB>tag<TAB>mode<TAB>path" lines from a
+# merged-config file. mode defaults to CLAUDE_VM_DEFAULT_MOUNT_MODE (ro) when
+# unset on a mount entry; `path` (issue #157, the guest mountpoint override) is
+# emitted EMPTY when unset, and the effective mountpoint is then derived by
+# claude_vm_mount_guest_path below rather than defaulted here -- the default
+# depends on the entry's own tag, which a yq default expression cannot see.
 #
-# `source` and `tag` are guarded with `// ""` for the same reason every other
-# @tsv emitter in this file is: an UNGUARDED `.tag` renders an OMITTED key as
-# the literal four-character string `null`, which vfkit would then take as the
-# mount tag. With the guard, an omitted key and an explicit `tag: ""` both
+# `source`, `tag` and `path` are guarded with `// ""` for the same reason every
+# other @tsv emitter in this file is: an UNGUARDED `.tag` renders an OMITTED key
+# as the literal four-character string `null`, which vfkit would then take as
+# the mount tag. With the guard, an omitted key and an explicit `tag: ""` both
 # reach the reader as a genuinely empty field, so one check
 # (claude_vm_check_mounts) covers both spellings.
+#
+# FOUR fields since issue #157, with TWO optional MIDDLE ones (`mode`, `path`)
+# -- exactly the shape the collapsing `IFS=$'\t' read` destroys. Every reader
+# splits by hand; see the TSV RECORDS block above.
 claude_vm_mount_specs() {
   local file="$1"
   yq eval '
     .mounts // [] | .[]
-    | [(.source // ""), (.tag // ""), (.mode // "ro")] | @tsv
+    | [(.source // ""), (.tag // ""), (.mode // "'"$CLAUDE_VM_DEFAULT_MOUNT_MODE"'"), (.path // "")] | @tsv
   ' "$file" 2>/dev/null
 }
 
-# Abort (non-zero + a claude-vm: diagnostic) when a `mounts` entry cannot
-# produce a usable virtio-fs share: no `source` (no host path to share) or no
-# `tag` (nothing for the guest to mount it by). Both an omitted key and an
-# explicit empty string count, since claude_vm_mount_specs normalizes them to
-# the same empty field.
+# Expand a leading `~` in a mount source to $HOME. The config is YAML, not
+# shell, so nothing expands it for us. Shared by the launcher's extra-mount
+# loop and by claude_vm_check_mounts's host-existence check, so the path the
+# check stats is byte-identical to the one the launcher shares (issue #157 --
+# before the existence check there were two copies of this expansion and only
+# the launcher's ran).
+#   $1 -- the configured source path
+claude_vm_expand_mount_source() {
+  local src="$1"
+  case "$src" in
+    "~"/*) printf '%s\n' "$HOME/${src#"~/"}" ;;
+    "~")   printf '%s\n' "$HOME" ;;
+    *)     printf '%s\n' "$src" ;;
+  esac
+}
+
+# The guest mountpoint for one mount entry: its `path:` when set, else
+# <CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>. One definition, read by the validator and
+# by the launcher's manifest write, so the path the validator judges and the
+# path the guest mounts at are the same string by construction.
 #
-# LOUD, not silent. A tagless entry used to reach vfkit as
-# `mountTag=` (or, before the `// ""` guard above, as `mountTag=null`), and two
-# such entries would collide on that one tag -- a share the guest cannot mount,
-# reported nowhere. A sourceless entry was silently dropped by the launcher's
-# extra-mount loop. Either way the operator asked for a mount and did not get
-# one, which is a config error and belongs at load time.
+# The result is NORMALIZED -- repeated slashes collapsed, trailing slashes
+# dropped -- so the collision checks in claude_vm_check_mounts compare like with
+# like. Without it `path: /mnt/repo/` and `path: //mnt/repo` are both distinct
+# strings from `/mnt/repo` and would walk straight past the reserved-path guard
+# while naming the very same guest directory. `..` segments are NOT resolved
+# here (that needs the guest's filesystem, which the host does not have); the
+# validator rejects them outright instead.
+#   $1 -- the entry's tag
+#   $2 -- the entry's configured path (may be empty)
+claude_vm_mount_guest_path() {
+  local tag="$1" path="$2" prev=""
+  [ -n "$path" ] || path="$CLAUDE_VM_GUEST_MOUNT_ROOT/$tag"
+  # Collapse repeated slashes to a fixpoint: one pass over `///` leaves `//`.
+  while [ "$path" != "$prev" ]; do
+    prev="$path"
+    path="${path//\/\//\/}"
+  done
+  # Drop trailing slashes, but never reduce `/` itself to the empty string.
+  while [ "${#path}" -gt 1 ] && [ "${path%/}" != "$path" ]; do
+    path="${path%/}"
+  done
+  printf '%s\n' "$path"
+}
+
+# Abort (non-zero + a claude-vm: diagnostic) when a `mounts` entry cannot
+# produce a usable mount. Hard abort, never warn-and-limp: every case below
+# ends with the operator not getting the mount they asked for, and a VM that
+# boots without it looks like a working VM.
+#
+# The original pair (issue #226) is unusable-share territory -- no `source`
+# (no host path to share) or no `tag` (nothing for the guest to mount it by).
+# Both an omitted key and an explicit empty string count, since
+# claude_vm_mount_specs normalizes them to the same empty field. A tagless entry
+# used to reach vfkit as `mountTag=` (or, before the `// ""` guard above, as
+# `mountTag=null`), and two such entries would collide on that one tag; a
+# sourceless entry was silently dropped by the launcher's extra-mount loop.
+#
+# Issue #157 extends the same function -- rather than adding a second gate the
+# launcher would have to remember to call -- with the cases the guest-side mount
+# step makes reachable:
+#
+#   - a tag outside [A-Za-z0-9._-]: the tag travels inside vfkit's
+#     comma-delimited `--device virtio-fs,sharedDir=...,mountTag=<tag>` string
+#     and again as a `mount -t virtiofs <tag> <path>` argument in the guest, so
+#     a comma or whitespace in it corrupts one or both. Same charset the
+#     marketplace-name and apt_source-name guards use.
+#   - a tag colliding with a RESERVED built-in tag: the launcher always attaches
+#     repo/runconfig/claudebin/claudecreds and the image's fstab always mounts
+#     them, so a second device under one of those names puts the operator's own
+#     directory where the repo, the run config, the verified binary or the OAuth
+#     credential is supposed to be.
+#   - a DUPLICATE tag across the merged global+repo list: two vfkit devices
+#     under one tag, and one guest mount that resolves to whichever the kernel
+#     enumerated first. Nondeterministic, so one of the two mounts is simply
+#     the wrong directory.
+#   - a `mode` other than ro|rw: it is now an enforced mount option, not the
+#     advisory string it was before #157, so a typo (`read-only`, `RW`) must not
+#     silently become the default.
+#   - a `source` that does not exist on the host: vfkit fails to start (or
+#     shares an empty dir) minutes into a launch, with a message about a device
+#     rather than about the config line that caused it.
+#   - a `path` that is not absolute: it becomes the guest `mount` target, which
+#     would resolve against the boot launcher's cwd rather than where the
+#     operator meant.
+#   - a `path` colliding with a reserved guest mountpoint, or with another
+#     entry's effective mountpoint: the later mount shadows the earlier one, so
+#     one configured mount is silently unreachable.
 #
 #   $1 -- merged BOOT document file path (mounts is a BOOT key)
 claude_vm_check_mounts() {
-  local boot_doc="$1" mnt_tab record src rest tag idx=0 bad=0
+  local boot_doc="$1" mnt_tab record src rest tag mode path gpath expanded
+  local idx=0 bad=0 seen_tags=" " seen_paths=" " reserved_tags=" " reserved_paths=" " rtag
   [ -n "$boot_doc" ] && [ -f "$boot_doc" ] || return 0
   mnt_tab=$'\t'
+  # Space-padded sets for the two `case` membership tests below. The reserved
+  # PATHS are derived from the reserved TAGS so the two can never drift apart:
+  # the built-in shares are mounted at <root>/<tag> by the image's own fstab.
+  for rtag in $CLAUDE_VM_RESERVED_MOUNT_TAGS; do
+    reserved_tags="${reserved_tags}${rtag} "
+    reserved_paths="${reserved_paths}$(claude_vm_mount_guest_path "$rtag" "") "
+  done
   while IFS= read -r record; do
     # An EMPTY result set is one empty line, not zero bytes: yq prints a
     # newline for `.mounts // [] | .[]` when there are no mounts at all.
@@ -679,6 +792,9 @@ claude_vm_check_mounts() {
     src=${record%%$mnt_tab*}
     rest=${record#*$mnt_tab}
     tag=${rest%%$mnt_tab*}
+    rest=${rest#*$mnt_tab}
+    mode=${rest%%$mnt_tab*}
+    path=${rest#*$mnt_tab}
     if [ -z "$src" ]; then
       echo "claude-vm: mounts entry #${idx} has no source -- there is no host path to share." >&2
       bad=1
@@ -689,7 +805,99 @@ claude_vm_check_mounts() {
       echo "claude-vm:   so an entry without one can never be mounted, and two of them would collide." >&2
       echo "claude-vm:   give that entry a unique, non-empty 'tag:' in your config-boot.yml." >&2
       bad=1
+      # Everything below keys off the tag (the guest mountpoint default, the
+      # duplicate sets); with none there is nothing further to say about this
+      # entry that would not just repeat the line above.
+      continue
     fi
+    case "$tag" in
+      *[!A-Za-z0-9._-]*)
+        echo "claude-vm: mounts entry #${idx} ('$src') has tag '$tag', which contains characters outside" >&2
+        echo "claude-vm:   [A-Za-z0-9._-]. The tag travels inside vfkit's comma-delimited device string and" >&2
+        echo "claude-vm:   again as a guest 'mount -t virtiofs' argument, so it must stay in that charset." >&2
+        bad=1
+        ;;
+    esac
+    case "$reserved_tags" in
+      *" $tag "*)
+        echo "claude-vm: mounts entry #${idx} ('$src') uses the reserved tag '$tag'. claude-vm always attaches" >&2
+        echo "claude-vm:   its own shares under: $CLAUDE_VM_RESERVED_MOUNT_TAGS." >&2
+        echo "claude-vm:   Reusing one would put your directory where the repo, the run config, the verified" >&2
+        echo "claude-vm:   claude binary or the OAuth credential belongs. Pick a different tag." >&2
+        bad=1
+        ;;
+    esac
+    case "$seen_tags" in
+      *" $tag "*)
+        echo "claude-vm: mounts entry #${idx} ('$src') repeats the tag '$tag' used by an earlier entry." >&2
+        echo "claude-vm:   Two shares under one tag give the guest one mount resolving to whichever device" >&2
+        echo "claude-vm:   the kernel enumerated first, so one of the two directories is silently lost." >&2
+        echo "claude-vm:   Note that mounts is a UNION list: an entry may come from the global config." >&2
+        bad=1
+        ;;
+      *) seen_tags="$seen_tags$tag " ;;
+    esac
+    case "$mode" in
+      ro|rw) : ;;
+      *)
+        echo "claude-vm: mounts entry #${idx} ('$src') has mode '$mode'; the only valid modes are 'ro' and 'rw'." >&2
+        echo "claude-vm:   mode is an enforced guest mount option, so an unrecognized value cannot be" >&2
+        echo "claude-vm:   quietly treated as read-only. Omit 'mode:' to get the default ($CLAUDE_VM_DEFAULT_MOUNT_MODE)." >&2
+        bad=1
+        ;;
+    esac
+    expanded="$(claude_vm_expand_mount_source "$src")"
+    if [ ! -e "$expanded" ]; then
+      echo "claude-vm: mounts entry #${idx} source '$src' does not exist on the host" >&2
+      echo "claude-vm:   (resolved to '$expanded'). vfkit cannot share a path that is not there, so this" >&2
+      echo "claude-vm:   would fail minutes into the launch with a message about a device, not about" >&2
+      echo "claude-vm:   this config line. Create it, or correct the path in your config-boot.yml." >&2
+      bad=1
+    fi
+    if [ -n "$path" ]; then
+      case "$path" in
+        /*) : ;;
+        *)
+          echo "claude-vm: mounts entry #${idx} ('$src') has path '$path', which is not absolute. The path is" >&2
+          echo "claude-vm:   the guest mountpoint, so a relative one would resolve against the boot" >&2
+          echo "claude-vm:   launcher's working directory rather than where you meant it." >&2
+          bad=1
+          ;;
+      esac
+      # `..` cannot be resolved host-side (it needs the guest's filesystem, and
+      # a symlink in the middle changes the answer), so a path carrying one
+      # cannot be compared against the reserved set below -- `/mnt/x/../repo`
+      # would pass every collision check and still land on /mnt/repo. Reject
+      # rather than guess.
+      case "/$path/" in
+        */../*)
+          echo "claude-vm: mounts entry #${idx} ('$src') has path '$path', which contains a '..' segment." >&2
+          echo "claude-vm:   Where that resolves depends on the guest's filesystem, so claude-vm cannot check" >&2
+          echo "claude-vm:   it against its own reserved mountpoints. Write the path out in full." >&2
+          bad=1
+          ;;
+      esac
+    fi
+    gpath="$(claude_vm_mount_guest_path "$tag" "$path")"
+    case "$reserved_paths" in
+      *" $gpath "*)
+        echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', a guest path claude-vm" >&2
+        echo "claude-vm:   reserves for its own shares ($CLAUDE_VM_RESERVED_MOUNT_TAGS under" >&2
+        echo "claude-vm:   $CLAUDE_VM_GUEST_MOUNT_ROOT). Mounting over one hides the repo, the run config," >&2
+        echo "claude-vm:   the verified claude binary or the OAuth credential from the rest of the boot." >&2
+        bad=1
+        ;;
+    esac
+    case "$seen_paths" in
+      *" $gpath "*)
+        echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', where an earlier entry already" >&2
+        echo "claude-vm:   mounts. The later mount shadows the earlier one, so one of the two directories is" >&2
+        echo "claude-vm:   unreachable inside the guest. Give it its own 'path:' (the default is" >&2
+        echo "claude-vm:   $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>)." >&2
+        bad=1
+        ;;
+      *) seen_paths="$seen_paths$gpath " ;;
+    esac
   done < <(claude_vm_mount_specs "$boot_doc")
   [ "$bad" -eq 0 ]
 }

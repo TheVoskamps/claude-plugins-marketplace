@@ -288,10 +288,14 @@ egress:
 mounts:                           # extra mounts beyond the repo auto-mount
   - source: ~/.claude/policy
     tag: policy
-    mode: ro
+    mode: ro                      # ro (default) | rw -- ENFORCED, see below
   - source: ~/datasets/foo
     tag: data
     mode: ro
+  - source: ~/.gitconfig          # a single FILE works too
+    tag: gitconfig
+    mode: ro
+    path: /root/.gitconfig        # optional guest mountpoint override
 
 github:
   auth: none                      # none (default) | host-token
@@ -303,15 +307,38 @@ github:
   (`payload/proxy/tinyproxy-launch.sh`), which reads that file and binds
   `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
   file instead of a hand-maintained allowlist baked into the command.
-- `mounts` generates the extra `virtio-fs` device flags. A leading `~`
-  in `source` expands to `$HOME`. Both `source` and `tag` are mandatory
-  per entry — the guest mounts each share *by* its tag, so an entry with
-  an empty or omitted `tag:` is a share nobody can mount and two of them
-  would collide on one tag. Either omission aborts the launch at config
-  load, naming the entry by its position in the merged boot config —
-  `mounts` is a union list, so that number counts through the global
-  entries before the per-repo ones and need not be the entry's position
-  in either file on its own — and by its path when it has one.
+- `mounts` generates the extra `virtio-fs` device flags, and the guest
+  mounts each one at `path:` (default `/mnt/<tag>`) before claude starts.
+  A leading `~` in `source` expands to `$HOME`. Both `source` and `tag`
+  are mandatory per entry — the guest mounts each share *by* its tag, so
+  an entry with an empty or omitted `tag:` is a share nobody can mount
+  and two of them would collide on one tag.
+
+  **`mode: rw` pierces the VM isolation boundary for that one path.** It
+  is an enforced guest mount option, not a hint: `ro` writes fail with
+  `EROFS`, and `rw` writes land on the host directory **live** — no
+  copy-back step, no review, no undo (`repo.copy_back` governs the *repo*
+  mount only). Everything else about the VM still holds; that one
+  directory is simply outside it, on purpose. `ro` is the default so
+  that piercing the boundary is always deliberate.
+
+  A single **file** `source` works as well as a directory: virtio-fs
+  shares directories only, so the launcher wraps the file in a per-entry
+  directory (hard-linking it, so `rw` still writes through to the host
+  file) and the guest bind-mounts just that one file onto `path:`.
+  Nothing else from the file's real parent directory reaches the guest.
+
+  Every mistake aborts the launch at config load rather than booting a VM
+  without the mount you asked for: a missing `source`/`tag`, a `source`
+  that is not on the host, a `tag` that is reserved
+  (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
+  `[A-Za-z0-9._-]`, or repeated, a `mode` other than `ro`/`rw`, and a
+  `path` that is relative, carries `..`, lands on one of claude-vm's own
+  mountpoints, or duplicates another entry's. The diagnostic names the
+  entry by its position in the merged boot config — `mounts` is a union
+  list, so that number counts through the global entries before the
+  per-repo ones and need not be the entry's position in either file on
+  its own — and by its path when it has one.
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,

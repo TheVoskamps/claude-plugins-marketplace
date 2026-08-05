@@ -1393,20 +1393,61 @@ if [ -z "$PROXY_CMD" ]; then
 fi
 
 # ---------------------------------------------------------------------
-# Build extra-mount device flags from config (mounts: list).
-# Each entry becomes a virtio-fs device. The repo auto-mount (tag
-# 'repo') and the run-config mount (tag 'runconfig') are always added
-# below; these are the user's EXTRA mounts.
+# Build extra-mount device flags from config (mounts: list), and the guest-side
+# mount manifest that tells the boot launcher what to do with them (issue #157).
+#
+# Each entry becomes a virtio-fs device. The repo auto-mount (tag 'repo') and
+# the run-config mount (tag 'runconfig') are always added below; these are the
+# user's EXTRA mounts.
+#
+# vfkit only SHARES a directory under a tag -- it never mounts anything. Before
+# #157 nothing carried the tags into the guest and the image's baked fstab knew
+# only the four built-in tags, so a configured extra mount was attached to the
+# VM and then never appeared inside it. The manifest below (mounts.tsv, on the
+# same runconfig share as run.env and the apt/plugin manifests) closes that gap:
+#
+#   <tag><TAB><mode><TAB><guest-path><TAB><file>
+#
+# with <file> EMPTY for an ordinary directory mount and set to the file's
+# basename for a single-file mount. It rides a manifest file rather than run.env
+# for the same reason apt-install.list and plugin-marketplaces.tsv do: run.env
+# is sourced under `set -a` and carries scalars, while this is a variable-length
+# list of records whose fields (a guest path, a host filename) are arbitrary
+# operator-supplied strings. Not a secret, so it needs no umask tightening
+# beyond what CONFIG_DIR already has.
+#
+# SINGLE-FILE SOURCES. virtio-fs shares directories only, so a file source is
+# WRAPPED: the launcher makes a per-entry directory under $RUN and puts the file
+# in it (the same shape the claudecreds mount uses for the credential file),
+# shares THAT, and the guest bind-mounts the one file out of it onto the target
+# path -- so nothing else from the file's real parent directory is exposed. The
+# wrap entry is a HARD LINK, not a copy: a copy would make `mode: rw` a lie
+# (guest writes would land in the throwaway wrap dir and never reach the host
+# file), whereas a hard link is the same inode, so an rw single-file mount
+# writes through live exactly like an rw directory mount. `ln` fails across
+# filesystems, and that is a hard abort rather than a silent downgrade to a
+# copy -- see the message for the fix.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
+MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
+: > "$MOUNTS_TSV"
+# Parent of the per-entry single-file wrap dirs, alongside the run's other
+# artifacts under $RUN. $RUN is RETAINED after the run (cleanup() shreds only
+# $CREDS_DIR; the diff/apply skills read the rest), and that is harmless here:
+# a hard link is an extra NAME for the operator's file, not a copy of its
+# bytes, so nothing is duplicated and deleting the run dir never touches their
+# data.
+MOUNT_WRAP_DIR="$RUN/mount-wrap"
 # Split each record BY HAND rather than with 'IFS=<tab> read -r src tag mode'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
 # an empty MIDDLE field vanishes and every later field shifts left. A mounts
-# entry written with an empty tag is emitted as source<TAB><TAB>mode, and the
-# collapsing read took the MODE as the mount TAG -- the share went out as
-# mountTag=ro (or rw), and two such entries would share that one tag. The
-# emitter (claude_vm_mount_specs, via yq @tsv) joins all three fields, so both
-# separators are always present and the three expansions below are total.
+# entry written with an empty tag is emitted as source<TAB><TAB>mode<TAB>path,
+# and the collapsing read took the MODE as the mount TAG -- the share went out
+# as mountTag=ro (or rw), and two such entries would share that one tag. Since
+# #157 the record has FOUR fields with TWO optional middle ones (mode, path),
+# so the hazard is strictly wider than it was. The emitter
+# (claude_vm_mount_specs, via yq @tsv) joins all four fields, so every separator
+# is always present and the four expansions below are total.
 #
 # Since #226 a sourceless or tagless entry never reaches here at all --
 # claude_vm_check_mounts rejected it at config load, above. The split and the
@@ -1420,16 +1461,37 @@ while IFS= read -r mount_record; do
   src=${mount_record%%$MOUNT_TAB*}
   mount_rest=${mount_record#*$MOUNT_TAB}
   tag=${mount_rest%%$MOUNT_TAB*}
-  mode=${mount_rest#*$MOUNT_TAB}
+  mount_rest=${mount_rest#*$MOUNT_TAB}
+  mode=${mount_rest%%$MOUNT_TAB*}
+  mount_path=${mount_rest#*$MOUNT_TAB}
   [ -z "$src" ] && continue
-  # Expand a leading ~ to $HOME (config is YAML, not shell).
-  case "$src" in
-    "~"/*) src="$HOME/${src#"~/"}" ;;
-    "~") src="$HOME" ;;
-  esac
-  # mode is advisory for virtio-fs share dirs; recorded for the guest
-  # mount step. vfkit shares the dir; the guest mounts ro/rw per mode.
-  EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$src,mountTag=$tag")
+  # Expand a leading ~ to $HOME (config is YAML, not shell). Shared with
+  # claude_vm_check_mounts's host-existence check so both see the same path.
+  src="$(claude_vm_expand_mount_source "$src")"
+  # The guest mountpoint: the entry's `path:` when set, else /mnt/<tag>.
+  mount_guest_path="$(claude_vm_mount_guest_path "$tag" "$mount_path")"
+  mount_file=""
+  mount_shared_dir="$src"
+  # -f is true for a regular file and false for a directory (and for a symlink
+  # to one), so it is the whole directory-vs-file decision on its own.
+  if [ -f "$src" ]; then
+    mount_file="${src##*/}"
+    mount_shared_dir="$MOUNT_WRAP_DIR/$tag"
+    mkdir -p "$mount_shared_dir"
+    # -f so a rerun over a retained run dir replaces a stale link rather than
+    # failing; the link target is the operator's file either way.
+    if ! ln -f "$src" "$mount_shared_dir/$mount_file" 2>/dev/null; then
+      echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
+      echo "claude-vm:   hard-linking it into a wrap directory at $mount_shared_dir -- but that link" >&2
+      echo "claude-vm:   could not be created. A hard link cannot cross filesystems, so this usually means" >&2
+      echo "claude-vm:   the source is on a different volume than this run directory. Either put a copy of" >&2
+      echo "claude-vm:   the file on the same volume and point 'source:' at that, or mount its containing" >&2
+      echo "claude-vm:   DIRECTORY instead (source: $(dirname "$src"))." >&2
+      exit 1
+    fi
+  fi
+  EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$mount_shared_dir,mountTag=$tag")
+  printf '%s\t%s\t%s\t%s\n' "$tag" "$mode" "$mount_guest_path" "$mount_file" >> "$MOUNTS_TSV"
 done < <(claude_vm_mount_specs "$MERGED_BOOT")
 
 # ---------------------------------------------------------------------

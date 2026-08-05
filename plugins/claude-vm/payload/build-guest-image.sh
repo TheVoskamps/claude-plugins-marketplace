@@ -291,7 +291,17 @@ BASE_OS_REV="debian-12-20250601"
 #       image stamped 'launcher21' has NO baked plugins, so reusing it would
 #       silently produce a guest whose baked plugins are simply absent.
 # Old images (stamped 'launcher21') must rebuild to gain both.
-LAUNCHER_LOGIC_REV="22"
+# Bumped 22 -> 23: guest-side extra mounts (issue #157). The boot launcher gains
+# boot_mount_phase, which reads the host's mounts.tsv off the runconfig share
+# and mounts each configured `mounts:` tag -- at its `path:` or /mnt/<tag>, with
+# ro/rw applied as a real mount option, and with a single-file source
+# bind-mounted out of its wrap share onto the target path. Before this rev the
+# guest half did not exist: vfkit attached each configured share and nothing in
+# the guest ever mounted it, so `mounts:` entries were invisible inside the VM
+# and `mode:` was a string nobody read. BOOT LOGIC baked into the image, so an
+# image stamped 'launcher22' would keep ignoring the manifest; old images must
+# rebuild to gain the phase.
+LAUNCHER_LOGIC_REV="23"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -461,6 +471,150 @@ set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
 set +a
+
+# ---------------------------------------------------------------------
+# Extra mounts (issue #157) -- the GUEST half of the `mounts:` config key.
+#
+# vfkit only SHARES a directory under a virtio-fs tag; something in the guest
+# must still mount that tag somewhere. The image's baked /etc/fstab knows only
+# the four built-in tags above, and it cannot know the operator's: `mounts:` is
+# a BOOT key, so it must not change the image's bytes (it does not participate
+# in the image-identity hash, and two configs differing only in `mounts:` share
+# one cached image). So the mounting happens HERE, at boot, driven by a manifest
+# the host writes onto the runconfig share:
+#
+#   mounts.tsv -- <tag><TAB><mode><TAB><guest-path><TAB><file> per line
+#
+# <file> is EMPTY for an ordinary directory mount. When it is set, the share is
+# a WRAP directory the host built around a single-file source (virtio-fs shares
+# directories only): mount the wrap somewhere out of the way, then bind-mount
+# that ONE file onto the target path, so the rest of the file's real parent
+# directory on the host is never exposed to the guest.
+#
+# mode is a REAL mount option, not the advisory string it was before this
+# change. `ro` is enforced by the kernel: a write inside the guest fails with
+# EROFS. `rw` writes STRAIGHT THROUGH to the host directory, live -- there is no
+# copy-back step in between, and the host sees the write immediately. That
+# deliberately pierces the VM isolation boundary for that one path, which is why
+# ro is the default and why config-boot.example.yml says so loudly.
+#
+# ORDERING: first thing after run.env, before the credential/seed/settings
+# install and before the apt and plugin phases. An extra mount is plain data
+# with no dependency on any of them, and running first means every later phase
+# -- and claude itself -- sees a fully-assembled filesystem.
+#
+# FAILURE POLICY: identical to boot_apt_phase and boot_plugin_phase -- a failed
+# mount prints a loud warning naming the tag to the hvc0 diagnostic log and
+# CONTINUES to claude. A missing optional mount must never brick an interactive
+# session, and the operator sees exactly which entry failed in the captured
+# console log. The host has already rejected every config-level mistake
+# (claude_vm_check_mounts) before the VM was started, so what is left here is
+# runtime failure, not operator error.
+# ---------------------------------------------------------------------
+MOUNTS_TSV="$RUNCONFIG_MNT/mounts.tsv"
+# Where a single-file source's wrap share is mounted before its one file is
+# bind-mounted onto the target. Under /run (a tmpfs, cleared each boot) so it
+# never collides with anything the operator can name via `path:`.
+MOUNT_WRAP_MNT=/run/claude-vm/mount-wrap
+
+boot_mount_phase() {
+  local record tag mode path file rest wrap source parent err mnt_tab mounted=0
+  [ -f "$MOUNTS_TSV" ] || return 0
+  mnt_tab=$'\t'
+  while IFS= read -r record; do
+    # Split BY HAND. A tab is IFS whitespace, so `IFS=$'\t' read -r tag mode
+    # path file` would collapse a run of tabs into one separator and strip a
+    # leading one: this record has TWO optional trailing/middle fields (an
+    # unset `path:` is not possible here -- the host always resolves it -- but
+    # `file` is empty for every directory mount, which is most of them), so a
+    # collapsing read would hand `file`'s empty slot to nothing and leave the
+    # last real field in the wrong variable. The host writes all three
+    # separators unconditionally, so these expansions are total.
+    [ -n "$record" ] || continue
+    tag=${record%%$mnt_tab*}
+    rest=${record#*$mnt_tab}
+    mode=${rest%%$mnt_tab*}
+    rest=${rest#*$mnt_tab}
+    path=${rest%%$mnt_tab*}
+    file=${rest#*$mnt_tab}
+    if [ -z "$tag" ] || [ -z "$path" ]; then
+      log "claude-vm: WARNING -- skipping a malformed mounts.tsv record (tag='$tag' path='$path')."
+      continue
+    fi
+    case "$mode" in
+      ro|rw) : ;;
+      *)
+        log "claude-vm: WARNING -- mount '$tag' has unknown mode '$mode'; mounting read-only."
+        mode=ro
+        ;;
+    esac
+    if [ -z "$file" ]; then
+      # Ordinary directory mount: the share IS what the operator asked for.
+      if ! mkdir -p "$path" 2>/dev/null; then
+        log "claude-vm: WARNING -- could not create mountpoint $path for mount '$tag'; skipping it."
+        continue
+      fi
+      # mount's own stderr is captured and re-logged rather than left to land
+      # on this process's stdout/stderr, which is hvc1 -- the INTERACTIVE
+      # console. Boot diagnostics belong on hvc0 (the host-captured log), and
+      # the operator needs the kernel's actual message, not just "it failed".
+      if err="$(mount -t virtiofs -o "$mode" "$tag" "$path" 2>&1)"; then
+        log "claude-vm: mounted extra share '$tag' at $path ($mode)."
+        mounted=$((mounted + 1))
+      else
+        log "claude-vm: WARNING -- failed to mount extra share '$tag' at $path ($mode): $err"
+      fi
+      continue
+    fi
+    # Single-file mount: mount the wrap share out of the way, then bind-mount
+    # the one file onto the target. The bind inherits the wrap mount's
+    # read-only-ness from the underlying filesystem, so a `ro` single-file
+    # mount rejects writes for the same reason a `ro` directory mount does.
+    wrap="$MOUNT_WRAP_MNT/$tag"
+    if ! mkdir -p "$wrap" 2>/dev/null; then
+      log "claude-vm: WARNING -- could not create wrap mountpoint $wrap for mount '$tag'; skipping it."
+      continue
+    fi
+    if ! err="$(mount -t virtiofs -o "$mode" "$tag" "$wrap" 2>&1)"; then
+      log "claude-vm: WARNING -- failed to mount wrap share for single-file mount '$tag': $err"
+      continue
+    fi
+    source="$wrap/$file"
+    if [ ! -e "$source" ]; then
+      log "claude-vm: WARNING -- single-file mount '$tag' has no '$file' in its wrap share; continuing."
+      continue
+    fi
+    # The target's parent. `${path%/*}` is EMPTY when the target sits directly
+    # in the root (path=/foo), and `mkdir -p ""` fails -- so name / explicitly.
+    parent="${path%/*}"
+    [ -n "$parent" ] || parent=/
+    if ! mkdir -p "$parent" 2>/dev/null; then
+      log "claude-vm: WARNING -- could not create $parent, the parent of $path, for mount '$tag'; continuing."
+      continue
+    fi
+    # mount --bind needs the target to exist and to be a file. Create an empty
+    # one when it is not already there; its contents are irrelevant, the bind
+    # covers them.
+    if [ ! -e "$path" ] && ! : > "$path" 2>/dev/null; then
+      log "claude-vm: WARNING -- could not create the bind target $path for mount '$tag'; continuing."
+      continue
+    fi
+    if err="$(mount --bind "$source" "$path" 2>&1)"; then
+      log "claude-vm: mounted extra single-file share '$tag' at $path ($mode)."
+      mounted=$((mounted + 1))
+    else
+      log "claude-vm: WARNING -- failed to bind $source onto $path for mount '$tag': $err"
+    fi
+  done < "$MOUNTS_TSV"
+  [ "$mounted" -eq 0 ] || log "claude-vm: extra-mount phase mounted $mounted share(s)."
+}
+# Invoked as the left operand of `||` so `set -e` is suspended for the whole
+# function body -- the same fail-soft wiring boot_plugin_phase uses, and for
+# the same reason (no bare `set +e`, which would move the first `set +e` in the
+# emitted launcher away from the exit-status decision fragment the
+# boot-launcher test slices out).
+boot_mount_phase \
+  || log "claude-vm: WARNING -- the extra-mount phase ended early; continuing to claude."
 
 # ---------------------------------------------------------------------
 # Auth: install the host's claude.ai OAuth credential (issue #50).
