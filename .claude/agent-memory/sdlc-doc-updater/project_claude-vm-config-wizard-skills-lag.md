@@ -32,6 +32,21 @@ changed — the wizard writes entries verbatim, so a gate it does not know
 about turns into a config that aborts the launch. #226's gates (a
 `claude.marketplaces` entry with no `name`, a `mounts` entry with no
 `source`/`tag`) were swept into README/SKILL/examples but not the wizards.
+Issue #157 repeated it exactly: the `mounts` entry gained `mode: ro|rw`
+enforcement, a `path:` key and seven new abort conditions, all of which
+landed in README/SKILL/`config-boot.example.yml` while
+`claude-vm-config-repo/SKILL.md`'s "Extra `mounts` this repo needs" bullet
+still described only the #226 source/tag pair. The wizard bullet is also
+where the cross-tier warning belongs — the tag/path collision checks run
+over the MERGED global+repo list, so a per-repo entry can collide with a
+global one the wizard just read in its "show the global basis" step.
+
+A fourth class, also #157: the launcher's **call-site** comment for a
+validator (`claude_vm_check_mounts` in `claude-vm.sh`) and the emitted boot
+launcher's **file-header step list** in `build-guest-image.sh` both go stale
+when the validator gains cases or the launcher gains a phase. The developer
+updates the function's own header and the phase's own block comment; the
+summary comments that enumerate them elsewhere in the same file do not move.
 
 **How to apply:** after ANY claude-vm config-schema OR config-validation
 change, grep

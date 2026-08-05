@@ -25,7 +25,8 @@
 - [claude-vm config-wizard skills lag](project_claude-vm-config-wizard-skills-lag.md)
   — claude-vm feature work leaves the two config-WIZARD SKILL.md files stale;
   a wrong bake/boot placement there makes the wizard write a config that
-  cannot launch; also check payload/README.md's helper-function list.
+  cannot launch; also check payload/README.md's helper-function list, and
+  the call-site/file-header comments that summarize a changed validator.
 - [issue-ref sweep artifacts](project_issue-ref-sweep-artifacts.md) —
   a mechanical `#N`-removal sweep breaks grammar ACROSS comment line
   wraps (line greps miss it) and turns refs into unnamed "this issue"
