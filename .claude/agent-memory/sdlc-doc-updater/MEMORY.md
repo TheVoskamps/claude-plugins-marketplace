@@ -1,5 +1,9 @@
 # Doc-updater memory index
 
+- [Read the worktree, not the primary clone](feedback_read-the-worktree-not-the-primary-clone.md)
+  — build paths from `git rev-parse --show-toplevel`; a primary-clone Read
+  silently returns pre-PR prose. Tell: grep -n and Read disagree on line numbers.
+
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
