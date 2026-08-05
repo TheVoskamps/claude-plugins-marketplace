@@ -21,7 +21,12 @@ issue #113 (all correctly — do not fight them):
   substitution / heredoc arg → DENY (non-static argv, #64 precondition).
   Write the commit message to a file under
   `<worktree>/.claude/tmp/<slug>/` and use `git commit -F <file>`.
-  Same for PR bodies: `gh pr create --body-file <file>`.
+  Same for PR bodies: `gh pr create --body-file <file>`. Since #229 that
+  `<file>` must also be CONTAINED — the gate now runs read containment on
+  the local files a gh publish verb sends to GitHub, so a body/notes file
+  outside the worktree denies with the ordinary cross-repo read message.
+  Anchoring scratch to `<worktree>/.claude/tmp/` satisfies both rules at
+  once; the harness scratchpad is fine too.
 - `mkdir`/`Write` to `<primary-clone>/.claude/tmp/...` → DENY (resolves
   to the primary clone, not this worktree). Anchor scratch to
   `$(git rev-parse --show-toplevel)/.claude/tmp/` — i.e. the worktree's
