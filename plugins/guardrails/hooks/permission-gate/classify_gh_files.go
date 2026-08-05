@@ -22,7 +22,7 @@ import (
 // leave, so the read source is graded exactly as the read tracks grade theirs.
 //
 // The mechanism is reused rather than rebuilt: pathFlagValues (readonly_util.go)
-// extracts a flag's value in all four spellings — a separate token
+// extracts a flag's value in every spelling — a separate token
 // (`-F FILE`), a glued short form (`-FFILE`), an `=`-joined long form
 // (`--body-file=FILE`), and the value-taking tail of a short cluster — and
 // containReadSources (classify_files.go) runs the results through the read
@@ -30,7 +30,7 @@ import (
 // file is no grounds to bless the publish itself; the verb's own tier decides
 // that).
 //
-// Two properties carried over from #225:
+// Properties carried over from #225:
 //
 //   - APPENDED, never substituted. The flag values are added to the verb's
 //     positional file operands, so the flag model can only ever put MORE paths
@@ -53,11 +53,13 @@ import (
 //
 // filePositionalsFrom is the index, among the verb's positional operands, of the
 // first one that names a local file; -1 when the verb takes none. It exists
-// because two publish verbs take their files positionally rather than by flag:
+// because some publish verbs take their files positionally rather than by flag:
 // `gh gist create <filename>...` names them from index 0, while
 // `gh release create <tag> [<filename>...]`, `gh release upload <tag> <files>...`
 // and `gh gist edit {<id>|<url>} [<filename>]` reserve the first positional for
-// a tag / gist id and name files from index 1.
+// a tag / gist id and name files from index 1. `gh release edit <tag>` carries 1
+// as well although its grammar has no file positional at all: an operand gh
+// would itself reject is then graded rather than left ungraded.
 type ghFileSpec struct {
 	valueFlags          map[string]bool
 	boolFlags           map[string]bool
@@ -78,7 +80,7 @@ var ghInheritedBoolFlags = map[string]bool{"--help": true}
 
 // ghSpec builds a ghFileSpec, folding gh's inherited flags into the verb's own
 // sets. pathValueFlags must be a subset of the verb's valueFlags; that is
-// asserted by TestGhFileSpecsAreWellFormed rather than at run time.
+// asserted by TestGhFileSpecsPathFlagsAreValueFlags_229 rather than at run time.
 func ghSpec(valueFlags, boolFlags, pathValueFlags map[string]bool, filePositionalsFrom int) ghFileSpec {
 	merged := make(map[string]bool, len(valueFlags)+len(ghInheritedValueFlags))
 	for f := range valueFlags {
@@ -113,9 +115,11 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 // ghFileSpecs is the grading table, keyed by noun then verb. Its membership is
 // the set of gh commands that PUBLISH content: every verb ghRecoverableWriteVerbs
 // maps true (the enumerated recoverable writes, which reach an outright ALLOW),
-// plus `release create` and `gist create`, which reach the publish ASK tier
-// above isGhRecoverableWrite and would otherwise escalate on the verb while
-// never grading the path.
+// plus `release create`, which is not in that map at all — it reaches the publish
+// ASK tier above isGhRecoverableWrite and would otherwise escalate on the verb
+// while never grading the path. `gist create` needs a spec for both reasons at
+// once: a secret gist rides the recoverable-write ALLOW, and `--public` routes
+// the same verb to that publish ASK.
 //
 // Read verbs are deliberately absent. A read sends nothing of the local disk to
 // GitHub, so it has no publish surface to grade, and its output-redirect surface
@@ -269,7 +273,9 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 				"-p": true, "--prerelease": true, "--verify-tag": true,
 			},
 			ghNotesFileFlags, 1),
-		// `gh release edit <tag>` takes no file positional.
+		// `gh release edit <tag>` takes no file positional in gh's own grammar;
+		// grading from index 1 therefore normally finds nothing, and grades a
+		// stray extra operand rather than ignoring it.
 		"edit": ghSpec(
 			map[string]bool{
 				"--discussion-category": true, "-n": true, "--notes": true,
@@ -358,12 +364,16 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 	paths := ghPublishedFilePaths(rest, spec, sc)
 	if len(paths) > 0 {
 		// A path built from an expansion the gate cannot resolve statically
-		// cannot be contained. It reaches here rather than the non-static-argv
-		// deny because `-F`/`-t`/`-b` are on gh's shield table (their values were
-		// established as non-classification-bearing for `gh api`, where `-F` is a
-		// request FIELD). On a publish verb `-F` is the body-file flag and its
-		// value IS classification-bearing now, so fail closed ASK — the same
-		// posture the read and write tracks hold for a dynamic path.
+		// cannot be contained. Most dynamic spellings never get this far — the
+		// non-static-argv deny takes them, `gh pr comment -F $BODY` included,
+		// because a FIELD flag shields its value only when the `key=` is
+		// statically pinned. What does reach here is a dynamic value on a
+		// non-field entry of gh's shield table (classify_command.go), whose value
+		// was established as non-classification-bearing for `gh api`:
+		// `-t`/`--template` is one, and on `gh pr create` that flag names a local
+		// template FILE, so its value IS classification-bearing now. Fail closed
+		// ASK — the same posture the read and write tracks hold for a dynamic
+		// path.
 		if sc.hasUnknownExpansion {
 			return ask("gh publish-file:dynamic-path (#229)", fmt.Sprintf(
 				"Blocked: '%s' reads a local file whose path is built from an expansion the gate cannot resolve "+
@@ -396,7 +406,7 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 // so a mismodelled flag arity can only ever add a path to containment — it can
 // never swallow a genuine file operand out of the walk. That is the same
 // property utilitySpec.operands relies on, and pathFlagValues is the same
-// extractor, so all four flag spellings are covered here for free.
+// extractor, so every flag spelling is covered here for free.
 //
 // The `-` substitution closes the alternate spelling of the same publish:
 // `gh pr comment 227 -F - < /etc/passwd` sends the file just as

@@ -558,10 +558,13 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `-a`/`--add` on `gist edit`) and the index from which POSITIONAL
   operands name files (`gh gist create <filename>…` from 0;
   `gh release create <tag> [<filename>…]`, `gh release upload <tag>
-  <files>…` and `gh gist edit <id> [<filename>]` from 1). The values
-  are extracted by the same `pathFlagValues` the read track uses, so
-  all four spellings (separate token, glued short, `=`-joined long,
-  short-cluster tail) are covered, and they are **appended** to the
+  <files>…` and `gh gist edit <id> [<filename>]` from 1 — as does
+  `gh release edit <tag>`, whose grammar takes no file positional at
+  all, so index 1 grades an extra operand gh would itself reject rather
+  than leaving one ungraded). The values are extracted by the same
+  `pathFlagValues` the read track uses, so every spelling (separate
+  token, glued short, `=`-joined long,
+  short-cluster tail) is covered, and they are **appended** to the
   positional walk rather than substituted for it — a mismodelled arity
   can only ever add a path to containment, never swallow one out of it.
   A `-` operand is gh's read-from-stdin marker, so it is replaced by
@@ -582,9 +585,17 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   whitelist shape `ghAuthStatusEscalates` holds for `gh auth status`,
   so a gh release that adds another file-reading flag costs one click
   rather than a silent publish. The `@file` expansion in `gh api`
-  `-f`/`-F` values is deliberately NOT part of this: every `gh api`
-  form carrying a request body already asks for method reasons, so
-  there is no allow to close. For `aws`: `--endpoint-url` **denies**
+  field values is deliberately NOT part of this, and `gh api` keeps the
+  verdicts the api gate already gave it: the expansion is done by
+  `-F`/`--field` and `--input` (`-f`/`--raw-field` passes its value
+  literally), a body flag with no explicit method **asks** as an
+  implicit POST, and `gh api graphql -F query=@file` **denies** for
+  carrying no statically-present document. The residual is the
+  explicit-GET carve-out, which stays a read: `gh api -X GET -F
+  q=@/etc/passwd repos/o/r` **allows**, so a `@file` value on an
+  allow-listed GET endpoint reaches GitHub without being graded against
+  the repository boundary. #229 neither widened nor closed that.
+  For `aws`: `--endpoint-url` **denies**
   (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret
   reads (`sts get-session-token`, `ecr get-login-password`,
