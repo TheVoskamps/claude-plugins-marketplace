@@ -123,6 +123,24 @@ func dedupeOperands(operands []string) []string {
 	return out
 }
 
+// pathRef is one path an argv walk extracted, tagged with the index — into the
+// args slice that was walked — of the token the path came from: the VALUE token
+// for a separate-token spelling (`-f FILE`), and the FLAG token itself for a
+// glued or `=`-joined one (`-fFILE`, `--exclude-from=FILE`), where the path has
+// no token of its own. An index of -1 means the path came from no argv token at
+// all (a shell redirect the caller substituted in).
+//
+// The index exists so a caller can ask whether THIS path was built from a word
+// the gate could not resolve statically — simpleCommand.argMeta carries per-token
+// `exact` — rather than falling back to the whole-command hasUnknownExpansion
+// bool, which answers only "was anything dynamic anywhere". See
+// ghPathTokensDynamic (classify_gh_files.go); unshieldedDynamicArg
+// (classify_command.go) is the same narrowing on the precondition.
+type pathRef struct {
+	path string
+	arg  int
+}
+
 // pathFlagValues returns the values of the flags in pathFlags — the flags whose
 // value names a filesystem path (see utilitySpec.pathValueFlags) — in every
 // spelling the utility accepts: a separate token (`-f FILE`, `--file FILE`), a
@@ -130,16 +148,33 @@ func dedupeOperands(operands []string) []string {
 // (`--exclude-from=FILE`), and the value-taking tail of a short cluster
 // (`grep -rf FILE`).
 //
+// It is the value-only view of pathFlagValueRefs, for the callers that grade a
+// path without needing to know which token produced it.
+func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []string {
+	refs := pathFlagValueRefs(args, valueFlags, pathFlags)
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, r.path)
+	}
+	return out
+}
+
+// pathFlagValueRefs is pathFlagValues with each value tagged by the index of the
+// argv token it came from (see pathRef).
+//
 // valueFlags is the utility's complete value-taking flag set; pathFlags is a
 // subset of it. Walking with the full set is what makes the cluster and
 // separate-token cases exact: the value of a NON-path flag (`grep -e PATTERN`)
 // is consumed rather than mistaken for the next flag, and inside a cluster the
 // first value-taking character ends the flag run.
-func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []string {
+func pathFlagValueRefs(args []string, valueFlags, pathFlags map[string]bool) []pathRef {
 	if len(pathFlags) == 0 {
 		return nil
 	}
-	var out []string
+	var out []pathRef
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -153,14 +188,14 @@ func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []stri
 			name := a
 			if eq := strings.IndexByte(a, '='); eq >= 0 {
 				if pathFlags[a[:eq]] {
-					out = append(out, a[eq+1:])
+					out = append(out, pathRef{path: a[eq+1:], arg: i})
 				}
 				continue
 			}
 			if valueFlags[name] {
 				if i+1 < len(args) {
 					if pathFlags[name] {
-						out = append(out, args[i+1])
+						out = append(out, pathRef{path: args[i+1], arg: i + 1})
 					}
 					i++ // consume the value token either way
 				}
@@ -178,11 +213,11 @@ func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []stri
 			}
 			if j+1 < len(a) {
 				if pathFlags[f] {
-					out = append(out, a[j+1:])
+					out = append(out, pathRef{path: a[j+1:], arg: i})
 				}
 			} else if i+1 < len(args) {
 				if pathFlags[f] {
-					out = append(out, args[i+1])
+					out = append(out, pathRef{path: args[i+1], arg: i + 1})
 				}
 				i++ // consume the separate value token either way
 			}

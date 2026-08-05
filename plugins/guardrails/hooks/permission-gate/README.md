@@ -561,8 +561,9 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   <files>…` and `gh gist edit <id> [<filename>]` from 1 — as does
   `gh release edit <tag>`, whose grammar takes no file positional at
   all, so index 1 grades an extra operand gh would itself reject rather
-  than leaving one ungraded). The values are extracted by the same
-  `pathFlagValues` the read track uses, so every spelling (separate
+  than leaving one ungraded). The values are extracted by the same flag
+  walk the read track uses — `pathFlagValueRefs`, which `pathFlagValues`
+  wraps — so every spelling (separate
   token, glued short, `=`-joined long,
   short-cluster tail) is covered, and they are **appended** to the
   positional walk rather than substituted for it — a mismodelled arity
@@ -570,10 +571,28 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   A `-` operand is gh's read-from-stdin marker, so it is replaced by
   the command's input-redirect sources: `gh pr comment 227 -F - <
   /etc/passwd` is the same publish spelled differently and earns the
-  same **deny**. Grading runs BELOW the irreparable-deny tier (those
-  keep their specific messages) and ABOVE the publish ask, so an
+  same **deny**. `gh gist create` needs no marker at all — gh's own
+  `createRun` substitutes `-` when the invocation carries no file
+  operand, and its argument validator accepts zero operands whenever
+  stdin is not a TTY — so the spec carries `defaultsToStdin` and
+  `gh gist create < /etc/passwd` is graded exactly as the explicit
+  spelling is. It is the only verb in the table that does: `pr comment`,
+  `gist edit` and `release create` each require an explicit `-` or a
+  filename. A published path the gate cannot resolve statically
+  **asks** (fail-closed — containment has nothing to grade), and that
+  question is asked of the PATH TOKENS rather than of the whole
+  command, so `gh pr create --title "$TITLE" --body-file
+  .claude/tmp/body.md` keeps its **allow**: the dynamic token is a
+  shielded body-TEXT value, not the path. A path that came from a
+  redirect has no argv token of its own and falls back to the
+  whole-command bool. Grading runs BELOW the irreparable-deny tier
+  (those keep their specific messages) and ABOVE the publish ask, so an
   escaping asset on `gh release create` / `gh gist create --public`
-  **denies** instead of offering a click-through. The verdict is taken
+  **denies** instead of offering a click-through. (Only the long
+  `--public` spelling routes `gist create` to that publish ask —
+  `rules.go` matches no short `-p` — but the containment grading runs
+  on the verb either way, so an escaping asset denies in both
+  spellings.) The verdict is taken
   through `containReadSources`, which forwards an escape and discards
   the ALLOW: a contained body file never blesses the publish itself, so
   the publish ask and the foreign-target ask still fire. `--template`
@@ -584,7 +603,12 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   COMPLETE flag grammar, and an unrecognized flag asks**, the same
   whitelist shape `ghAuthStatusEscalates` holds for `gh auth status`,
   so a gh release that adds another file-reading flag costs one click
-  rather than a silent publish. The `@file` expansion in `gh api`
+  rather than a silent publish. That ask's wording follows the verb's
+  own modelled surface: a verb with no path flag, no file positional
+  and no stdin default (`gh pr close`, `gh issue pin`, `gh label edit`,
+  `gh cache delete`, …) is described as a write the gate cannot vouch
+  for, not as a body-file read it has no way to perform. The `@file`
+  expansion in `gh api`
   field values is deliberately NOT part of this, and `gh api` keeps the
   verdicts the api gate already gave it: the expansion is done by
   `-F`/`--field` and `--input` (`-f`/`--raw-field` passes its value

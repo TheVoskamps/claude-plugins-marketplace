@@ -21,8 +21,9 @@ import (
 // a worktree the agent can already read and write. Here the bytes genuinely
 // leave, so the read source is graded exactly as the read tracks grade theirs.
 //
-// The mechanism is reused rather than rebuilt: pathFlagValues (readonly_util.go)
-// extracts a flag's value in every spelling — a separate token
+// The mechanism is reused rather than rebuilt: pathFlagValueRefs
+// (readonly_util.go, the ref-tagged half of pathFlagValues) extracts a flag's
+// value in every spelling — a separate token
 // (`-F FILE`), a glued short form (`-FFILE`), an `=`-joined long form
 // (`--body-file=FILE`), and the value-taking tail of a short cluster — and
 // containReadSources (classify_files.go) runs the results through the read
@@ -41,6 +42,13 @@ import (
 //     allow — the same whitelist shape ghAuthStatusEscalates holds for
 //     `gh auth status`. A future gh release that adds another file-reading flag
 //     therefore costs one human click, not a silent publish.
+//
+// A path the gate cannot resolve statically fails closed to an ASK, and that
+// question is asked PER TOKEN (ghPathTokensDynamic) rather than of the whole
+// command: the ordinary agent spelling
+// `gh pr create --title "$TITLE" --body-file .claude/tmp/body.md` carries a
+// dynamic value on a deliberately shielded flag beside a perfectly literal body
+// file, and #229 requires it to keep allowing.
 
 // ghFileSpec models one gh noun/verb for the purpose of grading the local files
 // it reads and publishes.
@@ -60,11 +68,27 @@ import (
 // a tag / gist id and name files from index 1. `gh release edit <tag>` carries 1
 // as well although its grammar has no file positional at all: an operand gh
 // would itself reject is then graded rather than left ungraded.
+//
+// defaultsToStdin marks a verb that reads STDIN when the invocation gives it no
+// file operand at all — the implicit spelling of the `-` marker, which has no
+// token for the `-` substitution in ghPublishedFileRefs to fire on. See its
+// one member in ghFileSpecs.
 type ghFileSpec struct {
 	valueFlags          map[string]bool
 	boolFlags           map[string]bool
 	pathValueFlags      map[string]bool
 	filePositionalsFrom int
+	defaultsToStdin     bool
+}
+
+// readsLocalFiles reports whether the gate models ANY local-file surface on this
+// verb: a path-valued flag, a file positional, or the stdin default. Roughly half
+// the table's verbs have none — `pr close`, `issue pin`, `label edit`,
+// `cache delete` and their neighbours write to GitHub and read nothing off the
+// local disk — and the unmodelled-flag ASK words itself on that, so it does not
+// tell a human about a body-file risk the command cannot have.
+func (s ghFileSpec) readsLocalFiles() bool {
+	return len(s.pathValueFlags) > 0 || s.filePositionalsFrom >= 0 || s.defaultsToStdin
 }
 
 // ghInheritedValueFlags and ghInheritedBoolFlags are gh's per-command inherited
@@ -102,6 +126,14 @@ func ghSpec(valueFlags, boolFlags, pathValueFlags map[string]bool, filePositiona
 		pathValueFlags:      pathValueFlags,
 		filePositionalsFrom: filePositionalsFrom,
 	}
+}
+
+// ghStdinDefault marks a spec whose verb reads STDIN when the invocation carries
+// no file operand at all, so the walk grades the input redirect exactly as it
+// grades an explicit `-`.
+func ghStdinDefault(s ghFileSpec) ghFileSpec {
+	s.defaultsToStdin = true
+	return s
 }
 
 // ghBodyFileFlags is the `-F`/`--body-file` pair shared by every pr/issue verb
@@ -308,10 +340,19 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		// `gh gist create [<filename>...]` — every positional is a local file
 		// whose contents become the gist. `-f`/`--filename` is NOT a path: it
 		// supplies the NAME the gist gives content read from stdin.
-		"create": ghSpec(
+		//
+		// It is also the ONE verb in this table that reads stdin with no marker of
+		// any kind: gh's createRun does `if len(filenames) == 0 { filenames =
+		// []string{"-"} }`, and its Args validator accepts zero operands whenever
+		// stdin is not a TTY, so `gh gist create < /etc/passwd` publishes the file
+		// with nothing in argv naming it. ghStdinDefault is what puts that
+		// implicit `-` through the same grading the explicit one gets.
+		// `pr comment`, `gist edit` and `release create` each require an explicit
+		// `-` or a filename, so none of them carries the marker.
+		"create": ghStdinDefault(ghSpec(
 			map[string]bool{"-d": true, "--desc": true, "-f": true, "--filename": true},
 			map[string]bool{"-p": true, "--public": true, "-w": true, "--web": true},
-			nil, 0),
+			nil, 0)),
 		// `gh gist edit {<id>|<url>} [<filename>]` — the second positional is a
 		// LOCAL file whose contents replace a gist file, and `-a`/`--add` names a
 		// local file to add. `-f`/`--filename` and `-r`/`--remove` name files
@@ -361,8 +402,8 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 	rest := cmd[2:]
 	label := "gh " + noun + " " + verb
 
-	paths := ghPublishedFilePaths(rest, spec, sc)
-	if len(paths) > 0 {
+	refs := ghPublishedFileRefs(rest, spec, sc)
+	if len(refs) > 0 {
 		// A path built from an expansion the gate cannot resolve statically
 		// cannot be contained. Most dynamic spellings never get this far — the
 		// non-static-argv deny takes them, `gh pr comment -F $BODY` included,
@@ -374,7 +415,13 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		// template FILE, so its value IS classification-bearing now. Fail closed
 		// ASK — the same posture the read and write tracks hold for a dynamic
 		// path.
-		if sc.hasUnknownExpansion {
+		//
+		// The question is asked of the PATH TOKENS, not of the whole command: a
+		// dynamic value on a SHIELDED non-path flag leaves a literal body file
+		// perfectly gradable, and `gh pr create --title "$TITLE" --body-file
+		// .claude/tmp/body.md` is the ordinary agent spelling, which #229 requires
+		// to keep allowing.
+		if ghPathTokensDynamic(refs, rest, sc) {
 			return ask("gh publish-file:dynamic-path (#229)", fmt.Sprintf(
 				"Blocked: '%s' reads a local file whose path is built from an expansion the gate cannot resolve "+
 					"statically, and it publishes that file's contents to GitHub. Escalating to a human decision "+
@@ -386,7 +433,7 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		// containReadSources forwards an escape verdict and discards the ALLOW: a
 		// contained body file is no grounds to bless the publish, which the verb's
 		// own tier decides.
-		if d, clean := containReadSources(label, paths, sc, ev); !clean {
+		if d, clean := containReadSources(label, ghRefPaths(refs), sc, ev); !clean {
 			return d, true
 		}
 	}
@@ -397,64 +444,148 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 	return Decision{}, false
 }
 
-// ghPublishedFilePaths returns every LOCAL path this invocation reads and
-// publishes: the verb's positional file operands plus the values of its
-// path-valued flags, with a `-` (gh's read-from-stdin marker) replaced by the
-// command's input-redirect sources.
+// ghPathTokensDynamic reports whether any token that CONTRIBUTED one of these
+// published paths is a word the gate could not resolve statically.
+//
+// It is the per-token narrowing of simpleCommand.hasUnknownExpansion, which
+// answers only "was anything dynamic anywhere" and so escalated a static,
+// contained body file whenever the same command carried a dynamic value on a
+// deliberately SHIELDED flag (`--title "$TITLE"`, `--body "$MSG"`).
+// unshieldedDynamicArg holds the same narrowing for the non-static-argv
+// precondition, and for the same reason: the shield table exists precisely
+// because those values cannot occupy a position the gate classifies on. This
+// track therefore inherits that premise and no more — the command only reaches
+// here because the precondition already accepted the same dynamic token on the
+// same grounds.
+//
+// It fails closed — back to the whole-command bool — in the two cases where the
+// per-token answer is not available: a hand-built simpleCommand carrying no
+// argMeta, and a path with no argv token of its own. The latter is an
+// input-redirect source substituted for a `-`: a redirect WORD's dynamism sets
+// hasUnknownExpansion but occupies no argv slot, so there is no per-token
+// `exact` to read, and a partially-resolved redirect target (`< ./$X` reduces to
+// `./`) would otherwise read as contained.
+func ghPathTokensDynamic(refs []pathRef, args []string, sc simpleCommand) bool {
+	exact, ok := ghArgExactness(args, sc)
+	if !ok {
+		return sc.hasUnknownExpansion
+	}
+	for _, r := range refs {
+		if r.arg < 0 || r.arg >= len(exact) {
+			if sc.hasUnknownExpansion {
+				return true
+			}
+			continue
+		}
+		if !exact[r.arg] {
+			return true
+		}
+	}
+	return false
+}
+
+// ghArgExactness returns a slice parallel to args reporting, per token, whether
+// it expanded to a static literal, and false when that cannot be established.
+//
+// args is the tail of the gh invocation this classifier walks, which is by
+// construction a SUFFIX of sc.args (classifySimpleCommand passes sc.args[1:] to
+// classifyGh, parseGhGlobals drops the leading globals, and the noun and verb
+// come off the front). The alignment is verified rather than assumed: every
+// token must match at the offset the length difference implies, and any
+// mismatch — or an absent argMeta, which a hand-built simpleCommand has — reports
+// false so the caller falls back to the whole-command bool.
+func ghArgExactness(args []string, sc simpleCommand) ([]bool, bool) {
+	if len(sc.argMeta) != len(sc.args) || len(args) > len(sc.args) {
+		return nil, false
+	}
+	off := len(sc.args) - len(args)
+	out := make([]bool, len(args))
+	for i, a := range args {
+		if sc.args[off+i] != a {
+			return nil, false
+		}
+		out[i] = sc.argMeta[off+i].exact
+	}
+	return out, true
+}
+
+// ghRefPaths is the deduped path list of a ref set, for the containment call. A
+// path named both as a bare operand and as a flag value would otherwise be
+// contained twice and, on an escape, named twice in one deny message.
+func ghRefPaths(refs []pathRef) []string {
+	paths := make([]string, 0, len(refs))
+	for _, r := range refs {
+		paths = append(paths, r.path)
+	}
+	return dedupeOperands(paths)
+}
+
+// ghPublishedFileRefs returns every LOCAL path this invocation reads and
+// publishes, each tagged with the argv token it came from (see pathRef): the
+// verb's positional file operands plus the values of its path-valued flags, with
+// a `-` (gh's read-from-stdin marker) replaced by the command's input-redirect
+// sources.
 //
 // The flag values are APPENDED to the positional walk, never substituted for it,
 // so a mismodelled flag arity can only ever add a path to containment — it can
 // never swallow a genuine file operand out of the walk. That is the same
-// property utilitySpec.operands relies on, and pathFlagValues is the same
-// extractor, so every flag spelling is covered here for free.
+// property utilitySpec.operands relies on, and pathFlagValueRefs is the same
+// extractor pathFlagValues wraps, so every flag spelling is covered here for
+// free.
 //
 // The `-` substitution closes the alternate spelling of the same publish:
 // `gh pr comment 227 -F - < /etc/passwd` sends the file just as
 // `-F /etc/passwd` does, and only the redirect names it. A `-` with no input
 // redirect contributes nothing — the bytes then come from the terminal or from a
-// pipe whose producer the walk classifies on its own terms.
-func ghPublishedFilePaths(args []string, spec ghFileSpec, sc simpleCommand) []string {
-	paths := append(ghFilePositionals(args, spec), pathFlagValues(args, spec.valueFlags, spec.pathValueFlags)...)
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if p == "-" {
-			out = append(out, sc.inputRedirectTargets...)
+// pipe whose producer the walk classifies on its own terms. A substituted path
+// carries arg -1: it came from a redirect word, not from an argv token.
+func ghPublishedFileRefs(args []string, spec ghFileSpec, sc simpleCommand) []pathRef {
+	refs := append(ghFilePositionalRefs(args, spec),
+		pathFlagValueRefs(args, spec.valueFlags, spec.pathValueFlags)...)
+	out := make([]pathRef, 0, len(refs))
+	for _, r := range refs {
+		if r.path == "-" {
+			for _, t := range sc.inputRedirectTargets {
+				out = append(out, pathRef{path: t, arg: -1})
+			}
 			continue
 		}
-		out = append(out, p)
+		out = append(out, r)
 	}
-	return dedupeOperands(out)
+	return out
 }
 
-// ghFilePositionals returns the positional operands of a gh command that name
+// ghFilePositionalRefs returns the positional operands of a gh command that name
 // local files, per the verb's own usage grammar: those at or after
 // spec.filePositionalsFrom. A verb with no file positional
 // (filePositionalsFrom < 0) returns none, which is why
 // `gh pr comment 227 -F body.md` never tests `227` as a path and
 // `gh label clone owner/repo` never tests the repo slug as one.
 //
+// A verb whose spec sets defaultsToStdin and that received NO positional at all
+// yields the `-` marker gh itself substitutes there, so the input redirect is
+// graded: `gh gist create < /etc/passwd` publishes the file with nothing in argv
+// naming it. The marker is synthetic, so it carries arg -1.
+//
 // Flag values are consumed rather than returned, in every spelling gh accepts,
 // so a value is not mistaken for a positional. An UNRECOGNIZED flag is treated
 // as taking no value, which leaves its value counted as a positional: that
 // direction only adds a path to containment, and the unmodelled flag escalates
 // on its own account anyway.
-func ghFilePositionals(args []string, spec ghFileSpec) []string {
-	if spec.filePositionalsFrom < 0 {
-		return nil
-	}
-	var positionals []string
+func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
+	var positionals []pathRef
 	sawDashDash := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if sawDashDash {
-			positionals = append(positionals, a)
+			positionals = append(positionals, pathRef{path: a, arg: i})
 			continue
 		}
 		switch {
 		case a == "--":
 			sawDashDash = true
 		case !strings.HasPrefix(a, "-"), a == "-":
-			positionals = append(positionals, a)
+			positionals = append(positionals, pathRef{path: a, arg: i})
 		case strings.HasPrefix(a, "--"):
 			if strings.IndexByte(a, '=') >= 0 {
 				continue // `--flag=value` carries its own value
@@ -478,7 +609,11 @@ func ghFilePositionals(args []string, spec ghFileSpec) []string {
 			}
 		}
 	}
-	if len(positionals) <= spec.filePositionalsFrom {
+	// gh's own default: no file operand at all means it reads stdin.
+	if len(positionals) == 0 && spec.defaultsToStdin {
+		return []pathRef{{path: "-", arg: -1}}
+	}
+	if spec.filePositionalsFrom < 0 || len(positionals) <= spec.filePositionalsFrom {
 		return nil
 	}
 	return positionals[spec.filePositionalsFrom:]
@@ -498,12 +633,22 @@ func ghFilePositionals(args []string, spec ghFileSpec) []string {
 // by containment (when they name files) or carry no local read at all.
 func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision, bool) {
 	unknown := func(tok string) (Decision, bool) {
+		// The risk clause is branched on the verb's own modelled surface. Roughly
+		// half this table's verbs read no local file at all (`gh pr close`,
+		// `gh issue pin`, `gh label edit`, `gh cache delete`, …), and telling a
+		// human that such a command "can read a local file via a body-file flag"
+		// asks them to adjudicate a risk the command does not have.
+		risk := "This command writes to GitHub, and an unmodelled flag could change what that write does — or " +
+			"give the verb a local-file surface its model does not have — so the gate cannot vouch for it."
+		if spec.readsLocalFiles() {
+			risk = "This command publishes to GitHub and can read a local file to do it (via a body-file / " +
+				"notes-file flag, or a file operand), so an unmodelled flag could name a file that leaves the " +
+				"machine without ever being graded against the repository boundary."
+		}
 		return ask("gh publish-file:unknown-flag (#229)", fmt.Sprintf(
-			"'%s %s' carries a flag the permission gate does not model. This command publishes to GitHub and can "+
-				"read a local file to do it (via a body-file / notes-file flag), so an unmodelled flag could name a "+
-				"file that leaves the machine without ever being graded against the repository boundary. Escalating "+
+			"'%s %s' carries a flag the permission gate does not model. %s Escalating "+
 				"to a human rather than allowing it. If the flag is a routine one, it can be added to the gate's "+
-				"per-verb flag model.", label, tok)), true
+				"per-verb flag model.", label, tok, risk)), true
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
