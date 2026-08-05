@@ -519,7 +519,8 @@ MOUNTS_TSV="$RUNCONFIG_MNT/mounts.tsv"
 # holds nothing across boots. It is not merely UNLIKELY to collide with an
 # operator `path:` -- the host validator reserves it, as
 # CLAUDE_VM_GUEST_WRAP_MOUNT in lib/config.sh, and rejects any entry whose
-# effective mountpoint lands on it or above it. This launcher is baked into
+# effective mountpoint OVERLAPS it: on it, above it, or inside it (the
+# per-entry <tag> directories below live inside it). This launcher is baked into
 # the image and cannot source that file, so the value is restated here; the
 # two must stay equal, and each side's comment names the other.
 MOUNT_WRAP_MNT=/run/claude-vm/mount-wrap

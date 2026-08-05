@@ -143,10 +143,12 @@ CLAUDE_VM_RESERVED_MOUNT_TAGS="repo runconfig claudebin claudecreds"
 # before bind-mounting the one file onto its target -- build-guest-image.sh's
 # MOUNT_WRAP_MNT, restated here because the boot launcher is a script baked
 # into the image and cannot source this file. Kept in the reserved-mountpoint
-# set for the same reason the built-in shares are: an operator `path:` landing
-# on it -- or above it -- would shadow the staging directory every single-file
-# mount passes through. The two spellings must stay equal; each side's comment
-# names the other.
+# set for the same reason the built-in shares are, and tested by the same
+# OVERLAP relation as the rest of that set: an operator `path:` landing ON it
+# or ABOVE it would shadow the staging directory every single-file mount passes
+# through, and one landing INSIDE it would sit under a tmpfs path the boot
+# launcher mkdirs and mounts a share over per single-file entry. The two
+# spellings must stay equal; each side's comment names the other.
 CLAUDE_VM_GUEST_WRAP_MOUNT=/run/claude-vm/mount-wrap
 
 # image.root_headroom_mb (issue #106 real-run fix): extra MiB the guest root

@@ -150,7 +150,7 @@ This skill is **idempotent**. Before writing anything it checks each of
   has no overrides, do not write that file at all — the pair is
   optional.)
 - **If a file already exists**: **do not clobber it.** Read it, show the
-  user what is there, and offer two choices:
+  user what is there, and offer these choices:
   1. **Leave** the existing file untouched (the default, safe choice).
   2. **Merge** the new overrides in for any keys the existing file is
      missing, preserving every key the user already set.
@@ -239,6 +239,14 @@ repo use?" The common cases:
   an enforced mount option, and the guest's writes land on the host
   directory live, with no copy-back step. Only write `rw` when the user
   asks for it explicitly.
+  A single-file `source:` is shared by wrapping it in a per-entry
+  directory and bind-mounting the one file in the guest, so it carries a
+  caveat a directory mount does not: the kernel refuses a `rename(2)`
+  onto a file bind mount with `EBUSY`, so an `rw` single-file mount takes
+  in-place edits but not the write-a-temp-then-rename pattern
+  `git config`, `sed -i` and most editors use. When the user wants the
+  guest to rewrite a file wholesale — `~/.gitconfig` is the usual case —
+  offer its containing **directory** as the `source:` instead.
 - Extra apt packages this repo's build needs beyond the global set:
   baked into the image (bake file `packages:`) or installed at boot
   (boot file `packages:`), plus any third-party `apt_sources` (either
