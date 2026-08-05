@@ -48,11 +48,17 @@ func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
 		"gh issue edit 5 --add-label bug",
 		"gh issue reopen 5",
 		"gh label create urgent --color red",
-		"gh gist create f.txt", // secret gist
 		"gh cache delete 123",
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "enumerated recoverable write: "+cmd)
 	}
+	// A secret gist ALLOWs too, but its positional FILE operand goes through read
+	// containment since #229, so it needs a real repo cwd rather than the `/tmp`
+	// classifyCmd uses.
+	repo := t.TempDir()
+	gitInit(t, repo)
+	wantBucket(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAllow,
+		"enumerated recoverable write: gh gist create f.txt")
 }
 
 func TestGhReadStillAllow_163(t *testing.T) {

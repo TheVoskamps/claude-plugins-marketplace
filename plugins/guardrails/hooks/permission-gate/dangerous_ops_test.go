@@ -160,7 +160,15 @@ func TestGhAskTier_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh repo edit --visibility public", false), BucketAsk, "repo edit --visibility")
 	wantBucket(t, classifyCmd(t, "gh repo edit --visibility=public", false), BucketAsk, "repo edit --visibility=")
 	wantBucket(t, classifyCmd(t, "gh release create v1.0", false), BucketAsk, "release create (publish)")
-	wantBucket(t, classifyCmd(t, "gh gist create --public f.txt", false), BucketAsk, "gist create --public")
+	// `gist create --public` carries a FILE operand, which #229 now grades
+	// through read containment, so the event cwd must be a real repo for the
+	// PUBLISH ask to be what the row proves. Against the `/tmp` cwd classifyCmd
+	// uses, this row would still read ASK — but for the no-repo-context
+	// fail-closed instead, never reaching the publish tier at all.
+	repo := t.TempDir()
+	gitInit(t, repo)
+	wantReason(t, classifyInRepo(t, "gh gist create --public f.txt", repo), BucketAsk,
+		"publishes a public gist", "gist create --public")
 }
 
 // --- gh ALLOW default --------------------------------------------------------
@@ -172,13 +180,19 @@ func TestGhAllowDefault_64(t *testing.T) {
 		"gh issue comment 5 --body hi",
 		"gh pr merge 7 --squash",
 		"gh issue close 5",
-		"gh gist create f.txt", // secret gist (not --public) → not publish
-		"gh secret list",       // read form of an otherwise-denied noun
+		"gh secret list", // read form of an otherwise-denied noun
 		"gh pr list",
 		"gh issue view 1",
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "gh allow default: "+cmd)
 	}
+	// A secret gist (not --public) is still not a publish, so it ALLOWs — but its
+	// positional FILE operand is graded through read containment since #229, so
+	// the event cwd has to be a real repo for the operand to resolve inside one.
+	repo := t.TempDir()
+	gitInit(t, repo)
+	wantBucket(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAllow,
+		"gh allow default: gh gist create f.txt")
 }
 
 // --- gh leading-global desync bypass -----------------------------------------

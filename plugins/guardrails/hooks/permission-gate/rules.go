@@ -168,6 +168,22 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return d
 	}
 
+	// Read containment on the LOCAL FILES a publish verb sends to GitHub
+	// (`gh pr comment -F <path>`, `gh gist create <path>`, …). gh's body-file
+	// flags read a file off local disk and publish its contents to a destination
+	// that may be public and that outlives any local cleanup, so the path is
+	// graded by the same Engine B read containment that answers
+	// `cat /etc/passwd` with a cross-repo deny. An escaping path DENIES; an
+	// unmodelled flag on a publish verb ASKs. See classify_gh_files.go.
+	//
+	// Placed BELOW the irreparable-deny tier so those keep their specific
+	// messages, and ABOVE the publish ASK tier so an escaping path on
+	// `gh release create` / `gh gist create --public` earns the containment deny
+	// rather than a click-through on the publish prompt.
+	if d, hit := ghPublishedFileEscalates(cmd, sc, ev); hit {
+		return d
+	}
+
 	// ASK tier: gh repo edit --visibility (sanctioned-skill territory).
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {

