@@ -208,6 +208,24 @@ shielded" claim that probing flips (`gh pr comment -F $BODY` denies —
 gh FIELD flags shield a dynamic value only when the `key=` is pinned;
 what reaches the new ask is `-t`/`--template`).
 
+**Round 7 shape: the SHORT/LONG spelling of a slash-joined flag pair
+(#229, PR #232, fix round).** The fixer's comment said a dynamic value
+on `-t`/`--template` reaches the new publish-file ask "and on
+`gh pr create` that flag names a local template FILE". Probing splits
+the pair three ways: `--template $X` asks (shielded AND a path flag),
+`-t $X` allows (`-t` is that verb's `--title`), `-T $X` denies at the
+non-static-argv precondition (`-T` is the path flag but is absent from
+`ghShieldingFlags`). The shield table and the per-verb spec table name
+flags in DIFFERENT spellings, so a pair copied from one is wrong in the
+other — split the pair and probe each spelling. Same round, the
+"only gist create reads stdin implicitly" contrast enumerated
+`pr comment`, `gist edit` and `release create` as "each require an
+explicit `-` or a filename": `gh <verb> --help` settles it, and
+`gist edit` documents no `-` at all (its file is the positional). That
+one is [[feedback_no-blanket-predicate-over-a-list]] again, and gh's
+own `--help` is the cheap check for any claim about upstream gh
+grammar.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
