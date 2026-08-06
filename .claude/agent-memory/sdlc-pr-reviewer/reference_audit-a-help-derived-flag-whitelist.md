@@ -13,14 +13,31 @@ itself, and diff your pair list against it: #232's round-2 audit said 25 and had
 silently dropped `cache delete`, so the "every pair matches" verdict covered one
 pair fewer than it claimed.
 
-**Machine-diff it.** Parse the Go table out of the source with python (locate
-`var <table> =`, strip `//` comments so prose flags are not counted, split on
-the `^\t"noun": {` / `^\t\t"verb":` indent levels, then regex
-`"(--?[A-Za-z][-A-Za-z0-9]*)"` inside each verb's span; expand shared vars like
-`ghBodyFileFlags` by name). Then for each pair run `<tool> <noun> <verb> --help`
-and diff. Both directions are informative: gh-documented-but-unmodelled is a
-false ask, modelled-but-undocumented is usually a harmless uniform merge (#232
-folded `-R`/`--repo` into the `gist` specs, which gh rejects — no consequence).
+**Machine-diff it — and get the table by RUNNING the package, not by parsing
+it.** On #232 round 6 the conclusive route was: `git archive HEAD
+plugins/guardrails/hooks/permission-gate | tar -x -C <repo>/.claude/tmp/<slug>/src`,
+drop a throwaway `zz_dump_test.go` into the extracted package that marshals the
+live table to JSON (`os.WriteFile(os.Getenv("DUMP_OUT"), …)`), and run
+`DUMP_OUT=<path> go -C <extracted-pkg> test -run TestZZDump ./...`. That beats
+the python-parses-Go recipe on the axis that decides the audit: the dump is the
+table **after** the constructor runs, so a builder that merges inherited flags
+in (`ghSpec` folding `-R`/`--repo`/`--help`/`-h` into all 26 specs) and shared
+vars referenced by name (`ghBodyFileFlags`, `ghNotesFileFlags`) are already
+resolved, where a source parse has to reproduce both by hand and silently
+under-reports when it misses one. It is also the only form that can dump a
+derived predicate (`readsLocalFiles()`). Use the extracted copy rather than the
+worktree so the throwaway file never lands in the PR's tree.
+
+Then for each pair run `<tool> <noun> <verb> --help` and diff. Both directions
+are informative: gh-documented-but-unmodelled is a false ask,
+modelled-but-undocumented is usually a harmless uniform merge (#232 folded
+`-R`/`--repo` into the `gist` specs, which gh rejects — no consequence).
+
+The same dump is what settles a **doc enumeration** of the table: derive the
+per-flag verb sets and the positional/stdin members from the JSON and compare
+them to the prose, rather than grading two prior rounds' reports against each
+other. On #232 round 5 called the operand half exhaustive and it was missing
+`gh release edit`; a dump-derived compare found it in one pass.
 
 **The axis that actually matters is ARITY, not presence.** A bool mismodelled
 as value-taking consumes the next token, and on a verb with file positionals

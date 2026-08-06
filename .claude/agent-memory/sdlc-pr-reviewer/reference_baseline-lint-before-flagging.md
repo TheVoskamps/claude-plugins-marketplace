@@ -40,6 +40,17 @@ whether the offending line exists there at all — a hit on a line the
 diff adds is PR-introduced under the *in-place* lint, which is the
 only lint run that used the right configs.
 
+The mirror IS usable for a nested-config tree if you fix the `extends`
+**depth**, and copying the nested config in verbatim does not: its
+`"extends": "../../.markdownlint.jsonc"` is relative to
+`.claude/agent-memory/`, so from `.claude/tmp/<slug>/base/` it resolves to a
+nonexistent `.claude/tmp/.markdownlint.jsonc` and markdownlint-cli2 dies with
+`ENOENT` rather than falling back. Write an equivalent config by hand with the
+depth corrected (`"extends": "../../../../.markdownlint.jsonc"` from that
+directory) plus the same carve-outs. Verified on #232 round 6: the memory file
+at `origin/main` then baselines as `0 issues in 0 files`, which is what turned
+an MD018 hit at the branch tip into a PR-introduced finding rather than a guess.
+
 **The lint CONFIG itself can differ between the branch's fork point and
 main** (PR #217 round 2): `main` had added
 `.claude/agent-memory/.markdownlint.jsonc` (MD041/MD013 carve-outs for
