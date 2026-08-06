@@ -35,8 +35,26 @@ host-arch exercise + passing `go test` is sufficient evidence.
 
 **How to place the scratch repo**: the gate blocks tool-mediated writes
 outside the repo root and blocks `cd <path> && git ...` forms. Create
-the scratch git repo under `<repo-root>/.claude/tmp/<slug>/`, `cd` into
-it in one Bash call, then run `git init -q .` as a separate bare call.
+the scratch git repo under `<repo-root>/.claude/tmp/<slug>/` and run
+`git init -q .claude/tmp/<slug>/<dir>` — a PATH argument, from the
+worktree root. Do NOT `cd` in one call and `git init -q .` in the next:
+a subagent's cwd does NOT persist between Bash calls, so the second
+call reinitializes the worktree root instead (harmless, but the scratch
+dir ends up with no `.git` and every later probe reads `ask`).
+
+**Two probe-cwd traps that fake a result** (both hit on #232 round 4):
+
+- A cwd that does not EXIST resolves no repo context, so every row —
+  including the `cat` control — comes back `ask` (fail-closed) and the
+  table looks uniform and meaningless. Paste the worktree path, not the
+  primary clone's.
+- Count the `../` levels against the SCRATCH repo root, not by feel.
+  The issue's own row `gh pr comment -F ../../../.ssh/id_ed25519`
+  ALLOWS from a worktree root (it resolves back inside the primary
+  clone) and from a 3-deep scratch dir (it resolves to the scratch
+  root). Always run `cat <same-path>` as the paired control: gh's
+  verdict must equal cat's, and when both allow the row is contained,
+  not missed.
 
 **When the claim is "the committed binary matches HEAD source" (a
 staleness claim, not a policy claim), a rebuild comparison IS decisive
@@ -153,6 +171,23 @@ provenance-identity are separable claims. A doc round that edits a gate
 `.go` comment without rebuilding leaves binaries that fail the README's
 "only vcs.revision/vcs.modified differ" protocol — a Medium, not
 policy-affecting.
+
+**Verifying a doc round's "comments only; no behavior change" claim
+costs two commands** (#232 round 4, and it is decisive rather than
+suggestive):
+
+1. Non-comment lines changed must be zero —
+   `git show <commit> -- '<pkg>/*.go' | grep -E "^[+-]" |
+   grep -vE "^(\+\+\+|---)" | grep -cvE "^[+-][[:space:]]*//"`.
+2. `go tool nm` of the PRE-round committed binary
+   (`git show <parent-commit>:<bin-path> > <tmp>`) vs the tip one must
+   be byte-identical, on EVERY committed arch (the foreign ones need no
+   execution). Comment-only edits move pclntab `file:line` and nothing
+   else.
+
+Together those separate "the source is comments" from "the shipped
+bytes carry the same policy", which is the pair the claim asserts. The
+tip-rebuild `cmp` still answers the different question of staleness.
 
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.

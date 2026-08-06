@@ -80,3 +80,31 @@ is free at rev N only while NO rev-N image has been built anywhere yet
 (unbuilt draft PR, sole operator); once a rev-N image exists, changing
 heredoc bytes needs a rev bump. If the fix lands in the same
 pre-first-build window, no bump; if deferred past a build, demand one.
+
+**When the narrowed claim is a HELPER's coverage sentence (#229,
+PR #232 round 4), the misses are structural and predictable.** A round
+that discovers a helper covers less than its comment says (there:
+`pathFlagValueRefs` covers getopt's spellings, not pflag's `-F=FILE`)
+scopes the sentence at the function it was reading. Three sites then
+reliably survive, and all three are worth grepping before calling the
+class swept:
+
+- **The WRAPPER directly above/below it.** `pathFlagValues` is a
+  four-line wrapper over `pathFlagValueRefs` with its own docstring
+  ("in every spelling the utility accepts") — and it is the half with
+  the callers (`utilitySpec.operands`, the in-repo-write track), while
+  only the gh track calls the qualified `Refs` half. Run
+  `grep -n "helperName(" *.go` and scope the sentence on whichever
+  name the other tracks actually call.
+- **The spec FIELD DOC of every other track that feeds the helper**
+  (`inRepoWriteSpec.pathValueFlags`, `utilitySpec.pathValueFlags`) —
+  usually in a file the PR never touches.
+- **The README's sibling paragraph for the older track.** The new
+  track's paragraph gets the qualifier; the read-track paragraph 300
+  lines earlier keeps the unqualified one.
+
+Cheapest tell that the class is still open: **grep the doc-updater's
+own `.claude/agent-memory/` note from the same commit range.** On #232
+it recorded the lesson quoting the exact sentence — "a shared helper's
+doc comment that says `every spelling the utility accepts`" — that it
+had left unedited in the code. The note names the site.
