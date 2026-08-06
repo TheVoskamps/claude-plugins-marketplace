@@ -27,10 +27,21 @@ as value-taking consumes the next token, and on a verb with file positionals
 that is the one way such a walk can swallow a path OUT of containment. Split
 the `ghSpec(valueFlags, boolFlags, …)` call by tracking brace depth and compare
 each set against whether the help line carries a value-type word
-(`-F, --body-file file` then the description). Expect false positives from
-description text that begins with a flag-shaped word — gh renders
-`--succeed-on-no-caches --all   Return exit code 0…`, which parses as a type;
-read the raw line (`cat -A`) before filing.
+(`-F, --body-file file` then the description). Expect one false positive class,
+and know its cause: pflag's `UnquoteUsage` lifts a **backquoted word out of the
+usage string** and renders it where the value type goes, so a BOOL reads as
+value-taking. gh renders
+`--succeed-on-no-caches --all   Return exit code 0…` because its usage ends
+"in conjunction with `` `--all` ``". The tell is the same word appearing
+un-backquoted in the description; the proof is the registration —
+`gh api "repos/cli/cli/contents/pkg/cmd/cache/delete/delete.go?ref=v2.97.0"
+--jq .content | base64 -d | grep BoolVar`. Read the source before filing an
+arity finding.
+
+A whole run of these parses cleanly with
+`^\s{2,}(?:(-[A-Za-z]), )?(--[A-Za-z0-9-]+)(?: (\S+))?\s\s+\S`: the annotation
+is ONE token separated by a single space, and the description always follows
+two or more.
 
 **`--help` output is not the accepted grammar.** gh's help block prints only
 `--help`, so a table transcribed faithfully from help still escalated
@@ -53,7 +64,21 @@ fixing the `-h` Low and fixed with it. The sibling reading, `-p=f` =
 reads the trailing `f` as `--filename` and swallows the next operand. When a
 finding names ONE unrendered spelling, the parser's whole grammar is the class:
 diff the spec against the LIBRARY's parse, and probe `-x=value` on both a
-value-taking and a bool shorthand. Hidden flags are worth one search
+value-taking and a bool shorthand.
+
+**Probe the parser through a READ-ONLY verb with an INVALID value.** Never run
+the mutating verb the finding is about (`gh pr comment … -F=…` posts a comment
+if the file happens to exist). Pick a read verb with a typed flag and give it
+garbage: `gh pr list -L=abc` fails inside the same `parseSingleShortArg` and
+the error QUOTES the value pflag extracted, which is the whole answer. On gh
+2.97.0 the five rows settle every discrimination at once — `-L=abc` → `"abc"`
+(stripped), `-L =abc` → `"=abc"` (separate token is literal), `--limit==abc` →
+`"=abc"` (long keeps everything after the FIRST `=`), `-L=` → `"="` (under the
+`len > 2` threshold), and `-sL=abc` → `-s` takes `"L=abc"` (a preceding
+value-taking shorthand makes the `=` ordinary). Zero network, zero mutation,
+and it beats quoting the PR's own measurement back at it.
+
+Hidden flags are worth one search
 (`gh api -X GET search/code -f q='MarkHidden repo:cli/cli path:pkg/cmd'` — none
 of the 26 modelled pairs has one) and abbreviations are not a pflag feature
 (`gh pr comment --bod x` → `unknown flag`).

@@ -68,6 +68,20 @@ tests, read which assertions fail, revert, then prove the revert with
 separates the load-bearing assertions from the vacuous-but-true ones in
 one run and settles an ambiguous PR-body claim without asking anyone.
 
+Better still, never touch the worktree: `git archive HEAD
+plugins/guardrails/hooks/permission-gate | tar -x -C .claude/tmp/<slug>` gives a
+copy that builds and tests on its own, so a python driver can apply each
+mutation, run `go -C <copy> test ./...`, and restore from a `.bak` — six
+controls in one pass with the branch untouched. The same copy takes a throwaway
+`zz_dump_test.go` that marshals an unexported table (`ghFileSpecs`) to JSON for
+an external audit script, which beats regex-parsing the Go literal.
+
+**Count failing assertions from a NON-verbose run.** `go test -v` prints
+`t.Logf` output with the same `file_test.go:NNN:` prefix as `t.Errorf`, so a
+regex count over `-v` output is inflated by every passing test that logs — it
+read 8 where the truth was 6 on #232 round 3, and would have contradicted an
+accurate PR-body count. Plain `go test ./...` prints only the failures.
+
 Do the flip with the **Edit tool plus a throwaway `const`**, not with a
 `python3 -c` that rewrites the source in place — the auto-mode
 classifier denies the latter ("Blocked by classifier"). Add
