@@ -1,6 +1,6 @@
 ---
 name: probe-every-equivalent-path-spelling
-description: A guard that compares NORMALIZED path strings is only as strong as its normalizer — probe //, trailing /, `.` and `..` separately, and check whether the runtime backstop resolves what the host guard merely compared
+description: A guard that compares NORMALIZED path strings is only as strong as its normalizer AND as the set of inputs feeding it — probe //, trailing /, `.`, `..`, and every OTHER config value that becomes a path component
 metadata:
   type: reference
 ---
@@ -35,3 +35,17 @@ directory shape, while the same resolution made the single-file shape worse
 (the target under the resolved system path did not exist, so the occupancy
 check found nothing and the bind went through). Grade the finding on the leg
 with no backstop. Related: [[fix-round-patches-named-files-not-the-class]].
+
+**The guarded string usually has more than one input — enumerate them, not
+just the spellings of one.** After #231 round 3 closed the `.` hole in the
+normalizer, round 4 found the same class entering through the *other* input:
+the effective mountpoint is `path:` when set, **else** `<root>/<tag>`, and the
+`..` rejection sat inside `if [ -n "$path" ]`, so a tag-derived default never
+reached it. Worse, the tag was ALSO a path component in two places the guard
+never looked at (a host-side wrap dir, a guest-side wrap mountpoint), so
+`tag: ".."` walked up out of both — with an explicit clean `path:` the gpath
+check cannot help at all. Before accepting a normalizer as the boundary, grep
+for every construction of a guarded path (`"$X/$y"`, defaults, fallbacks) and
+ask which config value lands in each slot; a value validated only as a
+*charset* (here `[A-Za-z0-9._-]`, which admits `.` and `..`) is not validated
+as a path component.
