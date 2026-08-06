@@ -80,3 +80,7 @@
   — a `<(cmd)` child is async: sleep before checking the marker or a
   shape bash DOES run reads as "did not run"; run probes from a
   scratchpad script, on both /bin/bash 3.2 and homebrew bash 5.
+- [claude-vm bash-3.2 rule surface pair](project_claude-vm-bash32-rule-surface-pair.md)
+  — that rule lives on exactly two surfaces (root CLAUDE.md + payload
+  README's oldest-bash section); check scope, severity clause and
+  pinning on both, and never cite a bullet by list position.
