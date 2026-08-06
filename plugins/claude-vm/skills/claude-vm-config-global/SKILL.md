@@ -118,9 +118,9 @@ Notes on the forward-looking keys:
   verifies the signature against the operator's pinned key,
   checksum-verifies the binary, caches it keyed on the version, and
   shares it into the guest, where the image's fstab mounts it `ro`.
-  `stable` (default) tracks the conservative
-  stable channel; `latest` tracks the latest channel; a dotted version
-  like `2.1.172` pins one concrete release with no channel resolution.
+  `stable` (default) tracks the conservative stable channel; `latest`
+  tracks the latest channel; a dotted version like `2.1.172` pins one
+  concrete release with no channel resolution.
 - **`api.anthropic.com` must stay in `egress.allow`.** Remote Control is
   outbound-HTTPS-only and connects to the Anthropic API on 443; dropping
   this host breaks every in-guest Remote Control session. Treat it as

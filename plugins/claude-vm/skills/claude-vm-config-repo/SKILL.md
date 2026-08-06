@@ -223,22 +223,29 @@ repo use?" The common cases:
   `path:` (the guest mountpoint, default `/mnt/<tag>`). The guest mounts
   each share *by* its tag, and every mistake aborts the launch rather
   than booting without the mount: a missing `source:`/`tag:` (issue
-  #226), a `source:` that is not on the host, a `tag:` that is reserved
+  #226), a `source:` that is not on the host, a **directory** `source:`
+  whose path carries a `,`, a `tag:` that is reserved
   (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
-  `[A-Za-z0-9._-]`, or repeated, a `mode:` key at all, and a
-  `path:` that is relative, carries `..`, overlaps one of claude-vm's own
-  guest mountpoints, shadows a guest OS path, or duplicates another
-  entry's (issue #157).
+  `[A-Za-z0-9._-]`, repeated, `.` or `..`, or beginning with `-`, a
+  `mode:` key at all, and a `path:` that is relative, carries `..`,
+  overlaps one of claude-vm's own guest mountpoints, shadows a guest OS
+  path, or duplicates another entry's (issue #157).
   Those checks run on a **normalized** `path:` — repeated slashes, a
   trailing slash and `.` segments are collapsed first — so respelling a
   mountpoint (`/./etc`, `/mnt/./repo`) cannot slip it past them; a `..`
   segment is rejected outright rather than resolved.
+  The tag rules beyond the charset are there because the tag is *also* a
+  path component (`/mnt/<tag>`, and the directories a single-file mount
+  is staged through) and a bare argv word in the guest's own `mount`, so
+  never offer `.`, `..` or a leading dash — `...`, `a..b` and `a-b` are
+  ordinary and fine. The comma rule is the `source:` half of the same
+  device string.
   *Overlaps* is wider than equals: a `path:` above a reserved mountpoint
   (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) is rejected too, so never
-  offer a `path:` under `/mnt/<built-in tag>`. The tag
-  and path checks run over the **merged** global+repo list, so a
-  per-repo entry can collide with a global one — check Step 2's global
-  `mounts` before writing a tag or path.
+  offer a `path:` under `/mnt/<built-in tag>`. The tag and path checks
+  run over the **merged** global+repo list, so a per-repo entry can
+  collide with a global one — check Step 2's global `mounts` before
+  writing a tag or path.
   **Every mount is read-write and pierces the VM isolation boundary for
   that path**: the guest's writes land on the host path live, with no
   copy-back step. There is **no `mode:` key** — read-only cannot be

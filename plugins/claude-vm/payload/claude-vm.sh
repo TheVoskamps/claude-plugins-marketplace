@@ -26,14 +26,14 @@
 # selects ONLY the `claudeAiOauth` key from it (the blob can also carry
 # unrelated `mcpOAuth` MCP-server credentials, which are dropped -- see
 # the selection block below). The selected `{"claudeAiOauth": {...}}` is
-# written to a transient, owner-only tmpfile and shared into the guest, where
-# the image's fstab mounts it `ro` (the RO is GUEST-side -- vfkit's virtio-fs
-# device has no read-only export, so the host shares this exactly as it shares
-# an extra mount; see the extra-mount block below),
-# so it lands at the guest user's ~/.claude/.credentials.json. This gives
-# the guest the host operator's full-scope claude.ai login, which Remote
-# Control requires. The credential is NEVER written to config, to the
-# verified-binary cache, or into run.env, and the tmpfile is removed on exit.
+# written to a transient, owner-only tmpfile and shared into the guest,
+# where the image's fstab mounts it `ro` (the RO is GUEST-side -- vfkit's
+# virtio-fs device has no read-only export, so the host shares this exactly
+# as it shares an extra mount; see the extra-mount block below), so it lands
+# at the guest user's ~/.claude/.credentials.json. This gives the guest the
+# host operator's full-scope claude.ai login, which Remote Control requires.
+# The credential is NEVER written to config, to the verified-binary cache,
+# or into run.env, and the tmpfile is removed on exit.
 #
 # IDENTITY SEED (issue #88): the mounted ~/.claude/.credentials.json bearer
 # token alone does NOT make the interactive guest TUI treat itself as onboarded
@@ -525,8 +525,8 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # against the operator's pinned key, checksum-verifies the downloaded
 # binary against the verified manifest, and caches it keyed on the
 # resolved version. The verified binary is then shared into the guest
-# (mountTag=claudebin), where the image's fstab mounts it `ro`, and run at the
-# boot-launcher seam.
+# (mountTag=claudebin), where the image's fstab mounts it `ro`, and run
+# at the boot-launcher seam.
 #
 # SECURITY: a failed gpg --verify or a checksum mismatch ABORTS here --
 # the launcher never boots the guest with an unverified binary. There is
@@ -959,11 +959,10 @@ fi
 # `projects` entry for the guest mount path ($GUEST_REPO_MNT) with
 # hasTrustDialogAccepted / hasCompletedProjectOnboarding forced true so the
 # guest skips the "trust this folder?" dialog (issue #88, Gap 2). Write that
-# object into
-# $CREDS_DIR -- the SAME transient owner-only dir shared into the guest under
-# mountTag=claudecreds (the image's fstab mounts it `ro`; the host cannot, see
-# the extra-mount block below) and shredded by cleanup() on every exit
-# (EXIT/INT/TERM).
+# object into $CREDS_DIR -- the SAME transient owner-only dir shared into the
+# guest under mountTag=claudecreds (the image's fstab mounts it `ro`; the host
+# cannot, see the extra-mount block below) and shredded by cleanup() on every
+# exit (EXIT/INT/TERM).
 # machineID is NOT seeded -- the guest mints its own. It is NOT named
 # .credentials.json (that name is the bearer token's) -- the guest boot launcher
 # reads claude-json-seed.json and installs it at /root/.claude.json before
@@ -1042,12 +1041,11 @@ claude_vm_run_meta_put() {
 # Guest run.env -- proxy config + mount tags + claude args. It NO LONGER
 # carries any secret: the guest authenticates with the host's claude.ai
 # OAuth credential, shared in via its own mount (mountTag=claudecreds, which
-# the image's fstab mounts `ro` guest-side)
-# rather than an ANTHROPIC_API_KEY in this file. run.env is still written
-# inside a subshell under umask 077 (created -rw------- with no world-
-# readable window) and chmod 600'd afterward -- harmless belt-and-braces
-# now that it holds no secret, and it keeps the discipline if a secret is
-# ever reintroduced here.
+# the image's fstab mounts `ro` guest-side) rather than an ANTHROPIC_API_KEY
+# in this file. run.env is still written inside a subshell under umask 077
+# (created -rw------- with no world-readable window) and chmod 600'd
+# afterward -- harmless belt-and-braces now that it holds no secret, and it
+# keeps the discipline if a secret is ever reintroduced here.
 # ---------------------------------------------------------------------
 # Capture the host terminal geometry (issue #88). The vfkit stdio console is
 # a plain byte pipe with NO out-of-band window-size channel, so the guest

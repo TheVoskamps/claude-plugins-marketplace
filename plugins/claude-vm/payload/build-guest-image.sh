@@ -437,9 +437,10 @@ emit_boot_launcher() {
 # failed session is inspectable, powering the guest off when that shell
 # exits. claude is NEVER baked into the image and is NEVER fetched-and-run
 # inside the guest: the host fetches, GPG-manifest-verifies, and caches the
-# binary, and shares it in (the image's fstab -- provisioners/podman-mkosi.sh --
-# mounts that share `ro`; the RO is guest-side, since vfkit's virtio-fs device
-# has no read-only export). The guest only runs the already-verified binary.
+# binary, and shares it into the guest (the image's fstab -- authored in
+# provisioners/podman-mkosi.sh -- mounts that share `ro`; the RO is guest-side,
+# since vfkit's virtio-fs device has no read-only export). The guest only runs
+# the already-verified binary.
 set -euo pipefail
 
 # Diagnostics go to /dev/console (the BOOT console, hvc0), which the host
@@ -1112,15 +1113,15 @@ boot_apt_phase
 # is: the HOST resolves the requested channel/pin to a concrete version,
 # downloads that version's GPG-signed manifest, verifies the signature
 # against the operator's pinned key, checksum-verifies the binary against
-# the verified manifest, caches it keyed on the version, and shares it
-# into the guest under mountTag=claudebin, which the image's fstab mounts
-# `ro`. So by the time the guest boots,
-# the binary at $CLAUDEBIN_MNT/claude is ALREADY verified -- the guest runs
-# it directly and never executes `curl https://claude.ai/install.sh | bash`
-# (which is unsigned, unchecksummed, and re-fetched on every boot; see
-# issue #57's "root of trust" analysis). There is no install.sh|bash
-# fallback: the host-verified binary is the ONLY path, and a missing
-# verified binary aborts the boot rather than fetching unverified code.
+# the verified manifest, caches it keyed on the version, and shares it into
+# the guest under mountTag=claudebin, which the image's fstab mounts `ro`.
+# So by the time the guest boots, the binary at $CLAUDEBIN_MNT/claude is
+# ALREADY verified -- the guest runs it directly and never executes
+# `curl https://claude.ai/install.sh | bash` (which is unsigned,
+# unchecksummed, and re-fetched on every boot; see issue #57's "root of
+# trust" analysis). There is no install.sh|bash fallback: the host-verified
+# binary is the ONLY path, and a missing verified binary aborts the boot
+# rather than fetching unverified code.
 #
 # The seam message is retained (now reporting that the verified binary was
 # found) so the acceptance test can still observe the guest reaching this

@@ -844,11 +844,11 @@ claude_vm_expand_mount_source() {
 #     /lib -> usr/lib are symlinks (the /lib{32,64,x32} spellings are absent on
 #     that arch) -- so `path: /bin` and `path: /usr/bin` name one directory.
 #     BOTH names of each pair are COVERED by CLAUDE_VM_GUEST_SYSTEM_PATHS
-#     above -- /bin, /sbin and /lib are in the list themselves, and their
-#     /usr/... targets sit under /usr, which is -- so the guards reject
-#     either spelling; for anything the denylist does not
-#     cover, the guest's own occupancy check (build-guest-image.sh's
-#     boot_mount_phase) is the backstop.
+#     above: /bin, /sbin and /lib are in the list themselves, and their
+#     /usr/... targets sit under /usr, which is. So the guards reject either
+#     spelling; for anything the denylist does not cover, the guest's own
+#     occupancy check (build-guest-image.sh's boot_mount_phase) is the
+#     backstop.
 #
 # Case folding is not in the class: the guest root filesystem is ext4, so
 # `/Etc` and `/etc` are genuinely different directories.
@@ -979,6 +979,16 @@ claude_vm_guest_system_path_containing() {
 #     and again as a `mount -t virtiofs <tag> <path>` argument in the guest, so
 #     a comma or whitespace in it corrupts one or both. Same charset the
 #     marketplace-name and apt_source-name guards use.
+#   - a tag that the charset admits but one of its OTHER uses does not. The tag
+#     is also a bare PATH COMPONENT (in three trees) and a bare ARGV WORD, so
+#     `.` and `..` walk up out of every tree that embeds it and a leading `-`
+#     is read as an option by the guest's `mount`. payload/README.md -> *The tag
+#     is not just a tag* enumerates the uses these two arms are derived from.
+#   - a DIRECTORY `source` whose path contains a comma: the source is what
+#     vfkit shares, so it sits inside that same comma-delimited device string,
+#     as the only field of it with no charset check of its own. A single-FILE
+#     source is exempt -- what gets shared then is the wrap directory, named
+#     after the (already-checked) tag.
 #   - a tag colliding with a RESERVED built-in tag: the launcher always attaches
 #     repo/runconfig/claudebin/claudecreds and the image's fstab always mounts
 #     them, so a second device under one of those names puts the operator's own
@@ -1103,6 +1113,32 @@ claude_vm_check_mounts() {
         bad=1
         ;;
     esac
+    # The charset is necessary and not sufficient, because the tag is not one
+    # thing. Every use of it takes the string as-is -- nothing escapes or
+    # rewrites it on the way -- and the arms below are the spellings that pass
+    # the charset while being unusable in one of those positions. See
+    # payload/README.md -> *The tag is not just a tag* for the enumeration of
+    # uses these arms are derived from.
+    case "$tag" in
+      .|..)
+        echo "claude-vm: mounts entry #${idx} ('$src') has tag '$tag', which is not a usable path COMPONENT --" >&2
+        echo "claude-vm:   and the tag is used as one in the default guest mountpoint $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>," >&2
+        echo "claude-vm:   in the host-side directory a single-file source is wrapped in, and in that wrap's own" >&2
+        echo "claude-vm:   guest mountpoint under $CLAUDE_VM_GUEST_WRAP_MOUNT. A dot-directory name walks one level" >&2
+        echo "claude-vm:   UP out of every one of those at once, so the share would carry a host directory you" >&2
+        echo "claude-vm:   never named. Pick an ordinary name -- '...' and 'a..b' are ordinary and are accepted." >&2
+        bad=1
+        ;;
+      -*)
+        echo "claude-vm: mounts entry #${idx} ('$src') has tag '$tag', which begins with '-'. The guest" >&2
+        echo "claude-vm:   mounts each share with 'mount -t virtiofs -o rw <tag> <path>', where the tag is a" >&2
+        echo "claude-vm:   bare argv word, so a leading dash makes it an OPTION instead of the device." >&2
+        echo "claude-vm:   Measured on util-linux 2.38.1: '-a' exits 0 having mounted nothing, which the" >&2
+        echo "claude-vm:   guest would report as a successful mount, and '--bind', '-o' and '-r' fail" >&2
+        echo "claude-vm:   outright. Pick a tag that does not start with '-'." >&2
+        bad=1
+        ;;
+    esac
     case "$reserved_tags" in
       *" $tag "*)
         echo "claude-vm: mounts entry #${idx} ('$src') uses the reserved tag '$tag'. claude-vm always attaches" >&2
@@ -1208,6 +1244,32 @@ claude_vm_check_mounts() {
         esac
       fi
     else
+      # A DIRECTORY source is what vfkit SHARES, so the operator's own path
+      # travels inside the same comma-delimited
+      # `--device virtio-fs,sharedDir=<source>,mountTag=<tag>` string the tag
+      # charset check above exists to protect -- that string's other field,
+      # which the tag's own check does not reach. Measured on vfkit v0.6.4: a
+      # bare comma (`sharedDir=/tmp/a,b`) dies with `unknown option for
+      # virtio-fs devices: b`, minutes into the launch and naming a device
+      # rather than this config line, which is the same failure the
+      # host-existence check above exists to forestall; and a source that
+      # spells a second `sharedDir=` REPLACES the first (last key wins, also
+      # measured), so the guest would get a directory this entry never named.
+      # A single-FILE source is exempt and is not checked: what gets shared
+      # then is the wrap directory $MOUNT_WRAP_DIR/<tag>, whose charset the tag
+      # check already settled, so a comma in the file's own path reaches
+      # nothing but a hard link and a mounts.tsv field.
+      case "$expanded" in
+        *,*)
+          echo "claude-vm: mounts entry #${idx} ('$src') shares a DIRECTORY whose path contains a ','. claude-vm" >&2
+          echo "claude-vm:   names the shared directory inside vfkit's comma-delimited" >&2
+          echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so a comma in it is read as the" >&2
+          echo "claude-vm:   start of another device option: vfkit either aborts the launch with a message about a" >&2
+          echo "claude-vm:   device rather than about this config line, or shares a different directory entirely." >&2
+          echo "claude-vm:   Point 'source:' at a path with no comma in it (this one resolves to '$expanded')." >&2
+          bad=1
+          ;;
+      esac
       # DIRECTORY: hides an entire subtree, so ON, ABOVE and INSIDE a system
       # path are all the same defect and all rejected.
       for sp in $CLAUDE_VM_GUEST_SYSTEM_PATHS; do

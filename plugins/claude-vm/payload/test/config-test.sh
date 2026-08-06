@@ -3013,6 +3013,80 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
     "$(printf 'mounts:\n  - source: %s\n    tag: "a,b"\n' "$GATE_SRC_A")" \
     "contains characters outside"
 
+  # ...and the spellings that PASS that charset while still being unusable,
+  # because the tag is not one thing. It is a bare PATH COMPONENT -- in the
+  # default mountpoint /mnt/<tag>, in the launcher's host-side wrap directory
+  # and in the guest's wrap mountpoint -- as well as a bare ARGV WORD to the
+  # guest's `mount`, and the charset check's own justification named only the
+  # vfkit device string and that argv word.
+  #
+  # `..` walks one level UP out of every tree at once. The reserved-path guard
+  # cannot see it: with a DIRECTORY source and no `path:` the mountpoint is
+  # /mnt/.., which is not a `..` in any `path:` the operator wrote, and with an
+  # explicit `path:` the mountpoint is clean and only the two WRAP paths are
+  # walked up -- the launcher would then share $RUN (which holds creds/) or,
+  # under repo.mount: live, $TMPDIR itself.
+  gate_mount_case "a '..' tag with a DIRECTORY source and no path:" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: ".."\n' "$GATE_SRC_A")" \
+    "has tag '..', which is not a usable path"
+  gate_mount_case "a '..' tag with a FILE source and an otherwise-valid path:" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: ".."\n    path: /mnt/ok\n' "$GATE_SRC_FILE")" \
+    "has tag '..', which is not a usable path"
+  # `.` is the same hole one level shallower. The DIRECTORY spelling was caught
+  # before this arm existed, but only incidentally and with a diagnostic naming
+  # a reserved-path overlap rather than the tag; the FILE spelling with a
+  # `path:` was not caught at all.
+  gate_mount_case "a '.' tag with a DIRECTORY source and no path:" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: "."\n' "$GATE_SRC_A")" \
+    "has tag '.', which is not a usable path"
+  gate_mount_case "a '.' tag with a FILE source and an otherwise-valid path:" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: "."\n    path: /mnt/ok\n' "$GATE_SRC_FILE")" \
+    "has tag '.', which is not a usable path"
+  # A leading `-` is the ARGV half of the same class: the guest runs
+  # `mount -t virtiofs -o rw <tag> <path>`, so the tag becomes an option word.
+  # `-a` is the dangerous spelling -- measured on util-linux 2.38.1 it exits 0
+  # having mounted NOTHING, and the guest's own `if err="$(mount ...)"` arm
+  # would then log a successful mount that never happened.
+  gate_mount_case "a tag beginning with '-' (the fail-OPEN '-a')" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: "-a"\n' "$GATE_SRC_A")" \
+    "has tag '-a', which begins with '-'"
+  gate_mount_case "a long-option tag ('--bind')" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: "--bind"\n' "$GATE_SRC_A")" \
+    "has tag '--bind', which begins with '-'"
+
+  # ...and neither arm may over-reach. A run of three or more dots, a `..`
+  # INSIDE a longer name, a leading dot and an interior or trailing dash are all
+  # ordinary component names and ordinary argv words, and every one of them
+  # must still pass.
+  printf 'mounts:\n  - source: %s\n    tag: "..."\n  - source: %s\n    tag: "a..b"\n' \
+    "$GATE_SRC_A" "$GATE_SRC_B" > "$WORK/gate-dotty-tags.yml"
+  assert_eq "load-gates: a '...' tag and an 'a..b' tag are ordinary names and pass" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-dotty-tags.yml")"
+  printf 'mounts:\n  - source: %s\n    tag: ".hidden"\n  - source: %s\n    tag: "a-b"\n' \
+    "$GATE_SRC_A" "$GATE_SRC_B" > "$WORK/gate-dashy-tags.yml"
+  assert_eq "load-gates: a leading-dot tag and an interior-dash tag pass" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-dashy-tags.yml")"
+
+  # The `source:` half of the device string, which had no charset check of its
+  # own. A DIRECTORY source is what vfkit shares, so its path sits inside the
+  # same comma-delimited `--device virtio-fs,sharedDir=...,mountTag=...`
+  # string: measured on vfkit v0.6.4, `sharedDir=/tmp/a,b` aborts the launch
+  # with `unknown option for virtio-fs devices: b` (a message about a device
+  # rather than about this config line), and a source spelling a second
+  # `sharedDir=` replaces the first.
+  GATE_SRC_COMMA="$WORK/gate-src,comma"; mkdir -p "$GATE_SRC_COMMA"
+  gate_mount_case "a DIRECTORY source whose path contains a comma" \
+    "$(printf 'mounts:\n  - source: "%s"\n    tag: cm\n' "$GATE_SRC_COMMA")" \
+    "contains a ','"
+  # ...and the single-FILE source is deliberately exempt: what gets shared then
+  # is the wrap directory, named after the already-charset-checked tag, so the
+  # operator's own filename never reaches the device string.
+  GATE_SRC_FILE_COMMA="$WORK/gate-file,comma.txt"; printf 'x\n' > "$GATE_SRC_FILE_COMMA"
+  printf 'mounts:\n  - source: "%s"\n    tag: fc\n    path: /mnt/fc/x\n' "$GATE_SRC_FILE_COMMA" \
+    > "$WORK/gate-file-comma.yml"
+  assert_eq "load-gates: a single-FILE source whose path contains a comma passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-file-comma.yml")"
+
   # A single FILE source is legal (it is wrapped by the launcher), so the
   # host-existence check must accept it rather than demanding a directory.
   printf 'mounts:\n  - source: %s\n    tag: f\n    path: /root/.gitconfig\n' "$GATE_SRC_FILE" \

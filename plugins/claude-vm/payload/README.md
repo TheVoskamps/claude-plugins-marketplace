@@ -273,10 +273,10 @@ shares this exactly as it shares an extra mount — read-write. It is the same
 guest-side `ro` *Where the `ro` on a built-in share comes from* below
 describes, with the same limit: it guards against an accidental write, not
 against a determined one, since the guest session is root and can remount.
-Nothing rests on it — the guest
-boot launcher copies the file into `$HOME/.claude/.credentials.json` (mode
-`0600`) before launching `claude`, so `claude` finds it at the path it
-expects and never needs to write to the share.
+Nothing rests on it — the guest boot launcher copies the file into
+`$HOME/.claude/.credentials.json` (mode `0600`) before launching `claude`,
+so `claude` finds it at the path it expects and never needs to write to the
+share.
 
 The credential is a **secret** and is handled like one:
 
@@ -415,16 +415,17 @@ argv, settings, image identity, and plugin manifests from:
   contract is enforced in one function and one pass. Its added rejections,
   each a config an operator can write today that would otherwise produce a
   VM that boots and looks fine while the mount is missing, shadowed, or
-  somewhere else: a `tag` outside `[A-Za-z0-9._-]` (the tag travels inside
-  vfkit's comma-delimited device string *and* as a guest
-  `mount -t virtiofs` argument); a `tag` colliding with one of the reserved
+  somewhere else: a `tag` outside `[A-Za-z0-9._-]`, or one that charset
+  admits but another of its uses does not (see *The tag is not just a tag*
+  below); a `tag` colliding with one of the reserved
   built-ins in `CLAUDE_VM_RESERVED_MOUNT_TAGS` (`repo`, `runconfig`,
   `claudebin`, `claudecreds` — the launcher always attaches those and the
   image's fstab always mounts them); a `tag` repeated across the merged
   global+repo list (two devices, one guest mount, kernel-enumeration order
   deciding which wins); a `source` that does not exist on the host (otherwise
   vfkit fails minutes into the launch with a message about a device rather
-  than about the config line); a `mode` key at all (see *No read-only mounts*
+  than about the config line); a **directory** `source` whose path carries a
+  comma (same reason, below); a `mode` key at all (see *No read-only mounts*
   below); and a `path` that is relative, carries a `..` segment, *overlaps* a
   reserved guest mountpoint — landing on one, above one or inside one, see
   `claude_vm_guest_paths_overlap` below — shadows a guest OS path, or
@@ -433,6 +434,50 @@ argv, settings, image identity, and plugin manifests from:
   from the tag list so the sets cannot drift apart) plus
   `CLAUDE_VM_GUEST_WRAP_MOUNT`, the guest path every single-file mount is
   staged through.
+
+  *The tag is not just a tag.* It is used in more positions than the charset
+  check's own justification names, and every one of them consumes it
+  **verbatim**: vfkit's `mountTag=` inside the comma-delimited `--device`
+  string; a bare argv word in the guest's `mount -t virtiofs <tag> <path>`; a
+  **path component** in the default guest mountpoint
+  `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>`, in the launcher's host-side wrap
+  directory a single-file source is staged in (`$MOUNT_WRAP_DIR/<tag>`) and
+  in that wrap's own guest mountpoint (`<CLAUDE_VM_GUEST_WRAP_MOUNT>/<tag>`);
+  and a field in `mounts.tsv`. The charset check names only the device string
+  and the argv word, which makes it necessary but not sufficient —
+  `[A-Za-z0-9._-]` admits spellings that are fine as a device tag and
+  unusable as the rest:
+
+  - `.` and `..` are not path *components*. `tag: ".."` walks one level up
+    out of every one of those trees at once, and the `..` rejection on
+    `path:` never sees it — that guard sits inside `if [ -n "$path" ]`, so a
+    tag-derived mountpoint never reaches it, and with an explicit `path:` the
+    mountpoint is clean while the wrap paths are still walked up. The
+    launcher would then share the wrap directory's *parent*: `$RUN` (which
+    holds `creds/.credentials.json`) under `repo.mount: clone`, or `$TMPDIR`
+    itself under `live`, mounted read-write in the guest one level above
+    `CLAUDE_VM_GUEST_WRAP_MOUNT`. A run of three or more dots (`...`) and a
+    `..` inside a longer name (`a..b`) are ordinary component names and still
+    pass.
+  - A leading `-` is not an argv *word*. The guest's `mount` reads it as an
+    option rather than as the device, and one such tag fails **open**:
+    measured on util-linux 2.38.1, `mount -t virtiofs -o rw -a <path>` exits
+    `0` having mounted nothing, so `boot_mount_phase`'s success arm would log
+    a mount that never happened. `--bind`, `-o` and `-r` fail loudly instead,
+    and an interior or trailing dash (`a-b`) is ordinary and still passes.
+
+  The `source` half of that device string has the same shape and one live
+  case: a **directory** source is what vfkit shares, so the operator's path
+  sits inside `--device virtio-fs,sharedDir=<source>,mountTag=<tag>` as the
+  field the tag's own charset check does not reach. Measured on vfkit v0.6.4,
+  a bare comma (`sharedDir=/tmp/a,b`) aborts with
+  `unknown option for virtio-fs devices: b` — the device-shaped, launch-late
+  failure the host-existence check exists to forestall — and a source
+  spelling a second `sharedDir=` replaces the first, since the last key of a
+  repeated pair wins. A **single-file** source is exempt and is deliberately
+  not checked: what gets shared then is the wrap directory, named after the
+  already-checked tag, so the operator's filename reaches only a hard link
+  and a `mounts.tsv` field.
 
   *Guest OS paths, by shape.* `CLAUDE_VM_GUEST_SYSTEM_PATHS` is the guest's
   own directory set. Linux **stacks** a mount, so an entry landing on one
@@ -497,12 +542,12 @@ argv, settings, image identity, and plugin manifests from:
   `CLAUDE_VM_GUEST_SYSTEM_PATHS`, so either spelling hits the denylist:
   `/bin`, `/sbin` and `/lib` are in the list themselves, and their `/usr/…`
   targets sit under `/usr`, which is. The guest's own occupancy check is the
-  backstop beyond it. Case folding is
-  not in the class at all: the guest root filesystem is ext4, so `/Etc` and
-  `/etc` are genuinely different directories. The slashes the function
-  substitutes with are held in variables rather than written inline, for a
-  bash-version reason that would otherwise defeat the whole normalization —
-  see *A guard must survive the oldest bash that can reach it* below.
+  backstop beyond it. Case folding is not in the class at all: the guest root
+  filesystem is ext4, so `/Etc` and `/etc` are genuinely different
+  directories. The slashes the function substitutes with are held in variables
+  rather than written inline, for a bash-version reason that would otherwise
+  defeat the whole normalization — see *A guard must survive the oldest bash
+  that can reach it* below.
 
   `claude_vm_guest_path_covers` is the directed relation: is path A equal to
   B, or a proper ancestor of it? It appends a `/` to each side so a prefix

@@ -11,10 +11,10 @@ mounts, the proxy, and how the repo is made available to the guest —
 comes from layered **YAML config** rather than environment variables.
 The guest authenticates with the **host's live claude.ai OAuth
 credential**, which the launcher extracts from the macOS Keychain at
-launch and shares into the guest (where the image's fstab mounts the share
-`ro`), plus an **identity seed** the
-launcher builds from your host `~/.claude.json` — the `userID` +
-`oauthAccount` selected from the host, plus synthesized
+launch and shares into the guest (where the image's fstab mounts the
+share `ro`), plus an **identity seed** the launcher builds from your host
+`~/.claude.json` — the `userID` + `oauthAccount` selected from the host,
+plus synthesized
 `hasCompletedOnboarding` / `autoUpdates: false` / version keys — so the
 interactive in-guest session comes up already onboarded, logged in, and
 with self-update disabled (issue #88). Both are secrets, neither is
@@ -343,17 +343,31 @@ github:
 
   Every mistake aborts the launch at config load rather than booting a VM
   without the mount you asked for: a missing `source`/`tag`, a `source`
-  that is not on the host, a `tag` that is reserved
+  that is not on the host, a **directory** `source` whose path carries a
+  `,`, a `tag` that is reserved
   (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
-  `[A-Za-z0-9._-]`, or repeated, a `mode` key, and a
-  `path` that is relative, carries `..`, overlaps one of claude-vm's own
-  guest mountpoints — landing on one, above one (`/mnt`, `/`) or inside
-  one (`/mnt/repo/sub`) — shadows a guest OS path, or duplicates another
-  entry's. The diagnostic
-  names the entry by its position in the merged boot config — `mounts` is
-  a union list, so that number counts through the global entries before
-  the per-repo ones and need not be the entry's position in either file
-  on its own — and by its path when it has one.
+  `[A-Za-z0-9._-]`, repeated, or unusable in the tag's other roles (see
+  below), a `mode` key, and a `path` that is relative, carries `..`,
+  overlaps one of claude-vm's own guest mountpoints — landing on one,
+  above one (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) — shadows a
+  guest OS path, or duplicates another entry's. The diagnostic names the
+  entry by its position in the merged boot config — `mounts` is a union
+  list, so that number counts through the global entries before the
+  per-repo ones and need not be the entry's position in either file on
+  its own — and by its path when it has one.
+
+  **A `tag` is not only a tag,** which is why the charset is necessary
+  but not sufficient. The same string is vfkit's `mountTag=`, a bare argv
+  word in the guest's `mount -t virtiofs <tag> <path>`, a path
+  *component* in `/mnt/<tag>` and in both the host and guest directories
+  a single-file mount is staged through, and a `mounts.tsv` field. So a
+  `tag` of `.` or `..` is rejected — it would walk one level up out of
+  every one of those trees, and `path:`'s own `..` check never sees a
+  tag-derived mountpoint — and so is a `tag` beginning with `-`, which
+  the guest's `mount` reads as an option rather than as the device.
+  `...`, `a..b` and `a-b` are ordinary names and pass. The `source` side
+  of the same device string is why a **directory** source may not carry a
+  comma: vfkit reads it as the start of another device option.
 
   Those checks run on a **normalized** `path:`, so a mount cannot dodge
   them by respelling its mountpoint: repeated slashes, a trailing slash
@@ -385,9 +399,9 @@ github:
   downloads that version's GPG-signed manifest, verifies the signature
   against the operator's pinned key, checksum-verifies the binary, caches
   it keyed on the version, and shares it into the guest, where the image's
-  fstab mounts it `ro`. A failed
-  `gpg --verify` or a checksum mismatch **aborts the launch**. On a warm
-  boot (already cached), the launcher drops `claude.ai` /
+  fstab mounts it `ro`. A failed `gpg --verify` or a checksum mismatch
+  **aborts the launch**. On a warm boot (already cached), the launcher
+  drops `claude.ai` /
   `downloads.claude.ai` from the guest egress allowlist. See the payload
   README's "Verified claude cache" section for the operator's one-time
   key-import step.
