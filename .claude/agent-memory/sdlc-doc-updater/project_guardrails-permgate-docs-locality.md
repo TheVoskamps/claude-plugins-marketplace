@@ -287,8 +287,8 @@ Not every hit is a defect: a claim that names its own parser ("in every
 spelling gh accepts", on the gh walk) or that enumerates the spellings
 right after itself is already scoped.
 
-**Round 10 shape: the INHERITED FLAGS block is per-verb too (#229, PR
-#232).** A round that derived every enumeration mechanically from
+**Round 10 shape: the INHERITED FLAGS block is per-verb too (#229,
+PR #232).** A round that derived every enumeration mechanically from
 `ghFileSpecs` still left two claims about *gh itself* wrong, because
 both were checked against the verbs' own FLAGS blocks only. `gh <noun>
 <verb> --help` renders a second block, and it is NOT uniform: dumping
