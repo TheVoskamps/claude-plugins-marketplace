@@ -1,6 +1,6 @@
 ---
 name: baseline-lint-before-flagging
-description: Never file a markdownlint/style finding without linting the SAME files at origin/main first; most hits in this repo's plugin docs are pre-existing
+description: Never file a markdownlint/style finding without linting the SAME files at origin/main first (most hits in this repo's plugin docs are pre-existing) — and never accept a lint FIX without a same-directory pre-fix negative control plus an MD055 inheritance probe
 metadata:
   type: reference
 ---
@@ -61,6 +61,24 @@ rebase. markdownlint-cli2 discovers config upward from each FILE's
 directory, so linting the primary clone's copy of the same file is a
 quick main-config baseline. Only errors that survive under main's config
 (e.g. an MD033 from dropped backticks) are findings.
+
+**Grading a lint FIX needs two controls, and both are cheap.** A clean sweep
+proves nothing until the same command has been shown to fail on the pre-fix
+bytes, and a clean sweep under a broken `extends` is vacuous. On #232 round 7:
+
+1. **Negative control.** `git show <pre-fix-commit>:<path>` written back into
+   **the same directory** (config discovery is per-directory, so a copy under
+   `.claude/tmp/` resolves a different config and can silently pass). The
+   reviewer's exact error line must reappear. Delete the copy immediately.
+2. **Inheritance control.** Drop a throwaway probe INTO the tree carrying a table
+   with no leading/trailing pipes plus a 200-column line. MD055 firing proves the
+   parent merged (`leading_and_trailing` is set only in the ROOT config) while
+   MD013/MD041 staying silent proves the local carve-outs applied. Non-mutating,
+   unlike flipping a value in the parent config.
+
+Check the reported file count against `find .claude/agent-memory -name '*.md' |
+wc -l` — equality rules out a silently-skipped glob. `git status --porcelain`
+after, to prove both probes are gone.
 
 Related: [[verify-doc-cross-reference-headings]],
 [[read-branch-tip-via-git-show]],

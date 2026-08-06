@@ -1,6 +1,6 @@
 ---
 name: audit-a-help-derived-flag-whitelist
-description: When a gate PR claims a per-verb flag table is "the verb's COMPLETE grammar from --help", machine-diff every verb's spec against its own --help on two axes (presence AND value/bool arity) by parsing the Go table with python — and remember that --help is not the accepted grammar, so pflag's unrendered `-h` and its `-F=path` spelling escape the transcription.
+description: When a gate PR claims a per-verb flag table is "the verb's COMPLETE grammar from --help", machine-diff every verb's spec against its own --help on two axes (presence AND value/bool arity) by dumping the live Go table — and remember that --help is not the accepted grammar (pflag's unrendered `-h` and `-F=path`), and that the same help page's USAGE and ALIASES blocks are claim surfaces the FLAGS sweep never reaches.
 metadata:
   type: reference
 ---
@@ -99,6 +99,36 @@ Hidden flags are worth one search
 (`gh api -X GET search/code -f q='MarkHidden repo:cli/cli path:pkg/cmd'` — none
 of the 26 modelled pairs has one) and abbreviations are not a pflag feature
 (`gh pr comment --bod x` → `unknown flag`).
+
+**The same `--help` page carries two more claim surfaces the FLAGS sweep never
+touches: USAGE and ALIASES.** #232 audited FLAGS + INHERITED FLAGS exhaustively
+for six rounds and still shipped two abridged USAGE quotes, which matter because
+each spec's `filePositionalsFrom` is justified BY that quote — dropping gh's
+`[<tag>]` optionality is exactly the fact a reader checks when asking why the
+index is 1 and not 0. Dump it per pair with
+`gh <noun> <verb> --help | grep -A3 '^USAGE'` and compare byte for byte; on gh
+2.97.0 the publish verbs read
+`gh gist create [<filename>... | <pattern>... | -]`,
+`gh release create [<tag>] [<filename>... | <pattern>...]`,
+`gh release upload <tag> <files>...`,
+`gh gist edit {<id> | <url>} [<filename>]`, `gh release edit <tag>`.
+
+ALIASES is the one with teeth. `gist create`, `release create` and
+`issue create` each render `gh <noun> new`, and a table keyed on the canonical
+verb misses every alias: `gh gist new /etc/passwd` lands on the fail-closed
+unrecognized-verb **ask** instead of the containment **deny**. Grade it against
+main's binary before filing — on #232 main answered the alias rows `ask` too, so
+it was pre-existing (`ghRecoverableWriteVerbs` never modelled aliases either) and
+a follow-up issue rather than a finding on the PR. `grep -A3 '^ALIASES'` over the
+same dumps enumerates them in one pass.
+
+**A `<pattern>` operand needs no special handling and is not a hole**: the gate
+reads the pre-expansion command string, so quoted and unquoted spellings reach it
+as the same literal token, and both Go's `filepath.Glob` and the shell keep the
+pattern's literal non-meta prefix as a prefix of every match — grading the prefix
+bounds the expansion without resolving it. Probe both directions
+(`gh release create v1 '../sib/*.tgz'` deny, `gh gist create '*.md'` allow) plus
+the unquoted twins before accepting or disputing such a prose claim.
 
 **How to apply:** on any gate PR that adds or extends a per-verb/per-program
 flag whitelist. Keep the audit scripts in `<repo>/.claude/tmp/<slug>/` and run
