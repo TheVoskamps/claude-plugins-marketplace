@@ -11,12 +11,18 @@ almost entirely in its own
 `plugins/guardrails/hooks/permission-gate/README.md`. That README is
 long, prose-dense, and kept current by the developer/fixer as part of
 each classifier PR (e.g. #64, #113 both landed with the README's
-relevant paragraph already rewritten before doc-updater ran). No other
-markdown in the repo describes gate *behavior* — sibling docs
-(`plugins/block-background-agents/README.md`,
-`plugins/guardrails/rules/scratch-file-location.md`, top-level
-`README.md`) reference the gate only by name/existence, same pattern as
-[[project_github-setup-docs-locality]].
+relevant paragraph already rewritten before doc-updater ran). Almost no
+other markdown in the repo describes gate *behavior* —
+`plugins/block-background-agents/README.md` and the top-level
+`README.md` reference the gate only by name/existence, same pattern as
+[[project_github-setup-docs-locality]]. The real sibling is
+`plugins/guardrails/rules/scratch-file-location.md`, which carries
+verdicts wherever they decide WHERE an agent should park a scratch file
+(the containment/`.git/` denies and their prescriptive wording, plus
+the #225 redirect and the #229 publish read). It is the surface the
+developer
+never updates, because the code change is in the gate and the rule file
+is prose about agent habits.
 
 The in-code Go doc comments (`rules.go`, `gh_api_gate.go`) are also
 kept meticulously current by the developer — dense, accurate,
@@ -225,6 +231,22 @@ explicit `-` or a filename": `gh <verb> --help` settles it, and
 one is [[feedback_no-blanket-predicate-over-a-list]] again, and gh's
 own `--help` is the cheap check for any claim about upstream gh
 grammar.
+
+**Round 8 shape: the docs were right and the SURFACE was missing
+(#229, PR #232, pflag round).** Modelling gh's pflag-only spellings
+(`-F=FILE`, the unrendered `-h`, the `=` stop in both gh-local cluster
+walks) landed with the README paragraph, the Go comments and even the
+"26 modelled pairs" count already correct — every structural claim
+checked out (`grep -c 'ghSpec('` minus the func definition = 26; `-p=f`
+really would have eaten `gh gist create -p=f /etc/passwd`'s operand).
+The doc work was one level up: a track that grades a NEW CLASS OF PATH
+changes which destinations are safe for agent scratch, so
+`scratch-file-location.md` needed the publish-read note and `CLAUDE.md`
+needed its locality claim amended. **How to apply:** when a gate PR
+extends grading to a path an agent chooses (a body file, a redirect
+target, an upload operand), ask which prescriptive rule file tells
+agents where to put that path — the README will be current and that
+file will not.
 
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
