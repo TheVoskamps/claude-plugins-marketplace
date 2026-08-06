@@ -52,6 +52,24 @@ and therefore the stronger evidence.
   sentence true). `docker.io/library/debian:12` has `sed` but no `git`;
   `docker.io/alpine/git` has git and needs `--entrypoint sh`.
 
+**A leading-dash mount device fails OPEN on exactly one spelling (PR #231
+r5).** The guest runs `mount -t virtiofs -o rw "$tag" "$path"`, so a tag is a
+bare argv word. Measured in this container (`util-linux 2.38.1`, aarch64) by
+running that exact shape:
+
+```text
+-a       rc=0   <no output>          findmnt: nothing mounted   <- FAILS OPEN
+--bind / --rbind / -o   rc=1   mount: bad usage
+-r / -v / -w            rc=1   mount: <target>: can't find in /etc/fstab.
+<ordinary tag>          rc=32  mount: <target>: permission denied.   <- control
+```
+
+Run the ordinary-tag control too: rc=32 is what proves the success arm
+(`if err="$(mount …)"`) only fires on a real success, which is what makes the
+`-a` rc=0 a logged-but-nonexistent mount rather than noise. Grade such a
+finding by fail-open vs fail-closed — the loud spellings only warrant
+ergonomics, the silent one warrants a guard.
+
 **`ro` is a guest-side flag, not a host-side export (PR #231 round 2).**
 vfkit's virtio-fs device has **no** read-only knob — `VirtioFs` in
 `crc-org/vfkit` `pkg/config/virtio.go` is `DirectorySharingConfig` +

@@ -29,7 +29,28 @@ Two traps:
   the error instead.
 
 Nothing here boots a VM — every invocation dies in argument validation, so it
-is safe to run in a review worktree.
+is safe to run in a review worktree. **A device string that PARSES does not:**
+it proceeds to VZ config construction and then to an actual boot. Keep the
+probe non-booting by pointing `sharedDir=` at a path that does not exist — the
+run then dies on `Error: stat <path>: no such file or directory`, which also
+proves the parse succeeded. Never probe a valid device with an existing dir.
+
+**Proving "last key wins" needs a position-reversal control (PR #231 r5).**
+Two repeated `sharedDir=` keys, both nonexistent, and the error names the
+survivor; then swap them and the survivor swaps too, which is what rules out
+"the second name just happens to be the one it stats":
+
+```text
+sharedDir=/tmp/vfk-first-nx,sharedDir=/tmp/vfk-second-nx -> stat /tmp/vfk-second-nx
+sharedDir=/tmp/vfk-second-nx,sharedDir=/tmp/vfk-first-nx -> stat /tmp/vfk-first-nx
+```
+
+**The comma is the only metacharacter in that string.** Also measured on
+v0.6.4: `sharedDir=/tmp/vfk-nx-a=b` and `sharedDir=/tmp/vfk nx sp` both reach
+`stat` with the path intact, so an `=` or a space in an operator path is
+harmless and a guard that widens the comma check into a charset is
+over-reach. A bare comma gives `unknown option for virtio-fs devices: <rest
+of the path up to the next comma>`.
 
 **What it establishes:** on v0.6.4, `virtio-fs` rejects `readOnly`, `readonly`
 and a bare `ro` as `unknown option for virtio-fs devices: <key>`, while
