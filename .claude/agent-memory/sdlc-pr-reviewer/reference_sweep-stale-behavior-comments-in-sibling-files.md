@@ -108,3 +108,34 @@ own `.claude/agent-memory/` note from the same commit range.** On #232
 it recorded the lesson quoting the exact sentence — "a shared helper's
 doc comment that says `every spelling the utility accepts`" — that it
 had left unedited in the code. The note names the site.
+
+**Closing the class (#232 round 5) takes two things the fix round does
+not supply.** A sweep round reports the sites it fixed AND a list it
+"deliberately left alone because each already names its parser or
+enumerates its spellings". Both halves need independent work:
+
+- **Re-run the slurp on a SYNONYM axis.** The class gets named after
+  one noun ("spelling"), so the first slurp only proves no copy
+  survives under that noun. Run a second pass for
+  `(every|all|any|each) … (forms?|ways?|variants?)` before certifying
+  exhaustion. On #232 that axis was clean (21 hits, all other
+  mechanisms), but a clean second axis is the evidence, not an
+  assumption.
+- **Grade the left-alone list yourself, and check each exemption's
+  claim is TRUE, not just scoped.** "in every spelling gh accepts"
+  names its parser, which exempts it from the prose class — but it is
+  also a behavioural assertion, so trace the walk against every
+  spelling before passing it (`-F X`, `-FX`, `-F=X`, `--f X`,
+  `--f=X`, cluster tail, `--`).
+- **A candidate site your OWN prior note names may carry no claim at
+  all.** This file listed `utilitySpec.pathValueFlags` beside
+  `inRepoWriteSpec.pathValueFlags`; at the tip the former makes no
+  coverage claim (it enumerates the glued-vs-separate contrast
+  concretely instead), so the correct verdict was "untouched, and
+  rightly". Re-read the site before counting it as a miss.
+
+One more cheap adjudication when the qualifier is a parser claim: run
+the real getopt program. `grep -f=/nonexistent/xyz.txt README.md`
+answers `grep: =/nonexistent/xyz.txt: No such file or directory`,
+which settles "getopt keeps the `=` in the value, pflag strips it" in
+one command instead of by citation.

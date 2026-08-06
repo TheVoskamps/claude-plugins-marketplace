@@ -78,6 +78,26 @@ TOUCHED bin/ (`git log -- plugins/guardrails/hooks/bin/`), not to the
 latest commit — comment-only .go changes after the rebuild are fine,
 but check the diff since the rebuild commit, not since round N.
 
+**A "comment-only, nm differs on ONE arch" claim has a decidable
+signature — adjudicate it, don't wave it through.** #232 round 5: a doc
+round rebuilt all three binaries and claimed `go tool nm` identical for
+darwin-arm64 and linux-amd64 with linux-arm64 differing in exactly
+`go:func.*`, `runtime.epclntab` and `runtime.findfunctab`. Diff the two
+nm dumps and require ALL of: only `c`(hange) hunks, no `<`-only or
+`>`-only lines (nothing added or removed); every differing symbol typed
+`r` (read-only data), so **no text symbol moved**; and one constant
+delta across them (there −8 on each of 0x2db970, 0x31abce, 0x318f78).
+Those three are the pclntab's boundary and lookup symbols, so that
+shape is exactly what added comment lines do — later functions' line
+numbers cross a varint width and the pcln data changes size. A moved
+`T` symbol, an unequal delta, or an added/removed line refutes the
+claim instead.
+
+Do it anyway even when the recipe-rebuild `cmp` already came back
+identical (it did here, all three arches): the `cmp` settles staleness
+against the TIP, while the nm delta is what adjudicates the fixer's
+own old-vs-new narrative, and the two answer different questions.
+
 **Negate-check the PR's new tests rather than trusting a green run.** In
 the review worktree, flip the predicate the new tests exist to exercise
 (e.g. a new allow-eligibility arm to `return false`), run only those
