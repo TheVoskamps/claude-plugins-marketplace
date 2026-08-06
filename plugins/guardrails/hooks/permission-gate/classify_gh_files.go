@@ -23,13 +23,14 @@ import (
 //
 // The mechanism is reused rather than rebuilt: pathFlagValueRefs
 // (readonly_util.go, the ref-tagged half of pathFlagValues) extracts a flag's
-// value in every spelling — a separate token
-// (`-F FILE`), a glued short form (`-FFILE`), an `=`-joined long form
-// (`--body-file=FILE`), and the value-taking tail of a short cluster — and
-// containReadSources (classify_files.go) runs the results through the read
-// containment, forwarding an escape and discarding the ALLOW (a contained body
-// file is no grounds to bless the publish itself; the verb's own tier decides
-// that).
+// value in every spelling THAT WALK covers — a separate token (`-F FILE`), a
+// glued short form (`-FFILE`), an `=`-joined long form (`--body-file=FILE`),
+// and the value-taking tail of a short cluster, all getopt's; gh's own
+// `-F=FILE` is not among them and is appended separately by
+// ghPflagEqualValueRefs — and containReadSources (classify_files.go) runs the
+// results through the read containment, forwarding an escape and discarding the
+// ALLOW (a contained body file is no grounds to bless the publish itself; the
+// verb's own tier decides that).
 //
 // Properties carried over from #225:
 //
@@ -46,9 +47,10 @@ import (
 // The specs are transcribed from `gh <noun> <verb> --help`, and that output is
 // NOT gh's accepted grammar: gh parses with cobra/pflag, which accept spellings
 // the help block never renders. Anything in that residue has to be modelled by
-// hand, because no amount of re-reading the help finds it. Two are, and an
-// auditor re-deriving this table from help output will not find a third:
-// `-h` (see ghInheritedBoolFlags) and the `-F=FILE` short form (see
+// hand, because no amount of re-reading the help finds it. What follows exhausts
+// the residue as measured — an auditor re-deriving this table from help output
+// will find nothing here it does not already name: `-h` (see
+// ghInheritedBoolFlags) and the `-F=FILE` short form (see
 // ghPflagEqualValueRefs, plus the `=` stop both cluster walks below make).
 //
 // A path the gate cannot resolve statically fails closed to an ASK, and that
@@ -61,11 +63,16 @@ import (
 // ghFileSpec models one gh noun/verb for the purpose of grading the local files
 // it reads and publishes.
 //
-// valueFlags and boolFlags together are the verb's COMPLETE flag grammar, taken
-// from `gh <noun> <verb> --help` (gh 2.97.0); a flag in neither is unrecognized
-// and escalates. pathValueFlags is the subset of valueFlags whose value names a
-// LOCAL file — gh's own help annotates a flag's value type, and the `file`
-// annotation is what puts a flag in this set.
+// valueFlags and boolFlags together are the verb's COMPLETE flag grammar; a flag
+// in neither is unrecognized and escalates. Both start from
+// `gh <noun> <verb> --help` (gh 2.97.0) and are then completed by hand wherever
+// that output falls short of what gh accepts: ghInheritedBoolFlags carries `-h`
+// beside the `--help` the INHERITED FLAGS block is the only one to render.
+// pathValueFlags is the subset of valueFlags whose value names a LOCAL file —
+// gh's own help annotates a flag's value type, and a `file` annotation puts a
+// flag in this set, as does a closer read of an annotation that understates the
+// file gh really opens (`--recover`, in the annotation notes on ghFileSpecs;
+// `gist edit`'s `-a`/`--add`, at its own entry there).
 //
 // filePositionalsFrom is the index, among the verb's positional operands, of the
 // first one that names a local file; -1 when the verb takes none. It exists
@@ -667,12 +674,17 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 				if a[j] == '=' && j > 1 {
 					// pflag ends the token at an `=` that follows a shorthand and
 					// hands the remainder to THAT flag (`-p=false`), so nothing
-					// after it is a flag and no later token is its value. Every
-					// character before j was a modelled bool — a value-taking one
-					// would have broken out below — so this is the bool case, and
-					// missing it would let `gh gist create -p=f /etc/passwd` read
-					// the trailing `f` as `--filename` and swallow the escaping
-					// operand out of the positional walk.
+					// after it is a flag and no later token is its value. No
+					// character before j was VALUE-TAKING — one would have broken
+					// out below — but this walk consults valueFlags only, so the
+					// `=` may follow a modelled bool (`-p=false`) or a character
+					// the spec models not at all (`-Zp=f`), which gh itself
+					// rejects and which ghUnmodelledFlagAsk escalates on its own
+					// account. Stopping is the safe direction for both: it can
+					// only leave MORE tokens in the positional walk. Missing it
+					// would let `gh gist create -p=f /etc/passwd` read the
+					// trailing `f` as `--filename` and swallow the escaping
+					// operand out of that walk.
 					break
 				}
 				f := "-" + string(a[j])
