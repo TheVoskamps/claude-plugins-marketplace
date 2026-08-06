@@ -287,6 +287,25 @@ Not every hit is a defect: a claim that names its own parser ("in every
 spelling gh accepts", on the gh walk) or that enumerates the spellings
 right after itself is already scoped.
 
+**Round 10 shape: the INHERITED FLAGS block is per-verb too (#229, PR
+#232).** A round that derived every enumeration mechanically from
+`ghFileSpecs` still left two claims about *gh itself* wrong, because
+both were checked against the verbs' own FLAGS blocks only. `gh <noun>
+<verb> --help` renders a second block, and it is NOT uniform: dumping
+it for all 26 modelled pairs gives `--help` on 26 and
+`-R, --repo [HOST/]OWNER/REPO` on 24 — `gist create` and `gist edit`
+answer both spellings with `unknown flag` (a gist is not a repo
+resource), while the gate folds the pair into every spec regardless.
+The same omission falsified the sibling claim that the non-`file`
+annotation list was "the whole vocabulary the value-taking flags of
+this table's verbs are annotated with": it dropped `file` itself and
+`[HOST/]OWNER/REPO`. **How to apply:** any claim of the form "the whole
+X gh's help renders" must be settled by dumping the help for every pair
+in the table (a scratchpad script — the gate blocks
+`gh "$noun" "$verb"` as non-static argv, so run it from a file, not
+inline), and the dump must include the INHERITED FLAGS block, not just
+FLAGS.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
