@@ -8,7 +8,10 @@ metadata:
 A whitelist-of-flags fail-safe (`ghFileSpecs` on #232, `ghAuthStatusEscalates`
 before it) rests on one checkable claim: *this spec is the verb's complete flag
 grammar*. Spot-checking three verbs does not test it, and the table is too big
-to eyeball — on #232 it was 25 noun/verb pairs.
+to eyeball — on #232 it was 26 noun/verb pairs. Count them out of the table
+itself, and diff your pair list against it: #232's round-2 audit said 25 and had
+silently dropped `cache delete`, so the "every pair matches" verdict covered one
+pair fewer than it claimed.
 
 **Machine-diff it.** Parse the Go table out of the source with python (locate
 `var <table> =`, strip `//` comments so prose flags are not counted, split on
@@ -52,7 +55,7 @@ finding names ONE unrendered spelling, the parser's whole grammar is the class:
 diff the spec against the LIBRARY's parse, and probe `-x=value` on both a
 value-taking and a bool shorthand. Hidden flags are worth one search
 (`gh api -X GET search/code -f q='MarkHidden repo:cli/cli path:pkg/cmd'` — none
-of the 25 modelled pairs has one) and abbreviations are not a pflag feature
+of the 26 modelled pairs has one) and abbreviations are not a pflag feature
 (`gh pr comment --bod x` → `unknown flag`).
 
 **How to apply:** on any gate PR that adds or extends a per-verb/per-program
