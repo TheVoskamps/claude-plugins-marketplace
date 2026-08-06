@@ -438,7 +438,8 @@ argv, settings, image identity, and plugin manifests from:
   *The tag is not just a tag.* It is used in more positions than the charset
   check's own justification names, and every one of them consumes it
   **verbatim**: vfkit's `mountTag=` inside the comma-delimited `--device`
-  string; a bare argv word in the guest's `mount -t virtiofs <tag> <path>`; a
+  string; a bare argv word in the guest's
+  `mount -t virtiofs -o rw <tag> <path>`; a
   **path component** in the default guest mountpoint
   `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>`, in the launcher's host-side wrap
   directory a single-file source is staged in (`$MOUNT_WRAP_DIR/<tag>`) and
@@ -449,13 +450,17 @@ argv, settings, image identity, and plugin manifests from:
   unusable as the rest:
 
   - `.` and `..` are not path *components*. `tag: ".."` walks one level up
-    out of every one of those trees at once, and the `..` rejection on
-    `path:` never sees it — that guard sits inside `if [ -n "$path" ]`, so a
-    tag-derived mountpoint never reaches it, and with an explicit `path:` the
-    mountpoint is clean while the wrap paths are still walked up. The
-    launcher would then share the wrap directory's *parent*: `$RUN` (which
-    holds `creds/.credentials.json`) under `repo.mount: clone`, or `$TMPDIR`
-    itself under `live`, mounted read-write in the guest one level above
+    out of each of those trees the entry reaches — the default mountpoint,
+    for any entry, and both wrap paths, for a single-file one (a directory
+    source is shared as itself and is never wrapped) — and the `..`
+    rejection on `path:` never sees it: that guard sits inside
+    `if [ -n "$path" ]`, so a tag-derived mountpoint never reaches it, and
+    with an explicit `path:` the mountpoint is clean while the wrap paths
+    are still walked up. The launcher would then share the wrap directory's
+    *parent*: `$RUN` (which holds `creds/.credentials.json`) under
+    `repo.mount: clone`, or `$TMPDIR` itself under `live` (where the wrap
+    dir is a `mktemp -d` under `$TMPDIR`, since `$RUN` sits inside the
+    shared repo), mounted read-write in the guest one level above
     `CLAUDE_VM_GUEST_WRAP_MOUNT`. A run of three or more dots (`...`) and a
     `..` inside a longer name (`a..b`) are ordinary component names and still
     pass.
@@ -478,6 +483,25 @@ argv, settings, image identity, and plugin manifests from:
   not checked: what gets shared then is the wrap directory, named after the
   already-checked tag, so the operator's filename reaches only a hard link
   and a `mounts.tsv` field.
+
+  That comma exposure is **not** confined to `mounts`, and the check above
+  does not cover the rest of it. The four built-in devices interpolate host
+  paths into the same `--device` string with no comma check at all:
+  `sharedDir=$MOUNT_SHARED_DIR` (`$REPO_SRC` under `repo.mount: live`, else
+  `$RUN/worktree`), `sharedDir=$CONFIG_DIR` and `sharedDir=$CREDS_DIR` (both
+  under `$RUN`, which is `<repo>/.claude/tmp/<run-id>` whenever the argument
+  is a git repo, in either mount mode), and `sharedDir=$CLAUDE_BIN_DIR`
+  (under `CLAUDE_VM_CACHE_DIR`, i.e. `$XDG_CONFIG_HOME`/`$HOME` by default).
+  So a repo — or a `$HOME`, or a `$TMPDIR` — whose path carries a comma
+  breaks the launch the same way, before any extra mount is involved. It is
+  left unchecked deliberately: unlike a `mounts` entry, none of these paths
+  is a config value an operator can fix by editing YAML, and an ordinary
+  comma is launch-time-loud (vfkit refuses the unknown option and the launch
+  stops) rather than a VM that boots with a share pointing somewhere else —
+  only a path that itself spelled a second `sharedDir=` would fail quietly,
+  and that is not a path anyone has. A guard for it
+  would belong at argument-validation time, next to the repo-path
+  resolution, not in `claude_vm_check_mounts`.
 
   *Guest OS paths, by shape.* `CLAUDE_VM_GUEST_SYSTEM_PATHS` is the guest's
   own directory set. Linux **stacks** a mount, so an entry landing on one

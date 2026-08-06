@@ -173,6 +173,35 @@ Grep both `read-only` and `RO` across `plugins/claude-vm/` and sort every hit
 into one of these two classes rather than fixing the surfaces a diff happens
 to touch.
 
+## Grade a new use of a claude-vm mount tag against the enumeration
+
+A `mounts` tag in `plugins/claude-vm` is consumed **verbatim** in every
+position it reaches: vfkit's `mountTag=`, a bare argv word in the guest's
+`mount -t virtiofs -o rw <tag> <path>`, a path *component* in three trees
+(the `/mnt/<tag>` default mountpoint, the host-side wrap directory a
+single-file source is staged in, and that wrap's own guest mountpoint), and
+a `mounts.tsv` field. `claude_vm_check_mounts`'s charset check
+(`[A-Za-z0-9._-]`) is therefore necessary and not sufficient, and its `.` /
+`..` and leading-`-` arms exist because two of those positions reject
+spellings the charset admits.
+
+`payload/README.md` → *The tag is not just a tag* is the enumeration those
+arms are derived from. Code that gives the tag a **new** position — a
+filename, another argv slot, a shell-interpolated string — must be graded
+against that list and add an arm when the new position rejects something the
+existing ones accept, rather than being assumed safe because the charset
+passed. The restating surfaces to keep in step are
+`payload/lib/config.sh`'s block comment, `payload/config-boot.example.yml`'s
+`tag:` bullet, `skills/claude-vm/SKILL.md` and
+`skills/claude-vm-config-repo/SKILL.md`.
+
+The same verbatim-interpolation exposure runs one level wider than the
+config: the four built-in `--device` lines interpolate `$REPO_SRC`, `$RUN`
+and the claude cache dir with no comma check, so a repo, `$HOME` or `$TMPDIR`
+path carrying a comma breaks a launch that has no `mounts` entry at all.
+That is deliberate and documented in the same README section — do not "fix"
+it inside `claude_vm_check_mounts`, which never sees those paths.
+
 ## Never split a claude-vm TSV record with a tab-IFS `read`
 
 `plugins/claude-vm` moves multi-field records between its scripts as

@@ -976,9 +976,9 @@ claude_vm_guest_system_path_containing() {
 #
 #   - a tag outside [A-Za-z0-9._-]: the tag travels inside vfkit's
 #     comma-delimited `--device virtio-fs,sharedDir=...,mountTag=<tag>` string
-#     and again as a `mount -t virtiofs <tag> <path>` argument in the guest, so
-#     a comma or whitespace in it corrupts one or both. Same charset the
-#     marketplace-name and apt_source-name guards use.
+#     and again as a `mount -t virtiofs -o rw <tag> <path>` argument in the
+#     guest, so a comma or whitespace in it corrupts one or both. Same
+#     charset the marketplace-name and apt_source-name guards use.
 #   - a tag that the charset admits but one of its OTHER uses does not. The tag
 #     is also a bare PATH COMPONENT (in three trees) and a bare ARGV WORD, so
 #     `.` and `..` walk up out of every tree that embeds it and a leading `-`
