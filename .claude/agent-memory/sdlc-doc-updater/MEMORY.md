@@ -43,6 +43,9 @@
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when
   reading one.
+- [widened enumeration, trailing clause](feedback_widened-enumeration-trailing-clause.md)
+  — widening a list leaves the "only/except" clause after it scoped to the
+  old narrow set; vfkit is installed here, so parse claims are one probe away.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
