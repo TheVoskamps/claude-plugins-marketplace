@@ -40,10 +40,32 @@ PR's security fix were broken.
    harm is the false FAIL text, so the recommendation is to move the
    classification out of the substitution.
 
-Beware the mirror-image mistake: `plugins/claude-vm`'s CLAUDE.md rule "write
-the config-load guards for bash 3.2" is about the *guards*, so a 3.2 failure
-in a test file is not a violation of it — say which side of that line the
-failure sits on rather than invoking the rule.
+**The rule covers the suite too — corrected in #231 round 7.** This entry used
+to close by saying `plugins/claude-vm`'s CLAUDE.md rule "write the config-load
+guards for bash 3.2" was about the *guards*, so a 3.2 failure in a test file
+was not a violation of it. That is false as of #231: root `CLAUDE.md` and
+`payload/README.md` now both say `test/config-test.sh` carries the same
+shebang and is under the same rule, and both carry the severity clause — a
+3.2-only construct in an assertion costs a reader's trust with a false FAIL,
+where the same construct in a guard ships a hole. So such a failure IS a
+violation, of the cheaper kind, and "say which side of that line the failure
+sits on" is now the rule's own wording rather than a caveat against invoking
+it. Grading it Low (point 3) still holds — that is what "the cheaper kind"
+means.
+
+**The mechanism is narrower than "counting parens".** Measured on 3.2.57 vs
+5.3.15: a `)` inside a quoted string (`$(echo "a)b")`, single or double) and a
+nested `( … )` subshell both parse correctly on 3.2 — only an **unbalanced**
+`)`, which in practice means a `case` pattern's, ends the substitution early.
+So the remedy applies to `case`, not to every parenthesis; the shipped docs'
+"counting parens" phrasing over-includes rather than under-includes, which
+costs churn and never a hole.
+
+To sweep the class, don't grep — the two ends sit on different lines. A
+quote-aware paren walker over every `git ls-files` shell file (shebang or
+`.sh`/`.bash`) that flags a `$( )` body containing `case` runs in seconds;
+negative-control it against the pre-fix commit's own file (`git show
+<pre-fix>:<path>`), which must report the known instances.
 
 Related: [[verify-bash-regex-in-real-bash]] (the Bash tool's own shell lies
 too), [[baseline-suite-totals-via-git-archive]],
