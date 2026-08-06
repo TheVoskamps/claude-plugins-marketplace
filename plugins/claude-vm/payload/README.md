@@ -746,6 +746,12 @@ launch — it silently changes the answer a guard gives. A guard must not fail
 open on the way to someone else's error, which makes "the whole file needs
 bash 4 anyway" an unsafe justification for anything the guards depend on.
 
+`test/config-test.sh` carries the same shebang and its header says to run it
+directly, so the suite that checks the guards is under the same rule — at a
+different cost, and say which of the two a given failure carries. A 3.2-only
+construct in an assertion produces a false FAIL on code that is fine, which
+costs a reader's trust; the same construct in a guard ships a hole.
+
 The shapes this has actually bitten, with where each one bit:
 
 - **A backslash-escaped delimiter in the replacement half of
@@ -769,15 +775,16 @@ The shapes this has actually bitten, with where each one bit:
   artifact read as a broken wrap-dir siting. Lift the `case` into a function
   defined outside, so the substitution holds only the call.
 
-`test/config-test.sh` pins the first by *running* the real normalizer under
-whatever pre-4 bash the host has, alongside a negative control that runs the
-inline escaped spelling the function avoids — so if the hazard ever
-disappears, the control stops differing and says so. On a host with no old
+`test/config-test.sh` pins the escaped-delimiter shape by *running* the real
+normalizer under whatever pre-4 bash the host has, alongside a negative control
+that runs the inline escaped spelling the function avoids — so if the hazard
+ever disappears, the control stops differing and says so. On a host with no old
 bash there is nothing to measure, and the block is skipped rather than faked
-with a fixture. The third needs no assertion of its own — it is a parse-time
-property of the file, so *running* the suite under `/bin/bash` is the check:
-everything but the cases that need bash 4's `local -A` has to pass there, and
-that failing set has to stay the one `main`'s own suite already fails.
+with a fixture. The `case`-in-`$( )` shape needs no assertion of its own — it
+is a parse-time property of the file, so *running* the suite under `/bin/bash`
+is the check: everything but the cases that need bash 4's `local -A` has to
+pass there, and that failing set has to stay the one `main`'s own suite already
+fails.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

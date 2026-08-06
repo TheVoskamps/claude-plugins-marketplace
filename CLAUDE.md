@@ -257,13 +257,15 @@ hold the literal in a variable), and never expand `"${arr[@]}"` on a
 possibly-empty array under `set -u` (write `${arr[@]+"${arr[@]}"}`). Pin
 such a guard by *running* it under the host's pre-4 bash, with a negative
 control on the spelling it avoids, skipping the block when the host has
-no old bash rather than faking it with a fixture. The suite is under the
-same rule, not only the code it checks: a `case` written inline in an
-assertion's own `$( )` mis-parses on 3.2 — the substitution ends at the
-pattern's `)` — so the harness FAILs on a guard that is fine. Lift the
-`case` into a function and call that from the substitution. Say which
-side of the line such a failure sits on: a false FAIL costs a reader's
-trust, where a guard that answers differently there ships a hole. The
+no old bash rather than faking it with a fixture. `test/config-test.sh`
+carries the same shebang, so the suite is under the same rule, not only
+the code it checks: a `case` written inline in an assertion's own `$( )`
+mis-parses on 3.2 — the substitution ends at the pattern's `)`, and what
+comes back is a fragment of the assertion's own source — so the harness
+FAILs on a guard that is fine. Lift the `case` into a function and call
+that from the substitution. Say which side of the line such a failure
+sits on: a 3.2-only construct in an assertion costs a reader's trust
+with a false FAIL, where the same construct in a guard ships a hole. The
 reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
