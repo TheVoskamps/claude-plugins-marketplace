@@ -586,7 +586,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `--public=false` and reading its trailing `f` as `--filename` would
   consume the escaping operand of `gh gist create -p=f /etc/passwd` out
   of the positional walk.
-  A `-` operand is gh's read-from-stdin marker, so it is replaced by
+  A `-` — whether it arrives as a file operand or as a path flag's
+  value — is gh's read-from-stdin marker, so it is replaced by
   the command's input-redirect sources: `gh pr comment 227 -F - <
   /etc/passwd` is the same publish spelled differently and earns the
   same **deny**. `gh gist create` needs no marker at all — gh's own

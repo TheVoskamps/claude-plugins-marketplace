@@ -113,6 +113,13 @@ func (s ghFileSpec) readsLocalFiles() bool {
 // the routine `gh issue comment -R owner/repo N -F body.md` would escalate on a
 // flag gh documents. They are merged into each spec by ghSpec rather than
 // repeated in 26 literals.
+//
+// The inheritance is not quite uniform: `--help` reaches all 26 pairs, while
+// `-R`/`--repo` reaches 24. `gist create` and `gist edit` render no repo entry
+// in their INHERITED FLAGS block and answer both spellings with `unknown flag`
+// / `unknown shorthand flag` (measured, gh 2.97.0) — a gist is not a repository
+// resource. ghSpec folds the pair into those two specs anyway: modelling a flag
+// gh itself rejects withholds an ask from an invocation that cannot run.
 var ghInheritedValueFlags = map[string]bool{"-R": true, "--repo": true}
 
 // `--help` is the spelling gh's INHERITED FLAGS block renders; `-h` is the one
@@ -185,9 +192,11 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 // Flag sets transcribed from `gh <noun> <verb> --help` (gh 2.97.0). A flag gh
 // annotates `file` is a pathValueFlag; one it annotates `string`, `text`,
 // `name`, `title`, `login`, `handle`, `branch`, `number`, `numbers` or `SHA`
-// is not — the whole vocabulary the VALUE-TAKING flags of this table's verbs
-// are annotated with. (A bool renders no value type of its own, so the `--all`
-// in `cache delete`'s `--succeed-on-no-caches --all` line is not one: gh
+// is not. Those, together with `file` itself, are the whole annotation
+// vocabulary of the VALUE-TAKING flags these verbs' own FLAGS blocks render;
+// the inherited `-R`/`--repo` adds `[HOST/]OWNER/REPO`, which names a
+// repository and not a path. (A bool renders no value type of its own, so the
+// `--all` in `cache delete`'s `--succeed-on-no-caches --all` line is not one: gh
 // registers that flag with BoolVar and a usage string carrying a backquoted
 // `--all`, which pflag's UnquoteUsage lifts into the type column.)
 // These annotations needed a closer read than the type alone; `gist edit`'s

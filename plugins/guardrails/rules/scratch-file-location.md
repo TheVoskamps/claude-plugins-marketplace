@@ -44,9 +44,10 @@ read containment. What that grades, per verb, is exactly:
   `gh release upload` and `gh release edit` — the last of which takes
   no file operand at all in gh's own grammar, so a stray one is
   graded rather than ignored.
-- Whatever stands in for a file operand: a `-` is gh's
-  read-from-stdin marker and is graded as the command's input
-  redirect source (`gh pr comment 227 -F - < /tmp/body.md` is the
+- Whatever stands in for one of those paths: a `-` — in a file
+  operand or as the value of any flag above — is gh's read-from-stdin
+  marker and is graded as the command's input redirect source
+  (`gh pr comment 227 -F - < /tmp/body.md` is the
   same publish as naming the path), and `gh gist create` reads stdin
   with no marker at all when given no operand
   (`gh gist create < /tmp/body.md`).
