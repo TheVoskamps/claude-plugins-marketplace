@@ -261,7 +261,9 @@ no old bash rather than faking it with a fixture. The suite is under the
 same rule, not only the code it checks: a `case` written inline in an
 assertion's own `$( )` mis-parses on 3.2 — the substitution ends at the
 pattern's `)` — so the harness FAILs on a guard that is fine. Lift the
-`case` into a function and call that from the substitution. The
+`case` into a function and call that from the substitution. Say which
+side of the line such a failure sits on: a false FAIL costs a reader's
+trust, where a guard that answers differently there ships a hole. The
 reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
