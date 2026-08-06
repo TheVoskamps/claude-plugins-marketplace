@@ -1,6 +1,6 @@
 ---
 name: run-the-guard-on-the-oldest-reachable-interpreter
-description: A guard that runs EARLY can fail open on an old interpreter while the file's later bash-4 constructs fail loudly — measure the guard itself under the oldest shell that can reach it, not the file's declared floor
+description: A guard that runs EARLY can fail open on an old interpreter while the file's later bash-4 constructs fail loudly — measure the guard itself under the oldest shell that can reach it, and grade the failures it then shows by diffing FAIL labels across extracted trees, not by counts
 metadata:
   type: project
 ---
@@ -43,7 +43,28 @@ sources the lib under whatever old interpreter the host has and skips
 where there is none — plus a negative control proving the hazardous
 spelling still differs there, so the test retires itself honestly when
 the hazard is gone. A fixture cannot substitute: it would only restate
-the belief that the two shells agree. Related:
-[[pin-a-specs-empirical-premise-with-a-live-test]],
+the belief that the two shells agree.
+
+**Then grade the failures the old shell hands you — by label, not by
+count.** Running the whole suite there produces a wall of FAILs, and
+"N of those are pre-existing" is a claim to measure rather than accept
+from a report. Extract both comparison trees and diff the FAIL *labels*:
+`git archive -o <tar> origin/main plugins/<plugin>/payload`, a second
+archive of the pre-fix `HEAD`, untar each, and run the suite from inside
+the extracted tree — claude-vm's suites resolve their lib through
+`BASH_SOURCE`, so a single extracted file cannot run on its own. Round 7
+of PR #231 got 465/17 pre-fix, 467/15 after, 278/15 at `origin/main`,
+with the surviving 15 labels byte-identical to main's, which is what
+turns "I fixed two and introduced none" into a measurement. Counts alone
+would have misled: the 3.2 run totals 482 where bash 5.3 totals 483,
+because one assertion inside the bash-4 `local -A` block simply never
+executes there — a gap that also exists at `origin/main`, and only the
+label diff shows it rather than leaving an unexplained off-by-one.
+Sweeping such a class also wants a parser, not a grep: the shape is
+"a `)` inside a `$( )` body that closes nothing", and its two ends are
+often on different lines.
+
+Related: [[pin-a-specs-empirical-premise-with-a-live-test]],
 [[negative-control-the-approved-snippet]],
-[[real-build-verification-not-unit-tests]].
+[[real-build-verification-not-unit-tests]],
+[[old-code-claim-hits-a-different-guard]].
