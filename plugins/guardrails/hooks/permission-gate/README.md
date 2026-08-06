@@ -561,13 +561,20 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `-b`/`--body`, `-F`/`--notes-file` on `release create` and
   `release edit`, `-T`/`--template` on `pr create`, `--recover` on
   `pr`/`issue create`, `-a`/`--add` on `gist edit`) and the index from
-  which POSITIONAL operands name files (`gh gist create <filename>…`
-  from 0; `gh release create <tag> [<filename>…]`,
+  which POSITIONAL operands name files
+  (`gh gist create [<filename>… | <pattern>… | -]` from 0;
+  `gh release create [<tag>] [<filename>… | <pattern>…]`,
   `gh release upload <tag> <files>…` and
-  `gh gist edit <id> [<filename>]` from 1 — as does
+  `gh gist edit {<id> | <url>} [<filename>]` from 1 — as does
   `gh release edit <tag>`, whose grammar takes no file positional at
   all, so index 1 grades an extra operand gh would itself reject rather
-  than leaving one ungraded). The values are extracted by the same flag
+  than leaving one ungraded). A `<pattern>` operand — the alternative
+  gh's own usage renders for the two `create` verbs, and the spelling
+  that reaches gh unexpanded — is graded as the literal token it is
+  written as, which is sound because containment resolves the pattern's
+  escaping prefix without needing to know what it matches:
+  `gh release create v1 '../sib/*.tgz'` **denies** while
+  `gh gist create '*.md'` **allows**. The values are extracted by the same flag
   walk the read track uses — `pathFlagValueRefs`, which `pathFlagValues`
   wraps — so every spelling that walk covers (separate
   token, glued short, `=`-joined long,

@@ -77,12 +77,18 @@ import (
 // filePositionalsFrom is the index, among the verb's positional operands, of the
 // first one that names a local file; -1 when the verb takes none. It exists
 // because some publish verbs take their files positionally rather than by flag:
-// `gh gist create <filename>...` names them from index 0, while
-// `gh release create <tag> [<filename>...]`, `gh release upload <tag> <files>...`
-// and `gh gist edit {<id>|<url>} [<filename>]` reserve the first positional for
+// `gh gist create [<filename>... | <pattern>... | -]` names them from index 0,
+// while `gh release create [<tag>] [<filename>... | <pattern>...]`,
+// `gh release upload <tag> <files>...` and
+// `gh gist edit {<id>|<url>} [<filename>]` reserve the first positional for
 // a tag / gist id and name files from index 1. `gh release edit <tag>` carries 1
 // as well although its grammar has no file positional at all: an operand gh
 // would itself reject is then graded rather than left ungraded.
+//
+// A `<pattern>` operand needs no handling of its own. It reaches the gate as
+// one word, containment resolves its escaping prefix without expanding it, and
+// the verdict is the one the prefix earns: `gh release create v1
+// '../sib/*.tgz'` denies, `gh gist create '*.md'` allows.
 //
 // defaultsToStdin marks a verb that reads STDIN when the invocation gives it no
 // file operand at all — the implicit spelling of the `-` marker, which has no
@@ -328,7 +334,7 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		"unlock": ghSpec(nil, nil, nil, -1),
 	},
 	"release": {
-		// `gh release create [<tag>] [<filename>...]` uploads every positional
+		// `gh release create [<tag>] [<filename>... | <pattern>...]` uploads every positional
 		// after the tag as a release asset, so the positionals are graded from
 		// index 1 as well as the `--notes-file` value. The verb ASKs on the
 		// publish tier either way; grading it here is what turns an ESCAPING
@@ -377,9 +383,9 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		"clone": ghSpec(nil, map[string]bool{"-f": true, "--force": true}, nil, -1),
 	},
 	"gist": {
-		// `gh gist create [<filename>...]` — every positional is a local file
-		// whose contents become the gist. `-f`/`--filename` is NOT a path: it
-		// supplies the NAME the gist gives content read from stdin.
+		// `gh gist create [<filename>... | <pattern>... | -]` — every positional
+		// is a local file whose contents become the gist. `-f`/`--filename` is
+		// NOT a path: it supplies the NAME the gist gives content read from stdin.
 		//
 		// It is also the ONE verb in this table that reads stdin with no marker of
 		// any kind: gh's createRun does `if len(filenames) == 0 { filenames =
