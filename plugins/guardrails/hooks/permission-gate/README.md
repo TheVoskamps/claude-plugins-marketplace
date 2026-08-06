@@ -563,11 +563,23 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   all, so index 1 grades an extra operand gh would itself reject rather
   than leaving one ungraded). The values are extracted by the same flag
   walk the read track uses — `pathFlagValueRefs`, which `pathFlagValues`
-  wraps — so every spelling (separate
+  wraps — so every spelling that walk covers (separate
   token, glued short, `=`-joined long,
-  short-cluster tail) is covered, and they are **appended** to the
+  short-cluster tail) is covered here, and they are **appended** to the
   positional walk rather than substituted for it — a mismodelled arity
   can only ever add a path to containment, never swallow one out of it.
+  The spelling that walk does NOT cover is gh's own: gh parses with
+  pflag, which strips an `=` immediately following a short flag, so
+  `gh pr comment 227 -F=/etc/passwd` opens `/etc/passwd` while getopt —
+  and so the shared extractor — reads the value as the relative, in-repo
+  `=/etc/passwd`, and the publish **allowed**. `ghPflagEqualValueRefs`
+  appends pflag's reading beside the getopt one, so both are graded and
+  the spellings where the `=` really is part of the path (a separate
+  token, a long `--body-file==x`) keep their verdict. Both gh-local
+  cluster walks stop at that `=` as pflag does, since `-p=f` is
+  `--public=false` and reading its trailing `f` as `--filename` would
+  consume the escaping operand of `gh gist create -p=f /etc/passwd` out
+  of the positional walk.
   A `-` operand is gh's read-from-stdin marker, so it is replaced by
   the command's input-redirect sources: `gh pr comment 227 -F - <
   /etc/passwd` is the same publish spelled differently and earns the
@@ -605,7 +617,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   COMPLETE flag grammar, and an unrecognized flag asks**, the same
   whitelist shape `ghAuthStatusEscalates` holds for `gh auth status`,
   so a gh release that adds another file-reading flag costs one click
-  rather than a silent publish. That ask's wording follows the verb's
+  rather than a silent publish. The specs are transcribed from
+  `gh <noun> <verb> --help`, and that output is not gh's accepted
+  grammar, so what it never renders is modelled by hand instead: pflag
+  answers an unregistered `h` shorthand with the command's help rather
+  than an error, so `-h` is accepted on every verb (exit 0 on all 25
+  modelled pairs, gh 2.97.0) while the INHERITED FLAGS block prints
+  `--help` alone — it is carried in `ghInheritedBoolFlags` beside the
+  long spelling, since otherwise a help invocation would be the one
+  documented gh spelling this whitelist escalates. That ask's wording
+  follows the verb's
   own modelled surface: a verb with no path flag, no file positional
   and no stdin default (`gh pr close`, `gh issue pin`, `gh label edit`,
   `gh cache delete`, …) is described as a write the gate cannot vouch

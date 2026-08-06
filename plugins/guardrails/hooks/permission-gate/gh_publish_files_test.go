@@ -34,7 +34,8 @@ func ghPublishRepo(t *testing.T) string {
 
 // The issue's evidence table, with the escaping path spelled every way gh
 // accepts the flag: a separate token, a glued short form, an `=`-joined long
-// form, and (for -F) the value-taking tail of a short cluster.
+// form, an `=`-joined SHORT form (pflag's own spelling, which getopt reads
+// differently), and (for -F) the value-taking tail of a short cluster.
 func TestGhPublishFileEscapingPathDenies_229(t *testing.T) {
 	repo := ghPublishRepo(t)
 	for _, cmd := range []string{
@@ -61,6 +62,25 @@ func TestGhPublishFileEscapingPathDenies_229(t *testing.T) {
 		"gh issue comment 225 --body-file=/etc/passwd",
 		"gh release create v1 --notes-file /etc/passwd",
 		"gh release create v1 --notes-file=/etc/passwd",
+
+		// gh parses with pflag, which strips an `=` that follows a SHORT flag:
+		// `-F=/etc/passwd` opens /etc/passwd, where getopt — and so the shared
+		// extractor — reads the value as the relative, in-repo `=/etc/passwd`.
+		// Verified against gh 2.97.0, which answers
+		// `gh pr comment 232 -F=/nonexistent/xyz.md` with
+		// `open /nonexistent/xyz.md`.
+		"gh pr comment 227 -F=/etc/passwd",
+		"gh pr comment 227 -eF=/etc/passwd",
+		"gh issue comment 225 -F=/etc/passwd",
+		"gh release create v1 -F=/etc/passwd",
+		"gh gist edit abc123 -a=/etc/passwd",
+		"gh pr create -t x -T=/etc/passwd",
+		// The same spelling on a BOOL, where pflag's rule instead ends the token:
+		// `-p=f` is `--public=false` (gh rejects `-p=zzz` with a ParseBool error,
+		// so the value really is being parsed), and the escaping operand after it
+		// stays a file positional. Screening the trailing `f` as `--filename`
+		// would consume that operand out of the walk.
+		"gh gist create -p=f /etc/passwd",
 
 		// Every other verb that accepts a body file.
 		"gh pr edit 227 -F /etc/passwd",
@@ -125,6 +145,7 @@ func TestGhPublishFileContainedPathAllows_229(t *testing.T) {
 			"gh pr comment 227 -F ",
 			"gh pr comment 227 --body-file ",
 			"gh pr comment 227 --body-file=",
+			"gh pr comment 227 -F=",
 			"gh issue comment 225 -F ",
 			"gh issue create -t x -F ",
 			"gh pr create -t x -F ",
@@ -140,9 +161,26 @@ func TestGhPublishFileContainedPathAllows_229(t *testing.T) {
 	// The absolute spelling of an in-repo path is contained too.
 	wantBucket(t, classifyInRepo(t, "gh pr comment 227 -F "+repo+"/body.md", repo), BucketAllow,
 		"#229 contained publish: absolute in-repo body file")
-	// A contained positional file operand keeps `gist create`'s secret-gist ALLOW.
+	// The pflag `=` reading is APPENDED, not substituted, and only for the glued
+	// SHORT spelling — so the spellings where the `=` is genuinely part of the
+	// path keep their allow rather than being stripped into an escape. gh opens
+	// the literal `=/nonexistent/x` for the long form (measured) and takes a
+	// separate token verbatim, and `-F=` is under pflag's own
+	// `len(shorthands) > 2` threshold, so its value is the literal `=`.
+	for _, cmd := range []string{
+		"gh pr comment 227 -F =/etc/passwd",
+		"gh pr comment 227 --body-file==/etc/passwd",
+		"gh pr comment 227 -F=",
+	} {
+		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAllow,
+			"#229 an `=` that is part of the path must not be stripped: "+cmd)
+	}
+	// A contained positional file operand keeps `gist create`'s secret-gist ALLOW,
+	// including behind pflag's `-p=false` spelling of a bool.
 	wantBucket(t, classifyInRepo(t, "gh gist create notes.md", repo), BucketAllow,
 		"#229 contained publish: gist create notes.md")
+	wantBucket(t, classifyInRepo(t, "gh gist create -p=f notes.md", repo), BucketAllow,
+		"#229 contained publish behind an `=`-joined short bool")
 	wantBucket(t, classifyInRepo(t, "gh gist edit abc123 notes.md", repo), BucketAllow,
 		"#229 contained publish: gist edit notes.md")
 	// The implicit-stdin spelling in the contained direction: the synthesized `-`
@@ -276,7 +314,8 @@ func TestGhPublishUnmodelledFlagAsks_229(t *testing.T) {
 	}
 	// The flags gh DOES document must not escalate — including the inherited
 	// `-R`/`--repo` in its post-noun position and `--help`, and the bool flags
-	// that also accept an `=`-joined value.
+	// that also accept an `=`-joined value, in both the long spelling gh renders
+	// and the short one pflag accepts.
 	for _, cmd := range []string{
 		"gh pr comment 227 -R owner/repo -F body.md",
 		"gh pr comment 227 --repo owner/repo -F body.md",
@@ -286,6 +325,8 @@ func TestGhPublishUnmodelledFlagAsks_229(t *testing.T) {
 		"gh pr merge 227 --squash --delete-branch --admin",
 		"gh issue edit 225 --remove-milestone --remove-parent --remove-type",
 		"gh pr comment 227 --help",
+		"gh pr create -t x -d=false",
+		"gh pr merge 227 -s -d=true",
 	} {
 		d := classifyInRepo(t, cmd, repo)
 		if d.Bucket == BucketAsk && strings.Contains(d.Reason, "does not model") {
@@ -358,6 +399,117 @@ func TestGhPublishUnmodelledFlagMessageMatchesSurface_229(t *testing.T) {
 					key, spec.readsLocalFiles(), map[bool]string{true: "contains", false: "omits"}[listed])
 			}
 		}
+	}
+}
+
+// --- The spellings gh accepts but never renders -------------------------------
+
+// `gh <noun> <verb> --help` is the source these specs were transcribed from, and
+// it is not gh's accepted grammar: pflag answers an unregistered `h` shorthand
+// with the command's help rather than an error, so `-h` works on every verb
+// while the INHERITED FLAGS block prints `--help` alone. Measured on gh 2.97.0:
+// `gh <noun> <verb> -h` exits 0 for all 25 pairs in ghFileSpecs, and none of
+// them renders a `-h` of its own. Without the entry a help invocation is the one
+// documented gh spelling this whitelist escalates.
+func TestGhPublishHelpShorthandAllows_229(t *testing.T) {
+	repo := ghPublishRepo(t)
+	for _, cmd := range []string{
+		"gh pr comment 227 -h", // a file-bearing verb
+		"gh pr close 5 -h",     // a file-free verb
+		"gh gist create -h",    // the stdin-defaulting verb
+		"gh release upload v1 -h",
+		"gh pr comment 227 -eh", // inside a cluster of modelled bools
+		"gh pr comment 227 --help",
+	} {
+		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAllow, "#229 gh accepts this help spelling: "+cmd)
+	}
+	// Negative control at the screen itself: the same invocation against a spec
+	// whose bool set lacks `-h` escalates, so the rows above are passing on the
+	// table entry rather than on some earlier tier. (The specs fold
+	// ghInheritedBoolFlags in at package init, so the control has to rebuild the
+	// set rather than mutate the shared map.)
+	spec := ghFileSpecs["pr"]["comment"]
+	if _, hit := ghUnmodelledFlagAsk("gh pr comment", []string{"227", "-h"}, spec); hit {
+		t.Error("#229 `gh pr comment 227 -h` must not reach the unmodelled-flag ask")
+	}
+	degraded := spec
+	degraded.boolFlags = map[string]bool{}
+	for f := range spec.boolFlags {
+		if f != "-h" {
+			degraded.boolFlags[f] = true
+		}
+	}
+	if _, hit := ghUnmodelledFlagAsk("gh pr comment", []string{"227", "-h"}, degraded); !hit {
+		t.Error("#229 negative control: without `-h` in the bool set the screen must escalate")
+	}
+}
+
+// pflag's `-F=FILE` is the other spelling gh's help never renders, and the one
+// with a containment consequence: pflag strips the `=`, getopt keeps it, and the
+// getopt reading of `-F=/etc/passwd` is a relative name inside the repo. Both
+// readings are graded, and only for the glued short spelling — the discrimination
+// the classify-level rows exercise, asserted here on the helper itself so a
+// regression names the mechanism.
+func TestGhPflagEqualValueRefs_229(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		refs []pathRef
+		want []string
+	}{
+		{"glued short is stripped", []string{"-F=/etc/passwd"},
+			[]pathRef{{path: "=/etc/passwd", arg: 0}}, []string{"/etc/passwd"}},
+		{"glued short in a cluster is stripped", []string{"-eF=/etc/passwd"},
+			[]pathRef{{path: "=/etc/passwd", arg: 0}}, []string{"/etc/passwd"}},
+		{"a separate-token value is literal to pflag too", []string{"-F", "=/etc/passwd"},
+			[]pathRef{{path: "=/etc/passwd", arg: 1}}, nil},
+		{"a long `=`-joined value keeps everything after its first `=`",
+			[]string{"--body-file==/etc/passwd"},
+			[]pathRef{{path: "=/etc/passwd", arg: 0}}, nil},
+		{"an ordinary value is untouched", []string{"-F=body.md"},
+			[]pathRef{{path: "=body.md", arg: 0}}, []string{"body.md"}},
+		{"no leading `=`", []string{"-F/etc/passwd"},
+			[]pathRef{{path: "/etc/passwd", arg: 0}}, nil},
+		{"an empty remainder is dropped", []string{"-F="},
+			[]pathRef{{path: "=", arg: 0}}, nil},
+		{"a redirect-sourced path has no token to re-read", []string{"-F", "-"},
+			[]pathRef{{path: "=/etc/passwd", arg: -1}}, nil},
+	} {
+		got := ghPflagEqualValueRefs(tc.args, tc.refs)
+		var paths []string
+		for _, r := range got {
+			paths = append(paths, r.path)
+		}
+		if len(paths) != len(tc.want) {
+			t.Errorf("#229 ghPflagEqualValueRefs(%s) = %v, want %v", tc.name, paths, tc.want)
+			continue
+		}
+		for i := range paths {
+			if paths[i] != tc.want[i] {
+				t.Errorf("#229 ghPflagEqualValueRefs(%s) = %v, want %v", tc.name, paths, tc.want)
+				break
+			}
+		}
+	}
+}
+
+// The same pflag rule read from the other side: an `=` after a shorthand ENDS
+// the token, so no character past it is a flag. The positional walk has to stop
+// there as well as the screen, or `gh gist create -p=f /etc/passwd` reads the
+// trailing `f` of `-p=f` as `--filename`, consumes the escaping operand as its
+// value, and grades nothing. gh really does run that command — `-p=f` is
+// `--public=false` and the operand stays a file positional.
+func TestGhFilePositionalRefsStopAtPflagEquals_229(t *testing.T) {
+	spec := ghFileSpecs["gist"]["create"]
+	refs := ghFilePositionalRefs([]string{"-p=f", "/etc/passwd"}, spec)
+	if len(refs) != 1 || refs[0].path != "/etc/passwd" {
+		t.Errorf("#229 ghFilePositionalRefs(-p=f /etc/passwd) = %v, want the escaping operand", refs)
+	}
+	// The value-taking case is unchanged: a glued short value is still the flag's,
+	// and the operand after it is still a positional.
+	refs = ghFilePositionalRefs([]string{"-d=x", "/etc/passwd"}, spec)
+	if len(refs) != 1 || refs[0].path != "/etc/passwd" {
+		t.Errorf("#229 ghFilePositionalRefs(-d=x /etc/passwd) = %v, want the escaping operand", refs)
 	}
 }
 
@@ -516,6 +668,16 @@ func TestGhPublishFileNegativeControl_229(t *testing.T) {
 		"gh release upload v1 /etc/passwd",
 	} {
 		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAllow, "#229 negative control (was allow): "+cmd)
+	}
+	// The pflag `=` spellings ride the same control: with no path graded they
+	// allow, so their denies above come from the grading rather than from an
+	// unmodelled-flag screen firing on the `=` character.
+	for _, cmd := range []string{
+		"gh pr comment 227 -F=/etc/passwd",
+		"gh pr comment 227 -eF=/etc/passwd",
+		"gh gist create -p=f /etc/passwd",
+	} {
+		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAllow, "#229 negative control (grading off): "+cmd)
 	}
 	// The contained direction is negative-controlled by the same swap: it read
 	// ALLOW before the fix and must still read ALLOW after it, so the fix is

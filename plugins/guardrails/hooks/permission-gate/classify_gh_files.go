@@ -43,6 +43,14 @@ import (
 //     `gh auth status`. A future gh release that adds another file-reading flag
 //     therefore costs one human click, not a silent publish.
 //
+// The specs are transcribed from `gh <noun> <verb> --help`, and that output is
+// NOT gh's accepted grammar: gh parses with cobra/pflag, which accept spellings
+// the help block never renders. Anything in that residue has to be modelled by
+// hand, because no amount of re-reading the help finds it. Two are, and an
+// auditor re-deriving this table from help output will not find a third:
+// `-h` (see ghInheritedBoolFlags) and the `-F=FILE` short form (see
+// ghPflagEqualValueRefs, plus the `=` stop both cluster walks below make).
+//
 // A path the gate cannot resolve statically fails closed to an ASK, and that
 // question is asked PER TOKEN (ghPathTokensDynamic) rather than of the whole
 // command: the ordinary agent spelling
@@ -100,7 +108,17 @@ func (s ghFileSpec) readsLocalFiles() bool {
 // repeated in 26 literals.
 var ghInheritedValueFlags = map[string]bool{"-R": true, "--repo": true}
 
-var ghInheritedBoolFlags = map[string]bool{"--help": true}
+// `--help` is the spelling gh's INHERITED FLAGS block renders; `-h` is the one
+// it accepts without rendering. gh's root command registers the long form as a
+// persistent flag with NO shorthand (`cmd.PersistentFlags().Bool("help", false,
+// …)` in cli/cli's pkg/cmd/root/root.go), and pflag then supplies the short form
+// itself: parseSingleShortArg answers an UNREGISTERED `h` shorthand with
+// f.usage() and ErrHelp rather than an error, which gh surfaces as the command's
+// help text and exit 0. Measured on gh 2.97.0: `gh <noun> <verb> -h` exits 0 for
+// all 25 pairs in ghFileSpecs, none of which renders a `-h` of its own, so one
+// entry covers the table. Without it a help invocation would be the one
+// documented gh spelling this whitelist escalates.
+var ghInheritedBoolFlags = map[string]bool{"--help": true, "-h": true}
 
 // ghSpec builds a ghFileSpec, folding gh's inherited flags into the verb's own
 // sets. pathValueFlags must be a subset of the verb's valueFlags; that is
@@ -535,8 +553,9 @@ func ghRefPaths(refs []pathRef) []string {
 // so a mismodelled flag arity can only ever add a path to containment — it can
 // never swallow a genuine file operand out of the walk. That is the same
 // property utilitySpec.operands relies on, and pathFlagValueRefs is the same
-// extractor pathFlagValues wraps, so every flag spelling is covered here for
-// free.
+// extractor pathFlagValues wraps, so every flag spelling that walk covers is
+// covered here for free. The one spelling it does not cover is gh's alone, and
+// ghPflagEqualValueRefs appends that reading too.
 //
 // The `-` substitution closes the alternate spelling of the same publish:
 // `gh pr comment 227 -F - < /etc/passwd` sends the file just as
@@ -545,8 +564,9 @@ func ghRefPaths(refs []pathRef) []string {
 // pipe whose producer the walk classifies on its own terms. A substituted path
 // carries arg -1: it came from a redirect word, not from an argv token.
 func ghPublishedFileRefs(args []string, spec ghFileSpec, sc simpleCommand) []pathRef {
-	refs := append(ghFilePositionalRefs(args, spec),
-		pathFlagValueRefs(args, spec.valueFlags, spec.pathValueFlags)...)
+	flagRefs := pathFlagValueRefs(args, spec.valueFlags, spec.pathValueFlags)
+	refs := append(ghFilePositionalRefs(args, spec), flagRefs...)
+	refs = append(refs, ghPflagEqualValueRefs(args, flagRefs)...)
 	out := make([]pathRef, 0, len(refs))
 	for _, r := range refs {
 		if r.path == "-" {
@@ -556,6 +576,47 @@ func ghPublishedFileRefs(args []string, spec ghFileSpec, sc simpleCommand) []pat
 			continue
 		}
 		out = append(out, r)
+	}
+	return out
+}
+
+// ghPflagEqualValueRefs adds pflag's reading of a `-F=FILE` value to a ref set
+// that pathFlagValueRefs extracted with getopt semantics.
+//
+// gh parses with pflag, and on this ONE spelling pflag and getopt disagree.
+// pflag's parseSingleShortArg takes an `=` immediately after a shorthand as the
+// separator (`if len(shorthands) > 2 && shorthands[1] == '=' { value =
+// shorthands[2:] }`), so `gh pr comment 227 -F=/etc/passwd` opens
+// `/etc/passwd` — measured against gh 2.97.0, where
+// `gh pr comment 232 -F=/nonexistent/xyz.md` fails with
+// `open /nonexistent/xyz.md`, naming the stripped path. getopt has no such rule
+// and the shared extractor faithfully reports the value as `=/etc/passwd`, which
+// is a relative name INSIDE the repo: contained, and the publish allowed.
+//
+// Both readings are graded rather than the getopt one replaced. The shared
+// extractor keeps the semantics its getopt callers need (`grep -f=x` really does
+// open `=x`), and appending preserves this walk's guarantee that it can only
+// ever put MORE paths through containment.
+//
+// Only the GLUED SHORT spelling is normalized, which is why the ref's own token
+// is re-read rather than the path alone tested: a separate-token value
+// (`-F =x`) is the literal `=x` to pflag as well, and a long `--body-file==x`
+// keeps everything after its first `=`. An empty remainder is dropped — `-F=`
+// is under pflag's `len(shorthands) > 2` threshold and opens the literal `=`,
+// which the getopt reading already carries.
+func ghPflagEqualValueRefs(args []string, refs []pathRef) []pathRef {
+	var out []pathRef
+	for _, r := range refs {
+		if !strings.HasPrefix(r.path, "=") || r.arg < 0 || r.arg >= len(args) {
+			continue
+		}
+		tok := args[r.arg]
+		if !strings.HasPrefix(tok, "-") || strings.HasPrefix(tok, "--") {
+			continue // a separate-token value, or a long `=`-joined one
+		}
+		if v := r.path[1:]; v != "" {
+			out = append(out, pathRef{path: v, arg: r.arg})
+		}
 	}
 	return out
 }
@@ -603,6 +664,17 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 			// value-taking character consumes the rest of the cluster as its value
 			// (getopt semantics), or the next token when it sits at the end.
 			for j := 1; j < len(a); j++ {
+				if a[j] == '=' && j > 1 {
+					// pflag ends the token at an `=` that follows a shorthand and
+					// hands the remainder to THAT flag (`-p=false`), so nothing
+					// after it is a flag and no later token is its value. Every
+					// character before j was a modelled bool — a value-taking one
+					// would have broken out below — so this is the bool case, and
+					// missing it would let `gh gist create -p=f /etc/passwd` read
+					// the trailing `f` as `--filename` and swallow the escaping
+					// operand out of the positional walk.
+					break
+				}
 				f := "-" + string(a[j])
 				if !spec.valueFlags[f] {
 					continue
@@ -684,6 +756,15 @@ func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision
 		// bundle of bools. Every character up to the first value-taking one must be
 		// a modelled bool; the value-taking one consumes the remainder.
 		for j := 1; j < len(a); j++ {
+			if a[j] == '=' && j > 1 {
+				// pflag's `-p=false`: the `=` after a shorthand ends the token and
+				// the remainder is that flag's value, so there is no further flag
+				// here to screen. gh accepts the spelling for every bool it
+				// documents, and screening the `=` as a flag character would
+				// escalate it. Restricted to j > 1 so a leading `-=x`, which pflag
+				// rejects outright, still reaches the unmodelled-flag ask.
+				break
+			}
 			f := "-" + string(a[j])
 			if spec.valueFlags[f] {
 				if j+1 >= len(a) && i+1 < len(args) {
