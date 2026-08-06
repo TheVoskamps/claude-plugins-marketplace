@@ -115,7 +115,7 @@ var ghInheritedValueFlags = map[string]bool{"-R": true, "--repo": true}
 // itself: parseSingleShortArg answers an UNREGISTERED `h` shorthand with
 // f.usage() and ErrHelp rather than an error, which gh surfaces as the command's
 // help text and exit 0. Measured on gh 2.97.0: `gh <noun> <verb> -h` exits 0 for
-// all 25 pairs in ghFileSpecs, none of which renders a `-h` of its own, so one
+// all 26 pairs in ghFileSpecs, none of which renders a `-h` of its own, so one
 // entry covers the table. Without it a help invocation would be the one
 // documented gh spelling this whitelist escalates.
 var ghInheritedBoolFlags = map[string]bool{"--help": true, "-h": true}

@@ -408,7 +408,7 @@ func TestGhPublishUnmodelledFlagMessageMatchesSurface_229(t *testing.T) {
 // it is not gh's accepted grammar: pflag answers an unregistered `h` shorthand
 // with the command's help rather than an error, so `-h` works on every verb
 // while the INHERITED FLAGS block prints `--help` alone. Measured on gh 2.97.0:
-// `gh <noun> <verb> -h` exits 0 for all 25 pairs in ghFileSpecs, and none of
+// `gh <noun> <verb> -h` exits 0 for all 26 pairs in ghFileSpecs, and none of
 // them renders a `-h` of its own. Without the entry a help invocation is the one
 // documented gh spelling this whitelist escalates.
 func TestGhPublishHelpShorthandAllows_229(t *testing.T) {

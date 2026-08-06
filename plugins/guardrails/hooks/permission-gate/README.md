@@ -621,7 +621,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `gh <noun> <verb> --help`, and that output is not gh's accepted
   grammar, so what it never renders is modelled by hand instead: pflag
   answers an unregistered `h` shorthand with the command's help rather
-  than an error, so `-h` is accepted on every verb (exit 0 on all 25
+  than an error, so `-h` is accepted on every verb (exit 0 on all 26
   modelled pairs, gh 2.97.0) while the INHERITED FLAGS block prints
   `--help` alone — it is carried in `ghInheritedBoolFlags` beside the
   long spelling, since otherwise a help invocation would be the one
