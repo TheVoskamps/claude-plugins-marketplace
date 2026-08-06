@@ -229,6 +229,10 @@ repo use?" The common cases:
   `path:` that is relative, carries `..`, overlaps one of claude-vm's own
   guest mountpoints, shadows a guest OS path, or duplicates another
   entry's (issue #157).
+  Those checks run on a **normalized** `path:` — repeated slashes, a
+  trailing slash and `.` segments are collapsed first — so respelling a
+  mountpoint (`/./etc`, `/mnt/./repo`) cannot slip it past them; a `..`
+  segment is rejected outright rather than resolved.
   *Overlaps* is wider than equals: a `path:` above a reserved mountpoint
   (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) is rejected too, so never
   offer a `path:` under `/mnt/<built-in tag>`. The tag

@@ -355,6 +355,14 @@ github:
   the per-repo ones and need not be the entry's position in either file
   on its own — and by its path when it has one.
 
+  Those checks run on a **normalized** `path:`, so a mount cannot dodge
+  them by respelling its mountpoint: repeated slashes, a trailing slash
+  and `.` segments in any position (`/./etc`, `/mnt/./repo`, `/etc/.`,
+  and `/.` for the guest root) are collapsed first, which is why the
+  diagnostic names the collapsed path rather than what you wrote. A `..`
+  segment is the exception, rejected rather than resolved — where it
+  lands depends on the guest's filesystem, which the host cannot read.
+
   **The guest OS's own paths are protected, by shape.** They are
   `/bin /boot /dev /etc /home /lib` (and its `/lib32`, `/lib64`,
   `/libx32` spellings), `/proc /root /run /sbin /sys /tmp /usr /var` —

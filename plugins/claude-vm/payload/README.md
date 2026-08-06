@@ -493,11 +493,16 @@ argv, settings, image identity, and plugin manifests from:
   Guest symlinks are invisible to any normalizer — the image is usr-merged,
   so `/bin`, `/sbin` and `/lib` are symlinks into `/usr` (measured on
   `debian:bookworm`/arm64; the `/lib{32,64,x32}` spellings are absent on that
-  arch) — but both names of every such pair are in
-  `CLAUDE_VM_GUEST_SYSTEM_PATHS`, so either spelling hits the denylist, and
-  the guest's own occupancy check is the backstop beyond it. Case folding is
+  arch) — but both names of every such pair are *covered* by
+  `CLAUDE_VM_GUEST_SYSTEM_PATHS`, so either spelling hits the denylist:
+  `/bin`, `/sbin` and `/lib` are in the list themselves, and their `/usr/…`
+  targets sit under `/usr`, which is. The guest's own occupancy check is the
+  backstop beyond it. Case folding is
   not in the class at all: the guest root filesystem is ext4, so `/Etc` and
-  `/etc` are genuinely different directories.
+  `/etc` are genuinely different directories. The slashes the function
+  substitutes with are held in variables rather than written inline, for a
+  bash-version reason that would otherwise defeat the whole normalization —
+  see *A guard must survive the oldest bash that can reach it* below.
 
   `claude_vm_guest_path_covers` is the directed relation: is path A equal to
   B, or a proper ancestor of it? It appends a `/` to each side so a prefix
@@ -615,6 +620,39 @@ pre-fix collapsing `read` rebuilt from the same captured lines, so the control
 cannot drift away from the code it is contrasted with; the build-time
 marketplace loop instead asserts on the observable outcome (a no-url boot
 entry logs its skip and never tries to add `boot` as a url).
+
+### A guard must survive the oldest bash that can reach it
+
+Every script here is `#!/usr/bin/env bash`, so the interpreter is whatever
+`bash` PATH resolves to — on a stock macOS with no Homebrew bash, `/bin/bash`,
+still **3.2**. Parts of `lib/config.sh` need bash 4 (`local -A` in
+`claude_vm_render_guest_settings`), but those run *late*, and they fail
+**loudly**. The config-load guards run *early* and decide whether a mount is
+safe, so a construct that behaves differently on 3.2 does not stop the
+launch — it silently changes the answer a guard gives. A guard must not fail
+open on the way to someone else's error, which makes "the whole file needs
+bash 4 anyway" an unsafe justification for anything the guards depend on.
+
+The shapes this has actually bitten, all of them in the mount guards:
+
+- **A backslash-escaped delimiter in the replacement half of
+  `${var//pattern/replacement}`.** Bash ≥ 4.3 unescapes `\/` to `/`; 3.2
+  leaves the backslash in. Measured on both, `claude_vm_mount_guest_path`
+  written inline as `${path//\/\//\/}` returns `/mnt/repo\` on 3.2 where 5.3
+  returns `/mnt/repo` — the normalization is defeated, and with it every guard
+  built on its output. The fix is to hold the literals in variables
+  (`local sl=/ dbl=// dotseg=/./`), which expand with no escape to interpret,
+  so both shells agree.
+- **`"${arr[@]}"` on an empty array under `set -u`.** Bash 3.2 treats it as an
+  unbound variable and kills the launcher, which is what the first iteration of
+  any accumulate-and-compare loop hits. Write `${arr[@]+"${arr[@]}"}`.
+
+`test/config-test.sh` pins the first by *running* the real normalizer under
+whatever pre-4 bash the host has, alongside a negative control that runs the
+inline escaped spelling the function avoids — so if the hazard ever
+disappears, the control stops differing and says so. On a host with no old
+bash there is nothing to measure, and the block is skipped rather than faked
+with a fixture.
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -855,9 +893,12 @@ claudecreds   /mnt/claudecreds   virtiofs   ro,nofail     0 0
 
 It therefore carries the same limit as any guest-side `ro`: it stops an
 accidental write, not a determined one, because the guest session is root and
-can remount. Nothing in the boot rests on it — the launcher **copies** each
-mounted file into `$HOME/.claude/` (mode `0600`) and runs the binary off the
-share rather than writing to it. Say "shared into the guest, where the image's
+can remount. Nothing in the boot rests on it, because nothing in the boot writes
+to any of the three: the launcher **copies** each file it needs out of
+`claudecreds` before use (`.credentials.json` and `settings.json` into
+`$HOME/.claude/`, the identity seed to `$HOME/.claude.json`, each `chmod 600`
+after the copy), reads the `runconfig` manifests in place, and execs the
+`claudebin` binary off the share. Say "shared into the guest, where the image's
 fstab mounts it `ro`" rather than "shared read-only into the guest"; the latter
 puts the guarantee on the side of the seam that cannot make it.
 

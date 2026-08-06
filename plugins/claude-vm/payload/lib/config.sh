@@ -829,8 +829,10 @@ claude_vm_expand_mount_source() {
 #     `/etc/.`, and `/.` for the guest root itself): resolvable, collapsed
 #     below. `.` names the directory it sits in whatever the guest's filesystem
 #     looks like -- unlike `..` it cannot change meaning through a symlink --
-#     so the host can drop it without guessing. `...` and any other run of
-#     dots is an ORDINARY directory name and is deliberately left alone.
+#     so the host can drop it without guessing. A run of THREE or more dots
+#     (`...`) is an ordinary directory name and is deliberately left alone;
+#     the two-dot run is the next bullet, left alone here so the validator
+#     can reject it.
 #   - a `..` segment: NOT resolvable (it needs the guest's filesystem, and a
 #     symlink mid-path changes where it lands), so claude_vm_check_mounts
 #     rejects such a path outright rather than guessing.
@@ -841,8 +843,10 @@ claude_vm_expand_mount_source() {
 #     measured on debian:bookworm/arm64, /bin -> usr/bin, /sbin -> usr/sbin and
 #     /lib -> usr/lib are symlinks (the /lib{32,64,x32} spellings are absent on
 #     that arch) -- so `path: /bin` and `path: /usr/bin` name one directory.
-#     BOTH names of each pair are in CLAUDE_VM_GUEST_SYSTEM_PATHS above, so
-#     either spelling hits the denylist; for anything the denylist does not
+#     BOTH names of each pair are COVERED by CLAUDE_VM_GUEST_SYSTEM_PATHS
+#     above -- /bin, /sbin and /lib are in the list themselves, and their
+#     /usr/... targets sit under /usr, which is -- so the guards reject
+#     either spelling; for anything the denylist does not
 #     cover, the guest's own occupancy check (build-guest-image.sh's
 #     boot_mount_phase) is the backstop.
 #

@@ -200,6 +200,26 @@ negative control rebuilt from the same captured lines) are in
 `plugins/claude-vm/payload/README.md` → *Splitting a TSV record back
 apart*.
 
+## Write claude-vm's config-load guards for bash 3.2, not for bash 5
+
+Every `plugins/claude-vm` script is `#!/usr/bin/env bash`, so on a stock
+macOS the interpreter is `/bin/bash` **3.2**. Parts of `lib/config.sh`
+need bash 4, but they run late and fail loudly; the config-load guards
+run first and decide whether a mount is safe, so a construct that
+behaves differently on 3.2 silently changes a guard's verdict instead of
+stopping the launch. "The file needs bash 4 anyway" never justifies a
+version-dependent construct inside a guard. Specifically: never write a
+backslash-escaped delimiter in the **replacement** half of
+`${var//pattern/replacement}` (bash ≥ 4.3 unescapes `\/`, 3.2 does not —
+hold the literal in a variable), and never expand `"${arr[@]}"` on a
+possibly-empty array under `set -u` (write `${arr[@]+"${arr[@]}"}`). Pin
+such a guard by *running* it under the host's pre-4 bash, with a negative
+control on the spelling it avoids, skipping the block when the host has
+no old bash rather than faking it with a fixture. The reasoning, the
+measured outputs and the test shape are in
+`plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
+bash that can reach it*.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,
