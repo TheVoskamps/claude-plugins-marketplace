@@ -5,15 +5,17 @@ metadata:
   type: feedback
 ---
 
-**Check identity before assuming the fallback.** Run
-`gh api user --jq .login` and compare against the PR's `author.login`.
-The credential **varies by session**: on #227 round 4 it was the
-per-user Claude App bot (`claude-for-evoskamp`), which is NOT the
-author, so a real `gh pr review <n> --approve --body-file <f>` posted
-cleanly; on #231 it was `evoskamp` — the author — and even
-`--request-changes` was refused. Re-check `gh api user` every run
-rather than carrying either outcome forward; the fallback below
-applies whenever the two logins match.
+**Check identity before assuming the fallback — it varies BY SESSION, so
+re-run the check every time.** Run `gh api user --jq .login` and compare
+against the PR's `author.login`. Both identities really occur in this
+repo: on #227 round 4 the credential resolved to the per-user Claude App
+bot (`claude-for-evoskamp`), which is NOT the author, and a real
+`gh pr review <n> --approve --body-file <f>` posted cleanly; on #231, and
+again on #232 round 2 in a fresh review worktree, the very same command
+resolved to `evoskamp` — the author — and even `--request-changes` was
+refused, so the fallback below was required. Neither is "the repo's
+credential"; the answer is whatever that one call returns, and the
+fallback below applies whenever the two logins match.
 
 When posting a PR review, `gh pr review <n> --approve` (and
 `--request-changes`) fails if the authenticated `gh` user is the PR's
