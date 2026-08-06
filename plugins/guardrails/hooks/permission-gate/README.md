@@ -262,8 +262,12 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `-S`, `wc --files0-from`, `sort --random-source`), writes
   (`sort -T DIR`) or resolves (`realpath --relative-to`) is declared in
   the table's `pathValueFlags`, and its value goes through containment in
-  **every spelling** — separate token, glued (`-X/etc/passwd`),
-  `=`-joined, or the value-taking tail of a short cluster (`grep -rf`).
+  **every spelling the shared flag walk covers** — separate token, glued
+  (`-X/etc/passwd`), `=`-joined, or the value-taking tail of a short
+  cluster (`grep -rf`). Those are getopt's spellings, which is the whole
+  set for these programs; the one spelling getopt does not give — pflag's
+  `-F=FILE` — belongs to the `gh` track below, which appends a reading of
+  its own for it.
   Without that declaration the separate-token and glued spellings
   disagreed: the plain walk keeps only tokens that do not begin with
   `-`, so `diff -X /etc/passwd` was contained while `diff -X/etc/passwd`

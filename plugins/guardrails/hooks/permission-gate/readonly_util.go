@@ -143,10 +143,15 @@ type pathRef struct {
 
 // pathFlagValues returns the values of the flags in pathFlags — the flags whose
 // value names a filesystem path (see utilitySpec.pathValueFlags) — in every
-// spelling the utility accepts: a separate token (`-f FILE`, `--file FILE`), a
+// spelling GETOPT gives it: a separate token (`-f FILE`, `--file FILE`), a
 // glued short form (`-fFILE`, `-X/etc/passwd`), an `=`-joined long form
 // (`--exclude-from=FILE`), and the value-taking tail of a short cluster
-// (`grep -rf FILE`).
+// (`grep -rf FILE`). That is the whole spelling set for a program that parses
+// with getopt, which is what the callers of THIS wrapper grade — the
+// read-only-utility track (utilitySpec.operands) and the in-repo-write track's
+// read sources (classify_inrepo_write.go). A caller whose program parses with
+// pflag needs one reading more and calls pathFlagValueRefs directly; its doc
+// comment below has the detail.
 //
 // It is the value-only view of pathFlagValueRefs, for the callers that grade a
 // path without needing to know which token produced it.
@@ -303,7 +308,8 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// `grep '/etc/passwd' f` would otherwise be tested as an absolute path and
 	// earn a cross-repo deny for a command that reads nothing of the sort. Its
 	// `-f PATFILE` value goes the other way — grep READS that file, so it is a
-	// pathValueFlag and stays contained in every spelling.
+	// pathValueFlag and stays contained in every spelling getopt gives it (see
+	// pathFlagValues).
 	"grep": {pathBearing: true, defersForm: grepDefers, operandsFn: grepFileOperands,
 		valueFlags: grepValueFlags, pathValueFlags: grepPathValueFlags},
 

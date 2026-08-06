@@ -42,7 +42,9 @@ type inRepoWriteSpec struct {
 	mutatesFn  func(args []string, sc simpleCommand) bool
 	// pathValueFlags names the flags whose VALUE is a path the program READS
 	// (`sed -i -f SCRIPTFILE`), and valueFlags the program's complete
-	// value-taking set that locates such a value in every spelling. They are
+	// value-taking set that locates such a value in every spelling getopt gives
+	// it, which is the whole set for these programs (see pathFlagValues in
+	// readonly_util.go for the spellings and the getopt/pflag split). They are
 	// graded through the READ containment (containReadSources), never added to
 	// the write operands: the file is read, not written, and the read grading
 	// can only ever withhold this classifier's ALLOW, never earn it. Same
