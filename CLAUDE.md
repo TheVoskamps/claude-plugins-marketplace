@@ -270,6 +270,52 @@ reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
 
+## Sweep the claude-vm config wizards when its schema or validation changes
+
+`plugins/claude-vm/skills/claude-vm-config-global/SKILL.md` and
+`plugins/claude-vm/skills/claude-vm-config-repo/SKILL.md` duplicate the
+config key tables and the YAML templates rather than referencing
+`payload/README.md`, `skills/claude-vm/SKILL.md` and the
+`config-*.example.yml` files, so nothing forces them to move when those
+do. A claude-vm doc pass covers the latter three naturally and misses the
+wizards, and the miss is a live defect rather than a cosmetic one: the
+wizards instruct the model to write a config verbatim, so a key sitting
+in the boot template when it belongs in the bake one — or an entry shape
+the launcher now rejects — makes the wizard produce a config that aborts
+the launch.
+
+Any change to the config schema **or to its validation** therefore sweeps
+both wizard files. Three classes land there and nowhere else:
+
+- **Key placement.** Check the key table's bake/boot *file* column, the
+  YAML template the skill writes verbatim, and the "Hard constraints"
+  placement bullet.
+- **A new load-time gate**, even when no key changed — an entry the
+  launcher now refuses, a subkey that became required. The wizard writes
+  entries verbatim, so a gate it does not know about is a config that
+  will not launch. A gate that runs over the MERGED global+repo lists
+  belongs in the per-repo wizard's bullet too: the `mounts` tag and path
+  checks work that way, so a per-repo entry can collide with a global one
+  the wizard has just shown the operator.
+- **A behavioral caveat about a value the wizard offers** — proposing a
+  single file as a `source:`, say. The wizard is what talks the operator
+  into the entry, so a caveat that reaches `payload/README.md`,
+  `skills/claude-vm/SKILL.md` and `config-boot.example.yml` and stops
+  there leaves the wizard recommending the shape the caveat warns about.
+
+Grep the wizards for `sibling slice` and `schema + merge only` on the
+same trigger: a key described there as having no consumer yet keeps that
+description after it gains one.
+
+Two neighbours go stale on the same trigger and are missed the same way.
+`payload/README.md`'s helper-function list carries new `lib/config.sh`
+helpers and changed signatures. And the summary comments that enumerate a
+validator's cases or the launcher's phases from *elsewhere in the same
+file* — `claude_vm_check_mounts`'s call-site comment in `claude-vm.sh`,
+and the emitted boot launcher's file-header step list in
+`build-guest-image.sh` — go stale while the function's own header and the
+phase's own block comment get updated.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,

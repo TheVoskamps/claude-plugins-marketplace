@@ -35,10 +35,11 @@ and therefore the stronger evidence.
 
 - **A file bound out of a read-only mount is read-only.** `mount --bind
   <ro-mount>/f /target/f` yields a mount whose options carry `ro`, and a
-  write gets `Read-only file system` with the source unchanged. So
-  claude-vm's `ro` single-file mount (wrap share mounted `-o ro`, then
-  one file bind-mounted onto the target) really does reject guest
-  writes.
+  write gets `Read-only file system` with the source unchanged. That is a
+  kernel fact about the bind, not a claude-vm one: claude-vm ships no
+  read-only extra mount and no `mode:` key at all (root `CLAUDE.md` →
+  *Sweep every "no read-only mounts" surface when read-only lands*), so
+  do not carry it forward as a description of what the launcher does.
 - **A file bind mount cannot be replaced by rename.** `mv new target`
   onto the bind fails with `Device or resource busy`. In-place appends
   do reach the source inode. So an `rw` single-file mount serves `>>`
@@ -70,19 +71,25 @@ Run the ordinary-tag control too: rc=32 is what proves the success arm
 finding by fail-open vs fail-closed — the loud spellings only warrant
 ergonomics, the silent one warrants a guard.
 
-**`ro` is a guest-side flag, not a host-side export (PR #231 round 2).**
-vfkit's virtio-fs device has **no** read-only knob — `VirtioFs` in
-`crc-org/vfkit` `pkg/config/virtio.go` is `DirectorySharingConfig` +
-`SharedDir` (so `sharedDir` + `mountTag`), while `virtio-blk` and USB
-mass storage do parse a `readonly` option. Read it with
+**A guest-side `ro` is not a read-only export, and that is why claude-vm
+has no read-only mount.** vfkit's virtio-fs device has **no** read-only
+knob — `VirtioFs` in `crc-org/vfkit` `pkg/config/virtio.go` is
+`DirectorySharingConfig` + `SharedDir` (so `sharedDir` + `mountTag`),
+while `virtio-blk` and USB mass storage do parse a `readonly` option.
+Read it with
 `gh api repos/crc-org/vfkit/contents/pkg/config/virtio.go --jq .content
-| base64 -d`. So the host always shares read-write and `mode: ro` is a
-VFS flag inside a guest whose boot launcher runs as root. In the
-container, root lifts exactly that: a `ro` bind refuses a write
-(`Read-only file system`), `mount -o remount,rw,bind <mnt>` succeeds,
-and the next write lands on the source. Virtiofs in a real guest is
-**not** proven by that (different fs, one command to check:
-`mount -o remount,rw /mnt/<tag>` in a booted guest), so raise it as a
-labelled question, not a finding — but do raise it whenever a claude-vm
-doc frames `ro` as something the guest "cannot write", because a fix
-justified by that promise inherits its strength.
+| base64 -d`. So the host always shares read-write, and any `ro` is a VFS
+flag inside a guest whose boot launcher runs as root. In the container,
+root lifts exactly that: a `ro` bind refuses a write (`Read-only file
+system`), `mount -o remount,rw,bind <mnt>` succeeds, and the next write
+lands on the source. Virtiofs in a real guest is **not** proven by that
+(different fs, one command to check: `mount -o remount,rw /mnt/<tag>` in
+a booted guest).
+
+That pair is what settled the question: claude-vm's extra mounts are
+read-write only, there is no `mode:` key, and an enforced read-only
+design has to move the guarantee to the hypervisor (a read-only block
+device) rather than to a guest mount option. Raise it as a labelled
+question, not a finding, whenever a claude-vm doc frames a guest-side
+`ro` as something the guest "cannot write" — a fix justified by that
+promise inherits its strength.

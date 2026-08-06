@@ -21,11 +21,13 @@ before accepting the isolation story around it:
   lands there also outlives the run, inside the repo.
 
 **How to apply:** for each new `$RUN/<thing>`, ask what it grants the
-guest in live mode. PR #231 sited the single-file mount's wrap directory
-(a **hard link** to an arbitrary host file, possibly outside the repo)
-at `$RUN/mount-wrap/<tag>/<file>`, which hands the guest a writable
-second path to the same inode and defeats that entry's `mode: ro` —
-graded Medium there because `live` is opt-in and already grants repo rw.
+guest in live mode. The single-file mount's wrap directory — a **hard
+link** to an arbitrary host file, possibly outside the repo — was
+originally sited at `$RUN/mount-wrap/<tag>/<file>`, which hands the guest
+a writable second path to the same inode; graded Medium, because `live`
+is opt-in and already grants repo rw. `claude-vm.sh` now tests `$RUN`
+against `$MOUNT_SHARED_DIR` and falls back to a `$TMPDIR` dir when the
+run dir is inside the share, so read that branch before re-filing it.
 The same lens applies to any future per-run artifact: a link, a copy of
 a host secret, a socket, a spool file.
 

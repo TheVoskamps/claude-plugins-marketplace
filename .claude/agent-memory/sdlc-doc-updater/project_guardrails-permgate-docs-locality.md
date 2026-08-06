@@ -204,8 +204,8 @@ claude-vm's docs, and the cross-plugin sweep obligation that creates
 lives in the repo's `CLAUDE.md`. The claude-vm config-WIZARD skills
 (`claude-vm-config-global`/`-repo`) are not among those mirroring
 surfaces — they describe `claude.plugins.bake` mechanics generically and
-never name guardrails — so the lag warned about in
-[[project_claude-vm-config-wizard-skills-lag]] does not extend to
+never name guardrails — so the wizard-lag sweep the repo's `CLAUDE.md`
+requires on a claude-vm schema or validation change does not extend to
 gate-packaging facts.
 
 **Counterexample (#156, PR #159):** the developer landed exhaustive Go
