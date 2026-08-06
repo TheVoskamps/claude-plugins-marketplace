@@ -1,6 +1,6 @@
 ---
 name: gh-help-flag-annotations-are-the-source
-description: gh's own --help output annotates each flag's VALUE TYPE (file/string/name/branch/login), which is the authoritative way to decide whether a gh flag names a local path — but two flags need a closer read than the annotation.
+description: gh's own --help output annotates each flag's VALUE TYPE (file/string/name/branch/login), which is the authoritative way to decide whether a gh flag names a local path — but two flags need a closer read than the annotation, and help is not the whole accepted grammar (pflag adds `-h` and `-F=FILE`).
 metadata:
   type: reference
 ---
@@ -47,3 +47,13 @@ found in #229:
 filename-ish flags: `--filename` selects a file inside the gist,
 `--add` names a LOCAL file. The FLAGS block alone ("Select a file to
 edit" / "Add a new file to the gist") does not distinguish them.
+
+The annotation is the source for a flag's TYPE; it is not the whole
+accepted grammar, and #232's review round found the gap. gh parses with
+cobra/pflag, and pflag accepts two spellings help never prints: `-h`
+(unregistered `h` → `f.usage()` + `ErrHelp`, so it works on every verb
+though only `--help` is rendered) and `-F=FILE`, where pflag strips the
+`=` (`len(shorthands) > 2 && shorthands[1] == '='`) and getopt does not
+— so a getopt-shaped walk reads `-F=/etc/passwd` as the in-repo
+`=/etc/passwd`. Its bool sibling `-p=f` is `--public=false` and ENDS the
+token. Model those by hand; no re-reading of `--help` will surface them.
