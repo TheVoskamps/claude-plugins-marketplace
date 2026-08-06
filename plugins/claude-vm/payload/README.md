@@ -746,7 +746,7 @@ launch — it silently changes the answer a guard gives. A guard must not fail
 open on the way to someone else's error, which makes "the whole file needs
 bash 4 anyway" an unsafe justification for anything the guards depend on.
 
-The shapes this has actually bitten, all of them in the mount guards:
+The shapes this has actually bitten, with where each one bit:
 
 - **A backslash-escaped delimiter in the replacement half of
   `${var//pattern/replacement}`.** Bash ≥ 4.3 unescapes `\/` to `/`; 3.2
@@ -759,13 +759,25 @@ The shapes this has actually bitten, all of them in the mount guards:
 - **`"${arr[@]}"` on an empty array under `set -u`.** Bash 3.2 treats it as an
   unbound variable and kills the launcher, which is what the first iteration of
   any accumulate-and-compare loop hits. Write `${arr[@]+"${arr[@]}"}`.
+- **A `case` inside `$( )`.** Bash 3.2 finds the end of a command substitution
+  by counting parens, so a case pattern's `)` ends it early and the rest of the
+  construct is left as literal text — the substitution returns a fragment of
+  its own source instead of the branch's output. This one bit the **suite**
+  rather than a guard: two `config-test.sh` assertions written as
+  `"$(case "$p/" in "$share"/*) echo inside ;; *) echo outside ;; esac)"`
+  classified correctly on 5.3 and returned that fragment on 3.2, so a harness
+  artifact read as a broken wrap-dir siting. Lift the `case` into a function
+  defined outside, so the substitution holds only the call.
 
 `test/config-test.sh` pins the first by *running* the real normalizer under
 whatever pre-4 bash the host has, alongside a negative control that runs the
 inline escaped spelling the function avoids — so if the hazard ever
 disappears, the control stops differing and says so. On a host with no old
 bash there is nothing to measure, and the block is skipped rather than faked
-with a fixture.
+with a fixture. The third needs no assertion of its own — it is a parse-time
+property of the file, so *running* the suite under `/bin/bash` is the check:
+everything but the cases that need bash 4's `local -A` has to pass there, and
+that failing set has to stay the one `main`'s own suite already fails.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

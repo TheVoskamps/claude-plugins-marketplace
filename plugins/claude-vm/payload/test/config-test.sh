@@ -2605,6 +2605,24 @@ YML
     printf '%s\n' "$1" | sed -n 's/^virtio-fs,sharedDir=\(.*\),mountTag=cfg$/\1/p'
   }
 
+  # Is <path> inside <share>? Answered as `inside`/`outside`, from a function
+  # rather than from a `case` written inline in the assertion's own $( ):
+  # bash 3.2 -- what this file's `#!/usr/bin/env bash` resolves to on a stock
+  # macOS, and the header above says to run it directly -- finds the end of a
+  # command substitution by counting parens, and a case pattern's `)` ends it
+  # early. Written inline, the assertion compares against a fragment of its own
+  # source and FAILs there while passing on bash 5, so a harness artifact reads
+  # as a broken wrap-dir siting. Defined out here, the substitution holds only
+  # the call and both shells agree. Same rule as README's "A guard must survive
+  # the oldest bash that can reach it", applied to the harness that checks the
+  # guards.
+  mnt_inside_share() {
+    case "$1/" in
+      "$2"/*) echo inside ;;
+      *) echo outside ;;
+    esac
+  }
+
   # CLONE shape: the share is $RUN/worktree, so the wrap dir stays under $RUN.
   assert_eq "single-file wrap (clone): the wrap dir stays under \$RUN, beside the worktree share" \
     "$MNT_RUN2/mount-wrap/cfg" "$(MNT_WRAP_SHARED "$MNT_OUT2")"
@@ -2618,7 +2636,7 @@ YML
   MNT_OUT3="$(TMPDIR="$WORK" bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN3" "$MNT_LIVE_SHARE" 2>&1)"
   MNT_WRAP3="$(MNT_WRAP_SHARED "$MNT_OUT3")"
   assert_eq "single-file wrap (live): the shared wrap dir is OUTSIDE the rw repo share" \
-    "outside" "$(case "$MNT_WRAP3/" in "$MNT_LIVE_SHARE"/*) echo inside ;; *) echo outside ;; esac)"
+    "outside" "$(mnt_inside_share "$MNT_WRAP3" "$MNT_LIVE_SHARE")"
   assert_eq "single-file wrap (live): it is still a real per-entry dir holding the one file" \
     "mount-src-file.txt" "$(ls "$MNT_WRAP3" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
   # Still a hard link, so moving the wrap dir did not quietly become a copy --
@@ -2629,7 +2647,7 @@ YML
   # Computed against this very fixture, that path is inside the live share --
   # which is the defect, and is why the assertion above is not vacuous.
   assert_eq "single-file wrap (live): NEGATIVE CONTROL -- the pre-fix \$RUN/mount-wrap is INSIDE the share" \
-    "inside" "$(case "$MNT_RUN3/mount-wrap/" in "$MNT_LIVE_SHARE"/*) echo inside ;; *) echo outside ;; esac)"
+    "inside" "$(mnt_inside_share "$MNT_RUN3/mount-wrap" "$MNT_LIVE_SHARE")"
   # ...and nothing was left behind under $RUN in the live case.
   assert_eq "single-file wrap (live): no wrap dir is created under \$RUN" \
     "absent" "$([ -e "$MNT_RUN3/mount-wrap" ] && echo present || echo absent)"

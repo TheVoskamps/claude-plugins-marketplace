@@ -210,7 +210,7 @@ share (`sharedDir=$MOUNT_WRAP_DIR/<tag>`) is the one member the launcher does
 check, and only because this feature adds it: the check sits in the
 extra-mount loop's single-file branch — at the point of use, not beside the
 `$MOUNT_WRAP_DIR` assignment, since only there is there an entry to name —
-and names `$TMPDIR` or the run dir rather than the operator's `mounts` entry.
+and blames `$TMPDIR` or the run dir rather than the operator's `mounts` entry.
 It buys an early, cause-naming abort, not survivability — the other arguments
 still break the same launch, and a directory-only `mounts` list under the same
 comma-carrying `$TMPDIR` is not aborted at all.
@@ -257,8 +257,12 @@ hold the literal in a variable), and never expand `"${arr[@]}"` on a
 possibly-empty array under `set -u` (write `${arr[@]+"${arr[@]}"}`). Pin
 such a guard by *running* it under the host's pre-4 bash, with a negative
 control on the spelling it avoids, skipping the block when the host has
-no old bash rather than faking it with a fixture. The reasoning, the
-measured outputs and the test shape are in
+no old bash rather than faking it with a fixture. The suite is under the
+same rule, not only the code it checks: a `case` written inline in an
+assertion's own `$( )` mis-parses on 3.2 — the substitution ends at the
+pattern's `)` — so the harness FAILs on a guard that is fine. Lift the
+`case` into a function and call that from the substitution. The
+reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
 
