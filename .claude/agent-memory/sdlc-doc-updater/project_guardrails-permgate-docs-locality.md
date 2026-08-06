@@ -306,6 +306,27 @@ in the table (a scratchpad script — the gate blocks
 inline), and the dump must include the INHERITED FLAGS block, not just
 FLAGS.
 
+**Round 11 shape: the USAGE line is a claim surface the FLAGS sweep
+misses (issue #229, PR #232).** Round 10 derived every enumeration from
+the verbs' FLAGS and INHERITED FLAGS blocks and left the *positional*
+grammar unaudited — yet that grammar is quoted verbatim to justify each
+spec's `filePositionalsFrom`. Two of four quotes were abridged:
+`gh gist create <filename>...` and `gh release create <tag>
+[<filename>...]` both drop the `<pattern>` alternative gh 2.97.0
+renders, and the latter promotes an optional `[<tag>]` to a required
+one — exactly the optionality a reader checks when asking why index 0
+is skipped. The sites had drifted apart from each other too: the
+`release create` spec's own inline comment spelled `[<tag>]` right
+while the type-level doc twenty lines above did not. Settle it by
+dumping `gh <noun> <verb> --help | sed -n '/^USAGE/,/^$/p'` for every
+verb with a file positional, from a scratchpad script (the gate blocks
+`gh "$noun" "$verb"` as non-static argv). The behavior was fine — a
+`<pattern>` operand reaches the gate as one word and containment
+resolves its escaping prefix without expanding it, so
+`gh release create v1 '../sib/*.tgz'` denies and `gh gist create
+'*.md'` allows — but nothing said so, which is the doc gap the
+abridged quote created.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
