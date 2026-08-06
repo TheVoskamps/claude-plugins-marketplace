@@ -1,6 +1,6 @@
 ---
 name: gh-help-flag-annotations-are-the-source
-description: gh's own --help output annotates each flag's VALUE TYPE (file/string/name/branch/login), which is the authoritative way to decide whether a gh flag names a local path — but two flags need a closer read than the annotation, and help is not the whole accepted grammar (pflag adds `-h` and `-F=FILE`).
+description: gh's own --help output annotates each flag's VALUE TYPE (file/string/name/branch/login), which is the authoritative way to decide whether a gh flag names a local path — but `--recover`, `gist edit --add` and the per-verb `--template` need a closer read than the annotation, and help is not the whole accepted grammar (pflag adds `-h` and `-F=FILE`).
 metadata:
   type: reference
 ---
@@ -31,22 +31,28 @@ that spuriously escalates routine commands. gh 2.97.0 was the version
 audited for #229.
 
 **How to apply:** whenever gate work (or any argv parser) needs gh's
-flag grammar. Two exceptions the annotation alone gets wrong, both
+flag grammar. The exceptions the annotation alone gets wrong, all
 found in #229:
 
 - `--recover` on `pr create` / `issue create` is annotated `string` but
   IS a file path — gh calls `shared.FillFromJSON(opts.IO,
   opts.RecoverFile, state)` on it. Verified against
   `cli/cli` `pkg/cmd/pr/create/create.go`, not inferred.
+- `-a`/`--add` on `gist edit` is annotated `string` but names a LOCAL
+  file. Its help EXAMPLES block is what settles it against the
+  `--filename` sibling, which selects a file INSIDE the gist; the
+  FLAGS block alone ("Select a file to edit" / "Add a new file to the
+  gist") does not distinguish them.
 - `--template` differs BY VERB: `gh pr create -T` is annotated `file`,
   `gh issue create -T` is annotated `name` (resolved server-side). A
   union flag table across verbs would flatten that distinction, which is
   why `ghFileSpecs` is keyed by noun AND verb.
 
-`gh gist edit`'s help EXAMPLES block is what settles its two
-filename-ish flags: `--filename` selects a file inside the gist,
-`--add` names a LOCAL file. The FLAGS block alone ("Select a file to
-edit" / "Add a new file to the gist") does not distinguish them.
+Those are the whole residue against gh 2.97.0: `--recover` and
+`--add` are the only members of `ghFileSpecs`'s path-flag set that gh
+does not annotate `file`, and no flag it DOES annotate `file` is
+outside that set — checked by dumping the FLAGS block of all 26
+modelled verbs.
 
 The annotation is the source for a flag's TYPE; it is not the whole
 accepted grammar, and #232's review round found the gap. gh parses with

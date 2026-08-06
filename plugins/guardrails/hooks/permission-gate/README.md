@@ -557,12 +557,14 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   redirect (`gh pr diff > .claude/tmp/x`) exfiltrates nothing because
   the bytes stay in a worktree the agent can already read and write.
   Per noun/verb, `ghFileSpecs` names the flags whose value is a local
-  path (`-F`/`--body-file` on the pr/issue verbs, `-F`/`--notes-file`
-  on the release verbs, `--recover` on `pr`/`issue create`,
-  `-a`/`--add` on `gist edit`) and the index from which POSITIONAL
-  operands name files (`gh gist create <filename>…` from 0;
-  `gh release create <tag> [<filename>…]`, `gh release upload <tag>
-  <files>…` and `gh gist edit <id> [<filename>]` from 1 — as does
+  path (`-F`/`--body-file` on the pr/issue verbs that take a
+  `-b`/`--body`, `-F`/`--notes-file` on `release create` and
+  `release edit`, `-T`/`--template` on `pr create`, `--recover` on
+  `pr`/`issue create`, `-a`/`--add` on `gist edit`) and the index from
+  which POSITIONAL operands name files (`gh gist create <filename>…`
+  from 0; `gh release create <tag> [<filename>…]`,
+  `gh release upload <tag> <files>…` and
+  `gh gist edit <id> [<filename>]` from 1 — as does
   `gh release edit <tag>`, whose grammar takes no file positional at
   all, so index 1 grades an extra operand gh would itself reject rather
   than leaving one ungraded). The values are extracted by the same flag

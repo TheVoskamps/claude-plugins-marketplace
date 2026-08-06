@@ -28,11 +28,30 @@ as a `cd` target), not only as a bare assignment RHS (#225).
 
 The destination matters even for a scratch file the agent never reads
 back itself. Since #229 a file `gh` PUBLISHES is graded by the same
-read containment — the value of any flag gh reads off local disk
-(`-F`/`--body-file`, `-F`/`--notes-file`, `--recover`,
-`gist edit -a`), and a file operand of `gh gist create`,
-`gh gist edit`, `gh release create` or `gh release upload`. Both
-sanctioned destinations survive that
+read containment. What that grades, per verb, is exactly:
+
+- `-F`/`--body-file` on `gh pr create`, `pr comment`, `pr edit`,
+  `pr merge`, `pr review`, `gh issue create`, `issue comment` and
+  `issue edit`.
+- `-F`/`--notes-file` on `gh release create` and `release edit`.
+- `-T`/`--template` on `gh pr create` — and only there, because
+  `gh issue create`'s `-T` names a server-side template rather than a
+  local file.
+- `--recover` on `gh pr create` and `issue create`.
+- `-a`/`--add` on `gh gist edit`.
+- File operands: every operand of `gh gist create`, and every operand
+  after the gist id or tag of `gh gist edit`, `gh release create`,
+  `gh release upload` and `gh release edit` — the last of which takes
+  no file operand at all in gh's own grammar, so a stray one is
+  graded rather than ignored.
+- Whatever stands in for a file operand: a `-` is gh's
+  read-from-stdin marker and is graded as the command's input
+  redirect source (`gh pr comment 227 -F - < /tmp/body.md` is the
+  same publish as naming the path), and `gh gist create` reads stdin
+  with no marker at all when given no operand
+  (`gh gist create < /tmp/body.md`).
+
+Both sanctioned destinations survive that
 grading — a PR-body file under `<repo-root>/.claude/tmp/` is
 contained, and one in a harness session directory is allowed outright
 — while a loose `/tmp/body.md` that used to be published without

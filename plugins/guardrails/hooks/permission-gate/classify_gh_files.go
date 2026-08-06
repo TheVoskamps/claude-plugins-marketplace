@@ -184,8 +184,14 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 //
 // Flag sets transcribed from `gh <noun> <verb> --help` (gh 2.97.0). A flag gh
 // annotates `file` is a pathValueFlag; one it annotates `string`, `text`,
-// `name`, `title`, `login`, `handle`, `branch`, `number` or `numbers` is not.
-// Some annotations needed a closer read than the type alone:
+// `name`, `title`, `login`, `handle`, `branch`, `number`, `numbers` or `SHA`
+// is not — the whole vocabulary the VALUE-TAKING flags of this table's verbs
+// are annotated with. (A bool renders no value type of its own, so the `--all`
+// in `cache delete`'s `--succeed-on-no-caches --all` line is not one: gh
+// registers that flag with BoolVar and a usage string carrying a backquoted
+// `--all`, which pflag's UnquoteUsage lifts into the type column.)
+// These annotations needed a closer read than the type alone; `gist edit`'s
+// `-a`/`--add` needed one as well, and is documented at its own entry below:
 //
 //   - `--recover` (pr create, issue create) is annotated `string` but names a
 //     JSON file gh reads to prefill the title and body it then publishes. It is
