@@ -248,6 +248,28 @@ target, an upload operand), ask which prescriptive rule file tells
 agents where to put that path — the README will be current and that
 file will not.
 
+**Round 9 shape: a PARTIAL prose sweep by the fixer (#229, PR #232).**
+The pflag round amended two of three sibling statements about the same
+helper and left the file header asserting "extracts a flag's value in
+every spelling" twenty lines above "the one spelling it does not
+cover". A fixer that changes a mechanism greps for the paragraph it
+remembers writing, not for every restatement, so a *self-contradicting
+file* is the expected residue of a mechanism-narrowing round — grep the
+changed `.go` file for the helper's own name AND for the phrase the
+round narrowed ("every spelling", "COMPLETE", "all three", "taken
+from") and read every hit. Two neighbours carried the same residue: a
+docstring calling `gh <noun> <verb> --help` the source of a flag table
+that `-h` is now hand-added to, and a justification comment saying
+"every character before j was a modelled bool" for a loop that consults
+`valueFlags` only (an unmodelled character reaches the same branch).
+The generalizable check for that last one: when a comment says what a
+loop already established about earlier iterations, list the maps the
+loop actually consults — a `continue` on "not in map A" proves nothing
+about map B. Also worth carrying forward: a shared helper's doc comment
+that says "every spelling the utility accepts" gains a NEW caller with
+a different parser and becomes the belief the hole came from — scope
+such a sentence to its parser (getopt vs pflag) at the helper itself.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
