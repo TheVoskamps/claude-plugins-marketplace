@@ -480,28 +480,61 @@ argv, settings, image identity, and plugin manifests from:
   failure the host-existence check exists to forestall — and a source
   spelling a second `sharedDir=` replaces the first, since the last key of a
   repeated pair wins. A **single-file** source is exempt and is deliberately
-  not checked: what gets shared then is the wrap directory, named after the
-  already-checked tag, so the operator's filename reaches only a hard link
-  and a `mounts.tsv` field.
+  not checked: what gets shared then is the wrap directory, whose `<tag>`
+  *component* the check above already settled, so the operator's filename
+  reaches only a hard link and a `mounts.tsv` field.
+
+  The component is not the directory, though. `$MOUNT_WRAP_DIR` is
+  `$RUN/mount-wrap`, or a `mktemp -d` under `$TMPDIR` when `$RUN` sits inside
+  the repo share, and neither is a config value `claude_vm_check_mounts` can
+  see — so the exemption settles the `<tag>` and nothing else, and a comma in
+  `$TMPDIR` alone yields the malformed device string the arm above exists to
+  prevent, on an entry the validator accepted. The launcher therefore checks
+  the wrap directory itself, in the single-file branch of its extra-mount
+  loop: that is where `$RUN` and the `$TMPDIR` fallback are both in scope
+  (which is why the check is not in the validator) and where the entry being
+  wrapped is in hand, so the message can name it and blame `$TMPDIR` or the
+  run dir rather than the `mounts` value, which is not what is wrong.
 
   That comma exposure is **not** confined to `mounts`, and the check above
-  does not cover the rest of it. The four built-in devices interpolate host
-  paths into the same `--device` string with no comma check at all:
-  `sharedDir=$MOUNT_SHARED_DIR` (`$REPO_SRC` under `repo.mount: live`, else
-  `$RUN/worktree`), `sharedDir=$CONFIG_DIR` and `sharedDir=$CREDS_DIR` (both
-  under `$RUN`, which is `<repo>/.claude/tmp/<run-id>` whenever the argument
-  is a git repo, in either mount mode), and `sharedDir=$CLAUDE_BIN_DIR`
-  (under `CLAUDE_VM_CACHE_DIR`, i.e. `$XDG_CONFIG_HOME`/`$HOME` by default).
-  So a repo — or a `$HOME`, or a `$TMPDIR` — whose path carries a comma
-  breaks the launch the same way, before any extra mount is involved. It is
-  left unchecked deliberately: unlike a `mounts` entry, none of these paths
-  is a config value an operator can fix by editing YAML, and an ordinary
-  comma is launch-time-loud (vfkit refuses the unknown option and the launch
-  stops) rather than a VM that boots with a share pointing somewhere else —
-  only a path that itself spelled a second `sharedDir=` would fail quietly,
-  and that is not a path anyone has. A guard for it
-  would belong at argument-validation time, next to the repo-path
+  does not cover the rest of it. **Every** vfkit argument that embeds a host
+  path embeds it in a comma-delimited option string, with no comma check at
+  all. The built-in shares: `sharedDir=$MOUNT_SHARED_DIR` (`$REPO_SRC` under
+  `repo.mount: live`, else `$RUN/worktree`), `sharedDir=$CONFIG_DIR` and
+  `sharedDir=$CREDS_DIR` (both under `$RUN`, which is
+  `<repo>/.claude/tmp/<run-id>` whenever the argument is a git repo, in
+  either mount mode), and `sharedDir=$CLAUDE_BIN_DIR` (under
+  `CLAUDE_VM_CACHE_DIR`, i.e. `$XDG_CONFIG_HOME`/`$HOME` by default). And,
+  outside the shares: `--bootloader efi,variable-store=$EFISTORE,create`,
+  `virtio-blk,path=$GUEST_IMAGE_CLONE` and
+  `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, all under `$RUN`; and
+  `virtio-net,unixSocketPath=$GVPROXY_SOCK`, whose directory is a
+  `mktemp -d` under `$TMPDIR` on **every** launch — in either mount mode,
+  git repo or not. So a repo — or a `$HOME`, or a `$TMPDIR` — whose path
+  carries a comma breaks the launch the same way, before any extra mount is
+  involved: measured on vfkit v0.6.4, each of those spellings dies on the
+  text after the comma — `unknown option for virtio-net devices: …` for the
+  socket, `unknown option for EFI bootloaders: …` for the variable store, and
+  so on per argument. It is left unchecked deliberately: unlike a `mounts`
+  entry, none of these paths is a config value an operator can fix by editing
+  YAML, and an ordinary comma is launch-time-loud (vfkit refuses the unknown
+  option and the launch stops) rather than a VM that boots with a share
+  pointing somewhere else — only a path that itself spelled a second
+  `sharedDir=` would fail quietly, and that is not a path anyone has. A guard
+  for it would belong at argument-validation time, next to the repo-path
   resolution, not in `claude_vm_check_mounts`.
+
+  The one line in that class that *is* guarded is the single-file wrap share,
+  `sharedDir=$MOUNT_WRAP_DIR/<tag>` — not a built-in, and the only member
+  this feature adds. The guard does not make a comma-carrying `$RUN` or
+  `$TMPDIR` survivable; the lines above already break the launch in both of
+  those shapes, mounts or no mounts. What it buys is what the host-existence
+  check buys: an abort at mount-setup time, naming `$TMPDIR` or the run dir,
+  instead of a device-shaped complaint from vfkit minutes later — and it
+  keeps this feature from adding a share to an argument string it can already
+  see is malformed. A guard that actually covers the class belongs where
+  every one of those paths is resolved, per the paragraph above; this one is
+  deliberately narrower than that.
 
   *Guest OS paths, by shape.* `CLAUDE_VM_GUEST_SYSTEM_PATHS` is the guest's
   own directory set. Linux **stacks** a mount, so an entry landing on one
@@ -1439,7 +1472,11 @@ also run for the manifest it writes (a directory entry defaulting to
 single-file entry naming its basename) and for the wrap directory it builds —
 including that the wrap entry is a **hard link** to the source, asserted by
 comparing inode numbers rather than content, since a copy would match on
-content and silently break write-through. The config-load gate block is
+content and silently break write-through, and that a comma in the wrap
+directory's own parent aborts the launch, blaming `$TMPDIR` in the `live`
+shape and the run dir in the other, against a negative
+control that drops the guard's lines from the same captured loop and shows the
+malformed `sharedDir=` it would otherwise emit. The config-load gate block is
 run once per rejected config, each asserting both the non-zero exit and a
 diagnostic naming the actual problem: a reserved tag, a duplicate tag, a
 `mode:` key (in every spelling — `ro`, `rw`, a typo, an explicit `""`, and a

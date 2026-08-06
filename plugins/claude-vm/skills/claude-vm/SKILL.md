@@ -370,10 +370,16 @@ github:
   of the same device string is why a **directory** source may not carry a
   comma: vfkit reads it as the start of another device option. That last
   rule covers the `mounts` entries only — a *repo* path (or `$HOME`, or
-  `$TMPDIR`) carrying a comma breaks the built-in shares the same way and
-  is not checked; the launch fails loudly on the device rather than
-  booting, and `payload/README.md` → *The tag is not just a tag* records
-  why it is left there.
+  `$TMPDIR`) carrying a comma breaks the built-in shares, the EFI store,
+  the disk, the console log or the gvproxy socket the same way and is not
+  checked; the launch fails loudly on the argument rather than booting, and
+  `payload/README.md` → *The tag is not just a tag* records why it is left
+  there. The one such path this feature adds — the single-file wrap
+  directory (`$RUN/mount-wrap`, or a `$TMPDIR` `mktemp -d` under
+  `repo.mount: live`) — is checked: the launcher aborts on a comma there
+  when it wraps a file, naming `$TMPDIR` or the run dir. That is an
+  earlier, cause-naming abort rather than a rescue; the other arguments
+  break the same launch anyway.
 
   Those checks run on a **normalized** `path:`, so a mount cannot dodge
   them by respelling its mountpoint: repeated slashes, a trailing slash

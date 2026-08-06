@@ -2459,9 +2459,10 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
   MNT_OLD_READ="while IFS=\$'\\t' read -r src tag mount_path; do"
   MNT_OLD_READ_AWK="while IFS=\$'\\\\t' read -r src tag mount_path; do"
 
-  # write_mnt_slice <out-file> <new|old> -- wrap the captured loop in a
-  # runnable harness. Mode "old" rebuilds the collapsing read from the SAME
-  # captured lines, so the negative control cannot drift from the real code.
+  # write_mnt_slice <out-file> <new|old|preguard> -- wrap the captured loop in
+  # a runnable harness. Mode "old" rebuilds the collapsing read, and mode
+  # "preguard" drops the wrap-dir comma guard, from the SAME captured lines --
+  # so neither negative control can drift from the real code.
   # $RUN and $CONFIG_DIR are the run-dir paths the real launcher has already
   # created by the time this loop runs; the harness supplies them so the wrap
   # dir and mounts.tsv land inside the suite's own temp tree.
@@ -2487,6 +2488,8 @@ if [ -n "$MNT_START" ] && [ -n "$MNT_END" ]; then
         NR < start || NR > end { next }
         mode == "old" && $0 == "while IFS= read -r mount_record; do" { print oldread; next }
         mode == "old" && $0 ~ /^  (src|mount_rest|tag|mount_path)=\$\{mount_(record|rest)/ { next }
+        mode == "preguard" && $0 == "    case \"$MOUNT_WRAP_DIR\" in" { drop = 1 }
+        drop == 1 { if ($0 == "    esac") drop = 0; next }
         { print }
       ' "$LAUNCHER"
       echo 'printf "%s\n" "${EXTRA_MOUNT_FLAGS[@]+"${EXTRA_MOUNT_FLAGS[@]}"}"'
@@ -2630,6 +2633,76 @@ YML
   # ...and nothing was left behind under $RUN in the live case.
   assert_eq "single-file wrap (live): no wrap dir is created under \$RUN" \
     "absent" "$([ -e "$MNT_RUN3/mount-wrap" ] && echo present || echo absent)"
+
+  # ---- a comma in the wrap dir's PARENT aborts, naming the real cause ----
+  #
+  # The wrap dir is what vfkit is handed for a single-file source, so its WHOLE
+  # path -- not just the <tag> component claude_vm_check_mounts settles -- rides
+  # inside the comma-delimited device string. Under repo.mount: live that path
+  # is a mktemp under $TMPDIR, which no `mounts` value reaches, so a comma there
+  # yields a malformed --device on an entry the validator ACCEPTED. The abort is
+  # an earlier, cause-naming one rather than a rescue -- such a launch also
+  # breaks on vfkit arguments nothing checks (the gvproxy socket under $TMPDIR,
+  # the EFI store/disk/console log under $RUN) -- so what is asserted here is
+  # the abort and its blame, not that the launch would otherwise have worked.
+  # Driven through the real loop with a comma-carrying $TMPDIR and a clean repo.
+  MNT_COMMA_TMP="$WORK/tmp,dir"
+  mkdir -p "$MNT_COMMA_TMP"
+  MNT_RUN4="$MNT_LIVE_SHARE/.claude/tmp/run4"
+  mkdir -p "$MNT_RUN4"
+  MNT_OUT4="$(TMPDIR="$MNT_COMMA_TMP" bash "$MNT_SLICE" "$MNT_YML2" "$MNT_RUN4" "$MNT_LIVE_SHARE" 2>&1)"
+  MNT_RC4=$?
+  assert_eq "wrap-dir comma: the launcher aborts rather than emitting a malformed device" \
+    "1" "$MNT_RC4"
+  assert_eq "wrap-dir comma: the diagnostic blames \$TMPDIR rather than the mounts entry" \
+    "1" "$(printf '%s\n' "$MNT_OUT4" | grep -c "The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:'")"
+  assert_eq "wrap-dir comma: no --device spec survives the abort" \
+    "0" "$(printf '%s\n' "$MNT_OUT4" | grep -c '^virtio-fs,sharedDir=')"
+
+  # The other arm of the same message: with $RUN OUTSIDE the share the wrap dir
+  # is $RUN/mount-wrap, so the comma is in the run dir rather than in $TMPDIR
+  # and the diagnostic has to say so. Both arms are operator-facing.
+  MNT_COMMA_RUN="$WORK/run,dir"
+  mkdir -p "$MNT_COMMA_RUN"
+  MNT_OUT7="$(bash "$MNT_SLICE" "$MNT_YML2" "$MNT_COMMA_RUN" 2>&1)"
+  MNT_RC7=$?
+  assert_eq "wrap-dir comma (clone shape): the launcher aborts too" \
+    "1" "$MNT_RC7"
+  assert_eq "wrap-dir comma (clone shape): the diagnostic blames the run directory" \
+    "1" "$(printf '%s\n' "$MNT_OUT7" | grep -c "The comma is in the run directory's path")"
+
+  # The guard is at the point of USE, not at the MOUNT_WRAP_DIR assignment, so
+  # it fires only for an entry that is actually wrapped: under the same
+  # comma-carrying $TMPDIR a directory-only config still reaches vfkit with the
+  # device it asked for, since a directory source is shared as itself and the
+  # wrap dir is never built into a sharedDir=. (That launch still dies later on
+  # the gvproxy socket's own $TMPDIR path -- a documented, unguarded line -- so
+  # this pins the guard's SCOPE, not a working launch.)
+  MNT_YML4="$WORK/mount-loop-boot4.yml"
+  {
+    printf 'mounts:\n'
+    printf '  - source: %s\n    tag: data\n' "$MNT_SRC_DIR"
+  } > "$MNT_YML4"
+  MNT_RUN5="$MNT_LIVE_SHARE/.claude/tmp/run5"
+  mkdir -p "$MNT_RUN5"
+  MNT_OUT5="$(TMPDIR="$MNT_COMMA_TMP" bash "$MNT_SLICE" "$MNT_YML4" "$MNT_RUN5" "$MNT_LIVE_SHARE" 2>&1)"
+  assert_eq "wrap-dir comma: a directory-only config under the same \$TMPDIR is not aborted" \
+    "virtio-fs,sharedDir=$MNT_SRC_DIR,mountTag=data" \
+    "$(printf '%s\n' "$MNT_OUT5" | grep -x -- "virtio-fs,sharedDir=$MNT_SRC_DIR,mountTag=data")"
+
+  # NEGATIVE CONTROL: with the guard's own lines dropped from the SAME captured
+  # loop, the run does not abort and emits exactly the string vfkit v0.6.4
+  # rejects with `unknown option for virtio-fs devices: ...` -- a bare comma
+  # inside sharedDir=, which is what makes the assertions above non-vacuous.
+  MNT_SLICE_PREGUARD="$WORK/mount-loop-preguard.sh"
+  write_mnt_slice "$MNT_SLICE_PREGUARD" preguard
+  assert_eq "wrap-dir comma: the control really has the guard removed" \
+    "0" "$(grep -c 'case "$MOUNT_WRAP_DIR" in' "$MNT_SLICE_PREGUARD")"
+  MNT_RUN6="$MNT_LIVE_SHARE/.claude/tmp/run6"
+  mkdir -p "$MNT_RUN6"
+  MNT_OUT6="$(TMPDIR="$MNT_COMMA_TMP" bash "$MNT_SLICE_PREGUARD" "$MNT_YML2" "$MNT_RUN6" "$MNT_LIVE_SHARE" 2>&1)"
+  assert_eq "wrap-dir comma: NEGATIVE CONTROL -- without the guard the emitted sharedDir carries the comma" \
+    "1" "$(printf '%s\n' "$MNT_OUT6" | grep -c "^virtio-fs,sharedDir=$MNT_COMMA_TMP/claude-vm-wrap\..*/cfg,mountTag=cfg$")"
 else
   echo "SKIP: extra-mount loop extraction from claude-vm.sh failed; mount-split tests skipped." >&2
 fi

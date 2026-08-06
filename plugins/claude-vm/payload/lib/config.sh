@@ -987,8 +987,10 @@ claude_vm_guest_system_path_containing() {
 #   - a DIRECTORY `source` whose path contains a comma: the source is what
 #     vfkit shares, so it sits inside that same comma-delimited device string,
 #     as the only field of it with no charset check of its own. A single-FILE
-#     source is exempt -- what gets shared then is the wrap directory, named
-#     after the (already-checked) tag.
+#     source is exempt -- what gets shared then is the wrap directory, whose
+#     <tag> component is already checked and whose PARENT ($RUN/mount-wrap, or
+#     a $TMPDIR mktemp) is not a config value at all: the launcher checks that
+#     one where it wraps the file. See the arm itself for the full reasoning.
 #   - a tag colliding with a RESERVED built-in tag: the launcher always attaches
 #     repo/runconfig/claudebin/claudecreds and the image's fstab always mounts
 #     them, so a second device under one of those names puts the operator's own
@@ -1125,7 +1127,8 @@ claude_vm_check_mounts() {
         echo "claude-vm:   and the tag is used as one in the default guest mountpoint $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>," >&2
         echo "claude-vm:   in the host-side directory a single-file source is wrapped in, and in that wrap's own" >&2
         echo "claude-vm:   guest mountpoint under $CLAUDE_VM_GUEST_WRAP_MOUNT. A dot-directory name walks one level" >&2
-        echo "claude-vm:   UP out of every one of those at once, so the share would carry a host directory you" >&2
+        echo "claude-vm:   UP out of whichever of those this entry uses -- the default mountpoint, and the two wrap" >&2
+        echo "claude-vm:   paths when the source is a single file -- so the share would carry a host directory you" >&2
         echo "claude-vm:   never named. Pick an ordinary name -- '...' and 'a..b' are ordinary and are accepted." >&2
         bad=1
         ;;
@@ -1255,10 +1258,17 @@ claude_vm_check_mounts() {
       # host-existence check above exists to forestall; and a source that
       # spells a second `sharedDir=` REPLACES the first (last key wins, also
       # measured), so the guest would get a directory this entry never named.
-      # A single-FILE source is exempt and is not checked: what gets shared
-      # then is the wrap directory $MOUNT_WRAP_DIR/<tag>, whose charset the tag
-      # check already settled, so a comma in the file's own path reaches
-      # nothing but a hard link and a mounts.tsv field.
+      # A single-FILE source is exempt and is not checked here: what gets
+      # shared then is the wrap directory $MOUNT_WRAP_DIR/<tag>, whose <tag>
+      # COMPONENT the tag check above already settled, so a comma in the file's
+      # own path reaches nothing but a hard link and a mounts.tsv field. That
+      # settles the component and not the directory: $MOUNT_WRAP_DIR is
+      # $RUN/mount-wrap, or a $TMPDIR mktemp when $RUN sits inside the repo
+      # share, and neither is a config value this function can see. The
+      # launcher checks THAT for a comma where it wraps the file, and blames
+      # $TMPDIR or the run dir rather than the entry -- an earlier, cause-
+      # naming abort, since those two paths already reach vfkit through
+      # argument strings nothing checks (see the comment at MOUNT_WRAP_DIR).
       case "$expanded" in
         *,*)
           echo "claude-vm: mounts entry #${idx} ('$src') shares a DIRECTORY whose path contains a ','. claude-vm" >&2

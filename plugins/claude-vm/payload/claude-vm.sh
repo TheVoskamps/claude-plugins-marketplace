@@ -158,16 +158,19 @@ claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
 # A mounts entry with no source or no tag (issue #226): the guest mounts each
 # virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
 # two of them collide on one tag. Since issue #157 the same call also rejects a
-# malformed, reserved or repeated tag, a source that is not on the host, a
-# `mode:` key (read-only is unenforceable on this stack -- issue #233), and a
-# guest `path:` that is relative, carries `..`, or OVERLAPS a reserved
-# mountpoint, a guest OS path or another entry's mountpoint. Overlap, not
-# equality: landing on one, above one or inside one is rejected alike, and for a
-# guest OS path the rule is by shape -- a directory mount may not overlap one at
-# all, while a single-file mount may sit inside /root, /home or /tmp. The whole
-# mounts contract is enforced here, in one pass, so the launcher below can
-# assume every record it reads is usable. Abort rather than launching without
-# the mount the operator asked for.
+# tag that is malformed, reserved, repeated, `.`/`..`, or begins with `-` (the
+# tag is a bare path COMPONENT and a bare argv word as well as a device-string
+# field, and those positions reject spellings the charset admits), a source
+# that is not on the host or -- for a DIRECTORY source, the shape vfkit shares
+# as-is -- carries a comma, a `mode:` key (read-only is unenforceable on this
+# stack -- issue #233), and a guest `path:` that is relative, carries `..`, or
+# OVERLAPS a reserved mountpoint, a guest OS path or another entry's
+# mountpoint. Overlap, not equality: landing on one, above one or inside one is
+# rejected alike, and for a guest OS path the rule is by shape -- a directory
+# mount may not overlap one at all, while a single-file mount may sit inside
+# /root, /home or /tmp. The whole mounts contract is enforced here, in one
+# pass, so the launcher below can assume every record it reads is usable. Abort
+# rather than launching without the mount the operator asked for.
 claude_vm_check_mounts "$MERGED_BOOT" \
   || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
 # claude.plugins is the one map that legitimately appears in BOTH file types
@@ -1482,6 +1485,28 @@ MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
 # the verified-binary cache under ~/.config/claude-vm). That dir is NOT covered
 # by the run-dir retention, so cleanup() removes it (removing hard links, never
 # the operator's file).
+#
+# Wherever it lands, this directory's path becomes a `sharedDir=` field in
+# vfkit's comma-delimited device string as soon as an entry is wrapped, and
+# neither home is a config value claude_vm_check_mounts can see -- so its comma
+# check on a DIRECTORY source does not reach them, and a comma in $RUN or in
+# $TMPDIR would produce exactly the malformed device string that check exists
+# to prevent, on an entry the validator accepted. The loop below aborts on it,
+# in its single-file branch: that is where the entry being wrapped is in hand,
+# so the message can name it and say the comma is not the operator's.
+#
+# The abort is an EARLIER, cause-naming failure, not a rescue. Both of those
+# paths already reach vfkit through argument strings this launcher does not
+# check -- $RUN through `efi,variable-store=$EFISTORE,create`,
+# `virtio-blk,path=$GUEST_IMAGE_CLONE` and
+# `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, and $TMPDIR through
+# `virtio-net,unixSocketPath=$GVPROXY_SOCK`, whose directory is a mktemp under
+# $TMPDIR on EVERY launch. Measured on vfkit v0.6.4, each of those dies on the
+# text after the comma (`unknown option for virtio-net devices: ...`,
+# `unknown option for EFI bootloaders: ...`), so a launch under such a path was
+# already doomed with or without a mounts entry. See
+# payload/README.md -> *The tag is not just a tag* for that whole class and
+# for where a guard covering it would belong.
 MOUNT_WRAP_TMPDIR=""
 case "$RUN/" in
   "$MOUNT_SHARED_DIR"/*)
@@ -1530,6 +1555,36 @@ while IFS= read -r mount_record; do
   # -f is true for a regular file and false for a directory (and for a symlink
   # to one), so it is the whole directory-vs-file decision on its own.
   if [ -f "$src" ]; then
+    # The wrap dir is what vfkit is handed for this entry, so its WHOLE path
+    # rides in the device string -- not just the <tag> component the tag check
+    # settled. Its parent is $RUN/mount-wrap or the $TMPDIR fallback, neither
+    # of which claude_vm_check_mounts ever sees; see MOUNT_WRAP_DIR above for
+    # what this abort does and does not buy. Tested on $MOUNT_WRAP_DIR rather
+    # than on $mount_shared_dir so the message can say the comma is not the
+    # operator's: a comma in the tag cannot reach this line.
+    case "$MOUNT_WRAP_DIR" in
+      *,*)
+        echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
+        echo "claude-vm:   hard-linking it into the wrap directory '$MOUNT_WRAP_DIR/$tag' -- whose path carries" >&2
+        echo "claude-vm:   a ','. claude-vm names the shared directory inside vfkit's comma-delimited" >&2
+        echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so vfkit would read that comma" >&2
+        echo "claude-vm:   as the start of another device option and refuse to start." >&2
+        if [ -n "$MOUNT_WRAP_TMPDIR" ]; then
+          echo "claude-vm:   The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:': the repo itself" >&2
+          echo "claude-vm:   is the share here (repo.mount: live), so the run dir sits inside it and the wrap" >&2
+          echo "claude-vm:   directory has to live under \$TMPDIR instead. Point TMPDIR at a path with no comma in" >&2
+          echo "claude-vm:   it and rerun. Dropping the mounts entry will NOT help: claude-vm hands vfkit a" >&2
+          echo "claude-vm:   gvproxy socket under \$TMPDIR on every launch, in the same comma-delimited form." >&2
+        else
+          echo "claude-vm:   The comma is in the run directory's path, NOT in anything you wrote under 'mounts:':" >&2
+          echo "claude-vm:   \$RUN is '$RUN' (<repo>/.claude/tmp/<run-id> for a git repo, a \$TMPDIR mktemp" >&2
+          echo "claude-vm:   otherwise). Launch from a path with no comma in it. Dropping the mounts entry will" >&2
+          echo "claude-vm:   NOT help: the EFI store, the disk and the console log ride that same run dir into" >&2
+          echo "claude-vm:   vfkit's comma-delimited argument strings." >&2
+        fi
+        exit 1
+        ;;
+    esac
     mount_file="${src##*/}"
     mount_shared_dir="$MOUNT_WRAP_DIR/$tag"
     mkdir -p "$mount_shared_dir"

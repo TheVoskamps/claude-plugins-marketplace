@@ -177,10 +177,10 @@ to touch.
 
 A `mounts` tag in `plugins/claude-vm` is consumed **verbatim** in every
 position it reaches: vfkit's `mountTag=`, a bare argv word in the guest's
-`mount -t virtiofs -o rw <tag> <path>`, a path *component* in three trees
-(the `/mnt/<tag>` default mountpoint, the host-side wrap directory a
-single-file source is staged in, and that wrap's own guest mountpoint), and
-a `mounts.tsv` field. `claude_vm_check_mounts`'s charset check
+`mount -t virtiofs -o rw <tag> <path>`, a path *component* — in the
+`/mnt/<tag>` default mountpoint, in the host-side wrap directory a
+single-file source is staged in, and in that wrap's own guest mountpoint —
+and a `mounts.tsv` field. `claude_vm_check_mounts`'s charset check
 (`[A-Za-z0-9._-]`) is therefore necessary and not sufficient, and its `.` /
 `..` and leading-`-` arms exist because two of those positions reject
 spellings the charset admits.
@@ -191,16 +191,26 @@ filename, another argv slot, a shell-interpolated string — must be graded
 against that list and add an arm when the new position rejects something the
 existing ones accept, rather than being assumed safe because the charset
 passed. The restating surfaces to keep in step are
-`payload/lib/config.sh`'s block comment, `payload/config-boot.example.yml`'s
-`tag:` bullet, `skills/claude-vm/SKILL.md` and
-`skills/claude-vm-config-repo/SKILL.md`.
+`payload/lib/config.sh`'s block comment, `payload/claude-vm.sh`'s
+`claude_vm_check_mounts` call-site comment — which enumerates the validator's
+whole rejection set in one paragraph, a file away from the check itself —
+`payload/config-boot.example.yml`'s `tag:` bullet,
+`skills/claude-vm/SKILL.md` and `skills/claude-vm-config-repo/SKILL.md`.
 
 The same verbatim-interpolation exposure runs one level wider than the
-config: the four built-in `--device` lines interpolate `$REPO_SRC`, `$RUN`
-and the claude cache dir with no comma check, so a repo, `$HOME` or `$TMPDIR`
-path carrying a comma breaks a launch that has no `mounts` entry at all.
-That is deliberate and documented in the same README section — do not "fix"
-it inside `claude_vm_check_mounts`, which never sees those paths.
+config: every vfkit argument carrying a host path — the built-in `--device`
+shares, the EFI variable store, the disk, the console log, the gvproxy socket
+— embeds it in a comma-delimited option string with no comma check, so a
+repo, `$HOME` or `$TMPDIR` path carrying a comma breaks a launch that has no
+`mounts` entry at all. `$TMPDIR` reaches it on every launch, through the
+gvproxy socket's own `mktemp -d`, whatever the mount mode. That is deliberate
+and documented in the same README section — do not "fix" it inside
+`claude_vm_check_mounts`, which never sees those paths. The single-file wrap
+share (`sharedDir=$MOUNT_WRAP_DIR/<tag>`) is the one member the launcher does
+check, and only because this feature adds it: the check sits in the
+extra-mount loop and names `$TMPDIR` or the run dir rather than the
+operator's `mounts` entry. It buys an early, cause-naming abort, not
+survivability — the other arguments still break the same launch.
 
 ## Never split a claude-vm TSV record with a tab-IFS `read`
 
