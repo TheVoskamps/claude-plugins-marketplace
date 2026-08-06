@@ -26,6 +26,18 @@ as a `cd` target), not only as a bare assignment RHS (#225).
 - ❌ `.git/foo.json` (or anywhere under `.git/`) — git internal state.
   The permission-gate denies it outright (issue #125, broadened in #35).
 
+The destination matters even for a scratch file the agent never reads
+back itself. Since #229 a file `gh` PUBLISHES is graded by the same
+read containment — the value of any flag gh reads off local disk
+(`-F`/`--body-file`, `-F`/`--notes-file`, `--recover`,
+`gist edit -a`), and a file operand of `gh gist create`,
+`gh gist edit`, `gh release create` or `gh release upload`. Both
+sanctioned destinations survive that
+grading — a PR-body file under `<repo-root>/.claude/tmp/` is
+contained, and one in a harness session directory is allowed outright
+— while a loose `/tmp/body.md` that used to be published without
+comment is now denied as a cross-repo read escape.
+
 ## Cross-repo / cross-session handoff
 
 Repo-scoped scratch is the common case, and `.claude/tmp/` serves it.
