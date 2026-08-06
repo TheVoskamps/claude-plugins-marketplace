@@ -3093,8 +3093,11 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   # guest's `mount`, and the charset check's own justification named only the
   # vfkit device string and that argv word.
   #
-  # `..` walks one level UP out of every tree at once. The reserved-path guard
-  # cannot see it: with a DIRECTORY source and no `path:` the mountpoint is
+  # `..` walks one level UP out of whichever of those trees the entry uses --
+  # the default mountpoint always, and the two wrap paths when the source is a
+  # single file (a directory source is shared as itself and is never wrapped).
+  # The reserved-path guard cannot see it either way: with a DIRECTORY source
+  # and no `path:` the mountpoint is
   # /mnt/.., which is not a `..` in any `path:` the operator wrote, and with an
   # explicit `path:` the mountpoint is clean and only the two WRAP paths are
   # walked up -- the launcher would then share $RUN (which holds creds/) or,

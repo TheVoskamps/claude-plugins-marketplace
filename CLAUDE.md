@@ -208,9 +208,12 @@ and documented in the same README section — do not "fix" it inside
 `claude_vm_check_mounts`, which never sees those paths. The single-file wrap
 share (`sharedDir=$MOUNT_WRAP_DIR/<tag>`) is the one member the launcher does
 check, and only because this feature adds it: the check sits in the
-extra-mount loop and names `$TMPDIR` or the run dir rather than the
-operator's `mounts` entry. It buys an early, cause-naming abort, not
-survivability — the other arguments still break the same launch.
+extra-mount loop's single-file branch — at the point of use, not beside the
+`$MOUNT_WRAP_DIR` assignment, since only there is there an entry to name —
+and names `$TMPDIR` or the run dir rather than the operator's `mounts` entry.
+It buys an early, cause-naming abort, not survivability — the other arguments
+still break the same launch, and a directory-only `mounts` list under the same
+comma-carrying `$TMPDIR` is not aborted at all.
 
 ## Never split a claude-vm TSV record with a tab-IFS `read`
 

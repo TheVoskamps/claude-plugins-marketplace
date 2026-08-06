@@ -519,10 +519,12 @@ argv, settings, image identity, and plugin manifests from:
   entry, none of these paths is a config value an operator can fix by editing
   YAML, and an ordinary comma is launch-time-loud (vfkit refuses the unknown
   option and the launch stops) rather than a VM that boots with a share
-  pointing somewhere else — only a path that itself spelled a second
-  `sharedDir=` would fail quietly, and that is not a path anyone has. A guard
-  for it would belong at argument-validation time, next to the repo-path
-  resolution, not in `claude_vm_check_mounts`.
+  pointing somewhere else — only a path that itself spelled a second copy of
+  that argument's own key (`sharedDir=`, `path=`, `logFilePath=`,
+  `unixSocketPath=`, `variable-store=`) would fail quietly, since vfkit v0.6.4
+  parses a repeated key without complaint rather than refusing it, and that is
+  not a path anyone has. A guard for it would belong at argument-validation
+  time, next to the repo-path resolution, not in `claude_vm_check_mounts`.
 
   The one line in that class that *is* guarded is the single-file wrap share,
   `sharedDir=$MOUNT_WRAP_DIR/<tag>` — not a built-in, and the only member
@@ -535,6 +537,15 @@ argv, settings, image identity, and plugin manifests from:
   see is malformed. A guard that actually covers the class belongs where
   every one of those paths is resolved, per the paragraph above; this one is
   deliberately narrower than that.
+
+  It sits at the point of **use**, in the single-file branch, rather than
+  beside the `$MOUNT_WRAP_DIR` assignment a few lines above the loop, because
+  at the assignment there is no entry in hand and naming one is the whole
+  value of the message — the operator has to be told that the comma is not in
+  anything they wrote under `mounts:`. That placement also fixes its scope: it
+  fires only for a config that actually wraps a file, so a directory-only
+  `mounts` list under the same comma-carrying `$TMPDIR` is not aborted (that
+  launch still dies later, on the gvproxy socket's own `$TMPDIR` path).
 
   *Guest OS paths, by shape.* `CLAUDE_VM_GUEST_SYSTEM_PATHS` is the guest's
   own directory set. Linux **stacks** a mount, so an entry landing on one
@@ -1474,7 +1485,9 @@ including that the wrap entry is a **hard link** to the source, asserted by
 comparing inode numbers rather than content, since a copy would match on
 content and silently break write-through, and that a comma in the wrap
 directory's own parent aborts the launch, blaming `$TMPDIR` in the `live`
-shape and the run dir in the other, against a negative
+shape and the run dir in the other while a directory-only config under that
+same `$TMPDIR` is left alone (the guard's scope, since it sits at the point of
+use), against a negative
 control that drops the guard's lines from the same captured loop and shows the
 malformed `sharedDir=` it would otherwise emit. The config-load gate block is
 run once per rejected config, each asserting both the non-zero exit and a
