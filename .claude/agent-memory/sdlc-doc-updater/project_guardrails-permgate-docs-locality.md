@@ -270,6 +270,23 @@ that says "every spelling the utility accepts" gains a NEW caller with
 a different parser and becomes the belief the hole came from — scope
 such a sentence to its parser (getopt vs pflag) at the helper itself.
 
+Scoping that sentence at ONE helper is not the sweep. Round 4 of #229
+found the same unqualified claim still standing on the thin WRAPPER
+(`pathFlagValues`) thirty lines above the callee that had just been
+scoped (`pathFlagValueRefs`) — and the wrapper is the half with the
+callers, so it is the sentence every other track reads. Two more copies
+sat on the field docs of the maps handed to it
+(`inRepoWriteSpec.pathValueFlags`) and in the gate README's read-track
+paragraph, plus one in a test-table comment. Two consecutive sweeps
+each stopped at the sites they were handed. What made them stoppable: a
+line-oriented `grep "every spelling"` MISSES the wrapper, because the
+phrase wraps across two `//` lines — use a whole-file perl slurp
+(`perl -0777` over `(every|all|any|each) ... spelling`) so wrapped
+copies show up, and grade every hit rather than only the named ones.
+Not every hit is a defect: a claim that names its own parser ("in every
+spelling gh accepts", on the gh walk) or that enumerates the spellings
+right after itself is already scoped.
+
 Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
 has one real exception: `.claude/agent-memory/` notes teach agents to
 route around gate verdicts and are silently falsified when a verdict
