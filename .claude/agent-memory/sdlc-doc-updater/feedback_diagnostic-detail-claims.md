@@ -17,6 +17,12 @@ because the sentence was written once and copied. Every test passed: the
 behavior is right, only the description of the diagnostic is wrong, and
 nothing but reading the strings catches it.
 
+The same applies to a doc that QUOTES a command shape (`mount -t virtiofs
+<tag> <path>`): open the call site and copy the real argv. Issue #157's tag
+guard turns on the tag's argv POSITION, and three surfaces spelled the
+command without its `-o rw`, i.e. without the option word that makes the
+position load-bearing.
+
 **How to apply:** for each abort/warning a doc describes, grep the function
 and count its emitting branches; the doc must describe the WEAKEST branch, or
 say which detail belongs to which case. Then sweep the other surfaces — this
