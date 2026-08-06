@@ -36,9 +36,18 @@ a comma, the real loop emits
 `virtio-fs,sharedDir=<...>/tmp,dir/claude-vm-wrap.X/cfg,mountTag=cfg` on a
 config the validator **accepted**, and vfkit answers
 `unknown option for virtio-fs devices: dir/claude-vm-wrap.X/cfg`. Loud, so
-Low — but it is the one member of the "unchecked host-path interpolation"
-class that is *inside* the PR's diff, while the docs enumerate only the four
-built-in devices.
+Low — and it is the one member of that class the PR's own diff *adds*.
+
+**The premise I attached to it was false, and measuring it was one grep
+away.** I wrote that the wrap share was reachable "with every built-in path
+clean, since in the git-repo + `live` shape no built-in device touches
+`$TMPDIR`". `--device virtio-net,unixSocketPath=$GVPROXY_SOCK` is a
+`mktemp -d` under `$TMPDIR` on **every** launch, and `$RUN` also rides
+`efi,variable-store=`, `virtio-blk,path=` and `virtio-serial,logFilePath=` —
+each splitting on a comma exactly like `sharedDir=`. So a guard there buys an
+earlier, cause-naming abort, never a rescue. Enumerate the emitted strings
+with `grep -n -- '--device'` plus the assignment of each interpolated
+variable *before* filing; see [[measure-the-quantifier-in-your-own-premise]].
 
 Related: [[vfkit-is-installed-probe-it-directly]] (feed the emitted string to
 the real parser), [[negative-control-assertions-via-hybrid-tree]] and

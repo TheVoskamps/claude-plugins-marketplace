@@ -52,6 +52,30 @@ harmless and a guard that widens the comma check into a charset is
 over-reach. A bare comma gives `unknown option for virtio-fs devices: <rest
 of the path up to the next comma>`.
 
+**A `linux` bootloader with a nonexistent kernel is the safest harness (r6).**
+`--bootloader "linux,kernel=/nonexistent/vmlinuz,initrd=/nonexistent/initrd,cmdline=console=hvc0"`
+parses, so every `--device` string after it is parsed too, and the run then
+dies on `open /nonexistent/vmlinuz: no such file or directory` — a single
+non-booting control that works for *every* device type, with no temp dir and
+no `sharedDir=` existence footwork. Prefer it to the EFI form when probing
+devices: the EFI form has no kernel to fail on, and a bootloader-only probe
+that parses **does** boot (a repeated `variable-store=` with no disk gave
+`rc=0`, `level=info msg="VM is stopped"` — harmless, but it really started a
+VM). Read the error with `tail -1`, since the parse error is the last line
+while the info log is the first.
+
+**The comma splits every host-path argument, not just `sharedDir=` (r6).**
+Measured on v0.6.4, each with a comma-free control:
+`efi,variable-store=` → `unknown option for EFI bootloaders: <rest>`;
+`virtio-blk,path=`, `virtio-net,unixSocketPath=` and
+`virtio-serial,logFilePath=` → `unknown option for virtio-<kind> devices:
+<rest>`. And a **repeated** key parses without complaint on all five forms
+with the last occurrence winning (repeat `path=` and vfkit goes on to open the
+*second* file), which is the quiet-failure mode claude-vm's docs single out.
+Since `$TMPDIR` reaches `virtio-net,unixSocketPath=` through a `mktemp -d` on
+every launch, "no built-in argument touches `$TMPDIR`" is false — see
+[[measure-the-quantifier-in-your-own-premise]].
+
 **What it establishes:** on v0.6.4, `virtio-fs` rejects `readOnly`, `readonly`
 and a bare `ro` as `unknown option for virtio-fs devices: <key>`, while
 `virtio-blk,…,readonly=true` fails on the *value*
