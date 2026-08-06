@@ -54,5 +54,30 @@ correct as an audit technique; what must not exist is a `go test` (or
 any substitute mechanism) that greps the package's own comments. The
 sweep is judged by reading, and nothing enforces it afterwards.
 
+**A second artifact lives in the same hunks: wrap raggedness.** When the
+sweeper substituted longer words it re-wrapped only the lines it
+touched, leaving a short line in the middle of a paragraph. The content
+is *correct*, so none of the grammar shapes above finds it; a reviewer
+reads it as sloppiness in a security-relevant comment header and files
+it (PR #231 round 4 did, naming two sites and asking for the rest).
+
+The reliable test is not "is this line short" — a blanket short-line
+scan over every line a PR added is nearly all false positives, because
+code lines are short by nature and prose here legitimately breaks early
+before a long inline code span or a path. The test is: **would the
+first word of the next line have fitted on this one, at the file's own
+width?** Apply it only inside the sweep's own substitution hunks; a
+whole-file re-wrap is churn and buries the real change. Deriving that
+hunk list from `git show <sweep-sha>` (both sweep commits, not just the
+one the reviewer named) took one read each and was the whole scope.
+
+**The prose you write while fixing this is in the same class.** My
+first draft of the new operator diagnostic — six `echo` lines — came
+out ragged, i.e. I committed the defect I was fixing, in the same
+commit. Print the message and look at it before moving on. In this repo
+a diagnostic line interpolates constants (`$CLAUDE_VM_GUEST_MOUNT_ROOT`
+→ `/mnt`), so the *source* lines are what get wrapped evenly and some
+runtime raggedness is unavoidable and conventional here.
+
 See also [[sweep-sibling-agent-guards]] for the other half of this
 lesson — sweeping a rule's exception clause, not just its headline.
