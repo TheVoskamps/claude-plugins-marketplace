@@ -81,8 +81,9 @@ add_apt_uris_to_allowlist: auto
 # Which `claude` binary to run in the guest, and the guest Claude posture. The
 # HOST resolves claude.version to a concrete version, downloads that version's
 # GPG-signed manifest, verifies the signature against the operator's pinned
-# claude-code key, checksum-verifies the binary, caches it, and mounts it RO
-# into the guest. A failed gpg --verify or checksum mismatch ABORTS the launch.
+# claude-code key, checksum-verifies the binary, caches it, and shares it into
+# the guest, where the image's fstab mounts it ro. A failed gpg --verify or
+# checksum mismatch ABORTS the launch.
 #
 #   stable          -- (default) latest binary tracking the stable channel
 #   latest          -- latest binary tracking the latest channel

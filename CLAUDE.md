@@ -141,13 +141,37 @@ operator or an agent can reach, so a PR that adds enforced read-only in
 one place leaves the rest asserting the opposite: `payload/README.md`
 (*No read-only mounts*), `payload/config-boot.example.yml`'s boxed
 `mounts` warning, `payload/lib/config.sh`'s extra-mount block and the
-abort's own operator message, `payload/claude-vm.sh`'s extra-mount
-block, `payload/build-guest-image.sh`'s `boot_mount_phase` block and its
+abort's own operator message, `payload/claude-vm.sh` in **two** places —
+its extra-mount block *and* its `claude_vm_check_mounts` call-site
+comment, which restates the same rule in one line —
+`payload/build-guest-image.sh`'s `boot_mount_phase` block and its
 `-o rw` comment, `skills/claude-vm/SKILL.md`, and
 `skills/claude-vm-config-repo/SKILL.md`. `payload/test/config-test.sh`
-pins the abort in every spelling. Grep `read-only` across
-`plugins/claude-vm/` rather than fixing the surfaces a diff happens to
-touch.
+pins the abort in every spelling.
+
+A `read-only` grep across `plugins/claude-vm/` also turns up a second,
+opposite class, and the two are easy to conflate: the **built-in** shares
+(`runconfig`, `claudebin`, `claudecreds`) really are read-only, but
+**guest-side only**. The host attaches each as a plain
+`--device virtio-fs,sharedDir=…,mountTag=…` — the only shape vfkit accepts,
+so read-write like any extra mount — and the `ro` comes from the image's own
+`/etc/fstab`, authored in `payload/provisioners/podman-mkosi.sh` (the source
+of truth for which tag is `ro` and which is `rw`). Write "shared into the
+guest, where the image's fstab mounts it `ro`", never "shared read-only into
+the guest": the latter puts the guarantee on the side of the seam that
+cannot make it, and contradicts the no-read-only-mounts surfaces above.
+
+`payload/README.md` → *Where the `ro` on a built-in share comes from* is the
+one place that explains this; every other mention is a restatement that
+should point there rather than re-derive it. The restating surfaces are
+`payload/README.md` (its credential section and its *Verified claude cache*
+section, twice in the latter), `payload/claude-vm.sh`,
+`payload/build-guest-image.sh`, `payload/lib/claude-cache.sh`,
+`payload/config-boot.example.yml`, `payload/test/host-acceptance.sh`,
+`skills/claude-vm/SKILL.md` and `skills/claude-vm-config-global/SKILL.md`.
+Grep both `read-only` and `RO` across `plugins/claude-vm/` and sort every hit
+into one of these two classes rather than fixing the surfaces a diff happens
+to touch.
 
 ## Never split a claude-vm TSV record with a tab-IFS `read`
 

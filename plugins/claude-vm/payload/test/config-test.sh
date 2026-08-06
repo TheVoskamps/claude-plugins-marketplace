@@ -2945,6 +2945,68 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
     "$(printf 'mounts:\n  - source: %s\n    tag: dots\n    path: /mnt/x/../repo\n' "$GATE_SRC_A")" \
     "contains a '..' segment"
 
+  # ...and its sibling `.`, which gets the OPPOSITE treatment: it IS resolvable
+  # host-side (no symlink can change where it lands), so the normalizer folds
+  # it and every guard below sees the resolved string. Before that collapse a
+  # LEADING `/./` walked past all of them at once -- `/./etc` was neither equal
+  # to nor a prefix of `/etc` as a string. The DIRECTORY leg was still caught by
+  # the guest's occupancy check; the single-FILE leg was not, because
+  # /etc/ld.so.preload does not exist in the image, so the guest created it and
+  # bound the operator's file over it. Every position of the segment is pinned,
+  # because the reported spelling was only the leading one.
+  gate_mount_case "a DIRECTORY at a leading-'.' system path (/./etc)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: dotetc\n    path: /./etc\n' "$GATE_SRC_A")" \
+    "would mount at '/etc', which overlaps the guest OS"
+  gate_mount_case "a single FILE at a leading-'.' system file (/./etc/ld.so.preload)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: dotpre\n    path: /./etc/ld.so.preload\n' "$GATE_SRC_FILE")" \
+    "at '/etc/ld.so.preload', inside the"
+  gate_mount_case "a TRAILING '.' on a system path (/etc/.)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: etcdot\n    path: /etc/.\n' "$GATE_SRC_A")" \
+    "would mount at '/etc', which overlaps the guest OS"
+  # An INTERIOR `.` walks past the RESERVED-mountpoint guard, not just the
+  # system-path one: /mnt/./repo names the working-tree share.
+  gate_mount_case "an INTERIOR '.' on a reserved mountpoint (/mnt/./repo)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: dotrepo\n    path: /mnt/./repo\n' "$GATE_SRC_A")" \
+    "would mount at '/mnt/repo', which overlaps '/mnt/repo'"
+  # `/.` is the guest ROOT under another name -- the extreme of the same case,
+  # and the one spelling with no surviving path component to give it away.
+  gate_mount_case "a path that is only a '.' segment (/.)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: dotroot\n    path: /.\n' "$GATE_SRC_A")" \
+    "would mount at '/', which overlaps '/mnt/repo'"
+  # Repeated and mixed spellings collapse to a FIXPOINT, so stacking them buys
+  # nothing: one pass over `/././` would otherwise leave `/./`.
+  gate_mount_case "stacked '.' and '//' segments (/././/etc)" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: manydots\n    path: /././/etc\n' "$GATE_SRC_A")" \
+    "would mount at '/etc', which overlaps the guest OS"
+
+  # ...and the collapse must not over-reach. A `.` segment is exactly one dot
+  # between separators; a run of three is an ORDINARY directory name, and the
+  # sanctioned single-file case still passes when spelled with a leading `/./`.
+  printf 'mounts:\n  - source: %s\n    tag: tripledot\n    path: /.../weird\n' "$GATE_SRC_A" \
+    > "$WORK/gate-tripledot.yml"
+  assert_eq "load-gates: a '...' directory name is NOT a '.' segment and passes" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-tripledot.yml")"
+  printf 'mounts:\n  - source: %s\n    tag: dotcfg\n    path: /./root/.gitconfig\n' "$GATE_SRC_FILE" \
+    > "$WORK/gate-dot-gitconfig.yml"
+  assert_eq "load-gates: the sanctioned /root/.gitconfig case still passes with a leading '.'" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-dot-gitconfig.yml")"
+
+  # The duplicate-mountpoint set is an ARRAY compared with `=`, not a
+  # space-padded string: a `path:` is validated only for absolute-ness and `..`,
+  # so it may carry a space. On the padded encoding `/opt/a b` seeded
+  # `" /opt/a b "` and the DISTINCT later `/opt/a` matched inside it, aborting a
+  # valid pair with a diagnostic naming a collision that did not exist.
+  GATE_SRC_SPACE="$WORK/gate-src-with space"; mkdir -p "$GATE_SRC_SPACE"
+  printf 'mounts:\n  - source: %s\n    tag: sp1\n    path: "/opt/a b"\n  - source: %s\n    tag: sp2\n    path: "/opt/a"\n' \
+    "$GATE_SRC_SPACE" "$GATE_SRC_A" > "$WORK/gate-space-distinct.yml"
+  assert_eq "load-gates: a path with a space does not make a PREFIX of it read as a duplicate" \
+    "0|GATE-OK" "$(run_gates "$GATE_NONE_BAKE" "$WORK/gate-space-distinct.yml")"
+  # ...and a GENUINE duplicate is still caught, space or no space -- the fix
+  # must not have traded a false positive for a false negative.
+  gate_mount_case "a genuine duplicate path CARRYING a space" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: sp1\n    path: "/opt/a b"\n  - source: %s\n    tag: sp2\n    path: "/opt/a b"\n' "$GATE_SRC_SPACE" "$GATE_SRC_A")" \
+    "would mount at '/opt/a b', where an earlier entry already"
+
   # A tag outside [A-Za-z0-9._-] corrupts vfkit's comma-delimited device string
   # and the guest's own `mount -t virtiofs <tag>` argument.
   gate_mount_case "a tag with a COMMA in it" \
@@ -3157,6 +3219,75 @@ assert_eq "guest-path: repeated slashes collapse" \
   "/mnt/repo" "$(claude_vm_mount_guest_path data ///mnt//repo)"
 assert_eq "guest-path: root itself survives normalization" \
   "/" "$(claude_vm_mount_guest_path data /)"
+# A `.` segment is resolvable HOST-side -- unlike `..`, no symlink can change
+# where it lands -- so it is collapsed rather than rejected, in every position.
+# The launcher writes THIS output into mounts.tsv, so collapsing here is what
+# makes the string the guest mounts at the same string the guards judged.
+assert_eq "guest-path: a LEADING '.' segment collapses" \
+  "/etc" "$(claude_vm_mount_guest_path data /./etc)"
+assert_eq "guest-path: an INTERIOR '.' segment collapses" \
+  "/mnt/repo" "$(claude_vm_mount_guest_path data /mnt/./repo)"
+assert_eq "guest-path: a TRAILING '.' segment collapses" \
+  "/etc" "$(claude_vm_mount_guest_path data /etc/.)"
+assert_eq "guest-path: a bare '/.' is the guest root" \
+  "/" "$(claude_vm_mount_guest_path data /.)"
+assert_eq "guest-path: '/./' is the guest root too" \
+  "/" "$(claude_vm_mount_guest_path data /./)"
+# To a FIXPOINT, and mixed with the slash collapse: one pass over `/././`
+# leaves `/./`, exactly as one pass over `///` leaves `//`.
+assert_eq "guest-path: stacked '.' segments collapse to a fixpoint" \
+  "/a/b" "$(claude_vm_mount_guest_path data /a/././b)"
+assert_eq "guest-path: '.' and '//' collapse together" \
+  "/etc" "$(claude_vm_mount_guest_path data /././/etc)"
+assert_eq "guest-path: a single file's '.' spelling collapses to the real target" \
+  "/etc/ld.so.preload" "$(claude_vm_mount_guest_path data /./etc/ld.so.preload)"
+# ...and the collapse is exactly ONE dot between separators. `...` is an
+# ordinary directory name and a `..` segment must reach the validator INTACT,
+# since rejecting it is the whole point -- silently "normalizing" it would be
+# the guess the validator refuses to make.
+assert_eq "guest-path: a '...' component is an ordinary name, not a '.' segment" \
+  "/.../weird" "$(claude_vm_mount_guest_path data /.../weird)"
+assert_eq "guest-path: a '..' segment is left INTACT for the validator to reject" \
+  "/mnt/x/../repo" "$(claude_vm_mount_guest_path data /mnt/x/../repo)"
+
+# The normalizer must give the SAME answer on an old bash, because it is a
+# security boundary that runs at config load -- long before the first bash-4
+# construct in this file (`local -A` in claude_vm_render_guest_settings) would
+# fail loudly. A backslash-escaped slash in the REPLACEMENT half of
+# `${var//pattern/replacement}` is version-dependent: bash >= 4.3 unescapes
+# `\/` to `/`, bash 3.2 does not, so the inline spelling `${path//\/\//\/}`
+# turns `/mnt/repo/` into `/mnt/repo\` there and silently defeats every guard
+# built on this output. The normalizer therefore holds its literals in
+# variables. Run it for real under whatever pre-4 bash this host has (macOS
+# still ships 3.2 at /bin/bash); on a host with none, there is nothing to
+# measure and the block is skipped rather than faked with a fixture.
+OLD_BASH=""
+for _ob in /bin/bash /usr/bin/bash /bin/sh; do
+  [ -x "$_ob" ] || continue
+  _obv="$("$_ob" -c 'printf "%s" "${BASH_VERSINFO[0]:-0}"' 2>/dev/null)"
+  case "$_obv" in
+    ''|*[!0-9]*) continue ;;
+  esac
+  if [ "$_obv" -gt 0 ] && [ "$_obv" -lt 4 ]; then OLD_BASH="$_ob"; break; fi
+done
+if [ -n "$OLD_BASH" ]; then
+  assert_eq "guest-path: an OLD bash ($OLD_BASH) collapses repeated slashes identically" \
+    "/mnt/repo" \
+    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "///mnt//repo"' _ "$LIB" 2>/dev/null)"
+  assert_eq "guest-path: an OLD bash drops a trailing slash identically" \
+    "/mnt/repo" \
+    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "/mnt/repo/"' _ "$LIB" 2>/dev/null)"
+  assert_eq "guest-path: an OLD bash collapses a '.' segment identically" \
+    "/etc" \
+    "$("$OLD_BASH" -c '. "$1"; claude_vm_mount_guest_path t "/./etc"' _ "$LIB" 2>/dev/null)"
+  # NEGATIVE CONTROL: the same old bash, running the INLINE escaped spelling
+  # this function deliberately avoids. If this ever stops differing, the
+  # portability hazard is gone and the variables above are no longer earning
+  # their comment.
+  assert_eq "guest-path: NEGATIVE CONTROL -- the inline '\\/' spelling really does differ on an old bash" \
+    "differs" \
+    "$("$OLD_BASH" -c 'p="///mnt//repo"; q="${p//\/\//\/}"; [ "$q" = "//mnt/repo" ] && echo same || echo differs' 2>/dev/null)"
+fi
 
 # claude_vm_guest_path_covers is the DIRECTED half of the overlap relation, and
 # the single-file rule's whole basis: a file may sit INSIDE a system path but

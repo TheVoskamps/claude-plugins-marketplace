@@ -809,22 +809,80 @@ claude_vm_expand_mount_source() {
 # by the launcher's manifest write, so the path the validator judges and the
 # path the guest mounts at are the same string by construction.
 #
-# The result is NORMALIZED -- repeated slashes collapsed, trailing slashes
-# dropped -- so the collision checks in claude_vm_check_mounts compare like with
-# like. Without it `path: /mnt/repo/` and `path: //mnt/repo` are both distinct
-# strings from `/mnt/repo` and would walk straight past the reserved-path guard
-# while naming the very same guest directory. `..` segments are NOT resolved
-# here (that needs the guest's filesystem, which the host does not have); the
-# validator rejects them outright instead.
+# The result is NORMALIZED, and that normalization is a SECURITY boundary
+# rather than cosmetics: every guard in claude_vm_check_mounts
+# (claude_vm_guest_path_covers, claude_vm_guest_paths_overlap,
+# claude_vm_guest_system_path_containing, the duplicate-mountpoint test) is a
+# STRING relation over this function's output, so any spelling that reaches
+# them un-normalized walks past all of them at once while naming a guest
+# directory they would have rejected. The launcher writes this same output to
+# mounts.tsv, so the string the guest mounts at is the string the guards judged.
+#
+# The class is "two different strings that name one guest path". Each member is
+# either resolvable HOST-side (normalize it) or not (reject it in the
+# validator):
+#
+#   - repeated slashes (`//mnt/repo`): resolvable, collapsed below. Linux
+#     treats a run of slashes as one separator.
+#   - a trailing slash (`/mnt/repo/`): resolvable, dropped below.
+#   - a `.` segment, leading/interior/trailing (`/./etc`, `/mnt/./repo`,
+#     `/etc/.`, and `/.` for the guest root itself): resolvable, collapsed
+#     below. `.` names the directory it sits in whatever the guest's filesystem
+#     looks like -- unlike `..` it cannot change meaning through a symlink --
+#     so the host can drop it without guessing. `...` and any other run of
+#     dots is an ORDINARY directory name and is deliberately left alone.
+#   - a `..` segment: NOT resolvable (it needs the guest's filesystem, and a
+#     symlink mid-path changes where it lands), so claude_vm_check_mounts
+#     rejects such a path outright rather than guessing.
+#   - a RELATIVE path: rejected by claude_vm_check_mounts -- its meaning
+#     depends on the boot launcher's cwd, which is not a host-side fact.
+#   - a GUEST SYMLINK: not resolvable host-side at ALL and not visible in the
+#     string, so no normalizer can catch it. The guest base is usr-merged --
+#     measured on debian:bookworm/arm64, /bin -> usr/bin, /sbin -> usr/sbin and
+#     /lib -> usr/lib are symlinks (the /lib{32,64,x32} spellings are absent on
+#     that arch) -- so `path: /bin` and `path: /usr/bin` name one directory.
+#     BOTH names of each pair are in CLAUDE_VM_GUEST_SYSTEM_PATHS above, so
+#     either spelling hits the denylist; for anything the denylist does not
+#     cover, the guest's own occupancy check (build-guest-image.sh's
+#     boot_mount_phase) is the backstop.
+#
+# Case folding is not in the class: the guest root filesystem is ext4, so
+# `/Etc` and `/etc` are genuinely different directories.
 #   $1 -- the entry's tag
 #   $2 -- the entry's configured path (may be empty)
 claude_vm_mount_guest_path() {
   local tag="$1" path="$2" prev=""
+  # The `/`, `//` and `/./` literals below are held in VARIABLES rather than
+  # written inline, because a backslash-escaped slash in the REPLACEMENT half of
+  # `${var//pattern/replacement}` is version-dependent: bash >= 4.3 unescapes
+  # `\/` to `/`, while bash 3.2 (the /bin/bash macOS still ships) leaves the
+  # backslash in. Measured on both, running THIS function with its literals
+  # written inline as `${path//\/\//\/}`: bash 3.2 returns `/mnt/repo\` for
+  # `/mnt/repo/`, `\\/mnt\/repo` for `///mnt//repo` and `\/etc` for `/./etc`,
+  # where bash 5.3 returns `/mnt/repo`, `/mnt/repo` and `/etc`. That silently
+  # defeats the whole normalization and with it every guard downstream, and it
+  # is pinned by the old-bash block in test/config-test.sh. A variable expands
+  # to a plain `/` with no escape to interpret, so both shells agree. (The rest
+  # of this file needs bash 4 anyway -- `local -A` in
+  # claude_vm_render_guest_settings -- but that fails LOUDLY and much later in
+  # the launch, long after this function has already decided whether a mount is
+  # safe. A guard must not fail open on the way to someone else's error.)
+  local sl=/ dbl=// dotseg=/./
   [ -n "$path" ] || path="$CLAUDE_VM_GUEST_MOUNT_ROOT/$tag"
-  # Collapse repeated slashes to a fixpoint: one pass over `///` leaves `//`.
+  # Append one trailing slash so a FINAL `.` segment is spelled `/./` like an
+  # interior one and the single collapse below reaches it too (`/etc/.` ->
+  # `/etc/./`). The strip loop then takes this slash back off along with any
+  # the operator wrote.
+  path="$path$sl"
+  # Collapse `//` and `/./` to a fixpoint: one pass over `///` leaves `//`, and
+  # one over `/././` leaves `/./`, because each substitution consumes
+  # non-overlapping matches. Collapsing `/./` can never CREATE a `..` -- the
+  # replacement leaves a `/` between the characters that surrounded the match,
+  # so two dots can only become adjacent if they already were.
   while [ "$path" != "$prev" ]; do
     prev="$path"
-    path="${path//\/\//\/}"
+    path="${path//$dbl/$sl}"
+    path="${path//$dotseg/$sl}"
   done
   # Drop trailing slashes, but never reduce `/` itself to the empty string.
   while [ "${#path}" -gt 1 ] && [ "${path%/}" != "$path" ]; do
@@ -964,18 +1022,29 @@ claude_vm_guest_system_path_containing() {
 #   $1 -- merged BOOT document file path (mounts is a BOOT key)
 claude_vm_check_mounts() {
   local boot_doc="$1" mnt_tab record src rest tag path gpath expanded
-  local idx=0 bad=0 seen_tags=" " seen_paths=" " reserved_tags=" " rtag rpath
+  local idx=0 bad=0 seen_tags=" " reserved_tags=" " rtag rpath spath dup
   local mode_idx mode_src sp container
   local -a reserved_paths=()
+  local -a seen_paths=()
   [ -n "$boot_doc" ] && [ -f "$boot_doc" ] || return 0
   mnt_tab=$'\t'
-  # Space-padded set for the tag membership tests below, and an ARRAY of
-  # reserved mountpoints for the overlap test (which is a relation between two
-  # paths, not a membership test, so it cannot ride a padded string). The
-  # reserved PATHS are derived from the reserved TAGS so the two can never
-  # drift apart: the built-in shares are mounted at <root>/<tag> by the image's
-  # own fstab. The guest wrap mountpoint joins them -- it is not tag-derived,
-  # since the boot launcher creates it rather than the fstab.
+  # Space-padded sets for the TAG membership tests below, and ARRAYS for both
+  # sets of PATHS. A space-padded set is only sound when the value's charset
+  # EXCLUDES the delimiter, and that is true of tags and false of paths: a tag
+  # is charset-validated to [A-Za-z0-9._-] below, while a `path:` is validated
+  # only for absolute-ness and `..`. On a padded string, `path: /opt/a b`
+  # followed by `path: /opt/a` reads as a repeat and aborts a pair of perfectly
+  # distinct mountpoints, so the seen set is an array compared with `=`. (The
+  # tag charset check reports and continues rather than skipping the rest of
+  # the entry, so a tag carrying a space does still reach the padded set --
+  # but that config is ALREADY aborting on the charset line that names the real
+  # defect, so the extra line is detail on a rejected config, never a false
+  # rejection of a good one.) The reserved set has a second reason to be an
+  # array: it is tested by a relation between two paths rather than by
+  # membership. The reserved PATHS are derived from the reserved TAGS so the
+  # two can never drift apart: the built-in shares are mounted at <root>/<tag>
+  # by the image's own fstab. The guest wrap mountpoint joins them -- it is not
+  # tag-derived, since the boot launcher creates it rather than the fstab.
   for rtag in $CLAUDE_VM_RESERVED_MOUNT_TAGS; do
     reserved_tags="${reserved_tags}${rtag} "
     reserved_paths+=("$(claude_vm_mount_guest_path "$rtag" "")")
@@ -1071,7 +1140,12 @@ claude_vm_check_mounts() {
       # a symlink in the middle changes the answer), so a path carrying one
       # cannot be compared against the reserved set below -- `/mnt/x/../repo`
       # would pass every collision check and still land on /mnt/repo. Reject
-      # rather than guess.
+      # rather than guess. Its sibling `.` gets the OPPOSITE treatment, and is
+      # not rejected here: a `.` segment resolves to the directory it sits in
+      # no matter what the guest's filesystem holds, so the normalizer
+      # COLLAPSES it and every check below sees the resolved string. The two
+      # halves of the class, and why each is normalized or rejected, are
+      # enumerated at that function.
       case "/$path/" in
         */../*)
           echo "claude-vm: mounts entry #${idx} ('$src') has path '$path', which contains a '..' segment." >&2
@@ -1146,16 +1220,22 @@ claude_vm_check_mounts() {
         break
       done
     fi
-    case "$seen_paths" in
-      *" $gpath "*)
-        echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', where an earlier entry already" >&2
-        echo "claude-vm:   mounts. The later mount shadows the earlier one, so one of the two directories is" >&2
-        echo "claude-vm:   unreachable inside the guest. Give it its own 'path:' (the default is" >&2
-        echo "claude-vm:   $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>)." >&2
-        bad=1
-        ;;
-      *) seen_paths="$seen_paths$gpath " ;;
-    esac
+    # Whole-string equality against each mountpoint already seen. The
+    # `${a[@]+"${a[@]}"}` guard is for the FIRST entry, when the array is still
+    # empty: bash 3.2 (the /bin/bash macOS ships) treats a bare "${a[@]}" on an
+    # empty array as an unbound variable under `set -u` and kills the launcher.
+    dup=0
+    for spath in ${seen_paths[@]+"${seen_paths[@]}"}; do
+      [ "$spath" = "$gpath" ] || continue
+      echo "claude-vm: mounts entry #${idx} ('$src') would mount at '$gpath', where an earlier entry already" >&2
+      echo "claude-vm:   mounts. The later mount shadows the earlier one, so one of the two directories is" >&2
+      echo "claude-vm:   unreachable inside the guest. Give it its own 'path:' (the default is" >&2
+      echo "claude-vm:   $CLAUDE_VM_GUEST_MOUNT_ROOT/<tag>)." >&2
+      bad=1
+      dup=1
+      break
+    done
+    [ "$dup" -eq 1 ] || seen_paths+=("$gpath")
   done < <(claude_vm_mount_specs "$boot_doc")
   [ "$bad" -eq 0 ]
 }

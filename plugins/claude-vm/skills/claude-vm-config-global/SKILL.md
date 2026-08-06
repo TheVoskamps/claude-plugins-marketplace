@@ -117,7 +117,8 @@ Notes on the forward-looking keys:
   concrete version, downloads that version's GPG-signed manifest,
   verifies the signature against the operator's pinned key,
   checksum-verifies the binary, caches it keyed on the version, and
-  mounts it RO into the guest. `stable` (default) tracks the conservative
+  shares it into the guest, where the image's fstab mounts it `ro`.
+  `stable` (default) tracks the conservative
   stable channel; `latest` tracks the latest channel; a dotted version
   like `2.1.172` pins one concrete release with no channel resolution.
 - **`api.anthropic.com` must stay in `egress.allow`.** Remote Control is

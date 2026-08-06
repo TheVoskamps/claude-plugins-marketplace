@@ -437,7 +437,9 @@ emit_boot_launcher() {
 # failed session is inspectable, powering the guest off when that shell
 # exits. claude is NEVER baked into the image and is NEVER fetched-and-run
 # inside the guest: the host fetches, GPG-manifest-verifies, and caches the
-# binary, and shares it in RO. The guest only runs the already-verified binary.
+# binary, and shares it in (the image's fstab -- provisioners/podman-mkosi.sh --
+# mounts that share `ro`; the RO is guest-side, since vfkit's virtio-fs device
+# has no read-only export). The guest only runs the already-verified binary.
 set -euo pipefail
 
 # Diagnostics go to /dev/console (the BOOT console, hvc0), which the host
@@ -462,8 +464,8 @@ RUNCONFIG_MNT=/mnt/runconfig
 # The host-verified claude binary's containing dir, shared under tag
 # 'claudebin' and mounted here by the guest fstab.
 CLAUDEBIN_MNT=/mnt/claudebin
-# The dir of ALL host-rendered guest ~/.claude files, shared RO under tag
-# 'claudecreds' and mounted here by the guest fstab. It carries the OAuth
+# The dir of ALL host-rendered guest ~/.claude files, shared under tag
+# 'claudecreds' and mounted here `ro` by the guest fstab. It carries the OAuth
 # credential (.credentials.json, a SECRET), the identity seed
 # (claude-json-seed.json, account identity), and the rendered settings.json
 # (permissions + enabledPlugins, NOT a secret) -- not credentials alone. The
@@ -695,12 +697,15 @@ boot_mount_phase \
 # The host read its live claude.ai login from the macOS Keychain, SELECTED
 # only the `claudeAiOauth` key from it (dropping any unrelated mcpOAuth and
 # other siblings -- see claude-vm.sh), and shared the resulting
-# `{"claudeAiOauth": {...}}` file RO into the guest under mountTag=claudecreds.
+# `{"claudeAiOauth": {...}}` file into the guest under mountTag=claudecreds,
+# which THIS image's own fstab mounts `ro` (the host cannot: vfkit's virtio-fs
+# device has no read-only export, so it exports every share read-write).
 # claude reads its credential from $HOME/.claude/.credentials.json, so copy
-# the mounted file there (mode 0600). The RO virtio-fs mount cannot itself BE
-# that writable per-user file, so we copy it into place rather than symlink:
-# claude expects a real, owner-only file at that path. This gives the guest
-# the host operator's full-scope claude.ai login, which Remote Control requires.
+# the mounted file there (mode 0600). The ro-mounted virtio-fs share cannot
+# itself BE that writable per-user file, so we copy it into place rather than
+# symlink: claude expects a real, owner-only file at that path. This gives the
+# guest the host operator's full-scope claude.ai login, which Remote Control
+# requires.
 #
 # claude runs as the autologin getty's user (root, via serial-getty@hvc1), so
 # $HOME is that user's home. Derive the credential dir from $HOME so the
@@ -1107,8 +1112,9 @@ boot_apt_phase
 # is: the HOST resolves the requested channel/pin to a concrete version,
 # downloads that version's GPG-signed manifest, verifies the signature
 # against the operator's pinned key, checksum-verifies the binary against
-# the verified manifest, caches it keyed on the version, and shares it RO
-# into the guest under mountTag=claudebin. So by the time the guest boots,
+# the verified manifest, caches it keyed on the version, and shares it
+# into the guest under mountTag=claudebin, which the image's fstab mounts
+# `ro`. So by the time the guest boots,
 # the binary at $CLAUDEBIN_MNT/claude is ALREADY verified -- the guest runs
 # it directly and never executes `curl https://claude.ai/install.sh | bash`
 # (which is unsigned, unchecksummed, and re-fetched on every boot; see

@@ -265,10 +265,18 @@ is held only in a transient tmpfile outside the share and removed
 immediately after selection.
 
 The selected `{"claudeAiOauth": {...}}` is written to a transient,
-owner-only (`0600`) tmpfile and shared **read-only** into the guest under
-`mountTag=claudecreds`. The guest boot launcher copies it into
-`$HOME/.claude/.credentials.json` (mode `0600`) before launching `claude`,
-so `claude` finds it at the path it expects.
+owner-only (`0600`) tmpfile and shared into the guest under
+`mountTag=claudecreds`, which the image's own fstab mounts `ro`
+(`provisioners/podman-mkosi.sh`). The `ro` is supplied by the **guest**, not
+by the host: vfkit's virtio-fs device has no read-only export, so the host
+shares this exactly as it shares an extra mount — read-write. It is the same
+guest-side `ro` *Where the `ro` on a built-in share comes from* below
+describes, with the same limit: it guards against an accidental write, not
+against a determined one, since the guest session is root and can remount.
+Nothing rests on it — the guest
+boot launcher copies the file into `$HOME/.claude/.credentials.json` (mode
+`0600`) before launching `claude`, so `claude` finds it at the path it
+expects and never needs to write to the share.
 
 The credential is a **secret** and is handled like one:
 
@@ -459,14 +467,37 @@ argv, settings, image identity, and plugin manifests from:
   disagree about what a config line means. The first expands a leading `~`
   to `$HOME` (the config is YAML, not shell, so nothing else does). The
   second returns an entry's guest mountpoint — its `path:` when set, else
-  `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>` — with repeated slashes collapsed
-  and trailing slashes dropped. That normalization is load-bearing rather
-  than cosmetic: without it `path: /mnt/repo/` is a different string from
-  `/mnt/repo` and walks straight past the reserved-mountpoint guard while
-  naming the same guest directory. `..` is deliberately *not* resolved —
-  that needs the guest's filesystem, and a symlink mid-path changes the
-  answer — so the validator rejects a path carrying one instead of
-  guessing.
+  `<CLAUDE_VM_GUEST_MOUNT_ROOT>/<tag>` — with repeated slashes collapsed,
+  `.` segments collapsed, and trailing slashes dropped.
+
+  That normalization is a **security boundary**, not cosmetics. Every guard
+  in `claude_vm_check_mounts` is a string relation over this function's
+  output, and the launcher writes the same output into `mounts.tsv`, so any
+  spelling that reaches the guards un-normalized walks past all of them at
+  once *and* lands the mount at the path they would have rejected. The class
+  is "two strings naming one guest path", and each member is graded by
+  whether the *host* can settle it. Collapsed here, because it can:
+  `//mnt/repo`, `/mnt/repo/`, and a `.` segment in any position — `/./etc`,
+  `/mnt/./repo`, `/etc/.`, and `/.` for the guest root itself. Rejected by
+  the validator, because it cannot: `/mnt/x/../repo` and any relative path.
+  Invisible to both: a guest symlink, where `/bin` and `/usr/bin` name one
+  directory.
+
+  A `.` segment is resolvable because it names the directory it sits in
+  whatever the guest's filesystem holds — unlike `..`, no symlink can change
+  where it lands — so the host collapses it rather than guessing. `..` needs
+  the guest's filesystem and a symlink mid-path changes the answer, so the
+  validator rejects a path carrying one; a relative path depends on the boot
+  launcher's cwd, which is likewise not a host-side fact. A run of three or
+  more dots (`/.../weird`) is an ordinary directory name and is left alone.
+  Guest symlinks are invisible to any normalizer — the image is usr-merged,
+  so `/bin`, `/sbin` and `/lib` are symlinks into `/usr` (measured on
+  `debian:bookworm`/arm64; the `/lib{32,64,x32}` spellings are absent on that
+  arch) — but both names of every such pair are in
+  `CLAUDE_VM_GUEST_SYSTEM_PATHS`, so either spelling hits the denylist, and
+  the guest's own occupancy check is the backstop beyond it. Case folding is
+  not in the class at all: the guest root filesystem is ext4, so `/Etc` and
+  `/etc` are genuinely different directories.
 
   `claude_vm_guest_path_covers` is the directed relation: is path A equal to
   B, or a proper ancestor of it? It appends a `/` to each side so a prefix
@@ -809,6 +840,27 @@ need not be spelled `mode:`, and whatever it is spelled, every surface listed
 in the root `CLAUDE.md`'s *no read-only mounts* sweep says today that no such
 key exists.
 
+*Where the `ro` on a built-in share comes from.* claude-vm's own shares —
+`runconfig`, `claudebin`, `claudecreds` — are described throughout this
+document and the scripts as read-only, and that is true of the **mount**, never
+of the **share**. The paragraph above applies to them exactly as it does to an
+extra mount: each is attached as a plain
+`--device virtio-fs,sharedDir=…,mountTag=…`, the only shape vfkit accepts, so
+the host exports all three read-write. The `ro` is supplied guest-side, by the
+image's own `/etc/fstab` (`provisioners/podman-mkosi.sh`):
+
+```text
+claudecreds   /mnt/claudecreds   virtiofs   ro,nofail     0 0
+```
+
+It therefore carries the same limit as any guest-side `ro`: it stops an
+accidental write, not a determined one, because the guest session is root and
+can remount. Nothing in the boot rests on it — the launcher **copies** each
+mounted file into `$HOME/.claude/` (mode `0600`) and runs the binary off the
+share rather than writing to it. Say "shared into the guest, where the image's
+fstab mounts it `ro`" rather than "shared read-only into the guest"; the latter
+puts the guarantee on the side of the seam that cannot make it.
+
 *Single-file sources.* virtio-fs shares directories only, so a file source is
 **wrapped**: the launcher makes a per-entry directory, puts the file in it,
 shares *that*, and the guest mounts the wrap at a hidden
@@ -1136,7 +1188,9 @@ command (which must still read `$CLAUDE_VM_EGRESS_ALLOWLIST`).
 ## Verified claude cache (`lib/claude-cache.sh`)
 
 The `claude` binary the guest runs is fetched, verified, and cached
-**host-side**, then mounted RO into the guest — the guest never runs
+**host-side**, then shared into the guest and mounted `ro` there by the
+image's fstab (see *Where the `ro` on a built-in share comes from* above) —
+the guest never runs
 `curl https://claude.ai/install.sh | bash` on the trusted path. Driven
 by the `claude.version` scalar (`stable` | `latest` | a pinned version
 like `2.1.172`):
@@ -1154,8 +1208,9 @@ like `2.1.172`):
 4. read the `linux-arm64` SHA256 from the signature-verified manifest;
 5. download the binary; verify its SHA256 against the manifest;
 6. cache the verified binary under
-   `~/.config/claude-vm/cache/<version>/linux-arm64/claude` and mount it
-   RO into the guest (`mountTag=claudebin`).
+   `~/.config/claude-vm/cache/<version>/linux-arm64/claude` and share it
+   into the guest (`mountTag=claudebin`), where the image's fstab mounts it
+   `ro`.
 
 Since issue #107 this whole block runs **before** the on-demand image build,
 not after it: the build's plugin bake step drives this same guest-platform

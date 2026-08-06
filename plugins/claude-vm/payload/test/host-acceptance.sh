@@ -414,7 +414,8 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #   - repo: an empty dir the seam cd's into (the stub claude does not
   #     require repo contents).
   #   - claudebin: the dir holding the (host-verified) claude binary, shared
-  #     RO under mountTag=claudebin (issue #49). The real launcher caches a
+  #     under mountTag=claudebin and mounted `ro` by the guest fstab (issue
+  #     #49 -- the RO is guest-side). The real launcher caches a
   #     GPG-verified binary here; for THIS boot test we stand up a STUB
   #     `claude` that prints a recognizable marker and exits, so the seam's
   #     `"$CLAUDE_BIN" "$@"` actually runs and we can confirm the guest ran
@@ -422,7 +423,8 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     run by the guest's /bin/sh -- adequate to prove the mount+run path
   #     without a real linux-arm64 claude artifact.
   #   - claudecreds: the dir holding the host's claude.ai OAuth credential,
-  #     shared RO under mountTag=claudecreds (issue #50). The real launcher
+  #     shared under mountTag=claudecreds and mounted `ro` by the guest fstab
+  #     (issue #50 -- the RO is guest-side). The real launcher
   #     extracts it from the macOS Keychain; for THIS boot test we stand up a
   #     STUB .credentials.json so the boot launcher's credential-install step
   #     (copy to $HOME/.claude/.credentials.json) runs without aborting under

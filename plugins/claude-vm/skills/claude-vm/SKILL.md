@@ -11,7 +11,8 @@ mounts, the proxy, and how the repo is made available to the guest —
 comes from layered **YAML config** rather than environment variables.
 The guest authenticates with the **host's live claude.ai OAuth
 credential**, which the launcher extracts from the macOS Keychain at
-launch and shares RO into the guest, plus an **identity seed** the
+launch and shares into the guest (where the image's fstab mounts the share
+`ro`), plus an **identity seed** the
 launcher builds from your host `~/.claude.json` — the `userID` +
 `oauthAccount` selected from the host, plus synthesized
 `hasCompletedOnboarding` / `autoUpdates: false` / version keys — so the
@@ -375,7 +376,8 @@ github:
   (`2.1.172`). The host resolves a channel to a concrete version,
   downloads that version's GPG-signed manifest, verifies the signature
   against the operator's pinned key, checksum-verifies the binary, caches
-  it keyed on the version, and mounts it RO into the guest. A failed
+  it keyed on the version, and shares it into the guest, where the image's
+  fstab mounts it `ro`. A failed
   `gpg --verify` or a checksum mismatch **aborts the launch**. On a warm
   boot (already cached), the launcher drops `claude.ai` /
   `downloads.claude.ai` from the guest egress allowlist. See the payload
@@ -872,8 +874,12 @@ only the `claudeAiOauth` key** and writes a file in the shape `claude`
 expects, `{"claudeAiOauth": { ... }}` (selection via `lib/credential.sh`,
 using `python3`; unit-tested in `payload/test/credential-test.sh`). The
 selected credential is written to a transient, owner-only (`0600`)
-tmpfile and shared **read-only** into the guest under
-`mountTag=claudecreds`. The guest boot launcher copies it into
+tmpfile and shared into the guest under `mountTag=claudecreds`, **which the
+image's fstab mounts `ro`**. The `ro` is guest-side, not host-side — vfkit's
+virtio-fs device has no read-only export, so the host shares this exactly as
+it shares an extra mount, and the same caveat applies: a guest-side `ro`
+stops an accidental write, not a determined one, since the guest session is
+root. Nothing rests on it — the guest boot launcher copies the file into
 `$HOME/.claude/.credentials.json` (mode `0600`) before launching
 `claude`.
 

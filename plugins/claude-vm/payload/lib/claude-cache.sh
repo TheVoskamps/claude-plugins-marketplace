@@ -10,7 +10,9 @@
 # GPG-signed manifest, verifies the signature against a pinned key,
 # checksum-verifies the downloaded binary against the signature-verified
 # manifest, and caches the verified binary keyed on the resolved version.
-# The launcher then mounts the cached binary RO into the guest.
+# The launcher then shares the cached binary into the guest, where the image's
+# fstab mounts it `ro` (the RO is guest-side: vfkit's virtio-fs device has no
+# read-only export, so the host exports every share read-write).
 #
 # Root of trust (resolved in issue #39): the GPG-signed
 # `manifest.json.sig`. Trusting install.sh's own built-in checksum is
