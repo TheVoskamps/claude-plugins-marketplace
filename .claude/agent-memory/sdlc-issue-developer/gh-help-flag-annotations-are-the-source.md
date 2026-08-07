@@ -31,35 +31,19 @@ that spuriously escalates routine commands. gh 2.97.0 was the version
 audited for #229.
 
 **How to apply:** whenever gate work (or any argv parser) needs gh's
-flag grammar. The exceptions the annotation alone gets wrong, all
-found in #229:
+flag grammar. Two things the extraction alone will not give you, both
+already written down in `classify_gh_files.go` — read the annotation
+notes on `ghFileSpecs` rather than re-deriving them:
 
-- `--recover` on `pr create` / `issue create` is annotated `string` but
-  IS a file path — gh calls `shared.FillFromJSON(opts.IO,
-  opts.RecoverFile, state)` on it. Verified against
-  `cli/cli` `pkg/cmd/pr/create/create.go`, not inferred.
-- `-a`/`--add` on `gist edit` is annotated `string` but names a LOCAL
-  file. Its help EXAMPLES block is what settles it against the
-  `--filename` sibling, which selects a file INSIDE the gist; the
-  FLAGS block alone ("Select a file to edit" / "Add a new file to the
-  gist") does not distinguish them.
-- `--template` differs BY VERB: `gh pr create -T` is annotated `file`,
-  `gh issue create -T` is annotated `name` (resolved server-side). A
-  union flag table across verbs would flatten that distinction, which is
-  why `ghFileSpecs` is keyed by noun AND verb.
-
-Those are the whole residue against gh 2.97.0: `--recover` and
-`--add` are the only members of `ghFileSpecs`'s path-flag set that gh
-does not annotate `file`, and no flag it DOES annotate `file` is
-outside that set — checked by dumping the FLAGS block of all 26
-modelled verbs.
-
-The annotation is the source for a flag's TYPE; it is not the whole
-accepted grammar, and #232's review round found the gap. gh parses with
-cobra/pflag, and pflag accepts two spellings help never prints: `-h`
-(unregistered `h` → `f.usage()` + `ErrHelp`, so it works on every verb
-though only `--help` is rendered) and `-F=FILE`, where pflag strips the
-`=` (`len(shorthands) > 2 && shorthands[1] == '='`) and getopt does not
-— so a getopt-shaped walk reads `-F=/etc/passwd` as the in-repo
-`=/etc/passwd`. Its bool sibling `-p=f` is `--public=false` and ENDS the
-token. Model those by hand; no re-reading of `--help` will surface them.
+- The annotation understates the file gh really opens for a few flags,
+  and `--template` differs BY VERB, which is why the spec table is
+  keyed by noun AND verb rather than unioned. Settle such a case
+  against `cli/cli`'s own source (`gh api
+  "repos/cli/cli/contents/<path>?ref=v<VER>"`) or the verb's EXAMPLES
+  block, never by inference from the FLAGS description.
+- The annotation is the source for a flag's TYPE; it is not the whole
+  accepted grammar. gh parses with cobra/pflag, and pflag accepts
+  spellings help never prints (`-h` on every verb, and `-F=FILE`, where
+  pflag strips the `=` and getopt does not). Model those by hand; no
+  re-reading of `--help` will surface them, and the containment
+  consequence is in the gate's own comments and tests.

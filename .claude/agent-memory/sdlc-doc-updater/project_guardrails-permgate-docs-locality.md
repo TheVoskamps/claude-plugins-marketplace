@@ -15,14 +15,15 @@ relevant paragraph already rewritten before doc-updater ran). Almost no
 other markdown in the repo describes gate *behavior* —
 `plugins/block-background-agents/README.md` and the top-level
 `README.md` reference the gate only by name/existence, same pattern as
-[[project_github-setup-docs-locality]]. The real sibling is
-`plugins/guardrails/rules/scratch-file-location.md`, which carries
-verdicts wherever they decide WHERE an agent should park a scratch file
-(the containment/`.git/` denies and their prescriptive wording, plus
-the #225 redirect and the #229 publish read). It is the surface the
-developer
-never updates, because the code change is in the gate and the rule file
-is prose about agent habits.
+[[project_github-setup-docs-locality]]. The repo's `CLAUDE.md` holds
+the authoritative version of this locality claim, including the
+`plugins/guardrails/rules/scratch-file-location.md` sibling and the
+`.claude/agent-memory/` exception; read it there rather than trusting a
+copy here. What it does not say is *why* that rule file rots: the
+developer never updates it, because the code change is in the gate
+while the rule file is prose about agent habits. The memory-tree
+exception has a doc-updater-specific rider too — those notes are a
+surface you must know about and must not curate.
 
 The in-code Go doc comments (`rules.go`, `gh_api_gate.go`) are also
 kept meticulously current by the developer — dense, accurate,
@@ -190,148 +191,83 @@ value's `github.com` contains a `t`. When a Go comment and the README
 describe one screen at different strictness, the comment is usually the
 measured one — probe, then bring the README up to it.
 
-**Round 6 shape: the false claim was the SCOPE JUSTIFICATION
-(#229, PR #232).** A new track (grading the local files a `gh` publish
-verb sends to GitHub) shipped with an accurate mechanism paragraph and
-one false sentence explaining what it deliberately left out: "every
-`gh api` form carrying a request body already asks for method reasons,
-so there is no allow to close".
-Probing refutes it — `gh api -X GET -F q=@/etc/passwd
-repos/o/r` ALLOWs (classifyGhAPI's explicit-GET carve-out falls through
-to the REST allowlist), and the graphql `-F query=@file` form DENIES
-rather than asking. The same sentence also lumped `-f`/`-F` as doing
-`@file` expansion when only `-F`/`--field` and `--input` do — the
-slash-joined-list defect again, in a sentence whose whole job was to say
-why the omission was safe. **How to apply:** an "out of scope because X
-already covers it" sentence is a claim about the OTHER track; go read
-that track's code and probe the exact form it names, exactly as for a
-reach claim. Two more per-round finds worth the same reflex: a doc
-comment that names the test asserting an invariant
-(`TestGhFileSpecsAreWellFormed` — no such test; it is
-`TestGhFileSpecsPathFlagsAreValueFlags_229`, so grep the name), and a
-"reaches here rather than the precondition deny because `-F` is
-shielded" claim that probing flips (`gh pr comment -F $BODY` denies —
-gh FIELD flags shield a dynamic value only when the `key=` is pinned;
-what reaches the new ask is `-t`/`--template`).
+**On a gate PR the residue is never the mechanism paragraph — it is a
+JUSTIFICATION sentence.** Six consecutive rounds of #229 (PR #232) each
+found the README, the Go comments and even the structural counts
+already correct, and each false claim was a sentence saying why
+something was left out, narrowed, or safe. The recurring shapes, all
+worth one probe before they stand:
 
-**Round 7 shape: the SHORT/LONG spelling of a slash-joined flag pair
-(#229, PR #232, fix round).** The fixer's comment said a dynamic value
-on `-t`/`--template` reaches the new publish-file ask "and on
-`gh pr create` that flag names a local template FILE". Probing splits
-the pair three ways: `--template $X` asks (shielded AND a path flag),
-`-t $X` allows (`-t` is that verb's `--title`), `-T $X` denies at the
-non-static-argv precondition (`-T` is the path flag but is absent from
-`ghShieldingFlags`). The shield table and the per-verb spec table name
-flags in DIFFERENT spellings, so a pair copied from one is wrong in the
-other — split the pair and probe each spelling. Same round, the
-"only gist create reads stdin implicitly" contrast enumerated
-`pr comment`, `gist edit` and `release create` as "each require an
-explicit `-` or a filename": `gh <verb> --help` settles it, and
-`gist edit` documents no `-` at all (its file is the positional). That
-one is [[feedback_no-blanket-predicate-over-a-list]] again, and gh's
-own `--help` is the cheap check for any claim about upstream gh
-grammar.
+- **"Out of scope because the OTHER track already covers it."** That is
+  a claim about the other track's code: read it, and probe the exact
+  form it names. `gh api -X GET -F q=@/etc/passwd repos/o/r` ALLOWs
+  (classifyGhAPI's explicit-GET carve-out falls through to the REST
+  allowlist) while the graphql `-F query=@file` form DENIES, so "every
+  `gh api` form carrying a body already asks" was false in both
+  directions. The same sentence lumped `-f`/`-F` as doing `@file`
+  expansion when only `-F`/`--field` and `--input` do.
+- **A slash-joined flag pair.** Split it and probe each spelling: the
+  shield table and the per-verb spec table name flags in DIFFERENT
+  spellings, so a pair copied from one is wrong in the other. On
+  `gh pr create`, `--template $X` asks (shielded AND a path flag),
+  `-t $X` allows (`-t` is that verb's `--title`) and `-T $X` denies at
+  the non-static-argv precondition. A shield claim needs the same
+  probe: gh FIELD flags shield a dynamic value only when the `key=` is
+  pinned, so `gh pr comment -F $BODY` denies.
+- **A blanket predicate over a list of verbs** — "each requires an
+  explicit `-` or a filename" — is
+  [[feedback_no-blanket-predicate-over-a-list]] again; `gh <verb>
+  --help` is the cheap check for any claim about upstream gh grammar
+  (`gist edit` documents no `-` at all; its file is the positional).
+- **A doc comment naming the test that asserts an invariant.** Grep the
+  name: `TestGhFileSpecsAreWellFormed` did not exist.
+- **"The whole vocabulary / every form gh's help renders."** Settle it
+  by dumping help for every pair in the table, INHERITED FLAGS
+  included — that block is per-verb too, giving `--help` on all 26
+  modelled pairs but `-R`/`--repo` on only 24, since a gist is not a
+  repo resource and the gate folds the pair into every spec regardless.
+- **A quoted USAGE line.** Each spec's `filePositionalsFrom` is
+  justified BY that quote, so an abridged one is a live defect: gh
+  2.97.0 renders `[<tag>]` optional and offers a `<pattern>`
+  alternative, and dropping either removes exactly the fact a reader
+  checks. Dump `gh <noun> <verb> --help | sed -n '/^USAGE/,/^$/p'` per
+  verb with a file positional. The behavior was fine — a `<pattern>`
+  reaches the gate as one word and containment resolves its escaping
+  prefix without expanding it — but nothing said so, which is the gap
+  the abridged quote created.
 
-**Round 8 shape: the docs were right and the SURFACE was missing
-(#229, PR #232, pflag round).** Modelling gh's pflag-only spellings
-(`-F=FILE`, the unrendered `-h`, the `=` stop in both gh-local cluster
-walks) landed with the README paragraph, the Go comments and even the
-"26 modelled pairs" count already correct — every structural claim
-checked out (`grep -c 'ghSpec('` minus the func definition = 26; `-p=f`
-really would have eaten `gh gist create -p=f /etc/passwd`'s operand).
-The doc work was one level up: a track that grades a NEW CLASS OF PATH
-changes which destinations are safe for agent scratch, so
-`scratch-file-location.md` needed the publish-read note and `CLAUDE.md`
-needed its locality claim amended. **How to apply:** when a gate PR
-extends grading to a path an agent chooses (a body file, a redirect
-target, an upload operand), ask which prescriptive rule file tells
-agents where to put that path — the README will be current and that
-file will not.
+Dump gh help from a scratchpad SCRIPT, not inline: the gate blocks
+`gh "$noun" "$verb"` as non-static argv.
 
-**Round 9 shape: a PARTIAL prose sweep by the fixer (#229, PR #232).**
-The pflag round amended two of three sibling statements about the same
-helper and left the file header asserting "extracts a flag's value in
-every spelling" twenty lines above "the one spelling it does not
-cover". A fixer that changes a mechanism greps for the paragraph it
-remembers writing, not for every restatement, so a *self-contradicting
-file* is the expected residue of a mechanism-narrowing round — grep the
-changed `.go` file for the helper's own name AND for the phrase the
-round narrowed ("every spelling", "COMPLETE", "all three", "taken
-from") and read every hit. Two neighbours carried the same residue: a
-docstring calling `gh <noun> <verb> --help` the source of a flag table
-that `-h` is now hand-added to, and a justification comment saying
-"every character before j was a modelled bool" for a loop that consults
-`valueFlags` only (an unmodelled character reaches the same branch).
-The generalizable check for that last one: when a comment says what a
-loop already established about earlier iterations, list the maps the
-loop actually consults — a `continue` on "not in map A" proves nothing
-about map B. Also worth carrying forward: a shared helper's doc comment
-that says "every spelling the utility accepts" gains a NEW caller with
-a different parser and becomes the belief the hole came from — scope
-such a sentence to its parser (getopt vs pflag) at the helper itself.
+**A mechanism-narrowing round leaves a self-contradicting file.** A
+fixer greps for the paragraph it remembers writing, not for every
+restatement, so expect a file header still asserting "extracts a flag's
+value in every spelling" twenty lines above "the one spelling it does
+not cover". Grep the changed `.go` for the helper's own name AND for
+the phrase the round narrowed ("every spelling", "COMPLETE", "all
+three", "taken from") — with a whole-file `perl -0777` slurp rather
+than a line-oriented grep, because the phrase wraps across two `//`
+lines and a line grep misses exactly the copy that matters. Sites that
+reliably survive two consecutive sweeps: the thin WRAPPER above the
+callee that was just scoped (`pathFlagValues` over
+`pathFlagValueRefs`, and the wrapper is the half with the callers), the
+field docs of the maps handed to it (`inRepoWriteSpec.pathValueFlags`),
+the README's paragraph for the OLDER track, and a test-table comment.
+Grade every hit rather than only the named ones, and pass the ones
+already scoped: a claim that names its own parser ("in every spelling
+gh accepts") or enumerates the spellings right after itself carries no
+defect. Scope such a sentence to its parser (getopt vs pflag) at the
+helper itself. Sibling check when a comment states what a loop
+established about earlier iterations: list the maps the loop actually
+consults — a `continue` on "not in map A" proves nothing about map B.
 
-Scoping that sentence at ONE helper is not the sweep. Round 4 of #229
-found the same unqualified claim still standing on the thin WRAPPER
-(`pathFlagValues`) thirty lines above the callee that had just been
-scoped (`pathFlagValueRefs`) — and the wrapper is the half with the
-callers, so it is the sentence every other track reads. Two more copies
-sat on the field docs of the maps handed to it
-(`inRepoWriteSpec.pathValueFlags`) and in the gate README's read-track
-paragraph, plus one in a test-table comment. Two consecutive sweeps
-each stopped at the sites they were handed. What made them stoppable: a
-line-oriented `grep "every spelling"` MISSES the wrapper, because the
-phrase wraps across two `//` lines — use a whole-file perl slurp
-(`perl -0777` over `(every|all|any|each) ... spelling`) so wrapped
-copies show up, and grade every hit rather than only the named ones.
-Not every hit is a defect: a claim that names its own parser ("in every
-spelling gh accepts", on the gh walk) or that enumerates the spellings
-right after itself is already scoped.
-
-**Round 10 shape: the INHERITED FLAGS block is per-verb too (#229,
-PR #232).** A round that derived every enumeration mechanically from
-`ghFileSpecs` still left two claims about *gh itself* wrong, because
-both were checked against the verbs' own FLAGS blocks only. `gh <noun>
-<verb> --help` renders a second block, and it is NOT uniform: dumping
-it for all 26 modelled pairs gives `--help` on 26 and
-`-R, --repo [HOST/]OWNER/REPO` on 24 — `gist create` and `gist edit`
-answer both spellings with `unknown flag` (a gist is not a repo
-resource), while the gate folds the pair into every spec regardless.
-The same omission falsified the sibling claim that the non-`file`
-annotation list was "the whole vocabulary the value-taking flags of
-this table's verbs are annotated with": it dropped `file` itself and
-`[HOST/]OWNER/REPO`. **How to apply:** any claim of the form "the whole
-X gh's help renders" must be settled by dumping the help for every pair
-in the table (a scratchpad script — the gate blocks
-`gh "$noun" "$verb"` as non-static argv, so run it from a file, not
-inline), and the dump must include the INHERITED FLAGS block, not just
-FLAGS.
-
-**Round 11 shape: the USAGE line is a claim surface the FLAGS sweep
-misses (issue #229, PR #232).** Round 10 derived every enumeration from
-the verbs' FLAGS and INHERITED FLAGS blocks and left the *positional*
-grammar unaudited — yet that grammar is quoted verbatim to justify each
-spec's `filePositionalsFrom`. Two of four quotes were abridged:
-`gh gist create <filename>...` and `gh release create <tag>
-[<filename>...]` both drop the `<pattern>` alternative gh 2.97.0
-renders, and the latter promotes an optional `[<tag>]` to a required
-one — exactly the optionality a reader checks when asking why index 0
-is skipped. The sites had drifted apart from each other too: the
-`release create` spec's own inline comment spelled `[<tag>]` right
-while the type-level doc twenty lines above did not. Settle it by
-dumping `gh <noun> <verb> --help | sed -n '/^USAGE/,/^$/p'` for every
-verb with a file positional, from a scratchpad script (the gate blocks
-`gh "$noun" "$verb"` as non-static argv). The behavior was fine — a
-`<pattern>` operand reaches the gate as one word and containment
-resolves its escaping prefix without expanding it, so
-`gh release create v1 '../sib/*.tgz'` denies and `gh gist create
-'*.md'` allows — but nothing said so, which is the doc gap the
-abridged quote created.
-
-Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
-has one real exception: `.claude/agent-memory/` notes teach agents to
-route around gate verdicts and are silently falsified when a verdict
-changes (#225 had to delete two). doc-updater must not curate them, but
-must know they exist as a surface.
+**When a gate PR grades a NEW CLASS OF PATH, the doc work is one level
+up.** Expect the README, the Go comments and the counts to be current;
+ask instead which prescriptive rule file tells agents where to put that
+path — a body file, a redirect target, an upload operand. A track that
+changes which destinations are safe for agent scratch falsifies
+`plugins/guardrails/rules/scratch-file-location.md` and `CLAUDE.md`'s
+locality claim, and the developer edits neither.
 
 **Gate PACKAGING facts are the exception to the locality rule above.**
 The `CLAUDE.md` trigger for that sweep was narrowed in PR #227: it used
