@@ -423,6 +423,90 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 	},
 }
 
+// ghGistCreateIsPublic reports whether an invocation of `gh gist create` NAMES
+// the `--public` flag. args is the token tail after `gist create`.
+//
+// It answers the #64 publish ASK in rules.go, which previously tested only the
+// long spelling and so let `gh gist create -p body.md` publish a public gist
+// with no human in the loop — irreversible exposure of repo content to a URL
+// that outlives any local cleanup. Containment denied an ESCAPING path in both
+// spellings throughout, so the gap was in the exposure tier, not in
+// exfiltration.
+func ghGistCreateIsPublic(args []string) bool {
+	return ghBoolFlagNamed(args, ghFileSpecs["gist"]["create"], "-p", "--public")
+}
+
+// ghBoolFlagNamed reports whether args NAMES a bool flag, in every spelling
+// pflag accepts it: the long form bare or `=`-joined, the short form bare or
+// `=`-joined, and the short form anywhere in a cluster of bools.
+//
+// It reports the flag being NAMED, not the value it was given, so
+// `--public=false` and `-p=false` — which both mean NOT public — escalate as
+// well. That over-ask is deliberate and it is the behaviour the long spelling
+// already had (`hasFlagPrefix(args, "--public=")` never looked at the value);
+// making the short spelling match it keeps the two symmetric, which is the
+// whole point of the fix. Reading the value instead would have to reimplement
+// pflag's ParseBool acceptance (`1`, `t`, `T`, `true`, `TRUE`, `True` and their
+// negatives) exactly, and any divergence there is a silent MISS on a genuinely
+// public gist, whereas the over-ask costs one click on a spelling that says
+// "secret" the long way round.
+//
+// The cluster walk is pflag's, measured against gh 2.97.0, and it is the same
+// walk ghFilePositionalRefs and ghUnmodelledFlagAsk make:
+//
+//   - a value-taking shorthand consumes the rest of the cluster, so `-dp` is
+//     `--desc p` and names no `--public` at all (gh runs it and reads the file
+//     operand, where `-pd <path>` instead errors on a missing `-d` value);
+//   - an `=` after a shorthand ends the token and hands the remainder to THAT
+//     shorthand, so `-pw=zzz` fails ParseBool on `--web` while `-wp=zzz` fails
+//     on `--public` — both measured;
+//   - an UNMODELLED cluster character is walked past rather than treated as
+//     value-taking, so `-Zp` still reports the flag. gh rejects that token
+//     outright (`unknown shorthand flag: 'Z' in -Zp`) and ghUnmodelledFlagAsk
+//     escalates it anyway, so the broader reading costs nothing;
+//   - everything after `--` is an operand, so `gh gist create -- -p` names a
+//     FILE called `-p`, which is exactly how ghFilePositionalRefs reads it.
+func ghBoolFlagNamed(args []string, spec ghFileSpec, short, long string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			return false // the rest are operands
+		case !strings.HasPrefix(a, "-"), a == "-":
+			continue // a positional
+		case strings.HasPrefix(a, "--"):
+			name := a
+			glued := false
+			if eq := strings.IndexByte(a, '='); eq >= 0 {
+				name, glued = a[:eq], true
+			}
+			if name == long {
+				return true
+			}
+			if spec.valueFlags[name] && !glued && i+1 < len(args) {
+				i++ // consume the separate value token
+			}
+		default:
+			for j := 1; j < len(a); j++ {
+				if a[j] == '=' && j > 1 {
+					break // the remainder is the preceding shorthand's value
+				}
+				f := "-" + string(a[j])
+				if f == short {
+					return true
+				}
+				if spec.valueFlags[f] {
+					if j+1 >= len(a) && i+1 < len(args) {
+						i++ // the value is the next token
+					}
+					break
+				}
+			}
+		}
+	}
+	return false
+}
+
 // ghPublishedFileEscalates grades the LOCAL files a gh publish command reads and
 // sends to GitHub, and returns a terminal decision when one of them cannot be
 // vouched for. cmd is the flag-stripped command path (noun verb …) that

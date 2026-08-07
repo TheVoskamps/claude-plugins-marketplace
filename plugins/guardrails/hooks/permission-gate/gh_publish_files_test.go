@@ -176,10 +176,12 @@ func TestGhPublishFileContainedPathAllows_229(t *testing.T) {
 			"#229 an `=` that is part of the path must not be stripped: "+cmd)
 	}
 	// A contained positional file operand keeps `gist create`'s secret-gist ALLOW,
-	// including behind pflag's `-p=false` spelling of a bool.
+	// including behind pflag's `=`-joined spelling of a short bool. `-w=f`
+	// (`--web=false`) carries that shape without naming `--public`, whose own
+	// escalation is asserted in TestGhGistPublicShorthandAsks_229.
 	wantBucket(t, classifyInRepo(t, "gh gist create notes.md", repo), BucketAllow,
 		"#229 contained publish: gist create notes.md")
-	wantBucket(t, classifyInRepo(t, "gh gist create -p=f notes.md", repo), BucketAllow,
+	wantBucket(t, classifyInRepo(t, "gh gist create -w=f notes.md", repo), BucketAllow,
 		"#229 contained publish behind an `=`-joined short bool")
 	wantBucket(t, classifyInRepo(t, "gh gist edit abc123 notes.md", repo), BucketAllow,
 		"#229 contained publish: gist edit notes.md")
@@ -513,6 +515,158 @@ func TestGhFilePositionalRefsStopAtPflagEquals_229(t *testing.T) {
 	}
 }
 
+// --- The public-gist ASK covers every spelling of `--public` ------------------
+
+// gh documents `-p` as the shorthand for `--public`, so a publish ASK keyed on
+// the long spelling alone let `gh gist create -p notes.md` publish a PUBLIC gist
+// with no human in the loop at all. Containment still denied an escaping path in
+// both spellings, so what was missing was the #64 exposure tier, not a
+// containment hole.
+//
+// Every row was measured against gh 2.97.0 rather than reasoned from pflag:
+// `-p=zzz`, `-wp=zzz` and `--public=zzz` each fail ParseBool naming
+// `"-p, --public"`, `-pw=zzz` fails naming `"-w, --web"` (so the `=` binds to
+// the shorthand immediately before it), and `-pd <path>` parses far enough that
+// gh starts creating the gist — `-p` really is consumed as a bool and `-d` then
+// eats the following token.
+func TestGhGistPublicShorthandAsks_229(t *testing.T) {
+	repo := ghPublishRepo(t)
+	for _, cmd := range []string{
+		// The long spellings, which already asked.
+		"gh gist create --public notes.md",
+		"gh gist create --public=true notes.md",
+		"gh gist create --public=false notes.md",
+		// The shorthand, bare and `=`-joined.
+		"gh gist create -p notes.md",
+		"gh gist create -p=true notes.md",
+		"gh gist create -p=false notes.md",
+		"gh gist create -p=f notes.md",
+		// Inside a cluster of bools, in either order, and with the cluster's
+		// `=`-joined value belonging to the OTHER flag.
+		"gh gist create -pw notes.md",
+		"gh gist create -wp notes.md",
+		"gh gist create -pw=false notes.md",
+		"gh gist create -wp=false notes.md",
+		// After the operand, and with the operand supplied by gh's own implicit
+		// stdin default rather than by argv.
+		"gh gist create notes.md -p",
+		"gh gist create -p",
+		"gh gist create -p < notes.md",
+		// `-d` eats the token after the cluster, so `notes.md` is still the file
+		// operand and `-p` is still `--public`.
+		"gh gist create -pd x notes.md",
+	} {
+		wantReason(t, classifyInRepo(t, cmd, repo), BucketAsk, "publishes a public gist",
+			"#229 public-gist ask: "+cmd)
+	}
+	// An ESCAPING path outranks the publish ask in every spelling of the flag —
+	// the grading runs above this tier precisely so the exposure prompt is not
+	// offered as a click-through past a containment deny.
+	for _, cmd := range []string{
+		"gh gist create -p /etc/passwd",
+		"gh gist create -pw /etc/passwd",
+		"gh gist create --public /etc/passwd",
+		"gh gist create -p < /etc/passwd",
+	} {
+		wantReason(t, classifyInRepo(t, cmd, repo), BucketDeny, "resolves outside the current repository",
+			"#229 escaping path outranks the public-gist ask: "+cmd)
+	}
+}
+
+// The mirror direction: a spelling that does NOT name `--public` keeps the
+// secret-gist ALLOW, so the ask above is the flag being named and not a `p`
+// appearing anywhere in argv.
+func TestGhGistNonPublicSpellingsAllow_229(t *testing.T) {
+	repo := ghPublishRepo(t)
+	for _, cmd := range []string{
+		"gh gist create notes.md",
+		"gh gist create p.md",
+		"gh gist create -w notes.md",
+		"gh gist create -w=f notes.md",
+		// A value-taking shorthand swallows the `p`: `--desc p` / `--filename p`.
+		"gh gist create -dp notes.md",
+		"gh gist create -fp notes.md",
+		"gh gist create -d p notes.md",
+		"gh gist create --desc=p notes.md",
+		// After `--`, `-p` is a FILE named `-p`, which is how the positional
+		// walk reads it too.
+		"gh gist create -- -p",
+	} {
+		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAllow, "#229 not a public gist: "+cmd)
+	}
+}
+
+// The screen itself, unit-tested where classifyGh cannot reach it: a cluster
+// carrying an UNMODELLED character reports the flag (the broad direction, since
+// gh rejects `-Zp` outright and ghUnmodelledFlagAsk escalates it first), and a
+// separate-token value that happens to spell `-p` does not.
+func TestGhBoolFlagNamed_229(t *testing.T) {
+	spec := ghFileSpecs["gist"]["create"]
+	for _, tc := range []struct {
+		args []string
+		want bool
+		why  string
+	}{
+		{[]string{"-p"}, true, "bare shorthand"},
+		{[]string{"--public"}, true, "bare long form"},
+		{[]string{"-p=false"}, true, "named, whatever the value"},
+		{[]string{"--public=false"}, true, "named, whatever the value"},
+		{[]string{"-wp"}, true, "second in a cluster of bools"},
+		{[]string{"-Zp"}, true, "an unmodelled cluster character is walked past, not read as value-taking"},
+		{[]string{"-dp"}, false, "`-d` is value-taking, so the `p` is its value"},
+		{[]string{"-w=p"}, false, "the `=` ends the token; `p` is `--web`'s value"},
+		{[]string{"--desc", "-p", "x.md"}, false, "a separate-token value that happens to spell the flag"},
+		{[]string{"-d", "-p", "x.md"}, false, "the same, in the short spelling"},
+		{[]string{"--", "-p"}, false, "after `--` every token is an operand"},
+		{[]string{"notes.md"}, false, "no flag at all"},
+		{[]string{"-R", "owner/repo", "-p"}, true, "an inherited value flag consumes only its own value"},
+	} {
+		if got := ghBoolFlagNamed(tc.args, spec, "-p", "--public"); got != tc.want {
+			t.Errorf("#229 ghBoolFlagNamed(%q) = %v, want %v (%s)", tc.args, got, tc.want, tc.why)
+		}
+	}
+}
+
+// The negative control for the shorthand fix: the screen this REPLACED — the
+// presence of the long spelling alone — must miss exactly the rows the fix adds
+// and agree with the new screen on every row it does not. Without it, a row like
+// `--public notes.md` looks like coverage the fix bought when it was already
+// asking, and a `-p` row proves nothing about what used to happen.
+func TestGhGistPublicShorthandNegativeControl_229(t *testing.T) {
+	spec := ghFileSpecs["gist"]["create"]
+	preFix := func(args []string) bool {
+		return containsToken(args, "--public") || hasFlagPrefix(args, "--public=")
+	}
+	for _, tc := range []struct {
+		args         []string
+		preFix, want bool
+	}{
+		// The rows the fix adds: the pre-fix screen said "not public", so the
+		// gate ALLOWED a public gist outright.
+		{[]string{"-p", "notes.md"}, false, true},
+		{[]string{"-p=true", "notes.md"}, false, true},
+		{[]string{"-p=false", "notes.md"}, false, true},
+		{[]string{"-pw", "notes.md"}, false, true},
+		{[]string{"-wp", "notes.md"}, false, true},
+		{[]string{"-pd", "x", "notes.md"}, false, true},
+		{[]string{"-p"}, false, true},
+		// The rows it does not: the long spellings already asked.
+		{[]string{"--public", "notes.md"}, true, true},
+		{[]string{"--public=false", "notes.md"}, true, true},
+		// And the rows neither screen escalates.
+		{[]string{"notes.md"}, false, false},
+		{[]string{"-dp", "notes.md"}, false, false},
+		{[]string{"-w=f", "notes.md"}, false, false},
+	} {
+		if got := preFix(tc.args); got != tc.preFix {
+			t.Errorf("#229 negative control: the pre-fix screen on %q = %v, want %v", tc.args, got, tc.preFix)
+		}
+		if got := ghBoolFlagNamed(tc.args, spec, "-p", "--public"); got != tc.want {
+			t.Errorf("#229 negative control: the fixed screen on %q = %v, want %v", tc.args, got, tc.want)
+		}
+	}
+}
+
 // --- A dynamic path fails closed ---------------------------------------------
 
 // A path the gate cannot resolve statically must fail closed, since containment
@@ -675,10 +829,18 @@ func TestGhPublishFileNegativeControl_229(t *testing.T) {
 	for _, cmd := range []string{
 		"gh pr comment 227 -F=/etc/passwd",
 		"gh pr comment 227 -eF=/etc/passwd",
-		"gh gist create -p=f /etc/passwd",
+		"gh gist create -w=f /etc/passwd",
 	} {
 		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAllow, "#229 negative control (grading off): "+cmd)
 	}
+	// `-p=f` is that same shape on the `--public` shorthand, so with the grading
+	// off it stops at the publish ASK instead of allowing. The control still
+	// separates the two mechanisms its deny above could have come from: the row
+	// is neither a deny (so grading is what denies it) nor the unmodelled-flag
+	// ask (so no screen fired on the `=`).
+	wantReason(t, classifyInRepo(t, "gh gist create -p=f /etc/passwd", repo),
+		BucketAsk, "publishes a public gist",
+		"#229 negative control (grading off): the -p shorthand stops at the publish ask")
 	// The contained direction is negative-controlled by the same swap: it read
 	// ALLOW before the fix and must still read ALLOW after it, so the fix is
 	// proven to have changed only the escaping direction.

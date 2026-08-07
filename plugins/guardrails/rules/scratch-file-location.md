@@ -51,6 +51,11 @@ read containment. What that grades, per verb, is exactly:
   same publish as naming the path), and `gh gist create` reads stdin
   with no marker at all when given no operand
   (`gh gist create < /tmp/body.md`).
+- Whichever spelling names the verb. gh's own command aliases resolve to
+  the canonical one before the grading runs, so `gh gist new`,
+  `gh pr new`, `gh issue new` and `gh release new` grade exactly what
+  `create` grades — respelling the verb is not a way around the
+  destination rule.
 
 Both sanctioned destinations survive that
 grading — a PR-body file under `<repo-root>/.claude/tmp/` is

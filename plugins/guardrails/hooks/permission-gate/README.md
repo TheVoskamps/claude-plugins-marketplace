@@ -533,9 +533,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
   `repo edit --visibility`, `release create`, and `gist create --public`
-  **ask**. Beyond those carve-outs, a recognized gh command ALLOWs only
+  **ask** — the last in every spelling gh accepts the flag, since gh
+  documents `-p` as its shorthand and a screen keyed on the long form
+  alone let `gh gist create -p body.md` publish a public gist with no
+  human in the loop (see the `--public` screen below).
+  Beyond those carve-outs, a recognized gh command ALLOWs only
   when it is an enumerated read or an enumerated recoverable-own-repo
-  write (#163); an **unrecognized noun/verb asks** (fail-closed), and an
+  write (#163); an **unrecognized noun/verb asks** (fail-closed) — after
+  gh's own command ALIASES have been resolved to the canonical spelling,
+  so `gh gist new` is `gh gist create` and not an unrecognized verb (see
+  the alias paragraph below) — and an
   enumerated write whose explicit `-R`/`--repo` target differs from the
   session `origin` **asks** (foreign-target exfil-by-write scoping —
   reads stay unscoped). The leading global-flag screen is parsed before
@@ -616,11 +623,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   whole-command bool. Grading runs BELOW the irreparable-deny tier
   (those keep their specific messages) and ABOVE the publish ask, so an
   escaping asset on `gh release create` / `gh gist create --public`
-  **denies** instead of offering a click-through. (Only the long
-  `--public` spelling routes `gist create` to that publish ask —
-  `rules.go` matches no short `-p` — but the containment grading runs
-  on the verb either way, so an escaping asset denies in both
-  spellings.) The verdict is taken
+  **denies** instead of offering a click-through, in every spelling of
+  `--public`. The verdict is taken
   through `containReadSources`, which forwards an escape and discards
   the ALLOW: a contained body file never blesses the publish itself, so
   the publish ask and the foreign-target ask still fire. `--template`
@@ -656,6 +660,67 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   q=@/etc/passwd repos/o/r` **allows**, so a `@file` value on an
   allow-listed GET endpoint reaches GitHub without being graded against
   the repository boundary. #229 neither widened nor closed that.
+  **The public-gist ASK reads every spelling of `--public`, not just the
+  long one (#229).** gh documents `-p` as the shorthand, so a screen
+  keyed on `--public` alone left `gh gist create -p body.md` publishing a
+  PUBLIC gist under an outright allow — irreversible exposure to a URL
+  that outlives any local cleanup, with no human in the loop. Containment
+  denied an escaping path in both spellings throughout, so what was
+  missing was the #64 exposure tier rather than a containment hole.
+  `ghGistCreateIsPublic` now walks the verb's own tokens with pflag's
+  cluster rules, the same walk `ghFilePositionalRefs` makes: the bare and
+  `=`-joined long and short forms, and the shorthand anywhere in a
+  cluster of bools (`-pw`, `-wp`, `-wp=false`). Each was measured against
+  gh 2.97.0 — `-p=zzz`, `-wp=zzz` and `--public=zzz` fail ParseBool
+  naming `-p, --public` while `-pw=zzz` fails naming `-w, --web`, so the
+  `=` binds to the shorthand immediately before it, and `-pd notes.md`
+  starts creating a gist because `-p` is consumed as a bool and `-d` then
+  eats the operand. A value-taking shorthand still swallows the rest of
+  its cluster, so `-dp` is `--desc p` and names no `--public` at all. The
+  screen reads the flag being **named**, not the value it was given, so
+  `--public=false` and `-p=false` escalate as well: that is the over-ask
+  the long spelling already had, and holding both to it keeps the two
+  symmetric — reading the value instead would have to reimplement
+  pflag's ParseBool acceptance exactly, where a divergence is a silent
+  miss on a genuinely public gist while the over-ask costs one click.
+  **gh's own command ALIASES are resolved to the canonical spelling
+  before any tier runs (#229)** (`classify_gh_aliases.go`). gh finds a
+  subcommand by NAME or by cobra alias — `gh gist new` renders
+  `gh gist create`'s own USAGE line — while every tier here dispatched by
+  name, so an aliased spelling matched none of them and fell through to
+  the fail-closed ask. That turned a documented respelling into a
+  click-through past a verdict the gate had already reached:
+  `gh gist create /etc/passwd` **denies** on containment while
+  `gh gist new /etc/passwd` **asked**. Resolution gives each alias its
+  canonical command's real verdict, in every direction — `gh gist new`
+  gains the containment deny and the publish ask, `gh issue ls` /
+  `gh pr ls` / `gh gist ls` gain the read **allow**, and `gh secret ls` /
+  `gh variable ls` move from the secret-noun's blanket **deny** to the
+  read allow `gh secret list` already had. `gh secret remove` /
+  `gh variable remove` denied under their own names already (that arm
+  default-denies every verb but `list`/`get`); only the spelling the
+  message quotes changes. The two tables are the complete cobra-alias set
+  of gh 2.97.0, derived by walking `gh <path> --help` over all 228
+  commands reachable from `gh --help` and reconciled against all 45
+  `Aliases:` declarations in cli/cli at tag v2.97.0. NO alias name on a
+  noun this gate models is a member of either allow table — the names are
+  `ls`, `new`, `co`, `remove` and the noun aliases, against read verbs
+  view/list/status/diff/checks/get and the recoverable-write verbs — so
+  before this change every aliased spelling landed on the fail-closed
+  ask and none rode an outright allow. Only the noun and verb positions
+  are rewritten, which is every position a tier reads; gh's third-level
+  aliases (`gh repo autolink new`, `gh repo deploy-key ls`, …) sit at a
+  position no dispatch reads and classify identically either way. The
+  **fail-closed floor is untouched**: a token in neither table is left
+  exactly as written, so `gh gist nw` still asks — nothing here guesses
+  by prefix or edit distance. gh's OTHER alias mechanism, the
+  user-editable `aliases:` map `gh alias set` writes, is deliberately not
+  modelled: the gate does not read the user's gh config, so those
+  spellings keep the fail-closed ask, and `gh alias set` refuses any name
+  that is "already a gh command or extension", so a config alias cannot
+  shadow a modelled noun. The one gh ships by default (`co: pr checkout`)
+  diverges from nothing — `gh co` and `gh pr checkout` both ask, since
+  `checkout` is in neither allow table.
   For `aws`: `--endpoint-url` **denies**
   (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret

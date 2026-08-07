@@ -107,6 +107,17 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return denyGhNakedAppRepo()
 	}
 
+	// Resolve gh's own command aliases to their canonical spelling BEFORE any
+	// tier runs. gh finds a subcommand by name OR alias, so `gh gist new` IS
+	// `gh gist create`, while every tier below dispatches by name — an alias
+	// therefore matched nothing and fell through to the fail-closed ASK, turning
+	// a documented respelling into a click-through past the containment DENY the
+	// canonical spelling earns. Resolving here lets each alias inherit its
+	// canonical command's real verdict; a token in neither alias table is left
+	// exactly as written, so the fail-closed floor is untouched. See
+	// classify_gh_aliases.go.
+	cmd = ghCanonicalCommand(cmd)
+
 	// gh auth switch (and identity-switch variants).
 	if cmd[0] == "auth" && len(cmd) >= 2 {
 		switch cmd[1] {
@@ -205,10 +216,21 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 				"Confirm this is intended; publishing should go through the sanctioned visibility skill.")
 	}
 	if cmd[0] == "gist" && len(cmd) >= 2 && cmd[1] == "create" {
-		if containsToken(args, "--public") || hasFlagPrefix(args, "--public=") {
+		// Every spelling pflag accepts, not just the long one: gh documents `-p`
+		// as the shorthand, so testing `--public` alone let
+		// `gh gist create -p body.md` publish a public gist with no human in the
+		// loop. The screen reads the flag's PRESENCE, so `--public=false` and
+		// `-p=false` escalate too — the over-ask the long spelling already had,
+		// now held by both. See ghGistCreateIsPublic (classify_gh_files.go); the
+		// walk runs over the verb's own tokens (cmd[2:]) rather than the whole
+		// argv, since a `-p` among the leading globals is not this flag.
+		if ghGistCreateIsPublic(cmd[2:]) {
 			return ask("gh gist create --public (#64 publish)",
-				"'gh gist create --public' publishes a public gist — exposure that is effectively irreversible. "+
-					"Confirm this is intended.")
+				"'gh gist create' with '--public' (or its '-p' shorthand, in any spelling gh accepts — bare, "+
+					"'='-joined, or inside a short-flag cluster) publishes a public gist: exposure that is "+
+					"effectively irreversible, to a URL that outlives any local cleanup. Confirm this is intended; "+
+					"a gist created without the flag is secret. The gate escalates on the flag being NAMED, so an "+
+					"explicit '--public=false' asks as well rather than being read as secret.")
 		}
 	}
 

