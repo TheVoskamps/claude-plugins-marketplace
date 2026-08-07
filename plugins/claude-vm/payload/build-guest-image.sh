@@ -480,12 +480,14 @@ RUNCONFIG_MNT=/mnt/runconfig
 # The host-verified claude binary's containing dir, shared under tag
 # 'claudebin' and mounted here by the guest fstab.
 CLAUDEBIN_MNT=/mnt/claudebin
-# The dir of ALL host-rendered guest ~/.claude files, shared under tag
-# 'claudecreds' and mounted here `ro` by the guest fstab. It carries the OAuth
-# credential (.credentials.json, a SECRET), the identity seed
-# (claude-json-seed.json, account identity), and the rendered settings.json
-# (permissions + enabledPlugins, NOT a secret) -- not credentials alone. The
-# boot launcher installs each into $HOME/.claude/ below.
+# The dir of every host-rendered guest file that must not persist, shared under
+# tag 'claudecreds' and mounted here `ro` by the guest fstab. It carries the
+# OAuth credential (.credentials.json, a SECRET), the identity seed
+# (claude-json-seed.json, account identity), the rendered settings.json
+# (permissions + enabledPlugins, NOT a secret) and the boot tier's guest
+# environment (env, issue #135 -- env.copy/env.files values are third-party API
+# keys) -- not credentials alone. The boot launcher installs the ~/.claude files
+# into $HOME/.claude/ below, and SOURCES `env` in place without copying it.
 CLAUDECREDS_MNT=/mnt/claudecreds
 
 # Load run environment (proxy, mount tags, geometry, renderer, CLAUDE_ARGS)
@@ -582,8 +584,10 @@ set +a
 # path, which is why config-boot.example.yml says so loudly. Enforced read-only
 # is tracked as issue #233.
 #
-# ORDERING: first thing after run.env, before the credential/seed/settings
-# install and before the apt and plugin phases. An extra mount is plain data
+# ORDERING: first thing after run.env and the guest environment files (issue
+# #135 -- both are plain assignments with no filesystem dependency), before the
+# credential/seed/settings install and before the apt and plugin phases. An
+# extra mount is plain data
 # with no dependency on any of them, and running first means every later phase
 # -- and claude itself -- sees a fully-assembled filesystem.
 #

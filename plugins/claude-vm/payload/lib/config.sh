@@ -1849,10 +1849,15 @@ CLAUDE_VM_ENV_BOOT_ONLY_KEYS=(
 # The environment variables the LAUNCHER itself composes -- every name written
 # into run.env (claude-vm.sh) plus the one the boot launcher exports on its
 # abnormal-exit path (build-guest-image.sh). A config entry naming one of these
-# is a mistake rather than an override: the launcher's composition always wins,
-# so honouring the config would be impossible and ignoring it silently would
-# leave an operator believing they had changed the proxy, the mount tags or
-# claude's argv. Space-delimited and matched with a space-padded `case`, the
+# is a mistake rather than an override, and honouring it would be worse than
+# useless: the guest sources run.env FIRST and these env files immediately
+# after, so a config value would actually WIN -- silently replacing the proxy
+# the guest reaches the network through, a mount tag, or claude's own argv, and
+# breaking the boot in a way that looks nothing like a config error.
+# CLAUDE_VM_LAST_CLAUDE_STATUS is the one exception in the other direction: the
+# boot launcher exports it long after both files are sourced, so a config entry
+# for it would be silently overwritten instead. Refusing at load covers both.
+# Space-delimited and matched with a space-padded `case`, the
 # same shape as CLAUDE_VM_RESERVED_MOUNT_TAGS -- sound here for the same reason
 # it is there: an environment-variable name is charset-validated to
 # [A-Za-z_][A-Za-z0-9_]* before the membership test, so it can never contain
@@ -2086,7 +2091,8 @@ claude_vm_check_env() {
       if claude_vm_env_name_is_reserved "$name"; then
         echo "claude-vm: env.set key '$name' in the merged ${tier} config names a variable the LAUNCHER owns." >&2
         echo "claude-vm:   claude-vm composes these itself: $CLAUDE_VM_RESERVED_ENV_NAMES." >&2
-        echo "claude-vm:   its own value always wins, so a config that fights it can never take effect." >&2
+        echo "claude-vm:   the guest sources run.env BEFORE your env entries, so this one would overwrite the" >&2
+        echo "claude-vm:   launcher's own value and break the boot rather than configuring anything." >&2
         bad=1
         continue
       fi
@@ -2148,7 +2154,8 @@ claude_vm_check_env() {
     if claude_vm_env_name_is_reserved "$name"; then
       echo "claude-vm: env.copy entry #${idx} ('$name') names a variable the LAUNCHER owns." >&2
       echo "claude-vm:   claude-vm composes these itself: $CLAUDE_VM_RESERVED_ENV_NAMES." >&2
-      echo "claude-vm:   its own value always wins, so a config that fights it can never take effect." >&2
+      echo "claude-vm:   the guest sources run.env BEFORE your env entries, so this one would overwrite the" >&2
+      echo "claude-vm:   launcher's own value and break the boot rather than configuring anything." >&2
       bad=1
       continue
     fi

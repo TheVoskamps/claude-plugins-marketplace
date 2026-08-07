@@ -185,7 +185,8 @@ claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
 # time, and their values are exactly the secrets that must never become image
 # bytes -- a presence test, so an empty `copy:` aborts too), an `env.set` that
 # is not a map, a name outside [A-Za-z_][A-Za-z0-9_]* from any source, a name
-# the launcher itself owns (the run.env set -- its composition always wins), a
+# the launcher itself owns (the run.env set -- the guest sources run.env BEFORE
+# the env files, so such an entry would overwrite the launcher's own value), a
 # non-scalar or valueless `env.set` value, an `env.files` path that is not on
 # the host or does not parse, and an `env.copy` name that is unset or empty in
 # THIS process's environment. That last one is the loudest on purpose:
@@ -740,7 +741,9 @@ GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
 # shared under a separate tag (claudecreds) so only the credential file is
 # exposed. The identity seed (issue #88, claude-json-seed.json) is written
 # into this SAME dir for the same reason -- it carries account identity and
-# must not ride in run.env either. Both dirs are created under the tightened
+# must not ride in run.env either -- and so is the boot tier's guest
+# environment (issue #135, env: its env.copy/env.files values are third-party
+# API keys). Both dirs are created under the tightened
 # umask (077) so they are drwx------ from creation -- the secrets are not
 # world-traversable.
 CREDS_DIR="$RUN/creds"

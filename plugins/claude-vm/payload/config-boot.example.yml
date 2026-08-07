@@ -349,7 +349,7 @@ github:
 # ---------------------------------------------------------------------
 # Guest environment variables (issue #135).
 #
-# Three sub-keys, split by HOW the value is obtained rather than by preference:
+# The sub-keys, split by HOW the value is obtained rather than by preference:
 #
 #   set    a map of explicit LITERALS written in this file. Non-secret only --
 #          these values ARE the committed config. Allowed in a bake file too.
@@ -398,8 +398,11 @@ github:
 #     `NAME: ""` if you really mean the empty string);
 #   - a name claude-vm's own launcher composes -- the proxy vars, CLAUDE_ARGS,
 #     the *_TAG mount vars, IS_SANDBOX, DISABLE_AUTOUPDATER, the renderer
-#     CLAUDE_CODE_* vars, the terminal geometry -- since the launcher's value
-#     always wins and a config that fights it can never take effect.
+#     CLAUDE_CODE_* vars, the terminal geometry, the CLAUDE_VM_*_UPDATE_AT_BOOT
+#     flags -- because the guest sources those BEFORE your env entries, so yours
+#     would overwrite the launcher's own value (a different proxy, a renamed
+#     mount tag, a replaced claude argv) and break the boot rather than
+#     configure anything. The abort message lists the whole reserved set.
 # No diagnostic ever prints a VALUE; each names the variable, the entry or the
 # file.
 #

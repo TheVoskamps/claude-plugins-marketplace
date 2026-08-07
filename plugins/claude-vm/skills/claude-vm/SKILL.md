@@ -1,14 +1,15 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated Linux micro-VM on macOS with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from four-file YAML (a bake file + a boot file per tier, global + per-repo, all optional); the immutable base image is APFS-cloned per run so concurrent sessions never leak state. The guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
+description: Launch Claude Code inside an isolated Linux micro-VM on macOS with config-driven egress, mounts, VM resources, guest environment variables (including third-party API keys forwarded by name from the host, never written into config), and repo isolation (clone or live). All non-secret knobs come from four-file YAML (a bake file + a boot file per tier, global + per-repo, all optional); the immutable base image is APFS-cloned per run so concurrent sessions never leak state. The guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
 ---
 
 # claude-vm
 
 Run Claude Code inside an isolated Linux micro-VM on macOS. Every
 non-secret operational knob — VM resources, the egress allowlist, extra
-mounts, the proxy, and how the repo is made available to the guest —
-comes from layered **YAML config** rather than environment variables.
+mounts, the proxy, the guest's own environment variables, and how the
+repo is made available to the guest — comes from layered **YAML config**
+rather than claude-vm's own environment variables.
 The guest authenticates with the **host's live claude.ai OAuth
 credential**, which the launcher extracts from the macOS Keychain at
 launch and shares into the guest (where the image's fstab mounts the
@@ -650,8 +651,12 @@ outside `[A-Za-z_][A-Za-z0-9_]*` from any source; a non-scalar `env.set`
 value, or a key left valueless (write `NAME: ""` for the empty string); and a
 name the launcher itself composes — the proxy vars, `CLAUDE_ARGS`, the
 `*_TAG` mount vars, `IS_SANDBOX`, `DISABLE_AUTOUPDATER`, the renderer
-`CLAUDE_CODE_*` vars, the terminal geometry — since the launcher's value
-always wins. No diagnostic ever prints a value.
+`CLAUDE_CODE_*` vars, the terminal geometry, the
+`CLAUDE_VM_*_UPDATE_AT_BOOT` flags — because the guest sources `run.env`
+*before* both env files, so such an entry would overwrite the launcher's own
+value (a different proxy, a renamed mount tag, a replaced `claude` argv) and
+break the boot rather than configure anything. The abort message lists the
+whole reserved set. No diagnostic ever prints a value.
 
 **Rebuilds.** No new trigger is needed: the image identity is already a
 whole-file, raw-byte hash of the bake files, so changing a baked `env.set`

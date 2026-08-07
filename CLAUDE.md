@@ -365,6 +365,17 @@ negative control rebuilt from the same captured lines) are in
 `plugins/claude-vm/payload/README.md` → *Splitting a TSV record back
 apart*.
 
+One collection deliberately never travels as `@tsv` at all: `env.set`
+(issue #135). An environment value may legitimately contain a tab or a
+newline, and `@tsv` escapes those into a literal `\t` / `\n` — silently
+changing what the operator wrote, with nothing to detect it downstream.
+So `claude_vm_env_set_names` / `_tag` / `_value` fetch one entry per yq
+call instead, and the value never shares a line with anything else.
+Folding them back into a single record emitter, for symmetry with the
+other loops or to save yq invocations, is the bug this paragraph exists
+to prevent: the map holds a handful of entries, so the extra calls are
+not a cost worth the exposure.
+
 ## Write claude-vm's config-load guards for bash 3.2, not for bash 5
 
 Every `plugins/claude-vm` script is `#!/usr/bin/env bash`, so on a stock

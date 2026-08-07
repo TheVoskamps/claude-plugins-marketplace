@@ -329,7 +329,9 @@ repo use?" The common cases:
   empty string); and a name claude-vm's own launcher composes — the proxy
   vars, `CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`,
   `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars, the terminal
-  geometry — aborts, since the launcher's value always wins. The
+  geometry, the `CLAUDE_VM_*_UPDATE_AT_BOOT` flags — aborts, because the
+  guest sources `run.env` before the env files, so such an entry would
+  overwrite the launcher's own value and break the boot. The
   name-collision checks run over the **merged** global+repo set, so a
   per-repo `env.set` key can collide with a global one — check Step 2's
   global `env:` before writing.

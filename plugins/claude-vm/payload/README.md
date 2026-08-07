@@ -764,9 +764,9 @@ entry logs its skip and never tries to add `boot` as a url).
 `env:` (issue #135) is how a variable reaches the in-guest `claude` session —
 a plain non-secret setting (`FOO_ENDPOINT`) or a third-party API key
 (`OPENROUTER_API_KEY`, `TAVILY_API_KEY`) for a tool, MCP server or model
-provider other than Anthropic or GitHub. It has three sub-keys, and **the tier
-each may be declared in follows from how its value is obtained**, not from
-operator preference:
+provider other than Anthropic or GitHub. **The tier each sub-key may be
+declared in follows from how its value is obtained**, not from operator
+preference:
 
 | Sub-key | Bake tier | Boot tier | Value source |
 | --------- | ----------- | ----------- | -------------- |
@@ -829,8 +829,12 @@ neither claude-vm nor the variable. `claude_vm_check_env` is one gate over all
 of it: `env.copy`/`env.files` in a bake file; an `env.set` that is not a map;
 a name outside `[A-Za-z_][A-Za-z0-9_]*` from any of the three sources; a name
 the launcher itself composes (`CLAUDE_VM_RESERVED_ENV_NAMES` — the run.env set
-plus `CLAUDE_VM_LAST_CLAUDE_STATUS`; the launcher's value always wins, so a
-config that fights it can never take effect); a non-scalar `env.set` value, or
+plus `CLAUDE_VM_LAST_CLAUDE_STATUS`; the guest sources `run.env` *before* both
+env files, so such an entry would silently overwrite the launcher's own
+value — a different proxy, a renamed mount tag, a replaced `claude` argv — and
+break the boot rather than configure anything, while the one name the launcher
+exports *after* them, `CLAUDE_VM_LAST_CLAUDE_STATUS`, would be overwritten
+instead); a non-scalar `env.set` value, or
 a valueless key (`NAME: ""` is the way to ask for the empty string, and the
 two spellings deliberately do not collapse); an `env.files` path that is not
 on the host or does not parse; and an `env.copy` name that is unset **or

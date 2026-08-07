@@ -169,7 +169,10 @@ claude:
 # `NAME: ""` if you really mean the empty string), and a name claude-vm's own
 # launcher composes -- the proxy vars, CLAUDE_ARGS, the *_TAG mount vars,
 # IS_SANDBOX, DISABLE_AUTOUPDATER, the renderer CLAUDE_CODE_* vars, the terminal
-# geometry -- aborts too, since the launcher's value always wins.
+# geometry, the CLAUDE_VM_*_UPDATE_AT_BOOT flags -- aborts too, because the guest
+# sources those BEFORE your env entries: yours would overwrite the launcher's own
+# value and break the boot rather than configure anything. The abort message
+# lists the whole reserved set.
 env:
   set:
     FOO_ENDPOINT: https://foo.internal/v2

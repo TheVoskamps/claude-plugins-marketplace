@@ -232,7 +232,9 @@ Notes on the forward-looking keys:
   empty string); and a name claude-vm's own launcher composes — the proxy
   vars, `CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`,
   `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars, the terminal
-  geometry — aborts, since the launcher's value always wins.
+  geometry, the `CLAUDE_VM_*_UPDATE_AT_BOOT` flags — aborts, because the
+  guest sources `run.env` before the env files, so such an entry would
+  overwrite the launcher's own value and break the boot.
 - **`github.auth` defaults to `none`.** Ask the user whether they want
   the guest seeded with a GitHub auth token derived from the host
   (`host-token`); `none` is the safe default since the consumer that
