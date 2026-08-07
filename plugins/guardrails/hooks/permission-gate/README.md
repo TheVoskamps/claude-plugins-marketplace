@@ -686,11 +686,13 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   value-taking flags this verb has, in both their spellings
   (`--desc --public`, `-d --public`, `--filename --public`,
   `-f --public`), and an operand after `--`
-  (`gh gist create -- --public`). That list is closed by the spec
-  rather than by inspection — `gist create` declares exactly two
-  value-taking flags — and the `=`-joined forms are not on it:
-  `-d=--public` and `--desc=--public` never asked on main either, since
-  `containsToken` matches whole tokens. Each of those gists is
+  (`gh gist create -- --public`). That list is closed by pflag and by
+  the spec rather than by inspection: pflag reads a bare `--public`
+  token as the flag in every position but those two, and `gist create`
+  declares exactly two value-taking flags, which closes the first of
+  them. The `=`-joined forms are not on it — `-d=--public` and
+  `--desc=--public` never asked on main either, since `containsToken`
+  matches whole tokens. Each of those gists is
   genuinely secret. The
   screen reads the flag being **named**, not the value it was given, so
   `--public=false` and `-p=false` escalate as well: that is the over-ask
