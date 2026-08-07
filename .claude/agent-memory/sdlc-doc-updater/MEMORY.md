@@ -90,9 +90,6 @@
   — "the launcher's value always wins" is a claim about read order, not
   ownership; compare line numbers in the consumer. Restated on 7 surfaces
   in claude-vm and backwards on all of them.
-- [claude-vm boot-launcher insertion stales](project_claude-vm-boot-launcher-insertion-stales.md)
-  — a new launcher step stales the next phase's "ORDERING: first thing
-  after X" note and the two sibling claudecreds/CREDS_DIR content lists.
 - [claude-vm bash-3.2 rule surface pair](project_claude-vm-bash32-rule-surface-pair.md)
   — that rule lives on exactly two surfaces (root CLAUDE.md + payload
   README's oldest-bash section); check scope, severity clause and

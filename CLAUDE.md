@@ -420,6 +420,33 @@ reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
 
+## Sweep the ordering notes and share lists on a boot-launcher insertion
+
+Inserting a step into the boot launcher that
+`plugins/claude-vm/payload/build-guest-image.sh` emits leaves two
+surfaces stale, both far from the diff: the launcher is one long
+heredoc, so phase-ordering prose sits hundreds of lines from any
+insertion point, and the credential share a new step may read is
+described from a different file entirely.
+
+- **The next phase's `ORDERING:` note.** Each phase's block comment
+  states its own position as "first thing after X, before Y", so a step
+  inserted between two phases silently falsifies the note on the one
+  that follows it. Grep `ORDERING:` in `build-guest-image.sh` after any
+  insertion, not only the block the insertion lands in.
+- **The `claudecreds` content enumerations.** Three headers list what
+  the transient credential share carries: `claude-vm.sh`'s run.env
+  `CLAUDECREDS_TAG` comment, `claude-vm.sh`'s `CREDS_DIR=` header
+  several hundred lines earlier, and `build-guest-image.sh`'s
+  `CLAUDECREDS_MNT=` header. Only the first sits next to a change that
+  adds an entry. The latter two also assert what the launcher *does*
+  with each entry — installs it into `$HOME/.claude/` — so an entry the
+  guest merely sources needs that sentence widened rather than a list
+  item appended under it.
+
+Re-run `payload/test/boot-launcher-test.sh` on any launcher edit,
+including a comment-only one: it parses the emitted script.
+
 ## Sweep the claude-vm config wizards when its schema or validation changes
 
 `plugins/claude-vm/skills/claude-vm-config-global/SKILL.md` and
