@@ -4,6 +4,10 @@
   — build paths from `git rev-parse --show-toplevel`; a primary-clone Read
   silently returns pre-PR prose. Tell: grep -n and Read disagree on line numbers.
 
+- [Branch claimed by a manual-test worktree](feedback_branch-claimed-by-a-manual-test-worktree.md)
+  — checkout fails naming Edwin's live test worktree: detach at
+  `origin/<branch>`, push `HEAD:<branch>`, skip the branch -D. Never remove it.
+
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
