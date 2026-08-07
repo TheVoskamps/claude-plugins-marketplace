@@ -456,7 +456,11 @@ func ghGistCreateIsPublic(args []string) bool {
 //
 //   - a value-taking shorthand consumes the rest of the cluster, so `-dp` is
 //     `--desc p` and names no `--public` at all (gh runs it and reads the file
-//     operand, where `-pd <path>` instead errors on a missing `-d` value);
+//     operand). The mirror `-pd <path>` does NOT error: `-p` is consumed as the
+//     bool, `-d` then eats the PATH as its description value, and `gist create`
+//     — left with no file operand — falls back to stdin and starts creating the
+//     gist. `flag needs an argument: 'd' in -d` appears only when `-pd` is the
+//     LAST token, with no value of any kind behind it;
 //   - an `=` after a shorthand ends the token and hands the remainder to THAT
 //     shorthand, so `-pw=zzz` fails ParseBool on `--web` while `-wp=zzz` fails
 //     on `--public` — both measured;

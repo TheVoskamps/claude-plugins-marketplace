@@ -249,9 +249,22 @@ func TestGhAliasNegativeControl_229(t *testing.T) {
 	// The `secret`/`variable` rows did NOT read the fail-closed ask before the
 	// fix. That arm default-denies every verb but `list`/`get`, so BOTH alias
 	// spellings reached a deny under their own name — which makes `gh secret ls`
-	// the one row whose verdict the resolution moves in the permissive
-	// direction, from that blanket deny to the read ALLOW `gh secret list`
-	// already had.
+	// AND `gh variable ls` the rows whose verdict the resolution moves the
+	// furthest in the permissive direction, from that blanket deny to the read
+	// ALLOW `gh secret list` / `gh variable list` already had.
+	//
+	// They are the COMPLETE deny → allow set, and a count is only meaningful
+	// against the row set it was taken over: replaying every `gh <noun> <verb>`
+	// pair the gate's own tables name — 1,295 bare rows, no operands and no
+	// flags, so alias resolution is the only tier that can move one — through
+	// main's committed darwin-arm64 binary and this branch's moves 24 rows:
+	// 21 ask → allow (11 `ls` reads, the 3 `new` recoverable writes, and 7
+	// `gh rs <read verb>` rows through the noun alias), these 2 deny → allow,
+	// and 1 ask → deny (`gh rs delete`).
+	// Operands add rows in BOTH directions rather than settling the count —
+	// `gh gist new /etc/passwd` moves ask → deny while `gh gist new notes.md`
+	// moves ask → allow — which is why the figures above are stated over the
+	// bare cross, where nothing but the resolution is in play.
 	for _, cmd := range []string{"gh secret remove FOO", "gh secret ls", "gh variable remove FOO", "gh variable ls"} {
 		wantReason(t, classifyInRepo(t, cmd, repo), BucketDeny, "writes or deletes",
 			"#229 alias negative control (pre-fix deny): "+cmd)

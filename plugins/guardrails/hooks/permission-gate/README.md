@@ -676,7 +676,22 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `=` binds to the shorthand immediately before it, and `-pd notes.md`
   starts creating a gist because `-p` is consumed as a bool and `-d` then
   eats the operand. A value-taking shorthand still swallows the rest of
-  its cluster, so `-dp` is `--desc p` and names no `--public` at all. The
+  its cluster, so `-dp` is `--desc p` and names no `--public` at all.
+  That precision cuts the permissive way too, and those rows are stated
+  here rather than left for a reader to find. Main screened with a
+  position-blind `containsToken(args, "--public")`, so it asked wherever
+  that token appeared; the walk asks only where pflag reads it as a
+  FLAG. The rows that move ask → **allow** are therefore exactly the
+  spellings where it is not one: a separated value of each of the two
+  value-taking flags this verb has, in both their spellings
+  (`--desc --public`, `-d --public`, `--filename --public`,
+  `-f --public`), and an operand after `--`
+  (`gh gist create -- --public`). That list is closed by the spec
+  rather than by inspection — `gist create` declares exactly two
+  value-taking flags — and the `=`-joined forms are not on it:
+  `-d=--public` and `--desc=--public` never asked on main either, since
+  `containsToken` matches whole tokens. Each of those gists is
+  genuinely secret. The
   screen reads the flag being **named**, not the value it was given, so
   `--public=false` and `-p=false` escalate as well: that is the over-ask
   the long spelling already had, and holding both to it keeps the two
@@ -700,7 +715,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   every `secret`/`variable` verb but `list`/`get`, and `ls` was reaching
   it unresolved. Its mutating verbs are unmoved: `gh secret remove` /
   `gh variable remove` denied under their own names already and still
-  deny. What changes for them is the spelling the message quotes, and
+  deny. The permissive moves are the ones a reader needs, so they are
+  counted here against the row set they were measured over — a count
+  without its row set is unfalsifiable. Replaying every
+  `gh <noun> <verb>` pair the gate's own tables name (1,295 bare rows, no
+  operands and no flags, so resolution is the only tier that can move
+  one) through main's committed `darwin-arm64` binary and this
+  branch's moves **24** rows: 21 ask → allow (11 `ls` reads, the 3
+  `new` recoverable writes, and 7 `gh rs <read verb>` rows through the
+  noun alias), the 2 deny → allow named above, and 1 ask → deny
+  (`gh rs delete`). Operands add rows in both directions rather than
+  settling the count — `gh gist new /etc/passwd` moves ask → deny while
+  `gh gist new notes.md` moves ask → allow — which is why the figures
+  are stated over the bare cross, where nothing but the resolution is
+  in play.
+  What changes for the deny rows is the spelling the message quotes, and
   that holds for every message downstream of the resolution — each names
   the canonical command, so `gh secret remove FOO` is refused as
   `'gh secret delete'` and `gh pr co 1` asks about `'gh pr checkout 1'`.
