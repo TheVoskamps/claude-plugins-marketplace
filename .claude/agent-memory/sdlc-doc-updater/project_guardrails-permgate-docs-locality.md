@@ -316,3 +316,27 @@ allowlist, anchor allowlist, whatever comes next) needs its own README
 paragraph even when the Go comments are already complete — check by
 grepping the README's variable/anchor-resolution paragraph for the new
 mechanism's name, not just whether the README path is in the PR diff.
+
+**When a round moves verdicts, the residue is in the tier function the
+round did NOT touch (#229, PR #232, round 6).** Alias resolution ran
+upstream of every tier, and the new file plus the README paragraph were
+both accurate. What was false sat in `ghIrreparableDeny`'s own doc
+comment, untouched since #64: it billed the function as covering
+"release/gist publish" (publish is an ASK in `classifyGh`, not in that
+function at all) and claimed "an unrecognized secret/variable/ruleset
+subcommand denies (fail closed)" when the `ruleset` arm denies `delete`
+alone — `gh ruleset bogus` asks. A summary sentence at the top of a
+DENY-tier function is where a tier list rots, because nobody rereads it
+when the tier next to it changes. When a round moves rows into or out
+of a tier, read that tier's function comment end to end against its own
+switch.
+
+**An alias-resolution round is a diagnostic-detail change too.** Every
+message downstream quotes the CANONICAL spelling, so `gh secret remove
+FOO` is refused as `'gh secret delete'`, `gh pr co 1` asks about
+`'gh pr checkout 1'`, and even the fail-closed ask echoes `'gh repo
+create foo'` for a typed `gh repo new foo`. Nothing said so on either
+doc surface; an agent grepping a deny reason for the words it typed
+finds nothing. Same class as
+[[feedback_diagnostic-detail-claims]] — check what the message STRING
+interpolates after any rewrite of the tokens it is built from.
