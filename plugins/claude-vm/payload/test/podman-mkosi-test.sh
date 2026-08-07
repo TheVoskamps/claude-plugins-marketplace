@@ -1162,6 +1162,18 @@ HOSTILEJSON
     fi
     assert_contains "bake-env: the malformed-name failure names the key" \
       "$BE_DIR/render.err" "2BAD"
+
+    # A name with a TRAILING NEWLINE is refused too. Python's `$` also matches
+    # just before a final newline, so the earlier `re.match(r"^...$")` accepted
+    # this and baked `OK\n=value` -- a line break inside an assignment the guest
+    # sources, which is exactly the smuggling shape the recheck exists to
+    # refuse. `re.fullmatch` is what makes the check as strict as its comment.
+    render_bake_env '{"bake":[],"apt_sources":[],"env":{"OK\n":"x"}}' >/dev/null
+    if [ -e "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" ]; then
+      FAIL=$((FAIL + 1)); echo "FAIL - bake-env: a name with a trailing newline must not be baked"
+    else
+      PASS=$((PASS + 1)); echo "ok   - bake-env: a name with a trailing newline is not baked"
+    fi
   fi
 else
   FAIL=$((FAIL + 1))

@@ -380,7 +380,16 @@ argv, settings, image identity, and plugin manifests from:
   time — deliberately *not* through a shared `@tsv` record, because an
   environment value may legitimately contain a tab or a newline and `@tsv`
   would escape those into a literal `\t`/`\n`, silently changing what the
-  operator wrote; `claude_vm_env_bake_has_key` is the `has()` presence test
+  operator wrote. For the same reason `_value` returns the value already
+  `%q`-quoted rather than raw: yq ends its output with one `\n` of its own and
+  `$(...)` strips *all* trailing newlines, so a caller capturing raw bytes
+  cannot tell `X: "a\nb"` from `X: "a\nb\n\n"`. `_value` strips exactly yq's
+  one newline behind a sentinel byte and quotes what is left, and `%q` output
+  never ends in a literal newline, so the caller's own capture is lossless.
+  Without that the boot tier would ship a shorter value than the bake tier for
+  the same literal, since the bake path carries the value inside JSON
+  (`claude_vm_bake_config_json`) and `shlex.quote`s it byte-exactly;
+  `claude_vm_env_bake_has_key` is the `has()` presence test
   behind the bake-tier abort; `claude_vm_env_file_assignments` parses one host
   `.env` file into those same assignment lines. All pure except the two that
   read the launcher's own environment (`claude_vm_check_env`'s `env.copy`
@@ -821,6 +830,19 @@ bash 4, which matters because the gate beside it is a config-load guard (see
 tier, merging is repo-over-global per key for `set` and a union for
 `copy`/`files`; within `env.files`, a later file wins over an earlier one, by
 the same emission order.
+
+*Both tiers ship the value the operator wrote, to the byte.* The bake side gets
+that for free — the value travels inside `claude_vm_bake_config_json`'s JSON
+and Python `shlex.quote`s it. The boot side does not: yq ends its output with
+one `\n` of its own and `$(...)` strips **all** trailing newlines, so a raw
+capture cannot tell `X: "a\nb"` from `X: "a\nb\n\n"` and silently hands the
+guest a shorter value than the config holds — with nothing downstream to notice.
+`claude_vm_env_set_value` therefore captures behind a sentinel byte, strips
+exactly yq's one newline, and returns the value already `%q`-quoted; `%q` output
+carries no literal newline, so the caller's own capture cannot eat anything.
+`config-test.sh` pins this by sourcing both tiers' rendered assignments for the
+same trailing-newline literal and comparing the resulting bytes, with a negative
+control on the raw-capture shape and a run under the host's pre-4 bash.
 
 *Every mistake aborts at launch*, because the alternative is a guest that
 boots and looks fine while lacking a key it was configured to have — which

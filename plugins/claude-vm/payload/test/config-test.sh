@@ -4011,6 +4011,43 @@ assert_eq "env: a value with shell metacharacters round-trips byte-exact" \
   "$(claude_vm_resolve_boot_env "$ENVD/hostile.yml" > "$ENVD/hostile.out"
      set -a; . "$ENVD/hostile.out"; set +a; printf '%s' "$HOSTILE")"
 
+# A value whose own bytes END IN NEWLINES. yq terminates its output with one
+# `\n` of its own and `$( )` strips ALL trailing newlines, so a raw capture
+# cannot tell `a\nb` from `a\nb\n\n` -- it ships the operator a SHORTER value
+# than they wrote, with nothing downstream to detect it. Measured through the
+# real resolve + a real `set -a` source, and compared byte-for-byte against
+# what the BAKE tier renders for the same literal (its own JSON carrier plus
+# shlex.quote), because a divergence between the two tiers is the defect.
+ENV_TRAILNL=$'a\nb\n\n'
+printf 'env:\n  set:\n    TRAILNL: "a\\nb\\n\\n"\n' > "$ENVD/trailnl.yml"
+assert_eq "env: a value's own trailing newlines survive the boot-tier resolve" \
+  "$(printf '%s' "$ENV_TRAILNL" | od -An -c | tr -s ' ')" \
+  "$(claude_vm_resolve_boot_env "$ENVD/trailnl.yml" > "$ENVD/trailnl.out"
+     set -a; . "$ENVD/trailnl.out"; set +a
+     printf '%s' "$TRAILNL" | od -An -c | tr -s ' ')"
+# The two tiers must agree on the VALUE the guest ends up with for the same
+# literal. The bake side is rendered the way the provisioner does it --
+# claude_vm_bake_config_json's JSON, then shlex.quote -- so this is a real
+# cross-tier comparison, not a restatement. Both sides are SOURCED before
+# comparing, because the two quoting styles spell the same bytes differently
+# (bash `%q` writes $'a\nb\n\n'; shlex.quote writes '...' around real
+# newlines) and the spelling is not what has to match.
+if command -v python3 >/dev/null 2>&1; then
+  claude_vm_bake_config_json "$ENVD/trailnl.yml" | python3 -c \
+    'import json,shlex,sys; d=json.load(sys.stdin); sys.stdout.write("TRAILNL=%s\n" % shlex.quote(d["env"]["TRAILNL"]))' \
+    > "$ENVD/trailnl.bake"
+  assert_eq "env: the boot tier's value matches the bake tier's for the same literal" \
+    "$(set -a; . "$ENVD/trailnl.bake"; set +a; printf '%s' "$TRAILNL" | od -An -c | tr -s ' ')" \
+    "$(set -a; . "$ENVD/trailnl.out"; set +a; printf '%s' "$TRAILNL" | od -An -c | tr -s ' ')"
+else
+  echo "SKIP: python3 not available; boot-vs-bake env value comparison skipped." >&2
+fi
+# Negative control: the pre-fix capture shape (raw `$( )`, no sentinel) really
+# does lose those newlines, so the assertion above is measuring something.
+assert_eq "env: the raw-capture shape this fix replaced loses the trailing newlines" \
+  "$(printf '%s' $'a\nb' | od -An -c | tr -s ' ')" \
+  "$(v="$(yq eval '.env.set["TRAILNL"]' "$ENVD/trailnl.yml")"; printf '%s' "$v" | od -An -c | tr -s ' ')"
+
 # --- the aborts. Each is a PRESENCE/shape mistake the operator can only learn
 #     about at load: past this point the guest is already running. ---
 # env_gate <bake-file> <boot-file> -- prints the gate's stderr; empty means it
@@ -4102,8 +4139,13 @@ case "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" in
        "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" ;;
 esac
 
-# A launcher-owned name, from each source. The launcher's composition always
-# wins, so a config that fights it can never take effect.
+# A launcher-owned name, from each source. The guest sources run.env FIRST and
+# these env files immediately after, so a config entry would actually WIN --
+# silently replacing the launcher's own proxy, mount tag or claude argv and
+# breaking the boot in a way that looks nothing like a config error.
+# CLAUDE_VM_LAST_CLAUDE_STATUS is the one exception in the other direction (the
+# boot launcher exports it after both files are sourced, so a config entry for
+# it would be silently overwritten); refusing at load covers both.
 printf 'env:\n  set:\n    CLAUDE_ARGS: nope\n' > "$ENVD/reserved-set.yml"
 case "$(env_gate "$ENV_NONE" "$ENVD/reserved-set.yml")" in
   *"env.set key 'CLAUDE_ARGS' in the merged BOOT config names a variable the LAUNCHER owns"*)
@@ -4253,6 +4295,14 @@ if [ -n "${OLD_BASH:-}" ]; then
         '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a;
          printf "%s|%s|%s|%s|%s" "$LAYERED" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" "$QUOTED_DQ"' \
         _ "$LIB" "$ENVD/prec-boot.yml" "$ENVD/old-bash-boot.out" 2>/dev/null)"
+  # The sentinel capture in claude_vm_env_set_value strips one `\n` with
+  # ${raw%$'\n'}. ANSI-C quoting inside a suffix pattern is the kind of
+  # construct that can differ across bash versions, so measure the VALUE the
+  # old shell produces rather than assuming it matches.
+  assert_eq "env: an OLD bash keeps a value's own trailing newlines too" \
+    "$(printf '%s' "$ENV_TRAILNL" | od -An -c | tr -s ' ')" \
+    "$("$OLD_BASH" -c '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$TRAILNL"' \
+        _ "$LIB" "$ENVD/trailnl.yml" "$ENVD/old-bash-trailnl.out" 2>/dev/null | od -An -c | tr -s ' ')"
   assert_eq "env: an OLD bash reaches the same unset-env.copy verdict" \
     "abort" \
     "$("$OLD_BASH" -c '. "$1"; claude_vm_check_env "$2" "$3" >/dev/null 2>&1 && echo pass || echo abort' \

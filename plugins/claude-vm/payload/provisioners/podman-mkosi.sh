@@ -1102,12 +1102,15 @@ d = json.load(open("/work/recipe/bake-config.json"))
 env = d.get("env", {}) or {}
 if not env:
     sys.exit(0)
-name_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\$")
+# fullmatch, not match+"^...\$": Python's \$ also matches just BEFORE a final
+# newline, so "^...\$" would accept a name with a trailing newline -- exactly
+# the smuggling shape this recheck exists to refuse.
+name_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 out_dir = "/work/recipe/mkosi.extra/etc/claude-vm"
 os.makedirs(out_dir, exist_ok=True)
 lines = []
 for k in sorted(env):
-    if not name_re.match(k):
+    if not name_re.fullmatch(k):
         sys.stderr.write(
             "podman-mkosi(inner): bake env.set key %r is not a usable "
             "environment-variable name ([A-Za-z_][A-Za-z0-9_]*); refusing to "

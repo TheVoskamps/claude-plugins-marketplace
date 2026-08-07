@@ -1916,12 +1916,33 @@ claude_vm_env_set_tag() {
 }
 
 # The VALUE of one `env.set` entry, rendered exactly as yq renders the scalar
-# (an int as its digits, a bool as `true`/`false`, an empty string as nothing).
+# (an int as its digits, a bool as `true`/`false`, an empty string as nothing)
+# and %q-quoted, so what comes back is a ready-to-source right-hand side rather
+# than raw bytes.
+#
+# The quoting happens HERE rather than at the call site because the value's own
+# trailing newlines are only intact here. yq terminates its output with exactly
+# one `\n` of its own, and `$(...)` strips ALL trailing newlines -- so a caller
+# capturing the raw bytes cannot tell `X: "a\nb"` from `X: "a\nb\n\n"`, and
+# silently ships the operator a shorter value than the one they wrote. The bake
+# tier has no such loss (claude_vm_bake_config_json carries the value inside
+# JSON, and the provisioner's Python shlex.quotes it byte-exactly), so leaving
+# it here would make the two tiers disagree about the same literal.
+#
+# The sentinel below is what closes that: append a byte that is not a newline,
+# strip it, then strip the ONE `\n` yq added -- which leaves every newline the
+# operator wrote. `%q` renders those as `$'a\nb\n'`, so the emitted line carries
+# no literal newline at all and the caller's own `$(...)` has nothing left to
+# eat. Verified to round-trip through `set -a` sourcing on both bash 3.2 and
+# bash 5.
 #   $1 -- merged config document file path
 #   $2 -- the variable name (already charset-validated by the caller)
 claude_vm_env_set_value() {
-  local file="$1" name="$2"
-  yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null
+  local file="$1" name="$2" raw
+  raw="$(yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null; printf 'x')"
+  raw="${raw%x}"
+  raw="${raw%$'\n'}"
+  printf '%q\n' "$raw"
 }
 
 # Emit the `env.copy` names / the `env.files` paths of a merged BOOT document,
@@ -2204,8 +2225,12 @@ claude_vm_resolve_boot_env() {
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     claude_vm_env_name_is_valid "$name" || continue
+    # Already %q-quoted by the helper -- see its header for why the quoting
+    # cannot happen here (this `$( )` would eat the value's own trailing
+    # newlines). `%q` output never ends in a literal newline, so this capture is
+    # lossless.
     value="$(claude_vm_env_set_value "$boot_doc" "$name")"
-    printf '%s=%q\n' "$name" "$value"
+    printf '%s=%s\n' "$name" "$value"
   done < <(claude_vm_env_set_names "$boot_doc")
   return 0
 }

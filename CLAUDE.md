@@ -376,6 +376,22 @@ other loops or to save yq invocations, is the bug this paragraph exists
 to prevent: the map holds a handful of entries, so the extra calls are
 not a cost worth the exposure.
 
+Avoiding `@tsv` is only half of it: `$( )` strips **all** trailing
+newlines, and yq adds one of its own, so capturing an `env.set` value
+raw loses the newlines the operator wrote and cannot even distinguish
+one from three. That is the same silent mutation, and it is worse than a
+bad value on its own because the bake tier has no such loss — the value
+rides `claude_vm_bake_config_json`'s JSON and Python `shlex.quote`s it —
+so the two tiers ship different bytes for the same literal.
+`claude_vm_env_set_value` therefore captures behind a sentinel byte,
+strips exactly yq's one newline, and returns the value already
+`%q`-quoted, so its own caller's `$( )` has no newline left to eat. Any
+new reader of an `env.set` value calls that helper rather than adding a
+second raw capture. The reasoning and the test shape (source both tiers'
+rendered assignments for the same trailing-newline literal and compare
+bytes, plus a negative control on the raw-capture shape) are in
+`plugins/claude-vm/payload/README.md` → *Guest environment variables*.
+
 ## Write claude-vm's config-load guards for bash 3.2, not for bash 5
 
 Every `plugins/claude-vm` script is `#!/usr/bin/env bash`, so on a stock
