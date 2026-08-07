@@ -54,6 +54,15 @@
   skill misses docs/plugin-authoring-constraints.md's pattern list and
   the consumer README's new `dependencies` edge; no CLAUDE.md sweep
   section.
+- [agent-variant doc surfaces](project_agent-variant-doc-surfaces.md)
+  — adding an sdlc agent variant / preloaded-protocol skill leaves
+  docs/plugin-authoring-constraints.md's pattern list and fresh count
+  words unswept; issues/lib repo-config's pr-reviewer claims are stale
+  but out of scope.
+- [Qualifier that contradicts the next paragraph](feedback_qualifier-that-contradicts-the-next-paragraph.md)
+  — a first exception gets patched with a vague hedge ("every teammate
+  you spawn by name") that still includes the exception; read the
+  statement together with the paragraph after it.
 - [diagnostic detail claims](feedback_diagnostic-detail-claims.md) —
   "aborts with the path named" is a claim per BRANCH of the validator;
   read the message strings, then sweep — that sentence is always copied

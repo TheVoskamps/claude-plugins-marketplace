@@ -134,6 +134,39 @@ closing lines and reports which issues the PR closes, so
 running standalone, and `/sdlc:orchestrate`'s end-of-loop status flip
 each invoke it instead of describing the scan again.
 
+### Varying one agent's budget: skeletons over a preloaded skill
+
+An agent's reasoning tier is its frontmatter `effort:`, and the `Agent`
+tool has no per-call `effort` parameter — so "the same agent, at a
+higher tier" can only be a *second agent definition*. Copying the
+agent's instructions into that second file gives its behavior two
+sources of truth, and they drift.
+
+The pattern that avoids it: move the agent's entire operating
+instruction into a skill in the same plugin, name that skill in each
+definition's `skills:` frontmatter so it is preloaded at spawn, and
+leave each definition a **skeleton** — frontmatter plus a pointer at
+the skill. The definitions then differ only in `name:`, `effort:`, and
+the tier word in `description:`, and choosing a tier is choosing which
+definition to spawn.
+
+`sdlc`'s reviewers are the worked instance: `pr-reviewer`,
+`pr-reviewer-high`, and `pr-reviewer-xhigh` are skeletons over
+`plugins/sdlc/skills/pr-review-protocol/SKILL.md`. What keeps the
+pattern honest is enforced by the repo's `CLAUDE.md` →
+"The reviewer skeletons are copies of one file":
+
+- **The skill is tier-blind.** It carries no tier parameter and never
+  asks which variant is running it, so the variants cannot diverge in
+  behavior — only in budget.
+- **Guidance never lands in a skeleton.** Anything a skeleton says that
+  its siblings do not is the second source of truth the pattern exists
+  to remove; a `diff` of the skeletons is the mechanical check.
+
+Such a skill is machinery, not a user verb: give it
+`user-invocable: false` (constraint 4) so it stays out of the human `/`
+menu while remaining loadable by the agents that declare it.
+
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same

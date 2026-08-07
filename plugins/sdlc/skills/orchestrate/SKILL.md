@@ -31,6 +31,12 @@ You have access to these teammate agents:
   worktree, posts a single review carrying a verdict per issue the PR
   closes — plus one per any other issue its findings name — and one
   overall verdict (the worst of them)
+- `pr-reviewer-high`, `pr-reviewer-xhigh` — the same reviewer at a
+  higher reasoning tier, leaving behind the same single posted review.
+  All three are skeletons over the one `sdlc:pr-review-protocol`
+  skill, preloaded into each at spawn, and differ only in `name:`,
+  `effort:`, and a tier word in `description:`. Pick one per review
+  spawn per "Picking a reviewer tier" below
 - `agent-memory-scrubber` — curates the PR's `.claude/agent-memory/`
   in a fresh `isolation: worktree` worktree via the
   `/cc-tools:agent-memory-cleanup` skill, pushes the curated result
@@ -45,16 +51,22 @@ frontmatter baseline, with `memory: project` on every teammate except
 throwaway worktree, not the primary clone — memory written mid-run
 would otherwise vanish when the worktree is torn down, never having
 reached the PR. The agents close this gap with a capture-then-curate
-flow: `issue-developer`, `issue-fixer`, `doc-updater`, and
-`pr-reviewer` each commit their own raw, uncurated
+flow: `issue-developer`, `issue-fixer`, `doc-updater`, and whichever
+reviewer variant ran each commit their own raw, uncurated
 `.claude/agent-memory/` deltas onto the branch at end-of-run, before
 their worktree cleanup, staging only that path — and none of them
-judges any memory, its own or anyone else's. Curation is owned by
+judges any memory, its own or anyone else's. Because `memory: project`
+keys the directory to the agent's own name, a variant's captures land
+in `.claude/agent-memory/sdlc-pr-reviewer-high/` rather than the base
+reviewer's directory; the protocol has every variant *read* the base
+`sdlc-pr-reviewer/` directory, and curation is what moves a durable
+lesson there. Curation is owned by
 `agent-memory-scrubber`, which runs as the **last agent to touch the
 branch** before `/pr-ready` (see "Before `/pr-ready`: curate the PR's
-agent memory"). Running last is what makes one pass enough: every
-writer has captured by then, so that pass covers the whole PR —
-`pr-reviewer`'s own capture included — and nothing is deferred to a
+agent memory"), and it curates the whole tree, every reviewer
+directory included. Running last is what makes one pass enough: every
+writer has captured by then, so that pass covers the whole PR — the
+reviewer's own capture included — and nothing is deferred to a
 later PR. Anything that lands on the branch afterwards leaves the
 curation stale, and the scrubber runs again.
 `agent-memory-scrubber` deliberately declares **no** `memory:` key, so
@@ -66,7 +78,7 @@ block and `disableBypassPermissionsMode` lock that apply to every
 session.) Each agent's frontmatter is the sole source of truth for its
 `model` and its `effort`. This skill restates no *per-agent* value, so
 a model change never requires touching this file. The one exception is
-the fleet-wide `effort: medium` default, stated in the paragraph below
+the `effort: medium` default, stated in the paragraph below
 and again under "Token Efficiency": raising or lowering any teammate's
 `effort:` falsifies both of those and must update them in the same PR.
 The two keys are not equally adjustable at spawn time. The `Agent` tool takes a
@@ -81,14 +93,21 @@ always an edit to that agent's frontmatter, plus an `sdlc` plugin
 version bump — never something a spawn prompt or an `Agent` call can
 do.
 
-The fleet's declared effort is `medium` on every teammate, and that is
-a deliberate default rather than an unset one: medium has proven more
-solid than higher efforts on the bounded, spec-driven tasks the
-teammates receive, because Phase 1 and the issue bodies already carry
-the plan, and surplus reasoning budget gets spent generating candidate
-findings rather than better answers. So when an issue is genuinely
-hard, escalate that single spawn with the per-call `model` override
-described above — raise-only. Effort never varies per spawn.
+The declared effort is `medium` on every teammate but the higher
+reviewer tiers, and that is a deliberate default rather than an unset
+one: medium has proven more solid than higher efforts on the bounded,
+spec-driven tasks the teammates receive, because Phase 1 and the issue
+bodies already carry the plan, and surplus reasoning budget gets spent
+generating candidate findings rather than better answers. So when an
+issue is genuinely hard, escalate that single spawn with the per-call
+`model` override described above — raise-only. Effort never varies per
+spawn.
+
+Review is the one job that ships pre-built alternatives to that
+default, and it does not bend the rule: `pr-reviewer-high` and
+`pr-reviewer-xhigh` are separate agent definitions each pinning its own
+`effort:`, so choosing a tier is choosing *which definition to spawn*,
+never overriding effort on a spawn. See "Picking a reviewer tier".
 
 Each agent still pins its own `effort:` in frontmatter, because a
 subagent frontmatter with no `effort:` key inherits the effort level of
@@ -455,7 +474,8 @@ The doc pass is cheap in the common case and never costs a review
 round: when a round had no doc impact, `doc-updater` returns without a
 doc commit — it still pushes its own `.claude/agent-memory/` capture
 like every other teammate — and the review-round cap (Hard Constraints
-→ "Max review rounds per PR") counts `pr-reviewer` runs only.
+→ "Max review rounds per PR") counts reviewer runs only, at whichever
+tier "Picking a reviewer tier" selected.
 
 Both run in fresh worktrees and check out the PR branch. Because each
 subagent's end-of-run cleanup deletes the local feature branch, the
@@ -516,22 +536,68 @@ files changed and what you updated.
 ```
 
 **pr-reviewer spawn prompt** — give it PR number, the issue set, and
-branch name. The set is not context here: it is the **claim** the
-agent reconciles against the branch name, so pass the set the PR
-actually closes (a dropped member is not in it), and pass it whenever
-you spawn the reviewer. Left out, the agent falls back to reading the
-PR body itself, which is the standalone path rather than this one:
+branch name, written as the protocol's own double-dash parameters
+(`--pr`, `--issues`, `--branch`), which is the one vocabulary both this
+path and a direct invocation use. The set is not context here: it is
+the **claim** the agent reconciles against the branch name, so pass the
+set the PR actually closes (a dropped member is not in it), and pass it
+whenever you spawn the reviewer. Left out, the agent falls back to
+reading the PR body itself, which is the standalone path rather than
+this one:
 
 ```text
-Review PR <PR_N>, which closes issues <link-prefix><issue_N1>:
-"<title>", <link-prefix><issue_N2>: "<title>", … .
-Branch: <branch-name>
+--pr <PR_N>
+--issues <issue_N1> <issue_N2> …
+--branch <branch-name>
 
-Review per your agent definition and post a single review with a
-verdict per issue plus an overall verdict. Report back every verdict
-line you posted and the overall APPROVED, NEEDS_CHANGES, or BLOCKED
-with severity counts.
+Issue titles, for context: <link-prefix><issue_N1>: "<title>",
+<link-prefix><issue_N2>: "<title>", … .
+
+Review per the preloaded PR review protocol and post a single review
+with a verdict per issue plus an overall verdict. Report back every
+verdict line you posted and the overall APPROVED, NEEDS_CHANGES, or
+BLOCKED with severity counts.
 ```
+
+Pass no tier in the brief. The protocol is tier-blind; the tier is the
+`effort:` of whichever definition you spawn, per the next section.
+
+### Picking a reviewer tier
+
+The reviewer definitions are `pr-reviewer` (medium),
+`pr-reviewer-high` (high), and `pr-reviewer-xhigh` (xhigh). They run the
+same preloaded `sdlc:pr-review-protocol` and differ only in `effort:`,
+so picking one is the only reasoning-budget lever review has. Apply
+this rule on **every** review spawn, the first round and each
+re-review alike, re-reading the signals each time rather than reusing
+the previous round's pick.
+
+The signals are read off things you already have in Phase 1 and from
+the round that just finished — no extra tool calls:
+
+- **`pr-reviewer` (medium) — the default.** Use it unless a signal
+  below fires.
+- **`pr-reviewer-high`** when any one of these holds:
+  - the issue's size/Effort field is the highest option (`High` on the
+    native Effort field), on any member of the batch;
+  - the PR closes a batch of several issues, where one member can be
+    under-delivered while the diff as a whole reads well;
+  - the diff crosses plugin boundaries — files under two or more
+    `plugins/<name>/` trees, or a plugin plus repo-root policy files.
+- **`pr-reviewer-xhigh`** when either holds:
+  - a `pr-reviewer-high` signal above coincides with a
+    security-sensitive surface — the `guardrails` permission-gate,
+    credential handling, or anything that decides what a command is
+    allowed to do;
+  - you are re-reviewing after a round in which a lower tier approved
+    or passed over a defect the human then caught. That is direct
+    evidence the tier was too low for this PR, and it holds for the
+    rest of the PR's rounds.
+
+This is a starting rule, tunable at review: it is a first-cut estimate
+like any heuristic, and the human may override the pick in either
+direction. Say which tier you spawned and which signal fired in the
+round's report, so an override has something to disagree with.
 
 ### Handling review findings — the fix loop
 
@@ -591,8 +657,10 @@ member)**:
    round had no doc impact, the agent returns without a doc commit —
    its agent-memory capture is still pushed — and the pass does not
    consume a review round.
-5. Spawn the pr-reviewer again for a follow-up review of the new
-   changes.
+5. Spawn a reviewer again for a follow-up review of the new changes,
+   re-picking the tier per "Picking a reviewer tier" — a round in
+   which the previous tier missed a defect the human caught is itself
+   a signal to raise it.
 6. Repeat this loop until APPROVED or until the review-round cap
    (Hard Constraints → "Max review rounds per PR") is reached.
 7. If findings above Low persist when the cap is reached, escalate to
@@ -607,9 +675,10 @@ settled — APPROVED, or the review-round cap reached — and no further
 branch work is queued.
 
 Being last is the whole point: by that moment every agent that writes
-memory (`issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer`)
-has captured onto the branch, so the scrubber's pass curates the entire
-PR's memory delta and nothing is deferred to a later PR.
+memory (`issue-developer`, `issue-fixer`, `doc-updater`, and each
+reviewer variant that ran) has captured onto the branch, so the
+scrubber's pass curates the entire PR's memory delta and nothing is
+deferred to a later PR.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running last — not a budget, and not a rule that survives later work.
@@ -851,7 +920,8 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
     authored but couldn't push itself (see "What the orchestrator IS
     allowed to do" below); the orchestrator never authors new
     feature-work commits in the primary clone.
-  - **PR reviews** — owned by `pr-reviewer`. The orchestrator never
+  - **PR reviews** — owned by the `pr-reviewer` agents, at whichever
+    tier you spawned. The orchestrator never
     writes a PR review body and never runs
     `gh pr review --approve|--request-changes|--comment` itself, even
     when the agent has already run.
@@ -942,7 +1012,8 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A
-  round is one `pr-reviewer` run; the `doc-updater` pass that precedes
+  round is one reviewer run at any tier; the `doc-updater` pass that
+  precedes
   each one is not a review and never counts against the cap.
 
 ### What the orchestrator IS allowed to do
@@ -1145,15 +1216,21 @@ These carve-outs keep this rule from being over-broad:
 
 - Use every teammate with its own frontmatter-declared `model` and
   `effort` — do not override the model on a routine spawn, and note
-  that effort cannot be overridden at spawn time at all. The fleet
-  declares `effort: medium` deliberately: it has proven more solid
-  than higher efforts on the bounded, spec-driven tasks the teammates
-  receive. For a genuinely hard issue, escalate that single spawn to a
-  stronger model via the `Agent` tool's per-call `model` override
-  rather than editing front matter; an override may only raise a
-  teammate above its declared default, never lower it. Changing an
-  effort is always a frontmatter edit plus an `sdlc` version bump, and
-  it changes every spawn of that agent — it is not a per-run lever.
+  that effort cannot be overridden at spawn time at all. Every
+  teammate but the higher reviewer tiers declares `effort: medium`
+  deliberately: it has proven more solid than higher efforts on the
+  bounded, spec-driven tasks the teammates receive. For a genuinely
+  hard issue, escalate that single spawn to a stronger model via the
+  `Agent` tool's per-call `model` override rather than editing front
+  matter; an override may only raise a teammate above its declared
+  default, never lower it. Changing an effort is always a frontmatter
+  edit plus an `sdlc` version bump, and it changes every spawn of that
+  agent — it is not a per-run lever. Review is the exception in
+  *selection*, not in mechanism: `pr-reviewer-high` and
+  `pr-reviewer-xhigh` are separate definitions pinning `effort: high`
+  and `effort: xhigh`, so a costlier review is bought by spawning a
+  different agent (see "Picking a reviewer tier"), never by an effort
+  override.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only
 - If the run is large (>8 issues across all batches), split into two
