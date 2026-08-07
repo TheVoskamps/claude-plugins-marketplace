@@ -93,14 +93,15 @@ always an edit to that agent's frontmatter, plus an `sdlc` plugin
 version bump — never something a spawn prompt or an `Agent` call can
 do.
 
-The declared effort is `medium` on every teammate you spawn by name,
-and that is a deliberate default rather than an unset one: medium has
-proven more solid than higher efforts on the bounded, spec-driven tasks
-the teammates receive, because Phase 1 and the issue bodies already
-carry the plan, and surplus reasoning budget gets spent generating
-candidate findings rather than better answers. So when an issue is
-genuinely hard, escalate that single spawn with the per-call `model`
-override described above — raise-only. Effort never varies per spawn.
+The declared effort is `medium` on every teammate but the higher
+reviewer tiers, and that is a deliberate default rather than an unset
+one: medium has proven more solid than higher efforts on the bounded,
+spec-driven tasks the teammates receive, because Phase 1 and the issue
+bodies already carry the plan, and surplus reasoning budget gets spent
+generating candidate findings rather than better answers. So when an
+issue is genuinely hard, escalate that single spawn with the per-call
+`model` override described above — raise-only. Effort never varies per
+spawn.
 
 Review is the one job that ships pre-built alternatives to that
 default, and it does not bend the rule: `pr-reviewer-high` and
@@ -563,8 +564,8 @@ Pass no tier in the brief. The protocol is tier-blind; the tier is the
 
 ### Picking a reviewer tier
 
-Three reviewer definitions exist — `pr-reviewer` (medium),
-`pr-reviewer-high` (high), `pr-reviewer-xhigh` (xhigh). They run the
+The reviewer definitions are `pr-reviewer` (medium),
+`pr-reviewer-high` (high), and `pr-reviewer-xhigh` (xhigh). They run the
 same preloaded `sdlc:pr-review-protocol` and differ only in `effort:`,
 so picking one is the only reasoning-budget lever review has. Apply
 this rule on **every** review spawn, the first round and each
@@ -1216,19 +1217,20 @@ These carve-outs keep this rule from being over-broad:
 - Use every teammate with its own frontmatter-declared `model` and
   `effort` — do not override the model on a routine spawn, and note
   that effort cannot be overridden at spawn time at all. Every
-  teammate you spawn by name declares `effort: medium` deliberately: it
-  has proven more solid than higher efforts on the bounded,
-  spec-driven tasks the teammates receive. For a genuinely hard issue,
-  escalate that single spawn to a stronger model via the `Agent` tool's
-  per-call `model` override rather than editing front matter; an
-  override may only raise a teammate above its declared default, never
-  lower it. Changing an effort is always a frontmatter edit plus an
-  `sdlc` version bump, and it changes every spawn of that agent — it is
-  not a per-run lever. Review is the exception in *selection*, not in
-  mechanism: `pr-reviewer-high` and `pr-reviewer-xhigh` are separate
-  definitions pinning `effort: high` and `effort: xhigh`, so a costlier
-  review is bought by spawning a different agent (see "Picking a
-  reviewer tier"), never by an effort override.
+  teammate but the higher reviewer tiers declares `effort: medium`
+  deliberately: it has proven more solid than higher efforts on the
+  bounded, spec-driven tasks the teammates receive. For a genuinely
+  hard issue, escalate that single spawn to a stronger model via the
+  `Agent` tool's per-call `model` override rather than editing front
+  matter; an override may only raise a teammate above its declared
+  default, never lower it. Changing an effort is always a frontmatter
+  edit plus an `sdlc` version bump, and it changes every spawn of that
+  agent — it is not a per-run lever. Review is the exception in
+  *selection*, not in mechanism: `pr-reviewer-high` and
+  `pr-reviewer-xhigh` are separate definitions pinning `effort: high`
+  and `effort: xhigh`, so a costlier review is bought by spawning a
+  different agent (see "Picking a reviewer tier"), never by an effort
+  override.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only
 - If the run is large (>8 issues across all batches), split into two
