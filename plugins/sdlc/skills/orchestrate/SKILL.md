@@ -64,9 +64,12 @@ field at all — see the Claude Code plugins reference — so permission
 behavior comes solely from the repo-level `settings.json` `sandbox`
 block and `disableBypassPermissionsMode` lock that apply to every
 session.) Each agent's frontmatter is the sole source of truth for its
-`model` and its `effort` — this skill does not restate or track those
-values, so a tier change never requires touching this file. The two
-are not equally adjustable at spawn time. The `Agent` tool takes a
+`model` and its `effort`. This skill restates no *per-agent* value, so
+a model change never requires touching this file. The one exception is
+the fleet-wide `effort: medium` default, stated in the paragraph below
+and again under "Token Efficiency": raising or lowering any teammate's
+`effort:` falsifies both of those and must update them in the same PR.
+The two keys are not equally adjustable at spawn time. The `Agent` tool takes a
 per-invocation `model` parameter, and a per-call `model` override may
 only **raise** an agent above its declared frontmatter default for a
 single spawn, never lower it — the frontmatter is the floor. There is

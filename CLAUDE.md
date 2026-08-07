@@ -22,6 +22,18 @@ silently. Grep SKILL.md for each agent the PR touches and check every
 hit against that agent's current Output section, rather than fixing
 only the roster bullet.
 
+Frontmatter tiers are a partial exception, and the halves differ.
+SKILL.md deliberately names no agent's `model:`, so a model change is
+confined to the agent file. It does state the fleet-wide
+`effort: medium` — twice, in the teammate-frontmatter prose near the
+top and in the "Token Efficiency" bullet — because that value is a
+decision (the bounded, spec-driven tasks the teammates get are more
+solid at medium) rather than a per-agent tier, and because effort has
+no `Agent`-tool override, so frontmatter is the only lever. A PR that
+changes any teammate's `effort:` therefore updates both SKILL.md
+statements as well; grep SKILL.md for `effort` and confirm every hit
+still describes the whole fleet.
+
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step
 quote a `### After each ...` heading verbatim, so renaming a heading in
@@ -285,7 +297,7 @@ the launcher now rejects — makes the wizard produce a config that aborts
 the launch.
 
 Any change to the config schema **or to its validation** therefore sweeps
-both wizard files. Three classes land there and nowhere else:
+both wizard files. These classes land there and nowhere else:
 
 - **Key placement.** Check the key table's bake/boot *file* column, the
   YAML template the skill writes verbatim, and the "Hard constraints"
