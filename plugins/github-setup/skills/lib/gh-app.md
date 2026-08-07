@@ -12,9 +12,9 @@ reader contract), the `/issues:user-config` skill (the per-user config
 reader contract), and the `/issues:issue-view` skill (`/issue-*` shared
 reference); this file plays the same role for GitHub App resolution.
 
-## Two paths: find/verify and create-from-scratch
+## Find/verify and create-from-scratch
 
-The resolver has two branches:
+The resolver has these branches:
 
 1. **Find/verify** (this file) -- detect an existing suitable App (or
    ask the user for a name), confirm it has the needed permissions and
@@ -48,8 +48,14 @@ The caller passes:
 
 - **`required_permissions`** -- a map of permission scope to access
   level (e.g. `{ contents: write, pull_requests: write,
-  workflows: write }`). The verifier checks these against the App's
+  issues: write }`). The verifier checks these against the App's
   declared permissions.
+
+  Include every scope the automation's **side effects** need, not just
+  the ones its direct API calls need. The scope most often left out is
+  `issues: write`: merging a PR whose body carries a closing keyword
+  closes the linked issues under the merging token's authority, so an
+  App without it merges fine and silently leaves the issues open.
 - **`target_repo`** (optional) -- the `owner/repo` to verify
   installation on. Defaults to the current repo
   (`gh repo view --json nameWithOwner -q .nameWithOwner`).
@@ -117,7 +123,7 @@ report in Step 3.
 
 ### Step 3: Select or prompt
 
-Three cases:
+The cases are:
 
 - **Exactly one suitable candidate** -- use it. Print the selection
   for the user:
@@ -137,7 +143,7 @@ Three cases:
 
   Use the user's choice for the rest of the flow.
 
-- **No suitable candidates** -- two sub-cases:
+- **No suitable candidates** -- sub-cases:
 
   - **Candidates exist but none have sufficient permissions** --
     report what was found and what was missing:
@@ -150,7 +156,9 @@ Three cases:
     >   or not granted)
     >
     > Create a suitable App with `/gh-create-app`, or create one
-    > manually and re-run this skill.
+    > manually and re-run this skill. Granting a scope to an
+    > **existing** App takes two steps -- see "Granting a missing
+    > permission to an existing App" below.
 
   - **No installations at all** -- report and point at the create
     path:
@@ -158,13 +166,48 @@ Three cases:
     > No GitHub Apps installed on `<org>`. Create one with
     > `/gh-create-app`, or create one manually and re-run this skill.
 
-  In both sub-cases, abort the calling skill. The user needs to
+  In each sub-case, abort the calling skill. The user needs to
   create or reconfigure an App before the skill can proceed.
+
+### Granting a missing permission to an existing App
+
+Step 2 records an insufficient permission; the "missing permissions"
+report is emitted by Step 3's "no suitable candidates" branch, or by
+the permission check in the "User-supplied App name (skip discovery)"
+path below. When either fires, the fix is **not** a `gh api` call, and
+it is **not** finished when the App owner clicks Save. Tell the user
+each of these steps, because a caller who does only the first re-runs
+the skill and sees the identical failure:
+
+1. **Change the declared permission in the UI.** GitHub exposes no
+   REST endpoint for editing a registered App's permissions -- the
+   only path is
+   `Settings → Developer settings → GitHub Apps → <app> →
+   Permissions & events`, setting the scope to the needed level and
+   saving. (Same UI gate as App creation; see "Create-from-scratch
+   path".)
+2. **Have every installing account approve the new permission.**
+   Per GitHub's "Modifying a GitHub App registration" docs, *adding*
+   a repository or organization permission does not apply to
+   existing installations until each account the App is installed on
+   approves it; GitHub emails the request to the account's owners,
+   and the App keeps running with its **old** grants until they
+   accept. (The asymmetry is worth knowing: *removing* a permission
+   takes effect immediately, with no approval.)
+
+Until the installing account's approval lands, the installation's
+`permissions` map -- what Step 1's discovery endpoints return, and
+therefore what Step 2 filters on -- still shows the old level. That
+makes this library's own check
+the converge-time signal: re-run the calling skill after the approval
+lands and the filter passes. A skill re-run that still reports the
+same missing scope means the approval is outstanding, not that the
+UI edit failed.
 
 ### Step 4: Verify installation on the target repo
 
 Confirm the chosen App is installed on the specific target repo (not
-just the org). There are two approaches depending on available auth.
+just the org). The approach depends on the auth available.
 
 **Preferred (user-token path)** -- query the authenticated user's
 installations and check repository access. This works with the

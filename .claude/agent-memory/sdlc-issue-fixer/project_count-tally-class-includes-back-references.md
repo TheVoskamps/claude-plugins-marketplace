@@ -29,6 +29,17 @@ routinely has a sibling count a line away in the same file's
 cmd-b)") — a count over a parenthetical enumeration. Fix body,
 `description:`, and the index hook in the same pass.
 
+**The "list" need not be a Markdown list.** Two shapes that read as
+prose still enumerate, and their introducing tally rots the same way:
+an options menu written inside a fenced `text` block (`offer two
+paths` above a `1. … 2. …` prompt the skill prints verbatim), and a
+run of bold-lead paragraphs (`Two paths, preferred first:` above
+`**Preferred — …**` / `**Fallback — …**`). A back-reference *into* a
+fenced block's own numbered list is in-class too (`y to do all three`
+under a printed `1./2./3.`), while the same triple named inline as a
+conjunction in running prose (`commits, pushes, and opens a PR … on
+one approval covering all three`) is conjunction emphasis and stays.
+
 **Don't re-derive the boundary — read the adjudicated one.** The
 `sdlc-pr-reviewer` sibling memory
 `project_only-one-before-list-is-in-class.md` carries the settled

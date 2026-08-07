@@ -7,6 +7,32 @@ that plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`,
 in the same PR. The version bump is a separate, deliberate edit. A
 plugin change without a version bump is incomplete.
 
+## MD041 on a SKILL.md is convention, not debt
+
+`npx markdownlint-cli2` reports
+`MD041/first-line-heading/first-line-h1` on essentially every
+`plugins/*/skills/**/SKILL.md`, always at the first prose line after
+the YAML frontmatter. Leave it alone. A `SKILL.md` body is a *prompt*
+the model reads, not a document, so it opens with an instruction ("You
+are running the `/foo` skill…") rather than an H1, and MD041 is the
+only error class those files produce — a rule that fires uniformly and
+alone, in a tree whose Markdown is otherwise spotless, is a tolerated
+convention.
+
+The global "Leave Markdown clean" rule would otherwise push you into
+adding an H1 to a skill file, which changes the prompt payload the
+model receives and, swept per "sweep the class", churns every skill
+file in every plugin. Don't. When you edit a `SKILL.md`, verify you
+introduced **no new** error classes — re-lint the base and compare
+counts, rather than reading the raw total as debt you inherited — and
+say in the PR body that the remaining MD041 hits are pre-existing and
+why. Changing the convention is a repo-wide decision, not a doc-pass
+sweep — the same carve-out shape as the `Phase 1` / `Phase 2` headings
+below.
+
+`lib/*.md` files under a plugin's `skills/` are ordinary documents and
+DO carry an H1. They lint clean, and a new one you write must too.
+
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
 The `sdlc` plugin ships no `plugins/sdlc/README.md`. An agent's
@@ -327,6 +353,45 @@ file* — `claude_vm_check_mounts`'s call-site comment in `claude-vm.sh`,
 and the emitted boot launcher's file-header step list in
 `build-guest-image.sh` — go stale while the function's own header and the
 phase's own block comment get updated.
+
+## Sweep every App-permission surface when the starter set changes
+
+The PR-automation GitHub App's permission set is restated as a literal
+list in several `plugins/github-setup` places, each a separate edit:
+
+- `skills/gh-create-app/SKILL.md` — the *Starter permission set* table,
+  the `required_permissions` code block under it, the "Permissions →
+  Repository permissions" bullets the user is told to click through
+  during registration, and the `__APP_PERMISSIONS__` rendering example
+  in the metadata-doc step.
+- `skills/gh-repo-setup-pr-automation/SKILL.md` — the *Required GitHub
+  App permissions* block and the `required_permissions = { … }` line in
+  its App-resolution step.
+- `skills/lib/gh-app.md` — the `required_permissions` example in the
+  caller-passes list.
+
+`payload/gh-create-app/app-metadata.md` renders the set from
+`__APP_PERMISSIONS__` and holds no literal list, so it never takes this
+edit — hard-coding a map there would freeze one caller's scopes into
+every rendered metadata doc.
+`plugins/github-claude-identity/skills/gh-create-identity-app/SKILL.md`
+does carry a literal permission list, but it belongs to a **different**
+App (the per-user commit identity, provisioned with its own scopes).
+Never sweep it along with this set.
+
+Widening the set has a converge-time consequence worth stating wherever
+the new scope is introduced: a scope added to an already-registered App
+is not live until every installing account approves it
+(`skills/lib/gh-app.md` → "Granting a missing permission to an existing
+App"), so every previously-provisioned App fails the library's
+permission filter until that approval lands.
+
+That failure is determinate in every caller: the library aborts the
+calling skill with its "missing permissions" report and the pointer to
+the two-step remediation — on the discovery path from Step 3's
+no-suitable-candidates branch, on the `--app-name` path from that
+path's own permission check. No caller routes such an App into
+registration instead.
 
 ## Add a README roster entry when you publish a plugin
 
