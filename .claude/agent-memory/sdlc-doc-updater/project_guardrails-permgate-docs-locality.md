@@ -340,3 +340,35 @@ doc surface; an agent grepping a deny reason for the words it typed
 finds nothing. Same class as
 [[feedback_diagnostic-detail-claims]] — check what the message STRING
 interpolates after any rewrite of the tokens it is built from.
+
+**A verdict-move COUNT is checkable without reproducing the cross it
+was taken over (#229, PR #232, round 9).** The surfaces reported "24
+rows move" over a 1,295-row bare `gh <noun> <verb>` cross, and the
+cheap check is not to rebuild that cross but to ask which rows the
+change can possibly move: `ghCanonicalCommand` returns its input
+unchanged unless the noun or verb is an alias, so only alias-touching
+rows can move at all, and the moving set is INVARIANT to how wide the
+cross is. Extract main and the tip with `git archive … | tar -x`, drop
+one `zz_docprobe_test.go` into both that crosses the tables and writes
+`cmd<TAB>bucket`, and `paste`/`awk` the two files. My own 37×34
+reconstruction of the same five table families (alias, read,
+recoverable-write, file-spec, deny) totals 1,258 rather than 1,295 —
+one verb short, never identified — yet reproduced the 24 and every
+sub-count (11 `ls`, 3 `new`, 7 `gh rs <read verb>`, 2 deny → allow,
+1 ask → deny) exactly. So a stated total whose derivation a reader
+cannot re-run is still worth flagging, but do not "fix" it to your own
+number: the load-bearing figure is the moving set, and it survives the
+disagreement.
+
+**The residue in a count-fixing round is the CLOSURE sentence.** When
+prose enumerates a set and then says why the set is complete ("the
+list is closed at five because `gist create` has exactly two
+value-taking flags, in two spellings each"), do the arithmetic against
+the list right above it: two flags × two spellings is four, and the
+fifth member — an operand after `--` — had no justification at all.
+Same sentence carried a mechanism blanket over the same list ("pflag
+gives that token to the preceding flag"), false for the `--` member,
+which has no preceding flag. Both survived the round that wrote them
+because the enumeration itself was measured and correct. Grade a
+"closed because" clause member by member, exactly as
+[[feedback_no-blanket-predicate-over-a-list]] prescribes.

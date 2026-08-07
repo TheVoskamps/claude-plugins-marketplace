@@ -87,3 +87,7 @@
   — that rule lives on exactly two surfaces (root CLAUDE.md + payload
   README's oldest-bash section); check scope, severity clause and
   pinning on both, and never cite a bullet by list position.
+- [The PR description is a doc surface](feedback_pr-description-is-a-doc-surface.md)
+  — when the spawn prompt says so, verify and repair the PR body like a
+  README; the closing keyword is untouchable and nothing else on the PR
+  is yours.
