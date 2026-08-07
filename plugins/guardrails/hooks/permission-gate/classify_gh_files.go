@@ -88,7 +88,9 @@ import (
 // A `<pattern>` operand needs no handling of its own. It reaches the gate as
 // one word, containment resolves its escaping prefix without expanding it, and
 // the verdict is the one the prefix earns: `gh release create v1
-// '../sib/*.tgz'` denies, `gh gist create '*.md'` allows.
+// '../sib/*.tgz'` denies, while a contained `gh gist create '*.md'` is not
+// denied for a path the gate could not expand — it falls through to its verb's
+// own tier, which for both gist verbs is the publish ASK (#229).
 //
 // defaultsToStdin marks a verb that reads STDIN when the invocation gives it no
 // file operand at all — the implicit spelling of the `-` marker, which has no

@@ -579,8 +579,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   that reaches gh unexpanded — is graded as the literal token it is
   written as, which is sound because containment resolves the pattern's
   escaping prefix without needing to know what it matches:
-  `gh release create v1 '../sib/*.tgz'` **denies** while
-  `gh gist create '*.md'` **allows**. The values are extracted by the same flag
+  `gh release create v1 '../sib/*.tgz'` **denies** while the contained
+  `gh gist create '*.md'` is not denied for a path the gate could not
+  expand — it reaches its verb's publish **ask** below, as every
+  `gist create` does. The values are extracted by the same flag
   walk the read track uses — `pathFlagValueRefs`, which `pathFlagValues`
   wraps — so every spelling that walk covers (separate
   token, glued short, `=`-joined long,
