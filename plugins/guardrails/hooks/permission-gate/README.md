@@ -696,10 +696,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   gains the containment deny and the publish ask, `gh issue ls` /
   `gh pr ls` / `gh gist ls` gain the read **allow**, and `gh secret ls` /
   `gh variable ls` move from the secret-noun's blanket **deny** to the
-  read allow `gh secret list` already had. `gh secret remove` /
-  `gh variable remove` denied under their own names already (that arm
-  default-denies every verb but `list`/`get`); only the spelling the
-  message quotes changes. The two tables are the complete cobra-alias set
+  read allow `gh secret list` already had — that arm default-denies
+  every `secret`/`variable` verb but `list`/`get`, and `ls` was reaching
+  it unresolved. Its mutating verbs are unmoved: `gh secret remove` /
+  `gh variable remove` denied under their own names already and still
+  deny. What changes for them is the spelling the message quotes, and
+  that holds for every message downstream of the resolution — each names
+  the canonical command, so `gh secret remove FOO` is refused as
+  `'gh secret delete'` and `gh pr co 1` asks about `'gh pr checkout 1'`.
+  An agent that greps the reason for the words it typed will not find
+  them. The two tables are the complete cobra-alias set
   of gh 2.97.0, derived by walking `gh <path> --help` over all 228
   commands reachable from `gh --help` and reconciled against all 45
   `Aliases:` declarations in cli/cli at tag v2.97.0. NO alias name on a

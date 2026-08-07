@@ -55,13 +55,22 @@ read containment. What that grades, per verb, is exactly:
   the canonical one before the grading runs, so `gh gist new`,
   `gh pr new`, `gh issue new` and `gh release new` grade exactly what
   `create` grades — respelling the verb is not a way around the
-  destination rule.
+  destination rule. The message names the canonical verb too:
+  `gh gist new /tmp/body.md` is refused as `'gh gist create'`, so read
+  the verdict against the rule rather than against the words you typed.
 
 Both sanctioned destinations survive that
 grading — a PR-body file under `<repo-root>/.claude/tmp/` is
 contained, and one in a harness session directory is allowed outright
 — while a loose `/tmp/body.md` that used to be published without
 comment is now denied as a cross-repo read escape.
+
+Surviving containment is not the whole verdict, though. Containment
+forwards an escape and discards its own ALLOW, so the verb's own tier
+still decides: `gh gist create --public` — in every spelling gh accepts
+the flag, `-p` and `-p=false` included — asks on the publish tier
+however well-placed the file is. A sanctioned destination buys the file
+past containment, not past the human.
 
 ## Cross-repo / cross-session handoff
 

@@ -508,10 +508,19 @@ func denyGhNakedAppRepo() Decision {
 
 // ghIrreparableDeny denies the DENY-tier gh operations: deletes of things
 // that are NOT git objects (repo/release/issue/gist), write-only secret/variable
-// values, repo rename/transfer, branch-protection/ruleset weakening, and
-// release/gist publish (irreversible exposure). cmd is the flag-stripped command
-// path (noun verb …). Default-deny within the gate: an unrecognized
-// secret/variable/ruleset subcommand denies (fail closed).
+// values, repo rename/transfer, and ruleset deletion (branch-protection
+// weakening). Release and public-gist PUBLISH are NOT here — irreversible as
+// they are, they route to the ASK tier back in classifyGh, since a hard deny
+// would leave legitimate publishing no escape hatch.
+//
+// cmd is the flag-stripped command path (noun verb …), already alias-resolved
+// by ghCanonicalCommand, so `gh secret remove` reaches the secret arm as
+// `delete` and `gh secret ls` as the `list` that arm falls through on.
+//
+// Default-deny within the gate is per-noun, not global: an unrecognized
+// `secret`/`variable` subcommand denies (fail closed), while `ruleset` denies
+// `delete` alone — any other ruleset verb falls through, to the enumerated-read
+// ALLOW if it is one and otherwise to classifyGh's fail-closed ASK.
 func ghIrreparableDeny(cmd []string) (Decision, bool) {
 	if len(cmd) < 2 {
 		return Decision{}, false
