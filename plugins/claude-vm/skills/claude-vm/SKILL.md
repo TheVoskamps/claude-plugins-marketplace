@@ -649,14 +649,18 @@ or `env.files` in a bake file; an `env.copy` name unset **or empty** on the
 host; an `env.files` path that is not on the host or does not parse; a name
 outside `[A-Za-z_][A-Za-z0-9_]*` from any source; a non-scalar `env.set`
 value, or a key left valueless (write `NAME: ""` for the empty string); and a
-name the launcher itself composes — the proxy vars, `CLAUDE_ARGS`, the
-`*_TAG` mount vars, `IS_SANDBOX`, `DISABLE_AUTOUPDATER`, the renderer
-`CLAUDE_CODE_*` vars, the terminal geometry, the
-`CLAUDE_VM_*_UPDATE_AT_BOOT` flags — because the guest sources `run.env`
-*before* both env files, so such an entry would overwrite the launcher's own
-value (a different proxy, a renamed mount tag, a replaced `claude` argv) and
-break the boot rather than configure anything. The abort message lists the
-whole reserved set. No diagnostic ever prints a value.
+name the launcher itself composes — every name in `run.env` (the proxy vars,
+`CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`, `DISABLE_AUTOUPDATER`,
+the renderer `CLAUDE_CODE_*` vars, the terminal geometry, the
+`CLAUDE_VM_*_UPDATE_AT_BOOT` flags) plus `CLAUDE_VM_LAST_CLAUDE_STATUS` —
+because the guest sources `run.env` *before* both env files, so such an entry
+would overwrite the launcher's own value (a different proxy, a renamed mount
+tag, a replaced `claude` argv) and break the boot rather than configure
+anything. `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other
+direction — the launcher exports it long *after* both files, so a config entry
+for it would be silently overwritten instead — and refusing at load covers
+both. The abort message lists the whole reserved set. No diagnostic ever
+prints a value.
 
 **Rebuilds.** No new trigger is needed: the image identity is already a
 whole-file, raw-byte hash of the bake files, so changing a baked `env.set`

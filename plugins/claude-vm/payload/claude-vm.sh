@@ -186,7 +186,9 @@ claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
 # bytes -- a presence test, so an empty `copy:` aborts too), an `env.set` that
 # is not a map, a name outside [A-Za-z_][A-Za-z0-9_]* from any source, a name
 # the launcher itself owns (the run.env set -- the guest sources run.env BEFORE
-# the env files, so such an entry would overwrite the launcher's own value), a
+# the env files, so such an entry would overwrite the launcher's own value --
+# plus CLAUDE_VM_LAST_CLAUDE_STATUS, the one the boot launcher exports long
+# AFTER both env files, where an entry would be silently overwritten instead), a
 # non-scalar or valueless `env.set` value, an `env.files` path that is not on
 # the host or does not parse, and an `env.copy` name that is unset or empty in
 # THIS process's environment. That last one is the loudest on purpose:

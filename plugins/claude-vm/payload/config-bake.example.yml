@@ -167,12 +167,16 @@ claude:
 # Names must match [A-Za-z_][A-Za-z0-9_]*, values must be scalars (a map or a
 # list has no environment representation), a valueless key aborts (write
 # `NAME: ""` if you really mean the empty string), and a name claude-vm's own
-# launcher composes -- the proxy vars, CLAUDE_ARGS, the *_TAG mount vars,
-# IS_SANDBOX, DISABLE_AUTOUPDATER, the renderer CLAUDE_CODE_* vars, the terminal
-# geometry, the CLAUDE_VM_*_UPDATE_AT_BOOT flags -- aborts too, because the guest
-# sources those BEFORE your env entries: yours would overwrite the launcher's own
-# value and break the boot rather than configure anything. The abort message
-# lists the whole reserved set.
+# launcher composes -- every name in run.env (the proxy vars, CLAUDE_ARGS, the
+# *_TAG mount vars, IS_SANDBOX, DISABLE_AUTOUPDATER, the renderer
+# CLAUDE_CODE_* vars, the terminal geometry, the CLAUDE_VM_*_UPDATE_AT_BOOT
+# flags) plus CLAUDE_VM_LAST_CLAUDE_STATUS -- aborts too, because the guest
+# sources run.env BEFORE your env entries: yours would overwrite the launcher's
+# own value and break the boot rather than configure anything.
+# CLAUDE_VM_LAST_CLAUDE_STATUS is the exception in the other direction (the
+# launcher exports it long AFTER the env files, so an entry for it would be
+# silently overwritten instead); refusing at load covers both. The abort
+# message lists the whole reserved set.
 env:
   set:
     FOO_ENDPOINT: https://foo.internal/v2

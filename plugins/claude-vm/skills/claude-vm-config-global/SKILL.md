@@ -229,12 +229,16 @@ Notes on the forward-looking keys:
   an `env.files` path that is not on the host aborts; a name outside
   `[A-Za-z_][A-Za-z0-9_]*` aborts; an `env.set` value that is a map or a
   list aborts, and so does a key left valueless (write `NAME: ""` for the
-  empty string); and a name claude-vm's own launcher composes — the proxy
-  vars, `CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`,
-  `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars, the terminal
-  geometry, the `CLAUDE_VM_*_UPDATE_AT_BOOT` flags — aborts, because the
-  guest sources `run.env` before the env files, so such an entry would
-  overwrite the launcher's own value and break the boot.
+  empty string); and a name claude-vm's own launcher composes — every name
+  in `run.env` (the proxy vars, `CLAUDE_ARGS`, the `*_TAG` mount vars,
+  `IS_SANDBOX`, `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars,
+  the terminal geometry, the `CLAUDE_VM_*_UPDATE_AT_BOOT` flags) plus
+  `CLAUDE_VM_LAST_CLAUDE_STATUS` — aborts, because the guest sources
+  `run.env` before the env files, so such an entry would overwrite the
+  launcher's own value and break the boot;
+  `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other direction
+  (exported long after both files, so an entry for it would be silently
+  overwritten instead) and is refused at load for that reason.
 - **`github.auth` defaults to `none`.** Ask the user whether they want
   the guest seeded with a GitHub auth token derived from the host
   (`host-token`); `none` is the safe default since the consumer that
