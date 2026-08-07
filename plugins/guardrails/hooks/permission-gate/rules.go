@@ -55,8 +55,10 @@ var gitReadOnlySubcommands = map[string]bool{
 //     shape the egress proxy genuinely owns) and an unclassifiable graphql
 //     document (approval cannot be informed) (see classifyGhAPI).
 //   - ASK:  gh repo edit --visibility; gh auth login --hostname; the publish
-//     verbs (gh release create and EVERY gh gist create, secret and public
-//     alike — a secret gist is unlisted, not private); a gh api
+//     verbs (gh release create; EVERY gh gist create, secret and public
+//     alike — a secret gist is unlisted, not private; and EVERY gh gist edit,
+//     which pushes local content into a gist that may already have readers);
+//     a gh api
 //     graphql mutation outside the curated allowlist — or one whose document
 //     carries a fragment, whose names the scanner cannot trust; an
 //     unknown gh api flag, a non-allowlisted gh api REST endpoint, or a
@@ -241,6 +243,33 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 				"visibilities are exposure, so both escalate; confirm this is intended, and check what is in "+
 				"the file being published.")
 	}
+	if cmd[0] == "gist" && len(cmd) >= 2 && cmd[1] == "edit" {
+		// The WHOLE verb, not the `-a`/file-bearing spellings alone. Scoping an
+		// escalation by flag spelling is the sensitivity that produced the `-p`
+		// hole one arm up, where a screen that read `--public` positionally missed
+		// every spelling pflag parses differently.
+		//
+		// The target gist's visibility decides nothing here, and treating it as a
+		// weakness of the tier had it backwards: the egress is the point. An
+		// existing gist already has a URL, that URL may already have been handed
+		// out, and content pushed into it is readable by whoever holds it the
+		// moment it lands — which can make `edit` WORSE than `create`, not weaker.
+		// It is reachable in two allowed steps, since `gh gist list` is a read.
+		//
+		// ASK rather than DENY deliberately: this gate governs interactive human
+		// sessions as well as agent ones, and there are legitimate human reasons
+		// to edit a gist. One click preserves those; a deny would not.
+		//
+		// Containment above still outranks this: an ESCAPING file operand DENYs
+		// rather than softening to a click-through on the ask.
+		return ask("gh gist edit (#64/#229 publish)",
+			"'gh gist edit' publishes a local file's contents into a gist that ALREADY EXISTS — one whose URL "+
+				"may have been handed out already and may already have readers, so the content is exposed the "+
+				"moment it lands, and deleting it afterwards does not un-read it. That is the same egress "+
+				"'gh gist create' escalates for, and an existing gist can be the worse of the two: "+
+				"'gh gist list' names every gist this credential owns, so a local file reaches a circulating "+
+				"URL in two steps. Confirm this is intended, and check what is in the file being published.")
+	}
 
 	// Read-only gh subcommand — ALLOW (explicit, for the evolution-log label).
 	// Reads are NOT foreign-target-scoped: a GET to a foreign repo is not
@@ -400,6 +429,13 @@ func ghAuthStatusEscalates(flags []string) (Decision, bool) {
 // the tiers above BEFORE this map is consulted, so listing them here would be
 // dead weight. An `api` write is likewise never here (classifyGhAPI decides it
 // before isGhRecoverableWrite is reached).
+//
+// The `gist` noun is absent ENTIRELY rather than carrying an empty verb set:
+// both of its write verbs send local content to a URL outside the repo — where
+// `create` mints one, `edit` pushes content into one that may already have
+// readers — so both are routed to the publish ASK above (#229), and neither was
+// ever a recoverable write. "Recoverable" is not a coherent property for
+// something others may already have read.
 var ghRecoverableWriteVerbs = map[string]map[string]bool{
 	"pr": {
 		"create": true, "comment": true, "merge": true, "close": true,
@@ -419,13 +455,6 @@ var ghRecoverableWriteVerbs = map[string]map[string]bool{
 		"create": true, "edit": true, "clone": true,
 		// `label delete` is a recoverable re-creatable metadata delete, but it is
 		// not a hot-loop verb; leave it to fail-closed ASK.
-	},
-	"gist": {
-		// `create` is NOT here: every spelling of it is routed to the publish ASK
-		// above, because a gist without `--public` is unlisted rather than private
-		// and so is exposure too (#229). `edit` stays — it mutates a gist that
-		// already exists, and its own file operands are graded by containment.
-		"edit": true,
 	},
 	"cache": {
 		"delete": true, // CI cache is regenerated on next run — recoverable.

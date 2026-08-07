@@ -52,15 +52,24 @@ func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "enumerated recoverable write: "+cmd)
 	}
-	// `gh gist edit` ALLOWs too, but its positional FILE operand goes through read
-	// containment since #229, so it needs a real repo cwd rather than the `/tmp`
-	// classifyCmd uses. Its sibling `gh gist create` is NOT an enumerated
-	// recoverable write — every spelling of it reaches the publish ask, because a
-	// gist without `--public` is unlisted rather than private (#229).
+	// The `gist` noun contributes NO row to this list: ghRecoverableWriteVerbs has
+	// no `gist` entry at all, because both of its write verbs publish local
+	// content to a URL outside the repo and both reach the publish ask instead
+	// (#229) — `create` because a gist without `--public` is unlisted rather than
+	// private, `edit` because the gist it writes into may already have readers.
+	// Asserted rather than left implicit, with a real repo cwd rather than the
+	// `/tmp` classifyCmd uses, so the file operand resolves inside a repo and the
+	// containment tier above the publish ask does not decide the row. The REASON
+	// is pinned as well, because the fail-closed floor an unenumerated verb lands
+	// on is the same BUCKET as the publish ask and would make a bucket-only row
+	// pass whether or not the publish arm exists.
 	repo := t.TempDir()
 	gitInit(t, repo)
-	wantBucket(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAllow,
-		"enumerated recoverable write: gh gist edit f.txt")
+	if _, ok := ghRecoverableWriteVerbs["gist"]; ok {
+		t.Error("#229 ghRecoverableWriteVerbs must carry no `gist` entry: both its write verbs publish")
+	}
+	wantReason(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAsk,
+		"into a gist that ALREADY EXISTS", "gh gist edit is not an enumerated recoverable write")
 }
 
 func TestGhReadStillAllow_163(t *testing.T) {

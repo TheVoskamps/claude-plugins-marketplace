@@ -532,10 +532,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   Irreparable verbs
   (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
-  `repo edit --visibility`, `release create`, and **every**
-  `gist create` — with `--public` and without it — **ask** (see the
-  gist-publish paragraph below, which is also why `gist create` is not
-  in `ghRecoverableWriteVerbs`; `gist edit` still is).
+  `repo edit --visibility`, `release create`, **every**
+  `gist create` — with `--public` and without it — and **every**
+  `gist edit` **ask** (see the gist-publish paragraphs below, which are
+  also why `ghRecoverableWriteVerbs` carries no `gist` entry at all).
   Beyond those carve-outs, a recognized gh command ALLOWs only
   when it is an enumerated read or an enumerated recoverable-own-repo
   write (#163); an **unrecognized noun/verb asks** (fail-closed) — after
@@ -628,8 +628,9 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   redirect has no argv token of its own and falls back to the
   whole-command bool. Grading runs BELOW the irreparable-deny tier
   (those keep their specific messages) and ABOVE the publish ask, so an
-  escaping asset on `gh release create` / `gh gist create`
-  **denies** instead of offering a click-through. The verdict is taken
+  escaping asset on `gh release create` / `gh gist create` /
+  `gh gist edit` **denies** instead of offering a click-through. The
+  verdict is taken
   through `containReadSources`, which forwards an escape and discards
   the ALLOW: a contained body file never blesses the publish itself, so
   the publish ask and the foreign-target ask still fire. `--template`
@@ -681,8 +682,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   effectively irreversible": *recoverable* is not a coherent property
   for something others may already have read. `gist create` is therefore
   out of `ghRecoverableWriteVerbs` altogether and its publish arm
-  returns unconditionally — the shape `release create` has always had —
-  while `gist edit` keeps its enumerated-write **allow**. The escalation
+  returns unconditionally — the shape `release create` has always had.
+  The escalation
   is on the VERB, so no spelling of any flag reaches around it: the `-p`
   shorthand and its clusters (`-pw`, `-wp`, `-wp=false`), the spellings
   where pflag reads `--public` as another flag's value (`--desc
@@ -704,6 +705,34 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   why both gh-local cluster walks stop at the `=` (above), and `-p`
   stays in the verb's modelled bool set so the unmodelled-flag screen
   still recognizes it.
+  **EVERY `gh gist edit` asks too (#229).** `gh gist edit <id> -a <file>`
+  — and its positional-file spelling — publishes local content into a
+  gist that already exists, and it was an outright **allow**, reachable
+  in two allowed steps: `gh gist list` is a read, so it names every gist
+  this credential owns, and `gh gist edit <id> -a .env` then pushed a
+  repo file into one. The target gist's VISIBILITY decides nothing here,
+  and reading the tier as weak because the gate cannot see it had the
+  case backwards: the egress is the point. An existing gist already has
+  a URL, that URL may already have been handed out, and content pushed
+  into it is readable by whoever holds it the moment it lands — which
+  can make `edit` **worse** than `create`, not weaker, since `create`
+  at least mints a URL nobody has yet. Deleting afterwards does not
+  un-read it either, so the same "*recoverable* is not a coherent
+  property" reasoning that took `gist create` out of
+  `ghRecoverableWriteVerbs` takes `gist edit` out too — the map now
+  carries no `gist` entry at all. **Ask, not deny**, deliberately: this
+  gate governs interactive human sessions as well as agent ones, and
+  there are legitimate human reasons to edit a gist, which one click
+  preserves and a deny would not. The escalation is scoped to the WHOLE
+  VERB rather than to `-a`/file-bearing spellings, because scoping a
+  tier by flag spelling is exactly the sensitivity that produced the
+  `-p` hole above: the bare `gh gist edit <id>` (which opens an editor
+  and reads no local file at all), the gist-internal `-f`/`-r`, the
+  description flag, an operand after `--` and the stdin marker all ask.
+  Containment above is unchanged and still outranks it — an escaping
+  operand **denies** rather than softening to this ask, so
+  `gh gist edit abc123 - < /etc/passwd` keeps its deny. `gh gist delete`
+  is untouched and still **denies**.
   **gh's own command ALIASES are resolved to the canonical spelling
   before any tier runs (#229)** (`classify_gh_aliases.go`). gh finds a
   subcommand by NAME or by cobra alias — `gh gist new` renders
@@ -724,18 +753,27 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   deny. The permissive moves are the ones a reader needs, so they are
   counted here against the row set they were measured over — a count
   without its row set is unfalsifiable. Replaying every
-  `gh <noun> <verb>` pair the gate's own tables name (1,295 bare rows,
-  no operands and no flags) through main's committed `darwin-arm64`
-  binary and this branch's moves **24** rows: 20 ask → allow (11 `ls`
-  reads, the 2 `new` recoverable writes — `gh issue new` and
-  `gh pr new` — and 7 `gh rs <read verb>` rows through the noun alias),
-  the 2 deny → allow named above, 1 ask → deny (`gh rs delete`), and 1
-  allow → **ask**, which is `gh gist create` on the gist-publish tier
-  above rather than an alias move at all. `gh gist new` is the row those
-  two changes meet on: it moved ask → allow while `gist create` was a
-  recoverable write, and now inherits the publish ask instead, so it no
-  longer moves. Operands add rows in both directions rather than
-  settling the count — `gh gist new /etc/passwd` moves ask → deny while
+  `gh <noun> <verb>` pair the gate's own tables name — the cross of the
+  nouns and verbs unioned out of `isGhReadOnly`'s two literals,
+  `ghRecoverableWriteVerbs`, `ghFileSpecs`, both alias tables and the
+  `delete`/`rename`/`transfer`/`set` verbs the irreparable-deny tier
+  covers, which is 37 × 34 = **1,258** bare
+  rows, no operands and no flags — through main's committed
+  `darwin-arm64` binary and this branch's moves **25** rows: 20 ask →
+  allow (11 `ls` reads, the 2 `new` recoverable writes — `gh issue new`
+  and `gh pr new` — and 7 `gh rs <read verb>` rows through the noun
+  alias), the 2 deny → allow named above, 1 ask → deny
+  (`gh rs delete`), and 2 allow → **ask**, which are `gh gist create`
+  and `gh gist edit` on the gist-publish tiers above rather than alias
+  moves at all. `gh gist new` is the row those changes meet on: it moved
+  ask → allow while `gist create` was a recoverable write, and now
+  inherits the publish ask instead, so it no longer moves. The count is
+  a property of the row set rather than of the change, so it is
+  re-measured on a deliberately WIDER cross as well — 39 × 39 = 1,521
+  rows, adding the `auth`/`api` nouns and the verbs the non-table arms
+  name — which moves exactly the same 25 rows. Operands add rows in both
+  directions rather than settling the count —
+  `gh gist new /etc/passwd` moves ask → deny while
   `gh issue new -t x -F notes.md` moves ask → allow — which is why the
   figures are stated over the bare cross.
   What changes for the deny rows is the spelling the message quotes, and

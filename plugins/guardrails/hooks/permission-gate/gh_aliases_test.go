@@ -259,12 +259,21 @@ func TestGhAliasNegativeControl_229(t *testing.T) {
 	//
 	// They are the COMPLETE deny → allow set, and a count is only meaningful
 	// against the row set it was taken over: replaying every `gh <noun> <verb>`
-	// pair the gate's own tables name — 1,295 bare rows, no operands and no
-	// flags, so alias resolution is the only tier that can move one — through
-	// main's committed darwin-arm64 binary and this branch's moves 24 rows:
-	// 21 ask → allow (11 `ls` reads, the 3 `new` recoverable writes, and 7
-	// `gh rs <read verb>` rows through the noun alias), these 2 deny → allow,
-	// and 1 ask → deny (`gh rs delete`).
+	// pair the gate's own tables name — the cross of the nouns and verbs unioned
+	// out of isGhReadOnly's two literals, ghRecoverableWriteVerbs, ghFileSpecs,
+	// both alias tables and the delete/rename/transfer/set verbs the
+	// irreparable-deny tier covers, 37 × 34 = 1,258 bare rows with no operands and
+	// no flags — through main's committed darwin-arm64 binary and this branch's
+	// moves 25 rows: 20 ask → allow (11 `ls` reads, the 2 `new` recoverable
+	// writes, and 7 `gh rs <read verb>` rows through the noun alias), these 2
+	// deny → allow, 1 ask → deny (`gh rs delete`), and 2 allow → ask.
+	//
+	// Those last two are `gh gist create` and `gh gist edit`, and they are NOT
+	// alias moves: both sit on the gist-publish tier, which escalates a bare row
+	// on the verb alone. Alias resolution used to be the only tier that could
+	// move a bare row, and that parenthetical went stale the moment a publish arm
+	// started escalating one — while the total stayed put and hid it, which is
+	// why the decomposition is spelled out rather than left as a sum.
 	// Operands add rows in BOTH directions rather than settling the count —
 	// `gh gist new /etc/passwd` moves ask → deny while `gh gist new notes.md`
 	// moves ask → allow — which is why the figures above are stated over the

@@ -191,15 +191,25 @@ func TestGhAllowDefault_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "gh allow default: "+cmd)
 	}
-	// `gh gist edit` is the gist verb that still allows — it mutates a gist that
-	// already exists, rather than publishing a new one. Its positional FILE
-	// operand is graded through read containment since #229, so the event cwd has
-	// to be a real repo for the operand to resolve inside one. (`gh gist create`
-	// no longer allows in any spelling; see TestGhGistCreateAlwaysAsks_229.)
+	// NEITHER gist verb is an allow any more: `gh gist create` mints a URL and
+	// `gh gist edit` pushes local content into one that may already have readers,
+	// so both reach the publish ASK (see TestGhGistCreateAlwaysAsks_229 and
+	// TestGhGistEditAlwaysAsks_229). Asserted here as well, because this test's
+	// subject is the ALLOW default and a gist row is exactly what must not fall
+	// into it. The event cwd is a real repo so the file operand resolves inside
+	// one — the containment grading above the publish tier would otherwise decide
+	// these rows instead (#229).
+	//
+	// The REASON is pinned, not just the bucket: dropping a verb from
+	// ghRecoverableWriteVerbs WITHOUT adding its publish arm also yields an ASK,
+	// on the fail-closed unrecognized-command floor, which is the same bucket for
+	// an entirely different reason.
 	repo := t.TempDir()
 	gitInit(t, repo)
-	wantBucket(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAllow,
-		"gh allow default: gh gist edit f.txt")
+	wantReason(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAsk,
+		"into a gist that ALREADY EXISTS", "gh gist edit is not an allow default")
+	wantReason(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAsk,
+		"publishes the contents of a local file", "gh gist create is not an allow default")
 }
 
 // --- gh leading-global desync bypass -----------------------------------------

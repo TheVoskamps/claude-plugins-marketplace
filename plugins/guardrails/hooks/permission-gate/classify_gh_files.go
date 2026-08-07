@@ -185,11 +185,11 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 // ghFileSpecs is the grading table, keyed by noun then verb. Its membership is
 // the set of gh commands that PUBLISH content: every verb ghRecoverableWriteVerbs
 // maps true (the enumerated recoverable writes, which reach an outright ALLOW),
-// plus the two publish verbs that are not in that map at all — `release create`
-// and `gist create`, which reach the publish ASK tier above isGhRecoverableWrite
-// and would otherwise escalate on the verb while never grading the path. Their
-// spec is what makes an ESCAPING operand DENY instead of being offered as a
-// click-through on the publish prompt.
+// plus the publish verbs that are not in that map at all — `release create`,
+// `gist create` and `gist edit`, which reach the publish ASK tier above
+// isGhRecoverableWrite and would otherwise escalate on the verb while never
+// grading the path. Their spec is what makes an ESCAPING operand DENY instead of
+// being offered as a click-through on the publish prompt.
 //
 // Read verbs are deliberately absent. A read sends nothing of the local disk to
 // GitHub, so it has no publish surface to grade, and its output-redirect surface
@@ -404,7 +404,10 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		// `gh gist edit {<id>|<url>} [<filename>]` — the second positional is a
 		// LOCAL file whose contents replace a gist file, and `-a`/`--add` names a
 		// local file to add. `-f`/`--filename` and `-r`/`--remove` name files
-		// INSIDE the gist and open nothing locally.
+		// INSIDE the gist and open nothing locally. Like its `create` sibling the
+		// verb reaches the publish ASK rather than an outright ALLOW (#229), so
+		// this spec is what keeps an ESCAPING operand a DENY rather than a
+		// click-through on that prompt.
 		//
 		// That positional also accepts gh's stdin marker, which its help does not
 		// render: cli/cli v2.97.0's edit.go binds `opts.SourceFile = args[1]` and
