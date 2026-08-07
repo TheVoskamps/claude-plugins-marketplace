@@ -386,16 +386,12 @@ is not live until every installing account approves it
 App"), so every previously-provisioned App fails the library's
 permission filter until that approval lands.
 
-What a caller does with that failure is the caller's own branch, not
-the library's, and the callers differ — say which one you mean.
-`/gh-repo-setup-pr-automation` has only the library path, so it aborts
-with the "missing permissions" report. `/gh-create-app`'s own
-missing-permission branch is written for its named-App path
-(`--app-name` supplied, discovery skipped); on its discovery path an
-insufficient-permission candidate sits between two rules pointing
-opposite ways — the library's Step 3 "abort the calling skill" and the
-skill's own "No suitable App — proceed to Step 3 (registration)"
-bullet. Don't assume the abort there.
+That failure is determinate in every caller: the library aborts the
+calling skill with its "missing permissions" report and the pointer to
+the two-step remediation — on the discovery path from Step 3's
+no-suitable-candidates branch, on the `--app-name` path from that
+path's own permission check. No caller routes such an App into
+registration instead.
 
 ## Add a README roster entry when you publish a plugin
 
