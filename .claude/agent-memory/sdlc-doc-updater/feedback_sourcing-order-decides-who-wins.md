@@ -22,6 +22,15 @@ later, behaves the way the prose claimed. The *gate* was right, the
 *reason* was false, and no test failed — the tests matched only the
 diagnostic's first line, never the rationale line.
 
+A reword sweep of that rationale is only half the fix. The *enumeration*
+of the reserved set sits in the same sentence on the operator surfaces
+(`skills/claude-vm/SKILL.md`, both wizards, both `config-*.example.yml`,
+`claude-vm.sh`'s `claude_vm_check_env` call-site comment) and each one
+still listed only run.env's names — the exception member was named on
+`payload/README.md` and in `lib/config.sh` alone, so five surfaces
+enumerated a set that was short by one and applied the majority rationale
+to all of it. Fix the list and the reason together.
+
 **How to apply:** when a doc says one writer beats another, grep the
 consuming script for both assignments and order them. In `claude-vm`
 specifically, the boot launcher's read order is run.env →
