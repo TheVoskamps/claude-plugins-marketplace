@@ -85,7 +85,17 @@ The default `--permissions=starter` requests exactly:
 | --- | --- | --- |
 | Pull requests | Read and write | open / approve / merge / label PRs |
 | Contents | Read and write | push branches, create commits |
+| Issues | Read and write | close the issues a merged PR's `Closes #N` lines link |
 | Metadata | Read-only | mandatory; GitHub auto-selects it |
+
+`Issues: write` is not optional decoration. Merging a PR whose body
+carries a closing keyword has an **issue-side** side effect, and that
+side effect runs under the *merging* token's authority — so an App
+with `contents: write` + `pull_requests: write` and no `issues` scope
+merges the PR successfully and silently leaves every linked issue
+open. That is the exact half of `rules/git-workflow.md`'s
+closing-keyword convention (PR body only, the branch's own issue set
+only) that the automation exists to deliver.
 
 **No webhook.** This App mints installation tokens in CI; it does not
 receive event deliveries. Leave "Active" under Webhook **unchecked**
@@ -95,7 +105,7 @@ The corresponding `required_permissions` map (the shape
 `skills/lib/gh-app.md` and consuming skills use) is:
 
 ```text
-{ pull_requests: write, contents: write, metadata: read }
+{ pull_requests: write, contents: write, issues: write, metadata: read }
 ```
 
 For `--permissions=custom`, ask the user which scopes and levels they
@@ -185,7 +195,13 @@ the "User-supplied App name (skip discovery)" path from that library.
   not installed on the repo** — report the gap (the library's "missing
   permissions" / "not configured for repo" message) and tell the user
   to fix it in the App settings, then re-run. Do **not** create a
-  second App with the same intent.
+  second App with the same intent. For a **missing permission**
+  specifically, relay both steps from `skills/lib/gh-app.md` →
+  "Granting a missing permission to an existing App": the UI-only
+  edit, **and** the approval each installing account must give before
+  the new scope goes live. An App that predates a change to the
+  starter set — one provisioned before `issues: write` joined it, say
+  — lands in exactly this branch.
 
 - **No suitable App** — proceed to Step 3 (registration).
 
@@ -220,6 +236,7 @@ Tell the user to set:
   map. For the starter set:
   - Pull requests: **Read and write**
   - Contents: **Read and write**
+  - Issues: **Read and write**
   - Metadata: **Read-only** (auto-selected; leave it)
 - **Where can this GitHub App be installed?** "Only on this account"
   is the right choice for an internal automation App.
@@ -373,9 +390,10 @@ Render the metadata doc from the payload and write it to
    | `__SECRET_SCOPE__` | `repository` or `organization` |
    | `__CREATED_DATE__` | today's date (ISO `YYYY-MM-DD`) |
 
-   The `__APP_PERMISSIONS__` value is an inline, comma-separated string
-   (e.g. `Pull requests: write, Contents: write, Metadata: read`), not a
-   markdown list — the template renders it inside a sentence.
+   The `__APP_PERMISSIONS__` value is an inline, comma-separated
+   string (e.g. `Pull requests: write, Contents: write, Issues: write,
+   Metadata: read`), not a markdown list — the template renders it
+   inside a sentence.
 
 4. **Converge** like the other setup skills: if the target file is
    absent, write it; if present and **semantically equal** to the

@@ -62,6 +62,7 @@ map (passed to `skills/lib/gh-app.md`):
 ```text
 contents:      write    # force-push rebased PR branches
 pull_requests: write    # enable auto-merge, read PR state
+issues:        write    # close the issues a merged PR's `Closes #N` lines link
 ```
 
 `contents: write` covers the auto-rebase force-push (and the
@@ -70,6 +71,28 @@ in-workflow Dependabot rebase); `pull_requests: write` covers
 merge state. No `workflows` scope is needed — the skill installs
 workflow files via a normal commit, it does not write them through the
 App at runtime.
+
+`issues: write` covers the **issue-side side effect of merging**.
+Merging a PR whose body carries a closing keyword closes the linked
+issues, and GitHub performs that close under the *merging* token's
+authority — so an App holding only `contents: write` +
+`pull_requests: write` merges every PR successfully and silently
+leaves its linked issues open. That is a real failure mode rather than
+a hypothetical: the permission set is coherent for the mechanical act
+of merging, which is why the gap goes unnoticed until someone audits
+issue state. What it defeats is `rules/git-workflow.md`'s
+closing-keyword convention (PR body only, the branch's own issue set
+only) — the very thing this automation exists to carry out.
+
+Because the scope now sits in the `required_permissions` map above,
+Step 3's find/verify pass **is** the converge-time check: an App
+provisioned before `issues: write` joined the set fails the library's
+permission filter and the skill aborts with its "missing permissions"
+report, rather than installing workflows that will merge-but-not-close.
+Remediating an existing App takes two steps — a UI-only permission
+edit and an approval from every installing account — both documented
+in `skills/lib/gh-app.md` → "Granting a missing permission to an
+existing App". Relay them when the report fires.
 
 The **unattended Dependabot REST-merge** path additionally requires the
 App to be a `pull_request` **bypass actor** in the repo's
@@ -139,7 +162,7 @@ These resolve `__GH_ORG__`, `__GH_REPO__`, and `__DEFAULT_BRANCH__`.
 Run the find/verify sequence in `skills/lib/gh-app.md` (Steps 1–5) with:
 
 ```text
-required_permissions = { contents: write, pull_requests: write }
+required_permissions = { contents: write, pull_requests: write, issues: write }
 target_repo          = <gh_org>/<gh_repo>
 ```
 
