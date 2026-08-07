@@ -358,8 +358,18 @@ the new scope is introduced: a scope added to an already-registered App
 is not live until every installing account approves it
 (`skills/lib/gh-app.md` → "Granting a missing permission to an existing
 App"), so every previously-provisioned App fails the library's
-permission filter and aborts the calling skill until that approval
-lands.
+permission filter until that approval lands.
+
+What a caller does with that failure is the caller's own branch, not
+the library's, and the callers differ — say which one you mean.
+`/gh-repo-setup-pr-automation` has only the library path, so it aborts
+with the "missing permissions" report. `/gh-create-app`'s own
+missing-permission branch is written for its named-App path
+(`--app-name` supplied, discovery skipped); on its discovery path an
+insufficient-permission candidate sits between two rules pointing
+opposite ways — the library's Step 3 "abort the calling skill" and the
+skill's own "No suitable App — proceed to Step 3 (registration)"
+bullet. Don't assume the abort there.
 
 ## Add a README roster entry when you publish a plugin
 
