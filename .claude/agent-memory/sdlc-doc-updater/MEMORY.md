@@ -1,5 +1,9 @@
 # Doc-updater memory index
 
+- [Read the worktree, not the primary clone](feedback_read-the-worktree-not-the-primary-clone.md)
+  — build paths from `git rev-parse --show-toplevel`; a primary-clone Read
+  silently returns pre-PR prose. Tell: grep -n and Read disagree on line numbers.
+
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
@@ -22,10 +26,6 @@
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
   permission-gate blocks heredoc `git commit -m`, use `commit -F`.
-- [claude-vm config-wizard skills lag](project_claude-vm-config-wizard-skills-lag.md)
-  — claude-vm feature work leaves the two config-WIZARD SKILL.md files stale;
-  a wrong bake/boot placement there makes the wizard write a config that
-  cannot launch; also check payload/README.md's helper-function list.
 - [issue-ref sweep artifacts](project_issue-ref-sweep-artifacts.md) —
   a mechanical `#N`-removal sweep breaks grammar ACROSS comment line
   wraps (line greps miss it) and turns refs into unnamed "this issue"
@@ -37,6 +37,9 @@
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when
   reading one.
+- [widened enumeration, trailing clause](feedback_widened-enumeration-trailing-clause.md)
+  — widening a list leaves the "only/except" clause after it scoped to the
+  old narrow set; vfkit is installed here, so parse claims are one probe away.
 - [claude-vm config-redesign stale-comment classes](project_claude-vm-config-redesign-stale-comment-classes.md)
   — after a claude-vm config-model redesign, grep for the OLD filename
   and OLD deleted function names plugin-wide; a thorough README pass
@@ -55,6 +58,10 @@
   "aborts with the path named" is a claim per BRANCH of the validator;
   read the message strings, then sweep — that sentence is always copied
   to several doc surfaces.
+- [Widened guard, narrow prose](feedback_widened-guard-narrow-prose.md)
+  — after equality is widened to a relation (overlap/ancestor/range),
+  the rationale comment on each protected VALUE still spells the narrow
+  case; grep the old vocabulary, not the guard.
 - [Probe the gate binary, not the walk](feedback_probe-the-gate-binary-not-the-walk.md)
   — settle a gate reach-claim ("descends into every X") with a throwaway
   _test.go calling classifyBash; the helper is right, its call sites are
@@ -67,3 +74,7 @@
   — a `<(cmd)` child is async: sleep before checking the marker or a
   shape bash DOES run reads as "did not run"; run probes from a
   scratchpad script, on both /bin/bash 3.2 and homebrew bash 5.
+- [claude-vm bash-3.2 rule surface pair](project_claude-vm-bash32-rule-surface-pair.md)
+  — that rule lives on exactly two surfaces (root CLAUDE.md + payload
+  README's oldest-bash section); check scope, severity clause and
+  pinning on both, and never cite a bullet by list position.

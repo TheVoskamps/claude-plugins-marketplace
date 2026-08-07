@@ -291,7 +291,26 @@ BASE_OS_REV="debian-12-20250601"
 #       image stamped 'launcher21' has NO baked plugins, so reusing it would
 #       silently produce a guest whose baked plugins are simply absent.
 # Old images (stamped 'launcher21') must rebuild to gain both.
-LAUNCHER_LOGIC_REV="22"
+# Bumped 22 -> 23: guest-side extra mounts (issue #157). The boot launcher gains
+# boot_mount_phase, which reads the host's mounts.tsv off the runconfig share
+# and mounts each configured `mounts:` tag -- at its `path:` or /mnt/<tag>, and
+# with a single-file source bind-mounted out of its wrap share onto the target
+# path. Before this rev the guest half did not exist: vfkit attached each
+# configured share and nothing in the guest ever mounted it, so `mounts:`
+# entries were invisible inside the VM. BOOT LOGIC baked into the image, so an
+# image stamped 'launcher22' would keep ignoring the manifest; old images must
+# rebuild to gain the phase.
+# Bumped 23 -> 24: the same phase, twice changed. mounts.tsv lost its `mode`
+# field (read-only is unenforceable on this stack -- issue #233; the record is
+# now <tag><TAB><guest-path><TAB><file>), and the phase gained the OCCUPANCY
+# check that skips an already-occupied mountpoint instead of shadowing it.
+# A launcher23 image reads the manifest with the OLD arity, which would take the
+# guest path for the mode and the file name for the path. This rev exists
+# because the launcher's SOURCE is not part of the image-identity hash --
+# LAUNCHER_LOGIC_REV is the only thing that invalidates a cached image -- so
+# without the bump an image built earlier on this same branch would silently
+# keep the old phase.
+LAUNCHER_LOGIC_REV="24"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -396,6 +415,8 @@ emit_boot_launcher() {
 # getty on /dev/hvc1 (serial-getty@hvc1 drop-in), so it has a real controlling
 # terminal -- the vfkit `virtio-serial,stdio` console the launching terminal is
 # bridged to. It loads the run environment (proxy + args + geometry + renderer),
+# mounts the operator's configured `mounts:` shares at their guest paths so
+# every later step sees a fully-assembled filesystem (issue #157),
 # installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
 # into $HOME/.claude/.credentials.json so claude authenticates as the host
 # operator (issue #50) AND the host's identity seed (userID + oauthAccount +
@@ -416,7 +437,10 @@ emit_boot_launcher() {
 # failed session is inspectable, powering the guest off when that shell
 # exits. claude is NEVER baked into the image and is NEVER fetched-and-run
 # inside the guest: the host fetches, GPG-manifest-verifies, and caches the
-# binary, and shares it in RO. The guest only runs the already-verified binary.
+# binary, and shares it into the guest (the image's fstab -- authored in
+# provisioners/podman-mkosi.sh -- mounts that share `ro`; the RO is guest-side,
+# since vfkit's virtio-fs device has no read-only export). The guest only runs
+# the already-verified binary.
 set -euo pipefail
 
 # Diagnostics go to /dev/console (the BOOT console, hvc0), which the host
@@ -441,8 +465,8 @@ RUNCONFIG_MNT=/mnt/runconfig
 # The host-verified claude binary's containing dir, shared under tag
 # 'claudebin' and mounted here by the guest fstab.
 CLAUDEBIN_MNT=/mnt/claudebin
-# The dir of ALL host-rendered guest ~/.claude files, shared RO under tag
-# 'claudecreds' and mounted here by the guest fstab. It carries the OAuth
+# The dir of ALL host-rendered guest ~/.claude files, shared under tag
+# 'claudecreds' and mounted here `ro` by the guest fstab. It carries the OAuth
 # credential (.credentials.json, a SECRET), the identity seed
 # (claude-json-seed.json, account identity), and the rendered settings.json
 # (permissions + enabledPlugins, NOT a secret) -- not credentials alone. The
@@ -463,17 +487,228 @@ set -a
 set +a
 
 # ---------------------------------------------------------------------
+# Extra mounts (issue #157) -- the GUEST half of the `mounts:` config key.
+#
+# vfkit only SHARES a directory under a virtio-fs tag; something in the guest
+# must still mount that tag somewhere. The image's baked /etc/fstab knows only
+# the four built-in tags above, and it cannot know the operator's: `mounts:` is
+# a BOOT key, so it must not change the image's bytes (it does not participate
+# in the image-identity hash, and two configs differing only in `mounts:` share
+# one cached image). So the mounting happens HERE, at boot, driven by a manifest
+# the host writes onto the runconfig share:
+#
+#   mounts.tsv -- <tag><TAB><guest-path><TAB><file> per line
+#
+# <file> is EMPTY for an ordinary directory mount. When it is set, the share is
+# a WRAP directory the host built around a single-file source (virtio-fs shares
+# directories only): mount the wrap somewhere out of the way, then bind-mount
+# that ONE file onto the target path, so the rest of the file's real parent
+# directory on the host is never exposed to the guest.
+#
+# EVERY extra mount is READ-WRITE, and the record carries no mode. Read-only is
+# not available on this stack at all: vfkit's virtio-fs device has no read-only
+# export, and this session is root, so a `-o ro` here would be a guest-side
+# nicety the guest itself could undo. Writes go STRAIGHT THROUGH to the host
+# directory, live -- no copy-back step in between, and the host sees the write
+# immediately. That deliberately pierces the VM isolation boundary for that one
+# path, which is why config-boot.example.yml says so loudly. Enforced read-only
+# is tracked as issue #233.
+#
+# ORDERING: first thing after run.env, before the credential/seed/settings
+# install and before the apt and plugin phases. An extra mount is plain data
+# with no dependency on any of them, and running first means every later phase
+# -- and claude itself -- sees a fully-assembled filesystem.
+#
+# OCCUPANCY: Linux STACKS a mount, so mounting over an occupied path hides what
+# was there for the life of the VM -- and running first means the damage always
+# lands before the phase that would have noticed. The host rejects every guest
+# OS path it knows about (claude_vm_check_mounts against
+# CLAUDE_VM_GUEST_SYSTEM_PATHS), but that is necessarily a denylist: the host
+# cannot read the image's filesystem. This side can, so it LOOKS before it
+# mounts -- a directory mountpoint that already exists and is non-empty, or a
+# single-file target that already exists (the image ships a file there), is
+# WARNED about and SKIPPED rather than shadowed. Skipping loses a mount the
+# operator asked for; shadowing loses part of the OS, and does it silently.
+#
+# FAILURE POLICY: identical to boot_apt_phase and boot_plugin_phase -- a failed
+# mount prints a loud warning naming the tag to the hvc0 diagnostic log and
+# CONTINUES to claude. A missing optional mount must never brick an interactive
+# session, and the operator sees exactly which entry failed in the captured
+# console log. The host has already rejected every config-level mistake
+# (claude_vm_check_mounts) before the VM was started, so what is left here is
+# runtime failure and what only this side can see.
+# ---------------------------------------------------------------------
+MOUNTS_TSV="$RUNCONFIG_MNT/mounts.tsv"
+# Where a single-file source's wrap share is mounted before its one file is
+# bind-mounted onto the target. Under /run (a tmpfs, cleared each boot) so it
+# holds nothing across boots. It is not merely UNLIKELY to collide with an
+# operator `path:` -- the host validator reserves it, as
+# CLAUDE_VM_GUEST_WRAP_MOUNT in lib/config.sh, and rejects any entry whose
+# effective mountpoint OVERLAPS it: on it, above it, or inside it. The per-entry
+# <tag> directories below stay inside it for the same reason: the same validator
+# rejects a tag of `.` or `..`, which would otherwise walk back out of this
+# directory (payload/README.md -> *The tag is not just a tag*). This launcher
+# is baked into the image and cannot source that file, so the value is restated
+# here; the two must stay equal, and each side's comment names the other.
+MOUNT_WRAP_MNT=/run/claude-vm/mount-wrap
+
+# Is $1 a directory with at least one entry in it, dotfiles included? Pure
+# shell -- no `ls`, no `find` -- so the occupancy check below cannot itself fail
+# on a missing binary at the one point in the boot where it must not.
+# The three patterns cover ordinary names, dotfiles, and `..`-prefixed names;
+# an unmatched glob stays literal, so each candidate is tested for existence.
+# `-e` is false for a DANGLING symlink, hence the `-L` arm -- a dangling link is
+# still content that a mount would hide.
+boot_dir_is_nonempty() {
+  local d="$1" e
+  [ -d "$d" ] || return 1
+  for e in "$d"/* "$d"/.[!.]* "$d"/..?*; do
+    if [ -e "$e" ] || [ -L "$e" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+boot_mount_phase() {
+  local record tag path file rest wrap source parent err mnt_tab mounted=0
+  [ -f "$MOUNTS_TSV" ] || return 0
+  mnt_tab=$'\t'
+  while IFS= read -r record; do
+    # Split BY HAND. A tab is IFS whitespace, so `IFS=$'\t' read -r tag path
+    # file` would collapse a run of tabs into one separator and strip a leading
+    # one, silently shifting every later field left. `file` is empty for every
+    # directory mount, which is most of them. The host writes both separators
+    # unconditionally, so these expansions are total.
+    [ -n "$record" ] || continue
+    tag=${record%%$mnt_tab*}
+    rest=${record#*$mnt_tab}
+    path=${rest%%$mnt_tab*}
+    file=${rest#*$mnt_tab}
+    if [ -z "$tag" ] || [ -z "$path" ]; then
+      log "claude-vm: WARNING -- skipping a malformed mounts.tsv record (tag='$tag' path='$path')."
+      continue
+    fi
+    if [ -z "$file" ]; then
+      # Ordinary directory mount: the share IS what the operator asked for.
+      #
+      # OCCUPANCY, the half only this side can judge: an existing NON-EMPTY
+      # directory here is the guest OS's own content (or an earlier mount's),
+      # and mounting over it would hide it for the life of the VM. An existing
+      # non-directory is not a mountpoint for a directory share at all. Warn
+      # and skip -- never shadow.
+      if [ -e "$path" ] && [ ! -d "$path" ]; then
+        log "claude-vm: WARNING -- mountpoint $path for mount '$tag' exists and is NOT a directory; skipping it."
+        log "claude-vm:   A directory share needs a directory mountpoint. Give the entry a different 'path:'."
+        continue
+      fi
+      if boot_dir_is_nonempty "$path"; then
+        log "claude-vm: WARNING -- mountpoint $path for mount '$tag' already exists and is NOT EMPTY; skipping it."
+        log "claude-vm:   Mounting there would hide what the guest image has at $path for the whole session,"
+        log "claude-vm:   and this phase runs first, so the rest of the boot would never see it. Point the"
+        log "claude-vm:   entry at a fresh 'path:' (the default is /mnt/<tag>)."
+        continue
+      fi
+      if ! mkdir -p "$path" 2>/dev/null; then
+        log "claude-vm: WARNING -- could not create mountpoint $path for mount '$tag'; skipping it."
+        continue
+      fi
+      # mount's own stderr is captured and re-logged rather than left to land
+      # on this process's stdout/stderr, which is hvc1 -- the INTERACTIVE
+      # console. Boot diagnostics belong on hvc0 (the host-captured log), and
+      # the operator needs the kernel's actual message, not just "it failed".
+      #
+      # `-o rw` is stated rather than left to the kernel default because it is
+      # the whole truth about this mount: the host's virtio-fs export is
+      # read-write and cannot be otherwise (see the block above), so the
+      # operator reading /proc/mounts sees what they actually have. Issue #233
+      # is where read-only gets enforced, at the hypervisor rather than here.
+      if err="$(mount -t virtiofs -o rw "$tag" "$path" 2>&1)"; then
+        log "claude-vm: mounted extra share '$tag' at $path (rw)."
+        mounted=$((mounted + 1))
+      else
+        log "claude-vm: WARNING -- failed to mount extra share '$tag' at $path (rw): $err"
+      fi
+      continue
+    fi
+    # Single-file mount: mount the wrap share out of the way, then bind-mount
+    # the one file onto the target.
+    #
+    # OCCUPANCY, the single-file spelling: a target that ALREADY EXISTS is a
+    # file the image shipped -- /root/.bashrc is the live example, and the boot
+    # launcher's own post-mortem shell would source the operator's file instead
+    # of it. The host lets a single-file mount sit inside /root, /home and /tmp
+    # precisely because it cannot tell which names in them are taken; this side
+    # can, so an occupied target is warned about and skipped. The sanctioned
+    # case (/root/.gitconfig, which the image does not ship) is unaffected.
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      log "claude-vm: WARNING -- the target $path for single-file mount '$tag' ALREADY EXISTS in the guest;"
+      log "claude-vm:   skipping it. Binding over it would replace the image's own file for the whole"
+      log "claude-vm:   session, and this phase runs first, so nothing later in the boot would see the"
+      log "claude-vm:   original. Point the entry at a 'path:' the image does not already use."
+      continue
+    fi
+    wrap="$MOUNT_WRAP_MNT/$tag"
+    if ! mkdir -p "$wrap" 2>/dev/null; then
+      log "claude-vm: WARNING -- could not create wrap mountpoint $wrap for mount '$tag'; skipping it."
+      continue
+    fi
+    if ! err="$(mount -t virtiofs -o rw "$tag" "$wrap" 2>&1)"; then
+      log "claude-vm: WARNING -- failed to mount wrap share for single-file mount '$tag': $err"
+      continue
+    fi
+    source="$wrap/$file"
+    if [ ! -e "$source" ]; then
+      log "claude-vm: WARNING -- single-file mount '$tag' has no '$file' in its wrap share; continuing."
+      continue
+    fi
+    # The target's parent. `${path%/*}` is EMPTY when the target sits directly
+    # in the root (path=/foo), and `mkdir -p ""` fails -- so name / explicitly.
+    parent="${path%/*}"
+    [ -n "$parent" ] || parent=/
+    if ! mkdir -p "$parent" 2>/dev/null; then
+      log "claude-vm: WARNING -- could not create $parent, the parent of $path, for mount '$tag'; continuing."
+      continue
+    fi
+    # mount --bind needs the target to exist and to be a file. The occupancy
+    # check above already established that nothing is there, so this always
+    # CREATES it -- an existing target was skipped rather than bound over.
+    if ! : > "$path" 2>/dev/null; then
+      log "claude-vm: WARNING -- could not create the bind target $path for mount '$tag'; continuing."
+      continue
+    fi
+    if err="$(mount --bind "$source" "$path" 2>&1)"; then
+      log "claude-vm: mounted extra single-file share '$tag' at $path (rw)."
+      mounted=$((mounted + 1))
+    else
+      log "claude-vm: WARNING -- failed to bind $source onto $path for mount '$tag': $err"
+    fi
+  done < "$MOUNTS_TSV"
+  [ "$mounted" -eq 0 ] || log "claude-vm: extra-mount phase mounted $mounted share(s)."
+}
+# Invoked as the left operand of `||` so `set -e` is suspended for the whole
+# function body -- the same fail-soft wiring boot_plugin_phase uses, and for
+# the same reason (no bare `set +e`, which would move the first `set +e` in the
+# emitted launcher away from the exit-status decision fragment the
+# boot-launcher test slices out).
+boot_mount_phase \
+  || log "claude-vm: WARNING -- the extra-mount phase ended early; continuing to claude."
+
+# ---------------------------------------------------------------------
 # Auth: install the host's claude.ai OAuth credential (issue #50).
 #
 # The host read its live claude.ai login from the macOS Keychain, SELECTED
 # only the `claudeAiOauth` key from it (dropping any unrelated mcpOAuth and
 # other siblings -- see claude-vm.sh), and shared the resulting
-# `{"claudeAiOauth": {...}}` file RO into the guest under mountTag=claudecreds.
+# `{"claudeAiOauth": {...}}` file into the guest under mountTag=claudecreds,
+# which THIS image's own fstab mounts `ro` (the host cannot: vfkit's virtio-fs
+# device has no read-only export, so it exports every share read-write).
 # claude reads its credential from $HOME/.claude/.credentials.json, so copy
-# the mounted file there (mode 0600). The RO virtio-fs mount cannot itself BE
-# that writable per-user file, so we copy it into place rather than symlink:
-# claude expects a real, owner-only file at that path. This gives the guest
-# the host operator's full-scope claude.ai login, which Remote Control requires.
+# the mounted file there (mode 0600). The ro-mounted virtio-fs share cannot
+# itself BE that writable per-user file, so we copy it into place rather than
+# symlink: claude expects a real, owner-only file at that path. This gives the
+# guest the host operator's full-scope claude.ai login, which Remote Control
+# requires.
 #
 # claude runs as the autologin getty's user (root, via serial-getty@hvc1), so
 # $HOME is that user's home. Derive the credential dir from $HOME so the
@@ -880,14 +1115,15 @@ boot_apt_phase
 # is: the HOST resolves the requested channel/pin to a concrete version,
 # downloads that version's GPG-signed manifest, verifies the signature
 # against the operator's pinned key, checksum-verifies the binary against
-# the verified manifest, caches it keyed on the version, and shares it RO
-# into the guest under mountTag=claudebin. So by the time the guest boots,
-# the binary at $CLAUDEBIN_MNT/claude is ALREADY verified -- the guest runs
-# it directly and never executes `curl https://claude.ai/install.sh | bash`
-# (which is unsigned, unchecksummed, and re-fetched on every boot; see
-# issue #57's "root of trust" analysis). There is no install.sh|bash
-# fallback: the host-verified binary is the ONLY path, and a missing
-# verified binary aborts the boot rather than fetching unverified code.
+# the verified manifest, caches it keyed on the version, and shares it into
+# the guest under mountTag=claudebin, which the image's fstab mounts `ro`.
+# So by the time the guest boots, the binary at $CLAUDEBIN_MNT/claude is
+# ALREADY verified -- the guest runs it directly and never executes
+# `curl https://claude.ai/install.sh | bash` (which is unsigned,
+# unchecksummed, and re-fetched on every boot; see issue #57's "root of
+# trust" analysis). There is no install.sh|bash fallback: the host-verified
+# binary is the ONLY path, and a missing verified binary aborts the boot
+# rather than fetching unverified code.
 #
 # The seam message is retained (now reporting that the verified binary was
 # found) so the acceptance test can still observe the guest reaching this

@@ -18,3 +18,5 @@
 - [Baked plugin changes ARE verifiable pre-merge](baked-plugin-changes-verifiable-pre-merge-via-local-marketplace.md) — guest from a PR-branch worktree + `/mnt/repo` as a local marketplace + `/reload-plugins`; only the bake-from-default-branch step waits for merge
 - [Worktree agent cannot set HOME](worktree-agent-cannot-set-home.md) — the gate refuses `HOME=` and compound probes; run HOME-redirected experiments inside a container instead of giving up on them
 - [Write needs the worktree path, not the shared one](worktree-write-path-must-be-worktree-copy.md) — Read accepts shared-checkout paths but Write/Edit reject them, and Read state is tracked per exact path — prefix every Read with the worktree root
+- [Guest boot probe via a stub `claude`](claude-vm-guest-boot-probe-via-stub-claude.md) — put a shell script named `claude` on the claudebin share to run arbitrary in-guest assertions; no real binary, no GPG pin, no Keychain
+- [Verify cleanup claims, not just behavior](verify-cleanup-claims-not-just-behavior.md) — "cleaned up on exit" is a structural claim needing a grep; claude-vm's cleanup() retains $RUN and shreds only $CREDS_DIR

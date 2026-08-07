@@ -150,7 +150,7 @@ This skill is **idempotent**. Before writing anything it checks each of
   has no overrides, do not write that file at all — the pair is
   optional.)
 - **If a file already exists**: **do not clobber it.** Read it, show the
-  user what is there, and offer two choices:
+  user what is there, and offer these choices:
   1. **Leave** the existing file untouched (the default, safe choice).
   2. **Merge** the new overrides in for any keys the existing file is
      missing, preserving every key the user already set.
@@ -218,9 +218,60 @@ repo use?" The common cases:
   repo, while global stays `4096`).
 - Extra `egress.allow` hosts this repo's build/test needs (e.g. a
   package registry). These union with the global allowlist.
-- Extra `mounts` this repo needs. Write both a `source:` and a `tag:` on
-  every entry, and keep each tag unique: the guest mounts each share *by*
-  its tag, so an entry missing either key aborts the launch (issue #226).
+- Extra `mounts` this repo needs. Each entry takes a `source:` (a host
+  directory, or a single file) and a `tag:`, plus an optional absolute
+  `path:` (the guest mountpoint, default `/mnt/<tag>`). The guest mounts
+  each share *by* its tag, and every mistake aborts the launch rather
+  than booting without the mount: a missing `source:`/`tag:` (issue
+  #226), a `source:` that is not on the host, a **directory** `source:`
+  whose path carries a `,`, a `tag:` that is reserved
+  (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
+  `[A-Za-z0-9._-]`, repeated, `.` or `..`, or beginning with `-`, a
+  `mode:` key at all, and a `path:` that is relative, carries `..`,
+  overlaps one of claude-vm's own guest mountpoints, shadows a guest OS
+  path, or duplicates another entry's (issue #157).
+  Those checks run on a **normalized** `path:` — repeated slashes, a
+  trailing slash and `.` segments are collapsed first — so respelling a
+  mountpoint (`/./etc`, `/mnt/./repo`) cannot slip it past them; a `..`
+  segment is rejected outright rather than resolved.
+  The tag rules beyond the charset are there because the tag is *also* a
+  path component (`/mnt/<tag>`, and the directories a single-file mount
+  is staged through) and a bare argv word in the guest's own `mount`, so
+  never offer `.`, `..` or a leading dash — `...`, `a..b` and `a-b` are
+  ordinary and fine. The comma rule is the `source:` half of the same
+  device string.
+  *Overlaps* is wider than equals: a `path:` above a reserved mountpoint
+  (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) is rejected too, so never
+  offer a `path:` under `/mnt/<built-in tag>`. The tag and path checks
+  run over the **merged** global+repo list, so a per-repo entry can
+  collide with a global one — check Step 2's global `mounts` before
+  writing a tag or path.
+  **Every mount is read-write and pierces the VM isolation boundary for
+  that path**: the guest's writes land on the host path live, with no
+  copy-back step. There is **no `mode:` key** — read-only cannot be
+  enforced on this stack (vfkit's virtio-fs device has no read-only
+  export and the guest runs as root), so a config that sets one aborts
+  the launch; issue #233 tracks enforcing it at the hypervisor. Never
+  offer a mount of anything the user would mind an autonomous agent
+  rewriting, and say so plainly when they ask for one.
+  The guest OS's own paths — `/bin /boot /dev /etc /home /lib` (and its
+  `/lib32`, `/lib64`, `/libx32` spellings), `/proc /root /run /sbin /sys
+  /tmp /usr /var`, listed authoritatively as
+  `CLAUDE_VM_GUEST_SYSTEM_PATHS` in `payload/lib/config.sh` — are
+  protected by **shape**: a directory
+  `source:` may not land on, above or inside one — offer `/mnt/<tag>`,
+  `/srv` or `/opt` — while a single-file `source:` may not land on or
+  above one and may sit inside only `/root`, `/home` or `/tmp`. So
+  `path: /root/.gitconfig` for a file is fine; `path: /root` for a
+  directory is not.
+  A single-file `source:` is shared by wrapping it in a per-entry
+  directory and bind-mounting the one file in the guest, so it carries a
+  caveat a directory mount does not: the kernel refuses a `rename(2)`
+  onto a file bind mount with `EBUSY`, so a single-file mount takes
+  in-place edits but not the write-a-temp-then-rename pattern
+  `git config`, `sed -i` and most editors use. When the user wants the
+  guest to rewrite a file wholesale — `~/.gitconfig` is the usual case —
+  offer its containing **directory** as the `source:` instead.
 - Extra apt packages this repo's build needs beyond the global set:
   baked into the image (bake file `packages:`) or installed at boot
   (boot file `packages:`), plus any third-party `apt_sources` (either

@@ -24,6 +24,18 @@ metadata:
   backstory as its own (usually Low) finding, and say which sibling
   memory, if any, has the history right.
 
+- **A branch can falsify one of YOUR memory entries, and that lands on
+  you, not on the scrubber.** When a round's own change makes an entry
+  under `sdlc-pr-reviewer/` wrong, the other agents will (rightly)
+  route it back rather than editing another agent's memory — #231
+  rounds 6 and 7 each did. Correct it in that round's own memory
+  commit, in place: fix the falsified sentence, say the branch
+  falsified it, keep the parts that survive, and update the `MEMORY.md`
+  one-liner when the falsified clause is quoted there too. Do not file
+  it as a finding against the PR and do not defer it to
+  `agent-memory-scrubber` — an uncorrected entry is loaded verbatim by
+  the next run.
+
 **The between-rounds trap:** a fix round runs after review round N and
 before round N+1, so "which round is this?" has no answer in the round
 vocabulary — SKILL.md defines a round as one `pr-reviewer` run, and the

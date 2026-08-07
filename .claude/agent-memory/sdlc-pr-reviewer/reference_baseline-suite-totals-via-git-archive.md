@@ -24,5 +24,14 @@ is fully runnable with no repo checkout. Comparing the totals at both
 revisions settles the delta, and catches an off-by-one tally in a PR
 body that the branch total alone reads as fine.
 
+**A wrong baseline is not always a stale-fork-point story.** On PR #231
+the body said "grew from 289 to 350" while main's suite reported 294 —
+and `git merge-base origin/main HEAD` was main's own tip, so no rebase
+explained it. Check the other plausible metric before narrating a cause:
+`grep -c 'assert_eq ' <suite>` gave 325 there, so neither metric yielded
+the claimed number and it was simply wrong. Run merge-base and both
+counts, then file it as a Low against the PR body only — the tree is
+fine.
+
 Related: [[baseline-lint-before-flagging]] (same baseline-first
 principle, lint scope).

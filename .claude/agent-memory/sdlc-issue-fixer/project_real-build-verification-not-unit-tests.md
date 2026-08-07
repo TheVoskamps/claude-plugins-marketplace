@@ -74,3 +74,28 @@ concrete fixture-construction pattern that worked: mirror the real
 launcher's own render function (e.g. `claude_vm_render_guest_settings`)
 over a minimal merged-config stub, rather than hand-rolling a literal, so
 the stub exercises the actual render path instead of drifting from it.
+
+**Addendum (issue #157 PR #231, fix round): run it even for a
+comment-only guest edit.** `build-guest-image.sh` emits the guest boot
+launcher from a `cat <<'BOOT'` heredoc spanning ~1000 lines, so *any*
+edit inside that range — a comment included — changes the script baked
+into the image. Two cheap checks before the expensive one: extract the
+heredoc body by line range and `bash -n` it, and confirm any constant
+you touched still greps out of the extract. Then run
+`payload/test/host-acceptance.sh`, which on an equipped host does a
+genuinely real image build plus a real vfkit boot and printed 14/14
+across criteria (a)–(d) in a few minutes. It exercises no `mounts:`, so
+it does not verify a mount change — what it does verify is that the
+launcher you emit still boots, which is exactly the risk a heredoc edit
+carries (cf. [[backtick-comments-in-unquoted-heredocs]]; this heredoc is
+quoted, so backticks in comments are literal — check the delimiter
+before relying on that).
+
+**Addendum (issue #157 PR #231, owner round): the harness's criteria are
+the limit of what it verifies.** host-acceptance.sh attaches only the
+four built-in shares and writes no `mounts.tsv`, so it cannot say
+anything about a `mounts:` change. Reuse its criterion-(b) choreography
+in a scratch script and add the missing pieces —
+[[real-boot-that-exercises-mounts-from-a-worktree]] has the recipe, the
+AF_UNIX/gvproxy blocker a worktree path hits, and the launcher-rev trap
+that makes a boot-test measure a stale image.

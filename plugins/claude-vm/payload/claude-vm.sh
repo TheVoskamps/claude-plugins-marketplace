@@ -26,11 +26,14 @@
 # selects ONLY the `claudeAiOauth` key from it (the blob can also carry
 # unrelated `mcpOAuth` MCP-server credentials, which are dropped -- see
 # the selection block below). The selected `{"claudeAiOauth": {...}}` is
-# written to a transient, owner-only tmpfile and shared RO into the guest
-# so it lands at the guest user's ~/.claude/.credentials.json. This gives
-# the guest the host operator's full-scope claude.ai login, which Remote
-# Control requires. The credential is NEVER written to config, to the
-# verified-binary cache, or into run.env, and the tmpfile is removed on exit.
+# written to a transient, owner-only tmpfile and shared into the guest,
+# where the image's fstab mounts it `ro` (the RO is GUEST-side -- vfkit's
+# virtio-fs device has no read-only export, so the host shares this exactly
+# as it shares an extra mount; see the extra-mount block below), so it lands
+# at the guest user's ~/.claude/.credentials.json. This gives the guest the
+# host operator's full-scope claude.ai login, which Remote Control requires.
+# The credential is NEVER written to config, to the verified-binary cache,
+# or into run.env, and the tmpfile is removed on exit.
 #
 # IDENTITY SEED (issue #88): the mounted ~/.claude/.credentials.json bearer
 # token alone does NOT make the interactive guest TUI treat itself as onboarded
@@ -42,10 +45,10 @@
 # self-update in the egress-confined guest), and `lastOnboardingVersion` /
 # `lastReleaseNotesSeen` stamped with the concrete resolved claude version.
 # machineID is NOT seeded -- the guest mints its own. The resulting 6-key object
-# is delivered to the guest the SAME transient RO shred-on-exit way as the
-# keychain credential (via the claudecreds mount, NEVER via run.env). The guest
-# boot launcher installs it at /root/.claude.json before launching claude. This
-# seed is ADDITIVE and layered alongside the keychain credential mount above.
+# is delivered to the guest the SAME transient, guest-side-ro, shred-on-exit way
+# as the keychain credential (via the claudecreds mount, NEVER via run.env). The
+# guest boot launcher installs it at /root/.claude.json before launching claude.
+# This seed is ADDITIVE, layered alongside the keychain credential mount above.
 #
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
@@ -154,8 +157,20 @@ claude_vm_check_marketplace_names "$MERGED_BAKE" "$MERGED_BOOT" \
   || { echo "claude-vm: aborting -- name every claude.marketplaces entry as described above." >&2; exit 1; }
 # A mounts entry with no source or no tag (issue #226): the guest mounts each
 # virtio-fs share BY its tag, so a tagless entry is a share nobody can mount and
-# two of them collide on one tag. Abort rather than launching without the mount
-# the operator asked for.
+# two of them collide on one tag. Since issue #157 the same call also rejects a
+# tag that is malformed, reserved, repeated, `.`/`..`, or begins with `-` (the
+# tag is a bare path COMPONENT and a bare argv word as well as a device-string
+# field, and those positions reject spellings the charset admits), a source
+# that is not on the host or -- for a DIRECTORY source, the shape vfkit shares
+# as-is -- carries a comma, a `mode:` key (read-only is unenforceable on this
+# stack -- issue #233), and a guest `path:` that is relative, carries `..`, or
+# OVERLAPS a reserved mountpoint, a guest OS path or another entry's
+# mountpoint. Overlap, not equality: landing on one, above one or inside one is
+# rejected alike, and for a guest OS path the rule is by shape -- a directory
+# mount may not overlap one at all, while a single-file mount may sit inside
+# /root, /home or /tmp. The whole mounts contract is enforced here, in one
+# pass, so the launcher below can assume every record it reads is usable. Abort
+# rather than launching without the mount the operator asked for.
 claude_vm_check_mounts "$MERGED_BOOT" \
   || { echo "claude-vm: aborting -- fix the mounts entr(ies) described above." >&2; exit 1; }
 # claude.plugins is the one map that legitimately appears in BOTH file types
@@ -512,8 +527,9 @@ GVPROXY_BIN="$(claude_vm_resolve_gvproxy)"
 # downloads that version's GPG-signed manifest, verifies the signature
 # against the operator's pinned key, checksum-verifies the downloaded
 # binary against the verified manifest, and caches it keyed on the
-# resolved version. The verified binary is then mounted RO into the guest
-# (mountTag=claudebin) and run at the boot-launcher seam.
+# resolved version. The verified binary is then shared into the guest
+# (mountTag=claudebin), where the image's fstab mounts it `ro`, and run
+# at the boot-launcher seam.
 #
 # SECURITY: a failed gpg --verify or a checksum mismatch ABORTS here --
 # the launcher never boots the guest with an unverified binary. There is
@@ -946,9 +962,10 @@ fi
 # `projects` entry for the guest mount path ($GUEST_REPO_MNT) with
 # hasTrustDialogAccepted / hasCompletedProjectOnboarding forced true so the
 # guest skips the "trust this folder?" dialog (issue #88, Gap 2). Write that
-# object into
-# $CREDS_DIR -- the SAME transient owner-only dir shared RO into the guest under
-# mountTag=claudecreds and shredded by cleanup() on every exit (EXIT/INT/TERM).
+# object into $CREDS_DIR -- the SAME transient owner-only dir shared into the
+# guest under mountTag=claudecreds (the image's fstab mounts it `ro`; the host
+# cannot, see the extra-mount block below) and shredded by cleanup() on every
+# exit (EXIT/INT/TERM).
 # machineID is NOT seeded -- the guest mints its own. It is NOT named
 # .credentials.json (that name is the bearer token's) -- the guest boot launcher
 # reads claude-json-seed.json and installs it at /root/.claude.json before
@@ -1026,12 +1043,12 @@ claude_vm_run_meta_put() {
 # ---------------------------------------------------------------------
 # Guest run.env -- proxy config + mount tags + claude args. It NO LONGER
 # carries any secret: the guest authenticates with the host's claude.ai
-# OAuth credential, shared in via its own RO mount (mountTag=claudecreds)
-# rather than an ANTHROPIC_API_KEY in this file. run.env is still written
-# inside a subshell under umask 077 (created -rw------- with no world-
-# readable window) and chmod 600'd afterward -- harmless belt-and-braces
-# now that it holds no secret, and it keeps the discipline if a secret is
-# ever reintroduced here.
+# OAuth credential, shared in via its own mount (mountTag=claudecreds, which
+# the image's fstab mounts `ro` guest-side) rather than an ANTHROPIC_API_KEY
+# in this file. run.env is still written inside a subshell under umask 077
+# (created -rw------- with no world-readable window) and chmod 600'd
+# afterward -- harmless belt-and-braces now that it holds no secret, and it
+# keeps the discipline if a secret is ever reintroduced here.
 # ---------------------------------------------------------------------
 # Capture the host terminal geometry (issue #88). The vfkit stdio console is
 # a plain byte pipe with NO out-of-band window-size channel, so the guest
@@ -1393,20 +1410,126 @@ if [ -z "$PROXY_CMD" ]; then
 fi
 
 # ---------------------------------------------------------------------
-# Build extra-mount device flags from config (mounts: list).
-# Each entry becomes a virtio-fs device. The repo auto-mount (tag
-# 'repo') and the run-config mount (tag 'runconfig') are always added
-# below; these are the user's EXTRA mounts.
+# Build extra-mount device flags from config (mounts: list), and the guest-side
+# mount manifest that tells the boot launcher what to do with them (issue #157).
+#
+# Each entry becomes a virtio-fs device. The repo auto-mount (tag 'repo') and
+# the run-config mount (tag 'runconfig') are always added below; these are the
+# user's EXTRA mounts.
+#
+# vfkit only SHARES a directory under a tag -- it never mounts anything. Before
+# #157 nothing carried the tags into the guest and the image's baked fstab knew
+# only the four built-in tags, so a configured extra mount was attached to the
+# VM and then never appeared inside it. The manifest below (mounts.tsv, on the
+# same runconfig share as run.env and the apt/plugin manifests) closes that gap:
+#
+#   <tag><TAB><guest-path><TAB><file>
+#
+# with <file> EMPTY for an ordinary directory mount and set to the file's
+# basename for a single-file mount. It rides a manifest file rather than run.env
+# for the same reason apt-install.list and plugin-marketplaces.tsv do: run.env
+# is sourced under `set -a` and carries scalars, while this is a variable-length
+# list of records whose fields (a guest path, a host filename) are arbitrary
+# operator-supplied strings. Not a secret, so it needs no umask tightening
+# beyond what CONFIG_DIR already has.
+#
+# EVERY extra mount is READ-WRITE and the record carries no mode: vfkit's
+# virtio-fs device has no read-only export and the guest session is root, so
+# `ro` would be a promise this stack cannot keep. lib/config.sh's extra-mount
+# block has the verified detail; issue #233 carries the enforced version.
+#
+# SINGLE-FILE SOURCES. virtio-fs shares directories only, so a file source is
+# WRAPPED: the launcher makes a per-entry directory under $MOUNT_WRAP_DIR and
+# puts the file in it (the same shape the claudecreds mount uses for the
+# credential file), shares THAT, and the guest bind-mounts the one file out of
+# it onto the target path -- so nothing else from the file's real parent
+# directory is exposed. The wrap entry is a HARD LINK, not a copy: a copy would
+# make the write-through a lie (guest writes would land in the throwaway wrap
+# dir and never reach the host file), whereas a hard link is the same inode, so
+# a single-file mount writes through to the host file live. `ln` fails across
+# filesystems, and that is a hard abort rather than a silent downgrade to a
+# copy -- see the message for the fix.
+#
+# A caveat the directory shape does not have: a file bind mount cannot be
+# REPLACED by rename(2) inside the guest (the kernel returns EBUSY), so a
+# single-file mount takes in-place writes but refuses the write-temp-then-
+# rename pattern `git config`, `sed -i` and most editors use. Mount the
+# containing directory when the guest needs to replace the file rather than
+# edit it.
 # ---------------------------------------------------------------------
 EXTRA_MOUNT_FLAGS=()
-# Split each record BY HAND rather than with 'IFS=<tab> read -r src tag mode'.
+MOUNTS_TSV="$CONFIG_DIR/mounts.tsv"
+: > "$MOUNTS_TSV"
+# Parent of the per-entry single-file wrap dirs. Every entry in it is a HARD
+# LINK to the operator's file -- the same inode -- so whatever can write inside
+# this directory can write that file. It must therefore sit OUTSIDE the
+# directories claude-vm itself hands the guest, or a single-file mount quietly
+# exposes the operator's file through a second path as well as its own.
+#
+# $RUN is the natural home: it is where the run's other artifacts live, and it
+# is the best available guess at the source file's own volume, which a hard
+# link cannot cross. Under repo.mount: clone that is also SAFE -- the repo
+# share is $RUN/worktree, a sibling of this directory, so the guest never sees
+# the wrap dir at all. Under repo.mount: live the repo share is $REPO_SRC
+# itself and $RUN lives inside it (<repo>/.claude/tmp/<run-id>), and the guest
+# fstab mounts tag `repo` RW -- so a wrap dir under $RUN would be reachable and
+# writable from the guest at /mnt/repo/.claude/tmp/<run-id>/mount-wrap/<tag>/,
+# exposing the operator's file at a second guest path they never configured
+# (and one that survives the entry's own mountpoint being skipped by the guest's
+# occupancy check).
+#
+# So: test $RUN against the ACTUAL repo share rather than against REPO_MOUNT,
+# which keeps this correct if a future mount strategy changes what is shared,
+# and fall back to a per-run dir under $TMPDIR -- outside the repo, and outside
+# the other shares claude-vm builds for itself ($RUN/config, $RUN/creds, and
+# the verified-binary cache under ~/.config/claude-vm). That dir is NOT covered
+# by the run-dir retention, so cleanup() removes it (removing hard links, never
+# the operator's file).
+#
+# Wherever it lands, this directory's path becomes a `sharedDir=` field in
+# vfkit's comma-delimited device string as soon as an entry is wrapped, and
+# neither home is a config value claude_vm_check_mounts can see -- so its comma
+# check on a DIRECTORY source does not reach them, and a comma in $RUN or in
+# $TMPDIR would produce exactly the malformed device string that check exists
+# to prevent, on an entry the validator accepted. The loop below aborts on it,
+# in its single-file branch: that is where the entry being wrapped is in hand,
+# so the message can name it and say the comma is not the operator's.
+#
+# The abort is an EARLIER, cause-naming failure, not a rescue. Both of those
+# paths already reach vfkit through argument strings this launcher does not
+# check -- $RUN through `efi,variable-store=$EFISTORE,create`,
+# `virtio-blk,path=$GUEST_IMAGE_CLONE` and
+# `virtio-serial,logFilePath=$GUEST_CONSOLE_LOG`, and $TMPDIR through
+# `virtio-net,unixSocketPath=$GVPROXY_SOCK`, whose directory is a mktemp under
+# $TMPDIR on EVERY launch. Measured on vfkit v0.6.4, each of those dies on the
+# text after the comma (`unknown option for virtio-net devices: ...`,
+# `unknown option for EFI bootloaders: ...`), so a launch under such a path was
+# already doomed with or without a mounts entry. See
+# payload/README.md -> *The tag is not just a tag* for that whole class and
+# for where a guard covering it would belong.
+MOUNT_WRAP_TMPDIR=""
+case "$RUN/" in
+  "$MOUNT_SHARED_DIR"/*)
+    MOUNT_WRAP_TMPDIR="$(claude_vm_mktemp -d claude-vm-wrap)"
+    MOUNT_WRAP_DIR="$MOUNT_WRAP_TMPDIR"
+    ;;
+  *)
+    # $RUN is RETAINED after the run (cleanup() shreds only $CREDS_DIR; the
+    # diff/apply skills read the rest), so the wrap dir and its links outlive
+    # the VM. That duplicates no bytes -- a hard link is an extra NAME for the
+    # operator's file -- but it does mean the file's data survives deletion of
+    # the original until the run dir is removed.
+    MOUNT_WRAP_DIR="$RUN/mount-wrap"
+    ;;
+esac
+# Split each record BY HAND rather than with 'IFS=<tab> read -r src tag path'.
 # A tab is IFS WHITESPACE, so read collapses a RUN of tabs into one separator:
 # an empty MIDDLE field vanishes and every later field shifts left. A mounts
-# entry written with an empty tag is emitted as source<TAB><TAB>mode, and the
-# collapsing read took the MODE as the mount TAG -- the share went out as
-# mountTag=ro (or rw), and two such entries would share that one tag. The
-# emitter (claude_vm_mount_specs, via yq @tsv) joins all three fields, so both
-# separators are always present and the three expansions below are total.
+# entry written with an empty tag is emitted as source<TAB><TAB>path, and the
+# collapsing read takes the PATH as the mount TAG -- the share goes out as
+# mountTag=/srv/whatever, and two such entries would collide on it. The emitter
+# (claude_vm_mount_specs, via yq @tsv) joins all three fields, so every
+# separator is always present and the three expansions below are total.
 #
 # Since #226 a sourceless or tagless entry never reaches here at all --
 # claude_vm_check_mounts rejected it at config load, above. The split and the
@@ -1420,16 +1543,65 @@ while IFS= read -r mount_record; do
   src=${mount_record%%$MOUNT_TAB*}
   mount_rest=${mount_record#*$MOUNT_TAB}
   tag=${mount_rest%%$MOUNT_TAB*}
-  mode=${mount_rest#*$MOUNT_TAB}
+  mount_path=${mount_rest#*$MOUNT_TAB}
   [ -z "$src" ] && continue
-  # Expand a leading ~ to $HOME (config is YAML, not shell).
-  case "$src" in
-    "~"/*) src="$HOME/${src#"~/"}" ;;
-    "~") src="$HOME" ;;
-  esac
-  # mode is advisory for virtio-fs share dirs; recorded for the guest
-  # mount step. vfkit shares the dir; the guest mounts ro/rw per mode.
-  EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$src,mountTag=$tag")
+  # Expand a leading ~ to $HOME (config is YAML, not shell). Shared with
+  # claude_vm_check_mounts's host-existence check so both see the same path.
+  src="$(claude_vm_expand_mount_source "$src")"
+  # The guest mountpoint: the entry's `path:` when set, else /mnt/<tag>.
+  mount_guest_path="$(claude_vm_mount_guest_path "$tag" "$mount_path")"
+  mount_file=""
+  mount_shared_dir="$src"
+  # -f is true for a regular file and false for a directory (and for a symlink
+  # to one), so it is the whole directory-vs-file decision on its own.
+  if [ -f "$src" ]; then
+    # The wrap dir is what vfkit is handed for this entry, so its WHOLE path
+    # rides in the device string -- not just the <tag> component the tag check
+    # settled. Its parent is $RUN/mount-wrap or the $TMPDIR fallback, neither
+    # of which claude_vm_check_mounts ever sees; see MOUNT_WRAP_DIR above for
+    # what this abort does and does not buy. Tested on $MOUNT_WRAP_DIR rather
+    # than on $mount_shared_dir so the message can say the comma is not the
+    # operator's: a comma in the tag cannot reach this line.
+    case "$MOUNT_WRAP_DIR" in
+      *,*)
+        echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
+        echo "claude-vm:   hard-linking it into the wrap directory '$MOUNT_WRAP_DIR/$tag' -- whose path carries" >&2
+        echo "claude-vm:   a ','. claude-vm names the shared directory inside vfkit's comma-delimited" >&2
+        echo "claude-vm:   '--device virtio-fs,sharedDir=...,mountTag=...' string, so vfkit would read that comma" >&2
+        echo "claude-vm:   as the start of another device option and refuse to start." >&2
+        if [ -n "$MOUNT_WRAP_TMPDIR" ]; then
+          echo "claude-vm:   The comma is in \$TMPDIR, NOT in anything you wrote under 'mounts:': the repo itself" >&2
+          echo "claude-vm:   is the share here (repo.mount: live), so the run dir sits inside it and the wrap" >&2
+          echo "claude-vm:   directory has to live under \$TMPDIR instead. Point TMPDIR at a path with no comma in" >&2
+          echo "claude-vm:   it and rerun. Dropping the mounts entry will NOT help: claude-vm hands vfkit a" >&2
+          echo "claude-vm:   gvproxy socket under \$TMPDIR on every launch, in the same comma-delimited form." >&2
+        else
+          echo "claude-vm:   The comma is in the run directory's path, NOT in anything you wrote under 'mounts:':" >&2
+          echo "claude-vm:   \$RUN is '$RUN' (<repo>/.claude/tmp/<run-id> for a git repo, a \$TMPDIR mktemp" >&2
+          echo "claude-vm:   otherwise). Launch from a path with no comma in it. Dropping the mounts entry will" >&2
+          echo "claude-vm:   NOT help: the EFI store, the disk and the console log ride that same run dir into" >&2
+          echo "claude-vm:   vfkit's comma-delimited argument strings." >&2
+        fi
+        exit 1
+        ;;
+    esac
+    mount_file="${src##*/}"
+    mount_shared_dir="$MOUNT_WRAP_DIR/$tag"
+    mkdir -p "$mount_shared_dir"
+    # -f so a rerun over a retained run dir replaces a stale link rather than
+    # failing; the link target is the operator's file either way.
+    if ! ln -f "$src" "$mount_shared_dir/$mount_file" 2>/dev/null; then
+      echo "claude-vm: mounts entry '$tag' has the single FILE source '$src', which claude-vm shares by" >&2
+      echo "claude-vm:   hard-linking it into a wrap directory at $mount_shared_dir -- but that link" >&2
+      echo "claude-vm:   could not be created. A hard link cannot cross filesystems, so this usually means" >&2
+      echo "claude-vm:   the source is on a different volume than that wrap directory. Either put a copy" >&2
+      echo "claude-vm:   of the file on the same volume and point 'source:' at that, or mount its" >&2
+      echo "claude-vm:   containing DIRECTORY instead (source: $(dirname "$src"))." >&2
+      exit 1
+    fi
+  fi
+  EXTRA_MOUNT_FLAGS+=(--device "virtio-fs,sharedDir=$mount_shared_dir,mountTag=$tag")
+  printf '%s\t%s\t%s\n' "$tag" "$mount_guest_path" "$mount_file" >> "$MOUNTS_TSV"
 done < <(claude_vm_mount_specs "$MERGED_BOOT")
 
 # ---------------------------------------------------------------------
@@ -1705,6 +1877,16 @@ cleanup() {
   # Guarded for an early-trap fire (before SOCK_DIR is set).
   if [ -n "${SOCK_DIR:-}" ]; then
     rm -rf "$SOCK_DIR"
+  fi
+  # Remove the single-file mount wrap dir when it was sited under $TMPDIR
+  # rather than under $RUN (repo.mount: live -- see MOUNT_WRAP_DIR above).
+  # Like SOCK_DIR it is outside the run dir, so the run-dir retention does not
+  # cover it. Its entries are hard links: removing them drops an extra NAME for
+  # the operator's file and never the file itself. Empty when the wrap dir
+  # went under $RUN, which is retained with the rest of the run dir. Guarded
+  # for an early-trap fire (before MOUNT_WRAP_TMPDIR is set).
+  if [ -n "${MOUNT_WRAP_TMPDIR:-}" ]; then
+    rm -rf "$MOUNT_WRAP_TMPDIR"
   fi
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then

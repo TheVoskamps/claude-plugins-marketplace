@@ -11,9 +11,10 @@ mounts, the proxy, and how the repo is made available to the guest —
 comes from layered **YAML config** rather than environment variables.
 The guest authenticates with the **host's live claude.ai OAuth
 credential**, which the launcher extracts from the macOS Keychain at
-launch and shares RO into the guest, plus an **identity seed** the
-launcher builds from your host `~/.claude.json` — the `userID` +
-`oauthAccount` selected from the host, plus synthesized
+launch and shares into the guest (where the image's fstab mounts the
+share `ro`), plus an **identity seed** the launcher builds from your host
+`~/.claude.json` — the `userID` + `oauthAccount` selected from the host,
+plus synthesized
 `hasCompletedOnboarding` / `autoUpdates: false` / version keys — so the
 interactive in-guest session comes up already onboarded, logged in, and
 with self-update disabled (issue #88). Both are secrets, neither is
@@ -286,12 +287,13 @@ egress:
     - claude.ai
 
 mounts:                           # extra mounts beyond the repo auto-mount
-  - source: ~/.claude/policy
+  - source: ~/.claude/policy      # ALWAYS read-write -- see below
     tag: policy
-    mode: ro
   - source: ~/datasets/foo
     tag: data
-    mode: ro
+  - source: ~/.gitconfig          # a single FILE works too
+    tag: gitconfig
+    path: /root/.gitconfig        # optional guest mountpoint override
 
 github:
   auth: none                      # none (default) | host-token
@@ -303,23 +305,115 @@ github:
   (`payload/proxy/tinyproxy-launch.sh`), which reads that file and binds
   `CLAUDE_VM_PROXY_PORT`. A `proxy.cmd` override must likewise read that
   file instead of a hand-maintained allowlist baked into the command.
-- `mounts` generates the extra `virtio-fs` device flags. A leading `~`
-  in `source` expands to `$HOME`. Both `source` and `tag` are mandatory
-  per entry — the guest mounts each share *by* its tag, so an entry with
-  an empty or omitted `tag:` is a share nobody can mount and two of them
-  would collide on one tag. Either omission aborts the launch at config
-  load, naming the entry by its position in the merged boot config —
-  `mounts` is a union list, so that number counts through the global
-  entries before the per-repo ones and need not be the entry's position
-  in either file on its own — and by its path when it has one.
+- `mounts` generates the extra `virtio-fs` device flags, and the guest
+  mounts each one at `path:` (default `/mnt/<tag>`) before claude starts.
+  A leading `~` in `source` expands to `$HOME`. Both `source` and `tag`
+  are mandatory per entry — the guest mounts each share *by* its tag, so
+  an entry with an empty or omitted `tag:` is a share nobody can mount
+  and two of them would collide on one tag.
+
+  **Every extra mount is read-write, and pierces the VM isolation
+  boundary for that one path.** Guest writes land on the host path
+  **live** — no copy-back step, no review, no undo (`repo.copy_back`
+  governs the *repo* mount only). Everything else about the VM still
+  holds; that one path is simply outside it, on purpose.
+
+  **There is no read-only option, and no `mode:` key.** Read-only cannot
+  be enforced on this stack: vfkit's virtio-fs device has no read-only
+  export (it rejects `readOnly`/`readonly`/`ro` as unknown option keys —
+  verified against vfkit v0.6.4), and the guest session runs as root, so
+  a guest-side `ro` is undoable from inside the guest. A config that
+  still sets `mode:` **aborts the launch** rather than having the key
+  ignored, so nobody believes a share is read-only when it is not.
+  Enforced read-only at the hypervisor boundary is tracked as issue #233.
+  Never point a mount at anything you would mind an autonomous agent
+  rewriting; to give the guest read access to something you care about,
+  mount a disposable copy.
+
+  A single **file** `source` works as well as a directory: virtio-fs
+  shares directories only, so the launcher wraps the file in a per-entry
+  directory (hard-linking it, so writes still reach the host file) and
+  the guest bind-mounts just that one file onto `path:`.
+  Nothing else from the file's real parent directory reaches the guest.
+  A caveat a directory mount does not have: the kernel refuses a
+  `rename(2)` onto a file bind mount with `EBUSY`, so a single-file
+  mount takes in-place edits but **not** the write-a-temp-then-rename
+  pattern `git config`, `sed -i` and most editors use. Mount the
+  containing directory when the guest needs to replace the file.
+
+  Every mistake aborts the launch at config load rather than booting a VM
+  without the mount you asked for: a missing `source`/`tag`, a `source`
+  that is not on the host, a **directory** `source` whose path carries a
+  `,`, a `tag` that is reserved
+  (`repo`/`runconfig`/`claudebin`/`claudecreds`), outside
+  `[A-Za-z0-9._-]`, repeated, or unusable in the tag's other roles (see
+  below), a `mode` key, and a `path` that is relative, carries `..`,
+  overlaps one of claude-vm's own guest mountpoints — landing on one,
+  above one (`/mnt`, `/`) or inside one (`/mnt/repo/sub`) — shadows a
+  guest OS path, or duplicates another entry's. The diagnostic names the
+  entry by its position in the merged boot config — `mounts` is a union
+  list, so that number counts through the global entries before the
+  per-repo ones and need not be the entry's position in either file on
+  its own — and by its path when it has one.
+
+  **A `tag` is not only a tag,** which is why the charset is necessary
+  but not sufficient. The same string is vfkit's `mountTag=`, a bare argv
+  word in the guest's `mount -t virtiofs -o rw <tag> <path>`, a path
+  *component* in `/mnt/<tag>` and in both the host and guest directories
+  a single-file mount is staged through, and a `mounts.tsv` field. So a
+  `tag` of `.` or `..` is rejected — it would walk one level up out of
+  each of those trees the entry reaches, and `path:`'s own `..` check
+  never sees a tag-derived mountpoint — and so is a `tag` beginning with
+  `-`, which the guest's `mount` reads as an option rather than as the
+  device.
+  `...`, `a..b` and `a-b` are ordinary names and pass. The `source` side
+  of the same device string is why a **directory** source may not carry a
+  comma: vfkit reads it as the start of another device option. That last
+  rule covers the `mounts` entries only — a *repo* path (or `$HOME`, or
+  `$TMPDIR`) carrying a comma breaks the built-in shares, the EFI store,
+  the disk, the console log or the gvproxy socket the same way and is not
+  checked; the launch fails loudly on the argument rather than booting, and
+  `payload/README.md` → *The tag is not just a tag* records why it is left
+  there. The one such path this feature adds — the single-file wrap
+  directory (`$RUN/mount-wrap`, or a `$TMPDIR` `mktemp -d` under
+  `repo.mount: live`) — is checked: the launcher aborts on a comma there
+  when it wraps a file, naming `$TMPDIR` or the run dir. That is an
+  earlier, cause-naming abort rather than a rescue; the other arguments
+  break the same launch anyway.
+
+  Those checks run on a **normalized** `path:`, so a mount cannot dodge
+  them by respelling its mountpoint: repeated slashes, a trailing slash
+  and `.` segments in any position (`/./etc`, `/mnt/./repo`, `/etc/.`,
+  and `/.` for the guest root) are collapsed first, which is why the
+  diagnostic names the collapsed path rather than what you wrote. A `..`
+  segment is the exception, rejected rather than resolved — where it
+  lands depends on the guest's filesystem, which the host cannot read.
+
+  **The guest OS's own paths are protected, by shape.** They are
+  `/bin /boot /dev /etc /home /lib` (and its `/lib32`, `/lib64`,
+  `/libx32` spellings), `/proc /root /run /sbin /sys /tmp /usr /var` —
+  `CLAUDE_VM_GUEST_SYSTEM_PATHS` in `payload/lib/config.sh` is the one
+  authoritative list. Linux stacks a
+  mount, so landing on one hides the image's own files for the whole
+  session, and the mount phase runs first, so the breakage surfaces later
+  as something unrelated. A **directory** source may not land on, above
+  or inside one of those paths — use `/mnt/<tag>` (the default), `/srv`
+  or `/opt`. A single **file** may not land on or above one, and may sit
+  inside only `/root`, `/home` or `/tmp`, which is what makes
+  `path: /root/.gitconfig` legal while `path: /etc/ld.so.preload` is not.
+  The guest checks as well, since only it can see the image: a mountpoint
+  that already exists and is non-empty, or a single-file target that
+  exists at all, is warned about on the boot console and **skipped**
+  rather than mounted over.
 - `claude.version` selects which `claude` binary the host-side verified
   cache fetches: `stable` (default), `latest`, or a pinned version
   (`2.1.172`). The host resolves a channel to a concrete version,
   downloads that version's GPG-signed manifest, verifies the signature
   against the operator's pinned key, checksum-verifies the binary, caches
-  it keyed on the version, and mounts it RO into the guest. A failed
-  `gpg --verify` or a checksum mismatch **aborts the launch**. On a warm
-  boot (already cached), the launcher drops `claude.ai` /
+  it keyed on the version, and shares it into the guest, where the image's
+  fstab mounts it `ro`. A failed `gpg --verify` or a checksum mismatch
+  **aborts the launch**. On a warm boot (already cached), the launcher
+  drops `claude.ai` /
   `downloads.claude.ai` from the guest egress allowlist. See the payload
   README's "Verified claude cache" section for the operator's one-time
   key-import step.
@@ -814,8 +908,12 @@ only the `claudeAiOauth` key** and writes a file in the shape `claude`
 expects, `{"claudeAiOauth": { ... }}` (selection via `lib/credential.sh`,
 using `python3`; unit-tested in `payload/test/credential-test.sh`). The
 selected credential is written to a transient, owner-only (`0600`)
-tmpfile and shared **read-only** into the guest under
-`mountTag=claudecreds`. The guest boot launcher copies it into
+tmpfile and shared into the guest under `mountTag=claudecreds`, **which the
+image's fstab mounts `ro`**. The `ro` is guest-side, not host-side — vfkit's
+virtio-fs device has no read-only export, so the host shares this exactly as
+it shares an extra mount, and the same caveat applies: a guest-side `ro`
+stops an accidental write, not a determined one, since the guest session is
+root. Nothing rests on it — the guest boot launcher copies the file into
 `$HOME/.claude/.credentials.json` (mode `0600`) before launching
 `claude`.
 
