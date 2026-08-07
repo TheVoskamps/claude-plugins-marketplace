@@ -35,11 +35,17 @@ func TestGhAliasInheritsCanonicalVerdict_229(t *testing.T) {
 			"#229 alias inherits the containment deny: "+cmd)
 	}
 
-	// ASK — the #64 publish tier, reached through the alias.
+	// ASK — the #64 publish tier, reached through the alias. `gist create` is on
+	// that tier in every spelling since #229, so the alias asks with or without
+	// `--public`.
 	wantReason(t, classifyInRepo(t, "gh gist new --public notes.md", repo), BucketAsk,
-		"publishes a public gist", "#229 alias inherits the public-gist ask")
+		"publishes the contents of a local file", "#229 alias inherits the gist publish ask")
 	wantReason(t, classifyInRepo(t, "gh gist new -p notes.md", repo), BucketAsk,
-		"publishes a public gist", "#229 alias inherits the public-gist ask, short spelling")
+		"publishes the contents of a local file", "#229 alias inherits the gist publish ask, short spelling")
+	wantReason(t, classifyInRepo(t, "gh gist new notes.md", repo), BucketAsk,
+		"publishes the contents of a local file", "#229 alias inherits the gist publish ask, no flag")
+	wantReason(t, classifyInRepo(t, "gh gist new -f x.md < notes.md", repo), BucketAsk,
+		"publishes the contents of a local file", "#229 alias inherits the gist publish ask, implicit stdin")
 	wantReason(t, classifyInRepo(t, "gh release new v1 -F notes.md", repo), BucketAsk,
 		"publishes a release", "#229 alias inherits the release publish ask")
 
@@ -70,8 +76,6 @@ func TestGhAliasInheritsCanonicalVerdict_229(t *testing.T) {
 		"gh variable ls",
 		"gh ruleset ls",
 		"gh rs ls", // the noun alias and the verb alias in one command
-		"gh gist new notes.md",
-		"gh gist new -f x.md < notes.md",
 		"gh issue new -t x -F notes.md",
 		"gh pr new -t x -F notes.md",
 	} {

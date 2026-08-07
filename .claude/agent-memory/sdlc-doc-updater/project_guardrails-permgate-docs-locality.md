@@ -217,8 +217,16 @@ worth one probe before they stand:
 - **A blanket predicate over a list of verbs** — "each requires an
   explicit `-` or a filename" — is
   [[feedback_no-blanket-predicate-over-a-list]] again; `gh <verb>
-  --help` is the cheap check for any claim about upstream gh grammar
-  (`gist edit` documents no `-` at all; its file is the positional).
+  --help` is the cheap check for any claim about upstream gh grammar.
+  But it settles only what gh DOCUMENTS. Round 10 found the in-tree
+  prose that came out of this bullet — "`gist edit` takes its file as a
+  positional with no stdin spelling of its own" — false: cli/cli
+  v2.97.0's `edit.go` binds `opts.SourceFile = args[1]` and switches
+  `case src == "-"`, so `gh gist edit <id> - < /etc/passwd` reads the
+  file (the gate denies it, the `-` substitution being
+  origin-agnostic). Help renders only `[<filename>]`. For a NEGATIVE
+  claim about a verb's grammar, read the verb's `RunE` — same rule as
+  the implicit-stdin default on `gist create`.
 - **A doc comment naming the test that asserts an invariant.** Grep the
   name: `TestGhFileSpecsAreWellFormed` did not exist.
 - **"The whole vocabulary / every form gh's help renders."** Settle it
@@ -345,20 +353,31 @@ interpolates after any rewrite of the tokens it is built from.
 was taken over (#229, PR #232, round 9).** The surfaces reported "24
 rows move" over a 1,295-row bare `gh <noun> <verb>` cross, and the
 cheap check is not to rebuild that cross but to ask which rows the
-change can possibly move: `ghCanonicalCommand` returns its input
-unchanged unless the noun or verb is an alias, so only alias-touching
-rows can move at all, and the moving set is INVARIANT to how wide the
-cross is. Extract main and the tip with `git archive … | tar -x`, drop
-one `zz_docprobe_test.go` into both that crosses the tables and writes
-`cmd<TAB>bucket`, and `paste`/`awk` the two files. My own 37×34
-reconstruction of the same five table families (alias, read,
-recoverable-write, file-spec, deny) totals 1,258 rather than 1,295 —
-one verb short, never identified — yet reproduced the 24 and every
-sub-count (11 `ls`, 3 `new`, 7 `gh rs <read verb>`, 2 deny → allow,
-1 ask → deny) exactly. So a stated total whose derivation a reader
+change can possibly move — for an alias round, `ghCanonicalCommand`
+returns its input unchanged unless the noun or verb is an alias, so only
+alias-touching rows can move at all — and the moving set is INVARIANT to
+how wide the cross is. Extract main and the tip with
+`git archive … | tar -x`, drop one `zz_docprobe_test.go` into both that
+crosses the tables and writes `cmd<TAB>bucket`, and `paste`/`awk` the
+two files. My own 37×34 reconstruction of the same five table families
+(alias, read, recoverable-write, file-spec, deny) totals 1,258 rather
+than 1,295 — one verb short, never identified — yet reproduced the 24
+and every sub-count exactly. So a stated total whose derivation a reader
 cannot re-run is still worth flagging, but do not "fix" it to your own
 number: the load-bearing figure is the moving set, and it survives the
 disagreement.
+
+**Re-derive the "can possibly move" argument every round; it is scoped
+to that round's change, not to the sentence (round 10).** The tier
+decomposition under that same total is the part that rots. Round 10 made
+every `gh gist create` an ASK, which moves a BARE row on a non-alias
+tier, so the parenthetical "no operands and no flags, so resolution is
+the only tier that can move one" went false while the total stayed 24
+(20 ask → allow, 2 deny → allow, 1 ask → deny, 1 allow → ask) and hid
+it. `gh gist new` is where the two rounds meet: it stopped moving, so
+the `new` sub-count went 3 → 2. When a round changes a verb the count
+sentence names anywhere — including inside a sub-count's parenthetical —
+replay the cross rather than reasoning that the total looks unchanged.
 
 **The residue in a count-fixing round is the CLOSURE sentence.** When
 prose enumerates a set and then says why the set is complete ("the

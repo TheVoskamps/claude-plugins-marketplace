@@ -67,10 +67,13 @@ comment is now denied as a cross-repo read escape.
 
 Surviving containment is not the whole verdict, though. Containment
 forwards an escape and discards its own ALLOW, so the verb's own tier
-still decides: `gh gist create --public` — in every spelling gh accepts
-the flag, `-p` and `-p=false` included — asks on the publish tier
-however well-placed the file is. A sanctioned destination buys the file
-past containment, not past the human.
+still decides: every `gh gist create` asks on the publish tier however
+well-placed the file is, with `--public` and without it. A gist created
+without the flag is *unlisted*, not private — GitHub's docs say anyone
+who discovers the URL can read it, whether or not you sent it to them —
+so publishing a scratch file as a "secret" gist is not a way to move it
+off the machine quietly. A sanctioned destination buys the file past
+containment, not past the human.
 
 ## Cross-repo / cross-session handoff
 

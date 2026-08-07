@@ -160,15 +160,20 @@ func TestGhAskTier_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh repo edit --visibility public", false), BucketAsk, "repo edit --visibility")
 	wantBucket(t, classifyCmd(t, "gh repo edit --visibility=public", false), BucketAsk, "repo edit --visibility=")
 	wantBucket(t, classifyCmd(t, "gh release create v1.0", false), BucketAsk, "release create (publish)")
-	// `gist create --public` carries a FILE operand, which #229 now grades
+	// `gist create` carries a FILE operand, which #229 now grades
 	// through read containment, so the event cwd must be a real repo for the
 	// PUBLISH ask to be what the row proves. Against the `/tmp` cwd classifyCmd
-	// uses, this row would still read ASK — but for the no-repo-context
+	// uses, these rows would still read ASK — but for the no-repo-context
 	// fail-closed instead, never reaching the publish tier at all.
+	//
+	// Both visibilities ask: a gist without `--public` is unlisted rather than
+	// private, so it is exposure too (#229).
 	repo := t.TempDir()
 	gitInit(t, repo)
 	wantReason(t, classifyInRepo(t, "gh gist create --public f.txt", repo), BucketAsk,
-		"publishes a public gist", "gist create --public")
+		"publishes the contents of a local file", "gist create --public")
+	wantReason(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAsk,
+		"publishes the contents of a local file", "gist create (secret is unlisted, not private)")
 }
 
 // --- gh ALLOW default --------------------------------------------------------
@@ -186,13 +191,15 @@ func TestGhAllowDefault_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "gh allow default: "+cmd)
 	}
-	// A secret gist (not --public) is still not a publish, so it ALLOWs — but its
-	// positional FILE operand is graded through read containment since #229, so
-	// the event cwd has to be a real repo for the operand to resolve inside one.
+	// `gh gist edit` is the gist verb that still allows — it mutates a gist that
+	// already exists, rather than publishing a new one. Its positional FILE
+	// operand is graded through read containment since #229, so the event cwd has
+	// to be a real repo for the operand to resolve inside one. (`gh gist create`
+	// no longer allows in any spelling; see TestGhGistCreateAlwaysAsks_229.)
 	repo := t.TempDir()
 	gitInit(t, repo)
-	wantBucket(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAllow,
-		"gh allow default: gh gist create f.txt")
+	wantBucket(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAllow,
+		"gh allow default: gh gist edit f.txt")
 }
 
 // --- gh leading-global desync bypass -----------------------------------------

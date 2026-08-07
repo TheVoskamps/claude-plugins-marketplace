@@ -185,11 +185,11 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 // ghFileSpecs is the grading table, keyed by noun then verb. Its membership is
 // the set of gh commands that PUBLISH content: every verb ghRecoverableWriteVerbs
 // maps true (the enumerated recoverable writes, which reach an outright ALLOW),
-// plus `release create`, which is not in that map at all — it reaches the publish
-// ASK tier above isGhRecoverableWrite and would otherwise escalate on the verb
-// while never grading the path. `gist create` needs a spec for both reasons at
-// once: a secret gist rides the recoverable-write ALLOW, and `--public` routes
-// the same verb to that publish ASK.
+// plus the two publish verbs that are not in that map at all — `release create`
+// and `gist create`, which reach the publish ASK tier above isGhRecoverableWrite
+// and would otherwise escalate on the verb while never grading the path. Their
+// spec is what makes an ESCAPING operand DENY instead of being offered as a
+// click-through on the publish prompt.
 //
 // Read verbs are deliberately absent. A read sends nothing of the local disk to
 // GitHub, so it has no publish surface to grade, and its output-redirect surface
@@ -393,10 +393,10 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		// stdin is not a TTY, so `gh gist create < /etc/passwd` publishes the file
 		// with nothing in argv naming it. ghStdinDefault is what puts that
 		// implicit `-` through the same grading the explicit one gets. No other
-		// verb here reads stdin unless the invocation names it — `pr comment` and
-		// `release create` document `-` on their `-F` flag, and `gist edit` takes
-		// its file as a positional with no stdin spelling at all — so none of them
-		// carries the marker.
+		// verb here reads stdin unless the invocation NAMES it, so none of the
+		// others carries the marker: `pr comment` and `release create` document
+		// `-` on their `-F` flag, and `gist edit` reads a `-` in its file
+		// positional (see its entry below) but never without one.
 		"create": ghStdinDefault(ghSpec(
 			map[string]bool{"-d": true, "--desc": true, "-f": true, "--filename": true},
 			map[string]bool{"-p": true, "--public": true, "-w": true, "--web": true},
@@ -405,6 +405,16 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		// LOCAL file whose contents replace a gist file, and `-a`/`--add` names a
 		// local file to add. `-f`/`--filename` and `-r`/`--remove` name files
 		// INSIDE the gist and open nothing locally.
+		//
+		// That positional also accepts gh's stdin marker, which its help does not
+		// render: cli/cli v2.97.0's edit.go binds `opts.SourceFile = args[1]` and
+		// then switches `case src == "-": input = opts.IO.In`, in the `--add`
+		// branch and the plain-edit branch alike. The `-` substitution in
+		// ghPublishedFileRefs is origin-agnostic, so it fires on that positional
+		// as it does on a flag value and `gh gist edit <id> - < /etc/passwd`
+		// denies. No `defaultsToStdin` though: with no second positional the verb
+		// opens an EDITOR rather than reading stdin, so there is nothing to
+		// synthesize a marker for.
 		"edit": ghSpec(
 			map[string]bool{
 				"-a": true, "--add": true, "-d": true, "--desc": true,
@@ -423,93 +433,21 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 	},
 }
 
-// ghGistCreateIsPublic reports whether an invocation of `gh gist create` NAMES
-// the `--public` flag. args is the token tail after `gist create`.
+// The `--public` SCREEN this file used to carry (`ghGistCreateIsPublic`, and the
+// pflag cluster walk `ghBoolFlagNamed` under it) is gone: `gh gist create`
+// escalates on the verb alone now, in every spelling of every flag, because a
+// gist created without `--public` is unlisted rather than private and is
+// therefore exposure too (#229). Nothing else consulted the screen, so reading
+// the flag would only have decorated a message with a distinction the gate
+// cannot state honestly — the walk reported the flag being NAMED, not the value
+// it carried, so `--public=false` (a SECRET gist) would have been described as a
+// public one. The tier's own message states both visibilities instead.
 //
-// It answers the #64 publish ASK in rules.go, which previously tested only the
-// long spelling and so let `gh gist create -p body.md` publish a public gist
-// with no human in the loop — irreversible exposure of repo content to a URL
-// that outlives any local cleanup. Containment denied an ESCAPING path in both
-// spellings throughout, so the gap was in the exposure tier, not in
-// exfiltration.
-func ghGistCreateIsPublic(args []string) bool {
-	return ghBoolFlagNamed(args, ghFileSpecs["gist"]["create"], "-p", "--public")
-}
-
-// ghBoolFlagNamed reports whether args NAMES a bool flag, in every spelling
-// pflag accepts it: the long form bare or `=`-joined, the short form bare or
-// `=`-joined, and the short form anywhere in a cluster of bools.
-//
-// It reports the flag being NAMED, not the value it was given, so
-// `--public=false` and `-p=false` — which both mean NOT public — escalate as
-// well. That over-ask is deliberate and it is the behaviour the long spelling
-// already had (`hasFlagPrefix(args, "--public=")` never looked at the value);
-// making the short spelling match it keeps the two symmetric, which is the
-// whole point of the fix. Reading the value instead would have to reimplement
-// pflag's ParseBool acceptance (`1`, `t`, `T`, `true`, `TRUE`, `True` and their
-// negatives) exactly, and any divergence there is a silent MISS on a genuinely
-// public gist, whereas the over-ask costs one click on a spelling that says
-// "secret" the long way round.
-//
-// The cluster walk is pflag's, measured against gh 2.97.0, and it is the same
-// walk ghFilePositionalRefs and ghUnmodelledFlagAsk make:
-//
-//   - a value-taking shorthand consumes the rest of the cluster, so `-dp` is
-//     `--desc p` and names no `--public` at all (gh runs it and reads the file
-//     operand). The mirror `-pd <path>` does NOT error: `-p` is consumed as the
-//     bool, `-d` then eats the PATH as its description value, and `gist create`
-//     — left with no file operand — falls back to stdin and starts creating the
-//     gist. `flag needs an argument: 'd' in -d` appears only when `-pd` is the
-//     LAST token, with no value of any kind behind it;
-//   - an `=` after a shorthand ends the token and hands the remainder to THAT
-//     shorthand, so `-pw=zzz` fails ParseBool on `--web` while `-wp=zzz` fails
-//     on `--public` — both measured;
-//   - an UNMODELLED cluster character is walked past rather than treated as
-//     value-taking, so `-Zp` still reports the flag. gh rejects that token
-//     outright (`unknown shorthand flag: 'Z' in -Zp`) and ghUnmodelledFlagAsk
-//     escalates it anyway, so the broader reading costs nothing;
-//   - everything after `--` is an operand, so `gh gist create -- -p` names a
-//     FILE called `-p`, which is exactly how ghFilePositionalRefs reads it.
-func ghBoolFlagNamed(args []string, spec ghFileSpec, short, long string) bool {
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--":
-			return false // the rest are operands
-		case !strings.HasPrefix(a, "-"), a == "-":
-			continue // a positional
-		case strings.HasPrefix(a, "--"):
-			name := a
-			glued := false
-			if eq := strings.IndexByte(a, '='); eq >= 0 {
-				name, glued = a[:eq], true
-			}
-			if name == long {
-				return true
-			}
-			if spec.valueFlags[name] && !glued && i+1 < len(args) {
-				i++ // consume the separate value token
-			}
-		default:
-			for j := 1; j < len(a); j++ {
-				if a[j] == '=' && j > 1 {
-					break // the remainder is the preceding shorthand's value
-				}
-				f := "-" + string(a[j])
-				if f == short {
-					return true
-				}
-				if spec.valueFlags[f] {
-					if j+1 >= len(a) && i+1 < len(args) {
-						i++ // the value is the next token
-					}
-					break
-				}
-			}
-		}
-	}
-	return false
-}
+// What the screen shared with the two walks below survives at their own sites:
+// the `=`-after-a-shorthand rule is documented and relied on in
+// ghFilePositionalRefs and ghUnmodelledFlagAsk, and `-p`/`--public` stays in the
+// `gist create` spec's boolFlags so the unmodelled-flag screen still recognizes
+// it.
 
 // ghPublishedFileEscalates grades the LOCAL files a gh publish command reads and
 // sends to GitHub, and returns a terminal decision when one of them cannot be

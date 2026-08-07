@@ -54,7 +54,9 @@ var gitReadOnlySubcommands = map[string]bool{
 //     env-assignment); gh api --hostname (signed-request redirect — the one
 //     shape the egress proxy genuinely owns) and an unclassifiable graphql
 //     document (approval cannot be informed) (see classifyGhAPI).
-//   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
+//   - ASK:  gh repo edit --visibility; gh auth login --hostname; the publish
+//     verbs (gh release create and EVERY gh gist create, secret and public
+//     alike — a secret gist is unlisted, not private); a gh api
 //     graphql mutation outside the curated allowlist — or one whose document
 //     carries a fragment, whose names the scanner cannot trust; an
 //     unknown gh api flag, a non-allowlisted gh api REST endpoint, or a
@@ -204,34 +206,40 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		}
 	}
 
-	// ASK tier: release / public-gist publish (exposure, irreversible). The
+	// ASK tier: release / gist publish (exposure, irreversible). The
 	// spec DENYs publish "unless via sanctioned visibility skill"; the gate has
 	// no signal for that wrapper, and a hard DENY would leave no escape hatch
 	// for legitimate release creation, so it routes to ASK (one human click)
-	// rather than DENY. A public gist (`gh gist create --public`) is the
-	// exposure form; a default (secret) gist is not.
+	// rather than DENY.
 	if cmd[0] == "release" && len(cmd) >= 2 && cmd[1] == "create" {
 		return ask("gh release create (#64 publish)",
 			"'gh release create' publishes a release — exposure that is effectively irreversible. "+
 				"Confirm this is intended; publishing should go through the sanctioned visibility skill.")
 	}
 	if cmd[0] == "gist" && len(cmd) >= 2 && cmd[1] == "create" {
-		// Every spelling pflag accepts, not just the long one: gh documents `-p`
-		// as the shorthand, so testing `--public` alone let
-		// `gh gist create -p body.md` publish a public gist with no human in the
-		// loop. The screen reads the flag's PRESENCE, so `--public=false` and
-		// `-p=false` escalate too — the over-ask the long spelling already had,
-		// now held by both. See ghGistCreateIsPublic (classify_gh_files.go); the
-		// walk runs over the verb's own tokens (cmd[2:]) rather than the whole
-		// argv, since a `-p` among the leading globals is not this flag.
-		if ghGistCreateIsPublic(cmd[2:]) {
-			return ask("gh gist create --public (#64 publish)",
-				"'gh gist create' with '--public' (or its '-p' shorthand, in any spelling gh accepts — bare, "+
-					"'='-joined, or inside a short-flag cluster) publishes a public gist: exposure that is "+
-					"effectively irreversible, to a URL that outlives any local cleanup. Confirm this is intended; "+
-					"a gist created without the flag is secret. The gate escalates on the flag being NAMED, so an "+
-					"explicit '--public=false' asks as well rather than being read as secret.")
-		}
+		// EVERY `gh gist create`, not the `--public` ones alone. GitHub's
+		// "secret" gist is UNLISTED, not private — its own docs say a secret
+		// gist is served to anyone who discovers the URL, known to you or not —
+		// so a gist of a contained file is still a readable copy of it at a URL
+		// that outlives the run. Treating the
+		// default as the sanctioned form contradicted this same tier's own
+		// reasoning one arm up, where `gh release create` escalates as "exposure
+		// that is effectively irreversible" — deleting a gist does not un-read
+		// it either, so "recoverable" was never a coherent property here. The
+		// verb is therefore also OUT of ghRecoverableWriteVerbs; this arm is the
+		// only tier it reaches, exactly as `release create` does.
+		//
+		// Containment above still outranks this: an ESCAPING file operand DENYs
+		// rather than softening to a click-through on the ask.
+		return ask("gh gist create (#64/#229 publish)",
+			"'gh gist create' publishes the contents of a local file to GitHub, at a URL that outlives any "+
+				"local cleanup — with or without '--public'. A gist created WITHOUT the flag is what GitHub "+
+				"calls SECRET, which means UNLISTED rather than private: GitHub's own docs say a secret gist "+
+				"stays out of Discover and out of search, but that 'if someone you don't know discovers the "+
+				"URL, they'll also be able to see your gist' — and deleting it afterwards does not un-read "+
+				"it. '--public' adds the Discover listing and the search indexing on top of that. Both "+
+				"visibilities are exposure, so both escalate; confirm this is intended, and check what is in "+
+				"the file being published.")
 	}
 
 	// Read-only gh subcommand — ALLOW (explicit, for the evolution-log label).
@@ -413,8 +421,11 @@ var ghRecoverableWriteVerbs = map[string]map[string]bool{
 		// not a hot-loop verb; leave it to fail-closed ASK.
 	},
 	"gist": {
-		// `create` (secret) is the sanctioned form; `--public` already ASKs above.
-		"create": true, "edit": true,
+		// `create` is NOT here: every spelling of it is routed to the publish ASK
+		// above, because a gist without `--public` is unlisted rather than private
+		// and so is exposure too (#229). `edit` stays — it mutates a gist that
+		// already exists, and its own file operands are graded by containment.
+		"edit": true,
 	},
 	"cache": {
 		"delete": true, // CI cache is regenerated on next run — recoverable.
@@ -509,7 +520,7 @@ func denyGhNakedAppRepo() Decision {
 // ghIrreparableDeny denies the DENY-tier gh operations: deletes of things
 // that are NOT git objects (repo/release/issue/gist), write-only secret/variable
 // values, repo rename/transfer, and ruleset deletion (branch-protection
-// weakening). Release and public-gist PUBLISH are NOT here — irreversible as
+// weakening). Release and gist PUBLISH are NOT here — irreversible as
 // they are, they route to the ASK tier back in classifyGh, since a hard deny
 // would leave legitimate publishing no escape hatch.
 //

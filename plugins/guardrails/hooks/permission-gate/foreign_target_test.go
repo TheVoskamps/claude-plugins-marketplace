@@ -52,13 +52,15 @@ func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "enumerated recoverable write: "+cmd)
 	}
-	// A secret gist ALLOWs too, but its positional FILE operand goes through read
+	// `gh gist edit` ALLOWs too, but its positional FILE operand goes through read
 	// containment since #229, so it needs a real repo cwd rather than the `/tmp`
-	// classifyCmd uses.
+	// classifyCmd uses. Its sibling `gh gist create` is NOT an enumerated
+	// recoverable write — every spelling of it reaches the publish ask, because a
+	// gist without `--public` is unlisted rather than private (#229).
 	repo := t.TempDir()
 	gitInit(t, repo)
-	wantBucket(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAllow,
-		"enumerated recoverable write: gh gist create f.txt")
+	wantBucket(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAllow,
+		"enumerated recoverable write: gh gist edit f.txt")
 }
 
 func TestGhReadStillAllow_163(t *testing.T) {

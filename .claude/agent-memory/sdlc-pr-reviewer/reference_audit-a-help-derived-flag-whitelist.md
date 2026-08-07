@@ -64,7 +64,11 @@ two or more.
 `--help`, so a table transcribed faithfully from help still escalated
 `gh pr comment -h` — verified accepted (`gh pr comment -h` and
 `gh gist create -h` both print help, exit 0) while the PR's binary asked. #232's
-fix round modelled it. The mechanism is **pflag, not cobra**: gh's root
+fix round modelled it. Do NOT re-probe that on `gh gist create`, though: round
+10 put the whole verb on the publish tier, so its help spelling asks again for
+an unrelated reason. Probe the modelling on a verb whose tier allows
+(`gh pr comment -h`), or read the ask's REASON. The mechanism is
+**pflag, not cobra**: gh's root
 registers a persistent `--help` with no shorthand
 (`cmd.PersistentFlags().Bool("help", …)`), which `mergePersistentFlags` makes
 visible to cobra's `InitDefaultHelpFlag`, so cobra never adds `-h`; pflag's
@@ -149,8 +153,13 @@ reads the pre-expansion command string, so quoted and unquoted spellings reach i
 as the same literal token, and both Go's `filepath.Glob` and the shell keep the
 pattern's literal non-meta prefix as a prefix of every match — grading the prefix
 bounds the expansion without resolving it. Probe both directions
-(`gh release create v1 '../sib/*.tgz'` deny, `gh gist create '*.md'` allow) plus
-the unquoted twins before accepting or disputing such a prose claim.
+(`gh release create v1 '../sib/*.tgz'` deny, `gh gist create '*.md'` **ask** —
+contained, so containment does not fire, but every `gh gist create` sits on the
+publish tier since #232 round 10; before that round the contained direction read
+`allow`) plus the unquoted twins before accepting or disputing such a prose
+claim. Pick the contained probe on a verb whose own tier ALLOWS
+(`gh gist edit <id> '*.md'`) when what you are testing is the containment
+verdict rather than the tier.
 
 **How to apply:** on any gate PR that adds or extends a per-verb/per-program
 flag whitelist. Keep the audit scripts in `<repo>/.claude/tmp/<slug>/` and run

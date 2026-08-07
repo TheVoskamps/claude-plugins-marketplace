@@ -67,8 +67,15 @@ and POSTs; only a trailing `-pd` errors. `-dp <path>` is `--desc p` and
 reads the operand. `=` binds to the shorthand immediately before it
 (`-wp=zzz` fails ParseBool naming `--public`, `-pw=zzz` naming `--web`).
 `--desc --public` consumes the flag as a VALUE, so the gist is secret —
-a `containsToken` scan over-asks there and a faithful pflag walk
-correctly allows.
+a `containsToken` scan over-asks there and a faithful pflag walk read it
+correctly as not-the-flag. The gate no longer branches on any of
+this: #232 round 10 made every `gh gist create` an ASK (a secret gist
+is unlisted, not private), deleted the `--public` screen, and took the
+verb out of `ghRecoverableWriteVerbs`, so all these spellings ask on
+the verb now. The parse facts stay true of gh; they are just no longer
+verdict-bearing. That is the shape to expect when a review argues about
+which spellings a screen reads: check first whether the screen still
+decides anything.
 
 Related: [[audit-a-help-derived-flag-whitelist]],
 [[guardrails-binary-verification]],
