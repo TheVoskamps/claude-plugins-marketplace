@@ -20,3 +20,4 @@
 - [Write needs the worktree path, not the shared one](worktree-write-path-must-be-worktree-copy.md) — Read accepts shared-checkout paths but Write/Edit reject them, and Read state is tracked per exact path — prefix every Read with the worktree root
 - [Guest boot probe via a stub `claude`](claude-vm-guest-boot-probe-via-stub-claude.md) — put a shell script named `claude` on the claudebin share to run arbitrary in-guest assertions; no real binary, no GPG pin, no Keychain
 - [Verify cleanup claims, not just behavior](verify-cleanup-claims-not-just-behavior.md) — "cleaned up on exit" is a structural claim needing a grep; claude-vm's cleanup() retains $RUN and shreds only $CREDS_DIR
+- [MD041 on SKILL.md is convention, not debt](md041-on-skill-md-is-convention-not-debt.md) — fires on 33 skill files and is the only error class; never "fix" it under the leave-Markdown-clean rule
