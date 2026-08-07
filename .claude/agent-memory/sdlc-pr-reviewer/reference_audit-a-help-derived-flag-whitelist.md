@@ -157,9 +157,13 @@ bounds the expansion without resolving it. Probe both directions
 contained, so containment does not fire, but every `gh gist create` sits on the
 publish tier since #232 round 10; before that round the contained direction read
 `allow`) plus the unquoted twins before accepting or disputing such a prose
-claim. Pick the contained probe on a verb whose own tier ALLOWS
-(`gh gist edit <id> '*.md'`) when what you are testing is the containment
-verdict rather than the tier.
+claim. Pick the contained probe on a verb whose own tier ALLOWS — and re-check
+which verbs those still are, because the set shrinks: `gh gist edit <id> '*.md'`
+was the natural pick and stopped being one in #232 round 11, which put EVERY
+`gh gist edit` on the publish tier too (an existing gist may already have
+readers), leaving `ghRecoverableWriteVerbs` with no `gist` entry at all. Use a
+still-allowing verb such as `gh pr comment <n> -F '*.md'` or
+`gh release upload v1 '*.md'` instead.
 
 **How to apply:** on any gate PR that adds or extends a per-verb/per-program
 flag whitelist. Keep the audit scripts in `<repo>/.claude/tmp/<slug>/` and run

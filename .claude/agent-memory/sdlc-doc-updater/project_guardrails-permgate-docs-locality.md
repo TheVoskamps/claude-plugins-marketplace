@@ -363,21 +363,31 @@ two files. My own 37×34 reconstruction of the same five table families
 (alias, read, recoverable-write, file-spec, deny) totals 1,258 rather
 than 1,295 — one verb short, never identified — yet reproduced the 24
 and every sub-count exactly. So a stated total whose derivation a reader
-cannot re-run is still worth flagging, but do not "fix" it to your own
-number: the load-bearing figure is the moving set, and it survives the
-disagreement.
+cannot re-run is worth flagging, and #232 round 11 settled it the right
+way round: that round had to re-measure anyway (the total moved 24 → 25),
+so it replaced the unreproducible 1,295 with the 1,258 cross AND the
+derivation that generates it, then re-ran a deliberately WIDER 39×39 =
+1,521 superset which moved exactly the same 25 rows. That is the shape
+to ask for — not a swapped number, but a stated derivation plus a
+second measurement at a different width. Do not "fix" a total to your
+own number in a round that is not re-measuring: the load-bearing figure
+is the moving set, and it survives the disagreement.
 
 **Re-derive the "can possibly move" argument every round; it is scoped
-to that round's change, not to the sentence (round 10).** The tier
-decomposition under that same total is the part that rots. Round 10 made
-every `gh gist create` an ASK, which moves a BARE row on a non-alias
-tier, so the parenthetical "no operands and no flags, so resolution is
-the only tier that can move one" went false while the total stayed 24
-(20 ask → allow, 2 deny → allow, 1 ask → deny, 1 allow → ask) and hid
-it. `gh gist new` is where the two rounds meet: it stopped moving, so
-the `new` sub-count went 3 → 2. When a round changes a verb the count
-sentence names anywhere — including inside a sub-count's parenthetical —
-replay the cross rather than reasoning that the total looks unchanged.
+to that round's change, not to the sentence (rounds 10 and 11).** The
+tier decomposition under that same total is the part that rots. Round 10
+made every `gh gist create` an ASK, which moves a BARE row on a
+non-alias tier, so the parenthetical "no operands and no flags, so
+resolution is the only tier that can move one" went false while the
+total stayed 24 (20 ask → allow, 2 deny → allow, 1 ask → deny, 1
+allow → ask) and hid it. `gh gist new` is where those two rounds meet:
+it stopped moving, so the `new` sub-count went 3 → 2. Round 11 then put
+every `gh gist edit` on the same publish tier, and that one DID move the
+total: 25 rows, with allow → ask going 1 → 2. When a round changes a
+verb the count sentence names anywhere — including inside a sub-count's
+parenthetical — replay the cross rather than reasoning that the total
+looks unchanged, and equally rather than reasoning that it must have
+changed.
 
 **The residue in a count-fixing round is the CLOSURE sentence.** When
 prose enumerates a set and then says why the set is complete ("the

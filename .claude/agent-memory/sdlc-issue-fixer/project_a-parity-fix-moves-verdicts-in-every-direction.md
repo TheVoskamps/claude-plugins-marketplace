@@ -50,6 +50,22 @@ old "so alias resolution is the only tier that can move a bare row"
 parenthetical became false the moment a non-alias tier started
 escalating a bare row, while the total stayed 24 and hid it.
 
+**Round 11 moved the total, and that is when to replace the number
+rather than defend it.** The owner then ruled every `gh gist edit` an
+ASK too (an existing gist may already have a circulated URL and existing
+readers, which makes `edit` potentially WORSE than `create`, not
+weaker), leaving `ghRecoverableWriteVerbs` with no `gist` entry at all.
+Re-measured: **25** rows, the same 20 / 2 / 1 with allow → ask going
+1 → 2. Because the round was re-measuring anyway, it also replaced the
+unreproducible 1,295 with the 1,258 cross AND the derivation that
+generates it (nouns × verbs unioned out of `isGhReadOnly`'s two local
+literals, `ghRecoverableWriteVerbs`, `ghFileSpecs`, both alias tables,
+and the deny tier's delete/rename/transfer/set), then re-ran a
+deliberately WIDER 39×39 = 1,521 superset — same 25 rows. Two
+measurements at different widths beat one number with no derivation. Do
+NOT swap a total to your own reconstruction in a round that is not
+re-measuring; do swap it, with its derivation, in one that is.
+
 **A count is a property of the ROW SET, not of the fix.** That is what
 went wrong here, twice, and it is not fixable by counting harder. Round
 6 reported 6 ask → allow from its own hand-built list; round 8's
