@@ -64,17 +64,35 @@ field at all — see the Claude Code plugins reference — so permission
 behavior comes solely from the repo-level `settings.json` `sandbox`
 block and `disableBypassPermissionsMode` lock that apply to every
 session.) Each agent's frontmatter is the sole source of truth for its
-spawn-time `model` and `effort` — this skill does not restate or track
-those values, so a tier change never requires touching this file. A
-per-call `model` override via the `Agent` tool may only **raise** an
-agent above its declared frontmatter default for a single spawn,
-never lower it — the frontmatter is the floor. Each agent also pins
-its own `effort:` in frontmatter, because a subagent frontmatter with
-no `effort:` key inherits the effort level of the interactive session
-that spawned it, per the Claude Code subagent docs; without a pin, an
-orchestrator session running at a high effort level would silently
-propagate that cost to every teammate regardless of the teammate's
-actual task size. Foreground
+`model` and its `effort` — this skill does not restate or track those
+values, so a tier change never requires touching this file. The two
+are not equally adjustable at spawn time. The `Agent` tool takes a
+per-invocation `model` parameter, and a per-call `model` override may
+only **raise** an agent above its declared frontmatter default for a
+single spawn, never lower it — the frontmatter is the floor. There is
+no `effort` equivalent on the `Agent` tool: a subagent's effort
+resolves from environment variable, then frontmatter, then the
+spawning session, then the model default, so **effort cannot be
+overridden at spawn time at all**. Changing a teammate's effort is
+always an edit to that agent's frontmatter, plus an `sdlc` plugin
+version bump — never something a spawn prompt or an `Agent` call can
+do.
+
+The fleet's declared effort is `medium` on every teammate, and that is
+a deliberate default rather than an unset one: medium has proven more
+solid than higher efforts on the bounded, spec-driven tasks the
+teammates receive, because Phase 1 and the issue bodies already carry
+the plan, and surplus reasoning budget gets spent generating candidate
+findings rather than better answers. So when an issue is genuinely
+hard, escalate that single spawn with the per-call `model` override
+described above — raise-only. Effort never varies per spawn.
+
+Each agent still pins its own `effort:` in frontmatter, because a
+subagent frontmatter with no `effort:` key inherits the effort level of
+the interactive session that spawned it, per the Claude Code subagent
+docs; without a pin, an orchestrator session running at a high effort
+level would silently propagate that cost to every teammate regardless
+of the teammate's actual task size. Foreground
 execution is not a frontmatter concern: the agents do
 **not** declare `background: false` (it is inert — the Claude Code docs
 document only `background: true` as forcing a direction). Foreground
@@ -1122,12 +1140,17 @@ These carve-outs keep this rule from being over-broad:
 
 ## Token Efficiency
 
-- Use every teammate with its own frontmatter-declared default
-  `model` and `effort` — do not override either on a routine spawn.
-  For a genuinely hard issue, escalate that single spawn to a
+- Use every teammate with its own frontmatter-declared `model` and
+  `effort` — do not override the model on a routine spawn, and note
+  that effort cannot be overridden at spawn time at all. The fleet
+  declares `effort: medium` deliberately: it has proven more solid
+  than higher efforts on the bounded, spec-driven tasks the teammates
+  receive. For a genuinely hard issue, escalate that single spawn to a
   stronger model via the `Agent` tool's per-call `model` override
   rather than editing front matter; an override may only raise a
-  teammate above its declared default, never lower it.
+  teammate above its declared default, never lower it. Changing an
+  effort is always a frontmatter edit plus an `sdlc` version bump, and
+  it changes every spawn of that agent — it is not a per-run lever.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only
 - If the run is large (>8 issues across all batches), split into two

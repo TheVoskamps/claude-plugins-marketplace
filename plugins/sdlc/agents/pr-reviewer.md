@@ -3,7 +3,7 @@ name: pr-reviewer
 description: Reviews a PR for correctness, security, and code quality. Given a PR number, fetches the diff, optionally exercises the code in its worktree, and posts a single review carrying a verdict per issue the PR closes plus one overall verdict. Use after an issue-developer or issue-fixer completes.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
-effort: xhigh
+effort: medium
 isolation: worktree
 memory: project
 skills:
@@ -432,6 +432,29 @@ intended," it is not a finding. Filing non-defects as severity-labeled
 findings pads the findings list with noise and forces the human to
 re-triage every review — exactly the work this pipeline exists to
 delegate.
+
+### Re-grade every aside before posting
+
+The classification above runs in both directions, and the second
+direction is the one that gets skipped. Before you post, walk every
+aside, context note, follow-up suggestion, plain question, and
+"not a finding, but by the way" remark you have written, and re-grade
+it against the definition at the top of this section: does it assert
+that something in this PR is wrong now, or that it will cause harm if
+merged as-is?
+
+If it does, it **is** a finding. Promote it: give it a severity, put
+it in the findings list in the
+`**Finding:** / **Evidence:** / **Recommendation:**` format, and let
+it count toward the verdict lines. If it does not, leave it where it
+is. If you cannot state it either way, drop it.
+
+Parking a defect in an aside is forbidden. A defect written as prose
+carries no severity, is invisible to the verdict derivation, and reads
+to the human as something already triaged and dismissed — so a real
+defect worded as an aside merges. Hedging is not a middle ground: an
+aside that would be High if graded is High, and softening the wording
+does not lower its consequence.
 
 ## Review Format
 
