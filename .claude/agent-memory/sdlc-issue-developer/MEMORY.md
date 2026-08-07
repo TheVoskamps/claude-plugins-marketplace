@@ -5,6 +5,7 @@
 - [permission-gate tests can pass vacuously](permission-gate-tests-can-pass-vacuously.md) — negate the new condition and confirm the test FAILS; overlapping rules make "must not DENY" assertions pass without reaching the new code
 - [Heredoc commit blocked by sandbox gate](feedback_heredoc-commit-sandbox-gate.md) — use `git commit -F <file>` for multi-line commit messages in subagent worktrees, not `-m "$(cat <<EOF...)"`.
 - [Stale origin/main ref after fetch](feedback_stale-origin-main-ref-after-fetch.md) — verify `origin/<branch>` actually advanced before `switch -c`; fetch success ≠ ref updated in fresh worktrees
+- [Fetch failed? read the local origin ref](fetch-failed-check-local-origin-ref.md) — an SSH-timeout fetch failure at branch-create is usually moot; `git rev-parse origin/main HEAD` settles it
 - [Verify tool names against docs](feedback_verify-tool-names-against-docs.md) — when pruning agent tools: frontmatter, fetch live Claude Code docs rather than trusting the issue body or training priors
 - [Test bash scripts under bash, not zsh](feedback_bash-scripts-test-under-bash-not-zsh.md) — the Bash tool's shell is zsh; drive bash payload funcs with `bash -c`, not by sourcing. Plus: mikefarah yq has no `reduce`; `""|from_yaml` errors EOF
 - [go mod cache reads blocked, use go doc](gomodcache-outside-repo-use-go-doc.md) — gate blocks ~/go/pkg/mod reads even when the issue says it's fine; use `go doc <pkg>.<Symbol>` instead
