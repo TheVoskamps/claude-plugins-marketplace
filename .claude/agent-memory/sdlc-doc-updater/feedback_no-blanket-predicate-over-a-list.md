@@ -43,14 +43,3 @@ stated mechanism false:
   guard is an ancestor relation. Read the guard, not just the constant —
   "is in" and "is covered by" fail differently the day the guard changes
   from a relation to a membership test.
-- **"…and aborts the calling skill."** A shared *library's* failure mode
-  stated as a consequence for its callers is one claim per caller. In
-  `plugins/github-setup`, `skills/lib/gh-app.md`'s permission filter is
-  consumed by `/gh-repo-setup-pr-automation` (library path only, so it
-  does abort) and by `/gh-create-app` (its own branch list overrides the
-  library, and only its named-App path reports the gap — its discovery
-  path says "No suitable App — proceed to registration"). Open each
-  caller's own branch list; the library's "abort the calling skill" is
-  the library's wish, not the caller's behavior. I wrote the blanket
-  version into `CLAUDE.md` myself on an earlier round of PR #241 and
-  corrected it on the next.

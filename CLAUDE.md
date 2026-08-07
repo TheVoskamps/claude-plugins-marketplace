@@ -7,6 +7,32 @@ that plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`,
 in the same PR. The version bump is a separate, deliberate edit. A
 plugin change without a version bump is incomplete.
 
+## MD041 on a SKILL.md is convention, not debt
+
+`npx markdownlint-cli2` reports
+`MD041/first-line-heading/first-line-h1` on essentially every
+`plugins/*/skills/**/SKILL.md`, always at the first prose line after
+the YAML frontmatter. Leave it alone. A `SKILL.md` body is a *prompt*
+the model reads, not a document, so it opens with an instruction ("You
+are running the `/foo` skill…") rather than an H1, and MD041 is the
+only error class those files produce — a rule that fires uniformly and
+alone, in a tree whose Markdown is otherwise spotless, is a tolerated
+convention.
+
+The global "Leave Markdown clean" rule would otherwise push you into
+adding an H1 to a skill file, which changes the prompt payload the
+model receives and, swept per "sweep the class", churns every skill
+file in every plugin. Don't. When you edit a `SKILL.md`, verify you
+introduced **no new** error classes — re-lint the base and compare
+counts, rather than reading the raw total as debt you inherited — and
+say in the PR body that the remaining MD041 hits are pre-existing and
+why. Changing the convention is a repo-wide decision, not a doc-pass
+sweep — the same carve-out shape as the `Phase 1` / `Phase 2` headings
+below.
+
+`lib/*.md` files under a plugin's `skills/` are ordinary documents and
+DO carry an H1. They lint clean, and a new one you write must too.
+
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
 The `sdlc` plugin ships no `plugins/sdlc/README.md`. An agent's
