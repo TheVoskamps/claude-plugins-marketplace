@@ -389,6 +389,54 @@ parenthetical — replay the cross rather than reasoning that the total
 looks unchanged, and equally rather than reasoning that it must have
 changed.
 
+**A TIER-WIDENING round falsifies the worked examples of every OTHER
+mechanism that shares the verb (#229, PR #232, round 12).** Rounds 10
+and 11 put every `gh gist create` and `gh gist edit` on the publish ASK.
+Every paragraph *about* those tiers was rewritten correctly, the counts
+re-measured correctly, and the residue was sixty lines away in the
+`<pattern>`-operand paragraph, which had picked `gist create` as its
+worked example of the CONTAINED half back when a secret gist was a
+recoverable write: "`gh release create v1 '../sib/*.tgz'` **denies**
+while `gh gist create '*.md'` **allows**". The escaping half still held;
+only the contained half moved, and it moved to ask. The generalization:
+when a verb changes TIER, grep for the verb across the whole file and
+grade every example it appears in, not just the paragraphs about the
+tier — a verb is a popular example precisely because it is short, so it
+gets borrowed by paragraphs about unrelated mechanisms, and those
+paragraphs are never in the round's diff. The identical sentence sat in
+`classify_gh_files.go`'s `ghFileSpec` doc comment, wrapped so that
+`allows` was alone on its own `//` line — a line grep for
+"gist create.*allows" finds neither copy. Slurp comment BLOCKS
+(join every run of `//` lines, then match) rather than lines.
+
+Cheap settling method for a contained-half claim once a verb is on an
+ask tier: there is usually no allow row left to point at. Say what the
+verdict is NOT ("is not denied for a path the gate could not expand")
+and then where it lands, rather than hunting for a different verb whose
+allow survives — swapping the example verb silently changes which
+mechanism the sentence demonstrates.
+
+**Grade a whole README mechanically, not by reading (#232, round 12).**
+Slurp the file with the newline+indent collapsed, regex every
+`` `gh …` `` span, take the nearest verdict word after it, drop the
+rows carrying a `<placeholder>`, and replay the rest through the built
+binary. That turned ~44 quoted examples into one probe run and found
+the one false row without depending on which paragraph caught the eye.
+The heuristic's false positives are all the same shape — a verb
+fragment quoted mid-sentence picks up an unrelated verdict word — and
+are cheap to discard by eye once the concrete rows are settled.
+
+**The count derivation is now re-runnable, so re-run it rather than
+trusting the figure.** `37 × 34 = 1,258` reproduces exactly from the
+stated union (`isGhReadOnly`'s two literals, `ghRecoverableWriteVerbs`,
+`ghFileSpecs`, both alias tables, and the
+`delete`/`rename`/`transfer`/`set` verbs), and the wider `39 × 39 =
+1,521` from that noun set plus `auth`/`api` and the five auth verbs.
+Both moved the same 25 rows against main. Cost: two `git archive |
+tar -x` extractions, one throwaway dump test, one `go build` per side,
+and a python replay — well under the cost of reasoning about whether a
+total "should" have moved.
+
 **The residue in a count-fixing round is the CLOSURE sentence.** When
 prose enumerates a set and then says why the set is complete ("the
 list is closed at five because `gist create` has exactly two
