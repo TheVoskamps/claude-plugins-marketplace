@@ -166,7 +166,7 @@ The cases are:
     > No GitHub Apps installed on `<org>`. Create one with
     > `/gh-create-app`, or create one manually and re-run this skill.
 
-  In both sub-cases, abort the calling skill. The user needs to
+  In each sub-case, abort the calling skill. The user needs to
   create or reconfigure an App before the skill can proceed.
 
 ### Granting a missing permission to an existing App

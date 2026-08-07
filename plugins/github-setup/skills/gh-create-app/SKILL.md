@@ -337,8 +337,8 @@ unresolved-placeholder rule.
 
 ## Step 6: Verify a minted token acts as the App
 
-Confirm the secrets actually mint a working installation token. Two
-paths, preferred first:
+Confirm the secrets actually mint a working installation token. The
+paths below are in preference order:
 
 **Preferred — local mint with the collected private key.** If the
 `.pem` path is still available this run, mint an installation token

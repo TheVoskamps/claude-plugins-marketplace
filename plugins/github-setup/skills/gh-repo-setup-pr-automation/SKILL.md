@@ -259,7 +259,7 @@ the render recipe in Step 6), so the templates carry no bare
    one looks like a required PR check (e.g. a `no-back-merging-guard` or
    similar PR-gate workflow), propose it and ask the user to confirm.
 3. If none is found or the user declines, the workflow has **no
-   required-check workflow to key triggers off**, which drives two
+   required-check workflow to key triggers off**, which drives these
    conditional drops at render time (Step 6):
    - **`auto-rebase-prs.yml`**: drop the `workflow_run` trigger entirely
      (remove the two `workflow_run:` lines and the `workflows:` /
@@ -483,7 +483,7 @@ On approval I will, in one go:
 The App-identity secrets (Step 7) are not file edits and are applied
 directly to the repo/org, NOT as part of this PR.
 
-Proceed with commit + push + PR? (y to do all three, or no to leave the
+Proceed with commit + push + PR? (y to do all of it, or no to leave the
 files uncommitted for you to handle)
 ```
 
@@ -495,7 +495,7 @@ commit / push.
 
 ### Commit, push, and open the PR
 
-On approval, do all three with no further prompts:
+On approval, do all of them with no further prompts:
 
 The two `.github/scripts/*.sh` paths are only staged when the install-gate
 is present (Step 4) — they do not exist otherwise, so `git add -- <path>`
@@ -651,7 +651,7 @@ gh secret set "${secret_prefix}_APP_ID" \
 
 The private key is sensitive, and some users do not want the agent
 reading their `.pem` or running a command against it in-session. So,
-before setting `<prefix>_APP_PRIVATE_KEY`, **offer two paths** and
+before setting `<prefix>_APP_PRIVATE_KEY`, **offer the paths below** and
 default to command-only. This command-only-vs-skill-sets-it choice is
 independent of the repo-vs-org scope chosen above: the scope decides the
 `<scope-target>` flags, the path decides who runs the command.
