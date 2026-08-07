@@ -390,7 +390,11 @@ argv, settings, image identity, and plugin manifests from:
   the same literal, since the bake path carries the value inside JSON
   (`claude_vm_bake_config_json`) and `shlex.quote`s it byte-exactly;
   `claude_vm_env_bake_has_key` is the `has()` presence test
-  behind the bake-tier abort; `claude_vm_env_file_assignments` parses one host
+  behind the bake-tier abort, and it is asked of a **raw** bake file rather than
+  of `MERGED_BAKE` — the merge prunes exactly the spelling it exists to catch
+  (see *Guest environment variables* below), so `claude_vm_check_env` takes the
+  two raw bake paths alongside the two merged documents;
+  `claude_vm_env_file_assignments` parses one host
   `.env` file into those same assignment lines. All pure except the two that
   read the launcher's own environment (`claude_vm_check_env`'s `env.copy`
   arm and `claude_vm_resolve_boot_env`), and all unit-tested — including
@@ -794,6 +798,27 @@ bake file. That abort is a **presence** test (`has()`), for the same reason
 the `mode:` abort is: an empty or valueless `env.copy:` renders identically to
 an omitted one, and ignoring it silently would leave an operator believing a
 host variable is forwarded into a persistent image.
+
+*A presence test asks the raw files, not the merged document.* `.env.copy` and
+`.env.files` are `CLAUDE_VM_LIST_KEYS`, so the tier merge unions them and
+`claude_vm_prune_empty_skeleton` then deletes the key when it resolves to
+nothing — and the `env:` map left holding nothing with it. That prune exists
+precisely so a consumer cannot read presence off a merged document (see its
+header in `lib/config.sh`), so `has("copy")` on `MERGED_BAKE` answers *false*
+for the valueless `copy:` this gate is meant to catch. The first round of this
+feature asked the merged document and let exactly that config build an image, on
+a real launch. `claude_vm_check_env` therefore takes the **raw** global and repo
+bake paths as its third and fourth arguments and asks each of them, which is
+also what lets the diagnostic name *which* bake file the key is in. Carving the
+two keys out of the prune would have been the wrong repair twice over: it leaves
+the "configured empty looks configured" trap in place for the next reader, and
+it changes merge behavior for keys that have nothing to do with `env:`. The
+mirror-image case is `claude_vm_mount_mode_entries`, which asks a merged
+document and is right to: `mode:` sits inside a list *element*, which neither
+prune pass can reach. `config-test.sh` runs the whole `env:` gate battery
+through the real merge — the shape that was missing when the launcher was
+wrong and the suite was green — and pins both halves of the prune fact plus the
+`mode:` counter-case.
 
 *Two carriers, one per tier.* `run.env` is neither, and stays entirely
 launcher-owned — it is deliberately a non-secret channel, as the boot launcher

@@ -183,7 +183,10 @@ claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
 # contract, in both tiers: `env.copy`/`env.files` in a BAKE file (they resolve
 # against the host environment at LAUNCH, which does not exist at image-build
 # time, and their values are exactly the secrets that must never become image
-# bytes -- a presence test, so an empty `copy:` aborts too), an `env.set` that
+# bytes -- a presence test, so an empty `copy:` aborts too; that one case is
+# asked of the RAW bake files passed as the last two arguments, since the merge
+# prunes an empty list key and the map holding it right out of MERGED_BAKE), an
+# `env.set` that
 # is not a map, a name outside [A-Za-z_][A-Za-z0-9_]* from any source, a name
 # the launcher itself owns (the run.env set -- the guest sources run.env BEFORE
 # the env files, so such an entry would overwrite the launcher's own value --
@@ -196,7 +199,7 @@ claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
 # a tool call, with an auth error that names neither claude-vm nor the
 # variable. Runs HERE, before the image build and the VM start, like every
 # other config gate. No diagnostic ever prints a VALUE.
-claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" \
+claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
   || { echo "claude-vm: aborting -- fix the env: entr(ies) described above." >&2; exit 1; }
 
 VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"

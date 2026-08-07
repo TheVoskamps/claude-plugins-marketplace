@@ -785,6 +785,14 @@ claude_vm_mount_specs() {
 #
 # The entry number is `to_entries`' index + 1, so it counts through the MERGED
 # list exactly the way claude_vm_check_mounts's own idx does.
+#
+# Asking a MERGED document is safe here, unlike claude_vm_env_bake_has_key's
+# presence test: `mode:` sits inside a list ELEMENT, which
+# claude_vm_prune_empty_skeleton cannot touch -- its first pass deletes only a
+# whole CLAUDE_VM_LIST_KEYS entry that resolved to an empty list, and its
+# empty-map pass never finds an entry empty (`{mode: null}` has length 1).
+# config-test.sh asserts that through the real merge rather than leaving it as a
+# reading, so a key added to CLAUDE_VM_LIST_KEYS cannot quietly change it.
 claude_vm_mount_mode_entries() {
   local file="$1"
   yq eval '
@@ -1955,13 +1963,26 @@ claude_vm_env_files() {
   claude_vm_list_items "$1" '.env.files'
 }
 
-# Does a BAKE document carry the boot-only `env` sub-key $2? Returns 0 when it
-# does. A PRESENCE test (`has`), not a value test, for the same reason
+# Does a bake config file carry the boot-only `env` sub-key $2? Returns 0 when
+# it does. A PRESENCE test (`has`), not a value test, for the same reason
 # claude_vm_mount_mode_entries asks `has("mode")`: `copy: ""`, a valueless
 # `copy:` and an omitted `copy:` all render as the same empty value, and
 # silently ignoring the first two would leave an operator believing a host
 # variable is being forwarded into every session of a persistent image.
-#   $1 -- merged BAKE document file path
+#
+# $1 is the RAW file the operator wrote -- never a MERGED document. Presence is
+# a property of what was WRITTEN, and the merge deliberately destroys it:
+# `.env.copy` and `.env.files` are CLAUDE_VM_LIST_KEYS, so a valueless `copy:`
+# merges to an empty list, claude_vm_prune_empty_skeleton's pass 1 deletes it,
+# pass 2 deletes the `env:` map left empty as a result, and `has("copy")` on the
+# merged document answers false. That prune is correct and its whole purpose is
+# to stop a consumer testing "did the user configure this?" by key presence on a
+# merged document; the answer is to ask the raw files instead, not to carve the
+# two keys out of the prune. (Asking the merged document is what shipped in the
+# first round of issue #135: a valueless `copy:` in a bake file was accepted and
+# the image built, verified by a real launch. config-test.sh's negative control
+# holds that shape.)
+#   $1 -- a RAW bake config file path (global or repo), pre-merge
 #   $2 -- the sub-key ('copy' or 'files')
 claude_vm_env_bake_has_key() {
   local file="$1" key="$2" present
@@ -2052,11 +2073,18 @@ claude_vm_env_file_assignments() {
 # session that boots without it fails much later, deep inside a tool call, with
 # an opaque auth error that names nothing.
 #
-#   $1 -- merged BAKE document file path
-#   $2 -- merged BOOT document file path
+#   $1   -- merged BAKE document file path
+#   $2   -- merged BOOT document file path
+#   $3.. -- the RAW bake config file paths (global, repo), pre-merge. The
+#           boot-only-sub-key case below is a PRESENCE test, and presence is a
+#           property of what the operator WROTE: the merge unions `.env.copy` /
+#           `.env.files` as list keys and then prunes them (with the `env:` map
+#           holding them) when they resolve to nothing, so a valueless `copy:`
+#           is invisible in $1. Each path may be empty or absent -- a bake file
+#           that does not exist carries no key.
 #
 # The cases:
-#   - `env.copy` / `env.files` present in a BAKE document (presence, not value).
+#   - `env.copy` / `env.files` present in a RAW bake file (presence, not value).
 #   - `env.set` that is not a MAP, in either document.
 #   - a name outside [A-Za-z_][A-Za-z0-9_]*, from any source (a `set` key, a
 #     `copy` entry, a name declared by an `env.files` file).
@@ -2071,18 +2099,26 @@ claude_vm_env_file_assignments() {
 # terminal or a log.
 claude_vm_check_env() {
   local bake_doc="$1" boot_doc="$2" bad=0
-  local key name tag value f doc tier idx expanded assignment
-  # (a) the boot-only sub-keys, in the bake tier.
-  for key in "${CLAUDE_VM_ENV_BOOT_ONLY_KEYS[@]}"; do
-    if claude_vm_env_bake_has_key "$bake_doc" "$key"; then
-      echo "claude-vm: 'env.${key}' was found in a config-bake.yml, but it is a BOOT-only sub-key." >&2
-      echo "claude-vm:   it resolves against the HOST environment at LAUNCH, which does not exist while the" >&2
-      echo "claude-vm:   image is being built -- and a value read from it is exactly the kind of secret that" >&2
-      echo "claude-vm:   must never become image bytes (the image persists across every run and is cloned" >&2
-      echo "claude-vm:   per run). Move 'env.${key}' to config-boot.yml, where its values ride the transient" >&2
-      echo "claude-vm:   credential mount and are shredded on exit. Only 'env.set' literals are bakeable." >&2
-      bad=1
-    fi
+  local key name tag value f doc tier idx expanded assignment raw_bake
+  shift 2
+  # (a) the boot-only sub-keys, in the bake tier -- asked of each RAW bake file
+  # rather than of $bake_doc, because the merge prunes exactly the spelling this
+  # test exists to catch (see claude_vm_env_bake_has_key's header). Naming the
+  # file is not decoration: with a global and a repo bake file, "a
+  # config-bake.yml" leaves the operator two places to look.
+  for raw_bake in "$@"; do
+    [ -n "$raw_bake" ] && [ -f "$raw_bake" ] || continue
+    for key in "${CLAUDE_VM_ENV_BOOT_ONLY_KEYS[@]}"; do
+      if claude_vm_env_bake_has_key "$raw_bake" "$key"; then
+        echo "claude-vm: 'env.${key}' was found in a config-bake.yml ($raw_bake), but it is a BOOT-only sub-key." >&2
+        echo "claude-vm:   it resolves against the HOST environment at LAUNCH, which does not exist while the" >&2
+        echo "claude-vm:   image is being built -- and a value read from it is exactly the kind of secret that" >&2
+        echo "claude-vm:   must never become image bytes (the image persists across every run and is cloned" >&2
+        echo "claude-vm:   per run). Move 'env.${key}' to config-boot.yml, where its values ride the transient" >&2
+        echo "claude-vm:   credential mount and are shredded on exit. Only 'env.set' literals are bakeable." >&2
+        bad=1
+      fi
+    done
   done
   # (b) env.set, in BOTH tiers: shape, names, and scalar-ness.
   for tier in BAKE BOOT; do
