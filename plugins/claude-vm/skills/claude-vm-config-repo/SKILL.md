@@ -215,8 +215,12 @@ Resolve the global config pair the same way the launcher does:
   would be overriding. Show the scalars and the global `egress.allow` /
   `mounts` / baked-`packages` lists, and the global `env:` block — its
   `env.set` KEYS and its `env.copy` / `env.files` entries. The `mounts`
-  and `env` name checks run over the MERGED global+repo set, so a per-repo
-  entry can collide with a global one the user has just been shown.
+  name checks run over the MERGED global+repo set, so a per-repo entry
+  can collide with a global one the user has just been shown and abort
+  the launch. `env` is the other way round: there is no cross-layer
+  check, and a per-repo `env.set` key with the same name as a global one
+  simply wins — silently, and by design. Showing the global keys is what
+  tells the user which global value a per-repo entry would replace.
   Show `env.set` keys and their values (they are non-secret literals by
   construction), but only the NAMES from `env.copy` — never resolve one
   against the environment to display its value.
@@ -335,10 +339,14 @@ repo use?" The common cases:
   launcher's own value and break the boot;
   `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other direction
   (exported long after both files, so an entry for it would be silently
-  overwritten instead) and is refused at load for that reason. The
-  name-collision checks run over the **merged** global+repo set, so a
-  per-repo `env.set` key can collide with a global one — check Step 2's
-  global `env:` before writing.
+  overwritten instead) and is refused at load for that reason. Those
+  checks run over the **merged** global+repo set, but none of them is a
+  cross-layer collision check: unlike a `mounts` tag, a per-repo
+  `env.set` key that repeats a global name does not abort — it silently
+  overrides the global value, per key, exactly like a
+  `claude.plugins.enabled` toggle. So check Step 2's global `env:`
+  before writing, to be sure replacing that value is what the user
+  meant.
 - A `claude.permission_mode`, a `claude.plugins.enabled` per-plugin
   toggle, or a `github.auth` override this repo needs that differs from
   global.
