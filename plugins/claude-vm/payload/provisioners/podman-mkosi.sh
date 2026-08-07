@@ -65,9 +65,17 @@ OUTPUT_IMAGE="${2:?usage: podman-mkosi.sh <boot-launcher-path> <output-image-pat
 # mkosi's apt can install baked packages that come from third-party repos.
 # An unset/empty value is normalized to the empty canonical form so the
 # in-container parser always sees valid JSON.
+#
+# Since issue #135 the same document also carries `env`: the bake tier's
+# `env.set` map, every value already rendered as a STRING by
+# claude_vm_bake_config_json's `tostring`. The in-container step below writes it
+# into the image as /etc/claude-vm/bake-env, which the boot launcher sources.
+# Only `env.set` is ever here -- `env.copy` / `env.files` resolve against the
+# HOST environment at launch and are a hard abort in a bake file, precisely so a
+# host-read secret never becomes image bytes.
 BAKE_CONFIG="${CLAUDE_VM_BAKE_CONFIG:-}"
 if [ -z "$BAKE_CONFIG" ]; then
-  BAKE_CONFIG='{"bake":[],"apt_sources":[]}'
+  BAKE_CONFIG='{"bake":[],"apt_sources":[],"env":{}}'
 fi
 
 # Baked marketplaces + plugins (issue #107). build-guest-image.sh exports the
@@ -1065,6 +1073,60 @@ for s in d.get("apt_sources",[]):
   render_apt_source "\$as_name" "\$as_repo" "\$as_key_url" \\
     "\$SANDBOX_KEYRINGS" "\$SANDBOX_SOURCES" "\$APT_KEYRINGS_RT"
 done
+# -------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
+# Baked guest environment variables (issue #135).
+#
+# The bake tier's \`env.set\` map becomes ONE file in the image,
+# /etc/claude-vm/bake-env, which the boot launcher sources under \`set -a\`
+# before the boot tier's own env file -- that ordering is the bottom of the
+# precedence chain (bake set < boot files < boot copy < boot set).
+#
+# Written into mkosi.extra, so it is a plain image FILE rather than anything
+# apt or systemd has to be taught about. It PERSISTS: every session this image
+# serves gets these values, which is exactly why only literals reach here.
+#
+# Rendered by python3 (available in this build container, unlike in the guest)
+# with shlex.quote on each value, so the emitted assignment is byte-exact
+# whatever the operator wrote -- spaces, quotes, \$ and backslashes included.
+# The name charset is re-checked here even though the host launcher already
+# aborts on a bad one: this file is sourced by the guest's shell, and an
+# unchecked name is a way to smuggle a second statement into it. A build is the
+# wrong place to be lenient, so a bad name FAILS the build rather than being
+# skipped. No value is ever echoed -- a baked value is not a secret, but the
+# habit is uniform across every env surface.
+python3 - <<'BAKEENV'
+import json, os, re, shlex, sys
+d = json.load(open("/work/recipe/bake-config.json"))
+env = d.get("env", {}) or {}
+if not env:
+    sys.exit(0)
+name_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\$")
+out_dir = "/work/recipe/mkosi.extra/etc/claude-vm"
+os.makedirs(out_dir, exist_ok=True)
+lines = []
+for k in sorted(env):
+    if not name_re.match(k):
+        sys.stderr.write(
+            "podman-mkosi(inner): bake env.set key %r is not a usable "
+            "environment-variable name ([A-Za-z_][A-Za-z0-9_]*); refusing to "
+            "bake it into a file the guest sources.\n" % (k,)
+        )
+        sys.exit(1)
+    lines.append("%s=%s" % (k, shlex.quote(str(env[k]))))
+with open(os.path.join(out_dir, "bake-env"), "w") as fh:
+    fh.write(
+        "# claude-vm baked guest environment (config-bake.yml env.set).\n"
+        "# Generated at image build time; sourced by the boot launcher under\n"
+        "# 'set -a'. Do not edit -- change env.set and rebuild.\n"
+    )
+    fh.write("\n".join(lines) + "\n")
+sys.stderr.write(
+    "podman-mkosi(inner): baked %d guest environment variable(s): %s\n"
+    % (len(lines), " ".join(sorted(env)))
+)
+BAKEENV
 # -------------------------------------------------------------------------
 
 # -------------------------------------------------------------------------

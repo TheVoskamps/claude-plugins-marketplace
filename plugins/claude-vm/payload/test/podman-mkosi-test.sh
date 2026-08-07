@@ -1062,6 +1062,113 @@ assert_contains "plugins: the abort explains the missing verified binary" \
   "$WORK/plugins-stderr.log" "no verified guest"
 
 # ---------------------------------------------------------------------
+# Baked guest environment variables (issue #135).
+#
+# The bake tier's `env.set` map travels in the same canonical bake-config JSON
+# as `packages:`/`apt_sources:`, and the in-container step renders it into the
+# image as /etc/claude-vm/bake-env, which the boot launcher sources under
+# `set -a`. That file is a SHELL file, so the quoting is the whole risk: a value
+# with a space, a quote, a `$` or a backslash must arrive byte-exact and must
+# not turn into a second statement.
+#
+# So this does not grep the generated script -- it SLICES the real
+# `python3 - <<'BAKEENV' ... BAKEENV` block out of the captured
+# build-in-container.sh and RUNS it against a fixture bake-config.json, then
+# sources the file it produced. It is the actual emitted renderer being
+# measured, not a reimplementation of it.
+# ---------------------------------------------------------------------
+run_provisioner "$BAKE_CONFIG"
+if [ -f "$CAPTURE_INNER" ]; then
+  BE_DIR="$WORK/bake-env"
+  rm -rf "$BE_DIR"; mkdir -p "$BE_DIR"
+  BE_SLICE="$BE_DIR/render.sh"
+  # The block is delimited by its own heredoc markers, so the slice needs no
+  # line numbers and cannot drift if the surrounding script is reordered.
+  awk '
+    /^python3 - <<.BAKEENV.$/ { cap = 1 }
+    cap { print }
+    cap && /^BAKEENV$/ { cap = 0 }
+  ' "$CAPTURE_INNER" | sed "s#/work/recipe#$BE_DIR#g" > "$BE_SLICE"
+
+  if [ ! -s "$BE_SLICE" ]; then
+    FAIL=$((FAIL + 1))
+    echo "FAIL - bake-env: could not slice the bake-env render out of build-in-container.sh"
+  else
+    # render_bake_env <bake-config-json> -- run the real block, then print the
+    # rendered file's assignment lines (comments stripped).
+    render_bake_env() {
+      printf '%s' "$1" > "$BE_DIR/bake-config.json"
+      rm -rf "$BE_DIR/mkosi.extra"
+      bash "$BE_SLICE" 2>"$BE_DIR/render.err"
+      grep -v '^#' "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" 2>/dev/null
+    }
+
+    assert_eq "bake-env: a plain literal renders as a plain assignment" \
+      "FOO_ENDPOINT=https://foo.internal/v2" \
+      "$(render_bake_env '{"bake":[],"apt_sources":[],"env":{"FOO_ENDPOINT":"https://foo.internal/v2"}}')"
+
+    # Keys are emitted SORTED, so the file's bytes do not depend on JSON key
+    # order -- the same stability the canonical JSON gives the bake hash.
+    assert_eq "bake-env: keys are emitted in sorted order" \
+      "A=1
+B=2
+C=3" \
+      "$(render_bake_env '{"bake":[],"apt_sources":[],"env":{"C":"3","A":"1","B":"2"}}')"
+
+    # The quoting cases. Each value is sourced back below; here the assertion is
+    # that the EMITTED text is quoted at all rather than pasted in raw.
+    assert_eq "bake-env: a value with spaces is shell-quoted" \
+      "GREETING='hello there'" \
+      "$(render_bake_env '{"bake":[],"apt_sources":[],"env":{"GREETING":"hello there"}}')"
+
+    # Round-trip: source the rendered file and compare the variable's value to
+    # what went in. This is the assertion that actually matters -- a value that
+    # survives quoting but not sourcing is still a broken guest.
+    # The literal value, and the JSON encoding of that same value, written side
+    # by side so the escaping of each is readable on its own terms.
+    BE_HOSTILE='a b"c'\''d$e`f\g;h'
+    cat > "$BE_DIR/hostile.json" <<'HOSTILEJSON'
+{"bake":[],"apt_sources":[],"env":{"HOSTILE":"a b\"c'd$e`f\\g;h"}}
+HOSTILEJSON
+    render_bake_env "$(cat "$BE_DIR/hostile.json")" >/dev/null
+    BE_ROUNDTRIP="$(
+      set -a
+      # shellcheck disable=SC1090
+      . "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env"
+      set +a
+      printf '%s' "${HOSTILE:-<unset>}"
+    )"
+    assert_eq "bake-env: a hostile value round-trips byte-exact through sourcing" \
+      "$BE_HOSTILE" "$BE_ROUNDTRIP"
+
+    # An empty env map renders NO file at all, so a config with no bake env.set
+    # leaves the image byte-identical to one built before this feature.
+    render_bake_env '{"bake":[],"apt_sources":[],"env":{}}' >/dev/null
+    if [ -e "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" ]; then
+      FAIL=$((FAIL + 1)); echo "FAIL - bake-env: an empty env map must render no file"
+    else
+      PASS=$((PASS + 1)); echo "ok   - bake-env: an empty env map renders no file"
+    fi
+
+    # A malformed NAME FAILS the build. The host launcher already aborts on one,
+    # but this file is sourced by the guest's shell, so an unchecked name is a
+    # way to smuggle a second statement into it -- a build is the wrong place to
+    # be lenient, and skipping the entry would ship a guest missing a variable.
+    render_bake_env '{"bake":[],"apt_sources":[],"env":{"2BAD":"x"}}' >/dev/null
+    if [ -e "$BE_DIR/mkosi.extra/etc/claude-vm/bake-env" ]; then
+      FAIL=$((FAIL + 1)); echo "FAIL - bake-env: a malformed name must not be baked"
+    else
+      PASS=$((PASS + 1)); echo "ok   - bake-env: a malformed name is not baked"
+    fi
+    assert_contains "bake-env: the malformed-name failure names the key" \
+      "$BE_DIR/render.err" "2BAD"
+  fi
+else
+  FAIL=$((FAIL + 1))
+  echo "FAIL - bake-env: build-in-container.sh was not captured"
+fi
+
+# ---------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------
 echo

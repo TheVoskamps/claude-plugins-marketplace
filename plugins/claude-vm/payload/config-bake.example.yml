@@ -21,6 +21,9 @@
 #   - claude.marketplaces:    plugin marketplaces registered in the image
 #                    (also allowed in the boot file; union, deduped by name)
 #   - claude.plugins.bake:    plugin@marketplace refs INSTALLED into the image
+#   - env.set:       guest environment variables written INTO the image
+#                    (literals ONLY -- env.copy / env.files are BOOT-only and
+#                    ABORT here; see the env: block at the bottom of this file)
 #
 # IMAGE IDENTITY: the image cache key + filename is a WHOLE-FILE, RAW-BYTE hash
 # of the BAKE files (this one, and the repo's config-bake.yml if present):
@@ -39,8 +42,14 @@
 # repo with a config-bake.yml gets its own image (its name disambiguates it,
 # even if the file is byte-identical to another repo's -- legibility over dedup).
 #
-# NO SECRETS HERE. The host claude.ai OAuth credential is mounted into the guest
-# at runtime by the launcher; it is never read from or written to any config file.
+# NO SECRETS HERE, with FULL FORCE. A bake-file value is both committed config
+# AND image bytes: it persists in the .raw for every session that image serves,
+# and the base image is APFS-cloned per run, so it outlives the session that
+# wrote it. The host claude.ai OAuth credential is mounted into the guest at
+# runtime by the launcher; it is never read from or written to any config file.
+# A third-party API KEY reaches the guest the same way, by reference rather than
+# by value -- see `env.copy` / `env.files` in config-boot.example.yml, which are
+# a hard abort in THIS file precisely because of the persistence above.
 
 # apt packages baked into the guest image at build time (flat list of names).
 # Present with no network at boot. Use `bake` for packages stable enough not to
@@ -128,3 +137,39 @@ claude:
       # platform ever has no committed binary, the hook hard-blocks every
       # gated tool call rather than silently not adjudicating.
       # - guardrails@thevoskamps
+
+# Guest environment variables (issue #135).
+#
+# In a BAKE file, `env:` has exactly ONE sub-key: `set` -- a map of explicit
+# literals. Those literals are written into the image at build time, so they are
+# present in every session that image serves and PERSIST across runs.
+#
+# `env.copy` and `env.files` are BOOT-ONLY and are a HARD ABORT here, including
+# when the sub-key is present but empty. They resolve against the HOST
+# environment at LAUNCH -- an environment that does not exist while the image is
+# being built -- and a value read from it is exactly the kind of secret that
+# must never become image bytes. Put them in config-boot.yml, where they ride
+# the transient credential mount the launcher shreds on exit.
+#
+# NO SECRETS. The "NO SECRETS HERE" note at the top of this file applies to
+# `env.set` with full force: the value is committed config AND image bytes.
+#
+# Merge: repo-over-global PER KEY, like claude.plugins.enabled -- a repo can
+# override one variable without restating the global map.
+#
+# Precedence across both tiers, lowest to highest:
+#   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+#
+# No new rebuild trigger is needed: the image identity is a whole-file, raw-byte
+# hash of the bake files, so changing a value here already invalidates the
+# cached image and the next launch rebuilds.
+#
+# Names must match [A-Za-z_][A-Za-z0-9_]*, values must be scalars (a map or a
+# list has no environment representation), a valueless key aborts (write
+# `NAME: ""` if you really mean the empty string), and a name claude-vm's own
+# launcher composes -- the proxy vars, CLAUDE_ARGS, the *_TAG mount vars,
+# IS_SANDBOX, DISABLE_AUTOUPDATER, the renderer CLAUDE_CODE_* vars, the terminal
+# geometry -- aborts too, since the launcher's value always wins.
+env:
+  set:
+    FOO_ENDPOINT: https://foo.internal/v2

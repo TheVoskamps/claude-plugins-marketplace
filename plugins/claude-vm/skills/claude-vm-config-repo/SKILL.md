@@ -98,19 +98,23 @@ file silently shadows future changes to the global default.
   `github.auth` is schema + merge only as of issue #103 — its consumer
   lands in a sibling slice under #39, but this repo's override still
   resolves correctly through the layering library today.)
-- **Scalar maps** (`claude.plugins.enabled`): a map of plugin ref →
-  boolean that merges repo-over-global **per key**, so this repo can flip
-  one plugin's enabled state (e.g. `false` = installed-but-disabled)
-  without restating the global map. It is rendered into the guest
-  `settings.json`'s `enabledPlugins` (issue #104); keys must name a ref in
+- **Scalar maps** (`claude.plugins.enabled`, `env.set`): a map that merges
+  repo-over-global **per key**, so this repo can flip one plugin's enabled
+  state (e.g. `false` = installed-but-disabled), or change one environment
+  variable's value, without restating the global map.
+  `claude.plugins.enabled` is rendered into the guest `settings.json`'s
+  `enabledPlugins` (issue #104); keys must name a ref in
   `claude.plugins.bake`/`.install_at_boot` and values must be boolean, or
-  the launch aborts.
+  the launch aborts. `env.set` is allowed in **both** file types — put a
+  literal in `config-bake.yml` only when it should persist in this repo's
+  image for every session, and never a secret there (a bake value is
+  committed config *and* image bytes).
 - **Lists.** In `config-bake.yml`: `packages` (baked into the image),
   `apt_sources`, `claude.marketplaces`, `claude.plugins.bake` (installed
   into the image). In `config-boot.yml`: `egress.allow`, `mounts`,
   `packages` (installed at boot), `apt_sources`,
   `claude.permissions.allow`/`.ask`/`.deny`, `claude.marketplaces`,
-  `claude.plugins.install_at_boot`. Write only the
+  `claude.plugins.install_at_boot`, `env.copy`, `env.files`. Write only the
   **additional** entries this repo needs. The runtime union keeps the
   global entries; the per-repo file does not need to restate them. (The
   library cannot *remove* a global entry from a list — the union only
@@ -137,7 +141,10 @@ file silently shadows future changes to the global default.
   `claude.plugins` sub-key written into the wrong file type aborts the
   launch too: `bake` belongs in the bake file, `install_at_boot` /
   `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` in
-  the boot file.)
+  the boot file. `env.copy` and `env.files` are **boot-only** and abort in
+  a bake file on a *presence* test, so even an empty `env.copy:` there
+  aborts — they read the host environment at launch, which does not exist
+  at image-build time, and their values must never become image bytes.)
 
 ## Idempotent — detect and offer, never clobber
 
@@ -206,7 +213,13 @@ Resolve the global config pair the same way the launcher does:
   present their resolved values as the **basis** — so the user sees
   exactly what each key is currently set to and therefore what they
   would be overriding. Show the scalars and the global `egress.allow` /
-  `mounts` / baked-`packages` lists.
+  `mounts` / baked-`packages` lists, and the global `env:` block — its
+  `env.set` KEYS and its `env.copy` / `env.files` entries. The `mounts`
+  and `env` name checks run over the MERGED global+repo set, so a per-repo
+  entry can collide with a global one the user has just been shown.
+  Show `env.set` keys and their values (they are non-secret literals by
+  construction), but only the NAMES from `env.copy` — never resolve one
+  against the environment to display its value.
 
 ### Step 3: Collect the overrides
 
@@ -281,6 +294,45 @@ repo use?" The common cases:
   (bake file — baked into this repo's own image), or
   `claude.plugins.install_at_boot` entries (boot file) this repo needs.
   These union with the global lists.
+- Environment variables this repo's in-guest session needs (issue #135) —
+  a plain setting (`FOO_ENDPOINT`) or a third-party API key for a tool,
+  MCP server or model provider other than Anthropic/GitHub
+  (`OPENROUTER_API_KEY`, `TAVILY_API_KEY`). Place each by **how its value
+  is obtained**, which is what decides the tier:
+  - a **literal** the user dictates → `env.set` (repo-over-global per
+    key). Only put it in `config-bake.yml` when it should persist in this
+    repo's image; **never** a secret there.
+  - a value already in the user's **shell environment** → `env.copy`,
+    listing the NAME only. Never ask for the value, never write it
+    anywhere. Boot file only.
+  - a value already in a host **`.env` file** → `env.files`, listing the
+    path. Boot file only.
+
+  Precedence, lowest to highest:
+  `bake env.set` < `boot env.files` < `boot env.copy` < `boot env.set`.
+
+  **Pair every `env.copy` with `egress.allow`.** The guest is
+  egress-confined, so the provider's host must be in `egress.allow`
+  (`openrouter.ai`, `api.tavily.com`, …) or the proxy blocks the call and
+  the failure is baffling. Nothing is derived automatically — a variable
+  name implies no hostname the way an apt source's URI does — so add both
+  or neither, and remember `egress.allow` unions with the global list you
+  read in Step 2.
+
+  **These entries are written verbatim and the launcher rejects several
+  shapes**, so check before writing: an `env.copy` name that is not
+  currently exported in the user's shell **aborts the launch** (confirm
+  they export it — never print or capture the value); an `env.files` path
+  that is not on the host aborts; a name outside
+  `[A-Za-z_][A-Za-z0-9_]*` aborts; an `env.set` value that is a map or a
+  list aborts, and so does a key left valueless (write `NAME: ""` for the
+  empty string); and a name claude-vm's own launcher composes — the proxy
+  vars, `CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`,
+  `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars, the terminal
+  geometry — aborts, since the launcher's value always wins. The
+  name-collision checks run over the **merged** global+repo set, so a
+  per-repo `env.set` key can collide with a global one — check Step 2's
+  global `env:` before writing.
 - A `claude.permission_mode`, a `claude.plugins.enabled` per-plugin
   toggle, or a `github.auth` override this repo needs that differs from
   global.
@@ -328,6 +380,21 @@ packages:
   - protobuf-compiler
 ```
 
+A repo whose in-guest session needs a third-party API key adds it to
+`config-boot.yml` by NAME, never by value:
+
+```yaml
+# This repo's agent uses OpenRouter. The key is read from the shell
+# claude-vm is launched from -- it is never written into this file.
+env:
+  copy:
+    - OPENROUTER_API_KEY
+egress:
+  allow:
+    - openrouter.ai   # unions with the global allowlist; without it the
+                      # egress-confined guest cannot reach the service
+```
+
 Include only the keys the user chose in Step 3, each in its correct
 bake/boot file. Do not pad the file with the global values — that
 defeats the layering.
@@ -339,8 +406,9 @@ and any this skill does not recognize. For list keys (bake file:
 `packages`, `apt_sources`, `claude.marketplaces`,
 `claude.plugins.bake`; boot file: `egress.allow`, `mounts`,
 `packages`, `apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
-`claude.marketplaces`, `claude.plugins.install_at_boot`), union
-the new entries in (do not drop the existing extras, do not duplicate).
+`claude.marketplaces`, `claude.plugins.install_at_boot`, `env.copy`,
+`env.files`), union the new entries in (do not drop the existing extras,
+do not duplicate).
 Render the merged result preserving the user's existing comments where
 practical.
 
@@ -424,7 +492,11 @@ Report back:
   unions list entries only — it never overwrites or deletes a key the
   user set.
 - **No secrets in this file.** The host claude.ai OAuth credential is
-  supplied at runtime, never written to config.
+  supplied at runtime, never written to config. A third-party API key
+  goes in `env.copy` (name only) or `env.files` (path only) — do not ask
+  the user to paste a key, and do not read one out of their environment
+  to echo back; those keys exist precisely so the value never reaches the
+  config or this conversation.
 - **Never write without explicit approval** in Step 5.
 - **Lists union, they do not subtract.** A per-repo file cannot remove a
   global `egress.allow` host, a global mount, or a global entry in the
@@ -435,10 +507,12 @@ Report back:
   global config.
 - **Respect the bake/boot placement rule.** Image-bytes overrides
   (`packages` baked in, `apt_sources`, `image.root_headroom_mb`,
-  `claude.plugins.bake`) go in `config-bake.yml`; run-time overrides go
-  in `config-boot.yml`. A misplaced key loudly does nothing rather than
+  `claude.plugins.bake`, `env.set` when it should persist in this repo's
+  image) go in `config-bake.yml`; run-time overrides go in
+  `config-boot.yml`. A misplaced key loudly does nothing rather than
   silently poisoning the image cache, and a misplaced `claude.plugins`
-  sub-key aborts the launch outright.
+  sub-key aborts the launch outright — as do `env.copy` and `env.files`
+  in a bake file.
 - **Write at most the two per-repo files**:
   `<repo>/.claude-vm/config-bake.yml` and
   `<repo>/.claude-vm/config-boot.yml` (only the tier(s) with overrides).

@@ -24,23 +24,27 @@
 #     claude.plugins.update_at_boot,
 #     claude.plugins.add_marketplace_uris_to_allowlist,
 #     github.auth): repo overrides global; global fills gaps.
-#   - Scalar MAPS (claude.plugins.enabled): repo-over-global PER KEY -- each
-#     plugin-ref -> boolean entry follows the scalar repo-wins rule
-#     independently, so a repo can flip one plugin's enabled state without
-#     restating the global map. See claude_vm_merge_config below.
+#   - Scalar MAPS (claude.plugins.enabled, env.set): repo-over-global PER KEY
+#     -- each entry follows the scalar repo-wins rule independently, so a repo
+#     can flip one plugin's enabled state, or one environment variable's value,
+#     without restating the global map. See claude_vm_merge_config below.
 #   - Lists (egress.allow, mounts, packages, apt_sources,
 #     claude.permissions.allow/ask/deny, claude.marketplaces,
-#     claude.plugins.bake, claude.plugins.install_at_boot -- see
-#     CLAUDE_VM_LIST_KEYS below): MERGED -- union of global + repo entries
-#     (de-duplicated, order: global entries first, then repo entries not
-#     already present).
+#     claude.plugins.bake, claude.plugins.install_at_boot, env.copy, env.files
+#     -- see CLAUDE_VM_LIST_KEYS below): MERGED -- union of global + repo
+#     entries (de-duplicated, order: global entries first, then repo entries
+#     not already present).
 #
 # All four files are OPTIONAL. A missing file is treated as `{}` (empty
 # document), so any combination resolves cleanly.
 #
 # Secrets are never read from or written to these files. The guest
 # authenticates with the host's claude.ai OAuth credential, which the
-# launcher extracts from the macOS Keychain at launch; see SKILL.md.
+# launcher extracts from the macOS Keychain at launch; see SKILL.md. A
+# third-party API key reaches the guest the same way -- by REFERENCE, not by
+# value: `env.copy` names a host environment variable and `env.files` names a
+# host `.env` file, both read at launch (issue #135). `env.set` is for
+# non-secret literals only, since its values ARE the committed config.
 #
 # Requires: yq (v4+, the Go/mikefarah implementation). Detected at
 # source time so callers fail fast with an actionable message.
@@ -421,6 +425,8 @@ CLAUDE_VM_LIST_KEYS=(
   '.claude.marketplaces'
   '.claude.plugins.bake'
   '.claude.plugins.install_at_boot'
+  '.env.copy'
+  '.env.files'
 )
 
 # Merge two YAML files into one document on stdout.
@@ -1477,10 +1483,24 @@ claude_vm_apt_source_hosts() {
 #                            "" (so a missing vs. explicit-empty key_url hash
 #                            identically), then the whole list SORTED by name
 #                            (so declaration order does not change the hash).
-# An absent `packages:` / `apt_sources:` both normalize to the
-# empty list, so a config with no bake-affecting overrides emits exactly
-# `{"bake":[],"apt_sources":[]}` -- a stable value shared across every such
-# config (the "shares the global image" case). Output is compact (-I=0) and
+#   - `env.set:` (issue #135) -> the map, SORTED by key (so declaration order
+#                            does not change the hash) and with every value
+#                            rendered as a STRING via `tostring`. An
+#                            environment variable holds a string; `PORT: 8080`
+#                            and `DEBUG: true` are YAML int/bool, and passing
+#                            them through as JSON scalars would leave the
+#                            provisioner's Python writing `8080`/`True` into a
+#                            shell file -- `True` being wrong. `tostring`
+#                            renders each exactly as yq renders the scalar
+#                            (`8080`, `true`), which is what the operator
+#                            wrote. Only `env.set` appears here: `env.copy` /
+#                            `env.files` are boot-only and abort in a bake file
+#                            (claude_vm_check_env), precisely so a host-read
+#                            secret never becomes image bytes.
+# An absent `packages:` / `apt_sources:` / `env.set:` all normalize to the
+# empty collection, so a config with no bake-affecting overrides emits exactly
+# `{"bake":[],"apt_sources":[],"env":{}}` -- a stable value shared across every
+# such config (the "shares the global image" case). Output is compact (-I=0) and
 # key-ordered by the literal object constructor below, so it is byte-stable.
 #
 # Stripping null/empty bake entries here -- rather than at the one call site
@@ -1501,6 +1521,11 @@ claude_vm_bake_config_json() {
             "key_url": (.key_url // "")
           })
         | sort_by(.name)
+      ),
+      "env": (
+        .env.set // {}
+        | to_entries | sort_by(.key) | from_entries
+        | map_values(. | tostring)
       )
     }
   ' "$file" 2>/dev/null
@@ -1556,7 +1581,7 @@ claude_vm_bake_hash_from_json() {
 }
 
 # True (exit 0) when the merged config has NO bake-affecting entries -- i.e.
-# both the bake `packages:` and `apt_sources:` are empty/absent.
+# the bake `packages:`, `apt_sources:` and `env.set:` are all empty/absent.
 #
 # NOTE: since issue #179 the launcher decides image identity via a whole-file,
 # raw-byte hash of the two BAKE FILES (claude_vm_file_identity_hash), not this
@@ -1568,6 +1593,7 @@ claude_vm_bake_config_is_empty() {
   local file="$1" count
   count="$(yq eval '
     ((.packages // []) | length) + ((.apt_sources // []) | length)
+      + ((.env.set // {}) | length)
   ' "$file" 2>/dev/null)"
   [ "${count:-0}" = "0" ]
 }
@@ -1779,6 +1805,402 @@ claude_vm_check_plugin_key_placement() {
     fi
   done
   [ "$bad" -eq 0 ]
+}
+
+# ---------------------------------------------------------------------
+# Guest environment variables (issue #135): env.set / env.copy / env.files.
+#
+# The tier a sub-key may be declared in follows from HOW its value is obtained,
+# not from operator preference:
+#
+#   env.set    bake + boot   explicit literal written in the config
+#   env.copy   boot ONLY     read from the HOST environment at launch
+#   env.files  boot ONLY     read from a host `.env` file at launch
+#
+# A bake file is consumed at image-build time and its result is image BYTES that
+# persist across every run of that image; a boot file is consumed per launch and
+# its result rides the transient claudecreds mount, which cleanup() shreds on
+# exit. `env.copy` / `env.files` resolve against the host environment, which
+# does not exist at image-build time, and a value read from it is exactly the
+# kind of secret that must never become image bytes -- so only explicitly
+# written literals are bakeable, and the two host-sourced sub-keys are a hard
+# abort in a bake file (claude_vm_check_env below).
+#
+# Precedence, lowest to highest:
+#
+#   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+#
+# Within each tier, repo-over-global (per key for `set`, union for
+# `copy`/`files`); within `env.files`, later files win over earlier ones. The
+# whole chain is implemented by EMISSION ORDER rather than by a dedup pass:
+# claude_vm_resolve_boot_env emits files, then copy, then set, and the guest
+# sources the bake file before the boot one, so a later assignment simply
+# overwrites an earlier one when the file is sourced under `set -a`. That needs
+# no associative array and therefore no bash 4 (see the bash-3.2 rule in
+# CLAUDE.md -- these run as config-load guards).
+
+# The sub-keys of `env:` that a BAKE file may not carry. Data, so a future
+# host-sourced sub-key joins the gate by being listed once.
+CLAUDE_VM_ENV_BOOT_ONLY_KEYS=(
+  'copy'
+  'files'
+)
+
+# The environment variables the LAUNCHER itself composes -- every name written
+# into run.env (claude-vm.sh) plus the one the boot launcher exports on its
+# abnormal-exit path (build-guest-image.sh). A config entry naming one of these
+# is a mistake rather than an override: the launcher's composition always wins,
+# so honouring the config would be impossible and ignoring it silently would
+# leave an operator believing they had changed the proxy, the mount tags or
+# claude's argv. Space-delimited and matched with a space-padded `case`, the
+# same shape as CLAUDE_VM_RESERVED_MOUNT_TAGS -- sound here for the same reason
+# it is there: an environment-variable name is charset-validated to
+# [A-Za-z_][A-Za-z0-9_]* before the membership test, so it can never contain
+# the delimiter.
+CLAUDE_VM_RESERVED_ENV_NAMES="HTTPS_PROXY HTTP_PROXY NO_PROXY https_proxy http_proxy no_proxy REPO_TAG POLICY_TAG CLAUDEBIN_TAG CLAUDECREDS_TAG CLAUDE_VM_COLUMNS CLAUDE_VM_LINES CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN CLAUDE_CODE_NO_FLICKER DISABLE_AUTOUPDATER IS_SANDBOX CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT CLAUDE_ARGS CLAUDE_VM_LAST_CLAUDE_STATUS"
+
+# Is $1 a usable environment-variable name -- [A-Za-z_][A-Za-z0-9_]*? Returns 0
+# when it is. This is POSIX's own name charset, and it is not merely
+# conventional here: the name is emitted as the left-hand side of a shell
+# assignment that the guest sources under `set -a`, so anything outside it is
+# either a syntax error in the guest or (with a `=` or a newline in it) a way to
+# smuggle a second assignment past the reader.
+claude_vm_env_name_is_valid() {
+  case "$1" in
+    ''|[!A-Za-z_]*)   return 1 ;;
+    *[!A-Za-z0-9_]*)  return 1 ;;
+  esac
+  return 0
+}
+
+# Is $1 a launcher-owned environment variable (CLAUDE_VM_RESERVED_ENV_NAMES)?
+# Returns 0 when it is. Kept as a function rather than an inline `case` so the
+# suite can call it from inside a `$( )` -- an inline `case` there mis-parses on
+# bash 3.2, whose command substitution ends at the pattern's own `)`.
+claude_vm_env_name_is_reserved() {
+  case " $CLAUDE_VM_RESERVED_ENV_NAMES " in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# Emit the NAMES declared under `env.set` in a merged document, one per line, in
+# document order. Names only: the VALUE is fetched per-name by
+# claude_vm_env_set_value below rather than travelling in a shared record,
+# because a value may legitimately contain a tab or a newline and yq's `@tsv`
+# would escape those into a literal `\t` / `\n` -- silently changing the value
+# an operator wrote. One yq call per variable is affordable (this map holds a
+# handful of entries) and needs no escaping contract at all.
+#   $1 -- merged config document file path
+claude_vm_env_set_names() {
+  local file="$1"
+  [ -n "$file" ] && [ -f "$file" ] || return 0
+  yq eval '.env.set // {} | keys | .[]' "$file" 2>/dev/null
+}
+
+# The yq TAG of one `env.set` value (`!!str`, `!!int`, `!!bool`, `!!seq`,
+# `!!map`, `!!null`, ...), used by claude_vm_check_env to reject a value that is
+# not a scalar. `!!null` comes back both for an absent key and for an explicitly
+# valueless one; only the latter can reach here, since the name came from
+# claude_vm_env_set_names.
+#   $1 -- merged config document file path
+#   $2 -- the variable name (already charset-validated by the caller)
+claude_vm_env_set_tag() {
+  local file="$1" name="$2"
+  yq eval ".env.set[\"${name}\"] | tag" "$file" 2>/dev/null
+}
+
+# The VALUE of one `env.set` entry, rendered exactly as yq renders the scalar
+# (an int as its digits, a bool as `true`/`false`, an empty string as nothing).
+#   $1 -- merged config document file path
+#   $2 -- the variable name (already charset-validated by the caller)
+claude_vm_env_set_value() {
+  local file="$1" name="$2"
+  yq eval ".env.set[\"${name}\"]" "$file" 2>/dev/null
+}
+
+# Emit the `env.copy` names / the `env.files` paths of a merged BOOT document,
+# one per line. Thin named wrappers over claude_vm_list_items so every reader
+# names the same yq path and a future rename lands in one place.
+claude_vm_env_copy_names() {
+  claude_vm_list_items "$1" '.env.copy'
+}
+claude_vm_env_files() {
+  claude_vm_list_items "$1" '.env.files'
+}
+
+# Does a BAKE document carry the boot-only `env` sub-key $2? Returns 0 when it
+# does. A PRESENCE test (`has`), not a value test, for the same reason
+# claude_vm_mount_mode_entries asks `has("mode")`: `copy: ""`, a valueless
+# `copy:` and an omitted `copy:` all render as the same empty value, and
+# silently ignoring the first two would leave an operator believing a host
+# variable is being forwarded into every session of a persistent image.
+#   $1 -- merged BAKE document file path
+#   $2 -- the sub-key ('copy' or 'files')
+claude_vm_env_bake_has_key() {
+  local file="$1" key="$2" present
+  [ -n "$file" ] && [ -f "$file" ] || return 1
+  present="$(yq eval "((.env // {}) | has(\"${key}\"))" "$file" 2>/dev/null)"
+  [ "$present" = "true" ]
+}
+
+# Parse a host `.env` file into ready-to-source assignment lines, one per
+# declared variable: `NAME=<shell-quoted value>`. Prints nothing and returns 1,
+# after a claude-vm: diagnostic, when the file is missing or a line does not
+# parse.
+#
+# The accepted grammar is deliberately the small, portable one every `.env`
+# convention agrees on, because this file is the operator's, written for some
+# other tool, and claude-vm only reads it:
+#
+#   - a blank line, or one whose first non-blank character is `#`, is a comment
+#   - an optional leading `export ` is allowed and dropped
+#   - everything else must be NAME=VALUE, with NAME in [A-Za-z_][A-Za-z0-9_]*
+#   - a VALUE wholly wrapped in matching single or double quotes is unwrapped
+#     (the quotes are the .env convention's, not part of the value)
+#
+# There is NO variable expansion and no escape processing: the value is taken
+# literally, so a `$` or a backslash means itself. The output is %q-quoted, so
+# what the guest ends up with is byte-identical to what the file held.
+#
+# Never prints a VALUE, in a diagnostic or anywhere else -- a `.env` file is
+# exactly where a third-party API key lives. The line NUMBER localises a parse
+# error without quoting its contents.
+#   $1 -- host path to the .env file (already ~-expanded by the caller)
+claude_vm_env_file_assignments() {
+  local file="$1" line lineno=0 name value first last env_tab
+  if [ -z "$file" ] || [ ! -f "$file" ]; then
+    echo "claude-vm: env.files entry '$file' is not a file on this host." >&2
+    return 1
+  fi
+  # Held in a variable rather than written inline: a literal tab inside a `case`
+  # pattern is invisible in a diff and one reformatting pass away from becoming
+  # a space.
+  env_tab=$'\t'
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    # Strip leading blanks so an indented comment is still a comment.
+    while :; do
+      case "$line" in
+        ' '*|"$env_tab"*) line="${line#?}" ;;
+        *) break ;;
+      esac
+    done
+    case "$line" in
+      ''|'#'*) continue ;;
+      'export '*) line="${line#export }" ;;
+    esac
+    case "$line" in
+      *=*) : ;;
+      *)
+        echo "claude-vm: $file line $lineno does not parse as NAME=value." >&2
+        echo "claude-vm:   env.files reads plain 'NAME=value' lines (blank lines and '#' comments are skipped)." >&2
+        return 1
+        ;;
+    esac
+    name="${line%%=*}"
+    value="${line#*=}"
+    if ! claude_vm_env_name_is_valid "$name"; then
+      echo "claude-vm: $file line $lineno declares '$name', which is not a usable environment-variable name" >&2
+      echo "claude-vm:   ([A-Za-z_][A-Za-z0-9_]*). The guest sources these as shell assignments." >&2
+      return 1
+    fi
+    # Unwrap a value wrapped in matching quotes. Length >= 2 so a lone quote
+    # character is left as the value it is.
+    if [ "${#value}" -ge 2 ]; then
+      first="${value:0:1}"
+      last="${value:${#value}-1:1}"
+      if [ "$first" = "$last" ] && { [ "$first" = '"' ] || [ "$first" = "'" ]; }; then
+        value="${value#?}"
+        value="${value%?}"
+      fi
+    fi
+    printf '%s=%q\n' "$name" "$value"
+  done < "$file"
+  return 0
+}
+
+# Abort (non-zero + claude-vm: diagnostics) on every `env:` mistake that is
+# knowable before the VM starts. Hard abort, never warn-and-limp: each case
+# below ends with the guest missing a variable it was configured to have, and a
+# session that boots without it fails much later, deep inside a tool call, with
+# an opaque auth error that names nothing.
+#
+#   $1 -- merged BAKE document file path
+#   $2 -- merged BOOT document file path
+#
+# The cases:
+#   - `env.copy` / `env.files` present in a BAKE document (presence, not value).
+#   - `env.set` that is not a MAP, in either document.
+#   - a name outside [A-Za-z_][A-Za-z0-9_]*, from any source (a `set` key, a
+#     `copy` entry, a name declared by an `env.files` file).
+#   - a name the LAUNCHER owns (CLAUDE_VM_RESERVED_ENV_NAMES).
+#   - an `env.set` value that is not a scalar, or is explicitly valueless.
+#   - an `env.files` path that is not on the host, or that does not parse.
+#   - an `env.copy` name that is unset or EMPTY in this launcher's own
+#     environment.
+#
+# Never prints a VALUE. Every diagnostic names the variable, the entry or the
+# file, and stops there -- these are exactly the values that must not reach a
+# terminal or a log.
+claude_vm_check_env() {
+  local bake_doc="$1" boot_doc="$2" bad=0
+  local key name tag value f doc tier idx expanded assignment
+  # (a) the boot-only sub-keys, in the bake tier.
+  for key in "${CLAUDE_VM_ENV_BOOT_ONLY_KEYS[@]}"; do
+    if claude_vm_env_bake_has_key "$bake_doc" "$key"; then
+      echo "claude-vm: 'env.${key}' was found in a config-bake.yml, but it is a BOOT-only sub-key." >&2
+      echo "claude-vm:   it resolves against the HOST environment at LAUNCH, which does not exist while the" >&2
+      echo "claude-vm:   image is being built -- and a value read from it is exactly the kind of secret that" >&2
+      echo "claude-vm:   must never become image bytes (the image persists across every run and is cloned" >&2
+      echo "claude-vm:   per run). Move 'env.${key}' to config-boot.yml, where its values ride the transient" >&2
+      echo "claude-vm:   credential mount and are shredded on exit. Only 'env.set' literals are bakeable." >&2
+      bad=1
+    fi
+  done
+  # (b) env.set, in BOTH tiers: shape, names, and scalar-ness.
+  for tier in BAKE BOOT; do
+    case "$tier" in
+      BAKE) doc="$bake_doc" ;;
+      *)    doc="$boot_doc" ;;
+    esac
+    [ -n "$doc" ] && [ -f "$doc" ] || continue
+    tag="$(yq eval '.env.set | tag' "$doc" 2>/dev/null)"
+    case "$tag" in
+      '!!map'|'!!null'|'') : ;;
+      *)
+        echo "claude-vm: 'env.set' in the merged ${tier} config is a ${tag}, not a map." >&2
+        echo "claude-vm:   write it as 'NAME: value' pairs, one per variable." >&2
+        bad=1
+        continue
+        ;;
+    esac
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      if ! claude_vm_env_name_is_valid "$name"; then
+        echo "claude-vm: env.set key '$name' in the merged ${tier} config is not a usable environment-variable" >&2
+        echo "claude-vm:   name ([A-Za-z_][A-Za-z0-9_]*). The guest sources these as shell assignments." >&2
+        bad=1
+        continue
+      fi
+      if claude_vm_env_name_is_reserved "$name"; then
+        echo "claude-vm: env.set key '$name' in the merged ${tier} config names a variable the LAUNCHER owns." >&2
+        echo "claude-vm:   claude-vm composes these itself: $CLAUDE_VM_RESERVED_ENV_NAMES." >&2
+        echo "claude-vm:   its own value always wins, so a config that fights it can never take effect." >&2
+        bad=1
+        continue
+      fi
+      tag="$(claude_vm_env_set_tag "$doc" "$name")"
+      case "$tag" in
+        '!!map'|'!!seq')
+          echo "claude-vm: env.set['$name'] in the merged ${tier} config is a ${tag}. An environment variable" >&2
+          echo "claude-vm:   holds a single scalar value; a map or a list has no environment representation." >&2
+          bad=1
+          ;;
+        '!!null')
+          echo "claude-vm: env.set['$name'] in the merged ${tier} config has no value. Give it one, or write" >&2
+          echo "claude-vm:   '$name: \"\"' if you really mean the empty string -- claude-vm aborts rather than" >&2
+          echo "claude-vm:   guessing, so you never believe a variable is set when it is not." >&2
+          bad=1
+          ;;
+      esac
+    done < <(claude_vm_env_set_names "$doc")
+  done
+  # (c) env.files: on the host, parseable, and every name it declares usable.
+  # Parsed here, at load, rather than only when the boot env is written: a
+  # missing or malformed file must abort BEFORE the image build and the VM
+  # start, like every other config mistake.
+  idx=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    idx=$((idx + 1))
+    expanded="$(claude_vm_expand_mount_source "$f")"
+    if ! assignment="$(claude_vm_env_file_assignments "$expanded")"; then
+      echo "claude-vm:   (env.files entry #${idx}: '$f')" >&2
+      bad=1
+      continue
+    fi
+    while IFS= read -r name; do
+      [ -n "$name" ] || continue
+      name="${name%%=*}"
+      if claude_vm_env_name_is_reserved "$name"; then
+        echo "claude-vm: env.files entry #${idx} ('$f') declares '$name', a variable the LAUNCHER owns." >&2
+        echo "claude-vm:   claude-vm composes these itself: $CLAUDE_VM_RESERVED_ENV_NAMES." >&2
+        echo "claude-vm:   remove that line, or point env.files at a file that does not set it." >&2
+        bad=1
+      fi
+    done < <(printf '%s\n' "$assignment")
+  done < <(claude_vm_env_files "$boot_doc")
+  # (d) env.copy: usable names, not launcher-owned, and actually SET on this
+  # host. The unset case is the loudest one on purpose -- forwarding nothing
+  # silently is the worst outcome, since the guest then fails deep inside a tool
+  # call with an error that names neither claude-vm nor the variable.
+  idx=0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    idx=$((idx + 1))
+    if ! claude_vm_env_name_is_valid "$name"; then
+      echo "claude-vm: env.copy entry #${idx} ('$name') is not a usable environment-variable name" >&2
+      echo "claude-vm:   ([A-Za-z_][A-Za-z0-9_]*). env.copy lists NAMES to read from your shell, not values." >&2
+      bad=1
+      continue
+    fi
+    if claude_vm_env_name_is_reserved "$name"; then
+      echo "claude-vm: env.copy entry #${idx} ('$name') names a variable the LAUNCHER owns." >&2
+      echo "claude-vm:   claude-vm composes these itself: $CLAUDE_VM_RESERVED_ENV_NAMES." >&2
+      echo "claude-vm:   its own value always wins, so a config that fights it can never take effect." >&2
+      bad=1
+      continue
+    fi
+    # Indirect expansion, guarded for `set -u`: an unset name and an empty one
+    # both land here, and both are refused.
+    eval "value=\${${name}:-}"
+    if [ -z "$value" ]; then
+      echo "claude-vm: env.copy names '$name', but it is unset (or empty) in the environment claude-vm was" >&2
+      echo "claude-vm:   launched from, so there is nothing to forward. Export it before launching -- from" >&2
+      echo "claude-vm:   your shell profile, direnv, 'op run', or however you already supply it -- or remove" >&2
+      echo "claude-vm:   it from env.copy. Refusing to boot a guest that silently lacks a key it was" >&2
+      echo "claude-vm:   configured to have." >&2
+      bad=1
+    fi
+  done < <(claude_vm_env_copy_names "$boot_doc")
+  [ "$bad" -eq 0 ]
+}
+
+# Emit the BOOT tier's whole environment as ready-to-source `NAME=<shell-quoted
+# value>` assignment lines, in PRECEDENCE ORDER: env.files first, then env.copy,
+# then env.set. The launcher writes this into the transient claudecreds mount
+# and the guest sources it under `set -a`, so a later line simply overwrites an
+# earlier one -- which is the whole precedence implementation. No dedup pass, no
+# associative array, and therefore nothing that needs bash 4.
+#
+# Assumes claude_vm_check_env has already run: every name here is valid,
+# unreserved and (for env.copy) set on the host, and every env.files path parses.
+# The `[ -n ]` guards below are the floor for a caller that runs without it.
+#
+#   $1 -- merged BOOT document file path
+claude_vm_resolve_boot_env() {
+  local boot_doc="$1" f name value expanded
+  [ -n "$boot_doc" ] && [ -f "$boot_doc" ] || return 0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    expanded="$(claude_vm_expand_mount_source "$f")"
+    claude_vm_env_file_assignments "$expanded" || return 1
+  done < <(claude_vm_env_files "$boot_doc")
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    claude_vm_env_name_is_valid "$name" || continue
+    eval "value=\${${name}:-}"
+    [ -n "$value" ] || continue
+    printf '%s=%q\n' "$name" "$value"
+  done < <(claude_vm_env_copy_names "$boot_doc")
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    claude_vm_env_name_is_valid "$name" || continue
+    value="$(claude_vm_env_set_value "$boot_doc" "$name")"
+    printf '%s=%q\n' "$name" "$value"
+  done < <(claude_vm_env_set_names "$boot_doc")
+  return 0
 }
 
 # Abort when the SAME marketplace name appears with a DIFFERING url across the

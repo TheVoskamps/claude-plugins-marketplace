@@ -1,6 +1,6 @@
 {
   "name": "claude-vm",
   "description": "Run Claude Code inside an isolated Linux micro-VM on macOS with config-driven egress, mounts, and repo isolation (clone or live), driven by four-file YAML config (bake + boot per tier) instead of env vars; the immutable base image is APFS-cloned per run so concurrent sessions never leak state.",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }

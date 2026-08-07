@@ -1023,9 +1023,9 @@ BH_EMPTY2="$WORK/bake-empty2.yml"; printf 'cpus: 4\nmem: 8192\n' > "$BH_EMPTY2" 
 
 # Canonical form of an absent/empty bake config is the constant empty object.
 assert_eq "bake-hash: absent packages canonicalizes to empty form" \
-  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_EMPTY")"
+  '{"bake":[],"apt_sources":[],"env":{}}' "$(claude_vm_bake_config_json "$BH_EMPTY")"
 assert_eq "bake-hash: config with no packages key canonicalizes to empty form" \
-  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_EMPTY2")"
+  '{"bake":[],"apt_sources":[],"env":{}}' "$(claude_vm_bake_config_json "$BH_EMPTY2")"
 # Empty == absent: both hash to the same stable value (share the global image).
 assert_eq "bake-hash: empty-config hash equals no-packages-config hash" \
   "$(claude_vm_bake_hash "$BH_EMPTY")" "$(claude_vm_bake_hash "$BH_EMPTY2")"
@@ -1103,7 +1103,7 @@ BH_NULLS="$WORK/bake-nulls.yml"; cat > "$BH_NULLS" <<'YML'
 packages: [null, "", git]
 YML
 assert_eq "bake-hash: null/empty bake entries are stripped from canonical JSON" \
-  '{"bake":["git"],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_NULLS")"
+  '{"bake":["git"],"apt_sources":[],"env":{}}' "$(claude_vm_bake_config_json "$BH_NULLS")"
 BH_NULLS_CLEAN="$WORK/bake-nulls-clean.yml"; printf 'packages: [git]\n' > "$BH_NULLS_CLEAN"
 assert_eq "bake-hash: null/empty-stripped config hashes the same as the equivalent clean config" \
   "$(claude_vm_bake_hash "$BH_NULLS")" "$(claude_vm_bake_hash "$BH_NULLS_CLEAN")"
@@ -1112,7 +1112,7 @@ BH_ALLNULL="$WORK/bake-allnull.yml"; cat > "$BH_ALLNULL" <<'YML'
 packages: [null, ""]
 YML
 assert_eq "bake-hash: all-null/empty bake list canonicalizes to the empty form" \
-  '{"bake":[],"apt_sources":[]}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
+  '{"bake":[],"apt_sources":[],"env":{}}' "$(claude_vm_bake_config_json "$BH_ALLNULL")"
 
 # ---------------------------------------------------------------------
 # Test 18: WHOLE-FILE image-identity segments + filename derivation (issue #179
@@ -3870,6 +3870,401 @@ if [ -n "${BMP_START:-}" ] && command -v boot_mount_phase >/dev/null 2>&1; then
     "1" "$(grep -c . "$MOUNT_CALL_LOG" || true)"
 else
   echo "SKIP: boot_mount_phase extraction from build-guest-image.sh failed; guest-side mount tests skipped." >&2
+fi
+
+# ---------------------------------------------------------------------
+# Test 36: guest environment variables -- env.set / env.copy / env.files
+# (issue #135).
+#
+# Three things are pinned here: the MERGE (env.set repo-over-global per key,
+# env.copy/env.files union), the PRECEDENCE chain (bake set < boot files <
+# boot copy < boot set) measured by actually SOURCING what the launcher emits,
+# and every hard abort in claude_vm_check_env.
+#
+# The precedence assertions source the emitted file rather than inspecting it,
+# because emission ORDER is the whole implementation -- there is no dedup pass
+# to inspect. A test that only grepped the lines would pass on an
+# implementation that emitted them in the wrong order.
+# ---------------------------------------------------------------------
+ENVD="$WORK/env"
+mkdir -p "$ENVD"
+
+# --- merge: env.set is a scalar MAP (repo-over-global per key), env.copy and
+#     env.files are LISTS (union, de-duplicated). ---
+cat > "$ENVD/g-boot.yml" <<'YML'
+env:
+  set:
+    A: global-a
+    B: global-b
+  copy:
+    - G1
+    - SHARED
+  files:
+    - /gf.env
+YML
+cat > "$ENVD/r-boot.yml" <<'YML'
+env:
+  set:
+    B: repo-b
+    C: repo-c
+  copy:
+    - SHARED
+    - R1
+  files:
+    - /rf.env
+YML
+ENV_MERGED="$ENVD/merged-boot.yml"
+claude_vm_merge_config "$ENVD/g-boot.yml" "$ENVD/r-boot.yml" > "$ENV_MERGED"
+assert_eq "env-merge: env.set takes the global key the repo does not restate" \
+  "global-a" "$(yq eval '.env.set.A' "$ENV_MERGED")"
+assert_eq "env-merge: env.set takes the REPO value for a key both layers set" \
+  "repo-b" "$(yq eval '.env.set.B' "$ENV_MERGED")"
+assert_eq "env-merge: env.set keeps a repo-only key" \
+  "repo-c" "$(yq eval '.env.set.C' "$ENV_MERGED")"
+assert_eq "env-merge: env.copy unions global ++ repo, de-duplicated, global first" \
+  "G1 SHARED R1" "$(claude_vm_env_copy_names "$ENV_MERGED" | tr '\n' ' ' | sed 's/ $//')"
+assert_eq "env-merge: env.files unions the same way" \
+  "/gf.env /rf.env" "$(claude_vm_env_files "$ENV_MERGED" | tr '\n' ' ' | sed 's/ $//')"
+
+# --- a config with NO env: block leaves nothing behind, and the boot-tier
+#     resolve emits nothing at all (the "boots exactly as before" case). ---
+ENV_NONE="$ENVD/none.yml"
+printf 'cpus: 2\n' > "$ENV_NONE"
+assert_eq "env: a config with no env: block passes the gate" \
+  "0" "$(claude_vm_check_env "$ENV_NONE" "$ENV_NONE" >/dev/null 2>&1; echo $?)"
+assert_eq "env: a config with no env: block resolves to an empty boot environment" \
+  "" "$(claude_vm_resolve_boot_env "$ENV_NONE")"
+assert_eq "env: ... and merging two such files leaves no empty env skeleton behind" \
+  "null" "$(claude_vm_merge_config "$ENV_NONE" "$ENV_NONE" > "$ENVD/none-merged.yml"; yq eval '.env' "$ENVD/none-merged.yml")"
+
+# --- the PRECEDENCE chain, sourced. One variable, LAYERED, is set at all four
+#     levels; the guest must end up with the boot env.set value. Each lower
+#     level is checked too, by a variable only that level sets. ---
+cat > "$ENVD/prec.env" <<'ENVF'
+# a comment line, and a blank one follow
+
+LAYERED=from-file
+ONLY_FILE=file-value
+export EXPORTED=exported-value
+QUOTED_DQ="spaced double"
+QUOTED_SQ='spaced single'
+ENVF
+cat > "$ENVD/prec-boot.yml" <<YML
+env:
+  set:
+    LAYERED: from-set
+    ONLY_SET: set-value
+  copy:
+    - LAYERED
+    - ONLY_COPY
+  files:
+    - $ENVD/prec.env
+YML
+cat > "$ENVD/prec-bake.yml" <<'YML'
+env:
+  set:
+    LAYERED: from-bake
+    ONLY_BAKE: bake-value
+YML
+# The BAKE tier's carrier is rendered by the provisioner's own python (pinned in
+# podman-mkosi-test.sh); here it is stood up by hand as the plain
+# `NAME=<quoted>` file that renderer produces, so this test measures the
+# ORDERING contract -- bake sourced first, boot second -- rather than
+# re-measuring the renderer.
+printf "LAYERED=from-bake\nONLY_BAKE=bake-value\n" > "$ENVD/bake-env"
+ENV_PREC_OUT="$ENVD/boot-env"
+LAYERED=from-copy ONLY_COPY=copy-value \
+  claude_vm_resolve_boot_env "$ENVD/prec-boot.yml" > "$ENV_PREC_OUT"
+ENV_SOURCED="$(
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENVD/bake-env"
+  # shellcheck disable=SC1090
+  . "$ENV_PREC_OUT"
+  set +a
+  printf '%s|%s|%s|%s|%s|%s|%s|%s' \
+    "$LAYERED" "$ONLY_BAKE" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" \
+    "$EXPORTED" "$QUOTED_DQ" "$QUOTED_SQ"
+)"
+assert_eq "env-precedence: bake set < boot files < boot copy < boot set, and every level lands" \
+  "from-set|bake-value|file-value|copy-value|set-value|exported-value|spaced double|spaced single" \
+  "$ENV_SOURCED"
+
+# Later env.files entries win over earlier ones -- the same emission-order rule,
+# one level down.
+printf 'DUP=first\n' > "$ENVD/first.env"
+printf 'DUP=second\n' > "$ENVD/second.env"
+printf 'env:\n  files:\n    - %s\n    - %s\n' "$ENVD/first.env" "$ENVD/second.env" \
+  > "$ENVD/files-order.yml"
+assert_eq "env-files: a later file wins over an earlier one" \
+  "second" \
+  "$(claude_vm_resolve_boot_env "$ENVD/files-order.yml" > "$ENVD/files-order.out"
+     set -a; . "$ENVD/files-order.out"; set +a; printf '%s' "$DUP")"
+
+# A value with shell metacharacters must round-trip byte-exact: the emitted line
+# is sourced by the guest, so an unquoted `;` or `$` would be a second statement
+# rather than part of the value.
+ENV_HOSTILE='a b"c'\''d$e`f\g;h'
+printf 'env:\n  set:\n    HOSTILE: %s\n' "'a b\"c''d\$e\`f\\g;h'" > "$ENVD/hostile.yml"
+assert_eq "env: a value with shell metacharacters round-trips byte-exact" \
+  "$ENV_HOSTILE" \
+  "$(claude_vm_resolve_boot_env "$ENVD/hostile.yml" > "$ENVD/hostile.out"
+     set -a; . "$ENVD/hostile.out"; set +a; printf '%s' "$HOSTILE")"
+
+# --- the aborts. Each is a PRESENCE/shape mistake the operator can only learn
+#     about at load: past this point the guest is already running. ---
+# env_gate <bake-file> <boot-file> -- prints the gate's stderr; empty means it
+# passed. Wrapped in a function because the suite runs under `set -uo pipefail`
+# and every caller wants stderr only.
+env_gate() {
+  claude_vm_check_env "$1" "$2" 2>&1 >/dev/null
+}
+
+# env.copy / env.files in a BAKE file. A PRESENCE test: a valueless `copy:`
+# must abort exactly like a populated one, since a silently-ignored key leaves
+# the operator believing a host variable is forwarded into a PERSISTENT image.
+printf 'env:\n  copy:\n    - FOO\n' > "$ENVD/bake-copy.yml"
+case "$(env_gate "$ENVD/bake-copy.yml" "$ENV_NONE")" in
+  *"'env.copy' was found in a config-bake.yml"*)
+    assert_eq "env-bake-gate: env.copy in a bake file aborts, naming the key" "named" "named" ;;
+  *) assert_eq "env-bake-gate: env.copy in a bake file aborts, naming the key" "named" \
+       "$(env_gate "$ENVD/bake-copy.yml" "$ENV_NONE")" ;;
+esac
+printf 'env:\n  copy:\n' > "$ENVD/bake-copy-empty.yml"
+case "$(env_gate "$ENVD/bake-copy-empty.yml" "$ENV_NONE")" in
+  *"'env.copy' was found in a config-bake.yml"*)
+    assert_eq "env-bake-gate: an EMPTY env.copy in a bake file aborts too" "named" "named" ;;
+  *) assert_eq "env-bake-gate: an EMPTY env.copy in a bake file aborts too" "named" \
+       "$(env_gate "$ENVD/bake-copy-empty.yml" "$ENV_NONE")" ;;
+esac
+printf 'env:\n  files:\n' > "$ENVD/bake-files-empty.yml"
+case "$(env_gate "$ENVD/bake-files-empty.yml" "$ENV_NONE")" in
+  *"'env.files' was found in a config-bake.yml"*)
+    assert_eq "env-bake-gate: an EMPTY env.files in a bake file aborts too" "named" "named" ;;
+  *) assert_eq "env-bake-gate: an EMPTY env.files in a bake file aborts too" "named" \
+       "$(env_gate "$ENVD/bake-files-empty.yml" "$ENV_NONE")" ;;
+esac
+# ...but env.set in a bake file is exactly what the bake tier is FOR.
+printf 'env:\n  set:\n    OK: yes\n' > "$ENVD/bake-set.yml"
+assert_eq "env-bake-gate: env.set in a bake file is accepted" \
+  "" "$(env_gate "$ENVD/bake-set.yml" "$ENV_NONE")"
+
+# An env.copy name that is unset (or empty) on the host. The loudest case: a
+# guest that silently lacks the key fails much later, inside a tool call.
+printf 'env:\n  copy:\n    - ENV_TEST_ABSENT_KEY\n' > "$ENVD/copy-unset.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/copy-unset.yml")" in
+  *"env.copy names 'ENV_TEST_ABSENT_KEY', but it is unset"*)
+    assert_eq "env-copy-gate: an unset host variable aborts, naming it" "named" "named" ;;
+  *) assert_eq "env-copy-gate: an unset host variable aborts, naming it" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/copy-unset.yml")" ;;
+esac
+assert_eq "env-copy-gate: an EMPTY host variable aborts the same way as an unset one" \
+  "abort" \
+  "$(ENV_TEST_ABSENT_KEY="" claude_vm_check_env "$ENV_NONE" "$ENVD/copy-unset.yml" >/dev/null 2>&1 \
+     && echo pass || echo abort)"
+assert_eq "env-copy-gate: a SET host variable passes" \
+  "pass" \
+  "$(ENV_TEST_ABSENT_KEY=sk-test claude_vm_check_env "$ENV_NONE" "$ENVD/copy-unset.yml" >/dev/null 2>&1 \
+     && echo pass || echo abort)"
+# The diagnostic must never print the VALUE -- these are exactly the strings
+# that must not reach a terminal or a log.
+printf 'env:\n  set:\n    LEAKY: super-secret-literal\n  copy:\n    - ENV_TEST_LEAK\n' \
+  > "$ENVD/leak.yml"
+ENV_LEAK_OUT="$(ENV_TEST_LEAK="sk-do-not-print" env_gate "$ENV_NONE" "$ENVD/leak.yml"; \
+                ENV_TEST_LEAK="sk-do-not-print" claude_vm_check_env "$ENV_NONE" "$ENVD/leak.yml" 2>&1)"
+case "$ENV_LEAK_OUT" in
+  *sk-do-not-print*|*super-secret-literal*)
+    assert_eq "env: no diagnostic ever prints a value" "clean" "$ENV_LEAK_OUT" ;;
+  *) assert_eq "env: no diagnostic ever prints a value" "clean" "clean" ;;
+esac
+
+# An invalid name, from each of the three sources.
+printf 'env:\n  set:\n    "2BAD": x\n' > "$ENVD/badname-set.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/badname-set.yml")" in
+  *"env.set key '2BAD' in the merged BOOT config is not a usable"*)
+    assert_eq "env-name-gate: an env.set key outside the charset aborts" "named" "named" ;;
+  *) assert_eq "env-name-gate: an env.set key outside the charset aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/badname-set.yml")" ;;
+esac
+printf 'env:\n  copy:\n    - "FOO-BAR"\n' > "$ENVD/badname-copy.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/badname-copy.yml")" in
+  *"env.copy entry #1 ('FOO-BAR') is not a usable"*)
+    assert_eq "env-name-gate: an env.copy entry outside the charset aborts" "named" "named" ;;
+  *) assert_eq "env-name-gate: an env.copy entry outside the charset aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/badname-copy.yml")" ;;
+esac
+printf 'FOO BAR=x\n' > "$ENVD/badname.env"
+printf 'env:\n  files:\n    - %s\n' "$ENVD/badname.env" > "$ENVD/badname-file.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" in
+  *"is not a usable environment-variable name"*)
+    assert_eq "env-name-gate: a name declared by an env.files file is checked too" "named" "named" ;;
+  *) assert_eq "env-name-gate: a name declared by an env.files file is checked too" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/badname-file.yml")" ;;
+esac
+
+# A launcher-owned name, from each source. The launcher's composition always
+# wins, so a config that fights it can never take effect.
+printf 'env:\n  set:\n    CLAUDE_ARGS: nope\n' > "$ENVD/reserved-set.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/reserved-set.yml")" in
+  *"env.set key 'CLAUDE_ARGS' in the merged BOOT config names a variable the LAUNCHER owns"*)
+    assert_eq "env-reserved-gate: an env.set key the launcher owns aborts" "named" "named" ;;
+  *) assert_eq "env-reserved-gate: an env.set key the launcher owns aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/reserved-set.yml")" ;;
+esac
+printf 'env:\n  copy:\n    - HTTPS_PROXY\n' > "$ENVD/reserved-copy.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/reserved-copy.yml")" in
+  *"env.copy entry #1 ('HTTPS_PROXY') names a variable the LAUNCHER owns"*)
+    assert_eq "env-reserved-gate: an env.copy entry the launcher owns aborts" "named" "named" ;;
+  *) assert_eq "env-reserved-gate: an env.copy entry the launcher owns aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/reserved-copy.yml")" ;;
+esac
+printf 'IS_SANDBOX=0\n' > "$ENVD/reserved.env"
+printf 'env:\n  files:\n    - %s\n' "$ENVD/reserved.env" > "$ENVD/reserved-file.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/reserved-file.yml")" in
+  *"declares 'IS_SANDBOX', a variable the LAUNCHER owns"*)
+    assert_eq "env-reserved-gate: an env.files file setting a launcher-owned name aborts" "named" "named" ;;
+  *) assert_eq "env-reserved-gate: an env.files file setting a launcher-owned name aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/reserved-file.yml")" ;;
+esac
+# The reserved set is matched with a space-padded case, so a name that merely
+# CONTAINS a reserved one is not itself reserved.
+assert_eq "env-reserved-gate: a name containing a reserved one is not reserved" \
+  "no" "$(claude_vm_env_name_is_reserved MY_IS_SANDBOX && echo yes || echo no)"
+assert_eq "env-reserved-gate: ... and the exact name is" \
+  "yes" "$(claude_vm_env_name_is_reserved IS_SANDBOX && echo yes || echo no)"
+
+# A non-scalar env.set value, and an explicitly valueless one. A map or a list
+# has no environment representation at all; a valueless key is the `mode: ""`
+# shape -- accepted silently it would leave the operator believing a variable
+# is set when it holds nothing.
+printf 'env:\n  set:\n    X:\n      - 1\n' > "$ENVD/seq.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/seq.yml")" in
+  *"env.set['X'] in the merged BOOT config is a !!seq"*)
+    assert_eq "env-scalar-gate: a list env.set value aborts" "named" "named" ;;
+  *) assert_eq "env-scalar-gate: a list env.set value aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/seq.yml")" ;;
+esac
+printf 'env:\n  set:\n    X:\n      k: v\n' > "$ENVD/map.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/map.yml")" in
+  *"env.set['X'] in the merged BOOT config is a !!map"*)
+    assert_eq "env-scalar-gate: a map env.set value aborts" "named" "named" ;;
+  *) assert_eq "env-scalar-gate: a map env.set value aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/map.yml")" ;;
+esac
+printf 'env:\n  set:\n    X:\n' > "$ENVD/null.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/null.yml")" in
+  *"env.set['X'] in the merged BOOT config has no value"*)
+    assert_eq "env-scalar-gate: a valueless env.set key aborts" "named" "named" ;;
+  *) assert_eq "env-scalar-gate: a valueless env.set key aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/null.yml")" ;;
+esac
+# ...while an explicit empty string is a legitimate value and is accepted --
+# the two spellings must not collapse into one.
+printf 'env:\n  set:\n    X: ""\n' > "$ENVD/emptystr.yml"
+assert_eq "env-scalar-gate: an explicit empty string is accepted" \
+  "" "$(env_gate "$ENV_NONE" "$ENVD/emptystr.yml")"
+# A non-map env.set is a shape error of its own.
+printf 'env:\n  set:\n    - A\n' > "$ENVD/setseq.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/setseq.yml")" in
+  *"'env.set' in the merged BOOT config is a !!seq, not a map"*)
+    assert_eq "env-scalar-gate: an env.set that is not a map aborts" "named" "named" ;;
+  *) assert_eq "env-scalar-gate: an env.set that is not a map aborts" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/setseq.yml")" ;;
+esac
+
+# env.files: the path must exist on the host, and the file must parse.
+printf 'env:\n  files:\n    - %s/definitely-absent.env\n' "$ENVD" > "$ENVD/missing-file.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/missing-file.yml")" in
+  *"is not a file on this host"*)
+    assert_eq "env-files-gate: a missing env.files path aborts, naming it" "named" "named" ;;
+  *) assert_eq "env-files-gate: a missing env.files path aborts, naming it" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/missing-file.yml")" ;;
+esac
+printf 'this is not an assignment\n' > "$ENVD/unparseable.env"
+printf 'env:\n  files:\n    - %s\n' "$ENVD/unparseable.env" > "$ENVD/unparseable.yml"
+case "$(env_gate "$ENV_NONE" "$ENVD/unparseable.yml")" in
+  *"line 1 does not parse as NAME=value"*)
+    assert_eq "env-files-gate: an unparseable line aborts, naming the line number" "named" "named" ;;
+  *) assert_eq "env-files-gate: an unparseable line aborts, naming the line number" "named" \
+       "$(env_gate "$ENV_NONE" "$ENVD/unparseable.yml")" ;;
+esac
+# A `~` in an env.files path is expanded the same way a mount source is -- the
+# config is YAML, so nothing else expands it.
+assert_eq "env-files: a leading ~ is expanded against \$HOME" \
+  "$HOME/some/.env" "$(claude_vm_expand_mount_source '~/some/.env')"
+# A file with a final line carrying no trailing newline is still read (the
+# `|| [ -n "$line" ]` arm), and its parse is not silently skipped.
+printf 'NO_NEWLINE=tail-value' > "$ENVD/no-newline.env"
+assert_eq "env-files: a final line with no trailing newline is still read" \
+  "NO_NEWLINE=tail-value" "$(claude_vm_env_file_assignments "$ENVD/no-newline.env")"
+
+# The bake tier's canonical JSON carries env.set, sorted and stringified, so a
+# YAML int or bool renders the way yq renders the scalar rather than the way
+# Python's str() would.
+printf 'env:\n  set:\n    PORT: 8080\n    DEBUG: true\n    A_NAME: last\n' > "$ENVD/bakejson.yml"
+assert_eq "env-bake-json: env.set is sorted and every value is a string" \
+  '{"bake":[],"apt_sources":[],"env":{"A_NAME":"last","DEBUG":"true","PORT":"8080"}}' \
+  "$(claude_vm_bake_config_json "$ENVD/bakejson.yml")"
+# Changing a baked env value changes the whole-file identity hash, so the next
+# launch rebuilds rather than reusing the cached image. (Whole-file raw bytes,
+# so this holds for any edit -- asserted here on the key this feature adds.)
+printf 'env:\n  set:\n    FOO: one\n' > "$ENVD/ident-a.yml"
+printf 'env:\n  set:\n    FOO: two\n' > "$ENVD/ident-b.yml"
+if [ "$(claude_vm_file_identity_hash "$ENVD/ident-a.yml")" \
+     = "$(claude_vm_file_identity_hash "$ENVD/ident-b.yml")" ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL - env-bake-identity: changing a baked env.set value must change the image identity hash"
+else
+  PASS=$((PASS + 1))
+  echo "ok   - env-bake-identity: changing a baked env.set value changes the image identity hash"
+fi
+
+# CLAUDE_VM_RESERVED_ENV_NAMES claims to be "every name run.env writes, plus the
+# one the boot launcher exports on its abnormal-exit path". That is an
+# enumeration copied from another file, which is exactly the kind of claim that
+# goes stale silently: a new run.env line would become a name an operator could
+# set in config and have the launcher overwrite anyway. Derive the run.env set
+# from claude-vm.sh's own write block and compare, so the claim checks itself.
+ENV_RUNENV_NAMES="$(
+  sed -n '/^RUN_ENV=/,/^chmod 600 "\$RUN_ENV"/p' "$LAUNCHER" \
+    | grep -oE "printf '[A-Za-z_][A-Za-z0-9_]*=" \
+    | sed "s/printf '//; s/=//" | sort -u
+)"
+assert_eq "env-reserved-set: the run.env write block was found (non-empty)" \
+  "yes" "$([ -n "$ENV_RUNENV_NAMES" ] && echo yes || echo no)"
+assert_eq "env-reserved-set: it is exactly run.env's names + CLAUDE_VM_LAST_CLAUDE_STATUS" \
+  "$(printf '%s\nCLAUDE_VM_LAST_CLAUDE_STATUS\n' "$ENV_RUNENV_NAMES" | sort -u)" \
+  "$(printf '%s\n' $CLAUDE_VM_RESERVED_ENV_NAMES | sort -u)"
+# ...and the boot launcher really does export that last one, so its presence in
+# the set is earned rather than defensive.
+assert_eq "env-reserved-set: the boot launcher really exports CLAUDE_VM_LAST_CLAUDE_STATUS" \
+  "1" "$(grep -c 'export CLAUDE_VM_LAST_CLAUDE_STATUS' "$BUILD_GUEST_IMAGE" || true)"
+
+# The whole env gate is a config-load guard, so it must give the SAME verdict on
+# the bash 3.2 macOS still ships -- long before the first bash-4 construct in
+# this library would fail loudly. Reuses $OLD_BASH resolved above; skipped
+# rather than faked when the host has no pre-4 bash.
+if [ -n "${OLD_BASH:-}" ]; then
+  # Again by SOURCING rather than by text: the two shells' %q spellings differ
+  # (see the .env case below), but the VALUES the guest ends up with must not.
+  assert_eq "env: an OLD bash ($OLD_BASH) resolves the same boot environment" \
+    "from-set|file-value|copy-value|set-value|spaced double" \
+    "$(LAYERED=from-copy ONLY_COPY=copy-value "$OLD_BASH" -c \
+        '. "$1"; claude_vm_resolve_boot_env "$2" > "$3"; set -a; . "$3"; set +a;
+         printf "%s|%s|%s|%s|%s" "$LAYERED" "$ONLY_FILE" "$ONLY_COPY" "$ONLY_SET" "$QUOTED_DQ"' \
+        _ "$LIB" "$ENVD/prec-boot.yml" "$ENVD/old-bash-boot.out" 2>/dev/null)"
+  assert_eq "env: an OLD bash reaches the same unset-env.copy verdict" \
+    "abort" \
+    "$("$OLD_BASH" -c '. "$1"; claude_vm_check_env "$2" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
+        _ "$LIB" "$ENV_NONE" "$ENVD/copy-unset.yml" 2>/dev/null)"
+  # Compared by SOURCING, not by text: bash 3.2's %q spells a space as `a\ b`
+  # where bash 5 spells it `'a b'`. Both are correct shell quoting of the same
+  # value, and the value is what the guest ends up with -- an assertion on the
+  # literal text would fail on a difference that does not exist.
+  assert_eq "env: an OLD bash unwraps a quoted .env value to the same VALUE" \
+    "spaced double" \
+    "$("$OLD_BASH" -c '. "$1"; claude_vm_env_file_assignments "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$QUOTED_DQ"' \
+        _ "$LIB" "$ENVD/prec.env" "$ENVD/old-bash.out" 2>/dev/null)"
 fi
 
 # ---------------------------------------------------------------------

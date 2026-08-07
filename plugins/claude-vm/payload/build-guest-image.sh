@@ -310,7 +310,18 @@ BASE_OS_REV="debian-12-20250601"
 # LAUNCHER_LOGIC_REV is the only thing that invalidates a cached image -- so
 # without the bump an image built earlier on this same branch would silently
 # keep the old phase.
-LAUNCHER_LOGIC_REV="24"
+# Bumped 24 -> 25: guest environment variables (issue #135). The boot launcher
+# gains a source-and-export step immediately after run.env, reading the baked
+# /etc/claude-vm/bake-env and then the boot tier's env file off the RO
+# claudecreds mount. Before this rev neither file was read at all, so an image
+# stamped 'launcher24' would carry the operator's baked `env.set` in its own
+# filesystem and export none of it, and would ignore the boot-tier env file the
+# launcher now writes on every run -- the guest coming up without a key it was
+# configured to have, which is the exact silent failure the host-side gate
+# exists to prevent. Same reasoning as every rev above: the launcher's SOURCE is
+# not part of the image-identity hash, so this constant is the only thing that
+# invalidates a cached image.
+LAUNCHER_LOGIC_REV="25"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -392,7 +403,8 @@ EOF
 
 # The boot launcher baked into the guest. As of issue #88 it runs as the
 # LOGIN PROGRAM of an autologin serial-getty@hvc1 (a real controlling tty),
-# loads the run environment, then runs the host-verified `claude` binary
+# loads the run environment and the operator's configured guest environment
+# variables (issue #135), then runs the host-verified `claude` binary
 # (mounted RO at /mnt/claudebin by the guest fstab) against the mounted repo
 # at /mnt/repo -- so claude IS the interactive hvc1 session. As of issue #179
 # it runs claude as a CHILD (not `exec`) so it can read the exit status and
@@ -415,6 +427,9 @@ emit_boot_launcher() {
 # getty on /dev/hvc1 (serial-getty@hvc1 drop-in), so it has a real controlling
 # terminal -- the vfkit `virtio-serial,stdio` console the launching terminal is
 # bridged to. It loads the run environment (proxy + args + geometry + renderer),
+# applies the operator's configured guest environment variables -- the baked
+# /etc/claude-vm/bake-env then the boot tier's shred-on-exit env file, in that
+# order, which IS the precedence chain (issue #135) --
 # mounts the operator's configured `mounts:` shares at their guest paths so
 # every later step sees a fully-assembled filesystem (issue #157),
 # installs the host's claude.ai OAuth credential (mounted RO at /mnt/claudecreds)
@@ -484,6 +499,59 @@ CLAUDECREDS_MNT=/mnt/claudecreds
 set -a
 # shellcheck disable=SC1091
 . "$RUNCONFIG_MNT/run.env"
+set +a
+
+# ---------------------------------------------------------------------
+# Guest environment variables (issue #135) -- the GUEST half of the `env:`
+# config key. TWO carriers, one per tier, sourced in PRECEDENCE ORDER.
+#
+#   /etc/claude-vm/bake-env    BAKE tier. Written into the image by the
+#                              provisioner (podman-mkosi.sh) from the bake
+#                              file's `env.set`, so it is present in every
+#                              session this image serves and PERSISTS across
+#                              runs. That persistence is exactly why `env.copy`
+#                              / `env.files` are a hard abort in a bake file:
+#                              a value read from the host environment must
+#                              never become image bytes.
+#   $CLAUDECREDS_MNT/env       BOOT tier. Written per launch by claude-vm.sh
+#                              into the transient credential share (mounted
+#                              here `ro`), which cleanup() shreds on exit. It
+#                              carries the whole boot tier -- env.files, then
+#                              env.copy, then env.set, in that order -- so the
+#                              secret and non-secret boot paths cannot diverge.
+#
+# Sourcing the bake file first and the boot file second, each under `set -a`,
+# IS the precedence chain, because a later assignment overwrites an earlier
+# one:
+#
+#   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+#
+# and the boot file's own three sections are emitted in that same order by
+# claude_vm_resolve_boot_env. No merge logic on this side at all.
+#
+# Every line in both files is a plain `NAME=<shell-quoted value>` assignment:
+# the host validated each NAME against [A-Za-z_][A-Za-z0-9_]* and refused any
+# name the launcher itself owns (so nothing here can overwrite the proxy vars,
+# the mount tags, CLAUDE_ARGS or the renderer flags sourced above), and it
+# %q-quoted each value.
+#
+# Nothing is COPIED out of the boot file: it is sourced straight off the RO
+# credential mount, so no forwarded API key ever lands on the guest filesystem
+# and there is nothing here to shred. Both files are OPTIONAL -- a config with
+# no `env:` block in either tier produces neither, and this block is a no-op.
+BAKE_ENV_FILE=/etc/claude-vm/bake-env
+BOOT_ENV_FILE="$CLAUDECREDS_MNT/env"
+set -a
+if [ -f "$BAKE_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$BAKE_ENV_FILE"
+  log "claude-vm: applied the baked guest environment from $BAKE_ENV_FILE."
+fi
+if [ -s "$BOOT_ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  . "$BOOT_ENV_FILE"
+  log "claude-vm: applied the boot-tier guest environment from $BOOT_ENV_FILE (values not logged)."
+fi
 set +a
 
 # ---------------------------------------------------------------------
