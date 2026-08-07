@@ -50,15 +50,23 @@ only the roster bullet.
 
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
-confined to the agent file. It does state the fleet-wide
-`effort: medium` — twice, in the teammate-frontmatter prose near the
-top and in the "Token Efficiency" bullet — because that value is a
-decision (the bounded, spec-driven tasks the teammates get are more
-solid at medium) rather than a per-agent tier, and because effort has
-no `Agent`-tool override, so frontmatter is the only lever. A PR that
-changes any teammate's `effort:` therefore updates both SKILL.md
-statements as well; grep SKILL.md for `effort` and confirm every hit
-still describes the whole fleet.
+confined to the agent file. It does state the `effort: medium` default
+— twice, in the teammate-frontmatter prose near the top and in the
+"Token Efficiency" bullet — because that value is a decision (the
+bounded, spec-driven tasks the teammates get are more solid at medium)
+rather than a per-agent tier, and because effort has no `Agent`-tool
+override, so frontmatter is the only lever. A PR that changes any
+teammate's `effort:` therefore updates both SKILL.md statements as
+well; grep SKILL.md for `effort` and confirm every hit still describes
+the agents it claims to.
+
+Both statements now carry a named exception, so neither reads "every
+teammate" unqualified: `pr-reviewer-high` and `pr-reviewer-xhigh` pin
+`effort: high` and `effort: xhigh`. That is not effort varying per
+spawn — the thing the same statements forbid — but a different agent
+definition being spawned, per "The reviewer skeletons are three copies
+of one file" below. A PR that adds a further off-default variant
+extends the exception in both places rather than deleting the default.
 
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step
@@ -82,6 +90,41 @@ are load-bearing across the file's own report templates and a Hard
 Constraint ("wait for confirmation before starting Phase 2"), so
 renaming them is a cross-file refactor rather than a doc-pass sweep.
 Say so in the report instead of churning on them.
+
+## The reviewer skeletons are three copies of one file
+
+`plugins/sdlc/agents/pr-reviewer.md`, `pr-reviewer-high.md`, and
+`pr-reviewer-xhigh.md` are byte-identical except for three frontmatter
+lines: `name:`, `effort:`, and the tier word inside `description:`.
+That is the whole design — the reviewing instructions live in
+`plugins/sdlc/skills/pr-review-protocol/SKILL.md`, preloaded into each
+skeleton through its `skills:` frontmatter, so a tier is a choice of
+which definition to spawn rather than a parameter anything passes.
+
+So an edit to any one skeleton sweeps all three, and the check is
+mechanical:
+
+```bash
+diff plugins/sdlc/agents/pr-reviewer.md \
+     plugins/sdlc/agents/pr-reviewer-high.md
+diff plugins/sdlc/agents/pr-reviewer.md \
+     plugins/sdlc/agents/pr-reviewer-xhigh.md
+```
+
+Each must report only those three lines. A fourth differing line is a
+defect however sensible it reads: a variant that says something the
+base does not is a second source of truth for review behavior, which
+is exactly what moving the protocol out of the agent files removed.
+
+Review guidance itself never goes in a skeleton. It goes in the
+protocol skill, which is tier-blind by construction — it takes `--pr`,
+`--issues`, `--branch` and no tier parameter, and asking it which
+variant is running would let the two tiers drift apart in behavior as
+well as budget. The orchestrator's selection rule lives in
+`plugins/sdlc/skills/orchestrate/SKILL.md` → "Picking a reviewer tier";
+adding or removing a variant updates that section, the teammate roster
+above it, and the two `effort` statements the sdlc sweep section
+already names.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
