@@ -3,7 +3,7 @@ name: issue-developer
 description: Implements a batch of one or more issues on a single branch, runs tests, makes one commit per issue, pushes, and creates one PR closing them all. Use this for initial implementation of each batch.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
-effort: xhigh
+effort: medium
 isolation: worktree
 memory: project
 skills:
