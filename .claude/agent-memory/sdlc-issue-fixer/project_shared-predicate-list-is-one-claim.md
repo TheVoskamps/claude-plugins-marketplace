@@ -41,6 +41,21 @@ before adding it — a near-miss hit may belong to a *different* class
 opposite bullet), so name that exclusion in the prose rather than
 silently dropping it.
 
+**The two-noun form is the easiest to miss.** The list need not be
+bulleted or parenthesized — a conjoined subject inside one sentence is
+the same claim: "the `mounts` **and** `env` name checks run over the
+MERGED global+repo set, so a per-repo entry can collide with a global
+one" (claude-vm's per-repo config wizard, #135). True of `mounts`,
+which really does abort on a duplicate tag across the merged list;
+false of `env.set`, where the merge is repo-over-global per key and no
+cross-layer check exists at all. Nothing in the sentence's shape flags
+that a gate was borrowed from the neighbour it was conjoined with, and
+the borrowed half tells an operator to expect an abort that never
+comes. When a new key is documented next to an older one, re-read the
+older key's gate in the code and give each its own clause — including
+the explicit negative ("there is no cross-layer check here"), so the
+next writer cannot re-borrow.
+
 Sibling shapes: [[count-tally-class-includes-back-references]] (the
 tally and its downstream back-references are one claim too),
 [[staleness-check-both-ends-same-source]] (record site and re-read
