@@ -447,6 +447,49 @@ described from a different file entirely.
 Re-run `payload/test/boot-launcher-test.sh` on any launcher edit,
 including a comment-only one: it parses the emitted script.
 
+## A claude-vm presence gate asks the raw config file, not the merged one
+
+`claude_vm_merge_config`'s last step is
+`claude_vm_prune_empty_skeleton`, which deletes every
+`CLAUDE_VM_LIST_KEYS` entry whose merged value is an empty list, plus
+any map left empty as a result. That prune is correct and stays: it is
+what stops a consumer conflating "the operator configured this as
+empty" with "the operator never touched it". Its consequence is the
+trap — **adding a key to `CLAUDE_VM_LIST_KEYS` silently disarms any
+`has()` presence gate on that key**, because the merged document no
+longer carries the key in exactly the spellings the gate exists to
+catch (a valueless `copy:`, `copy: []`, `copy: ""`). Nothing errors;
+the gate just answers *false* and the launch proceeds.
+
+That is what the first round of issue #135 shipped and what a real
+launch caught: `.env.copy` / `.env.files` joined
+`CLAUDE_VM_LIST_KEYS`, `claude_vm_check_env` asked `MERGED_BAKE`, and
+a bake file holding a valueless `copy:` built an image. The repair is
+to ask the RAW files the operator wrote — `claude_vm_env_bake_has_key`
+takes one raw bake path, and `claude_vm_check_env` takes the global
+and repo bake paths after the two merged documents, which is also what
+lets the diagnostic name *which* file carries the key. Never exempt a
+key from the prune instead: an exemption reinstates the
+configured-empty-looks-configured trap for the next reader and changes
+merge semantics for keys that have nothing to do with the gate.
+Presence is a property of what was WRITTEN, and only the raw files
+still hold it.
+
+So: adding a key to `CLAUDE_VM_LIST_KEYS` means grepping
+`plugins/claude-vm/payload/` for `has(` — there are two uses — and
+grading each against the new key; and writing a gate means checking
+whether its key is a list key before reading presence off a merged
+document. A merged document is a legitimate source when neither prune
+pass can reach the key: `claude_vm_mount_mode_entries` asks
+`has("mode")` of the merged boot document and is right to, because
+`mode:` sits inside a list *element*, which pass 1 (whole empty list
+keys) and pass 2 (empty maps) both leave alone. Pin the difference by
+driving `claude_vm_merge_config` in the launcher's own argument shape
+rather than calling the gate on a hand-written fixture —
+`config-test.sh`'s env battery was green on fixtures while the
+launcher was letting the config through. The local reasoning is in
+`plugins/claude-vm/payload/README.md` → *Guest environment variables*.
+
 ## Sweep the claude-vm config wizards when its schema or validation changes
 
 `plugins/claude-vm/skills/claude-vm-config-global/SKILL.md` and
