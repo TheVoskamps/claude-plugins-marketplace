@@ -275,9 +275,16 @@ func TestGhAliasNegativeControl_229(t *testing.T) {
 	// started escalating one — while the total stayed put and hid it, which is
 	// why the decomposition is spelled out rather than left as a sum.
 	// Operands add rows in BOTH directions rather than settling the count —
-	// `gh gist new /etc/passwd` moves ask → deny while `gh gist new notes.md`
-	// moves ask → allow — which is why the figures above are stated over the
-	// bare cross, where nothing but the resolution is in play.
+	// `gh issue new -t x -F /etc/passwd` moves ask → deny while
+	// `gh issue new -t x -F notes.md` moves ask → allow — which is why the
+	// figures above are stated over the bare cross, where nothing but the
+	// resolution is in play.
+	//
+	// `gh gist new` is deliberately NOT that example, though it reads like one.
+	// Its escaping spelling does move ask → deny, but `gh gist new notes.md`
+	// asks on BOTH binaries: the fail-closed floor before resolution, the gist
+	// publish tier after. Same bucket, different reason — which is exactly the
+	// shape a bucket-only assertion cannot see.
 	for _, cmd := range []string{"gh secret remove FOO", "gh secret ls", "gh variable remove FOO", "gh variable ls"} {
 		wantReason(t, classifyInRepo(t, cmd, repo), BucketDeny, "writes or deletes",
 			"#229 alias negative control (pre-fix deny): "+cmd)

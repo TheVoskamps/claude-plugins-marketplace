@@ -193,8 +193,10 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	//
 	// Placed BELOW the irreparable-deny tier so those keep their specific
 	// messages, and ABOVE the publish ASK tier so an escaping path on
-	// `gh release create` / `gh gist create --public` earns the containment deny
-	// rather than a click-through on the publish prompt.
+	// `gh release create`, `gh gist create` or `gh gist edit` earns the
+	// containment deny rather than a click-through on the publish prompt.
+	// Both gist verbs reach that tier in EVERY spelling now, not the
+	// `--public` ones alone — see the arms below.
 	if d, hit := ghPublishedFileEscalates(cmd, sc, ev); hit {
 		return d
 	}
