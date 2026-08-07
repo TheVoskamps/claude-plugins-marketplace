@@ -71,11 +71,25 @@ a `containsToken` scan over-asks there and a faithful pflag walk read it
 correctly as not-the-flag. The gate no longer branches on any of
 this: #232 round 10 made every `gh gist create` an ASK (a secret gist
 is unlisted, not private), deleted the `--public` screen, and took the
-verb out of `ghRecoverableWriteVerbs`, so all these spellings ask on
-the verb now. The parse facts stay true of gh; they are just no longer
-verdict-bearing. That is the shape to expect when a review argues about
-which spellings a screen reads: check first whether the screen still
-decides anything.
+verb out of `ghRecoverableWriteVerbs`; round 11 then did the same to
+`gh gist edit` on the whole verb (an existing gist may already have a
+circulated URL and readers, so `edit` can be WORSE than `create`),
+leaving that map with no `gist` entry at all. So all these spellings ask
+on the verb now, and so does the bare `gh gist edit <id>` that opens an
+editor and reads nothing. The parse facts stay true of gh; they are just
+no longer verdict-bearing. That is the shape to expect when a review
+argues about which spellings a screen reads: check first whether the
+screen still decides anything.
+
+**When a whole-verb escalation lands above a containment tier, prove the
+ORDER did not invert.** The failure a fix like this can introduce is a
+softening from deny to ask, not a widening. Replay every escaping
+spelling — positional, each path flag in all four getopt forms plus
+pflag's `-F=`, after `--`, the `-` marker with a redirect, the implicit
+stdin default, the alias spelling, a leading `-R` global — and every
+equivalent path spelling (`//`, `/./`, `/../`, `~`, quoted, `$HOME`).
+On #232 round 9 that was 78 gist rows plus a 3,672-row operand cross,
+with zero `deny -> ask`.
 
 Related: [[audit-a-help-derived-flag-whitelist]],
 [[guardrails-binary-verification]],
