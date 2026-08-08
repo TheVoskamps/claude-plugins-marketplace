@@ -12,6 +12,14 @@ entry carries a value-TYPE word: `-F, --body-file file`,
 local file, that annotation is the source — not memory, and not the
 prose description.
 
+**Not on a publishing verb.** The root `CLAUDE.md` forbids invoking
+`gist create`/`gist edit`/`release create`/`release upload`/`pr
+create`/`issue create`/`pr comment`/`issue comment` in any spelling,
+`--help` included. For those verbs read the command's own registration
+block instead — `gh api "repos/cli/cli/contents/<path>?ref=<tag>" --jq
+.content | base64 -d` — which gives the complete flag set and is the
+parser's own input, so it is better evidence than help anyway.
+
 Machine-extract it rather than eyeballing; a script per invocation
 avoids the gate's multi-construct-one-liner DENY (see
 [[permission-gate-self-hosting]]):

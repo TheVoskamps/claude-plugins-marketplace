@@ -53,7 +53,8 @@ author — a `(#229, PR\n#232)` reference wrapped at the wrong space puts
    issues" proves nothing until the command has been shown to fail on
    the pre-fix bytes. See [[negative-control-the-approved-snippet]].
 
-Repo-wide, `git ls-files '*.md'` lints 237 files with 36 pre-existing
-MD041 hits, all in `plugins/issues/skills/**/SKILL.md` plus
-`PRIOR_ART.md` — frontmatter-then-prose, the same format contract the
-agent-memory config carves out. Report those; they are not yours.
+Repo-wide, `git ls-files '*.md'` turns up a standing set of pre-existing
+MD041 hits in `plugins/issues/skills/**/SKILL.md` and `PRIOR_ART.md` —
+frontmatter-then-prose, the same format contract the agent-memory config
+carves out. Report those; they are not yours, and their count drifts, so
+re-measure rather than quoting a remembered figure.

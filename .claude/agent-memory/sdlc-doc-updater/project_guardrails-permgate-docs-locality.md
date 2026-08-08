@@ -245,7 +245,12 @@ worth one probe before they stand:
   the abridged quote created.
 
 Dump gh help from a scratchpad SCRIPT, not inline: the gate blocks
-`gh "$noun" "$verb"` as non-static argv.
+`gh "$noun" "$verb"` as non-static argv. And exclude the publishing
+verbs from any such sweep — the root `CLAUDE.md` forbids invoking them
+in any spelling, `--help` included. Their USAGE and flag grammar come
+from the command's own registration block via
+`gh api "repos/cli/cli/contents/<path>?ref=<tag>"`, which is the
+parser's own input and therefore the better source regardless.
 
 **A mechanism-narrowing round leaves a self-contradicting file.** A
 fixer greps for the paragraph it remembers writing, not for every
@@ -349,45 +354,44 @@ finds nothing. Same class as
 [[feedback_diagnostic-detail-claims]] — check what the message STRING
 interpolates after any rewrite of the tokens it is built from.
 
-**A verdict-move COUNT is checkable without reproducing the cross it
-was taken over (#229, PR #232, round 9).** The surfaces reported "24
-rows move" over a 1,295-row bare `gh <noun> <verb>` cross, and the
-cheap check is not to rebuild that cross but to ask which rows the
+**Grade a verdict-move COUNT by its DERIVATION, never by adjudicating
+the total.** A gate PR that changes `classifyGh` states "N rows move"
+over a `gh <noun> <verb>` cross. Successive rounds on the same PR will
+each produce a different N, each honest over its own row set, and
+picking the right one is effort the owner has explicitly ruled not worth
+spending. What a doc pass owes the reader is only this: the sentence
+states the row set AND the union that generates it, so a reader can
+re-run it. A bare total with no derivation is the finding; a total that
+disagrees with your own reconstruction is not.
+
+The cheap check is not to rebuild the cross but to ask which rows the
 change can possibly move — for an alias round, `ghCanonicalCommand`
 returns its input unchanged unless the noun or verb is an alias, so only
 alias-touching rows can move at all — and the moving set is INVARIANT to
-how wide the cross is. Extract main and the tip with
-`git archive … | tar -x`, drop one `zz_docprobe_test.go` into both that
-crosses the tables and writes `cmd<TAB>bucket`, and `paste`/`awk` the
-two files. My own 37×34 reconstruction of the same five table families
-(alias, read, recoverable-write, file-spec, deny) totals 1,258 rather
-than 1,295 — one verb short, never identified — yet reproduced the 24
-and every sub-count exactly. So a stated total whose derivation a reader
-cannot re-run is worth flagging, and #232 round 11 settled it the right
-way round: that round had to re-measure anyway (the total moved 24 → 25),
-so it replaced the unreproducible 1,295 with the 1,258 cross AND the
-derivation that generates it, then re-ran a deliberately WIDER 39×39 =
-1,521 superset which moved exactly the same 25 rows. That is the shape
-to ask for — not a swapped number, but a stated derivation plus a
-second measurement at a different width. Do not "fix" a total to your
-own number in a round that is not re-measuring: the load-bearing figure
-is the moving set, and it survives the disagreement.
+how wide the cross is, so a second measurement at a wider width is
+stronger evidence than any single number. When you do need to replay,
+extract main and the tip with `git archive … | tar -x`, drop one
+`zz_docprobe_test.go` into both that crosses the tables and writes
+`cmd<TAB>bucket`, and `paste`/`awk` the two files. Cost: two
+extractions, one throwaway dump test, one `go build` per side, and a
+python replay.
+
+Do NOT "fix" a total to your own number in a round that is not
+re-measuring — the load-bearing figure is the moving SET, and it
+survives the disagreement. Do replace it, with its derivation, in a
+round that is re-measuring anyway.
 
 **Re-derive the "can possibly move" argument every round; it is scoped
-to that round's change, not to the sentence (rounds 10 and 11).** The
-tier decomposition under that same total is the part that rots. Round 10
-made every `gh gist create` an ASK, which moves a BARE row on a
-non-alias tier, so the parenthetical "no operands and no flags, so
-resolution is the only tier that can move one" went false while the
-total stayed 24 (20 ask → allow, 2 deny → allow, 1 ask → deny, 1
-allow → ask) and hid it. `gh gist new` is where those two rounds meet:
-it stopped moving, so the `new` sub-count went 3 → 2. Round 11 then put
-every `gh gist edit` on the same publish tier, and that one DID move the
-total: 25 rows, with allow → ask going 1 → 2. When a round changes a
-verb the count sentence names anywhere — including inside a sub-count's
-parenthetical — replay the cross rather than reasoning that the total
-looks unchanged, and equally rather than reasoning that it must have
-changed.
+to that round's change, not to the sentence.** The tier decomposition
+under the total is the part that rots, and it rots invisibly because the
+total can stay put while a sub-count moves. A parenthetical of the form
+"these rows carry no operands and no flags, so alias resolution is the
+only tier that can move one" goes false the moment any non-alias tier
+starts escalating a bare row — which is exactly what a whole-verb
+escalation does. When a round changes a verb the count sentence names
+anywhere, including inside a sub-count's parenthetical, replay the cross
+rather than reasoning that the total looks unchanged, and equally rather
+than reasoning that it must have changed.
 
 **A TIER-WIDENING round falsifies the worked examples of every OTHER
 mechanism that shares the verb (#229, PR #232, round 12).** Rounds 10
@@ -425,17 +429,6 @@ the one false row without depending on which paragraph caught the eye.
 The heuristic's false positives are all the same shape — a verb
 fragment quoted mid-sentence picks up an unrelated verdict word — and
 are cheap to discard by eye once the concrete rows are settled.
-
-**The count derivation is now re-runnable, so re-run it rather than
-trusting the figure.** `37 × 34 = 1,258` reproduces exactly from the
-stated union (`isGhReadOnly`'s two literals, `ghRecoverableWriteVerbs`,
-`ghFileSpecs`, both alias tables, and the
-`delete`/`rename`/`transfer`/`set` verbs), and the wider `39 × 39 =
-1,521` from that noun set plus `auth`/`api` and the five auth verbs.
-Both moved the same 25 rows against main. Cost: two `git archive |
-tar -x` extractions, one throwaway dump test, one `go build` per side,
-and a python replay — well under the cost of reasoning about whether a
-total "should" have moved.
 
 **The residue in a count-fixing round is the CLOSURE sentence.** When
 prose enumerates a set and then says why the set is complete ("the

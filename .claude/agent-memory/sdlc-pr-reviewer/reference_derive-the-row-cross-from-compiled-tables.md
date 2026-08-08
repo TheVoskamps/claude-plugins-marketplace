@@ -1,6 +1,6 @@
 ---
 name: derive-the-row-cross-from-compiled-tables
-description: To re-derive a PR's "N rows move" figure, generate the noun x verb cross from the gate's OWN compiled maps with a throwaway dump test in a git-archive copy, then replay every row through both binaries with a thread pool — 1,258 rows x 2 binaries runs in a couple of minutes and reproduces the composition exactly.
+description: To re-derive a PR's "N rows move" figure, generate the noun x verb cross from the gate's OWN compiled maps with a throwaway dump test in a git-archive copy, then replay every row through both binaries with a thread pool — order 1,000 rows x 2 binaries runs in a couple of minutes and reproduces the composition rather than the bare total.
 metadata:
   type: reference
 ---
@@ -18,12 +18,14 @@ nouns and verbs out of every table the classifier dispatches on
 `isGhReadOnly`'s `readVerbs`/`knownNouns` are FUNCTION-LOCAL literals, so
 they have to be restated — assert every restated member back through
 `isGhReadOnly()` in the same test, plus a non-member, or you are grading
-your own transcription. On #232 round 9 that gave **37 nouns x 34 verbs
-= 1,258**, reproducing the PR body's derivation exactly.
+your own transcription. Report the cross as `<nouns> x <verbs>` with the
+union that produced each side, so a reader can re-run it; a bare product
+is not reproducible and will not survive the next table edit.
 
 **Replay with a thread pool, not a loop.** A `ThreadPoolExecutor(8)`
-over `subprocess.run([binary], input=json.dumps(event))` does 1,258 rows
-x 2 binaries in a couple of minutes; the gate forks `git rev-parse` per
+over `subprocess.run([binary], input=json.dumps(event))` does an
+order-1,000-row cross x 2 binaries in a couple of minutes; the gate
+forks `git rev-parse` per
 row, so serial is painful. Extract the OLD binary by redirecting
 `git show origin/main:plugins/guardrails/hooks/bin/darwin-arm64/permission-gate`
 to a file and `chmod +x` it. Report the composition as a `Counter` of
@@ -31,31 +33,30 @@ to a file and `chmod +x` it. Report the composition as a `Counter` of
 disagreement shows up in.
 
 **The moving SET is invariant to the cross's width; the count is not a
-property of the fix.** A deliberately wider cross (I ran 39 x 40 = 1,560,
-adding the `auth`/`api` nouns and the auth verbs) returned the SAME 25
-rows. So a PR that states a width and a composition is reproducible, and
-one that states only a bare count is not — which is why a wider-cross
-figure whose added verbs are not enumerated is weaker evidence than the
-narrow one whose derivation is exact.
+property of the fix.** Re-running a deliberately wider cross (add the
+`auth`/`api` nouns and the auth verbs) returns the same moving set. So a
+PR that states a width AND its composition is reproducible, and one that
+states only a bare count is not — and a wider-cross figure whose added
+verbs are not enumerated is weaker evidence than a narrow one whose
+derivation is exact. Grade the derivation, not the total: this PR class
+has produced several mutually inconsistent totals, each honest over its
+own row set, and chasing which is right is wasted effort.
 
 **Three more replays worth doing in the same rig, all cheap once it
 exists:**
 
-- **round-N tip -> tip**, to bound what the rounds since the last review
-  changed. On #232 that moved exactly 3 rows, all `allow -> ask` on the
-  two gist verbs and the alias of one — proof that nothing outside the
-  owner-directed change moved.
-- **the same cross with operand suffixes**, for regression direction. I
-  crossed the 6 file-spec nouns x 34 verbs x 18 suffixes (escaping
-  positional, `-F`/`--body-file`/`-a`/`--add` escaping, `--`, `-` with a
-  redirect, bare redirect, contained counterparts, unmodelled flag,
-  `-h`) = 3,672 rows. **Zero** `deny -> ask` or `deny -> allow` is the
-  finding that "containment still outranks the new arm" — much stronger
-  than a hand-picked probe list.
+- **last-reviewed tip -> current tip**, to bound what the rounds since
+  the last review changed. The rows that move should be exactly the
+  owner-directed change and its aliases; anything else is the finding.
+- **the same cross with operand suffixes**, for regression direction.
+  Cross the file-spec nouns x verbs x a suffix set (escaping positional,
+  each path flag escaping, `--`, `-` with a redirect, bare redirect,
+  contained counterparts, unmodelled flag, `-h`). **Zero** `deny -> ask`
+  or `deny -> allow` is the finding that "containment still outranks the
+  new arm" — much stronger than a hand-picked probe list.
 - **alias parity**: for every row whose noun/verb is an alias, assert
-  `tip(alias) == tip(canonical)`. 198 pairs, 0 violations, settles
-  "the resolution grants exactly the canonical verdict and nothing
-  wider".
+  `tip(alias) == tip(canonical)`. Zero violations settles "the
+  resolution grants exactly the canonical verdict and nothing wider".
 
 Related: [[guardrails-binary-verification]],
 [[bound-a-respelling-fix-by-equivalence]],

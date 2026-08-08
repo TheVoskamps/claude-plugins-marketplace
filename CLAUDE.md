@@ -33,6 +33,40 @@ below.
 `lib/*.md` files under a plugin's `skills/` are ordinary documents and
 DO carry an H1. They lint clean, and a new one you write must too.
 
+## Never invoke a GitHub publishing verb
+
+A `gh` verb that publishes — `gist create`, `gist edit`, `release
+create`, `release upload`, `pr create`, `issue create`, `pr comment`,
+`issue comment` — is never run to establish behavior, in any spelling,
+for any reason. Not with `--help`, not with an invalid flag value, not
+with a nonexistent path, not "because it will obviously error first".
+Every abort story of the shape "the operand is absent" or "stdin is
+empty" is exactly the story that fails: `gh gist create -pd <path>`
+looks like it must abort on a missing `-d` value, but `-d` eats the
+operand, `gist create` then falls back to stdin, and it POSTs. The
+permission gate escalates a publishing verb to a human click rather
+than denying it, so the gate is not the backstop for this — the rule
+is. The prohibition is on establishing behavior; publishing a PR or a
+comment the task actually asks for is ordinary work.
+
+The two questions that tempt an agent into one both have a safe answer:
+
+- **A gate verdict** is settled by replaying a synthetic `PreToolUse`
+  event against the built `permission-gate` binary. No verdict
+  question is answered better by a real invocation.
+- **A vendor parse fact** — which flags a verb takes, what its
+  positionals mean, whether it defaults to stdin — is settled by
+  reading `cli/cli`'s own source at the tag `gh` is pinned to:
+  `gh api "repos/cli/cli/contents/<path>?ref=<tag>" --jq .content`
+  piped through `base64 -d`. That is a non-mutating GET, and the
+  command's registration block is stronger evidence than `--help`,
+  which renders neither the whole accepted grammar nor the stdin
+  fallbacks.
+
+When a claim looks like it can only be settled by a real publish, stop
+and report that, rather than deciding it is fine because you expect an
+error first.
+
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
 The `sdlc` plugin ships no `plugins/sdlc/README.md`. An agent's

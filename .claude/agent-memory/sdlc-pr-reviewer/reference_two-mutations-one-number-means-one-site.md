@@ -37,16 +37,17 @@ the identity is the only tell.
   `continue`, a per-arm `=` handler.
 
 **A "wider cross" figure is falsifiable without replaying the cross.**
-`39 × 39 = 1,521` is a product of two set sizes, so the whole check is
+A stated `N × M` is a product of two set sizes, so the whole check is
 `len(nouns) × len(verbs)` in a throwaway dump test over a
-`git archive` copy — no binary replay, no row list. On #232 the stated
-derivation ("the `auth`/`api` nouns and the verbs the non-table arms
-name") gave 39 × 37 = 1,443 at most, because `status` and `edit` are
-already in the narrow 34-verb set and only `switch`/`login`(/`token`)
-are new. The construction that DOES reach 39 was written down in the
-doc-updater's own memory ("plus `auth`/`api` and the five auth verbs")
-and never made it into the README sentence — so grep the agent-memory
-tree for the figure before concluding the number itself is wrong.
+`git archive` copy — no binary replay, no row list. Two traps make the
+answer ambiguous rather than wrong, and both are why an arithmetic
+mismatch here is not worth escalating on its own: a verb the widening
+adds may already be a member of the narrow set (so it widens nothing),
+and the construction that produces the stated size often lives only in
+another agent's memory note, never in the prose being graded. Grep the
+whole agent-memory tree for the figure before concluding the number is
+wrong, and grade whether a derivation is stated at all rather than
+adjudicating between two totals.
 
 Related: [[re-measure-control-counts-at-the-current-tip]],
 [[derive-the-row-cross-from-compiled-tables]],

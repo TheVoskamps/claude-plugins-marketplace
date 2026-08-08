@@ -28,7 +28,11 @@ under-reports when it misses one. It is also the only form that can dump a
 derived predicate (`readsLocalFiles()`). Use the extracted copy rather than the
 worktree so the throwaway file never lands in the PR's tree.
 
-Then for each pair run `<tool> <noun> <verb> --help` and diff. Both directions
+Then for each pair run `<tool> <noun> <verb> --help` and diff — **except the
+publishing verbs**, which the root `CLAUDE.md` forbids invoking in any spelling,
+`--help` included. Take their FLAGS, USAGE and ALIASES from the command's own
+registration block instead (`gh api "repos/cli/cli/contents/<path>?ref=<tag>"`),
+which is the parser's own input and beats help on every axis. Both directions
 are informative: gh-documented-but-unmodelled is a false ask,
 modelled-but-undocumented is usually a harmless uniform merge (#232 folded
 `-R`/`--repo` into the `gist` specs, which gh rejects — no consequence).
@@ -62,12 +66,13 @@ two or more.
 
 **`--help` output is not the accepted grammar.** gh's help block prints only
 `--help`, so a table transcribed faithfully from help still escalated
-`gh pr comment -h` — verified accepted (`gh pr comment -h` and
-`gh gist create -h` both print help, exit 0) while the PR's binary asked. #232's
-fix round modelled it. Do NOT re-probe that on `gh gist create`, though: round
-10 put the whole verb on the publish tier, so its help spelling asks again for
-an unrelated reason. Probe the modelling on a verb whose tier allows
-(`gh pr comment -h`), or read the ask's REASON. The mechanism is
+`gh pr comment -h` — verified accepted (pflag answers an unregistered `h` shorthand
+with usage + `ErrHelp` on every verb) while the PR's binary asked, and the fix
+round modelled it. Do NOT re-probe
+that on a publishing verb: the root `CLAUDE.md` forbids invoking one in any
+spelling, and `gh gist create` now sits on the publish tier anyway, so its help
+spelling asks again for an unrelated reason. Probe the modelling on a
+non-publishing verb whose tier allows, or read the ask's REASON. The mechanism is
 **pflag, not cobra**: gh's root
 registers a persistent `--help` with no shorthand
 (`cmd.PersistentFlags().Bool("help", …)`), which `mergePersistentFlags` makes

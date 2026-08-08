@@ -29,27 +29,21 @@ live" means. Do this for any control whose anchor a later round moved.
 **2. When a claimed mutation count does not match tip, measure it at the
 intermediate round tips too.** A PR body that says "Every mutation below
 was re-measured against the current tree" is making a checkable claim
-about freshness, not just about the numbers. On #232 the body claimed
-"disabling the call site makes 96 assertions across 8 tests fail" and
-"un-wiring `ghPflagEqualValueRefs` fails 6". At tip I measured **104
-across 10** and **7**. Re-running both mutations against
-`git archive <earlier-round-commit>` reproduced **96 across 8** and
-**6** exactly — so the figures were not stale-by-drift, they were the
-previous round's numbers carried forward under a sentence that says they
-were not. That is a much sharper finding than "the number is wrong", and
-it costs one extra `git archive` per figure. The other three figures in
-the same bullet matched tip exactly, so the sentence is false only for
-the two the later rounds' new tests touch — say which.
+about freshness, not just about the numbers. When a figure misses at
+tip, re-run that same mutation against an earlier round's commit via
+`git archive`: if it reproduces there EXACTLY, the figure was not
+stale-by-drift, it was the previous round's number carried forward under
+a sentence saying it was not. That is a much sharper finding than "the
+number is wrong", and it costs one extra `git archive` per figure. Only
+the figures the later rounds' new tests touch will miss, so say which —
+the sentence is false of those and true of the rest.
 
-**Round 10 closed it, and the close is worth recording as the shape of a
-good outcome.** The orchestrator re-measured only the two figures the
-finding named (104/10 and 7/2) and left the other three alone under the
-same "re-measured against the current tree" sentence. Re-running all
-five at the new tip: 104/10, 7, 7, 7/2, 3+11 — every one matches, so
-the sentence became true of all five. Always re-run the three the fix
-round did NOT touch, not just the two it did: the sentence quantifies
-over all of them, and a fix round has no incentive to check the ones
-nobody flagged.
+**Then re-run the ones the fix round did NOT touch.** A fix round
+re-measures only the figures the finding named and leaves the others
+under the same "re-measured against the current tree" sentence. The
+sentence quantifies over all of them, and a fix round has no incentive
+to check the ones nobody flagged, so the closing check is all of them at
+the new tip, not just the ones that moved.
 
 Mechanics that make this cheap:
 

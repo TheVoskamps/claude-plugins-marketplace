@@ -36,11 +36,14 @@ dispatch is case-SENSITIVE and there is NO prefix matching —
 So the cobra ALIASES blocks are the complete set and the gate's
 fail-closed ask on a near-miss matches gh's own rejection.
 
-**Trap: probe dispatch with a real invocation, not `--help`.**
-`gh gist crea --help` exits **0** and prints `Work with GitHub gists.` —
-the PARENT's help, because the subcommand was not found. Read the help
-TEXT, or drop `--help` entirely; an rc-only reading says every bogus
-spelling dispatches.
+**Trap: `--help` cannot tell you whether a spelling dispatches.** A
+misspelled subcommand makes gh print the PARENT's help and exit **0**,
+so an rc-only reading says every bogus spelling dispatches. Read the
+help TEXT rather than the exit code. Settle dispatch on a noun whose
+verbs do not publish, or read cobra's `Aliases:` declarations in the
+vendor source — the root `CLAUDE.md` forbids invoking a publishing verb
+in any spelling to find out, and a near-miss spelling on a publishing
+noun is one typo away from being one.
 
 **The user-config alias mechanism is a separate, correctly-excluded
 class.** `gh alias set` refuses any name that is "already a gh command
@@ -60,8 +63,10 @@ allowed on main's binary, so the move added no capability. Check the
 canonical row on the OLD binary, including the foreign-target spelling —
 that is the whole argument.
 
-**gh parse facts measured this round** (useful, and each has been stated
-wrongly in-tree at least once): `-pd <path>` does NOT error on a missing
+**gh parse facts, each stated wrongly in-tree at least once — and none
+of them to be re-measured by invoking the verb**, which the root
+`CLAUDE.md` forbids; they come out of pflag's and cli/cli's source:
+`-pd <path>` does NOT error on a missing
 `-d` value — `-d` eats the path and `gist create` falls back to stdin
 and POSTs; only a trailing `-pd` errors. `-dp <path>` is `--desc p` and
 reads the operand. `=` binds to the shorthand immediately before it
