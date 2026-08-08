@@ -427,11 +427,19 @@ argv, settings, image identity, and plugin manifests from:
   decided by whether the name appears in the bake doc, which is what lets the
   provisioner apply a different build-time failure policy per entry — see
   *Bake path* below. All pure and unit-tested.
-- `claude_vm_check_plugin_key_placement` / `claude_vm_check_marketplace_conflicts`
+- `claude_vm_check_plugin_key_placement` / `claude_vm_plugin_raw_has_key` /
+  `claude_vm_check_marketplace_conflicts`
   — the **abort guards** (issue #107). The first rejects a `claude.plugins`
   sub-key written into the file type that never reads it (`bake` in a boot
   file, or `install_at_boot`/`update_at_boot`/`add_marketplace_uris_to_allowlist`/
-  `enabled` in a bake file), naming the right file; the second rejects one
+  `enabled` in a bake file), naming the file that carries it. Like the env
+  bake-tier abort it is a **presence** test — `claude_vm_plugin_raw_has_key`'s
+  `has()` — asked of the RAW files the operator wrote, so it takes the four raw
+  config paths (global bake, repo bake, global boot, repo boot) and no merged
+  document at all. Both of its directions need raw paths, which is why it takes
+  four where `claude_vm_check_env` takes the bake pair only; see *Guest
+  environment variables* below for the prune routes behind that. The second
+  rejects one
   marketplace `name` carrying differing `url`s across the tiers, the same
   shape as `claude_vm_check_apt_sources_conflicts`. Both turn a silent no-op
   into a loud launch abort.
@@ -819,6 +827,36 @@ prune pass can reach. `config-test.sh` runs the whole `env:` gate battery
 through the real merge — the shape that was missing when the launcher was
 wrong and the suite was green — and pins both halves of the prune fact plus the
 `mode:` counter-case.
+
+The rule generalises past `env:`, and `claude_vm_check_plugin_key_placement`
+was the second gate to need it: it asked `(.claude.plugins.<key> != null)` of
+the merged documents, and a misplaced key written in an empty spelling was
+accepted in **both** directions. Measured through the real merge against yq
+v4.53.3, the escapes were not uniform across the sub-keys — which is why every
+one of them has to be graded rather than reasoned about from `bake`:
+
+| Spelling | `bake`, `install_at_boot` (list keys) | `update_at_boot`, `add_marketplace_uris_to_allowlist`, `enabled` |
+| ---------- | -------------------------------------- | ------------------------------------------------------------------ |
+| valueless `key:` | accepted | accepted |
+| `key: []` | accepted | aborted |
+| `key: ""` | accepted | aborted |
+| `key: {}` | accepted | accepted |
+
+Three prune routes are at work. Pass 1 deletes the two list keys in the first
+three spellings; pass 2 deletes an empty *map* wherever it sits, so `key: {}`
+escapes for every sub-key, list key or not; and a valueless key reaches the
+merged document as a genuine null, which `!= null` reads as absent. That last
+one also made the old gate's verdict depend on which *layer* the file sat in —
+the global-file-with-no-repo-file case deep-merges the null against the empty
+document and coerces it to `''`, which `!= null` called present. The repair is
+the same one `env:` got: `claude_vm_plugin_raw_has_key` asks `has()` of a raw
+file. Because a BOOT-only key is hunted in the two BAKE files and a BAKE-only
+key in the two BOOT files, the gate needs raw paths for **both** tiers, so it
+takes the four raw config paths and no merged document — after the conversion
+there is nothing left for a merged document to answer, since a key present in a
+merged tier is present in one of that tier's two raw files by construction.
+`config-test.sh` drives every case through `claude_vm_merge_config` in the
+launcher's own argument shape and pins both halves of each prune route.
 
 *Two carriers, one per tier.* `run.env` is neither, and stays entirely
 launcher-owned — it is deliberately a non-secret channel, as the boot launcher
@@ -1336,7 +1374,11 @@ under the whole-file image-identity hash — issue #107's "extend the bake-hash
 with marketplace/plugin refs" achieved by placement rather than by a new
 key-picked hash. Because `claude.plugins` is the one map that legitimately
 appears in both file types, `claude_vm_check_plugin_key_placement` turns a
-misplaced sub-key into a loud abort instead of a silent no-op.
+misplaced sub-key into a loud abort instead of a silent no-op. It is a
+**presence** test asked of the four raw config files, not a value test asked of
+the merged documents, so a misplaced key written in any empty spelling aborts
+too — see *Guest environment variables* → the presence-gate paragraphs for the
+prune routes that made the value test wrong.
 
 *Bake path.* The provisioner runs the host-verified **guest-platform**
 (`linux-arm64`) `claude` binary inside the Trixie build container with

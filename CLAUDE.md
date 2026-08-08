@@ -461,6 +461,17 @@ longer carries the key in exactly the spellings the gate exists to
 catch (a valueless `copy:`, `copy: []`, `copy: ""`). Nothing errors;
 the gate just answers *false* and the launch proceeds.
 
+The list-key route is only the loudest of three, and the other two
+reach keys that are **not** list keys at all, so "this key does not
+union" never clears a merged-document read. Pass 2 deletes an empty
+*map* wherever it sits, so any key written `key: {}` vanishes. And a
+valueless `key:` arrives as a genuine null, which a `!= null` value
+test reads as absent — except in the global-file-with-no-repo-file
+layering, where the deep merge against the empty document coerces it
+to `''` and the same test says present. A gate reading a merged
+document can therefore give two verdicts for one config, decided by
+which layer the file sat in.
+
 That is what the first round of issue #135 shipped and what a real
 launch caught: `.env.copy` / `.env.files` joined
 `CLAUDE_VM_LIST_KEYS`, `claude_vm_check_env` asked `MERGED_BAKE`, and
@@ -475,23 +486,35 @@ merge semantics for keys that have nothing to do with the gate.
 Presence is a property of what was WRITTEN, and only the raw files
 still hold it.
 
-So: adding a key to `CLAUDE_VM_LIST_KEYS` means grepping
-`plugins/claude-vm/payload/` for `has(` — there are two uses — and
-grading each against the new key; and writing a gate means checking
-whether its key is a list key before reading presence off a merged
-document. Grade a sibling by the question it asks, not by the document
-it reads: `claude_vm_check_plugin_key_placement` tests `!= null`, so a
-valueless misplaced key passes it by design. That is a value gate, not
-a presence gate, and rewriting it to `has()` is a contract change
-rather than a fix. A merged document is a legitimate source when neither prune
-pass can reach the key: `claude_vm_mount_mode_entries` asks
-`has("mode")` of the merged boot document and is right to, because
-`mode:` sits inside a list *element*, which pass 1 (whole empty list
-keys) and pass 2 (empty maps) both leave alone. Pin the difference by
+So: any gate that asks "did the operator write this key?" asks the raw
+file, whatever spelling the test is written in. Grep
+`plugins/claude-vm/payload/` for `has(`, `!= null` and `== null` and
+grade every hit against all three prune routes — not just against
+`CLAUDE_VM_LIST_KEYS`, and not by the document the gate happens to
+read. `claude_vm_check_plugin_key_placement` shipped a `!= null` value
+test on the merged documents and was measured accepting a misplaced
+key in four spellings out of four for `bake` / `install_at_boot` and
+two out of four for `update_at_boot` /
+`add_marketplace_uris_to_allowlist` / `enabled`; it now asks
+`claude_vm_plugin_raw_has_key` of the four raw config paths and takes
+no merged document. Its two directions are asymmetric — a BOOT-only
+key is hunted in the two BAKE files, a BAKE-only key in the two BOOT
+files — which is why it takes four raw paths where
+`claude_vm_check_env` takes the bake pair only.
+
+A merged document is a legitimate source when no prune pass can reach
+the key: `claude_vm_mount_mode_entries` asks `has("mode")` of the
+merged boot document and is right to, because `mode:` sits inside a
+list *element*, which pass 1 (whole empty list keys) and pass 2 (empty
+maps) both leave alone. A fallback READER is also fine —
+`claude_vm_bool_scalar`'s `(<path> == null)` treats a pruned key as
+unconfigured, which is what the prune means. Pin the difference by
 driving `claude_vm_merge_config` in the launcher's own argument shape
 rather than calling the gate on a hand-written fixture —
-`config-test.sh`'s env battery was green on fixtures while the
-launcher was letting the config through. The local reasoning is in
+`config-test.sh`'s env battery was green on fixtures for four review
+rounds while the launcher was letting the config through, and the
+placement battery had the same shape. The local reasoning and the
+measured per-key table are in
 `plugins/claude-vm/payload/README.md` → *Guest environment variables*.
 
 ## Sweep the claude-vm config wizards when its schema or validation changes

@@ -139,7 +139,9 @@ file silently shadows future changes to the global default.
   credentials, in the boot file, where a build that cannot reach it
   warns and the guest adds it at boot (issue #226). A
   `claude.plugins` sub-key written into the wrong file type aborts the
-  launch too: `bake` belongs in the bake file, `install_at_boot` /
+  launch too, on a *presence* test — so even an empty or valueless
+  `bake:` there aborts, and the message names the file carrying it:
+  `bake` belongs in the bake file, `install_at_boot` /
   `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` in
   the boot file. `env.copy` and `env.files` are **boot-only** and abort in
   a bake file on a *presence* test, so even an empty `env.copy:` there

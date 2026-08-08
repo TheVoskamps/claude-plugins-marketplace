@@ -2102,31 +2102,139 @@ fi
 
 # Placement guard: a BAKE key in a boot file (and vice versa) aborts LOUDLY
 # rather than parsing and being silently ignored.
-if claude_vm_check_plugin_key_placement "$MP_BAKE" "$MP_BOOT" 2>/dev/null; then
-  assert_eq "placement: correctly-placed keys pass" "pass" "pass"
-else
-  assert_eq "placement: correctly-placed keys pass" "pass" "abort"
-fi
+#
+# The launcher NEVER hands this gate a hand-written file either: it merges both
+# tiers first and then calls the gate with the four RAW paths (claude-vm.sh, the
+# claude_vm_check_plugin_key_placement call). Merging is not a formality here --
+# it is what USED to swallow the mistake. Every case below therefore runs the
+# real claude_vm_merge_config over both tiers before calling the gate, in the
+# launcher's own argument shape, so a battery cannot go green on a fixture while
+# the launcher accepts the config (which is exactly how the sibling env gate
+# shipped broken for four review rounds).
+#
+# placement_verdict <global-bake> <repo-bake> <global-boot> <repo-boot>
+# -> "pass" | "abort", with the gate's diagnostics left in $PLACE_ERR.
+PLACE_ERR="$WORK/place.err"
+PLACE_MERGED_BAKE="$WORK/place-merged-bake.yml"
+PLACE_MERGED_BOOT="$WORK/place-merged-boot.yml"
+placement_verdict() {
+  claude_vm_merge_config "$1" "$2" > "$PLACE_MERGED_BAKE" 2>/dev/null
+  claude_vm_merge_config "$3" "$4" > "$PLACE_MERGED_BOOT" 2>/dev/null
+  claude_vm_check_plugin_key_placement "$1" "$2" "$3" "$4" 2>"$PLACE_ERR" \
+    && echo pass || echo abort
+}
+PLACE_NONE="$WORK/place-none.yml"
+printf 'cpus: 2\n' > "$PLACE_NONE"
+
+assert_eq "placement: correctly-placed keys pass" \
+  "pass" "$(placement_verdict "" "$MP_BAKE" "" "$MP_BOOT")"
+assert_eq "placement: a config with no claude.plugins at all passes" \
+  "pass" "$(placement_verdict "$PLACE_NONE" "" "$PLACE_NONE" "")"
+
 PLACE_BOOT_BAD="$WORK/place-boot-bad.yml"
 printf 'claude:\n  plugins:\n    bake:\n      - oops@mp\n' > "$PLACE_BOOT_BAD"
-PLACE_ERR="$WORK/place.err"
-if claude_vm_check_plugin_key_placement "$MP_BAKE" "$PLACE_BOOT_BAD" 2>"$PLACE_ERR"; then
-  assert_eq "placement: claude.plugins.bake in a boot file aborts" "abort" "pass"
+assert_eq "placement: claude.plugins.bake in a boot file aborts" \
+  "abort" "$(placement_verdict "" "$MP_BAKE" "" "$PLACE_BOOT_BAD")"
+if grep -q "config-boot.yml ($PLACE_BOOT_BAD)" "$PLACE_ERR"; then
+  assert_eq "placement: the abort names the file that carries the key" "named" "named"
 else
-  assert_eq "placement: claude.plugins.bake in a boot file aborts" "abort" "abort"
-fi
-if grep -q 'config-bake.yml' "$PLACE_ERR"; then
-  assert_eq "placement: the abort points at the right file" "pointed" "pointed"
-else
-  assert_eq "placement: the abort points at the right file" "pointed" "unpointed"
+  assert_eq "placement: the abort names the file that carries the key" "named" \
+    "$(cat "$PLACE_ERR")"
 fi
 PLACE_BAKE_BAD="$WORK/place-bake-bad.yml"
 printf 'claude:\n  plugins:\n    install_at_boot:\n      - oops@mp\n' > "$PLACE_BAKE_BAD"
-if claude_vm_check_plugin_key_placement "$PLACE_BAKE_BAD" "$MP_BOOT" 2>/dev/null; then
-  assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" "abort" "pass"
-else
-  assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" "abort" "abort"
-fi
+assert_eq "placement: claude.plugins.install_at_boot in a bake file aborts" \
+  "abort" "$(placement_verdict "" "$PLACE_BAKE_BAD" "" "$MP_BOOT")"
+
+# EVERY sub-key, in EVERY empty spelling, in the wrong tier. This is the whole
+# defect the gate's old `!= null` value test had, and it is not uniform across
+# the keys, which is why the loop grades all of them rather than one:
+#   - `bake` and `install_at_boot` are CLAUDE_VM_LIST_KEYS, so a valueless key,
+#     `[]` and `""` all merge to an empty list that prune pass 1 deletes (and
+#     pass 2 then deletes the `plugins:` map left holding nothing);
+#   - `{}` escaped for ALL FIVE keys, list key or not, because prune pass 2
+#     deletes any empty map wherever it sits;
+#   - a VALUELESS key escaped for all five too, reaching the merged document as
+#     a genuine null.
+# Only `: []` and `: ""` on a NON-list key were ever caught. Measured through
+# the real merge below, both halves pinned.
+for place_spell in ':' ': []' ': ""' ': {}'; do
+  for place_key in "${CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS[@]}"; do
+    printf 'claude:\n  plugins:\n    %s%s\n' "$place_key" "$place_spell" \
+      > "$WORK/place-empty-boot.yml"
+    assert_eq "placement: an empty '${place_key}${place_spell}' in a boot file aborts" \
+      "abort" "$(placement_verdict "" "$MP_BAKE" "" "$WORK/place-empty-boot.yml")"
+  done
+  for place_key in "${CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS[@]}"; do
+    printf 'claude:\n  plugins:\n    %s%s\n' "$place_key" "$place_spell" \
+      > "$WORK/place-empty-bake.yml"
+    assert_eq "placement: an empty '${place_key}${place_spell}' in a bake file aborts" \
+      "abort" "$(placement_verdict "" "$WORK/place-empty-bake.yml" "" "$MP_BOOT")"
+  done
+done
+
+# NEGATIVE CONTROL for all of the above: the MERGED document -- what this gate
+# used to be asked -- genuinely cannot answer the question, by BOTH prune
+# routes. Pinning the merged half as well as the raw half means a future change
+# that points the gate back at MERGED_BAKE/MERGED_BOOT fails here with the
+# reason attached, rather than only failing the abort assertions above.
+printf 'claude:\n  plugins:\n    bake:\n' > "$WORK/place-nc-list.yml"
+claude_vm_merge_config "" "$WORK/place-nc-list.yml" > "$WORK/place-nc-list.merged.yml"
+assert_eq "placement: the merge PRUNES a valueless list key out of the document" \
+  "absent" \
+  "$(claude_vm_plugin_raw_has_key "$WORK/place-nc-list.merged.yml" bake && echo present || echo absent)"
+assert_eq "placement: ...and the old value test therefore answered 'not present'" \
+  "false" \
+  "$(yq eval '(.claude.plugins.bake != null)' "$WORK/place-nc-list.merged.yml")"
+assert_eq "placement: ...while the RAW file the operator wrote still carries it" \
+  "present" \
+  "$(claude_vm_plugin_raw_has_key "$WORK/place-nc-list.yml" bake && echo present || echo absent)"
+printf 'claude:\n  plugins:\n    enabled: {}\n' > "$WORK/place-nc-map.yml"
+claude_vm_merge_config "" "$WORK/place-nc-map.yml" > "$WORK/place-nc-map.merged.yml"
+assert_eq "placement: the merge PRUNES an empty-MAP sub-key that is NOT a list key" \
+  "false" \
+  "$(yq eval '(.claude.plugins.enabled != null)' "$WORK/place-nc-map.merged.yml")"
+assert_eq "placement: ...while the RAW file still carries that one too" \
+  "present" \
+  "$(claude_vm_plugin_raw_has_key "$WORK/place-nc-map.yml" enabled && echo present || echo absent)"
+# ...and the spellings the old value test DID catch still abort, so the fix is a
+# widening rather than a swap. `update_at_boot: []` is not a list key, so no
+# prune pass touches it and it reaches the merged document intact, where
+# `!= null` answered true.
+printf 'claude:\n  plugins:\n    update_at_boot: []\n' > "$WORK/place-nc-scalar.yml"
+claude_vm_merge_config "" "$WORK/place-nc-scalar.yml" > "$WORK/place-nc-scalar.merged.yml"
+assert_eq "placement: an empty-LIST non-list key was already visible in the merged doc" \
+  "true" \
+  "$(yq eval '(.claude.plugins.update_at_boot != null)' "$WORK/place-nc-scalar.merged.yml")"
+assert_eq "placement: ...and still aborts after the conversion to a presence test" \
+  "abort" "$(placement_verdict "" "$WORK/place-nc-scalar.yml" "" "$MP_BOOT")"
+# The layer a file occupies changes the answer the OLD test gave, which is its
+# own reason not to ask a merged document: a valueless non-list key survives as
+# a genuine null when the fixture is the REPO layer (the shape above, and every
+# shape with both layers present), but the global-with-no-repo case deep-merges
+# it against the empty document and coerces it to '', which `!= null` called
+# true. Same config, two verdicts, decided by which file it sat in.
+printf 'claude:\n  plugins:\n    update_at_boot:\n' > "$WORK/place-nc-null.yml"
+claude_vm_merge_config "" "$WORK/place-nc-null.yml" > "$WORK/place-nc-null-repo.yml"
+claude_vm_merge_config "$WORK/place-nc-null.yml" "" > "$WORK/place-nc-null-global.yml"
+assert_eq "placement: a valueless non-list key in the REPO layer answered 'not present'" \
+  "false" \
+  "$(yq eval '(.claude.plugins.update_at_boot != null)' "$WORK/place-nc-null-repo.yml")"
+assert_eq "placement: ...but the same key in the GLOBAL layer alone answered 'present'" \
+  "true" \
+  "$(yq eval '(.claude.plugins.update_at_boot != null)' "$WORK/place-nc-null-global.yml")"
+assert_eq "placement: the presence test aborts on it from the REPO layer" \
+  "abort" "$(placement_verdict "" "$WORK/place-nc-null.yml" "" "$MP_BOOT")"
+assert_eq "placement: ...and from the GLOBAL layer" \
+  "abort" "$(placement_verdict "$WORK/place-nc-null.yml" "" "" "$MP_BOOT")"
+
+# The key may sit in EITHER file of its tier, so the gate is handed both raw
+# paths per tier. Exercised with a populated layer beside it, so the GLOBAL
+# layer is what the verdict turns on.
+assert_eq "placement: an empty bake: in the GLOBAL boot file aborts too" \
+  "abort" "$(placement_verdict "" "$MP_BAKE" "$WORK/place-nc-list.yml" "$MP_BOOT")"
+assert_eq "placement: ...and the same two layers without it launch" \
+  "pass" "$(placement_verdict "" "$MP_BAKE" "$PLACE_NONE" "$MP_BOOT")"
 
 # Canonical bake-plugin manifest: marketplaces = effective set (bake-first),
 # bake = the BAKE doc's refs only, de-duplicated and sorted.
@@ -3273,6 +3381,48 @@ YML
     *)
       assert_eq "load-gates: the BAKE-tier abort says BAKE" "named" "$GATE_NONAME_B" ;;
   esac
+
+  # ---- the claude.plugins placement gate, through the launcher's own call ----
+  #
+  # The gate's own battery (Test 29) calls the function; these assert it is
+  # WIRED as the launcher wires it -- the four raw config paths, in the order
+  # claude-vm.sh passes them. Getting that order wrong (bake pair and boot pair
+  # swapped) would leave both directions looking in the wrong files and every
+  # abort above still passing, so it is worth one case per direction.
+  GATE_PLACE_BOOT="$WORK/gate-place-boot.yml"
+  printf 'claude:\n  plugins:\n    bake:\n' > "$GATE_PLACE_BOOT"
+  GATE_PLACE_1="$(run_gates "$GATE_NONE_BAKE" "$GATE_PLACE_BOOT")"
+  assert_eq "load-gates: a valueless claude.plugins.bake in a boot file aborts the launch" \
+    "1" "${GATE_PLACE_1%%|*}"
+  case "$GATE_PLACE_1" in
+    *"'claude.plugins.bake' is a BAKE key but was found in a config-boot.yml ($GATE_PLACE_BOOT)"*)
+      assert_eq "load-gates: the placement abort names the boot file carrying it" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the placement abort names the boot file carrying it" "named" "$GATE_PLACE_1" ;;
+  esac
+  GATE_PLACE_BAKE="$WORK/gate-place-bake.yml"
+  printf 'claude:\n  plugins:\n    enabled: {}\n' > "$GATE_PLACE_BAKE"
+  GATE_PLACE_2="$(run_gates "$GATE_PLACE_BAKE" "$GATE_NONE_BOOT")"
+  assert_eq "load-gates: an empty-map claude.plugins.enabled in a bake file aborts the launch" \
+    "1" "${GATE_PLACE_2%%|*}"
+  case "$GATE_PLACE_2" in
+    *"'claude.plugins.enabled' is a BOOT key but was found in a config-bake.yml ($GATE_PLACE_BAKE)"*)
+      assert_eq "load-gates: the placement abort names the bake file carrying it" "named" "named" ;;
+    *)
+      assert_eq "load-gates: the placement abort names the bake file carrying it" "named" "$GATE_PLACE_2" ;;
+  esac
+  # ...and from the GLOBAL layer, which run_gates leaves empty. The launcher
+  # hands the gate both files of each tier, so a misplacement in either aborts.
+  GATE_PLACE_3="$(TMPDIR="$WORK" bash "$GATE_SLICE" \
+    "" "$GATE_NONE_BAKE" "$GATE_PLACE_BOOT" "$GATE_NONE_BOOT" 2>&1 | tr '\n' ' ')"
+  case "$GATE_PLACE_3" in
+    *"'claude.plugins.bake' is a BAKE key but was found in a config-boot.yml ($GATE_PLACE_BOOT)"*)
+      assert_eq "load-gates: the same key in the GLOBAL boot file aborts the launch too" \
+        "named" "named" ;;
+    *)
+      assert_eq "load-gates: the same key in the GLOBAL boot file aborts the launch too" \
+        "named" "$GATE_PLACE_3" ;;
+  esac
 else
   echo "SKIP: config-load gate block extraction from claude-vm.sh failed; load-gate tests skipped." >&2
 fi
@@ -4408,6 +4558,35 @@ if [ -n "${OLD_BASH:-}" ]; then
     "spaced double" \
     "$("$OLD_BASH" -c '. "$1"; claude_vm_env_file_assignments "$2" > "$3"; set -a; . "$3"; set +a; printf "%s" "$QUOTED_DQ"' \
         _ "$LIB" "$ENVD/prec.env" "$ENVD/old-bash.out" 2>/dev/null)"
+  # The claude.plugins placement gate is a config-load guard on the same
+  # footing, and it has a 3.2 exposure of its own: two `for f in "$a" "$b"`
+  # walks over path arguments that are routinely the EMPTY string (a config
+  # file the operator never created), under `set -u` -- which the -c script
+  # turns on explicitly, since the suite's own `set -u` does not reach into a
+  # child shell. Both tiers are merged in the old shell too, so the whole load
+  # sequence runs there and not just the gate. The pass case is included: a
+  # guard that aborted on everything would satisfy the abort rows alone.
+  assert_eq "placement: an OLD bash ($OLD_BASH) aborts on a valueless bake: in a boot file" \
+    "abort" \
+    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
+        claude_vm_merge_config "" "$3" > "$5"
+        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
+        _ "$LIB" "$MP_BAKE" "$WORK/place-nc-list.yml" \
+        "$WORK/ob-place-bake.merged.yml" "$WORK/ob-place-boot.merged.yml" 2>/dev/null)"
+  assert_eq "placement: an OLD bash aborts on an empty-MAP boot key in a bake file" \
+    "abort" \
+    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
+        claude_vm_merge_config "" "$3" > "$5"
+        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
+        _ "$LIB" "$WORK/place-nc-map.yml" "$MP_BOOT" \
+        "$WORK/ob-place-bake2.merged.yml" "$WORK/ob-place-boot2.merged.yml" 2>/dev/null)"
+  assert_eq "placement: an OLD bash still lets correctly-placed keys through" \
+    "pass" \
+    "$("$OLD_BASH" -c 'set -u; . "$1"; claude_vm_merge_config "" "$2" > "$4"
+        claude_vm_merge_config "" "$3" > "$5"
+        claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
+        _ "$LIB" "$MP_BAKE" "$MP_BOOT" \
+        "$WORK/ob-place-bake3.merged.yml" "$WORK/ob-place-boot3.merged.yml" 2>/dev/null)"
 fi
 
 # ---------------------------------------------------------------------

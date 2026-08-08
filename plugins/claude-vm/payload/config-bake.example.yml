@@ -128,6 +128,12 @@ claude:
     - name: thevoskamps
       url: https://github.com/TheVoskamps/claude-plugins-marketplace.git
   plugins:
+    # `bake:` is the ONLY claude.plugins sub-key this file may carry.
+    # install_at_boot / update_at_boot / add_marketplace_uris_to_allowlist /
+    # enabled are BOOT keys and ABORT the launch here, with a message naming
+    # this file. That is a PRESENCE test asked of this raw file, so an empty
+    # placeholder -- a valueless `enabled:`, or `enabled: []` / `""` / `{}` --
+    # aborts too.
     bake:
       - block-background-agents@thevoskamps
       # COMPILED HOOKS NEED NO TOOLCHAIN: the guardrails permission-gate ships

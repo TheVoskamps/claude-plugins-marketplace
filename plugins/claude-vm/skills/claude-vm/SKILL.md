@@ -129,9 +129,12 @@ bake+boot, then merge global under repo):
   (`{repo, key_url}` / `url`) aborts the launch (no silent shadowing).
 - **Placement guard**: `claude.plugins` is the one map that legitimately
   appears in both file types, so a sub-key in the wrong file aborts the
-  launch with a message naming the right file — `bake` belongs in the bake
-  file (it changes image bytes), and `install_at_boot` / `update_at_boot` /
-  `add_marketplace_uris_to_allowlist` / `enabled` belong in the boot file.
+  launch with a message naming the file that carries it — `bake` belongs in
+  the bake file (it changes image bytes), and `install_at_boot` /
+  `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` belong in
+  the boot file. A *presence* test, so a misplaced sub-key written empty (a
+  valueless `bake:`, or `bake: []` / `""` / `{}`) aborts exactly like a
+  populated one.
   `env` has the same shape and its own guard: `env.set` is allowed in both
   file types, while `env.copy` and `env.files` are **boot-only** and abort in
   a bake file — a *presence* test, so an empty or valueless `env.copy:`

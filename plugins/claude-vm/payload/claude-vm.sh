@@ -176,8 +176,18 @@ claude_vm_check_mounts "$MERGED_BOOT" \
 # claude.plugins is the one map that legitimately appears in BOTH file types
 # (bake refs in a bake file; install_at_boot/update_at_boot/enabled in a boot
 # file), which makes a misplaced sub-key easy to write and -- absent this guard
-# -- silently ignored. Abort loudly instead (issue #107).
-claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
+# -- silently ignored. Abort loudly instead (issue #107). A PRESENCE test, so a
+# valueless `bake:` aborts too, which is why it is handed the four RAW files the
+# operator wrote rather than the two merged documents: the merge prunes an empty
+# list key (`.claude.plugins.bake`, `.claude.plugins.install_at_boot`) and every
+# empty MAP (any sub-key written `{}`) right out of them, and a valueless
+# sub-key of any kind survives only as a null the old value test read as
+# absent. Both directions need raw paths -- a BOOT key is hunted in the BAKE
+# pair, a BAKE key in the BOOT pair -- hence four arguments rather than
+# claude_vm_check_env's two.
+claude_vm_check_plugin_key_placement \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" \
   || { echo "claude-vm: aborting -- move the misplaced claude.plugins key(s) as described above." >&2; exit 1; }
 # Guest environment variables (issue #135). One gate covers the whole `env:`
 # contract, in both tiers: `env.copy`/`env.files` in a BAKE file (they resolve

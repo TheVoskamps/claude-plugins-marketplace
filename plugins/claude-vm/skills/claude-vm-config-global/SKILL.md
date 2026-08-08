@@ -169,8 +169,12 @@ Notes on the forward-looking keys:
   `install_at_boot`, `update_at_boot`,
   `add_marketplace_uris_to_allowlist`, and `enabled` belong in
   `config-boot.yml`. A sub-key written into the wrong file **aborts the
-  launch** with a message naming the right file, rather than parsing and
-  being silently ignored. `claude.marketplaces` is the exception: allowed
+  launch** with a message naming the file that carries it, rather than
+  parsing and being silently ignored. It is a *presence* test, so a
+  misplaced sub-key written empty (a valueless `bake:`, or
+  `bake: []` / `""` / `{}`) aborts exactly like a populated one — never
+  write a placeholder sub-key into the file it does not belong in.
+  `claude.marketplaces` is the exception: allowed
   in both files, unioned and deduped by `name`, with the same name under
   two differing urls aborting the launch. Give every entry a `name:` —
   the name is what a `plugin@marketplace` ref resolves against and what
@@ -395,7 +399,7 @@ claude:
                         # reach only warns. Write on request.
   plugins:
     # bake: is a BAKE key -- it lives in config-bake.yml. Writing it here aborts
-    # the launch.
+    # the launch, on a PRESENCE test: even an empty `bake:` placeholder aborts.
     install_at_boot: []  # plugin@marketplace refs installed at boot, blocking,
                          # before claude starts. Write only on request.
     update_at_boot: true # refresh the marketplaces and update the installed

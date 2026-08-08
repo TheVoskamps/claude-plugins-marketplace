@@ -155,8 +155,9 @@ claude:
     # NOTE: `bake:` is NOT a boot key -- baked plugins change the image's bytes,
     # so they live in config-bake.yml where the image-identity hash sees them.
     # Writing `claude.plugins.bake` here ABORTS the launch with a message
-    # pointing at the bake file, rather than parsing and silently baking
-    # nothing.
+    # naming this file, rather than parsing and silently baking nothing. That
+    # is a PRESENCE test asked of this raw file, so an empty placeholder --
+    # a valueless `bake:`, or `bake: []` / `""` / `{}` -- aborts too.
     install_at_boot: []   # plugin@marketplace refs installed at boot
                           # (list, union). Installed BLOCKING, before claude
                           # starts, by the guest's own `claude plugin install`.

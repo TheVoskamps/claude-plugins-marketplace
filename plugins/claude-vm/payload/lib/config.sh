@@ -1785,32 +1785,82 @@ CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS=(
   'enabled'
 )
 
+# Does a RAW config file carry the claude.plugins sub-key $2? Returns 0 when it
+# does. A PRESENCE test (`has`), not a value test, and asked of the file the
+# operator WROTE rather than of a merged document -- for the same reason
+# claude_vm_env_bake_has_key is (see its header): the merge destroys presence,
+# in TWO different ways, and misplacement is a property of what was written.
+#
+#   - `.claude.plugins.bake` and `.claude.plugins.install_at_boot` are
+#     CLAUDE_VM_LIST_KEYS, so a valueless `bake:`, a `bake: []` and a
+#     `bake: ""` all merge to an empty list, claude_vm_prune_empty_skeleton's
+#     pass 1 deletes the key, and its pass 2 deletes the `plugins:` map left
+#     empty as a result.
+#   - EVERY sub-key, list key or not, written as an empty MAP (`enabled: {}`)
+#     is deleted by that same pass 2, which removes any empty map wherever it
+#     sits.
+#   - a VALUELESS sub-key of any kind reaches the merged document as a genuine
+#     null, which `!= null` also answered false for. Only the artificial
+#     global-file-with-no-repo-file layering coerced it to '' (the deep merge
+#     against the empty document), so the old gate's verdict on one and the
+#     same config depended on which layer the file sat in.
+#
+# Measured through the real claude_vm_merge_config against yq v4.53.3: with the
+# gate asking `(.claude.plugins.<key> != null)` of the merged document, all four
+# empty spellings of `bake` / `install_at_boot`, and the valueless and `{}`
+# spellings of `update_at_boot` / `add_marketplace_uris_to_allowlist` /
+# `enabled`, answered *false* and the launch proceeded. Only `: []` and `: ""`
+# on a NON-list key were caught, because no prune pass reaches those.
+# config-test.sh's negative control holds both halves of that fact.
+#   $1 -- a RAW config file path (bake or boot, global or repo), pre-merge
+#   $2 -- the claude.plugins sub-key ('bake', 'enabled', ...)
+claude_vm_plugin_raw_has_key() {
+  local file="$1" key="$2" present
+  [ -n "$file" ] && [ -f "$file" ] || return 1
+  present="$(yq eval "(((.claude // {}).plugins // {}) | has(\"${key}\"))" "$file" 2>/dev/null)"
+  [ "$present" = "true" ]
+}
+
 # Abort (non-zero + a claude-vm: diagnostic) when a claude.plugins sub-key
 # appears in the file type that never reads it. Without this the key parses,
 # merges, and is silently ignored -- e.g. `claude.plugins.bake` written into
 # config-boot.yml would leave the operator with an image that bakes NO plugins
 # and no indication why.
-#   $1 -- merged BAKE document file path
-#   $2 -- merged BOOT document file path
+#
+# Takes the four RAW config paths and no merged document, because after the
+# conversion to a presence test there is nothing left for a merged document to
+# answer: a key present in a merged tier is present in one of that tier's two
+# raw files by construction, so raw presence is a strict superset of the value
+# test this replaced. Both DIRECTIONS need raw paths -- a BOOT-only key is
+# hunted in the two BAKE files, a BAKE-only key in the two BOOT files -- which
+# is why this gate takes four paths where claude_vm_check_env takes the bake
+# pair only. Naming the file in the diagnostic is not decoration: with a global
+# and a repo file per tier, "a config-bake.yml" leaves the operator two places
+# to look.
+#   $1 -- RAW global BAKE config file path (may be empty or absent)
+#   $2 -- RAW repo   BAKE config file path (may be empty or absent)
+#   $3 -- RAW global BOOT config file path (may be empty or absent)
+#   $4 -- RAW repo   BOOT config file path (may be empty or absent)
 claude_vm_check_plugin_key_placement() {
-  local bake_doc="$1" boot_doc="$2" key present bad=0
+  local global_bake="$1" repo_bake="$2" global_boot="$3" repo_boot="$4"
+  local key f bad=0
   for key in "${CLAUDE_VM_PLUGIN_BOOT_ONLY_KEYS[@]}"; do
-    present="$(yq eval "(.claude.plugins.${key} != null)" "$bake_doc" 2>/dev/null)"
-    if [ "$present" = "true" ]; then
-      echo "claude-vm: 'claude.plugins.${key}' is a BOOT key but was found in a config-bake.yml." >&2
+    for f in "$global_bake" "$repo_bake"; do
+      claude_vm_plugin_raw_has_key "$f" "$key" || continue
+      echo "claude-vm: 'claude.plugins.${key}' is a BOOT key but was found in a config-bake.yml ($f)." >&2
       echo "claude-vm:   move it to config-boot.yml -- the bake files only feed the image build," >&2
       echo "claude-vm:   so it would parse here and never be read." >&2
       bad=1
-    fi
+    done
   done
   for key in "${CLAUDE_VM_PLUGIN_BAKE_ONLY_KEYS[@]}"; do
-    present="$(yq eval "(.claude.plugins.${key} != null)" "$boot_doc" 2>/dev/null)"
-    if [ "$present" = "true" ]; then
-      echo "claude-vm: 'claude.plugins.${key}' is a BAKE key but was found in a config-boot.yml." >&2
+    for f in "$global_boot" "$repo_boot"; do
+      claude_vm_plugin_raw_has_key "$f" "$key" || continue
+      echo "claude-vm: 'claude.plugins.${key}' is a BAKE key but was found in a config-boot.yml ($f)." >&2
       echo "claude-vm:   move it to config-bake.yml -- baked plugins change the guest image's bytes," >&2
       echo "claude-vm:   so they must live where the image-identity hash can see them." >&2
       bad=1
-    fi
+    done
   done
   [ "$bad" -eq 0 ]
 }
