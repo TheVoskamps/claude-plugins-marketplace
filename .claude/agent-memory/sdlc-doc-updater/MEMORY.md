@@ -102,3 +102,7 @@
   — when the spawn prompt says so, verify and repair the PR body like a
   README; the closing keyword is untouchable and nothing else on the PR
   is yours.
+- [Measure the declared-safe counter-case](feedback_measure-the-declared-safe-counter-case.md)
+  — a fix's prose exempts a sibling gate ("sits inside a list element,
+  no prune reaches it"); the round measured only what it changed. Read
+  the recursive operator's expression, then probe the sibling.
