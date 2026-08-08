@@ -26,6 +26,66 @@ as a `cd` target), not only as a bare assignment RHS (#225).
 - ❌ `.git/foo.json` (or anywhere under `.git/`) — git internal state.
   The permission-gate denies it outright (issue #125, broadened in #35).
 
+The destination matters even for a scratch file the agent never reads
+back itself. Since #229 a file `gh` PUBLISHES is graded by the same
+read containment. What that grades, per verb, is exactly:
+
+- `-F`/`--body-file` on `gh pr create`, `pr comment`, `pr edit`,
+  `pr merge`, `pr review`, `gh issue create`, `issue comment` and
+  `issue edit`.
+- `-F`/`--notes-file` on `gh release create` and `release edit`.
+- `-T`/`--template` on `gh pr create` — and only there, because
+  `gh issue create`'s `-T` names a server-side template rather than a
+  local file.
+- `--recover` on `gh pr create` and `issue create`.
+- `-a`/`--add` on `gh gist edit`.
+- File operands: every operand of `gh gist create`, and every operand
+  after the gist id or tag of `gh gist edit`, `gh release create`,
+  `gh release upload` and `gh release edit` — the last of which takes
+  no file operand at all in gh's own grammar, so a stray one is
+  graded rather than ignored.
+- Whatever stands in for one of those paths: a `-` — in a file
+  operand or as the value of any flag above — is gh's read-from-stdin
+  marker and is graded as the command's input redirect source
+  (`gh pr comment 227 -F - < /tmp/body.md` is the
+  same publish as naming the path), and `gh gist create` reads stdin
+  with no marker at all when given no operand
+  (`gh gist create < /tmp/body.md`).
+- Whichever spelling names the verb. gh's own command aliases resolve to
+  the canonical one before the grading runs, so `gh gist new`,
+  `gh pr new`, `gh issue new` and `gh release new` grade exactly what
+  `create` grades — respelling the verb is not a way around the
+  destination rule. The message names the canonical verb too:
+  `gh gist new /tmp/body.md` is refused as `'gh gist create'`, so read
+  the verdict against the rule rather than against the words you typed.
+
+Both sanctioned destinations survive that
+grading — a PR-body file under `<repo-root>/.claude/tmp/` is
+contained, and one in a harness session directory is allowed outright
+— while a loose `/tmp/body.md` that used to be published without
+comment is now denied as a cross-repo read escape.
+
+Surviving containment is not the whole verdict, though. Containment
+forwards an escape and discards its own ALLOW, so the verb's own tier
+still decides. Both gist verbs ask on the publish tier however
+well-placed the file is:
+
+- every `gh gist create`, with `--public` and without it. A gist
+  created without the flag is *unlisted*, not private — GitHub's docs
+  say anyone who discovers the URL can read it, whether or not you sent
+  it to them — so publishing a scratch file as a "secret" gist is not a
+  way to move it off the machine quietly.
+- every `gh gist edit`, whatever the destination gist's visibility. The
+  gist already exists, so its URL may already be circulating and may
+  already have readers: pushing a scratch file into one exposes it the
+  moment it lands, which can be *worse* than minting a fresh gist
+  rather than safer. The escalation is on the whole verb, so
+  `-a`/`--add`, the positional file and the bare editor invocation all
+  ask alike.
+
+A sanctioned destination buys the file past containment, not past the
+human.
+
 ## Cross-repo / cross-session handoff
 
 Repo-scoped scratch is the common case, and `.claude/tmp/` serves it.

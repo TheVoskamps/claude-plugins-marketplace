@@ -160,7 +160,20 @@ func TestGhAskTier_64(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh repo edit --visibility public", false), BucketAsk, "repo edit --visibility")
 	wantBucket(t, classifyCmd(t, "gh repo edit --visibility=public", false), BucketAsk, "repo edit --visibility=")
 	wantBucket(t, classifyCmd(t, "gh release create v1.0", false), BucketAsk, "release create (publish)")
-	wantBucket(t, classifyCmd(t, "gh gist create --public f.txt", false), BucketAsk, "gist create --public")
+	// `gist create` carries a FILE operand, which #229 now grades
+	// through read containment, so the event cwd must be a real repo for the
+	// PUBLISH ask to be what the row proves. Against the `/tmp` cwd classifyCmd
+	// uses, these rows would still read ASK — but for the no-repo-context
+	// fail-closed instead, never reaching the publish tier at all.
+	//
+	// Both visibilities ask: a gist without `--public` is unlisted rather than
+	// private, so it is exposure too (#229).
+	repo := t.TempDir()
+	gitInit(t, repo)
+	wantReason(t, classifyInRepo(t, "gh gist create --public f.txt", repo), BucketAsk,
+		"publishes the contents of a local file", "gist create --public")
+	wantReason(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAsk,
+		"publishes the contents of a local file", "gist create (secret is unlisted, not private)")
 }
 
 // --- gh ALLOW default --------------------------------------------------------
@@ -172,13 +185,31 @@ func TestGhAllowDefault_64(t *testing.T) {
 		"gh issue comment 5 --body hi",
 		"gh pr merge 7 --squash",
 		"gh issue close 5",
-		"gh gist create f.txt", // secret gist (not --public) → not publish
-		"gh secret list",       // read form of an otherwise-denied noun
+		"gh secret list", // read form of an otherwise-denied noun
 		"gh pr list",
 		"gh issue view 1",
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "gh allow default: "+cmd)
 	}
+	// NEITHER gist verb is an allow any more: `gh gist create` mints a URL and
+	// `gh gist edit` pushes local content into one that may already have readers,
+	// so both reach the publish ASK (see TestGhGistCreateAlwaysAsks_229 and
+	// TestGhGistEditAlwaysAsks_229). Asserted here as well, because this test's
+	// subject is the ALLOW default and a gist row is exactly what must not fall
+	// into it. The event cwd is a real repo so the file operand resolves inside
+	// one — the containment grading above the publish tier would otherwise decide
+	// these rows instead (#229).
+	//
+	// The REASON is pinned, not just the bucket: dropping a verb from
+	// ghRecoverableWriteVerbs WITHOUT adding its publish arm also yields an ASK,
+	// on the fail-closed unrecognized-command floor, which is the same bucket for
+	// an entirely different reason.
+	repo := t.TempDir()
+	gitInit(t, repo)
+	wantReason(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAsk,
+		"into a gist that ALREADY EXISTS", "gh gist edit is not an allow default")
+	wantReason(t, classifyInRepo(t, "gh gist create f.txt", repo), BucketAsk,
+		"publishes the contents of a local file", "gh gist create is not an allow default")
 }
 
 // --- gh leading-global desync bypass -----------------------------------------

@@ -262,8 +262,12 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `-S`, `wc --files0-from`, `sort --random-source`), writes
   (`sort -T DIR`) or resolves (`realpath --relative-to`) is declared in
   the table's `pathValueFlags`, and its value goes through containment in
-  **every spelling** — separate token, glued (`-X/etc/passwd`),
-  `=`-joined, or the value-taking tail of a short cluster (`grep -rf`).
+  **every spelling the shared flag walk covers** — separate token, glued
+  (`-X/etc/passwd`), `=`-joined, or the value-taking tail of a short
+  cluster (`grep -rf`). Those are getopt's spellings, which is the whole
+  set for these programs; the one spelling getopt does not give — pflag's
+  `-F=FILE` — belongs to the `gh` track below, which appends a reading of
+  its own for it.
   Without that declaration the separate-token and glued spellings
   disagreed: the plain walk keeps only tokens that do not begin with
   `-`, so `diff -X /etc/passwd` was contained while `diff -X/etc/passwd`
@@ -528,10 +532,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   Irreparable verbs
   (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
-  `repo edit --visibility`, `release create`, and `gist create --public`
-  **ask**. Beyond those carve-outs, a recognized gh command ALLOWs only
+  `repo edit --visibility`, `release create`, **every**
+  `gist create` — with `--public` and without it — and **every**
+  `gist edit` **ask** (see the gist-publish paragraphs below, which are
+  also why `ghRecoverableWriteVerbs` carries no `gist` entry at all).
+  Beyond those carve-outs, a recognized gh command ALLOWs only
   when it is an enumerated read or an enumerated recoverable-own-repo
-  write (#163); an **unrecognized noun/verb asks** (fail-closed), and an
+  write (#163); an **unrecognized noun/verb asks** (fail-closed) — after
+  gh's own command ALIASES have been resolved to the canonical spelling,
+  so `gh gist new` is `gh gist create` and not an unrecognized verb (see
+  the alias paragraph below) — and an
   enumerated write whose explicit `-R`/`--repo` target differs from the
   session `origin` **asks** (foreign-target exfil-by-write scoping —
   reads stay unscoped). The leading global-flag screen is parsed before
@@ -540,7 +550,263 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   the slug as the noun and slip the delete past the deny tier) — and
   that same parsed `-R`/`--repo` value feeds the foreign-target scoping;
   an unrecognized leading global fails closed (**deny**) rather than
-  desyncing detection. For `aws`: `--endpoint-url` **denies** (redirects the signed
+  desyncing detection. **A gh command that PUBLISHES a local file has
+  that file's path graded by read containment (#229)**
+  (`classify_gh_files.go`). gh's body-file flags read a file off local
+  disk and send its contents to GitHub, where the destination may be
+  public and outlives any local cleanup — and the gate already held the
+  verdict that decides it (`cat /etc/passwd` denies as a cross-repo
+  read), but `classifyGh` never asked for it: the operand was consumed
+  as an ordinary flag value and never reached containment, so
+  `gh pr comment 227 -F /etc/passwd` published the file under an
+  outright ALLOW. This is the converse of #225's class 1, where a LOCAL
+  redirect (`gh pr diff > .claude/tmp/x`) exfiltrates nothing because
+  the bytes stay in a worktree the agent can already read and write.
+  Per noun/verb, `ghFileSpecs` names the flags whose value is a local
+  path (`-F`/`--body-file` on the pr/issue verbs that take a
+  `-b`/`--body`, `-F`/`--notes-file` on `release create` and
+  `release edit`, `-T`/`--template` on `pr create`, `--recover` on
+  `pr`/`issue create`, `-a`/`--add` on `gist edit`) and the index from
+  which POSITIONAL operands name files
+  (`gh gist create [<filename>… | <pattern>… | -]` from 0;
+  `gh release create [<tag>] [<filename>… | <pattern>…]`,
+  `gh release upload <tag> <files>…` and
+  `gh gist edit {<id> | <url>} [<filename>]` from 1 — as does
+  `gh release edit <tag>`, whose grammar takes no file positional at
+  all, so index 1 grades an extra operand gh would itself reject rather
+  than leaving one ungraded). A `<pattern>` operand — the alternative
+  gh's own usage renders for the two `create` verbs, and the spelling
+  that reaches gh unexpanded — is graded as the literal token it is
+  written as, which is sound because containment resolves the pattern's
+  escaping prefix without needing to know what it matches:
+  `gh release create v1 '../sib/*.tgz'` **denies** while the contained
+  `gh gist create '*.md'` is not denied for a path the gate could not
+  expand — it reaches its verb's publish **ask** below, as every
+  `gist create` does. The values are extracted by the same flag
+  walk the read track uses — `pathFlagValueRefs`, which `pathFlagValues`
+  wraps — so every spelling that walk covers (separate
+  token, glued short, `=`-joined long,
+  short-cluster tail) is covered here, and they are **appended** to the
+  positional walk rather than substituted for it — a mismodelled arity
+  can only ever add a path to containment, never swallow one out of it.
+  The spelling that walk does NOT cover is gh's own: gh parses with
+  pflag, which strips an `=` immediately following a short flag, so
+  `gh pr comment 227 -F=/etc/passwd` opens `/etc/passwd` while getopt —
+  and so the shared extractor — reads the value as the relative, in-repo
+  `=/etc/passwd`, and the publish **allowed**. `ghPflagEqualValueRefs`
+  appends pflag's reading beside the getopt one, so both are graded and
+  the spellings where the `=` really is part of the path (a separate
+  token, a long `--body-file==x`) keep their verdict. Both gh-local
+  cluster walks stop at that `=` as pflag does, since `-p=f` is
+  `--public=false` and reading its trailing `f` as `--filename` would
+  consume the escaping operand of `gh gist create -p=f /etc/passwd` out
+  of the positional walk.
+  A `-` — whether it arrives as a file operand or as a path flag's
+  value — is gh's read-from-stdin marker, so it is replaced by
+  the command's input-redirect sources: `gh pr comment 227 -F - <
+  /etc/passwd` is the same publish spelled differently and earns the
+  same **deny**. `gh gist create` needs no marker at all — gh's own
+  `createRun` substitutes `-` when the invocation carries no file
+  operand, and its argument validator accepts zero operands whenever
+  stdin is not a TTY — so the spec carries `defaultsToStdin` and
+  `gh gist create < /etc/passwd` is graded exactly as the explicit
+  spelling is. It is the only verb in the table that does — no other one
+  reads stdin unless the invocation NAMES it: `pr comment` and `release
+  create` document `-` on their `-F` flag and read stdin only when given
+  it, and `gh gist edit <id> -` reads stdin through its FILE POSITIONAL,
+  a spelling its help does not render (cli/cli v2.97.0 binds
+  `opts.SourceFile = args[1]` and switches on `src == "-"`, in the
+  `--add` branch and the plain-edit branch alike) but which the
+  origin-agnostic `-` substitution grades anyway, so
+  `gh gist edit <id> - < /etc/passwd` **denies**. `gist edit` still takes
+  no `defaultsToStdin`: given no second positional it opens an editor
+  rather than reading stdin, so there is no implicit marker to
+  synthesize. A published path the gate cannot resolve statically
+  **asks** (fail-closed — containment has nothing to grade), and that
+  question is asked of the PATH TOKENS rather than of the whole
+  command, so `gh pr create --title "$TITLE" --body-file
+  .claude/tmp/body.md` keeps its **allow**: the dynamic token is a
+  shielded body-TEXT value, not the path. A path that came from a
+  redirect has no argv token of its own and falls back to the
+  whole-command bool. Grading runs BELOW the irreparable-deny tier
+  (those keep their specific messages) and ABOVE the publish ask, so an
+  escaping asset on `gh release create` / `gh gist create` /
+  `gh gist edit` **denies** instead of offering a click-through. The
+  verdict is taken
+  through `containReadSources`, which forwards an escape and discards
+  the ALLOW: a contained body file never blesses the publish itself, so
+  the publish ask and the foreign-target ask still fire. `--template`
+  is graded on `gh pr create` (gh annotates it `file`) and not on
+  `gh issue create` (annotated `name`, resolved server-side) — the one
+  divergence that makes the table per-verb rather than a union. The
+  second half is the **fail-safe: each spec enumerates its verb's
+  COMPLETE flag grammar, and an unrecognized flag asks**, the same
+  whitelist shape `ghAuthStatusEscalates` holds for `gh auth status`,
+  so a gh release that adds another file-reading flag costs one click
+  rather than a silent publish. The specs are transcribed from
+  `gh <noun> <verb> --help`, and that output is not gh's accepted
+  grammar, so what it never renders is modelled by hand instead: pflag
+  answers an unregistered `h` shorthand with the command's help rather
+  than an error, so `-h` is accepted on every verb (exit 0 on all 26
+  modelled pairs, gh 2.97.0) while the INHERITED FLAGS block prints
+  `--help` alone — it is carried in `ghInheritedBoolFlags` beside the
+  long spelling, since otherwise a help invocation would be the one
+  documented gh spelling this whitelist escalates. That ask's wording
+  follows the verb's
+  own modelled surface: a verb with no path flag, no file positional
+  and no stdin default (`gh pr close`, `gh issue pin`, `gh label edit`,
+  `gh cache delete`, …) is described as a write the gate cannot vouch
+  for, not as a body-file read it has no way to perform. The `@file`
+  expansion in `gh api`
+  field values is deliberately NOT part of this, and `gh api` keeps the
+  verdicts the api gate already gave it: the expansion is done by
+  `-F`/`--field` and `--input` (`-f`/`--raw-field` passes its value
+  literally), a body flag with no explicit method **asks** as an
+  implicit POST, and `gh api graphql -F query=@file` **denies** for
+  carrying no statically-present document. The residual is the
+  explicit-GET carve-out, which stays a read: `gh api -X GET -F
+  q=@/etc/passwd repos/o/r` **allows**, so a `@file` value on an
+  allow-listed GET endpoint reaches GitHub without being graded against
+  the repository boundary. #229 neither widened nor closed that.
+  **EVERY `gh gist create` asks — secret and public alike (#229).**
+  GitHub's "secret" gist is UNLISTED, not private: its own docs say a
+  secret gist stays out of Discover and out of search but that "if
+  someone you don't know discovers the URL, they'll also be able to see
+  your gist", and deleting it afterwards does not un-read it. So
+  `gh gist create .env` published a readable copy of a repo file to a
+  URL that outlives the run, with no human ever prompted. The
+  containment grading above bounds only
+  WHICH file — an escaping path denies — and a CONTAINED file is
+  precisely the case where "the bytes stay on the machine" is false, so
+  containment is not the control here. Treating the default as the
+  sanctioned form also contradicted this same tier's own reasoning one
+  arm up, where `gh release create` escalates as "exposure that is
+  effectively irreversible": *recoverable* is not a coherent property
+  for something others may already have read. `gist create` is therefore
+  out of `ghRecoverableWriteVerbs` altogether and its publish arm
+  returns unconditionally — the shape `release create` has always had.
+  The escalation
+  is on the VERB, so no spelling of any flag reaches around it: the `-p`
+  shorthand and its clusters (`-pw`, `-wp`, `-wp=false`), the spellings
+  where pflag reads `--public` as another flag's value (`--desc
+  --public`, `-dp`), an operand after `--`, and the alias spelling
+  `gh gist new` all ask. So does the help spelling `gh gist create -h`,
+  the one row where this costs an otherwise-harmless click — the price
+  of a tier that cannot be reached around by respelling. The
+  `--public` SCREEN this replaces (`ghGistCreateIsPublic`, and the pflag
+  cluster walk `ghBoolFlagNamed` under it) is deleted with it. It
+  decides nothing once both visibilities ask, and it could not have
+  sharpened the message either: it reported the flag being **named**
+  rather than the value it carried, so `--public=false` — a genuinely
+  SECRET gist — would have been described to the human as a public one.
+  The message states both visibilities instead, and says plainly that a
+  gist created without the flag is unlisted rather than private, so the
+  human is deciding about the exposure that is actually on offer. The
+  pflag facts that screen was built on stay where they are still
+  load-bearing: `-p=f` is `--public=false` and ends the token, which is
+  why both gh-local cluster walks stop at the `=` (above), and `-p`
+  stays in the verb's modelled bool set so the unmodelled-flag screen
+  still recognizes it.
+  **EVERY `gh gist edit` asks too (#229).** `gh gist edit <id> -a <file>`
+  — and its positional-file spelling — publishes local content into a
+  gist that already exists, and it was an outright **allow**, reachable
+  in two allowed steps: `gh gist list` is a read, so it names every gist
+  this credential owns, and `gh gist edit <id> -a .env` then pushed a
+  repo file into one. The target gist's VISIBILITY decides nothing here,
+  and reading the tier as weak because the gate cannot see it had the
+  case backwards: the egress is the point. An existing gist already has
+  a URL, that URL may already have been handed out, and content pushed
+  into it is readable by whoever holds it the moment it lands — which
+  can make `edit` **worse** than `create`, not weaker, since `create`
+  at least mints a URL nobody has yet. Deleting afterwards does not
+  un-read it either, so the same "*recoverable* is not a coherent
+  property" reasoning that took `gist create` out of
+  `ghRecoverableWriteVerbs` takes `gist edit` out too — the map now
+  carries no `gist` entry at all. **Ask, not deny**, deliberately: this
+  gate governs interactive human sessions as well as agent ones, and
+  there are legitimate human reasons to edit a gist, which one click
+  preserves and a deny would not. The escalation is scoped to the WHOLE
+  VERB rather than to `-a`/file-bearing spellings, because scoping a
+  tier by flag spelling is exactly the sensitivity that produced the
+  `-p` hole above: the bare `gh gist edit <id>` (which opens an editor
+  and reads no local file at all), the gist-internal `-f`/`-r`, the
+  description flag, an operand after `--` and the stdin marker all ask.
+  Containment above is unchanged and still outranks it — an escaping
+  operand **denies** rather than softening to this ask, so
+  `gh gist edit abc123 - < /etc/passwd` keeps its deny. `gh gist delete`
+  is untouched and still **denies**.
+  **gh's own command ALIASES are resolved to the canonical spelling
+  before any tier runs (#229)** (`classify_gh_aliases.go`). gh finds a
+  subcommand by NAME or by cobra alias — `gh gist new` renders
+  `gh gist create`'s own USAGE line — while every tier here dispatched by
+  name, so an aliased spelling matched none of them and fell through to
+  the fail-closed ask. That turned a documented respelling into a
+  click-through past a verdict the gate had already reached:
+  `gh gist create /etc/passwd` **denies** on containment while
+  `gh gist new /etc/passwd` **asked**. Resolution gives each alias its
+  canonical command's real verdict, in every direction — `gh gist new`
+  gains the containment deny and the publish ask, `gh issue ls` /
+  `gh pr ls` / `gh gist ls` gain the read **allow**, and `gh secret ls` /
+  `gh variable ls` move from the secret-noun's blanket **deny** to the
+  read allow `gh secret list` already had — that arm default-denies
+  every `secret`/`variable` verb but `list`/`get`, and `ls` was reaching
+  it unresolved. Its mutating verbs are unmoved: `gh secret remove` /
+  `gh variable remove` denied under their own names already and still
+  deny. The permissive moves are the ones a reader needs, so they are
+  counted here against the row set they were measured over — a count
+  without its row set is unfalsifiable. Replaying every
+  `gh <noun> <verb>` pair the gate's own tables name — the cross of the
+  nouns and verbs unioned out of `isGhReadOnly`'s two literals,
+  `ghRecoverableWriteVerbs`, `ghFileSpecs`, both alias tables and the
+  `delete`/`rename`/`transfer`/`set` verbs the irreparable-deny tier
+  covers, which is 37 × 34 = **1,258** bare
+  rows, no operands and no flags — through main's committed
+  `darwin-arm64` binary and this branch's moves **25** rows: 20 ask →
+  allow (11 `ls` reads, the 2 `new` recoverable writes — `gh issue new`
+  and `gh pr new` — and 7 `gh rs <read verb>` rows through the noun
+  alias), the 2 deny → allow named above, 1 ask → deny
+  (`gh rs delete`), and 2 allow → **ask**, which are `gh gist create`
+  and `gh gist edit` on the gist-publish tiers above rather than alias
+  moves at all. `gh gist new` is the row those changes meet on: it moved
+  ask → allow while `gist create` was a recoverable write, and now
+  inherits the publish ask instead, so it no longer moves. The count is
+  a property of the row set rather than of the change, so it is
+  re-measured on a deliberately WIDER cross as well — 39 × 39 = 1,521
+  rows, adding the `auth`/`api` nouns and the verbs the non-table arms
+  name — which moves exactly the same 25 rows. Operands add rows in both
+  directions rather than settling the count —
+  `gh gist new /etc/passwd` moves ask → deny while
+  `gh issue new -t x -F notes.md` moves ask → allow — which is why the
+  figures are stated over the bare cross.
+  What changes for the deny rows is the spelling the message quotes, and
+  that holds for every message downstream of the resolution — each names
+  the canonical command, so `gh secret remove FOO` is refused as
+  `'gh secret delete'` and `gh pr co 1` asks about `'gh pr checkout 1'`.
+  An agent that greps the reason for the words it typed will not find
+  them. The two tables are the complete cobra-alias set
+  of gh 2.97.0, derived by walking `gh <path> --help` over all 228
+  commands reachable from `gh --help` and reconciled against all 45
+  `Aliases:` declarations in cli/cli at tag v2.97.0. NO alias name on a
+  noun this gate models is a member of either allow table — the names are
+  `ls`, `new`, `co`, `remove` and the noun aliases, against read verbs
+  view/list/status/diff/checks/get and the recoverable-write verbs — so
+  before this change every aliased spelling landed on the fail-closed
+  ask and none rode an outright allow. Only the noun and verb positions
+  are rewritten, which is every position a tier reads; gh's third-level
+  aliases (`gh repo autolink new`, `gh repo deploy-key ls`, …) sit at a
+  position no dispatch reads and classify identically either way. The
+  **fail-closed floor is untouched**: a token in neither table is left
+  exactly as written, so `gh gist nw` still asks — nothing here guesses
+  by prefix or edit distance. gh's OTHER alias mechanism, the
+  user-editable `aliases:` map `gh alias set` writes, is deliberately not
+  modelled: the gate does not read the user's gh config, so those
+  spellings keep the fail-closed ask, and `gh alias set` refuses any name
+  that is "already a gh command or extension", so a config alias cannot
+  shadow a modelled noun. The one gh ships by default (`co: pr checkout`)
+  diverges from nothing — `gh co` and `gh pr checkout` both ask, since
+  `checkout` is in neither allow table.
+  For `aws`: `--endpoint-url` **denies**
+  (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret
   reads (`sts get-session-token`, `ecr get-login-password`,
   `secretsmanager get-secret-value`, `ssm get-parameter

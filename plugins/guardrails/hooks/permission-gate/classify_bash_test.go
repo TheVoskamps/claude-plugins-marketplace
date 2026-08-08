@@ -22,6 +22,24 @@ func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 	}
 }
 
+// wantReason asserts the bucket AND a distinguishing fragment of the reason.
+// The gate stacks many rules that produce the SAME bucket for one event, so a
+// bucket-only assertion can pass without ever reaching the rule under test —
+// which is how a row asserting a publish ASK keeps passing after it starts
+// earning a no-repo-context ASK instead. Use this wherever the bucket alone
+// does not identify which rule fired.
+func wantReason(t *testing.T, d Decision, want Bucket, reasonFragment, label string) {
+	t.Helper()
+	if d.Bucket != want {
+		t.Errorf("%s: got bucket %q (reason=%q), want %q", label, d.Bucket, d.Reason, want)
+		return
+	}
+	if !containsSubstr(d.Reason, reasonFragment) {
+		t.Errorf("%s: bucket %q is right but the reason does not mention %q; got %q",
+			label, want, reasonFragment, d.Reason)
+	}
+}
+
 // §10: git globals before -C; commands inside &&/;/pipelines;
 // env VAR=x <cmd>; quoted/expanded strings — verified by classification.
 

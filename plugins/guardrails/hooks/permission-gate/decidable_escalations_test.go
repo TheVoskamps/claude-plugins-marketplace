@@ -1112,7 +1112,8 @@ func TestReadTrackFileFlagValuesAreContained_225(t *testing.T) {
 
 	ev := bashEvIn(t, root, "pr-reviewer")
 
-	// A path-valued flag pointing outside the repo denies, in every spelling.
+	// A path-valued flag pointing outside the repo denies, in every spelling
+	// getopt gives it — which is the whole set for these programs.
 	for _, cmd := range []string{
 		`grep -f ` + out + ` README.md`,
 		`grep -f` + out + ` README.md`,

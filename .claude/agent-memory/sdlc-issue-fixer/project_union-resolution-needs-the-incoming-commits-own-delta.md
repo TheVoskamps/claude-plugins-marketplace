@@ -50,10 +50,24 @@ line describing less than the file it points at.
 
 **How to apply:** on every conflicted rebase step, before editing the
 file. It costs one `git show` per conflicted commit. Pair it with the
-end-to-end check afterward — `git diff origin/main..HEAD --stat` should
-match the pre-rebase `git diff <old-base>..<old-head> --stat` file-for-
-file and line-for-line; a changed count there means a resolution
-dropped or duplicated something. Sibling rebase facts:
+end-to-end check afterward, and run that check **in both directions**,
+per conflicted file: `git diff origin/main HEAD -- <f>` must reproduce
+the branch's own `git diff <old-base> <old-head> -- <f>` numstat, and
+`git diff <old-head> HEAD -- <f>` must reproduce main's
+`git diff <old-base> origin/main -- <f>` numstat. Tag `<old-head>`
+before the rebase so it survives the force-push. One direction alone
+proves only that one side landed.
+
+An exact match on both sides is the proof. A mismatch is a *pointer*,
+not automatically a defect — on PR #232 the pr-reviewer index came out
+11/2 where main's own delta was 12/3, and the missing add/delete pair
+was the single line whose branch-side revision is a strict superset of
+main's (main backticked `git show <sha>:<file>`; the branch backticked
+that *and* `git archive HEAD`), so main's edit survives inside the
+branch's text. Print the three versions of that line — base, main,
+result — and classify the pair as subsumed-superset or as a genuine
+two-sided merge you wrote by hand. A pair you cannot classify that way
+is a lost edit. Sibling rebase facts:
 [[rebase-absorbs-an-identical-version-bump]],
 [[git-status-cannot-see-main-staleness]],
 [[rebase-continue-editor-gate]].

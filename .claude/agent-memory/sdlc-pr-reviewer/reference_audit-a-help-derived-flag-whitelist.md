@@ -1,0 +1,177 @@
+---
+name: audit-a-help-derived-flag-whitelist
+description: When a gate PR claims a per-verb flag table is "the verb's COMPLETE grammar from --help", machine-diff every verb's spec against its own --help on two axes (presence AND value/bool arity) by dumping the live Go table — and remember that --help is not the accepted grammar (pflag's unrendered `-h` and `-F=path`), and that the same help page's USAGE and ALIASES blocks are claim surfaces the FLAGS sweep never reaches.
+metadata:
+  type: reference
+---
+
+A whitelist-of-flags fail-safe (`ghFileSpecs` on #232, `ghAuthStatusEscalates`
+before it) rests on one checkable claim: *this spec is the verb's complete flag
+grammar*. Spot-checking three verbs does not test it, and the table is too big
+to eyeball — on #232 it was 26 noun/verb pairs. Count them out of the table
+itself, and diff your pair list against it: #232's round-2 audit said 25 and had
+silently dropped `cache delete`, so the "every pair matches" verdict covered one
+pair fewer than it claimed.
+
+**Machine-diff it — and get the table by RUNNING the package, not by parsing
+it.** On #232 round 6 the conclusive route was: `git archive HEAD
+plugins/guardrails/hooks/permission-gate | tar -x -C <repo>/.claude/tmp/<slug>/src`,
+drop a throwaway `zz_dump_test.go` into the extracted package that marshals the
+live table to JSON (`os.WriteFile(os.Getenv("DUMP_OUT"), …)`), and run
+`DUMP_OUT=<path> go -C <extracted-pkg> test -run TestZZDump ./...`. That beats
+the python-parses-Go recipe on the axis that decides the audit: the dump is the
+table **after** the constructor runs, so a builder that merges inherited flags
+in (`ghSpec` folding `-R`/`--repo`/`--help`/`-h` into all 26 specs) and shared
+vars referenced by name (`ghBodyFileFlags`, `ghNotesFileFlags`) are already
+resolved, where a source parse has to reproduce both by hand and silently
+under-reports when it misses one. It is also the only form that can dump a
+derived predicate (`readsLocalFiles()`). Use the extracted copy rather than the
+worktree so the throwaway file never lands in the PR's tree.
+
+Then for each pair run `<tool> <noun> <verb> --help` and diff — **except the
+publishing verbs**, which the root `CLAUDE.md` forbids invoking in any spelling,
+`--help` included. Take their FLAGS, USAGE and ALIASES from the command's own
+registration block instead (`gh api "repos/cli/cli/contents/<path>?ref=<tag>"`),
+which is the parser's own input and beats help on every axis. Both directions
+are informative: gh-documented-but-unmodelled is a false ask,
+modelled-but-undocumented is usually a harmless uniform merge (#232 folded
+`-R`/`--repo` into the `gist` specs, which gh rejects — no consequence).
+
+The same dump is what settles a **doc enumeration** of the table: derive the
+per-flag verb sets and the positional/stdin members from the JSON and compare
+them to the prose, rather than grading two prior rounds' reports against each
+other. On #232 round 5 called the operand half exhaustive and it was missing
+`gh release edit`; a dump-derived compare found it in one pass.
+
+**The axis that actually matters is ARITY, not presence.** A bool mismodelled
+as value-taking consumes the next token, and on a verb with file positionals
+that is the one way such a walk can swallow a path OUT of containment. Split
+the `ghSpec(valueFlags, boolFlags, …)` call by tracking brace depth and compare
+each set against whether the help line carries a value-type word
+(`-F, --body-file file` then the description). Expect one false positive class,
+and know its cause: pflag's `UnquoteUsage` lifts a **backquoted word out of the
+usage string** and renders it where the value type goes, so a BOOL reads as
+value-taking. gh renders
+`--succeed-on-no-caches --all   Return exit code 0…` because its usage ends
+"in conjunction with `` `--all` ``". The tell is the same word appearing
+un-backquoted in the description; the proof is the registration —
+`gh api "repos/cli/cli/contents/pkg/cmd/cache/delete/delete.go?ref=v2.97.0"
+--jq .content | base64 -d | grep BoolVar`. Read the source before filing an
+arity finding.
+
+A whole run of these parses cleanly with
+`^\s{2,}(?:(-[A-Za-z]), )?(--[A-Za-z0-9-]+)(?: (\S+))?\s\s+\S`: the annotation
+is ONE token separated by a single space, and the description always follows
+two or more.
+
+**`--help` output is not the accepted grammar.** gh's help block prints only
+`--help`, so a table transcribed faithfully from help still escalated
+`gh pr comment -h` — verified accepted (pflag answers an unregistered `h` shorthand
+with usage + `ErrHelp` on every verb) while the PR's binary asked, and the fix
+round modelled it. Do NOT re-probe
+that on a publishing verb: the root `CLAUDE.md` forbids invoking one in any
+spelling, and `gh gist create` now sits on the publish tier anyway, so its help
+spelling asks again for an unrelated reason. Probe the modelling on a
+non-publishing verb whose tier allows, or read the ask's REASON. The mechanism is
+**pflag, not cobra**: gh's root
+registers a persistent `--help` with no shorthand
+(`cmd.PersistentFlags().Bool("help", …)`), which `mergePersistentFlags` makes
+visible to cobra's `InitDefaultHelpFlag`, so cobra never adds `-h`; pflag's
+`parseSingleShortArg` answers an *unregistered* `h` with `f.usage()` + `ErrHelp`
+instead of an error. So read the flag LIBRARY's parser, not just the framework.
+
+**The rest of that class is where the teeth are.** pflag also strips an `=`
+immediately after a shorthand (`if len(shorthands) > 2 && shorthands[1] == '='`),
+which getopt does not, so `gh pr comment 227 -F=/etc/passwd` opens `/etc/passwd`
+while a getopt-shaped extractor reads the value as the relative, in-repo
+`=/etc/passwd` — an outright ALLOW on the exfil #229 exists to stop, found while
+fixing the `-h` Low and fixed with it. The sibling reading, `-p=f` =
+`--public=false`, ends the token, so a walk that keeps screening past the `=`
+reads the trailing `f` as `--filename` and swallows the next operand. When a
+finding names ONE unrendered spelling, the parser's whole grammar is the class:
+diff the spec against the LIBRARY's parse, and probe `-x=value` on both a
+value-taking and a bool shorthand.
+
+**Probe the parser through a READ-ONLY verb with an INVALID value.** Never run
+the mutating verb the finding is about (`gh pr comment … -F=…` posts a comment
+if the file happens to exist). Pick a read verb with a typed flag and give it
+garbage: `gh pr list -L=abc` fails inside the same `parseSingleShortArg` and
+the error QUOTES the value pflag extracted, which is the whole answer. On gh
+2.97.0 the five rows settle every discrimination at once — `-L=abc` → `"abc"`
+(stripped), `-L =abc` → `"=abc"` (separate token is literal), `--limit==abc` →
+`"=abc"` (long keeps everything after the FIRST `=`), `-L=` → `"="` (under the
+`len > 2` threshold), and `-sL=abc` → `-s` takes `"L=abc"` (a preceding
+value-taking shorthand makes the `=` ordinary). Zero network, zero mutation,
+and it beats quoting the PR's own measurement back at it.
+
+Hidden flags are worth one search
+(`gh api -X GET search/code -f q='MarkHidden repo:cli/cli path:pkg/cmd'` — none
+of the 26 modelled pairs has one) and abbreviations are not a pflag feature
+(`gh pr comment --bod x` → `unknown flag`).
+
+**The same `--help` page carries two more claim surfaces the FLAGS sweep never
+touches: USAGE and ALIASES.** #232 audited FLAGS + INHERITED FLAGS exhaustively
+for six rounds and still shipped two abridged USAGE quotes, which matter because
+each spec's `filePositionalsFrom` is justified BY that quote — dropping gh's
+`[<tag>]` optionality is exactly the fact a reader checks when asking why the
+index is 1 and not 0. Dump it per pair with
+`gh <noun> <verb> --help | grep -A3 '^USAGE'` and compare byte for byte; on gh
+2.97.0 the publish verbs read
+`gh gist create [<filename>... | <pattern>... | -]`,
+`gh release create [<tag>] [<filename>... | <pattern>...]`,
+`gh release upload <tag> <files>...`,
+`gh gist edit {<id> | <url>} [<filename>]`, `gh release edit <tag>`.
+
+ALIASES is the one with teeth, and **it belongs on the PR, not in a follow-up
+issue.** `gist create`, `release create`, `issue create`, `pr create` and
+`repo create` each render `gh <noun> new`, and a table keyed on the canonical
+verb misses every alias, so `gh gist new /etc/passwd` landed on the fail-closed
+unrecognized-verb **ask** instead of the containment **deny**. #232 round 6
+resolves the alias to its canonical spelling before any tier runs
+(`classify_gh_aliases.go`), so that row now denies. The earlier grading — "main
+answers the alias rows `ask` too, so it is pre-existing and a follow-up issue" —
+was **overruled by Edwin**: the standard on a gate PR is *pre-existing on main +
+same defect class + in a verb the table models → fix it here*, which is how the
+implicit-stdin `gh gist create` hole, `-F=FILE` and the `-p=f` cluster stop had
+already been fixed on that same PR. Baseline against main to tell *residual*
+from *regression*, never to decide whether to file it.
+
+Enumerating aliases: `grep -A3 '^ALIASES'` over the per-verb help dumps gets the
+verbs you already listed, but the ALIASES block is rendered per COMMAND, so the
+complete set needs a walk of the whole tree (`gh <path> --help` recursively, 228
+commands on 2.97.0 — and the section headings are not just `AVAILABLE COMMANDS`;
+`gh pr`/`gh issue`/`gh repo`/`gh release` use `GENERAL COMMANDS` and
+`TARGETED COMMANDS`, so match `/ COMMANDS$/` or you silently skip those nouns).
+Reconcile it against `grep -rn "Aliases:" --include "*.go" | grep -v _test.go`
+in a cli/cli tarball at the tag (45 declarations on 2.97.0) — that grep is the
+authority, since `gh accessibility` sits under HELP TOPICS and the help walk
+never reaches its `a11y`. The alias names on the gate's own nouns are `ls`,
+`new`, `co`, `remove`; none is a member of `readVerbs` or
+`ghRecoverableWriteVerbs`, which is what made the pre-fix hole an ask and not an
+outright ALLOW — check that before grading the severity. gh's OTHER alias
+mechanism is the user config `gh alias set` writes (it ships `co: pr checkout`);
+it cannot shadow a modelled noun, because `gh alias set` refuses a name that is
+"already a gh command or extension".
+
+**A `<pattern>` operand needs no special handling and is not a hole**: the gate
+reads the pre-expansion command string, so quoted and unquoted spellings reach it
+as the same literal token, and both Go's `filepath.Glob` and the shell keep the
+pattern's literal non-meta prefix as a prefix of every match — grading the prefix
+bounds the expansion without resolving it. Probe both directions
+(`gh release create v1 '../sib/*.tgz'` deny, `gh gist create '*.md'` **ask** —
+contained, so containment does not fire, but every `gh gist create` sits on the
+publish tier since #232 round 10; before that round the contained direction read
+`allow`) plus the unquoted twins before accepting or disputing such a prose
+claim. Pick the contained probe on a verb whose own tier ALLOWS — and re-check
+which verbs those still are, because the set shrinks: `gh gist edit <id> '*.md'`
+was the natural pick and stopped being one in #232 round 11, which put EVERY
+`gh gist edit` on the publish tier too (an existing gist may already have
+readers), leaving `ghRecoverableWriteVerbs` with no `gist` entry at all. Use a
+still-allowing verb such as `gh pr comment <n> -F '*.md'` or
+`gh release upload v1 '*.md'` instead.
+
+**How to apply:** on any gate PR that adds or extends a per-verb/per-program
+flag whitelist. Keep the audit scripts in `<repo>/.claude/tmp/<slug>/` and run
+them with `python3 <script>` — they need no gate-awkward shell. Related:
+[[new-allow-track-entries-need-flag-value-audit]] (the same table seen from the
+value-is-a-path side), [[guardrails-binary-verification]].

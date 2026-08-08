@@ -54,7 +54,11 @@ var gitReadOnlySubcommands = map[string]bool{
 //     env-assignment); gh api --hostname (signed-request redirect — the one
 //     shape the egress proxy genuinely owns) and an unclassifiable graphql
 //     document (approval cannot be informed) (see classifyGhAPI).
-//   - ASK:  gh repo edit --visibility; gh auth login --hostname; a gh api
+//   - ASK:  gh repo edit --visibility; gh auth login --hostname; the publish
+//     verbs (gh release create; EVERY gh gist create, secret and public
+//     alike — a secret gist is unlisted, not private; and EVERY gh gist edit,
+//     which pushes local content into a gist that may already have readers);
+//     a gh api
 //     graphql mutation outside the curated allowlist — or one whose document
 //     carries a fragment, whose names the scanner cannot trust; an
 //     unknown gh api flag, a non-allowlisted gh api REST endpoint, or a
@@ -106,6 +110,17 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	if isAppManagedRepo(ev.CWD) {
 		return denyGhNakedAppRepo()
 	}
+
+	// Resolve gh's own command aliases to their canonical spelling BEFORE any
+	// tier runs. gh finds a subcommand by name OR alias, so `gh gist new` IS
+	// `gh gist create`, while every tier below dispatches by name — an alias
+	// therefore matched nothing and fell through to the fail-closed ASK, turning
+	// a documented respelling into a click-through past the containment DENY the
+	// canonical spelling earns. Resolving here lets each alias inherit its
+	// canonical command's real verdict; a token in neither alias table is left
+	// exactly as written, so the fail-closed floor is untouched. See
+	// classify_gh_aliases.go.
+	cmd = ghCanonicalCommand(cmd)
 
 	// gh auth switch (and identity-switch variants).
 	if cmd[0] == "auth" && len(cmd) >= 2 {
@@ -168,6 +183,24 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return d
 	}
 
+	// Read containment on the LOCAL FILES a publish verb sends to GitHub
+	// (`gh pr comment -F <path>`, `gh gist create <path>`, …). gh's body-file
+	// flags read a file off local disk and publish its contents to a destination
+	// that may be public and that outlives any local cleanup, so the path is
+	// graded by the same Engine B read containment that answers
+	// `cat /etc/passwd` with a cross-repo deny. An escaping path DENIES; an
+	// unmodelled flag on a publish verb ASKs. See classify_gh_files.go.
+	//
+	// Placed BELOW the irreparable-deny tier so those keep their specific
+	// messages, and ABOVE the publish ASK tier so an escaping path on
+	// `gh release create`, `gh gist create` or `gh gist edit` earns the
+	// containment deny rather than a click-through on the publish prompt.
+	// Both gist verbs reach that tier in EVERY spelling now, not the
+	// `--public` ones alone — see the arms below.
+	if d, hit := ghPublishedFileEscalates(cmd, sc, ev); hit {
+		return d
+	}
+
 	// ASK tier: gh repo edit --visibility (sanctioned-skill territory).
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {
@@ -177,23 +210,67 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		}
 	}
 
-	// ASK tier: release / public-gist publish (exposure, irreversible). The
+	// ASK tier: release / gist publish (exposure, irreversible). The
 	// spec DENYs publish "unless via sanctioned visibility skill"; the gate has
 	// no signal for that wrapper, and a hard DENY would leave no escape hatch
 	// for legitimate release creation, so it routes to ASK (one human click)
-	// rather than DENY. A public gist (`gh gist create --public`) is the
-	// exposure form; a default (secret) gist is not.
+	// rather than DENY.
 	if cmd[0] == "release" && len(cmd) >= 2 && cmd[1] == "create" {
 		return ask("gh release create (#64 publish)",
 			"'gh release create' publishes a release — exposure that is effectively irreversible. "+
 				"Confirm this is intended; publishing should go through the sanctioned visibility skill.")
 	}
 	if cmd[0] == "gist" && len(cmd) >= 2 && cmd[1] == "create" {
-		if containsToken(args, "--public") || hasFlagPrefix(args, "--public=") {
-			return ask("gh gist create --public (#64 publish)",
-				"'gh gist create --public' publishes a public gist — exposure that is effectively irreversible. "+
-					"Confirm this is intended.")
-		}
+		// EVERY `gh gist create`, not the `--public` ones alone. GitHub's
+		// "secret" gist is UNLISTED, not private — its own docs say a secret
+		// gist is served to anyone who discovers the URL, known to you or not —
+		// so a gist of a contained file is still a readable copy of it at a URL
+		// that outlives the run. Treating the
+		// default as the sanctioned form contradicted this same tier's own
+		// reasoning one arm up, where `gh release create` escalates as "exposure
+		// that is effectively irreversible" — deleting a gist does not un-read
+		// it either, so "recoverable" was never a coherent property here. The
+		// verb is therefore also OUT of ghRecoverableWriteVerbs; this arm is the
+		// only tier it reaches, exactly as `release create` does.
+		//
+		// Containment above still outranks this: an ESCAPING file operand DENYs
+		// rather than softening to a click-through on the ask.
+		return ask("gh gist create (#64/#229 publish)",
+			"'gh gist create' publishes the contents of a local file to GitHub, at a URL that outlives any "+
+				"local cleanup — with or without '--public'. A gist created WITHOUT the flag is what GitHub "+
+				"calls SECRET, which means UNLISTED rather than private: GitHub's own docs say a secret gist "+
+				"stays out of Discover and out of search, but that 'if someone you don't know discovers the "+
+				"URL, they'll also be able to see your gist' — and deleting it afterwards does not un-read "+
+				"it. '--public' adds the Discover listing and the search indexing on top of that. Both "+
+				"visibilities are exposure, so both escalate; confirm this is intended, and check what is in "+
+				"the file being published.")
+	}
+	if cmd[0] == "gist" && len(cmd) >= 2 && cmd[1] == "edit" {
+		// The WHOLE verb, not the `-a`/file-bearing spellings alone. Scoping an
+		// escalation by flag spelling is the sensitivity that produced the `-p`
+		// hole one arm up, where a screen that read `--public` positionally missed
+		// every spelling pflag parses differently.
+		//
+		// The target gist's visibility decides nothing here, and treating it as a
+		// weakness of the tier had it backwards: the egress is the point. An
+		// existing gist already has a URL, that URL may already have been handed
+		// out, and content pushed into it is readable by whoever holds it the
+		// moment it lands — which can make `edit` WORSE than `create`, not weaker.
+		// It is reachable in two allowed steps, since `gh gist list` is a read.
+		//
+		// ASK rather than DENY deliberately: this gate governs interactive human
+		// sessions as well as agent ones, and there are legitimate human reasons
+		// to edit a gist. One click preserves those; a deny would not.
+		//
+		// Containment above still outranks this: an ESCAPING file operand DENYs
+		// rather than softening to a click-through on the ask.
+		return ask("gh gist edit (#64/#229 publish)",
+			"'gh gist edit' publishes a local file's contents into a gist that ALREADY EXISTS — one whose URL "+
+				"may have been handed out already and may already have readers, so the content is exposed the "+
+				"moment it lands, and deleting it afterwards does not un-read it. That is the same egress "+
+				"'gh gist create' escalates for, and an existing gist can be the worse of the two: "+
+				"'gh gist list' names every gist this credential owns, so a local file reaches a circulating "+
+				"URL in two steps. Confirm this is intended, and check what is in the file being published.")
 	}
 
 	// Read-only gh subcommand — ALLOW (explicit, for the evolution-log label).
@@ -354,6 +431,13 @@ func ghAuthStatusEscalates(flags []string) (Decision, bool) {
 // the tiers above BEFORE this map is consulted, so listing them here would be
 // dead weight. An `api` write is likewise never here (classifyGhAPI decides it
 // before isGhRecoverableWrite is reached).
+//
+// The `gist` noun is absent ENTIRELY rather than carrying an empty verb set:
+// both of its write verbs send local content to a URL outside the repo — where
+// `create` mints one, `edit` pushes content into one that may already have
+// readers — so both are routed to the publish ASK above (#229), and neither was
+// ever a recoverable write. "Recoverable" is not a coherent property for
+// something others may already have read.
 var ghRecoverableWriteVerbs = map[string]map[string]bool{
 	"pr": {
 		"create": true, "comment": true, "merge": true, "close": true,
@@ -373,10 +457,6 @@ var ghRecoverableWriteVerbs = map[string]map[string]bool{
 		"create": true, "edit": true, "clone": true,
 		// `label delete` is a recoverable re-creatable metadata delete, but it is
 		// not a hot-loop verb; leave it to fail-closed ASK.
-	},
-	"gist": {
-		// `create` (secret) is the sanctioned form; `--public` already ASKs above.
-		"create": true, "edit": true,
 	},
 	"cache": {
 		"delete": true, // CI cache is regenerated on next run — recoverable.
@@ -470,10 +550,19 @@ func denyGhNakedAppRepo() Decision {
 
 // ghIrreparableDeny denies the DENY-tier gh operations: deletes of things
 // that are NOT git objects (repo/release/issue/gist), write-only secret/variable
-// values, repo rename/transfer, branch-protection/ruleset weakening, and
-// release/gist publish (irreversible exposure). cmd is the flag-stripped command
-// path (noun verb …). Default-deny within the gate: an unrecognized
-// secret/variable/ruleset subcommand denies (fail closed).
+// values, repo rename/transfer, and ruleset deletion (branch-protection
+// weakening). Release and gist PUBLISH are NOT here — irreversible as
+// they are, they route to the ASK tier back in classifyGh, since a hard deny
+// would leave legitimate publishing no escape hatch.
+//
+// cmd is the flag-stripped command path (noun verb …), already alias-resolved
+// by ghCanonicalCommand, so `gh secret remove` reaches the secret arm as
+// `delete` and `gh secret ls` as the `list` that arm falls through on.
+//
+// Default-deny within the gate is per-noun, not global: an unrecognized
+// `secret`/`variable` subcommand denies (fail closed), while `ruleset` denies
+// `delete` alone — any other ruleset verb falls through, to the enumerated-read
+// ALLOW if it is one and otherwise to classifyGh's fail-closed ASK.
 func ghIrreparableDeny(cmd []string) (Decision, bool) {
 	if len(cmd) < 2 {
 		return Decision{}, false

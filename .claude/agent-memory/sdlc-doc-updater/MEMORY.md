@@ -21,7 +21,10 @@
   — permission-gate classifier behavior lives in its own README.md +
   Go doc comments, kept current by developer/fixer, usually already
   current by the time doc-updater runs; watch for recurring
-  N-before-list defects when sweeping that README.
+  N-before-list defects when sweeping that README. A TIER change
+  falsifies worked examples in paragraphs about OTHER mechanisms that
+  borrowed the verb; slurp comment BLOCKS, and replay every quoted
+  example through the binary.
 - [gh pr diff and active gate](feedback_gh-pr-diff-and-active-gate.md)
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
@@ -87,3 +90,7 @@
   — that rule lives on exactly two surfaces (root CLAUDE.md + payload
   README's oldest-bash section); check scope, severity clause and
   pinning on both, and never cite a bullet by list position.
+- [The PR description is a doc surface](feedback_pr-description-is-a-doc-surface.md)
+  — when the spawn prompt says so, verify and repair the PR body like a
+  README; the closing keyword is untouchable and nothing else on the PR
+  is yours.

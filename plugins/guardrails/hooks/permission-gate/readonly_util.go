@@ -11,8 +11,8 @@ import (
 // settings.json allow entry and prompts the user). These program heads are the
 // single largest source of permission prompts in practice.
 //
-// Two posture invariants make the ALLOW safe, both inherited from the existing
-// allow track:
+// The posture invariants that make the ALLOW safe, all inherited from the
+// existing allow track, are:
 //
 //   - No command substitution / unresolved expansion (a `$(...)`-built arg
 //     can't be statically proven safe), and no real-file redirect — except one
@@ -43,7 +43,7 @@ type utilitySpec struct {
 	// pathBearing is true when the utility's operands are filesystem paths that
 	// must pass Engine B containment before the ALLOW. Pure-output utilities
 	// (printf, echo, seq, true/false, yes, basename, dirname) take no path
-	// operands, so they ALLOW on the two posture invariants above alone and
+	// operands, so they ALLOW on the posture invariants above alone and
 	// never fork git rev-parse for a containment check of their own. (A
 	// redirect destination is not an operand; when one is present it is graded
 	// separately, by redirectVetoesAllow, which does resolve repo context.)
@@ -123,23 +123,69 @@ func dedupeOperands(operands []string) []string {
 	return out
 }
 
+// pathRef is one path an argv walk extracted, tagged with the index — into the
+// args slice that was walked — of the token the path came from: the VALUE token
+// for a separate-token spelling (`-f FILE`), and the FLAG token itself for a
+// glued or `=`-joined one (`-fFILE`, `--exclude-from=FILE`), where the path has
+// no token of its own. An index of -1 means the path came from no argv token at
+// all (a shell redirect the caller substituted in).
+//
+// The index exists so a caller can ask whether THIS path was built from a word
+// the gate could not resolve statically — simpleCommand.argMeta carries per-token
+// `exact` — rather than falling back to the whole-command hasUnknownExpansion
+// bool, which answers only "was anything dynamic anywhere". See
+// ghPathTokensDynamic (classify_gh_files.go); unshieldedDynamicArg
+// (classify_command.go) is the same narrowing on the precondition.
+type pathRef struct {
+	path string
+	arg  int
+}
+
 // pathFlagValues returns the values of the flags in pathFlags — the flags whose
 // value names a filesystem path (see utilitySpec.pathValueFlags) — in every
-// spelling the utility accepts: a separate token (`-f FILE`, `--file FILE`), a
+// spelling GETOPT gives it: a separate token (`-f FILE`, `--file FILE`), a
 // glued short form (`-fFILE`, `-X/etc/passwd`), an `=`-joined long form
 // (`--exclude-from=FILE`), and the value-taking tail of a short cluster
-// (`grep -rf FILE`).
+// (`grep -rf FILE`). That is the whole spelling set for a program that parses
+// with getopt, which is what the callers of THIS wrapper grade — the
+// read-only-utility track (utilitySpec.operands) and the in-repo-write track's
+// read sources (classify_inrepo_write.go). A caller whose program parses with
+// pflag needs one reading more and calls pathFlagValueRefs directly; its doc
+// comment below has the detail.
+//
+// It is the value-only view of pathFlagValueRefs, for the callers that grade a
+// path without needing to know which token produced it.
+func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []string {
+	refs := pathFlagValueRefs(args, valueFlags, pathFlags)
+	if len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	for _, r := range refs {
+		out = append(out, r.path)
+	}
+	return out
+}
+
+// pathFlagValueRefs is pathFlagValues with each value tagged by the index of the
+// argv token it came from (see pathRef).
 //
 // valueFlags is the utility's complete value-taking flag set; pathFlags is a
 // subset of it. Walking with the full set is what makes the cluster and
 // separate-token cases exact: the value of a NON-path flag (`grep -e PATTERN`)
 // is consumed rather than mistaken for the next flag, and inside a cluster the
 // first value-taking character ends the flag run.
-func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []string {
+//
+// The spellings it covers are GETOPT's, which is what its utility callers parse
+// with. A caller whose program parses with pflag needs one reading more, because
+// pflag takes an `=` immediately after a shorthand as the separator while getopt
+// keeps it in the value: see ghPflagEqualValueRefs (classify_gh_files.go), which
+// appends that reading rather than replacing this one.
+func pathFlagValueRefs(args []string, valueFlags, pathFlags map[string]bool) []pathRef {
 	if len(pathFlags) == 0 {
 		return nil
 	}
-	var out []string
+	var out []pathRef
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -153,14 +199,14 @@ func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []stri
 			name := a
 			if eq := strings.IndexByte(a, '='); eq >= 0 {
 				if pathFlags[a[:eq]] {
-					out = append(out, a[eq+1:])
+					out = append(out, pathRef{path: a[eq+1:], arg: i})
 				}
 				continue
 			}
 			if valueFlags[name] {
 				if i+1 < len(args) {
 					if pathFlags[name] {
-						out = append(out, args[i+1])
+						out = append(out, pathRef{path: args[i+1], arg: i + 1})
 					}
 					i++ // consume the value token either way
 				}
@@ -178,11 +224,11 @@ func pathFlagValues(args []string, valueFlags, pathFlags map[string]bool) []stri
 			}
 			if j+1 < len(a) {
 				if pathFlags[f] {
-					out = append(out, a[j+1:])
+					out = append(out, pathRef{path: a[j+1:], arg: i})
 				}
 			} else if i+1 < len(args) {
 				if pathFlags[f] {
-					out = append(out, args[i+1])
+					out = append(out, pathRef{path: args[i+1], arg: i + 1})
 				}
 				i++ // consume the separate value token either way
 			}
@@ -246,7 +292,7 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// sort writes a file with `-o`/`--output` (`sort -o f f` clobbers in place).
 	// uniq's optional second path operand is an OUTPUT file (`uniq IN OUT`).
 	// Both must defer when the write form is present; both also fail safe on an
-	// unrecognized flag. sort additionally carries three path-valued flags —
+	// unrecognized flag. sort additionally carries path-valued flags —
 	// `--files0-from` (a list file it reads), `--random-source` (a file it
 	// reads) and `-T`/`--temporary-directory` (where it spills) — which the
 	// plain walk drops in their glued spelling.
@@ -262,7 +308,8 @@ var readOnlyUtilities = map[string]utilitySpec{
 	// `grep '/etc/passwd' f` would otherwise be tested as an absolute path and
 	// earn a cross-repo deny for a command that reads nothing of the sort. Its
 	// `-f PATFILE` value goes the other way — grep READS that file, so it is a
-	// pathValueFlag and stays contained in every spelling.
+	// pathValueFlag and stays contained in every spelling getopt gives it (see
+	// pathFlagValues).
 	"grep": {pathBearing: true, defersForm: grepDefers, operandsFn: grepFileOperands,
 		valueFlags: grepValueFlags, pathValueFlags: grepPathValueFlags},
 
@@ -743,7 +790,7 @@ func revDefers(args []string) bool {
 // begin with `-` without ever consulting this model — so `ls -I /etc` yields
 // the operand `/etc` either way. (A program that declares pathValueFlags does
 // feed flag values into containment, but only by ADDING them; `ls` declares
-// none, since no ls flag takes a path value.) The two outcomes are:
+// none, since no ls flag takes a path value.) The outcomes are:
 //
 //	unmodelled          → unknown flag → this predicate defers → DEFER
 //	modelled as a value → allow-eligible → containment runs    → DENY
@@ -991,7 +1038,7 @@ func sedDefers(args []string) bool {
 }
 
 // awkDefers reports whether an awk invocation must defer. awk is read-only
-// except when it writes a file. Three write modes are modeled:
+// except when it writes a file. The write modes modeled are:
 //
 //   - gawk in-place editing: `-i inplace` / `--include inplace` /
 //     `--include=inplace`.

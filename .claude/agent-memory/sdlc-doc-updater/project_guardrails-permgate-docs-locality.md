@@ -11,12 +11,19 @@ almost entirely in its own
 `plugins/guardrails/hooks/permission-gate/README.md`. That README is
 long, prose-dense, and kept current by the developer/fixer as part of
 each classifier PR (e.g. #64, #113 both landed with the README's
-relevant paragraph already rewritten before doc-updater ran). No other
-markdown in the repo describes gate *behavior* — sibling docs
-(`plugins/block-background-agents/README.md`,
-`plugins/guardrails/rules/scratch-file-location.md`, top-level
-`README.md`) reference the gate only by name/existence, same pattern as
-[[project_github-setup-docs-locality]].
+relevant paragraph already rewritten before doc-updater ran). Almost no
+other markdown in the repo describes gate *behavior* —
+`plugins/block-background-agents/README.md` and the top-level
+`README.md` reference the gate only by name/existence, same pattern as
+[[project_github-setup-docs-locality]]. The repo's `CLAUDE.md` holds
+the authoritative version of this locality claim, including the
+`plugins/guardrails/rules/scratch-file-location.md` sibling and the
+`.claude/agent-memory/` exception; read it there rather than trusting a
+copy here. What it does not say is *why* that rule file rots: the
+developer never updates it, because the code change is in the gate
+while the rule file is prose about agent habits. The memory-tree
+exception has a doc-updater-specific rider too — those notes are a
+surface you must know about and must not curate.
 
 The in-code Go doc comments (`rules.go`, `gh_api_gate.go`) are also
 kept meticulously current by the developer — dense, accurate,
@@ -184,11 +191,96 @@ value's `github.com` contains a `t`. When a Go comment and the README
 describe one screen at different strictness, the comment is usually the
 measured one — probe, then bring the README up to it.
 
-Also, the classifier-behavior locality claim in the repo's `CLAUDE.md`
-has one real exception: `.claude/agent-memory/` notes teach agents to
-route around gate verdicts and are silently falsified when a verdict
-changes (#225 had to delete two). doc-updater must not curate them, but
-must know they exist as a surface.
+**On a gate PR the residue is never the mechanism paragraph — it is a
+JUSTIFICATION sentence.** Six consecutive rounds of #229 (PR #232) each
+found the README, the Go comments and even the structural counts
+already correct, and each false claim was a sentence saying why
+something was left out, narrowed, or safe. The recurring shapes, all
+worth one probe before they stand:
+
+- **"Out of scope because the OTHER track already covers it."** That is
+  a claim about the other track's code: read it, and probe the exact
+  form it names. `gh api -X GET -F q=@/etc/passwd repos/o/r` ALLOWs
+  (classifyGhAPI's explicit-GET carve-out falls through to the REST
+  allowlist) while the graphql `-F query=@file` form DENIES, so "every
+  `gh api` form carrying a body already asks" was false in both
+  directions. The same sentence lumped `-f`/`-F` as doing `@file`
+  expansion when only `-F`/`--field` and `--input` do.
+- **A slash-joined flag pair.** Split it and probe each spelling: the
+  shield table and the per-verb spec table name flags in DIFFERENT
+  spellings, so a pair copied from one is wrong in the other. On
+  `gh pr create`, `--template $X` asks (shielded AND a path flag),
+  `-t $X` allows (`-t` is that verb's `--title`) and `-T $X` denies at
+  the non-static-argv precondition. A shield claim needs the same
+  probe: gh FIELD flags shield a dynamic value only when the `key=` is
+  pinned, so `gh pr comment -F $BODY` denies.
+- **A blanket predicate over a list of verbs** — "each requires an
+  explicit `-` or a filename" — is
+  [[feedback_no-blanket-predicate-over-a-list]] again; `gh <verb>
+  --help` is the cheap check for any claim about upstream gh grammar.
+  But it settles only what gh DOCUMENTS. Round 10 found the in-tree
+  prose that came out of this bullet — "`gist edit` takes its file as a
+  positional with no stdin spelling of its own" — false: cli/cli
+  v2.97.0's `edit.go` binds `opts.SourceFile = args[1]` and switches
+  `case src == "-"`, so `gh gist edit <id> - < /etc/passwd` reads the
+  file (the gate denies it, the `-` substitution being
+  origin-agnostic). Help renders only `[<filename>]`. For a NEGATIVE
+  claim about a verb's grammar, read the verb's `RunE` — same rule as
+  the implicit-stdin default on `gist create`.
+- **A doc comment naming the test that asserts an invariant.** Grep the
+  name: `TestGhFileSpecsAreWellFormed` did not exist.
+- **"The whole vocabulary / every form gh's help renders."** Settle it
+  by dumping help for every pair in the table, INHERITED FLAGS
+  included — that block is per-verb too, giving `--help` on all 26
+  modelled pairs but `-R`/`--repo` on only 24, since a gist is not a
+  repo resource and the gate folds the pair into every spec regardless.
+- **A quoted USAGE line.** Each spec's `filePositionalsFrom` is
+  justified BY that quote, so an abridged one is a live defect: gh
+  2.97.0 renders `[<tag>]` optional and offers a `<pattern>`
+  alternative, and dropping either removes exactly the fact a reader
+  checks. Dump `gh <noun> <verb> --help | sed -n '/^USAGE/,/^$/p'` per
+  verb with a file positional. The behavior was fine — a `<pattern>`
+  reaches the gate as one word and containment resolves its escaping
+  prefix without expanding it — but nothing said so, which is the gap
+  the abridged quote created.
+
+Dump gh help from a scratchpad SCRIPT, not inline: the gate blocks
+`gh "$noun" "$verb"` as non-static argv. And exclude the publishing
+verbs from any such sweep — the root `CLAUDE.md` forbids invoking them
+in any spelling, `--help` included. Their USAGE and flag grammar come
+from the command's own registration block via
+`gh api "repos/cli/cli/contents/<path>?ref=<tag>"`, which is the
+parser's own input and therefore the better source regardless.
+
+**A mechanism-narrowing round leaves a self-contradicting file.** A
+fixer greps for the paragraph it remembers writing, not for every
+restatement, so expect a file header still asserting "extracts a flag's
+value in every spelling" twenty lines above "the one spelling it does
+not cover". Grep the changed `.go` for the helper's own name AND for
+the phrase the round narrowed ("every spelling", "COMPLETE", "all
+three", "taken from") — with a whole-file `perl -0777` slurp rather
+than a line-oriented grep, because the phrase wraps across two `//`
+lines and a line grep misses exactly the copy that matters. Sites that
+reliably survive two consecutive sweeps: the thin WRAPPER above the
+callee that was just scoped (`pathFlagValues` over
+`pathFlagValueRefs`, and the wrapper is the half with the callers), the
+field docs of the maps handed to it (`inRepoWriteSpec.pathValueFlags`),
+the README's paragraph for the OLDER track, and a test-table comment.
+Grade every hit rather than only the named ones, and pass the ones
+already scoped: a claim that names its own parser ("in every spelling
+gh accepts") or enumerates the spellings right after itself carries no
+defect. Scope such a sentence to its parser (getopt vs pflag) at the
+helper itself. Sibling check when a comment states what a loop
+established about earlier iterations: list the maps the loop actually
+consults — a `continue` on "not in map A" proves nothing about map B.
+
+**When a gate PR grades a NEW CLASS OF PATH, the doc work is one level
+up.** Expect the README, the Go comments and the counts to be current;
+ask instead which prescriptive rule file tells agents where to put that
+path — a body file, a redirect target, an upload operand. A track that
+changes which destinations are safe for agent scratch falsifies
+`plugins/guardrails/rules/scratch-file-location.md` and `CLAUDE.md`'s
+locality claim, and the developer edits neither.
 
 **Gate PACKAGING facts are the exception to the locality rule above.**
 The `CLAUDE.md` trigger for that sweep was narrowed in PR #227: it used
@@ -237,3 +329,116 @@ allowlist, anchor allowlist, whatever comes next) needs its own README
 paragraph even when the Go comments are already complete — check by
 grepping the README's variable/anchor-resolution paragraph for the new
 mechanism's name, not just whether the README path is in the PR diff.
+
+**When a round moves verdicts, the residue is in the tier function the
+round did NOT touch (#229, PR #232, round 6).** Alias resolution ran
+upstream of every tier, and the new file plus the README paragraph were
+both accurate. What was false sat in `ghIrreparableDeny`'s own doc
+comment, untouched since #64: it billed the function as covering
+"release/gist publish" (publish is an ASK in `classifyGh`, not in that
+function at all) and claimed "an unrecognized secret/variable/ruleset
+subcommand denies (fail closed)" when the `ruleset` arm denies `delete`
+alone — `gh ruleset bogus` asks. A summary sentence at the top of a
+DENY-tier function is where a tier list rots, because nobody rereads it
+when the tier next to it changes. When a round moves rows into or out
+of a tier, read that tier's function comment end to end against its own
+switch.
+
+**An alias-resolution round is a diagnostic-detail change too.** Every
+message downstream quotes the CANONICAL spelling, so `gh secret remove
+FOO` is refused as `'gh secret delete'`, `gh pr co 1` asks about
+`'gh pr checkout 1'`, and even the fail-closed ask echoes `'gh repo
+create foo'` for a typed `gh repo new foo`. Nothing said so on either
+doc surface; an agent grepping a deny reason for the words it typed
+finds nothing. Same class as
+[[feedback_diagnostic-detail-claims]] — check what the message STRING
+interpolates after any rewrite of the tokens it is built from.
+
+**Grade a verdict-move COUNT by its DERIVATION, never by adjudicating
+the total.** A gate PR that changes `classifyGh` states "N rows move"
+over a `gh <noun> <verb>` cross. Successive rounds on the same PR will
+each produce a different N, each honest over its own row set, and
+picking the right one is effort the owner has explicitly ruled not worth
+spending. What a doc pass owes the reader is only this: the sentence
+states the row set AND the union that generates it, so a reader can
+re-run it. A bare total with no derivation is the finding; a total that
+disagrees with your own reconstruction is not.
+
+The cheap check is not to rebuild the cross but to ask which rows the
+change can possibly move — for an alias round, `ghCanonicalCommand`
+returns its input unchanged unless the noun or verb is an alias, so only
+alias-touching rows can move at all — and the moving set is INVARIANT to
+how wide the cross is, so a second measurement at a wider width is
+stronger evidence than any single number. When you do need to replay,
+extract main and the tip with `git archive … | tar -x`, drop one
+`zz_docprobe_test.go` into both that crosses the tables and writes
+`cmd<TAB>bucket`, and `paste`/`awk` the two files. Cost: two
+extractions, one throwaway dump test, one `go build` per side, and a
+python replay.
+
+Do NOT "fix" a total to your own number in a round that is not
+re-measuring — the load-bearing figure is the moving SET, and it
+survives the disagreement. Do replace it, with its derivation, in a
+round that is re-measuring anyway.
+
+**Re-derive the "can possibly move" argument every round; it is scoped
+to that round's change, not to the sentence.** The tier decomposition
+under the total is the part that rots, and it rots invisibly because the
+total can stay put while a sub-count moves. A parenthetical of the form
+"these rows carry no operands and no flags, so alias resolution is the
+only tier that can move one" goes false the moment any non-alias tier
+starts escalating a bare row — which is exactly what a whole-verb
+escalation does. When a round changes a verb the count sentence names
+anywhere, including inside a sub-count's parenthetical, replay the cross
+rather than reasoning that the total looks unchanged, and equally rather
+than reasoning that it must have changed.
+
+**A TIER-WIDENING round falsifies the worked examples of every OTHER
+mechanism that shares the verb (#229, PR #232, round 12).** Rounds 10
+and 11 put every `gh gist create` and `gh gist edit` on the publish ASK.
+Every paragraph *about* those tiers was rewritten correctly, the counts
+re-measured correctly, and the residue was sixty lines away in the
+`<pattern>`-operand paragraph, which had picked `gist create` as its
+worked example of the CONTAINED half back when a secret gist was a
+recoverable write: "`gh release create v1 '../sib/*.tgz'` **denies**
+while `gh gist create '*.md'` **allows**". The escaping half still held;
+only the contained half moved, and it moved to ask. The generalization:
+when a verb changes TIER, grep for the verb across the whole file and
+grade every example it appears in, not just the paragraphs about the
+tier — a verb is a popular example precisely because it is short, so it
+gets borrowed by paragraphs about unrelated mechanisms, and those
+paragraphs are never in the round's diff. The identical sentence sat in
+`classify_gh_files.go`'s `ghFileSpec` doc comment, wrapped so that
+`allows` was alone on its own `//` line — a line grep for
+"gist create.*allows" finds neither copy. Slurp comment BLOCKS
+(join every run of `//` lines, then match) rather than lines.
+
+Cheap settling method for a contained-half claim once a verb is on an
+ask tier: there is usually no allow row left to point at. Say what the
+verdict is NOT ("is not denied for a path the gate could not expand")
+and then where it lands, rather than hunting for a different verb whose
+allow survives — swapping the example verb silently changes which
+mechanism the sentence demonstrates.
+
+**Grade a whole README mechanically, not by reading (#232, round 12).**
+Slurp the file with the newline+indent collapsed, regex every
+`` `gh …` `` span, take the nearest verdict word after it, drop the
+rows carrying a `<placeholder>`, and replay the rest through the built
+binary. That turned ~44 quoted examples into one probe run and found
+the one false row without depending on which paragraph caught the eye.
+The heuristic's false positives are all the same shape — a verb
+fragment quoted mid-sentence picks up an unrelated verdict word — and
+are cheap to discard by eye once the concrete rows are settled.
+
+**The residue in a count-fixing round is the CLOSURE sentence.** When
+prose enumerates a set and then says why the set is complete ("the
+list is closed at five because `gist create` has exactly two
+value-taking flags, in two spellings each"), do the arithmetic against
+the list right above it: two flags × two spellings is four, and the
+fifth member — an operand after `--` — had no justification at all.
+Same sentence carried a mechanism blanket over the same list ("pflag
+gives that token to the preceding flag"), false for the `--` member,
+which has no preceding flag. Both survived the round that wrote them
+because the enumeration itself was measured and correct. Grade a
+"closed because" clause member by member, exactly as
+[[feedback_no-blanket-predicate-over-a-list]] prescribes.
