@@ -479,7 +479,11 @@ So: adding a key to `CLAUDE_VM_LIST_KEYS` means grepping
 `plugins/claude-vm/payload/` for `has(` — there are two uses — and
 grading each against the new key; and writing a gate means checking
 whether its key is a list key before reading presence off a merged
-document. A merged document is a legitimate source when neither prune
+document. Grade a sibling by the question it asks, not by the document
+it reads: `claude_vm_check_plugin_key_placement` tests `!= null`, so a
+valueless misplaced key passes it by design. That is a value gate, not
+a presence gate, and rewriting it to `has()` is a contract change
+rather than a fix. A merged document is a legitimate source when neither prune
 pass can reach the key: `claude_vm_mount_mode_entries` asks
 `has("mode")` of the merged boot document and is right to, because
 `mode:` sits inside a list *element*, which pass 1 (whole empty list
