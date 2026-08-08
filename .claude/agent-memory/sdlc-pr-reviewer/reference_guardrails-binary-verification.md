@@ -209,6 +209,19 @@ Together those separate "the source is comments" from "the shipped
 bytes carry the same policy", which is the pair the claim asserts. The
 tip-rebuild `cmp` still answers the different question of staleness.
 
+Re-run and re-confirmed on #232 round 10, and both commands came back
+in their STRONGEST form, so treat that as the expected result rather
+than a lucky one: 0 non-comment lines over 19 changed `+`/`-` lines,
+and `go tool nm` parent (`06108f3^`) vs tip byte-identical on all THREE
+arches (`diff` returns 0 lines each) — not the round-5 shape where
+linux-arm64 differed in the pclntab symbols. Sizes still move (there
+linux-arm64 4,830,817 → 4,830,793, the other two same-size but
+different bytes), which is the `file:line` shift and nothing more. A
+comment-only round that leaves nm identical also settles, for free,
+that every OTHER mutation/control count the PR body carries is
+unchanged from the previous round's measurement — assertions cannot
+move when no compiled code did.
+
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.
 

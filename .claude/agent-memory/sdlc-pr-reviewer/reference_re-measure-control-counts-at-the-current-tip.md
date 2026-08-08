@@ -41,6 +41,16 @@ it costs one extra `git archive` per figure. The other three figures in
 the same bullet matched tip exactly, so the sentence is false only for
 the two the later rounds' new tests touch — say which.
 
+**Round 10 closed it, and the close is worth recording as the shape of a
+good outcome.** The orchestrator re-measured only the two figures the
+finding named (104/10 and 7/2) and left the other three alone under the
+same "re-measured against the current tree" sentence. Re-running all
+five at the new tip: 104/10, 7, 7, 7/2, 3+11 — every one matches, so
+the sentence became true of all five. Always re-run the three the fix
+round did NOT touch, not just the two it did: the sentence quantifies
+over all of them, and a fix round has no incentive to check the ones
+nobody flagged.
+
 Mechanics that make this cheap:
 
 ```bash
