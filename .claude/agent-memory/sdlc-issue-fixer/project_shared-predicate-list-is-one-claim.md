@@ -56,6 +56,22 @@ older key's gate in the code and give each its own clause — including
 the explicit negative ("there is no cross-layer check here"), so the
 next writer cannot re-borrow.
 
+**"The suite pins these" is a claim about the fixture, not about the
+code.** The predicate can be *coverage*: "config-test.sh pins the four
+surviving spellings through the real merge" (#135 round 5) was written
+beside a correct, measured list of four — `mode: ro`, `""`, `[]`,
+valueless — while the fixture carried three; `[]` had been measured by
+hand and never turned into a row. Behavior was right, the coverage
+sentence was not, and no test failed on it. Settle it by counting the
+fixture rows and the expected-output fields, not by re-reading the code
+the sentence is about. And when the count is short, add the missing
+case rather than softening the sentence to match — a claim shrunk to
+fit thin coverage is the same defect in the other direction. Adding one
+also means measuring the *deliberately excluded* neighbour (`mode: {}`,
+pruned and tracked on #233) locally, so you know the new row is
+discriminating rather than passing because everything in that shape
+aborts.
+
 Sibling shapes: [[count-tally-class-includes-back-references]] (the
 tally and its downstream back-references are one claim too),
 [[staleness-check-both-ends-same-source]] (record site and re-read
