@@ -2965,6 +2965,13 @@ if [ -n "$GATE_START" ] && [ -n "$GATE_END" ]; then
   gate_mount_case "a valueless mode key" \
     "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode:\n' "$GATE_SRC_A")" \
     "sets 'mode:'"
+  # An empty SEQUENCE. It renders as an empty field like the two above, and it
+  # is the near-neighbour of the one spelling the prune's empty-map pass does
+  # delete (`mode: {}`, an open gap tracked on issue #233), so it is driven
+  # through the same real load block rather than assumed to behave like `""`.
+  gate_mount_case "an empty-list mode key" \
+    "$(printf 'mounts:\n  - source: %s\n    tag: m\n    mode: []\n' "$GATE_SRC_A")" \
+    "sets 'mode:'"
   # The diagnostic must point at the issue that will bring read-only back, or
   # the operator is told "no" with nowhere to go.
   gate_mount_case "the mode abort naming issue #233" \
@@ -3509,6 +3516,9 @@ assert_eq "mount-specs: a config that still sets mode: emits no mode field" \
 # has to distinguish a supplied key from an omitted one, which no VALUE can do
 # -- `mode: ""` and `mode:` (a null) both render as the same empty field an
 # omitted key renders as.
+# `mode: []` is in the fixture for a second reason: it is an empty COLLECTION,
+# one character away from the `mode: {}` the prune's second pass deletes, so the
+# two have to be measured apart rather than reasoned about together.
 TF_MODE_ENTRIES="$WORK/mode-entries.yml"
 {
   printf 'mounts:\n'
@@ -3516,9 +3526,10 @@ TF_MODE_ENTRIES="$WORK/mode-entries.yml"
   printf '  - source: /a/set\n    tag: set\n    mode: ro\n'
   printf '  - source: /a/empty\n    tag: empty\n    mode: ""\n'
   printf '  - source: /a/null\n    tag: null-mode\n    mode:\n'
+  printf '  - source: /a/list\n    tag: list-mode\n    mode: []\n'
 } > "$TF_MODE_ENTRIES"
 assert_eq "mode-entries: every SPELLING of a supplied mode is reported, by entry number" \
-  "2	/a/set 3	/a/empty 4	/a/null" \
+  "2	/a/set 3	/a/empty 4	/a/null 5	/a/list" \
   "$(claude_vm_mount_mode_entries "$TF_MODE_ENTRIES" | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "mode-entries: an entry with no mode key is NOT reported" \
   "0" "$(claude_vm_mount_mode_entries "$TF_MODE_ENTRIES" | grep -c '/a/none' || true)"
@@ -3539,7 +3550,7 @@ assert_eq "mode-entries: a config with no mounts at all reports nothing" \
 TF_MODE_MERGED="$WORK/mode-entries-merged.yml"
 claude_vm_merge_config "" "$TF_MODE_ENTRIES" > "$TF_MODE_MERGED"
 assert_eq "mode-entries: these spellings survive the real merge, unchanged" \
-  "2	/a/set 3	/a/empty 4	/a/null" \
+  "2	/a/set 3	/a/empty 4	/a/null 5	/a/list" \
   "$(claude_vm_mount_mode_entries "$TF_MODE_MERGED" | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "mode-entries: ...and an entry with no mode key is still not reported" \
   "0" "$(claude_vm_mount_mode_entries "$TF_MODE_MERGED" | grep -c '/a/none' || true)"
