@@ -18,7 +18,7 @@
 - [claude-vm mkosi installs from outside image](project_claude-vm-mkosi-installs-from-outside-image.md) — a boot-time apt-get needs `apt` explicitly baked into the base Packages= list; mkosi's build-time apt never leaks in
 - [claude-vm inspect raw image with debugfs](project_claude-vm-inspect-raw-image-with-debugfs.md) — dd-carve the ext4 partition then debugfs (it has no -o offset) to inspect a built guest.raw without loop devices
 - [apt keyring extension vs content](project_apt-keyring-extension-vs-content.md) — apt >= 2.x picks armored-vs-binary by FILE EXTENSION not content, so render_apt_source(_boot) must sniff+rename
-- [Repo-boundary gate blocks any out-of-repo tool arg](project_repo-boundary-gate-blocks-any-tool-arg-outside-repo.md) — find/cp/awk args resolving outside the repo are blocked even as a cp source; set TMPDIR inside the repo first
+- [Repo-boundary gate blocks any out-of-repo tool arg](project_repo-boundary-gate-blocks-any-tool-arg-outside-repo.md) — find/cp/awk args resolving outside the repo are blocked even as a cp source, and so is `sed -i ''`'s empty operand; set TMPDIR inside the repo first
 - [No invented policy in agent defs](feedback_no-invented-policy-in-agent-defs.md) — never assert a rule in an agent .md without grepping an actual rules file; your own prior addition can be the next defect
 - [Sweep sibling agent guards](project_sweep-sibling-agent-guards.md) — sweep the exceptions and the inline operational text, not just the headline rule; collapse shared rationale to a pointer
 - [Scope guarantee claims to actual caller](feedback_scope-guarantee-claims-to-actual-caller.md) — "autonomous mode always runs fresh" held only of one caller's habits, not the skill's own logic; name the caller
