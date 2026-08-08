@@ -78,3 +78,4 @@
 - [A tier premise can be a vendor fact](project_a-tier-premise-can-be-a-vendor-fact.md) — "this form is the safe one" is a claim about the vendor's product (a secret gist is unlisted, not private)
 - [Your change can void a control's liveness anchor](project_your-change-can-void-a-controls-liveness-anchor.md) — a control that pins one still-allowing row goes vacuous when you move that row; re-anchor beyond the diff's reach
 - [Word an escalation as the harm, not a blind spot](feedback_word-an-escalation-as-the-harm-not-a-blind-spot.md) — never "the gate cannot tell what this does"; ASK rather than deny, because the gate governs human sessions too
+- [Equivalence by sourcing, identity by text](project_equivalence-by-sourcing-identity-by-text.md) — two renderers of one value are compared by SOURCING both (bash `%q` and `shlex.quote` spell it differently); "nothing else changed" is compared by TEXT against the `git show HEAD:`-extracted pre-change function
