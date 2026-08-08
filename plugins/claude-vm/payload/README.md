@@ -821,12 +821,19 @@ also what lets the diagnostic name *which* bake file the key is in. Carving the
 two keys out of the prune would have been the wrong repair twice over: it leaves
 the "configured empty looks configured" trap in place for the next reader, and
 it changes merge behavior for keys that have nothing to do with `env:`. The
-mirror-image case is `claude_vm_mount_mode_entries`, which asks a merged
-document and is right to: `mode:` sits inside a list *element*, which neither
-prune pass can reach. `config-test.sh` runs the whole `env:` gate battery
-through the real merge — the shape that was missing when the launcher was
-wrong and the suite was green — and pins both halves of the prune fact plus the
-`mode:` counter-case.
+partial counter-case is `claude_vm_mount_mode_entries`, which still asks a
+merged document: `mode:` sits inside a list *element*, which pass 1 never
+examines, and the entry map is never empty (`{mode: null}` has length 1) — but
+pass 2 is spelled `del(.. | select(tag == "!!map" and length == 0))`, and that
+`..` descends into list elements, so a `mode: {}` *inside* an entry is deleted.
+Measured through the real merge against yq v4.53.3, in both layers: `mode: ro`,
+`mode: ""`, `mode: []` and a valueless `mode:` all reach the gate and abort the
+launch; `mode: {}` arrives as an absent key and the launch proceeds. That is a
+gap in the `mode:` abort, not a documented exemption — `config-test.sh` pins
+the four surviving spellings through the real merge and has no `{}` case, which
+is why it stayed invisible. `config-test.sh` runs the whole `env:` gate battery
+through the real merge too — the shape that was missing when the launcher was
+wrong and the suite was green — and pins both halves of the prune fact.
 
 The rule generalises past `env:`, and `claude_vm_check_plugin_key_placement`
 was the second gate to need it: it asked `(.claude.plugins.<key> != null)` of
@@ -1215,7 +1222,11 @@ when it is not, which is the exact failure this removal exists to eliminate.
 That abort is a **presence** test rather than a value one: `mode: ""` and a
 valueless `mode:` render as the same empty field an *omitted* key does, so
 `claude_vm_mount_mode_entries` asks yq `has("mode")` and emits only the entries
-that carry the key. It stays a separate emitter with its own loop in
+that carry the key. It is asked of the **merged** boot document, which costs it
+one spelling: `mode: {}` is deleted by the prune's empty-map pass before the
+gate sees it, and that config launches. See *Guest environment variables* above
+for the measurement and for why every other presence gate asks the raw files.
+It stays a separate emitter with its own loop in
 `claude_vm_check_mounts` rather than another field on
 `claude_vm_mount_specs`, so the whole deprecation gate is one function and one
 loop to delete when the replacement lands — not a field every `mounts` reader
@@ -1734,16 +1745,17 @@ control that drops the guard's lines from the same captured loop and shows the
 malformed `sharedDir=` it would otherwise emit. The config-load gate block is
 run once per rejected config, each asserting both the non-zero exit and a
 diagnostic naming the actual problem: a reserved tag, a duplicate tag, a
-`mode:` key (in every spelling — `ro`, `rw`, a typo, an explicit `""`, and a
-valueless `mode:`, since only a *presence* test tells the last two from an
-omitted key), a missing host source, a relative `path`, a `path` with a `..`
-segment, a `path` over a reserved mountpoint (spelled with a trailing slash,
-so the normalization is what catches it), a duplicate guest path, and a tag
-carrying a comma. The guest-OS-path rule is driven from both sides at once: a
-**directory** on `/root`, on `/etc`, and inside `/usr`, `/root` and `/var` all
-abort, while a **single file** inside `/root` and `/tmp` passes and the same
-in-`/root` path with a *directory* source aborts — one pair of assertions
-differing only in what the source is, which is the whole
+`mode:` key (spelled `ro`, `rw`, a typo, an explicit `""`, and a valueless
+`mode:`, since only a *presence* test tells the last two from an omitted key —
+`mode: {}` has no case, and is the one spelling the merged-document read drops,
+per *Guest environment variables*), a missing host source, a relative `path`,
+a `path` with a `..` segment, a `path` over a reserved mountpoint (spelled
+with a trailing slash, so the normalization is what catches it), a duplicate
+guest path, and a tag carrying a comma. The guest-OS-path rule is driven from
+both sides at once: a **directory** on `/root`, on `/etc`, and inside `/usr`,
+`/root` and `/var` all abort, while a **single file** inside `/root` and `/tmp`
+passes and the same in-`/root` path with a *directory* source aborts — one pair
+of assertions differing only in what the source is, which is the whole
 directory-versus-file distinction. The passing side is pinned too: the default
 `/mnt/<tag>`, `/srv/custom`, `/opt/tools` and the component-boundary near-miss
 `/etcetera`.

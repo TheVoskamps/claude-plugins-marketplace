@@ -3528,14 +3528,17 @@ assert_eq "mode-entries: a config with no mounts at all reports nothing" \
 # document the launcher ever hands this emitter. Not a formality: `.mounts` IS a
 # CLAUDE_VM_LIST_KEYS entry, and claude_vm_prune_empty_skeleton deletes an empty
 # list key and then any map left empty -- the exact mechanism that disarmed the
-# `env.copy` presence gate on a merged document. It cannot reach `mode:` here,
-# because the key sits inside a list ELEMENT that the prune's first pass never
-# examines and that its empty-map pass never finds empty (a `{mode: null}` entry
-# has length 1). Asserted rather than reasoned, so the next key added to
-# CLAUDE_VM_LIST_KEYS cannot silently change the answer.
+# `env.copy` presence gate on a merged document. Its first pass never examines a
+# key inside a list ELEMENT, and its empty-map pass never finds the ENTRY empty
+# (a `{mode: null}` entry has length 1) -- so the spellings below survive.
+# Asserted rather than reasoned, so the next key added to CLAUDE_VM_LIST_KEYS
+# cannot silently change the answer. What that pass DOES reach is a `mode: {}`
+# written inside an entry: `del(.. | ...)` descends into list elements, deletes
+# the empty map, and the launch proceeds. There is no case for it below because
+# the emitter does not report it -- see claude_vm_mount_mode_entries' header.
 TF_MODE_MERGED="$WORK/mode-entries-merged.yml"
 claude_vm_merge_config "" "$TF_MODE_ENTRIES" > "$TF_MODE_MERGED"
-assert_eq "mode-entries: every spelling survives the real merge, unchanged" \
+assert_eq "mode-entries: these spellings survive the real merge, unchanged" \
   "2	/a/set 3	/a/empty 4	/a/null" \
   "$(claude_vm_mount_mode_entries "$TF_MODE_MERGED" | tr '\n' ' ' | sed 's/ $//')"
 assert_eq "mode-entries: ...and an entry with no mode key is still not reported" \

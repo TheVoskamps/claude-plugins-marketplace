@@ -257,7 +257,10 @@ load rather than an ignored key, because silently accepting `mode: ro`
 leaves an operator believing a share is read-only when the guest can
 write it. The abort is a *presence* test (`claude_vm_mount_mode_entries`
 asks yq `has("mode")`), since `mode: ""` and a valueless `mode:` render
-as the same empty field an omitted key does.
+as the same empty field an omitted key does. It is asked of the MERGED
+boot document, which today lets `mode: {}` through — see the
+presence-gate section below before restating "any `mode:` aborts" as a
+complete claim.
 
 The "there is no read-only option" claim is restated on every surface an
 operator or an agent can reach, so a PR that adds enforced read-only in
@@ -502,12 +505,16 @@ key is hunted in the two BAKE files, a BAKE-only key in the two BOOT
 files — which is why it takes four raw paths where
 `claude_vm_check_env` takes the bake pair only.
 
-A merged document is a legitimate source when no prune pass can reach
-the key: `claude_vm_mount_mode_entries` asks `has("mode")` of the
-merged boot document and is right to, because `mode:` sits inside a
-list *element*, which pass 1 (whole empty list keys) and pass 2 (empty
-maps) both leave alone. A fallback READER is also fine —
-`claude_vm_bool_scalar`'s `(<path> == null)` treats a pruned key as
+Sitting inside a list *element* is not the exemption it looks like.
+`claude_vm_mount_mode_entries` asks `has("mode")` of the merged boot
+document on that reasoning, and pass 1 (whole empty list keys) does
+leave it alone — but pass 2 is `del(.. | select(tag == "!!map" and
+length == 0))`, and `..` descends into list elements, so a `mode: {}`
+written inside an entry is deleted and that config launches while
+`mode: ro` / `""` / `[]` / valueless all abort (measured through the
+real merge against yq v4.53.3, both layers). Treat that as an open gap
+in the `mode:` abort, not as a documented exemption. A fallback READER
+is fine — `claude_vm_bool_scalar`'s `(<path> == null)` treats a pruned key as
 unconfigured, which is what the prune means. Pin the difference by
 driving `claude_vm_merge_config` in the launcher's own argument shape
 rather than calling the gate on a hand-written fixture —

@@ -786,13 +786,19 @@ claude_vm_mount_specs() {
 # The entry number is `to_entries`' index + 1, so it counts through the MERGED
 # list exactly the way claude_vm_check_mounts's own idx does.
 #
-# Asking a MERGED document is safe here, unlike claude_vm_env_bake_has_key's
-# presence test: `mode:` sits inside a list ELEMENT, which
-# claude_vm_prune_empty_skeleton cannot touch -- its first pass deletes only a
-# whole CLAUDE_VM_LIST_KEYS entry that resolved to an empty list, and its
-# empty-map pass never finds an entry empty (`{mode: null}` has length 1).
-# config-test.sh asserts that through the real merge rather than leaving it as a
-# reading, so a key added to CLAUDE_VM_LIST_KEYS cannot quietly change it.
+# This is asked of a MERGED document, unlike claude_vm_env_bake_has_key, and
+# claude_vm_prune_empty_skeleton reaches it in ONE spelling. Its first pass
+# deletes only a whole CLAUDE_VM_LIST_KEYS entry that resolved to an empty list,
+# so it never touches a key inside a list ELEMENT. Its empty-map pass is
+# `del(.. | select(tag == "!!map" and length == 0))`, and that `..` DOES descend
+# into list elements: the entry map itself is never empty (`{mode: null}` has
+# length 1), but a `mode: {}` written inside it is, and is deleted. Measured
+# through the real claude_vm_merge_config against yq v4.53.3, in both layers:
+# `mode: ro`, `mode: ""`, `mode: []` and a valueless `mode:` all survive the
+# merge and abort the launch, while `mode: {}` arrives here as an absent key and
+# the launch proceeds. config-test.sh drives the surviving spellings through the
+# real merge -- so a key added to CLAUDE_VM_LIST_KEYS cannot quietly change
+# them -- but carries no `{}` case, which is why the gap was invisible.
 claude_vm_mount_mode_entries() {
   local file="$1"
   yq eval '
