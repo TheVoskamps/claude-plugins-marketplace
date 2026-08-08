@@ -1,14 +1,15 @@
 ---
 name: claude-vm
-description: Launch Claude Code inside an isolated Linux micro-VM on macOS with config-driven egress, mounts, VM resources, and repo isolation (clone or live). All non-secret knobs come from four-file YAML (a bake file + a boot file per tier, global + per-repo, all optional); the immutable base image is APFS-cloned per run so concurrent sessions never leak state. The guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
+description: Launch Claude Code inside an isolated Linux micro-VM on macOS with config-driven egress, mounts, VM resources, guest environment variables (including third-party API keys forwarded by name from the host, never written into config), and repo isolation (clone or live). All non-secret knobs come from four-file YAML (a bake file + a boot file per tier, global + per-repo, all optional); the immutable base image is APFS-cloned per run so concurrent sessions never leak state. The guest authenticates with the host's claude.ai OAuth credential extracted from the macOS Keychain at launch, plus an identity seed (userID + oauthAccount from the host's ~/.claude.json, plus synthesized onboarding/auto-update-off/version keys) so the in-guest session comes up already onboarded, logged in, and with self-update disabled.
 ---
 
 # claude-vm
 
 Run Claude Code inside an isolated Linux micro-VM on macOS. Every
 non-secret operational knob — VM resources, the egress allowlist, extra
-mounts, the proxy, and how the repo is made available to the guest —
-comes from layered **YAML config** rather than environment variables.
+mounts, the proxy, the guest's own environment variables, and how the
+repo is made available to the guest — comes from layered **YAML config**
+rather than claude-vm's own environment variables.
 The guest authenticates with the **host's live claude.ai OAuth
 credential**, which the launcher extracts from the macOS Keychain at
 launch and shares into the guest (where the image's fstab mounts the
@@ -92,12 +93,14 @@ silently dropping the knobs it set.
 
 - **bake file** — `packages:` (a flat list of apt packages baked into
   the image), `apt_sources:` (third-party apt repos rendered into the
-  image), `image.root_headroom_mb`.
+  image), `image.root_headroom_mb`, `env.set` (guest environment
+  variables written INTO the image — literals only).
 - **boot file** — `cpus`, `mem`, `guest_image`, `repo.*`, `proxy.*`,
   `egress.allow`, `mounts`, `provisioner`, `packages:` (here a flat
   list installed AT BOOT), `update_at_boot`, `add_apt_uris_to_allowlist`,
   `apt_sources:` (for a boot-time install; union+dedup with the bake
-  file's), `claude.*`, `github.*`.
+  file's), `claude.*`, `github.*`, `env.*` (all three sub-keys;
+  `env.copy` and `env.files` are boot-ONLY and abort in a bake file).
 
 ### Layering semantics
 
@@ -111,24 +114,31 @@ bake+boot, then merge global under repo):
   `claude.plugins.add_marketplace_uris_to_allowlist`, `github.auth`):
   repo overrides global; global fills gaps; a hardcoded default applies
   only when neither layer sets the key.
-- **Scalar maps** (`claude.plugins.enabled`): repo overrides global
-  **per key** — each plugin-ref → boolean entry follows the scalar
-  repo-wins rule independently, so a repo can flip one plugin's enabled
-  state without restating the global map.
+- **Scalar maps** (`claude.plugins.enabled`, `env.set`): repo overrides
+  global **per key** — each entry follows the scalar repo-wins rule
+  independently, so a repo can flip one plugin's enabled state, or one
+  environment variable's value, without restating the global map.
 - **Lists** (bake file: `packages`, `apt_sources`, `claude.marketplaces`,
   `claude.plugins.bake`; boot file: `egress.allow`, `mounts`, `packages`,
   `apt_sources`, `claude.marketplaces`, `claude.permissions.allow`,
   `claude.permissions.ask`, `claude.permissions.deny`,
-  `claude.plugins.install_at_boot`): **merged** —
+  `claude.plugins.install_at_boot`, `env.copy`, `env.files`): **merged** —
   the union of global + repo entries, de-duplicated. `apt_sources` and
   `claude.marketplaces` are allowed in **both** file types; each is unioned
   and deduped by `name`, and the same name with DIFFERING content
   (`{repo, key_url}` / `url`) aborts the launch (no silent shadowing).
 - **Placement guard**: `claude.plugins` is the one map that legitimately
   appears in both file types, so a sub-key in the wrong file aborts the
-  launch with a message naming the right file — `bake` belongs in the bake
-  file (it changes image bytes), and `install_at_boot` / `update_at_boot` /
-  `add_marketplace_uris_to_allowlist` / `enabled` belong in the boot file.
+  launch with a message naming the file that carries it — `bake` belongs in
+  the bake file (it changes image bytes), and `install_at_boot` /
+  `update_at_boot` / `add_marketplace_uris_to_allowlist` / `enabled` belong in
+  the boot file. A *presence* test, so a misplaced sub-key written empty (a
+  valueless `bake:`, or `bake: []` / `""` / `{}`) aborts exactly like a
+  populated one.
+  `env` has the same shape and its own guard: `env.set` is allowed in both
+  file types, while `env.copy` and `env.files` are **boot-only** and abort in
+  a bake file — a *presence* test, so an empty or valueless `env.copy:`
+  aborts too. See *Guest environment variables* below for why.
 
 ### Keys
 
@@ -297,6 +307,20 @@ mounts:                           # extra mounts beyond the repo auto-mount
 
 github:
   auth: none                      # none (default) | host-token
+
+# Guest environment variables (issue #135). `set` is allowed in BOTH file
+# types; `copy` and `files` are BOOT-ONLY and abort in a bake file (they read
+# the HOST environment at launch, which does not exist at build time, and
+# their values must never become image bytes). See "Guest environment
+# variables" below for the precedence chain and the egress pairing.
+env:
+  set:                            # explicit literals; NON-SECRET only (these
+    FOO_ENDPOINT: https://foo.internal/v2   # values ARE committed config)
+  copy:                           # NAMES read from the environment claude-vm
+    - OPENROUTER_API_KEY          # is launched from; an unset/empty one aborts
+    - TAVILY_API_KEY
+  files:                          # host .env files parsed at launch; a later
+    - ~/.config/foo/prod.env      # file wins over an earlier one
 ```
 
 - `egress.allow` is written to a newline-delimited file whose path is
@@ -553,6 +577,98 @@ lands in a sibling slice under #39. It resolves correctly through
     closed (exit 2, tool call denied), never silently unadjudicated.
 - `github.auth` (`none` default | `host-token`) selects whether the
   guest is seeded with a GitHub auth token derived from the host.
+
+### Guest environment variables (issue #135)
+
+`env:` is how a variable reaches the in-guest `claude` session — a plain
+non-secret setting (`FOO_ENDPOINT`) or a **third-party API key**
+(`OPENROUTER_API_KEY`, `TAVILY_API_KEY`) for a tool, MCP server or model
+provider other than Anthropic or GitHub. `github.auth` covers the host's
+GitHub token specifically and nothing else.
+
+**The tier a sub-key may be declared in follows from how its value is
+obtained**, not from operator preference:
+
+| Sub-key | Bake tier | Boot tier | Value source |
+| --------- | ----------- | ----------- | -------------- |
+| `env.set` | yes | yes | explicit literal in the config |
+| `env.copy` | no — hard abort | yes | host environment at launch |
+| `env.files` | no — hard abort | yes | host `.env` file at launch |
+
+A bake file's result is image **bytes** that persist across every run of that
+image; a boot file's result is shredded on exit. `env.copy`/`env.files`
+resolve against a host environment that does not exist at image-build time,
+and a value read from it is exactly the kind of secret that must never become
+image bytes — so only explicitly written literals are bakeable. The bake-tier
+abort is a **presence** test: an empty or valueless `env.copy:` aborts too,
+since ignoring it silently would leave you believing a host variable is
+forwarded into a persistent image.
+
+- `env.set` — a map of name → literal value, for **non-secret** settings only
+  (these values are committed config, and in a bake file they are also image
+  bytes). Merge: repo-over-global per key.
+- `env.copy` — a list of **names**. The launcher reads each from its own
+  environment at launch and forwards the value, so no secret is ever written
+  to config and the config stays committable. Keep supplying values however
+  you already do: shell profile, `direnv`, `op run`. Union merge.
+- `env.files` — a list of host `.env` files whose `NAME=value` lines are
+  parsed at launch and forwarded the same way. Union merge. Blank lines and
+  `#` comments are skipped, a leading `export` is dropped, and a value
+  wrapped in matching quotes is unwrapped; there is no variable expansion and
+  no escape processing.
+
+**Precedence**, lowest to highest:
+
+```text
+bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+```
+
+Within each tier, repo-over-global (per key for `set`, union for
+`copy`/`files`); within `env.files`, a later file wins over an earlier one.
+Boot beats bake throughout: bake is the image's baseline, boot is the
+per-launch override.
+
+**Carrier.** Two, one per tier — `run.env` is neither and stays
+launcher-owned, deliberately a non-secret channel. Bake `env.set` is written
+into the image at build time and persists. The **whole boot tier**, including
+the non-secret `env.set` literals, rides the same transient `claudecreds`
+mount as the OAuth credential and identity seed (0600, mounted `ro`
+guest-side, shredded on exit); the guest **sources** it off that mount and
+never copies it, so no forwarded value reaches the guest filesystem. One
+carrier for the whole boot tier means the secret and non-secret boot paths
+cannot diverge.
+
+**Egress is the other half.** Forwarding a key does not make the service
+reachable: the guest is egress-confined, so the provider's host must also be
+in `egress.allow` (`openrouter.ai`, `api.tavily.com`, …) or the proxy blocks
+the call and the failure is baffling. A variable *name* implies no hostname
+the way an apt source's URI does, so nothing is derived automatically — there
+is no `add_apt_uris_to_allowlist` analogue. Add the pair together.
+
+**Every mistake aborts the launch**, rather than booting a guest that looks
+fine while lacking a key it was configured to have (which surfaces much later,
+deep inside a tool call, as an opaque auth error naming nothing): `env.copy`
+or `env.files` in a bake file; an `env.copy` name unset **or empty** on the
+host; an `env.files` path that is not on the host or does not parse; a name
+outside `[A-Za-z_][A-Za-z0-9_]*` from any source; a non-scalar `env.set`
+value, or a key left valueless (write `NAME: ""` for the empty string); and a
+name the launcher itself composes — every name in `run.env` (the proxy vars,
+`CLAUDE_ARGS`, the `*_TAG` mount vars, `IS_SANDBOX`, `DISABLE_AUTOUPDATER`,
+the renderer `CLAUDE_CODE_*` vars, the terminal geometry, the
+`CLAUDE_VM_*_UPDATE_AT_BOOT` flags) plus `CLAUDE_VM_LAST_CLAUDE_STATUS` —
+because the guest sources `run.env` *before* both env files, so such an entry
+would overwrite the launcher's own value (a different proxy, a renamed mount
+tag, a replaced `claude` argv) and break the boot rather than configure
+anything. `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other
+direction — the launcher exports it long *after* both files, so a config entry
+for it would be silently overwritten instead — and refusing at load covers
+both. The abort message lists the whole reserved set. No diagnostic ever
+prints a value.
+
+**Rebuilds.** No new trigger is needed: the image identity is already a
+whole-file, raw-byte hash of the bake files, so changing a baked `env.set`
+value invalidates the cached image and the next launch rebuilds. Editing a
+boot file never rebuilds.
 
 ### Guest Claude settings.json (issue #104)
 
@@ -826,6 +942,14 @@ discarded, while staying off the interactive `hvc1` terminal. The path
 is reported on exit and retained in the run dir.
 
 ## Authentication (secrets)
+
+This section covers the two credentials the launcher handles itself: the
+host's claude.ai OAuth credential, and (under `github.auth: host-token`) a
+GitHub token. Any **other** third-party key — an OpenRouter or Tavily key for
+an in-guest tool, MCP server or model provider — reaches the guest through
+`env.copy` / `env.files` instead; see *Guest environment variables* above,
+which carries the same "never in config, never in `run.env`, shredded on
+exit" posture.
 
 The guest authenticates claude with the **host operator's live claude.ai
 OAuth credential** — the full-scope login credential, not a scoped

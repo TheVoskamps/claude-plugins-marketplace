@@ -257,7 +257,10 @@ load rather than an ignored key, because silently accepting `mode: ro`
 leaves an operator believing a share is read-only when the guest can
 write it. The abort is a *presence* test (`claude_vm_mount_mode_entries`
 asks yq `has("mode")`), since `mode: ""` and a valueless `mode:` render
-as the same empty field an omitted key does.
+as the same empty field an omitted key does. It is asked of the MERGED
+boot document, which today lets `mode: {}` through — see the
+presence-gate section below before restating "any `mode:` aborts" as a
+complete claim.
 
 The "there is no read-only option" claim is restated on every surface an
 operator or an agent can reach, so a PR that adds enforced read-only in
@@ -365,6 +368,33 @@ negative control rebuilt from the same captured lines) are in
 `plugins/claude-vm/payload/README.md` → *Splitting a TSV record back
 apart*.
 
+One collection deliberately never travels as `@tsv` at all: `env.set`
+(issue #135). An environment value may legitimately contain a tab or a
+newline, and `@tsv` escapes those into a literal `\t` / `\n` — silently
+changing what the operator wrote, with nothing to detect it downstream.
+So `claude_vm_env_set_names` / `_tag` / `_value` fetch one entry per yq
+call instead, and the value never shares a line with anything else.
+Folding them back into a single record emitter, for symmetry with the
+other loops or to save yq invocations, is the bug this paragraph exists
+to prevent: the map holds a handful of entries, so the extra calls are
+not a cost worth the exposure.
+
+Avoiding `@tsv` is only half of it: `$( )` strips **all** trailing
+newlines, and yq adds one of its own, so capturing an `env.set` value
+raw loses the newlines the operator wrote and cannot even distinguish
+one from three. That is the same silent mutation, and it is worse than a
+bad value on its own because the bake tier has no such loss — the value
+rides `claude_vm_bake_config_json`'s JSON and Python `shlex.quote`s it —
+so the two tiers ship different bytes for the same literal.
+`claude_vm_env_set_value` therefore captures behind a sentinel byte,
+strips exactly yq's one newline, and returns the value already
+`%q`-quoted, so its own caller's `$( )` has no newline left to eat. Any
+new reader of an `env.set` value calls that helper rather than adding a
+second raw capture. The reasoning and the test shape (source both tiers'
+rendered assignments for the same trailing-newline literal and compare
+bytes, plus a negative control on the raw-capture shape) are in
+`plugins/claude-vm/payload/README.md` → *Guest environment variables*.
+
 ## Write claude-vm's config-load guards for bash 3.2, not for bash 5
 
 Every `plugins/claude-vm` script is `#!/usr/bin/env bash`, so on a stock
@@ -392,6 +422,107 @@ with a false FAIL, where the same construct in a guard ships a hole. The
 reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
+
+## Sweep the ordering notes and share lists on a boot-launcher insertion
+
+Inserting a step into the boot launcher that
+`plugins/claude-vm/payload/build-guest-image.sh` emits leaves two
+surfaces stale, both far from the diff: the launcher is one long
+heredoc, so phase-ordering prose sits hundreds of lines from any
+insertion point, and the credential share a new step may read is
+described from a different file entirely.
+
+- **The next phase's `ORDERING:` note.** Each phase's block comment
+  states its own position as "first thing after X, before Y", so a step
+  inserted between two phases silently falsifies the note on the one
+  that follows it. Grep `ORDERING:` in `build-guest-image.sh` after any
+  insertion, not only the block the insertion lands in.
+- **The `claudecreds` content enumerations.** Three headers list what
+  the transient credential share carries: `claude-vm.sh`'s run.env
+  `CLAUDECREDS_TAG` comment, `claude-vm.sh`'s `CREDS_DIR=` header
+  several hundred lines earlier, and `build-guest-image.sh`'s
+  `CLAUDECREDS_MNT=` header. Only the first sits next to a change that
+  adds an entry. The latter two also assert what the launcher *does*
+  with each entry — installs it into `$HOME/.claude/` — so an entry the
+  guest merely sources needs that sentence widened rather than a list
+  item appended under it.
+
+Re-run `payload/test/boot-launcher-test.sh` on any launcher edit,
+including a comment-only one: it parses the emitted script.
+
+## A claude-vm presence gate asks the raw config file, not the merged one
+
+`claude_vm_merge_config`'s last step is
+`claude_vm_prune_empty_skeleton`, which deletes every
+`CLAUDE_VM_LIST_KEYS` entry whose merged value is an empty list, plus
+any map left empty as a result. That prune is correct and stays: it is
+what stops a consumer conflating "the operator configured this as
+empty" with "the operator never touched it". Its consequence is the
+trap — **adding a key to `CLAUDE_VM_LIST_KEYS` silently disarms any
+`has()` presence gate on that key**, because the merged document no
+longer carries the key in exactly the spellings the gate exists to
+catch (a valueless `copy:`, `copy: []`, `copy: ""`). Nothing errors;
+the gate just answers *false* and the launch proceeds.
+
+The list-key route is only the loudest of three, and the other two
+reach keys that are **not** list keys at all, so "this key does not
+union" never clears a merged-document read. Pass 2 deletes an empty
+*map* wherever it sits, so any key written `key: {}` vanishes. And a
+valueless `key:` arrives as a genuine null, which a `!= null` value
+test reads as absent — except in the global-file-with-no-repo-file
+layering, where the deep merge against the empty document coerces it
+to `''` and the same test says present. A gate reading a merged
+document can therefore give two verdicts for one config, decided by
+which layer the file sat in.
+
+That is what the first round of issue #135 shipped and what a real
+launch caught: `.env.copy` / `.env.files` joined
+`CLAUDE_VM_LIST_KEYS`, `claude_vm_check_env` asked `MERGED_BAKE`, and
+a bake file holding a valueless `copy:` built an image. The repair is
+to ask the RAW files the operator wrote — `claude_vm_env_bake_has_key`
+takes one raw bake path, and `claude_vm_check_env` takes the global
+and repo bake paths after the two merged documents, which is also what
+lets the diagnostic name *which* file carries the key. Never exempt a
+key from the prune instead: an exemption reinstates the
+configured-empty-looks-configured trap for the next reader and changes
+merge semantics for keys that have nothing to do with the gate.
+Presence is a property of what was WRITTEN, and only the raw files
+still hold it.
+
+So: any gate that asks "did the operator write this key?" asks the raw
+file, whatever spelling the test is written in. Grep
+`plugins/claude-vm/payload/` for `has(`, `!= null` and `== null` and
+grade every hit against all three prune routes — not just against
+`CLAUDE_VM_LIST_KEYS`, and not by the document the gate happens to
+read. `claude_vm_check_plugin_key_placement` shipped a `!= null` value
+test on the merged documents and was measured accepting a misplaced
+key in four spellings out of four for `bake` / `install_at_boot` and
+two out of four for `update_at_boot` /
+`add_marketplace_uris_to_allowlist` / `enabled`; it now asks
+`claude_vm_plugin_raw_has_key` of the four raw config paths and takes
+no merged document. Its two directions are asymmetric — a BOOT-only
+key is hunted in the two BAKE files, a BAKE-only key in the two BOOT
+files — which is why it takes four raw paths where
+`claude_vm_check_env` takes the bake pair only.
+
+Sitting inside a list *element* is not the exemption it looks like.
+`claude_vm_mount_mode_entries` asks `has("mode")` of the merged boot
+document on that reasoning, and pass 1 (whole empty list keys) does
+leave it alone — but pass 2 is `del(.. | select(tag == "!!map" and
+length == 0))`, and `..` descends into list elements, so a `mode: {}`
+written inside an entry is deleted and that config launches while
+`mode: ro` / `""` / `[]` / valueless all abort (measured through the
+real merge against yq v4.53.3, both layers). Treat that as an open gap
+in the `mode:` abort, not as a documented exemption. A fallback READER
+is fine — `claude_vm_bool_scalar`'s `(<path> == null)` treats a pruned key as
+unconfigured, which is what the prune means. Pin the difference by
+driving `claude_vm_merge_config` in the launcher's own argument shape
+rather than calling the gate on a hand-written fixture —
+`config-test.sh`'s env battery was green on fixtures for four review
+rounds while the launcher was letting the config through, and the
+placement battery had the same shape. The local reasoning and the
+measured per-key table are in
+`plugins/claude-vm/payload/README.md` → *Guest environment variables*.
 
 ## Sweep the claude-vm config wizards when its schema or validation changes
 

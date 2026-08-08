@@ -45,6 +45,18 @@ test suite just told you to look at (`~/.config/claude-vm/logs/<run-id>/`), so
 prefer re-running the build yourself with `--output` into
 `.claude/tmp/<slug>/` over trying to read a retained out-of-repo diagnostic.
 
+**An EMPTY string argument reads as an out-of-repo path.** BSD `sed`'s
+in-place form needs a separate empty backup-suffix operand, and
+`sed -i '' -e '18d' <in-repo-file>` is refused with *"'sed' target ''
+resolves outside the current repository (, repo root …)"* — the empty
+operand is graded as a path, and an empty path is not contained. There
+is no spelling of `sed -i` on macOS that avoids it, so for mechanical
+line surgery (deleting conflict markers, dropping a superseded block)
+write a tiny `python3` helper under `.claude/tmp/<slug>/` that takes the
+file plus 1-based line numbers/ranges and rewrites the file, then call
+it with bare arguments. That also beats a 50-line `old_string` in the
+`Edit` tool when a conflict hunk is large.
+
 **How to apply**: before starting a real build/run whose tooling creates
 scratch files via `mktemp`/`$TMPDIR`, set `TMPDIR` to an in-repo
 `.claude/tmp/<slug>/` path for that invocation if you expect to need to

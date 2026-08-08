@@ -41,6 +41,37 @@ before adding it — a near-miss hit may belong to a *different* class
 opposite bullet), so name that exclusion in the prose rather than
 silently dropping it.
 
+**The two-noun form is the easiest to miss.** The list need not be
+bulleted or parenthesized — a conjoined subject inside one sentence is
+the same claim: "the `mounts` **and** `env` name checks run over the
+MERGED global+repo set, so a per-repo entry can collide with a global
+one" (claude-vm's per-repo config wizard, #135). True of `mounts`,
+which really does abort on a duplicate tag across the merged list;
+false of `env.set`, where the merge is repo-over-global per key and no
+cross-layer check exists at all. Nothing in the sentence's shape flags
+that a gate was borrowed from the neighbour it was conjoined with, and
+the borrowed half tells an operator to expect an abort that never
+comes. When a new key is documented next to an older one, re-read the
+older key's gate in the code and give each its own clause — including
+the explicit negative ("there is no cross-layer check here"), so the
+next writer cannot re-borrow.
+
+**"The suite pins these" is a claim about the fixture, not about the
+code.** The predicate can be *coverage*: "config-test.sh pins the four
+surviving spellings through the real merge" (#135 round 5) was written
+beside a correct, measured list of four — `mode: ro`, `""`, `[]`,
+valueless — while the fixture carried three; `[]` had been measured by
+hand and never turned into a row. Behavior was right, the coverage
+sentence was not, and no test failed on it. Settle it by counting the
+fixture rows and the expected-output fields, not by re-reading the code
+the sentence is about. And when the count is short, add the missing
+case rather than softening the sentence to match — a claim shrunk to
+fit thin coverage is the same defect in the other direction. Adding one
+also means measuring the *deliberately excluded* neighbour (`mode: {}`,
+pruned and tracked on #233) locally, so you know the new row is
+discriminating rather than passing because everything in that shape
+aborts.
+
 Sibling shapes: [[count-tally-class-includes-back-references]] (the
 tally and its downstream back-references are one claim too),
 [[staleness-check-both-ends-same-source]] (record site and re-read

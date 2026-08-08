@@ -4,6 +4,10 @@
   — build paths from `git rev-parse --show-toplevel`; a primary-clone Read
   silently returns pre-PR prose. Tell: grep -n and Read disagree on line numbers.
 
+- [Branch claimed by a manual-test worktree](feedback_branch-claimed-by-a-manual-test-worktree.md)
+  — checkout fails naming Edwin's live test worktree: detach at
+  `origin/<branch>`, push `HEAD:<branch>`, skip the branch -D. Never remove it.
+
 - [github-setup docs locality](project_github-setup-docs-locality.md) —
   gh-repo-setup-protection behavior lives in its own SKILL.md; other
   docs reference it by name only and stay accurate across gate changes.
@@ -86,6 +90,10 @@
   — a `<(cmd)` child is async: sleep before checking the marker or a
   shape bash DOES run reads as "did not run"; run probes from a
   scratchpad script, on both /bin/bash 3.2 and homebrew bash 5.
+- [Sourcing order decides who wins](feedback_sourcing-order-decides-who-wins.md)
+  — "the launcher's value always wins" is a claim about read order, not
+  ownership; compare line numbers in the consumer. Restated on 7 surfaces
+  in claude-vm and backwards on all of them.
 - [claude-vm bash-3.2 rule surface pair](project_claude-vm-bash32-rule-surface-pair.md)
   — that rule lives on exactly two surfaces (root CLAUDE.md + payload
   README's oldest-bash section); check scope, severity clause and
@@ -94,3 +102,7 @@
   — when the spawn prompt says so, verify and repair the PR body like a
   README; the closing keyword is untouchable and nothing else on the PR
   is yours.
+- [Measure the declared-safe counter-case](feedback_measure-the-declared-safe-counter-case.md)
+  — a fix's prose exempts a sibling gate ("sits inside a list element,
+  no prune reaches it"); the round measured only what it changed. Read
+  the recursive operator's expression, then probe the sibling.

@@ -48,6 +48,20 @@ because the entry's body file (auto-merged, so both paragraphs survived)
 documents both facts. Taking either side alone would have left the index
 line describing less than the file it points at.
 
+**The fifth case resolves to `git rebase --skip`: main already made the
+incoming commit's change independently.** On PR #243 the branch's
+terminal `Curate agent memory` commit did exactly one thing — split a
+fused index line back into two bullets — and main's own curation pass
+had split the same line. The delta read showed the one `-`/`+` pair;
+`git show :2:<file> | grep` on the *ours* stage showed both bullets
+already separate, so every line of the incoming side was either stale
+text main had revised or a change main had already landed. Resolving
+"ours" leaves an empty commit, so skip it rather than committing a
+no-op. Grep the ours stage before concluding this, not the working
+file — the working file still carries the markers, and the branch's own
+earlier commits (already replayed) may be the reason ours looks
+complete.
+
 **How to apply:** on every conflicted rebase step, before editing the
 file. It costs one `git show` per conflicted commit. Pair it with the
 end-to-end check afterward, and run that check **in both directions**,

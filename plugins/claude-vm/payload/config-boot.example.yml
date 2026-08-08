@@ -18,16 +18,19 @@
 #     add_apt_uris_to_allowlist, claude.permission_mode,
 #     claude.plugins.update_at_boot, claude.plugins.add_marketplace_uris_to_allowlist,
 #     github.auth): repo overrides global; global fills gaps.
-#   - Scalar maps (claude.plugins.enabled): repo overrides global PER KEY.
+#   - Scalar maps (claude.plugins.enabled, env.set): repo overrides global PER KEY.
 #   - Lists (egress.allow, mounts, `packages` here [installed at boot],
 #     apt_sources, claude.permissions.allow/ask/deny, claude.marketplaces,
-#     claude.plugins.install_at_boot): merged -- union of global + repo.
-#     (claude.plugins.bake is a BAKE key; see config-bake.example.yml.)
+#     claude.plugins.install_at_boot, env.copy, env.files): merged -- union of
+#     global + repo. (claude.plugins.bake is a BAKE key; see
+#     config-bake.example.yml.)
 #
 # NO SECRETS HERE. The host claude.ai OAuth credential is mounted into the guest
 # at runtime by the launcher; it is never read from or written to any config file.
 # (egress.allow must include the Anthropic API host below so the in-guest claude
-# can reach it.)
+# can reach it.) A third-party API key reaches the guest by REFERENCE, not by
+# value: `env.copy` names a host environment variable and `env.files` names a
+# host .env file, both read at launch -- see the `env:` block near the bottom.
 
 cpus: 4
 mem: 8192
@@ -152,8 +155,9 @@ claude:
     # NOTE: `bake:` is NOT a boot key -- baked plugins change the image's bytes,
     # so they live in config-bake.yml where the image-identity hash sees them.
     # Writing `claude.plugins.bake` here ABORTS the launch with a message
-    # pointing at the bake file, rather than parsing and silently baking
-    # nothing.
+    # naming this file, rather than parsing and silently baking nothing. That
+    # is a PRESENCE test asked of this raw file, so an empty placeholder --
+    # a valueless `bake:`, or `bake: []` / `""` / `{}` -- aborts too.
     install_at_boot: []   # plugin@marketplace refs installed at boot
                           # (list, union). Installed BLOCKING, before claude
                           # starts, by the guest's own `claude plugin install`.
@@ -342,3 +346,82 @@ mounts:
 # Guest GitHub auth.
 github:
   auth: none              # none (default) | host-token (scalar, repo wins)
+
+# ---------------------------------------------------------------------
+# Guest environment variables (issue #135).
+#
+# The sub-keys, split by HOW the value is obtained rather than by preference:
+#
+#   set    a map of explicit LITERALS written in this file. Non-secret only --
+#          these values ARE the committed config. Allowed in a bake file too.
+#          Merge: repo-over-global PER KEY.
+#   copy   a list of NAMES read from the environment claude-vm is launched from.
+#          No secret is ever written to config, so the config stays committable
+#          and you keep supplying values however you already do -- shell
+#          profile, direnv, `op run`. Union merge, like egress.allow.
+#   files  a list of host .env files whose NAME=value lines are read at launch
+#          and forwarded the same way. Union merge; a later file wins over an
+#          earlier one. Blank lines and `#` comments are skipped, a leading
+#          `export ` is dropped, and a value wrapped in matching quotes is
+#          unwrapped. No variable expansion and no escape processing -- a `$`
+#          or a backslash means itself.
+#
+# `copy` and `files` are BOOT-ONLY. In a config-bake.yml they are a hard abort,
+# even when present-but-empty: they resolve against the host environment at
+# LAUNCH, which does not exist at image-build time, and their values are exactly
+# the secrets that must never become image bytes.
+#
+# CARRIER + LIFETIME: the whole boot tier -- including the non-secret `set`
+# literals -- rides the same transient, owner-only mount as the host's OAuth
+# credential, and is shredded on exit. It is NEVER written into run.env (the
+# launcher's deliberately non-secret channel) and the guest sources it straight
+# off that mount without copying it, so no forwarded key lands on the guest
+# filesystem or in the image.
+#
+# Precedence, lowest to highest:
+#   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+#
+# EGRESS: forwarding a key is not enough to USE it. The guest is egress-confined,
+# so the service's host must also be in `egress.allow` above (`openrouter.ai`,
+# `api.tavily.com`, ...) or the proxy blocks the call and the failure is
+# baffling. A variable NAME does not imply a hostname the way an apt source
+# implies one, so nothing is derived automatically -- there is no
+# `add_..._uris_to_allowlist` analogue here. Add the pair together.
+#
+# EVERY mistake below aborts the launch rather than booting a guest that
+# silently lacks a key it was configured to have -- which would surface much
+# later, deep inside a tool call, as an opaque auth error naming nothing:
+#   - a `copy` name that is UNSET or EMPTY in the environment claude-vm was
+#     launched from;
+#   - a `files` path that is not on the host, or a line that does not parse;
+#   - a name outside [A-Za-z_][A-Za-z0-9_]*, from any of the three sources;
+#   - a `set` value that is a map or a list, or a key left valueless (write
+#     `NAME: ""` if you really mean the empty string);
+#   - a name claude-vm's own launcher composes -- every name in run.env (the
+#     proxy vars, CLAUDE_ARGS, the *_TAG mount vars, IS_SANDBOX,
+#     DISABLE_AUTOUPDATER, the renderer CLAUDE_CODE_* vars, the terminal
+#     geometry, the CLAUDE_VM_*_UPDATE_AT_BOOT flags) plus
+#     CLAUDE_VM_LAST_CLAUDE_STATUS -- because the guest sources run.env BEFORE
+#     your env entries, so yours would overwrite the launcher's own value (a
+#     different proxy, a renamed mount tag, a replaced claude argv) and break
+#     the boot rather than configure anything. CLAUDE_VM_LAST_CLAUDE_STATUS is
+#     the exception in the other direction: the launcher exports it long AFTER
+#     both env files, so an entry for it would be silently overwritten instead.
+#     Refusing at load covers both. The abort message lists the whole reserved
+#     set.
+# No diagnostic ever prints a VALUE; each names the variable, the entry or the
+# file.
+#
+# `copy` and `files` are COMMENTED OUT on purpose: an unset name aborts the
+# launch, so shipping live entries here would make a copied-verbatim config
+# refuse to boot until you happened to export an OPENROUTER_API_KEY.
+env:
+  set:
+    # config-bake.example.yml sets this too; the boot value wins, which is the
+    # top of the precedence chain above.
+    FOO_ENDPOINT: https://foo.staging/v2
+  # copy:
+  #   - OPENROUTER_API_KEY
+  #   - TAVILY_API_KEY
+  # files:
+  #   - ~/.config/foo/prod.env

@@ -99,6 +99,10 @@ the two global files each key is written into (its bake/boot placement):
 | `claude.marketplaces` (bake file) | bake | `[]` | marketplaces registered INTO the image at build time (union+dedup with the boot file's, by `name`); registering one declared HERE is a build precondition — a failed add aborts the build, where a boot-declared one only warns |
 | `claude.plugins.bake` | bake | `[]` | `plugin@marketplace` refs INSTALLED into the image at build time; a BAKE key because they change the image's bytes |
 | `image.root_headroom_mb` | bake | `1024` | extra MiB of FREE SPACE in the guest root filesystem above its base content, so a live session (boot-time apt working set + ordinary growth) does not hit ENOSPC |
+| `env.set` (bake file) | bake | omitted | guest environment variables written INTO the image, as explicit literals. NON-SECRET only — a bake value is committed config AND image bytes, and persists across every run |
+| `env.set` (boot file) | boot | omitted | same shape, applied per launch and shredded on exit; overrides the bake value for the same name |
+| `env.copy` | boot | omitted | NAMES read from the environment claude-vm is launched from and forwarded to the guest. BOOT-ONLY — a hard abort in a bake file. This is how a third-party API key reaches the guest without ever being written to config |
+| `env.files` | boot | omitted | host `.env` files parsed at launch and forwarded the same way. BOOT-ONLY — a hard abort in a bake file |
 
 Notes on the forward-looking keys:
 
@@ -165,8 +169,12 @@ Notes on the forward-looking keys:
   `install_at_boot`, `update_at_boot`,
   `add_marketplace_uris_to_allowlist`, and `enabled` belong in
   `config-boot.yml`. A sub-key written into the wrong file **aborts the
-  launch** with a message naming the right file, rather than parsing and
-  being silently ignored. `claude.marketplaces` is the exception: allowed
+  launch** with a message naming the file that carries it, rather than
+  parsing and being silently ignored. It is a *presence* test, so a
+  misplaced sub-key written empty (a valueless `bake:`, or
+  `bake: []` / `""` / `{}`) aborts exactly like a populated one — never
+  write a placeholder sub-key into the file it does not belong in.
+  `claude.marketplaces` is the exception: allowed
   in both files, unioned and deduped by `name`, with the same name under
   two differing urls aborting the launch. Give every entry a `name:` —
   the name is what a `plugin@marketplace` ref resolves against and what
@@ -190,6 +198,51 @@ Notes on the forward-looking keys:
   plugin installed-but-disabled (toggling a debug plugin like
   `show-loaded-rules` around a specific issue). Keys must name an
   installed ref and values must be boolean; a typo aborts the launch.
+- **The whole `env:` block is omitted by default.** Ask the user whether
+  the in-guest claude needs any environment variables — a plain setting
+  (`FOO_ENDPOINT`) or a third-party API key for a tool, MCP server or
+  model provider other than Anthropic/GitHub (`OPENROUTER_API_KEY`,
+  `TAVILY_API_KEY`). Then place each by **how its value is obtained**,
+  which is what decides the tier:
+  - a **literal** the user dictates → `env.set`, in either file. Only
+    write it into `config-bake.yml` when it should persist in the image
+    for every session; a bake value is committed config *and* image
+    bytes, so **never** put a secret there.
+  - a value that already lives in the user's **shell environment** →
+    `env.copy`, listing the NAME only. Never ask for the value and never
+    write it anywhere; the launcher reads it at launch. `env.copy` in a
+    bake file is a hard abort.
+  - a value that already lives in a host **`.env` file** → `env.files`,
+    listing the path. Also boot-only, also a hard abort in a bake file.
+
+  Precedence, lowest to highest:
+  `bake env.set` < `boot env.files` < `boot env.copy` < `boot env.set`.
+
+  **Pair every `env.copy` with `egress.allow`.** Forwarding a key does
+  not make the service reachable — the guest is egress-confined, so the
+  provider's host must be in `egress.allow` (`openrouter.ai` for
+  `OPENROUTER_API_KEY`, `api.tavily.com` for `TAVILY_API_KEY`, …) or the
+  proxy blocks the call and the failure is baffling. Nothing is derived
+  automatically: a variable name implies no hostname the way an apt
+  source's URI does. Add both or neither.
+
+  **These entries are written verbatim, and the launcher rejects several
+  shapes**, so check before writing: an `env.copy` name that is not
+  currently exported in the user's shell **aborts the launch** (confirm
+  with the user that they export it — never print or capture the value);
+  an `env.files` path that is not on the host aborts; a name outside
+  `[A-Za-z_][A-Za-z0-9_]*` aborts; an `env.set` value that is a map or a
+  list aborts, and so does a key left valueless (write `NAME: ""` for the
+  empty string); and a name claude-vm's own launcher composes — every name
+  in `run.env` (the proxy vars, `CLAUDE_ARGS`, the `*_TAG` mount vars,
+  `IS_SANDBOX`, `DISABLE_AUTOUPDATER`, the renderer `CLAUDE_CODE_*` vars,
+  the terminal geometry, the `CLAUDE_VM_*_UPDATE_AT_BOOT` flags) plus
+  `CLAUDE_VM_LAST_CLAUDE_STATUS` — aborts, because the guest sources
+  `run.env` before the env files, so such an entry would overwrite the
+  launcher's own value and break the boot;
+  `CLAUDE_VM_LAST_CLAUDE_STATUS` is the exception in the other direction
+  (exported long after both files, so an entry for it would be silently
+  overwritten instead) and is refused at load for that reason.
 - **`github.auth` defaults to `none`.** Ask the user whether they want
   the guest seeded with a GitHub auth token derived from the host
   (`host-token`); `none` is the safe default since the consumer that
@@ -275,6 +328,14 @@ claude:
   marketplaces: []
   plugins:
     bake: []
+
+# Guest environment variables written INTO the image (explicit literals only).
+# Omitted unless the user names specific variables. NO SECRETS: a value here is
+# committed config AND image bytes, and persists across every run of the image.
+# env.copy / env.files are BOOT-ONLY and abort the launch if written here.
+# env:
+#   set:
+#     FOO_ENDPOINT: https://foo.internal/v2
 ```
 
 The full default **`config-boot.yml`** (run-time keys) is:
@@ -338,7 +399,7 @@ claude:
                         # reach only warns. Write on request.
   plugins:
     # bake: is a BAKE key -- it lives in config-bake.yml. Writing it here aborts
-    # the launch.
+    # the launch, on a PRESENCE test: even an empty `bake:` placeholder aborts.
     install_at_boot: []  # plugin@marketplace refs installed at boot, blocking,
                          # before claude starts. Write only on request.
     update_at_boot: true # refresh the marketplaces and update the installed
@@ -353,6 +414,20 @@ claude:
 # Guest GitHub auth.
 github:
   auth: none             # none (default) | host-token
+
+# Guest environment variables. Omitted unless the user names specific ones.
+# `set` holds NON-SECRET literals (they are committed config); `copy` names
+# host environment variables read at launch, and `files` names host .env files
+# parsed at launch -- neither ever writes a secret into this file. Pair every
+# `copy` entry with the provider's host in egress.allow above, or the
+# egress-confined guest cannot reach the service the key is for.
+# env:
+#   set:
+#     FOO_ENDPOINT: https://foo.internal/v2
+#   copy:
+#     - OPENROUTER_API_KEY
+#   files:
+#     - ~/.config/foo/prod.env
 ```
 
 > On `proxy.cmd`: the bundled tinyproxy launcher
@@ -370,7 +445,8 @@ customized and any this skill does not recognize. For list keys
 (bake file: `packages`, `apt_sources`, `claude.marketplaces`,
 `claude.plugins.bake`; boot file: `egress.allow`,
 `packages`, `apt_sources`, `claude.permissions.allow`/`.ask`/`.deny`,
-`claude.marketplaces`, `claude.plugins.install_at_boot`), union
+`claude.marketplaces`, `claude.plugins.install_at_boot`, `env.copy`,
+`env.files`), union
 the default entries in (do not drop the user's extras, do not
 duplicate). Render the merged result preserving the user's existing
 comments where practical.
@@ -437,7 +513,14 @@ Report back:
   edits no `.gitignore`, and runs no git commands.
 - **Respect the bake/boot placement rule.** Image-bytes keys
   (`packages` baked in, `apt_sources`, `image.root_headroom_mb`,
-  `claude.plugins.bake`) go in `config-bake.yml`; run-time keys go in
-  `config-boot.yml`. A misplaced key loudly does nothing rather than
-  silently poisoning the image cache, and a misplaced `claude.plugins`
-  sub-key aborts the launch outright.
+  `claude.plugins.bake`, `env.set` when it should persist in the image)
+  go in `config-bake.yml`; run-time keys go in `config-boot.yml`. A
+  misplaced key loudly does nothing rather than silently poisoning the
+  image cache, and a misplaced `claude.plugins` sub-key aborts the launch
+  outright — as do `env.copy` and `env.files` in a bake file, on a
+  *presence* test, so even an empty `env.copy:` there aborts.
+- **Never write a secret value into `env.set`.** A third-party API key
+  goes in `env.copy` (name only) or `env.files` (path only). Do not ask
+  the user to paste a key, and do not read one out of their environment
+  to echo it back — `env.copy` exists precisely so the value never
+  reaches the config or this conversation.

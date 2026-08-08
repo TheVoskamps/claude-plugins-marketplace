@@ -38,7 +38,8 @@ The marketplace currently ships these plugins (one entry each in
   background agent spawns (`run_in_background: true`) so a detached
   subagent's permission prompts can still bubble up to the user.
 - **`claude-vm`** — run Claude Code inside an isolated Linux micro-VM
-  on macOS with config-driven egress, mounts, and repo isolation.
+  on macOS with config-driven egress, mounts, guest environment
+  variables, and repo isolation.
   Ships the `bin/claude-vm` preflight launcher, the `claude-vm` skill,
   the `claude-vm-config-global` and `claude-vm-config-repo` config
   writers, plus the `claude-vm-diff`, `claude-vm-apply-local`, and

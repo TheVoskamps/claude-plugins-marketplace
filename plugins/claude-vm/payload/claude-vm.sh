@@ -176,9 +176,41 @@ claude_vm_check_mounts "$MERGED_BOOT" \
 # claude.plugins is the one map that legitimately appears in BOTH file types
 # (bake refs in a bake file; install_at_boot/update_at_boot/enabled in a boot
 # file), which makes a misplaced sub-key easy to write and -- absent this guard
-# -- silently ignored. Abort loudly instead (issue #107).
-claude_vm_check_plugin_key_placement "$MERGED_BAKE" "$MERGED_BOOT" \
+# -- silently ignored. Abort loudly instead (issue #107). A PRESENCE test, so a
+# valueless `bake:` aborts too, which is why it is handed the four RAW files the
+# operator wrote rather than the two merged documents: the merge prunes an empty
+# list key (`.claude.plugins.bake`, `.claude.plugins.install_at_boot`) and every
+# empty MAP (any sub-key written `{}`) right out of them, and a valueless
+# sub-key of any kind survives only as a null the old value test read as
+# absent. Both directions need raw paths -- a BOOT key is hunted in the BAKE
+# pair, a BAKE key in the BOOT pair -- hence four arguments rather than
+# claude_vm_check_env's two.
+claude_vm_check_plugin_key_placement \
+  "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  "$GLOBAL_BOOT_CONFIG" "$REPO_BOOT_CONFIG" \
   || { echo "claude-vm: aborting -- move the misplaced claude.plugins key(s) as described above." >&2; exit 1; }
+# Guest environment variables (issue #135). One gate covers the whole `env:`
+# contract, in both tiers: `env.copy`/`env.files` in a BAKE file (they resolve
+# against the host environment at LAUNCH, which does not exist at image-build
+# time, and their values are exactly the secrets that must never become image
+# bytes -- a presence test, so an empty `copy:` aborts too; that one case is
+# asked of the RAW bake files passed as the last two arguments, since the merge
+# prunes an empty list key and the map holding it right out of MERGED_BAKE), an
+# `env.set` that
+# is not a map, a name outside [A-Za-z_][A-Za-z0-9_]* from any source, a name
+# the launcher itself owns (the run.env set -- the guest sources run.env BEFORE
+# the env files, so such an entry would overwrite the launcher's own value --
+# plus CLAUDE_VM_LAST_CLAUDE_STATUS, the one the boot launcher exports long
+# AFTER both env files, where an entry would be silently overwritten instead), a
+# non-scalar or valueless `env.set` value, an `env.files` path that is not on
+# the host or does not parse, and an `env.copy` name that is unset or empty in
+# THIS process's environment. That last one is the loudest on purpose:
+# forwarding nothing silently leaves the guest failing much later, deep inside
+# a tool call, with an auth error that names neither claude-vm nor the
+# variable. Runs HERE, before the image build and the VM start, like every
+# other config gate. No diagnostic ever prints a VALUE.
+claude_vm_check_env "$MERGED_BAKE" "$MERGED_BOOT" "$GLOBAL_BAKE_CONFIG" "$REPO_BAKE_CONFIG" \
+  || { echo "claude-vm: aborting -- fix the env: entr(ies) described above." >&2; exit 1; }
 
 VM_CPUS="$(claude_vm_scalar "$MERGED_BOOT" '.cpus' "$CLAUDE_VM_DEFAULT_CPUS")"
 VM_MEM="$(claude_vm_scalar "$MERGED_BOOT" '.mem' "$CLAUDE_VM_DEFAULT_MEM")"
@@ -724,7 +756,9 @@ GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
 # shared under a separate tag (claudecreds) so only the credential file is
 # exposed. The identity seed (issue #88, claude-json-seed.json) is written
 # into this SAME dir for the same reason -- it carries account identity and
-# must not ride in run.env either. Both dirs are created under the tightened
+# must not ride in run.env either -- and so is the boot tier's guest
+# environment (issue #135, env: its env.copy/env.files values are third-party
+# API keys). Both dirs are created under the tightened
 # umask (077) so they are drwx------ from creation -- the secrets are not
 # world-traversable.
 CREDS_DIR="$RUN/creds"
@@ -757,6 +791,38 @@ GUEST_SETTINGS="$CREDS_DIR/settings.json"
 claude_vm_render_guest_settings "$MERGED_BOOT" "$MERGED_BAKE" > "$GUEST_SETTINGS" \
   || { echo "claude-vm: failed to render the guest settings.json" >&2; exit 1; }
 chmod 600 "$GUEST_SETTINGS"
+
+# ---------------------------------------------------------------------
+# Boot-tier guest environment (issue #135) -> the SAME shred-on-exit
+# claudecreds mount.
+#
+# ONE carrier for the WHOLE boot tier -- the secret `env.copy`/`env.files`
+# values AND the non-secret `env.set` literals -- so the secret and non-secret
+# boot paths cannot diverge. run.env is deliberately not it: run.env is the
+# launcher's own non-secret channel (the boot launcher in build-guest-image.sh
+# asserts it carries no secret), and it rides the runconfig share, which is not
+# shredded. $CREDS_DIR is: it is shared under mountTag=claudecreds (the image's
+# fstab mounts it `ro`), it already carries the OAuth credential and the
+# identity seed, and cleanup() rm -rf's it on every exit. The guest never
+# COPIES this file anywhere -- the boot launcher sources it straight off the RO
+# mount -- so no `env.copy` value ever lands on the guest filesystem either.
+#
+# Written now, still inside the umask-077 window, so it lands 0600 like its
+# dir-mates; the chmod 600 is belt-and-braces. claude_vm_check_env has already
+# aborted the launch on every knowable mistake, so a failure here is a claude-vm
+# fault, not an operator one.
+#
+# Emission ORDER is the precedence implementation: env.files, then env.copy,
+# then env.set, each a plain `NAME=<%q-quoted value>` line, so a later
+# assignment overwrites an earlier one when the guest sources the file under
+# `set -a`. The guest sources the BAKED env file first, which puts bake env.set
+# at the bottom of the chain:
+#
+#   bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+GUEST_ENV="$CREDS_DIR/env"
+claude_vm_resolve_boot_env "$MERGED_BOOT" > "$GUEST_ENV" \
+  || { echo "claude-vm: failed to resolve the boot-tier guest environment" >&2; exit 1; }
+chmod 600 "$GUEST_ENV"
 
 # ---------------------------------------------------------------------
 # Host claude.ai OAuth credential -> transient, owner-only tmpfile.
@@ -1132,16 +1198,20 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # virtio-fs tag (mounted RO at /mnt/claudebin by the guest fstab); the
     # boot launcher runs /mnt/claudebin/claude against /mnt/repo.
     printf 'CLAUDEBIN_TAG=claudebin\n'
-    # The claudecreds dir carries ALL host-rendered guest ~/.claude files --
-    # not just credentials: the OAuth credential (.credentials.json, a SECRET),
-    # the identity seed (claude-json-seed.json, account identity -- also
-    # sensitive), and the rendered settings.json (permissions + enabledPlugins,
-    # NOT a secret). Its containing dir is shared under this virtio-fs tag
+    # The claudecreds dir carries every host-rendered guest file that must not
+    # persist -- not just credentials: the OAuth credential (.credentials.json,
+    # a SECRET), the identity seed (claude-json-seed.json, account identity --
+    # also sensitive), the rendered settings.json (permissions +
+    # enabledPlugins, NOT a secret), and the boot-tier guest environment (env,
+    # issue #135 -- env.copy/env.files values are third-party API keys, and the
+    # non-secret env.set literals ride the same file so the two boot paths
+    # cannot diverge). Its containing dir is shared under this virtio-fs tag
     # (mounted RO at /mnt/claudecreds by the guest fstab); the boot launcher
-    # installs each file into $HOME/.claude/ (mode 0600) so the guest comes up
-    # authenticated, onboarded, and under the claude-vm permission posture. One
-    # tag for all three avoids adding extra virtio-fs devices; the whole dir is
-    # shredded on exit regardless of which files are secret.
+    # installs the ~/.claude files into $HOME/.claude/ (mode 0600) so the guest
+    # comes up authenticated, onboarded, and under the claude-vm permission
+    # posture, and SOURCES `env` straight off the mount without copying it
+    # anywhere. One tag for all of them avoids adding extra virtio-fs devices;
+    # the whole dir is shredded on exit regardless of which files are secret.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
     # Host terminal geometry (issue #88). Empty when not launched from a real
     # terminal; the boot launcher only runs `stty` when both are non-empty.

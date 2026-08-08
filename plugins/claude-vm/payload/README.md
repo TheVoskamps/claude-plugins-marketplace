@@ -358,9 +358,47 @@ argv, settings, image identity, and plugin manifests from:
   `claude_vm_bake_hash_from_json` / `claude_vm_bake_config_is_empty` — the
   bake-config canonicalization helpers (issue #105). `claude_vm_bake_config_json`
   emits the **canonical** bake-relevant config (the bake doc's sorted
-  `packages`, normalized `apt_sources`) as compact JSON that the launcher
-  passes to the provisioner as the MERGED build CONTENT; `claude_vm_bake_hash_from_json`
-  hashes canonical JSON to 8 hex chars. All pure and unit-tested.
+  `packages`, normalized `apt_sources`, and — as of issue #135 — its `env.set`
+  map, sorted by key with every value rendered as a *string* via `tostring`,
+  so a YAML `PORT: 8080` or `DEBUG: true` reaches the provisioner's Python as
+  `"8080"`/`"true"` rather than as a JSON int/bool whose `str()` would be
+  `True`) as compact JSON that the launcher passes to the provisioner as the
+  MERGED build CONTENT; `claude_vm_bake_hash_from_json` hashes canonical JSON
+  to 8 hex chars. All pure and unit-tested.
+- `claude_vm_check_env` / `claude_vm_resolve_boot_env` /
+  `claude_vm_env_set_names` / `claude_vm_env_set_tag` /
+  `claude_vm_env_set_value` / `claude_vm_env_copy_names` /
+  `claude_vm_env_files` / `claude_vm_env_bake_has_key` /
+  `claude_vm_env_file_assignments` / `claude_vm_env_name_is_valid` /
+  `claude_vm_env_name_is_reserved` — the **guest environment** helpers
+  (issue #135). `claude_vm_check_env` is the single load-time gate over the
+  whole `env:` contract in both tiers; `claude_vm_resolve_boot_env` emits the
+  boot tier as ready-to-source `NAME=<shell-quoted value>` lines in
+  precedence order. See *Guest environment variables* below for the design
+  those two implement. The rest are the accessors they are built from:
+  `claude_vm_env_set_names`/`_tag`/`_value` read one `env.set` entry at a
+  time — deliberately *not* through a shared `@tsv` record, because an
+  environment value may legitimately contain a tab or a newline and `@tsv`
+  would escape those into a literal `\t`/`\n`, silently changing what the
+  operator wrote. For the same reason `_value` returns the value already
+  `%q`-quoted rather than raw: yq ends its output with one `\n` of its own and
+  `$(...)` strips *all* trailing newlines, so a caller capturing raw bytes
+  cannot tell `X: "a\nb"` from `X: "a\nb\n\n"`. `_value` strips exactly yq's
+  one newline behind a sentinel byte and quotes what is left, and `%q` output
+  never ends in a literal newline, so the caller's own capture is lossless.
+  Without that the boot tier would ship a shorter value than the bake tier for
+  the same literal, since the bake path carries the value inside JSON
+  (`claude_vm_bake_config_json`) and `shlex.quote`s it byte-exactly;
+  `claude_vm_env_bake_has_key` is the `has()` presence test
+  behind the bake-tier abort, and it is asked of a **raw** bake file rather than
+  of `MERGED_BAKE` — the merge prunes exactly the spelling it exists to catch
+  (see *Guest environment variables* below), so `claude_vm_check_env` takes the
+  two raw bake paths alongside the two merged documents;
+  `claude_vm_env_file_assignments` parses one host
+  `.env` file into those same assignment lines. All pure except the two that
+  read the launcher's own environment (`claude_vm_check_env`'s `env.copy`
+  arm and `claude_vm_resolve_boot_env`), and all unit-tested — including
+  under the host's pre-4 bash, since the gate is a config-load guard.
 - `claude_vm_file_identity_hash` / `claude_vm_sanitize_repo_name` /
   `claude_vm_image_identity_segments` — the **image-identity** helpers
   (issue #106 redesign, re-redesigned by issue #179 to a whole-file, raw-byte
@@ -389,11 +427,19 @@ argv, settings, image identity, and plugin manifests from:
   decided by whether the name appears in the bake doc, which is what lets the
   provisioner apply a different build-time failure policy per entry — see
   *Bake path* below. All pure and unit-tested.
-- `claude_vm_check_plugin_key_placement` / `claude_vm_check_marketplace_conflicts`
+- `claude_vm_check_plugin_key_placement` / `claude_vm_plugin_raw_has_key` /
+  `claude_vm_check_marketplace_conflicts`
   — the **abort guards** (issue #107). The first rejects a `claude.plugins`
   sub-key written into the file type that never reads it (`bake` in a boot
   file, or `install_at_boot`/`update_at_boot`/`add_marketplace_uris_to_allowlist`/
-  `enabled` in a bake file), naming the right file; the second rejects one
+  `enabled` in a bake file), naming the file that carries it. Like the env
+  bake-tier abort it is a **presence** test — `claude_vm_plugin_raw_has_key`'s
+  `has()` — asked of the RAW files the operator wrote, so it takes the four raw
+  config paths (global bake, repo bake, global boot, repo boot) and no merged
+  document at all. Both of its directions need raw paths, which is why it takes
+  four where `claude_vm_check_env` takes the bake pair only; see *Guest
+  environment variables* below for the prune routes behind that. The second
+  rejects one
   marketplace `name` carrying differing `url`s across the tiers, the same
   shape as `claude_vm_check_apt_sources_conflicts`. Both turn a silent no-op
   into a loud launch abort.
@@ -734,6 +780,181 @@ cannot drift away from the code it is contrasted with; the build-time
 marketplace loop instead asserts on the observable outcome (a no-url boot
 entry logs its skip and never tries to add `boot` as a url).
 
+### Guest environment variables
+
+`env:` (issue #135) is how a variable reaches the in-guest `claude` session —
+a plain non-secret setting (`FOO_ENDPOINT`) or a third-party API key
+(`OPENROUTER_API_KEY`, `TAVILY_API_KEY`) for a tool, MCP server or model
+provider other than Anthropic or GitHub. **The tier each sub-key may be
+declared in follows from how its value is obtained**, not from operator
+preference:
+
+| Sub-key | Bake tier | Boot tier | Value source |
+| --------- | ----------- | ----------- | -------------- |
+| `env.set` | yes | yes | explicit literal in the config |
+| `env.copy` | no — hard abort | yes | host environment at launch |
+| `env.files` | no — hard abort | yes | host `.env` file at launch |
+
+A bake file is consumed at image-build time and its result is image **bytes**
+that persist across every run of that image, which is then APFS-cloned per run
+and outlives the session. A boot file is consumed per launch and its result is
+shredded on exit. `env.copy`/`env.files` resolve against a host environment
+that does not exist at image-build time, and a value read from it is exactly
+the kind of secret that must never become image bytes — so only explicitly
+written literals are bakeable, and the two host-sourced sub-keys abort in a
+bake file. That abort is a **presence** test (`has()`), for the same reason
+the `mode:` abort is: an empty or valueless `env.copy:` renders identically to
+an omitted one, and ignoring it silently would leave an operator believing a
+host variable is forwarded into a persistent image.
+
+*A presence test asks the raw files, not the merged document.* `.env.copy` and
+`.env.files` are `CLAUDE_VM_LIST_KEYS`, so the tier merge unions them and
+`claude_vm_prune_empty_skeleton` then deletes the key when it resolves to
+nothing — and the `env:` map left holding nothing with it. That prune exists
+precisely so a consumer cannot read presence off a merged document (see its
+header in `lib/config.sh`), so `has("copy")` on `MERGED_BAKE` answers *false*
+for the valueless `copy:` this gate is meant to catch. The first round of this
+feature asked the merged document and let exactly that config build an image, on
+a real launch. `claude_vm_check_env` therefore takes the **raw** global and repo
+bake paths as its third and fourth arguments and asks each of them, which is
+also what lets the diagnostic name *which* bake file the key is in. Carving the
+two keys out of the prune would have been the wrong repair twice over: it leaves
+the "configured empty looks configured" trap in place for the next reader, and
+it changes merge behavior for keys that have nothing to do with `env:`. The
+partial counter-case is `claude_vm_mount_mode_entries`, which still asks a
+merged document: `mode:` sits inside a list *element*, which pass 1 never
+examines, and the entry map is never empty (`{mode: null}` has length 1) — but
+pass 2 is spelled `del(.. | select(tag == "!!map" and length == 0))`, and that
+`..` descends into list elements, so a `mode: {}` *inside* an entry is deleted.
+Measured through the real merge against yq v4.53.3, in both layers: `mode: ro`,
+`mode: ""`, `mode: []` and a valueless `mode:` all reach the gate and abort the
+launch; `mode: {}` arrives as an absent key and the launch proceeds. That is a
+gap in the `mode:` abort, not a documented exemption — `config-test.sh` pins
+the four surviving spellings through the real merge and has no `{}` case, which
+is why it stayed invisible. `config-test.sh` runs the whole `env:` gate battery
+through the real merge too — the shape that was missing when the launcher was
+wrong and the suite was green — and pins both halves of the prune fact.
+
+The rule generalises past `env:`, and `claude_vm_check_plugin_key_placement`
+was the second gate to need it: it asked `(.claude.plugins.<key> != null)` of
+the merged documents, and a misplaced key written in an empty spelling was
+accepted in **both** directions. Measured through the real merge against yq
+v4.53.3, the escapes were not uniform across the sub-keys — which is why every
+one of them has to be graded rather than reasoned about from `bake`:
+
+| Spelling | `bake`, `install_at_boot` (list keys) | `update_at_boot`, `add_marketplace_uris_to_allowlist`, `enabled` |
+| ---------- | -------------------------------------- | ------------------------------------------------------------------ |
+| valueless `key:` | accepted | accepted |
+| `key: []` | accepted | aborted |
+| `key: ""` | accepted | aborted |
+| `key: {}` | accepted | accepted |
+
+Three prune routes are at work. Pass 1 deletes the two list keys in the first
+three spellings; pass 2 deletes an empty *map* wherever it sits, so `key: {}`
+escapes for every sub-key, list key or not; and a valueless key reaches the
+merged document as a genuine null, which `!= null` reads as absent. That last
+one also made the old gate's verdict depend on which *layer* the file sat in —
+the global-file-with-no-repo-file case deep-merges the null against the empty
+document and coerces it to `''`, which `!= null` called present. The repair is
+the same one `env:` got: `claude_vm_plugin_raw_has_key` asks `has()` of a raw
+file. Because a BOOT-only key is hunted in the two BAKE files and a BAKE-only
+key in the two BOOT files, the gate needs raw paths for **both** tiers, so it
+takes the four raw config paths and no merged document — after the conversion
+there is nothing left for a merged document to answer, since a key present in a
+merged tier is present in one of that tier's two raw files by construction.
+`config-test.sh` drives every case through `claude_vm_merge_config` in the
+launcher's own argument shape and pins both halves of each prune route.
+
+*Two carriers, one per tier.* `run.env` is neither, and stays entirely
+launcher-owned — it is deliberately a non-secret channel, as the boot launcher
+itself asserts, and it rides the `runconfig` share, which is not shredded.
+
+- **Bake `env.set`** → `/etc/claude-vm/bake-env`, written into the image by
+  `provisioners/podman-mkosi.sh` from the canonical bake-config JSON's `env`
+  map (rendered by Python with `shlex.quote`, sorted by key, with a malformed
+  name **failing the build** rather than being skipped — the file is sourced
+  by the guest's shell, so an unchecked name is a way to smuggle a second
+  statement into it).
+- **The whole boot tier**, including the non-secret `env.set` literals →
+  a 0600 `env` file in `$CREDS_DIR`, the same transient share
+  (`mountTag=claudecreds`, mounted `ro` guest-side by the image's fstab) that
+  already carries the OAuth credential and the identity seed, and which
+  `cleanup()` shreds on exit. One carrier for the whole boot tier means the
+  secret and non-secret boot paths cannot diverge. The guest **sources** it
+  straight off the read-only mount and never copies it, so no forwarded value
+  lands on the guest filesystem either.
+
+*Precedence is emission order, not a merge pass.* Lowest to highest:
+
+```text
+bake env.set  <  boot env.files  <  boot env.copy  <  boot env.set
+```
+
+`claude_vm_resolve_boot_env` emits the boot tier's three sections in that
+order as plain `NAME=<%q-quoted value>` lines, and the boot launcher sources
+the baked file *then* the boot file, each under `set -a`. A later assignment
+simply overwrites an earlier one, so the whole chain falls out of ordering
+with no dedup logic, no associative array — and therefore nothing that needs
+bash 4, which matters because the gate beside it is a config-load guard (see
+*A guard must survive the oldest bash that can reach it* below). Within a
+tier, merging is repo-over-global per key for `set` and a union for
+`copy`/`files`; within `env.files`, a later file wins over an earlier one, by
+the same emission order.
+
+*Both tiers ship the value the operator wrote, to the byte.* The bake side gets
+that for free — the value travels inside `claude_vm_bake_config_json`'s JSON
+and Python `shlex.quote`s it. The boot side does not: yq ends its output with
+one `\n` of its own and `$(...)` strips **all** trailing newlines, so a raw
+capture cannot tell `X: "a\nb"` from `X: "a\nb\n\n"` and silently hands the
+guest a shorter value than the config holds — with nothing downstream to notice.
+`claude_vm_env_set_value` therefore captures behind a sentinel byte, strips
+exactly yq's one newline, and returns the value already `%q`-quoted; `%q` output
+carries no literal newline, so the caller's own capture cannot eat anything.
+`config-test.sh` pins this by sourcing both tiers' rendered assignments for the
+same trailing-newline literal and comparing the resulting bytes, with a negative
+control on the raw-capture shape and a run under the host's pre-4 bash.
+
+*Every mistake aborts at launch*, because the alternative is a guest that
+boots and looks fine while lacking a key it was configured to have — which
+surfaces much later, deep inside a tool call, as an opaque auth error naming
+neither claude-vm nor the variable. `claude_vm_check_env` is one gate over all
+of it: `env.copy`/`env.files` in a bake file; an `env.set` that is not a map;
+a name outside `[A-Za-z_][A-Za-z0-9_]*` from any of the three sources; a name
+the launcher itself composes (`CLAUDE_VM_RESERVED_ENV_NAMES` — the run.env set
+plus `CLAUDE_VM_LAST_CLAUDE_STATUS`; the guest sources `run.env` *before* both
+env files, so such an entry would silently overwrite the launcher's own
+value — a different proxy, a renamed mount tag, a replaced `claude` argv — and
+break the boot rather than configure anything, while the one name the launcher
+exports *after* them, `CLAUDE_VM_LAST_CLAUDE_STATUS`, would be overwritten
+instead); a non-scalar `env.set` value, or
+a valueless key (`NAME: ""` is the way to ask for the empty string, and the
+two spellings deliberately do not collapse); an `env.files` path that is not
+on the host or does not parse; and an `env.copy` name that is unset **or
+empty** in the environment claude-vm was launched from. **No diagnostic ever
+prints a value** — each names the variable, the entry number or the file.
+
+*The `.env` grammar* is the small portable one every `.env` convention agrees
+on, because the file is the operator's and claude-vm only reads it: blank
+lines and `#` comments are skipped, a leading `export` is dropped, everything
+else must be `NAME=VALUE`, and a value wrapped in matching single or double
+quotes is unwrapped. There is no variable expansion and no escape processing —
+a `$` or a backslash means itself, and the `%q` on the way out makes what the
+guest gets byte-identical to what the file held.
+
+*Egress is a separate half.* Forwarding a key does not make the service
+reachable: the guest is egress-confined, so the provider's host must also be
+in `egress.allow` or the proxy blocks the call and the failure is baffling. A
+variable **name** does not imply a hostname the way an apt source's URI does,
+so there is nothing to derive and no `add_apt_uris_to_allowlist` analogue —
+`env.copy` and `egress.allow` are documented as a pair in
+`config-boot.example.yml` and in the skill docs instead.
+
+*No new rebuild trigger.* The image identity is already a whole-file, raw-byte
+hash of the two bake files, so changing a baked `env.set` value invalidates
+the cached image and the next launch rebuilds. The boot launcher's new
+source-and-export step is launcher logic, which the identity hash does **not**
+cover, so `LAUNCHER_LOGIC_REV` carries it (24 → 25).
+
 ### A guard must survive the oldest bash that can reach it
 
 Every script here is `#!/usr/bin/env bash`, so the interpreter is whatever
@@ -818,7 +1039,9 @@ artifact is committed.
 re-redesigned by #179).** Unlike `claude`, a **bake** file's `packages:` (apt
 packages) and `apt_sources:` (third-party apt repos) ARE baked into the image,
 and so is the root partition's size (`image.root_headroom_mb`; see the
-"Mid-session apt proxying, metadata diet, and root headroom" section below).
+"Mid-session apt proxying, metadata diet, and root headroom" section below) and
+its `env.set` map (issue #135 — rendered to `/etc/claude-vm/bake-env`, which the
+boot launcher sources; see *Guest environment variables* above).
 These keys live in the **bake** file precisely because they change image bytes;
 everything in the **boot** file is applied at boot/run.
 
@@ -999,7 +1222,11 @@ when it is not, which is the exact failure this removal exists to eliminate.
 That abort is a **presence** test rather than a value one: `mode: ""` and a
 valueless `mode:` render as the same empty field an *omitted* key does, so
 `claude_vm_mount_mode_entries` asks yq `has("mode")` and emits only the entries
-that carry the key. It stays a separate emitter with its own loop in
+that carry the key. It is asked of the **merged** boot document, which costs it
+one spelling: `mode: {}` is deleted by the prune's empty-map pass before the
+gate sees it, and that config launches. See *Guest environment variables* above
+for the measurement and for why every other presence gate asks the raw files.
+It stays a separate emitter with its own loop in
 `claude_vm_check_mounts` rather than another field on
 `claude_vm_mount_specs`, so the whole deprecation gate is one function and one
 loop to delete when the replacement lands — not a field every `mounts` reader
@@ -1029,9 +1256,12 @@ can remount. Nothing in the boot rests on it, because nothing in the boot writes
 to any of the three: the launcher **copies** each file it needs out of
 `claudecreds` before use (`.credentials.json` and `settings.json` into
 `$HOME/.claude/`, the identity seed to `$HOME/.claude.json`, each `chmod 600`
-after the copy), reads the `runconfig` manifests in place, and execs the
-`claudebin` binary off the share. Say "shared into the guest, where the image's
-fstab mounts it `ro`" rather than "shared read-only into the guest"; the latter
+after the copy), **sources** the boot-tier `env` file in place (see *Guest
+environment variables* above — it is deliberately never copied, so a forwarded
+API key does not outlive the shredded mount), reads the `runconfig` manifests
+in place, and execs the `claudebin` binary off the share. Say "shared into
+the guest, where the image's fstab mounts it `ro`" rather than "shared
+read-only into the guest"; the latter
 puts the guarantee on the side of the seam that cannot make it.
 
 *Single-file sources.* virtio-fs shares directories only, so a file source is
@@ -1155,7 +1385,11 @@ under the whole-file image-identity hash — issue #107's "extend the bake-hash
 with marketplace/plugin refs" achieved by placement rather than by a new
 key-picked hash. Because `claude.plugins` is the one map that legitimately
 appears in both file types, `claude_vm_check_plugin_key_placement` turns a
-misplaced sub-key into a loud abort instead of a silent no-op.
+misplaced sub-key into a loud abort instead of a silent no-op. It is a
+**presence** test asked of the four raw config files, not a value test asked of
+the merged documents, so a misplaced key written in any empty spelling aborts
+too — see *Guest environment variables* → the presence-gate paragraphs for the
+prune routes that made the value test wrong.
 
 *Bake path.* The provisioner runs the host-verified **guest-platform**
 (`linux-arm64`) `claude` binary inside the Trixie build container with
@@ -1511,16 +1745,17 @@ control that drops the guard's lines from the same captured loop and shows the
 malformed `sharedDir=` it would otherwise emit. The config-load gate block is
 run once per rejected config, each asserting both the non-zero exit and a
 diagnostic naming the actual problem: a reserved tag, a duplicate tag, a
-`mode:` key (in every spelling — `ro`, `rw`, a typo, an explicit `""`, and a
-valueless `mode:`, since only a *presence* test tells the last two from an
-omitted key), a missing host source, a relative `path`, a `path` with a `..`
-segment, a `path` over a reserved mountpoint (spelled with a trailing slash,
-so the normalization is what catches it), a duplicate guest path, and a tag
-carrying a comma. The guest-OS-path rule is driven from both sides at once: a
-**directory** on `/root`, on `/etc`, and inside `/usr`, `/root` and `/var` all
-abort, while a **single file** inside `/root` and `/tmp` passes and the same
-in-`/root` path with a *directory* source aborts — one pair of assertions
-differing only in what the source is, which is the whole
+`mode:` key (spelled `ro`, `rw`, a typo, an explicit `""`, and a valueless
+`mode:`, since only a *presence* test tells the last two from an omitted key —
+`mode: {}` has no case, and is the one spelling the merged-document read drops,
+per *Guest environment variables*), a missing host source, a relative `path`,
+a `path` with a `..` segment, a `path` over a reserved mountpoint (spelled
+with a trailing slash, so the normalization is what catches it), a duplicate
+guest path, and a tag carrying a comma. The guest-OS-path rule is driven from
+both sides at once: a **directory** on `/root`, on `/etc`, and inside `/usr`,
+`/root` and `/var` all abort, while a **single file** inside `/root` and `/tmp`
+passes and the same in-`/root` path with a *directory* source aborts — one pair
+of assertions differing only in what the source is, which is the whole
 directory-versus-file distinction. The passing side is pinned too: the default
 `/mnt/<tag>`, `/srv/custom`, `/opt/tools` and the component-boundary near-miss
 `/etcetera`.

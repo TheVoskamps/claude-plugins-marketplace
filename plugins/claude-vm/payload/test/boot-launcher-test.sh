@@ -394,6 +394,111 @@ assert_contains "BASE_PINNED_VERSION is built from LAUNCHER_LOGIC_REV" \
   "$(cat "$BUILD")" 'BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"'
 
 # ---------------------------------------------------------------------
+# 5. Guest environment variables (issue #135): the launcher sources the BAKED
+#    env file first and the BOOT one second, and that ORDER is the bottom two
+#    links of the precedence chain (bake set < boot files < boot copy < boot
+#    set) -- the host emits the boot file's own three sections in order, and
+#    this side contributes only "bake before boot".
+#
+#    Order is the whole implementation, so it is measured by RUNNING the real
+#    emitted block against two fixture files and reading the variables back,
+#    not by grepping for the two paths. The block is sliced out of the launcher
+#    between its own `BAKE_ENV_FILE=` assignment and the `set +a` that closes
+#    it, so it is the emitted code being run.
+# ---------------------------------------------------------------------
+ENV_FRAGMENT="$WORK/env-fragment.sh"
+awk '
+  /^BAKE_ENV_FILE=/ { cap=1 }
+  cap { print }
+  cap && /^set \+a$/ { cap=0 }
+' "$LAUNCHER" > "$ENV_FRAGMENT"
+
+if [ ! -s "$ENV_FRAGMENT" ]; then
+  FAIL=$((FAIL + 1))
+  echo "FAIL - could not slice the guest env block out of the emitted launcher"
+else
+  bash -n "$ENV_FRAGMENT"
+  assert_eq "guest env block is syntactically valid bash" "0" "$?"
+
+  ENV_WORK="$WORK/guestenv"
+  mkdir -p "$ENV_WORK/claudecreds"
+  # The baked file the provisioner writes into the image, and the boot file the
+  # host launcher writes into the credential share, in the shape each really
+  # has: plain `NAME=<shell-quoted value>` assignment lines.
+  printf "ONLY_BAKE=bake-value\nLAYERED=from-bake\n" > "$ENV_WORK/bake-env"
+  printf "LAYERED=from-boot\nONLY_BOOT=boot-value\nSPACED='a b'\n" \
+    > "$ENV_WORK/claudecreds/env"
+
+  # run_env_fragment <bake-file-or-empty> -- runs the real block with the two
+  # paths redirected at the fixtures and prints the resulting values. The
+  # launcher hardcodes /etc/claude-vm/bake-env (an image path), so the slice is
+  # rewritten to the fixture; CLAUDECREDS_MNT is already a variable.
+  run_env_fragment() {
+    local bake="$1"
+    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$bake#" \
+      "$ENV_FRAGMENT" > "$ENV_WORK/fragment.sh"
+    (
+      # The real launcher runs under `set -euo pipefail` and the slice does not
+      # carry its `set` line, so it is restated here: the block must behave the
+      # same under those options as it does bare. (Measured, not assumed: an
+      # `&&` spelling of the absent-file guard does NOT abort under `set -e`,
+      # because a failing command other than the last in an AND-OR list is
+      # exempt. The `if` form is chosen for legibility, not to dodge that.)
+      set -euo pipefail
+      log() { :; }
+      CLAUDECREDS_MNT="$ENV_WORK/claudecreds"
+      # shellcheck disable=SC1090
+      . "$ENV_WORK/fragment.sh"
+      printf '%s|%s|%s|%s' \
+        "${LAYERED:-<unset>}" "${ONLY_BAKE:-<unset>}" \
+        "${ONLY_BOOT:-<unset>}" "${SPACED:-<unset>}"
+    ) 2>/dev/null
+  }
+
+  assert_eq "guest env: the BOOT file wins over the BAKE file, and both land" \
+    "from-boot|bake-value|boot-value|a b" \
+    "$(run_env_fragment "$ENV_WORK/bake-env")"
+
+  # Both files are OPTIONAL. A config with no bake env.set produces no baked
+  # file at all, and the block must be a no-op rather than an error -- the
+  # launcher runs under `set -euo pipefail`, so a bare `[ -f x ] && . x` here
+  # would abort the whole boot when the file is absent.
+  assert_eq "guest env: an absent baked file is a no-op, not a boot abort" \
+    "from-boot|<unset>|boot-value|a b" \
+    "$(run_env_fragment "$ENV_WORK/definitely-absent")"
+
+  # The variables must be EXPORTED, not merely assigned: claude runs as a child
+  # of this launcher, so an unexported assignment would be invisible to it.
+  ENV_EXPORTED="$(
+    sed "s#^BAKE_ENV_FILE=/etc/claude-vm/bake-env\$#BAKE_ENV_FILE=$ENV_WORK/bake-env#" \
+      "$ENV_FRAGMENT" > "$ENV_WORK/fragment.sh"
+    (
+      # The real launcher runs under `set -euo pipefail` and the slice does not
+      # carry its `set` line, so it is restated here: the block must behave the
+      # same under those options as it does bare. (Measured, not assumed: an
+      # `&&` spelling of the absent-file guard does NOT abort under `set -e`,
+      # because a failing command other than the last in an AND-OR list is
+      # exempt. The `if` form is chosen for legibility, not to dodge that.)
+      set -euo pipefail
+      log() { :; }
+      CLAUDECREDS_MNT="$ENV_WORK/claudecreds"
+      # shellcheck disable=SC1090
+      . "$ENV_WORK/fragment.sh"
+      # A CHILD process, exactly like claude.
+      bash -c 'printf "%s|%s" "${LAYERED:-<unset>}" "${ONLY_BAKE:-<unset>}"'
+    ) 2>/dev/null
+  )"
+  assert_eq "guest env: the values reach a CHILD process (exported, like claude's)" \
+    "from-boot|bake-value" "$ENV_EXPORTED"
+
+  # The boot file is SOURCED off the read-only credential mount and never copied
+  # anywhere: an env.copy value is a third-party API key, and a copy would put it
+  # on the guest filesystem, outliving the mount the host shreds on exit.
+  assert_not_contains "guest env: the boot env file is never copied onto the guest filesystem" \
+    "$(cat "$ENV_FRAGMENT")" 'cp "$BOOT_ENV_FILE"'
+fi
+
+# ---------------------------------------------------------------------
 echo ""
 echo "boot-launcher-test: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
