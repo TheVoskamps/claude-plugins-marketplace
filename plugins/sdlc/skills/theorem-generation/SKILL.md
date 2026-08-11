@@ -30,9 +30,10 @@ Verified list, where a speculative finding cost a human a triage.
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
-Bash call onward. The worktree is throwaway: check out the PR branch,
-read the surrounding codebase, run scripts, grep, build, exercise the
-change — whatever it takes to know what claims are worth stating.
+Bash call onward. The worktree is throwaway: check out the PR's head
+commit, read the surrounding codebase, run scripts, grep, build,
+exercise the change — whatever it takes to know what claims are worth
+stating.
 
 You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, so there is nothing of yours to capture either.
@@ -68,10 +69,11 @@ You are given exactly these, as double-dash parameters:
    relying on any summary in your brief — each issue's own text,
    especially its acceptance criteria, is the yardstick.
 3. **Read the PR body** (`gh pr view <PR> --json body`).
-4. **Check out the branch and read the surrounding codebase.**
+4. **Check out the branch's head commit and read the surrounding
+   codebase.**
 
    ```bash
-   git fetch origin && git checkout <branch>
+   git fetch origin && git checkout --detach origin/<branch>
    ```
 
    This is not optional colour. The codebase-consistency and
@@ -80,9 +82,18 @@ You are given exactly these, as double-dash parameters:
    generator that reads only the diff reproduces the failure this
    pipeline replaced.
 
-   Check out the branch **before** exercising anything. A fresh
-   worktree can start on the base branch, and a build or test run
-   there measures base code rather than the change.
+   Check out **before** exercising anything. A fresh worktree can
+   start on the base branch, and a build or test run there measures
+   base code rather than the change.
+
+   `--detach` is what keeps the checkout from failing. Every worktree
+   of a repo shares one ref store, and a branch can be checked out in
+   only one of them at a time, so a plain `git checkout <branch>`
+   fails with `fatal: '<branch>' is already used by worktree at '…'`
+   (exit 128) whenever something else already holds it — on the
+   standalone path, the primary clone routinely does. A detached
+   checkout of `origin/<branch>` claims no branch, gives you the
+   identical tree, and leaves nothing to release when you return.
 
 5. **Emit the theorem list** in the record format below. Nothing else
    goes in your report.

@@ -234,6 +234,7 @@ Each disprover's brief is one theorem and nothing more:
 
 ```text
 --pr <PR_N>
+--branch <headRefName>
 --theorem T<k>
 --claim <the claim, verbatim from the generator's record>
 --issues <the member(s) the theorem is tagged to>
@@ -244,6 +245,15 @@ Try to disprove this one claim per your agent definition. Report
 DISPROVED with a verbatim-quoted counterexample and a consequence
 statement, or SURVIVED with what you checked. Nothing else.
 ```
+
+`--branch` is the same `headRefName` you passed the generator. Every
+disprover needs it — each checks the head commit out in its own
+worktree before settling anything — and each does so **detached**,
+from `origin/<branch>`, per its agent definition. That is what makes
+this fan-out possible at all: worktrees of one repo share a single ref
+store and a branch can be checked out in only one of them at a time,
+so an attached checkout would leave k−1 of your k disprovers dead at
+`fatal: '<branch>' is already used by worktree at '…'`.
 
 Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
@@ -293,9 +303,10 @@ checked, not only the ones that broke.
 ### 7. Clean up the spawned worktrees
 
 Every generator and disprover runs in its own `isolation: worktree`
-worktree, and each releases its own branch claim before returning (see
-their definitions). What is left is the worktree *directories*, which
-the spawner removes:
+worktree, and none of them ever claims the PR branch — each checks out
+`origin/<branch>` detached (see their definitions), so there is no
+claim to release and no local branch to delete. What is left is the
+worktree *directories*, which the spawner removes:
 
 ```bash
 git worktree list

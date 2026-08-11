@@ -211,7 +211,7 @@ in its frontmatter-baseline paragraph, in the capture-then-curate
 paragraph below it, and again under "Being last is the whole point" —
 so a PR that changes which agents declare `memory:` sweeps every one
 of them plus the scrubber's own "You persist no memory" section.
-`grep -n 'memory: project' plugins/sdlc/` finds the first; the other
+`grep -rn 'memory: project' plugins/sdlc/` finds the first; the other
 restatements name the agents without the key, so grep the agent names
 too.
 

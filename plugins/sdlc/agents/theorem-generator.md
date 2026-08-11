@@ -40,17 +40,8 @@ memory commit.
 
 ## End-of-run cleanup
 
-You check out the PR branch in your worktree, which claims it there.
-Release the claim before returning, so the next agent can check the
-same branch out in its own worktree:
-
-```bash
-git checkout --detach
-git branch -D <branch>
-```
-
-There is no commit to guard here — you never commit — so this runs
-unconditionally once you have your theorem list. Use `--detach` (not
-switching to the source branch) because the primary clone is already
-holding that branch, so a subagent worktree can't switch to it.
-Detaching HEAD releases the feature-branch claim equivalently.
+There is none. The checkout your generation skill mandates is detached
+(`git checkout --detach origin/<branch>`), so you hold no branch claim
+and there is nothing to release — and you never commit, so there is
+nothing to guard either. Return your theorem list and stop. The
+pipeline that spawned you removes the worktree directory itself.

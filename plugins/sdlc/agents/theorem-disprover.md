@@ -35,6 +35,9 @@ instructions at the top of that file.
 Your brief carries exactly these double-dash parameters:
 
 - `--pr <N>` — the pull request.
+- `--branch <name>` — the PR's head branch. This is what step 1 checks
+  out; without it you have no branch to settle the claim against, so
+  stop and say so rather than reading the branch from GitHub yourself.
 - `--theorem T<k>` — the handle to report back under.
 - `--claim <text>` — the one claim you try to disprove.
 - `--issues <N…>` — the member issue(s) the theorem is tagged to.
@@ -54,9 +57,9 @@ inventing the missing one.
 
 The harness has placed you inside a fresh git worktree under
 `.claude/worktrees/`. Your cwd is the worktree root from your first
-Bash call onward. The worktree is throwaway: check out the PR branch,
-grep, build, run tests, exercise the change — whatever settles your
-claim.
+Bash call onward. The worktree is throwaway: check out the PR's head
+commit, grep, build, run tests, exercise the change — whatever settles
+your claim.
 
 You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, and you carry no `Write` or `Edit` tool: the
@@ -68,18 +71,28 @@ calls in a subagent context.
 
 ## Workflow
 
-1. **Check out the PR branch first.**
+1. **Check out the PR's head commit first, detached.**
 
    ```bash
-   git fetch origin && git checkout <branch>
+   git fetch origin && git checkout --detach origin/<branch>
    ```
 
    A fresh worktree can start on the base branch, so a build, a test
    run, or a binary inspected before this checkout measures base code
    rather than the change — and a test suite for new code often will
    not even compile there. If `git rev-parse origin/<branch>` already
-   matches the PR's `headRefOid`, check out from it and skip the
-   fetch.
+   matches the PR's `headRefOid`, skip the fetch and detach from the
+   ref you already have.
+
+   `--detach` is not a style choice, it is what makes the fan-out
+   possible. Every worktree of a repo shares one ref store, and a
+   branch can be checked out in only one of them at a time, so a plain
+   `git checkout <branch>` fails with `fatal: '<branch>' is already
+   used by worktree at '…'` (exit 128) in every disprover but the
+   first — and on a standalone run it fails in yours whenever the
+   primary clone is sitting on the PR branch. A detached checkout of
+   `origin/<branch>` claims no branch, gives you the identical tree,
+   and leaves nothing to release when you return.
 
 2. **Fetch the diff** via `/github-prs:pr-diff <PR>` if your claim
    needs it. A claim about the surrounding codebase often does not.
@@ -190,17 +203,7 @@ stopped.
 
 ## End-of-run cleanup
 
-You check out the PR branch in your worktree, which claims it there.
-Release the claim before returning, so the next agent can check the
-same branch out in its own worktree:
-
-```bash
-git checkout --detach
-git branch -D <branch>
-```
-
-There is no commit to guard here — you never commit — so this runs
-unconditionally once you have your verdict. Use `--detach` (not
-switching to the source branch) because the primary clone is already
-holding that branch, so a subagent worktree can't switch to it.
-Detaching HEAD releases the feature-branch claim equivalently.
+There is none. Your checkout in step 1 is detached, so you hold no
+branch claim and there is nothing to release — and you never commit,
+so there is nothing to guard either. Return your verdict and stop. The
+pipeline that spawned you removes the worktree directory itself.
