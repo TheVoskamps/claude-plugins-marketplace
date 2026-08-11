@@ -40,6 +40,9 @@
 - [known gaps are a doc surface](project_issue-known-gaps-are-a-doc-surface.md)
   — an issue's "Known gaps left in place" section is the part the
   developer reliably never carries into the README; check it every run.
+- [checkout-contract doc surfaces](project_checkout-contract-doc-surfaces.md)
+  — attached→detached checkout changes break orchestrate's "Both run in
+  fresh worktrees" paragraph and sibling agents' cleanup examples.
 - [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when
