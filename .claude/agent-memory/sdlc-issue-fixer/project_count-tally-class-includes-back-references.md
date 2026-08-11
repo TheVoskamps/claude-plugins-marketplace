@@ -1,6 +1,6 @@
 ---
 name: count-tally-class-includes-back-references
-description: A core-principles §7 self-counting-list sweep must also catch post-list count words ("In either case"), YAML frontmatter descriptions, and non-Markdown comments — and should grade hits against the pr-reviewer's adjudicated in/out-of-class boundary rather than instinct
+description: A core-principles §7 self-counting-list sweep must also catch post-list count words ("In either case"), YAML frontmatter descriptions, and non-Markdown comments — and should grade hits against the adjudicated in/out-of-class boundary restated here rather than instinct
 metadata:
   type: project
 ---
@@ -40,15 +40,16 @@ under a printed `1./2./3.`), while the same triple named inline as a
 conjunction in running prose (`commits, pushes, and opens a PR … on
 one approval covering all three`) is conjunction emphasis and stays.
 
-**Don't re-derive the boundary — read the adjudicated one.** The
-`sdlc-pr-reviewer` sibling memory
-`project_only-one-before-list-is-in-class.md` carries the settled
-in-class test (does the number survive deleting the adjacent list?)
-plus the explicit out-of-class list: frozen-history narrative counts,
-counts of structure a *different* document enumerates, conjunction
-emphasis, and quoted examples of the defect pattern. Grading a §7 sweep
-against that file instead of your own instinct is what keeps a sweep
-from "fixing" a survivor and churning a round on it.
+**Don't re-derive the boundary — apply the adjudicated one.** The
+settled in-class test is: does the number survive deleting the
+adjacent list? If it does, it carries independent meaning and stays.
+Explicitly out of class: frozen-history narrative counts, counts of
+structure a *different* document enumerates, conjunction emphasis, and
+quoted examples of the defect pattern. "Only one X:" before a list IS
+in class — "only" does not rescue a numeral that is a tally, and the
+fix drops the numeral. Grading a §7 sweep against that test instead of
+your own instinct is what keeps a sweep from "fixing" a survivor and
+churning a round on it.
 
 **How to apply:** after fixing any §7 instance,
 `grep -nE '\b(both|either|neither|two|three|four|all (three|four))\b'`

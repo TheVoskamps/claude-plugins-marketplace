@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback for an existing issue branch. Given a PR number, the issue set the PR closes, branch name, and review findings, applies fixes and pushes updates. Use this after a pr-reviewer requests changes.
+description: Addresses PR review feedback for an existing issue branch. Given a PR number, the issue set the PR closes, branch name, and review findings, applies fixes and pushes updates. Use this after the PR review pipeline requests changes.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium

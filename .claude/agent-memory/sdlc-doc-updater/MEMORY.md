@@ -62,10 +62,9 @@
   the consumer README's new `dependencies` edge; no CLAUDE.md sweep
   section.
 - [agent-variant doc surfaces](project_agent-variant-doc-surfaces.md)
-  — adding an sdlc agent variant / preloaded-protocol skill leaves
+  — adding an sdlc agent variant / preloaded-instruction skill leaves
   docs/plugin-authoring-constraints.md's pattern list and fresh count
-  words unswept; issues/lib repo-config's pr-reviewer claims are stale
-  but out of scope.
+  words unswept.
 - [Qualifier that contradicts the next paragraph](feedback_qualifier-that-contradicts-the-next-paragraph.md)
   — a first exception gets patched with a vague hedge ("every teammate
   you spawn by name") that still includes the exception; read the

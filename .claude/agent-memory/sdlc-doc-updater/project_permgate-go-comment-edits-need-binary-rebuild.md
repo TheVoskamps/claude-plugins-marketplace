@@ -6,8 +6,8 @@ metadata:
 ---
 
 `plugins/guardrails/hooks/bin/<goos>-<goarch>/permission-gate` are
-committed build artifacts of the sources beside them, and `pr-reviewer`
-verifies provenance by rebuilding and comparing (see
+committed build artifacts of the sources beside them, and the review
+pipeline verifies provenance by rebuilding and comparing (see
 [[project_guardrails-permgate-docs-locality]] for what else lives
 there). Go embeds file:line in the binary, so **adding or removing even
 a comment line shifts them** and a rebuild-compare shows a delta the

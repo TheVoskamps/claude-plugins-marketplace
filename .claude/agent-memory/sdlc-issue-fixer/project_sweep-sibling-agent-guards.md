@@ -36,10 +36,11 @@ out the PR branch at any point") was preserved and the new guard
 nested inside it, not replaced.
 
 **How to apply:** when a reviewer finds a defect class inside an
-sdlc-agent file that's part of a five-agent family
-(issue-developer/issue-fixer/doc-updater/pr-reviewer/
-agent-memory-scrubber), check whether the pattern is copy-pasted
-across the other four before declaring the fix done — the family
+sdlc-agent file that's part of the agent family
+(issue-developer/issue-fixer/doc-updater/agent-memory-scrubber, plus
+the review pipeline's theorem-generator skeletons and
+theorem-disprover), check whether the pattern is copy-pasted
+across the siblings before declaring the fix done — the family
 shares near-identical end-of-run cleanup, memory-capture, and
 closing-keyword sections by design. See also
 [[no-invented-policy-in-agent-defs]] for the companion round-3 item on

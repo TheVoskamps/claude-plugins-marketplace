@@ -254,8 +254,11 @@ file. Order is fixed; `schema-version` is always first.
 
 - **`source-control`** — `GitHub` or `CodeCommit`. Selects between
   `gh` and `aws codecommit` for VCS operations. The
-  `issue-developer`, `issue-fixer`, and `pr-reviewer` agents
-  dispatch on this value when creating PRs / opening reviews.
+  `issue-developer` and `issue-fixer` agents dispatch on this value
+  when creating PRs. The `sdlc` review path does not: its
+  `sdlc:pr-review-pipeline` skill reads `issue-link-prefix` only, and
+  the `github-prs:*` skills it posts through are GitHub-only by
+  design.
 
 - **`issues`** — `GitHub` or `Jira`. Selects between `gh issue`
   and the Atlassian CLI (`acli`) for issue operations. Both backends
@@ -459,11 +462,12 @@ top of the `schema-version: 6` baseline, but does **not** migrate
 every reader at once. The bump is additive: the `jira:` block lives
 in the body, so an un-migrated reader ignores it and a
 schema-version-6 reader still reads a schema-version-7 file. The
-four agent definitions
-(`issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer`)
-and the multi-issue orchestrator's SKILL.md follow this
-contract: they pin schema-version 6 and defer to the canonical read
-sequence and abort messages above (migrated in #115). The user-facing
+agent definitions
+(`issue-developer`, `issue-fixer`, `doc-updater`), the
+`sdlc:pr-review-pipeline` skill, and the multi-issue orchestrator's
+SKILL.md follow this contract: they pin schema-version 6 and defer to
+the canonical read sequence and abort messages above (migrated
+in #115). The user-facing
 `/issue-*`
 namespace follows it too: its shared `skills/lib/issue.md`
 "Repo-config parsing" section and each `/issue-*` SKILL.md pin

@@ -108,7 +108,7 @@ restates it either: `git-tools:git-issues-from-branch` is the one
 parser — the inverse of this skill — and the consumers that need a
 branch's issue set (`github-prs:pr-create` and
 `github-prs:pr-link-issue`, to decide which issues a PR may close, and
-`sdlc`'s `pr-reviewer`, to decide which issues to review against)
+`sdlc:pr-review-pipeline`, to decide which issues to review against)
 invoke that skill. The number/slug boundary must therefore stay
 unambiguous, which is what the "no leading digit" validation below
 protects.

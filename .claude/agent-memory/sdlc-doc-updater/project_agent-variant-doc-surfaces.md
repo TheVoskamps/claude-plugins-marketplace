@@ -25,10 +25,9 @@ no diff hit forcing it.
 
 **How to apply:** on any agent/skill-topology PR, open
 `docs/plugin-authoring-constraints.md` even when it is not in the diff,
-and grep the new sections for number words. Out of scope but worth
-reporting: `plugins/issues/skills/lib/repo-config.md` still says the
-`pr-reviewer` dispatches on `source-control` (it hasn't since the
-reviewer stopped resolving it) and calls the sdlc agents "the four
-agent definitions". Fixing those means an `issues` version bump, so
-they belong in their own issue. See
-[[skill-extraction-doc-surfaces]].
+and grep the new sections for number words. Also open
+`plugins/issues/skills/lib/repo-config.md`: it names the sdlc agents
+that read repo-config and says which of them dispatch on
+`source-control`, so an agent added, retired, or changed in what it
+reads falsifies it — and fixing it means an `issues` version bump in
+the same PR. See [[skill-extraction-doc-surfaces]].

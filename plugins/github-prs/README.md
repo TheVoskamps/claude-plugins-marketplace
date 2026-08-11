@@ -8,9 +8,11 @@ keyword each in the PR body, and read those closing lines back to say
 which issues it closes.
 
 These skills serve the `/sdlc:orchestrate` flow and its agents — the
-`issue-developer` opens the PR, the `pr-reviewer` diffs and reviews it
-(and, run standalone on a bare PR number, reads its closing lines to
-learn which issues it claims), the `issue-fixer` and `doc-updater`
+`issue-developer` opens the PR, the `sdlc:pr-review-pipeline` reviews
+and posts on it — reading its closing lines, when run standalone on a
+bare PR number, to learn which issues it claims — its
+`theorem-generator` and `theorem-disprover` agents diff it, the
+`issue-fixer` and `doc-updater`
 diff it, and the orchestrator keeps PRs draft through the review/fix
 loop, reads those same closing lines for the issues it flips to In
 Review, and only flips draft → ready once the human blesses the PR at
@@ -119,8 +121,8 @@ own issue set only, never a commit).
 ### `/pr-diff <PR>`
 
 Fetches the full unified diff of a pull request via `gh pr diff <PR>`.
-This is the diff-fetch that `pr-reviewer`, `issue-fixer`, and
-`doc-updater` need before they read a PR's changes.
+This is the diff-fetch that `theorem-generator`, `theorem-disprover`,
+`issue-fixer`, and `doc-updater` need before they read a PR's changes.
 
 ### `/pr-review-submit <PR> ...`
 
@@ -167,7 +169,7 @@ Fetches the PR body and reports the set of issues it closes, applying
 the closing-keyword-immediately-before-reference syntax
 (`rules/git-workflow.md` → "Issue References" is the authority). It is
 the one place in this marketplace that syntax is applied to a PR body,
-so `/pr-link-issue`, `sdlc`'s `pr-reviewer` running standalone, and
+so `/pr-link-issue`, `sdlc:pr-review-pipeline` running standalone, and
 `/sdlc:orchestrate`'s end-of-loop status flip all invoke it rather
 than scanning a body themselves. A single-PR primitive: a caller
 holding several PRs loops.

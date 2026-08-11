@@ -1,0 +1,581 @@
+---
+name: pr-review-pipeline
+description: The sdlc PR review pipeline — resolve the issue set, spawn a theorem-generator, fan out one theorem-disprover per theorem in parallel, derive severities and verdicts mechanically, and post a single review. Runs in the main session, invoked by /sdlc:git-review-pr and by the /sdlc:orchestrate loop; not invoked from the user's slash menu.
+user-invocable: false
+---
+
+# PR Review Pipeline
+
+This is the `sdlc` review procedure. It replaces the reviewer agent
+that used to hold it: review is now a **pipeline** — a theorem
+generator, a parallel fan-out of disprovers, and a mechanical
+synthesis — rather than one agent reading a diff against a checklist.
+
+## Run this in the main session
+
+You run this pipeline **in the main session**, never inside a
+subagent. A subagent cannot spawn subagents, and the fan-out in step 4
+is the whole design, so a pipeline run from inside an agent would
+collapse to a single reader — exactly the shape this replaced.
+
+Both entry paths are main-session paths:
+
+- `/sdlc:git-review-pr <PR>` — the standalone review.
+- The `/sdlc:orchestrate` loop, after each `doc-updater` pass.
+
+You write no code and you post exactly one review. You never commit,
+never push, and never edit a file: the pipeline is strictly
+non-mutating on the branch. The agents it spawns are non-mutating too
+— neither declares `memory:`, so there is no memory capture to commit
+and nothing for `agent-memory-scrubber` to curate from this pipeline.
+
+## Why the diff never lands in your context
+
+You do not fetch the PR diff. The generator reads it in its own
+worktree and returns a theorem list; each disprover reads only the
+region its own theorem points at. What reaches you is the theorem
+list, the per-theorem verdicts, and the change counts you read from
+`gh pr view`. That is deliberate: the main session's job here is
+routing and derivation, and a diff in context would tempt it into
+re-reviewing by hand — a fourth opinion nothing asked for.
+
+## Inputs
+
+The pipeline takes double-dash parameters. One vocabulary serves both
+entry paths: the orchestrator writes exactly these tokens when it
+invokes the pipeline, and a standalone invocation passes the same
+flags.
+
+- `--pr <N>` (required) — the pull request to review. With no `--pr`,
+  stop and report that the caller named no PR rather than guessing
+  one.
+- `--issues <N…>` (optional) — the issue numbers this PR closes,
+  space- or comma-separated, each with or without a leading `#`. This
+  is the **claim**, not the answer: step 2 reconciles it against the
+  branch. Absent, step 2 takes the claim from the PR body instead —
+  the standalone path.
+- `--branch <name>` (optional) — the PR's head branch. Absent, step 2
+  reads it from GitHub.
+- `--generator <agent-name>` (optional) — which `theorem-generator`
+  definition to spawn, one of `theorem-generator` (the default),
+  `theorem-generator-high`, or `theorem-generator-xhigh`. The
+  orchestrator picks one per its selection rule (see the
+  `/sdlc:orchestrate` skill → "Picking a generator tier"); the
+  standalone path passes none and gets the default.
+
+No other parameter exists. In particular there is no effort or model
+parameter for the generator: its tier IS the definition named by
+`--generator`, and the generation instructions it runs are tier-blind.
+
+## Read repo config first
+
+Read this repo's `.claude/rules/repo-config.md` with a lightweight
+**inline** parse of just the front-matter field below — not the full
+reader contract in the `issues` plugin's `skills/lib/repo-config.md`.
+That lib file lives inside the `issues` plugin, and plugins are
+file-sandboxed (a bare `Read` from an `sdlc` skill cannot resolve a
+path inside another plugin's directory — see
+`docs/plugin-authoring-constraints.md` → "Plugins are
+file-sandboxed"). `sdlc` no longer bundles its own copy of that lib
+(`plugins/sdlc/skills/lib/repo-config.md` was deleted), so do not
+attempt to `Read` it by any bare or qualified path.
+
+You need only this field from the file:
+
+- `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
+  Jira) — the prefix used in `References:` trailers (see step 2
+  below). This is an **issue-tracker** concern, independent of the PR
+  mechanics: `github-prs:pr-review-submit` and
+  `github-prs:pr-closing-issues` read no repo-config at all — they are
+  GitHub-only by design — and `git-tools:git-issues-from-branch` reads
+  `issue-branch-naming-prefix` internally, so you do not resolve
+  `source-control`, `default-issue-source-branch`,
+  `default-pr-target-branch`, or `issue-branch-naming-prefix`
+  yourself.
+
+If `.claude/rules/repo-config.md` is missing, abort with: "This repo
+has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
+one." (the same wording the full reader contract uses for its "File
+missing" case, so the namespace's abort messages stay consistent even
+though this pipeline doesn't consume the whole contract).
+
+In the rest of this document, `<link-prefix>` means the resolved
+value.
+
+## Workflow
+
+### 1. Read the PR's shape
+
+```bash
+gh pr view <PR> --json headRefName,body,changedFiles,additions,deletions
+```
+
+`changedFiles`, `additions`, and `deletions` are the change counts the
+review body reports. `headRefName` and `body` feed step 2. Do not
+fetch the diff — see "Why the diff never lands in your context" above.
+
+### 2. Identify the issue set this PR is for
+
+A PR delivers a **batch** — an ordered set of issues implemented on
+one branch — and a batch of one is the ordinary single-issue PR.
+
+- **Your claim** is `--issues`, when the caller supplied it. Run
+  standalone on a bare `--pr` — the `/sdlc:git-review-pr` path —
+  there is no issue set to take it from, so get it from
+  `/github-prs:pr-closing-issues <PR>`, the one skill that reads a PR
+  body's closing lines. Never scan the body for them yourself.
+- **Reconcile the claim against the branch.** Invoke
+  `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
+  skill that parses a branch name and the one place the global
+  issue-to-branch rule in `rules/git-workflow.md` → "Issue References"
+  is applied. Never parse a branch name and never re-derive the
+  resolution yourself. **The set you review against is the resolved
+  set it reports.**
+
+The lists it reports alongside the resolved set are findings rather
+than members:
+
+- **A claimed issue the skill places outside the branch's set is a
+  finding, not a member.** `/github-prs:pr-create` and
+  `/github-prs:pr-link-issue` refuse to write a closing line for one,
+  but a hand-edited body can carry it, and merging the PR would then
+  auto-close an issue this branch never delivered — the auto-close
+  hazard the closing-keyword rule exists to prevent. Never fold it
+  into the set you review against. Grade it on that consequence per
+  "Findings by severity" below, and give it its own verdict line per
+  "Per-issue verdicts, one overall".
+- **A branch member on the skill's *not claimed* list is either a
+  sanctioned deferral or a silent under-delivery, and the PR body is
+  what tells them apart.** When the body names the member and says why
+  it is not in this PR, that is a deferral the human already owns:
+  note it as context, not a finding. When a member is simply missing
+  with no explanation, that IS a finding — it is the exact failure a
+  batch PR invites, and it is an unmet acceptance criterion (graded
+  High per "Findings by severity" below). That member gets its own
+  verdict line carrying the finding, per "Per-issue verdicts, one
+  overall" below, even though the diff is not reviewed against it.
+
+The remaining outcomes need no separate handling. On **not a
+convention branch** — a human-named or `dependabot/…` branch, the
+usual shape when `/sdlc:git-review-pr` hands you a bare `--pr` — the
+skill resolves to your claim unchanged and reports those lists empty,
+so no finding above can arise and your claim is the whole answer. On
+**no safe resolution** there is no resolved set, so no member is
+reviewed against, no theorems are generated, and the findings above
+cover the PR between them: every claimed issue is outside the branch's
+set, and every branch member is unclaimed. Post that review and stop —
+there is nothing for a generator to work from.
+
+`References:` trailers in the PR body link *other* related issues
+(predecessors, follow-ups, umbrella issues, etc.) using the
+`References: <link-prefix><M>` format (e.g. `References: #42` on
+GitHub, `References: SET-42` on Jira). A reference with no closing
+keyword before it closes nothing, so `/github-prs:pr-closing-issues`
+already leaves these out — never add one to the set by hand. The
+closing keywords themselves are required in the **PR body**, one line
+per member, and forbidden in a **commit message**; the same words as
+ordinary English prose with no adjacent issue reference are fine
+anywhere and must not be flagged.
+
+These two findings are the only ones this pipeline raises outside the
+theorem list. Everything else it posts is a disproved theorem.
+
+### 3. Spawn the theorem generator
+
+Spawn the definition `--generator` named (default `theorem-generator`)
+with the `Agent` tool, `run_in_background: false`, passing the
+resolved set from step 2 — not the caller's claim:
+
+```text
+--pr <PR_N>
+--issues <resolved_N1> <resolved_N2> …
+--branch <headRefName>
+
+Generate the theorem list per your preloaded generation skill. Report
+it back in the theorem-record format that skill defines, and nothing
+else.
+```
+
+Pass no tier, effort, or model in the brief. The generator's tier is
+the `effort:` of the definition you spawned.
+
+You get back a numbered theorem list. Each record carries a claim, the
+member issue(s) it is tagged to, a `mechanical` / `semantic` class,
+and file/region pointers. If any record is missing a field, ask the
+generator to re-emit that record rather than guessing the field
+yourself — you are not a source of theorems.
+
+### 4. Fan out one disprover per theorem, in parallel
+
+Spawn one `theorem-disprover` per theorem, **all in a single message
+block** so they run concurrently, each with
+`run_in_background: false`. One disprover per theorem is the starting
+point; if missed counterexamples show up in practice, N disprovers per
+theorem is a one-line change here.
+
+Route the model by the theorem's class:
+
+- **`mechanical`** — pass `model: haiku` on the `Agent` call. A
+  grep-shaped claim is settled by running the grep, and the cheap
+  model runs it as well as any other.
+- **`semantic`** — pass no `model`, so the spawn uses the disprover's
+  declared `model: sonnet`.
+
+This per-theorem downshift is deliberate and is **not** the
+orchestrator's raise-only rule for teammate spawns (see the
+`/sdlc:orchestrate` skill → "Token Efficiency"). That rule keeps a
+teammate from being quietly under-resourced for feature work it owns;
+here the frontmatter default is the *ceiling* for a class of theorem
+the design has already decided is cheap. If a harness ever refuses to
+route below the declared default, the mechanical spawn simply runs at
+sonnet: costlier, never wrong.
+
+Each disprover's brief is one theorem and nothing more:
+
+```text
+--pr <PR_N>
+--theorem T<k>
+--claim <the claim, verbatim from the generator's record>
+--issues <the member(s) the theorem is tagged to>
+--class <mechanical|semantic>
+--pointers <the generator's pointers, verbatim>
+
+Try to disprove this one claim per your agent definition. Report
+DISPROVED with a verbatim-quoted counterexample and a consequence
+statement, or SURVIVED with what you checked. Nothing else.
+```
+
+Never merge two theorems into one brief, and never add a theorem of
+your own to a brief. The one-theorem contract is what keeps a
+disprover from wandering into unrelated nits.
+
+### 5. Grade each counterexample
+
+This step is a **derivation, not a judgment**. There is no synthesizer
+agent because there is nothing left to judge: each disprover has
+already returned a verdict on its own claim.
+
+- **`SURVIVED`** → an entry in the **Verified** list, carrying what
+  the disprover checked. Never a finding, never a severity.
+- **`DISPROVED`** → a finding, in the format under "Findings must
+  quote, not paraphrase" below. Its `**Evidence:**` block is the
+  disprover's counterexample quote **verbatim** — you do not re-quote
+  the source yourself, and you never paraphrase what the disprover
+  sent. Grade its severity from the disprover's consequence statement
+  per "Findings by severity" below, and tag it to the member issue(s)
+  the theorem carried.
+
+A `DISPROVED` report whose counterexample is not a verbatim quote is
+malformed. Re-spawn that one disprover with the same brief rather than
+filing the finding on a paraphrase or dropping it silently; if the
+second run is malformed too, report the theorem in the review body as
+"could not be settled" and give it no severity.
+
+Then derive the verdicts per "Per-issue verdicts, one overall" and
+"Verdict follows from findings" below. Every step from here to the
+posted review is mechanical.
+
+### 6. Post one review
+
+Post via `/github-prs:pr-review-submit <PR> <verdict> <body>`, with
+`<verdict>` the **overall** verdict — one of `approve`,
+`request-changes`, or `comment`. The skill posts a **single** call
+carrying both verdict and body — never two calls (a separate
+`--comment` then `--approve` creates two notifications) — and handles
+the self-review constraint (`gh` blocks `--approve` when the reviewer
+is the PR author) by downgrading to an inline `--comment` carrying an
+explicit `APPROVED` line.
+
+The body carries the **full theorem list**, per "Review body" below.
+Coverage is auditable that way: a reader can see every claim that was
+checked, not only the ones that broke.
+
+### 7. Clean up the spawned worktrees
+
+Every generator and disprover runs in its own `isolation: worktree`
+worktree, and each releases its own branch claim before returning (see
+their definitions). What is left is the worktree *directories*, which
+the spawner removes:
+
+```bash
+git worktree list
+git worktree remove .claude/worktrees/<name>
+```
+
+Remove them **serially**, never in parallel — see
+[Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
+for a parallel-cleanup data-loss bug. A fan-out of k disprovers leaves
+k worktrees; remove them one after another once they have all
+returned.
+
+If a removal fails with `fatal: cannot remove a locked working tree`
+and the lock reason matches the harness's standard end-state shape
+(`claude agent agent-<hash> (pid NNNN)`), the agent has returned and
+left a stale lock: `git worktree unlock <path>` then remove.
+
+Unlock-then-remove is **not** allowed when the agent is still mid-run,
+when the lock reason does not match that standard shape, or when the
+worktree carries uncommitted work or unpushed commits. The last is a
+data-loss case and needs human approval — though the pipeline's agents
+never commit, so it should not arise from a review round. Never reach
+for `git worktree remove -f`.
+
+## The theorem contract
+
+A theorem is a claim about this PR that a **counterexample refutes**.
+Falsifiability is the whole filter, and it is what keeps nits out
+structurally rather than by severity-capping them after the fact:
+"this comment could be worded better" is not a theorem, because there
+is no counterexample to it. "This comment's assertion about the code
+is true" IS a theorem, and a comment that asserts something false
+disproves it.
+
+Each record the generator emits carries these fields, and the
+pipeline consumes all of them:
+
+| Field | What it is |
+| --- | --- |
+| `id` | `T1`, `T2`, … — the handle every later step uses |
+| `claim` | the claim, stated so a counterexample refutes it |
+| `issues` | the member issue(s) the theorem is tagged to |
+| `class` | `mechanical` (grep-shaped) or `semantic` (needs reading behavior) |
+| `pointers` | files, regions, or symbols the disprover starts from |
+
+`issues` is a list rather than a single value because a theorem about
+a shared helper, or about the single version bump a batch shares,
+belongs to every member it affects — that is what makes each of their
+verdicts reflect it. A theorem tagged to no member is malformed: it
+would produce a finding no verdict line carries, which is exactly how
+a defect escapes the overall verdict.
+
+The generation skill (`sdlc:theorem-generation`) owns *what* theorems
+to generate. This section owns only the record shape the pipeline
+reads.
+
+## Findings must quote, not paraphrase
+
+Every finding that references the content of a file, PR body, commit
+message, or code line **must include verbatim quoted evidence** from
+the source. Paraphrasing is forbidden — it has produced fabricated
+findings where the "offending text" the reviewer claimed to see did
+not exist (see #64).
+
+Use this exact format for every finding:
+
+```markdown
+**Finding:** <description>
+**Evidence:** in `<file-or-location>` at <line/section>:
+> <verbatim quote of the offending text>
+**Recommendation:** <what to change>
+```
+
+Rules:
+
+- The line under `**Evidence:**` that starts with `>` must be a
+  byte-for-byte copy of the source text, not a summary, not a
+  reconstruction from memory, and not a "this is roughly what it says"
+  paraphrase. In this pipeline that quote arrives from the disprover
+  that produced it and is copied through unchanged — the pipeline
+  never re-derives it.
+- For findings about the **absence** of something (e.g. "no test
+  coverage for X", "no input validation on Y"), the `**Evidence:**`
+  block must (a) name where the thing would normally appear (e.g.
+  `tests/foo.py`), AND (b) include a verbatim quote of the surrounding
+  code that should have contained it. Both parts are required.
+- Findings without a verbatim `**Evidence:**` quote are malformed.
+
+Why this matters: a hallucinated quote is immediately falsifiable
+against the file the disprover claims to have read, so the human can
+spot-check findings cheaply. A paraphrased finding forces them to
+re-do the whole review to verify it, defeating the point of the
+pipeline.
+
+## Before claiming file-topology issues
+
+A recurring review failure mode is asserting that file X "lacks"
+content Y, or that a "dual-location" / "out-of-sync copies" / "stale
+reference" problem exists, **without verifying the topology with a
+concrete command**. This is a derivative of the global rule in
+`rules/label-uncertainty.md` → "The partial-Read case" — that rule
+covers any single-file partial-Read negative claim; this section names
+the specific review-context variant where the claim spans two paths
+that may or may not be the same file.
+
+Before any finding that asserts a path is a separate copy from
+another path, is a regular file rather than a symlink, is out of sync
+with another location, or doesn't contain content that exists
+somewhere else, at least one of these must have been run:
+
+```bash
+git rev-parse --show-toplevel   # is this path inside the repo? where's the root?
+readlink <path>                 # symlink target, or non-zero exit if regular file
+ls -la <dir>                    # shows symlinks vs regular files in a directory
+diff <path-A> <path-B>          # do two paths have different content?
+```
+
+A disprover that reports `DISPROVED` on a topology claim without such
+a command has not disproved it. Send that theorem back once; if the
+second report is still unverified, treat the theorem as unsettled
+rather than filing the finding. A hedged-but-wrong topology finding
+("appears to be a separate copy", "likely out of sync") still lands as
+fact to the reader and is the exact failure mode this section exists
+to prevent.
+
+## A finding is a disproved theorem
+
+That is the entire definition. A finding is never a candidate
+observation somebody had while reading; it is a claim that was stated
+in advance and then broken by a counterexample. Nothing else in the
+review body gets a severity label.
+
+The non-finding homes are:
+
+- **A surviving theorem** → the **Verified** list, unnumbered and
+  unsevered. Never a finding.
+- **An intentional, documented design choice nobody disputes** → not a
+  finding at all. If the pipeline disputes it, that dispute was a
+  theorem and it is a finding graded on its consequence.
+- **A question to confirm intent** → a plain question in the review
+  body prose, not a severity-labeled finding.
+- **An out-of-scope observation** → a "Follow-up suggestion" and, if
+  warranted, a recommendation to file a new issue. Not a finding on
+  this PR.
+
+Litmus test: if the recommendation is "no action" or "confirm this was
+intended", it is not a finding. Filing non-defects as severity-labeled
+findings pads the list with noise and forces the human to re-triage
+every review — exactly the work this pipeline exists to do.
+
+## Review body
+
+Post one body with these sections, in this order:
+
+1. **Verdicts** — one line per member of the set you review against,
+   plus one per any other issue a finding names, plus the overall
+   line. See "Per-issue verdicts, one overall".
+2. **Change counts** — files changed, additions, deletions, from
+   step 1.
+3. **Findings** — ranked by severity, each in the
+   `**Finding:** / **Evidence:** / **Recommendation:**` format, each
+   tagged with the theorem id it came from and the member(s) it
+   belongs to.
+4. **Verified** — every surviving theorem, one line each: the id, the
+   claim, and what the disprover checked. Unnumbered, never counted
+   toward severity.
+5. **Theorems that could not be settled**, if any — id and claim, no
+   severity.
+
+Sections 3, 4, and 5 together are the **full theorem list**: every
+theorem the generator emitted appears in exactly one of them. That is
+the coverage audit — a reader can see what was checked, not only what
+broke.
+
+### Per-issue verdicts, one overall
+
+Every member of the set you review against — as step 2 resolved it —
+gets its own verdict line, graded from that member's findings alone:
+
+```markdown
+## Verdicts
+
+- #206 — APPROVED
+- #196 — NEEDS_CHANGES (1 High)
+- #201 — APPROVED
+- **Overall — NEEDS_CHANGES**
+```
+
+Any *other* issue this review attaches a finding to gets a line too,
+even though it is outside the set you review against. That is what
+keeps such a finding from vanishing from the overall verdict. These
+are the cases step 2 raises one for:
+
+- **A branch member on the *not claimed* list that the body never
+  explains** — step 2 grades that absence High, so it gets a line
+  reading `- #207 — NEEDS_CHANGES (1 High, not delivered by this
+  PR)`. The diff was never reviewed against it, so that one finding is
+  all the line carries.
+- **A claimed issue outside the branch's set** — the rogue issue gets
+  a line reading `- #310 — NEEDS_CHANGES (1 High, closing line outside
+  the branch's set)`, carrying that finding alone.
+
+A sanctioned deferral is not one of them: the body names the member
+and says why it is not in this PR, step 2 raises no finding, and it
+gets no verdict line. Note it as context below the block.
+
+The overall verdict is the **worst** of the verdict lines in the
+block, in the order APPROVED < NEEDS_CHANGES < BLOCKED. It is a
+derivation, not a separate judgment: one line at NEEDS_CHANGES makes
+the whole PR NEEDS_CHANGES, because the PR merges as one unit. The
+overall verdict is what `/github-prs:pr-review-submit` receives.
+
+A finding that spans members — a shared helper both depend on, or the
+single version bump the batch shares — is graded once and tagged to
+every member it affects, so each of their verdicts reflects it. Its
+theorem carried those members in its `issues` field.
+
+For a batch of one whose body closes exactly that issue, this
+collapses to a single verdict line whose value equals the overall
+verdict, which is the single-issue review as it has always been.
+
+### Findings by severity
+
+Grade every finding by the **consequence of merging the PR as-is** —
+never by topic. A performance nit and a security hole are not
+automatically the same severity just because both are "non-functional
+concerns"; grade what actually happens if this ships unchanged. The
+disprover's consequence statement is the input to this grading.
+
+- **Critical**: merging causes data loss, opens a security hole, or
+  breaks production.
+- **High**: shipped behavior is materially broken, OR an acceptance
+  criterion of the issue is unmet. An unmet acceptance criterion is
+  **always at minimum High**, regardless of how small the remaining
+  work looks. A disproved acceptance-criterion theorem IS an unmet
+  acceptance criterion.
+- **Medium**: a real defect or debt that should be fixed in this PR
+  but does not break shipped behavior.
+- **Low**: genuinely optional polish. If it must be fixed before
+  merge, it is not Low — re-grade it Medium or higher.
+
+A finding whose entire remedy is rewording a comment or docstring is
+at most Low — *unless* the comment masks an unmet acceptance criterion
+(e.g. a comment asserting a criterion is satisfied when it isn't), in
+which case the finding IS the unmet criterion and is graded High per
+the rule above, not Low for "just a comment fix."
+
+## Verdict follows from findings
+
+Each verdict line is a mechanical consequence of the findings tagged
+to the issue it names — a member of the set, or one of the extra
+issues "Per-issue verdicts, one overall" above gives a line to — not a
+separate judgment call:
+
+- Any open Critical, High, or Medium finding tagged to that issue →
+  `request-changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
+  is outside the issue's scope and needs human decision).
+- Only Low findings, or no findings at all → `approve`.
+
+The overall verdict is then the worst of those lines, per "Per-issue
+verdicts, one overall" above — also mechanical. Every finding must be
+tagged to one of those lines; that is what keeps an open Critical,
+High, or Medium from ever leaving the overall verdict at APPROVED.
+
+This is a hard invariant, not a guideline. "APPROVED (1 High)" is
+malformed by definition — it cannot occur under a correct review. If
+you feel the pull to approve despite an open High or Medium, that
+feeling means the severity grading is wrong, not that the invariant
+should bend: re-grade the finding rather than approving with an open
+non-Low finding.
+
+## Report back
+
+Report every verdict line posted — APPROVED, NEEDS_CHANGES, or
+BLOCKED, one per member plus any extra line per "Per-issue verdicts,
+one overall" — plus the overall verdict, plus severity counts
+(Critical, High, Medium, Low) covering findings only. Report the
+theorem tally alongside: how many were generated, how many disproved,
+how many survived, how many went unsettled. Surviving theorems are
+never counted toward severity.
+
+Also report which generator tier ran, so an override has something to
+disagree with.

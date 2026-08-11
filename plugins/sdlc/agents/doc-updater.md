@@ -263,7 +263,7 @@ after it both apply on this path — still run the end-of-run cleanup,
 and say so in your report-back. A no-op pass is a normal outcome, not
 a failure: you run after every `issue-developer` and `issue-fixer`
 round (see the `/sdlc:orchestrate` skill → "After each issue-developer
-or issue-fixer: doc-updater, then pr-reviewer"), and many fixer rounds
+or issue-fixer: doc-updater, then review"), and many fixer rounds
 touch no documentation at all.
 
 Otherwise, after making all edits:
@@ -307,8 +307,9 @@ Otherwise, after making all edits:
 
 ## End-of-run cleanup
 
-Release the branch claim so subsequent subagents (e.g. `pr-reviewer` or
-`issue-fixer`) can check out the same branch in their own worktrees.
+Release the branch claim so subsequent subagents (e.g. a
+`theorem-generator` or an `issue-fixer`) can check out the same branch
+in their own worktrees.
 Run this only if your commit and push both succeeded, or if you had
 nothing to commit — if either the commit or the push failed, `git
 branch -D` would destroy the only copy of your work, so stop and

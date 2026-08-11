@@ -113,9 +113,9 @@ deliberate per-caller differences.
 branch-name grammar is stated once, in
 `git-tools:git-branch-create` → "Branch name", and
 `git-issues-from-branch` is the one skill that parses it —
-`github-prs:pr-create`, `github-prs:pr-link-issue`, and `sdlc`'s
-`pr-reviewer` invoke `git-issues-from-branch` rather than each
-restating the rule. The same skill also applies the global
+`github-prs:pr-create`, `github-prs:pr-link-issue`, and
+`sdlc:pr-review-pipeline` invoke `git-issues-from-branch` rather than
+each restating the rule. The same skill also applies the global
 issue-to-branch reconciliation rule in `rules/git-workflow.md`,
 because that rule is global rather than per-caller; what each consumer
 keeps is its own **action** per reported outcome, which is exactly the
@@ -130,8 +130,9 @@ there.
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's
 closing lines and reports which issues the PR closes, so
-`github-prs:pr-link-issue`'s idempotency check, `sdlc`'s `pr-reviewer`
-running standalone, and `/sdlc:orchestrate`'s end-of-loop status flip
+`github-prs:pr-link-issue`'s idempotency check,
+`sdlc:pr-review-pipeline` running standalone, and
+`/sdlc:orchestrate`'s end-of-loop status flip
 each invoke it instead of describing the scan again.
 
 ### Varying one agent's budget: skeletons over a preloaded skill
@@ -150,11 +151,12 @@ the skill. The definitions then differ only in `name:`, `effort:`, and
 the tier word in `description:`, and choosing a tier is choosing which
 definition to spawn.
 
-`sdlc`'s reviewers are the worked instance: `pr-reviewer`,
-`pr-reviewer-high`, and `pr-reviewer-xhigh` are skeletons over
-`plugins/sdlc/skills/pr-review-protocol/SKILL.md`. What keeps the
+`sdlc`'s theorem generators are the worked instance:
+`theorem-generator`, `theorem-generator-high`, and
+`theorem-generator-xhigh` are skeletons over
+`plugins/sdlc/skills/theorem-generation/SKILL.md`. What keeps the
 pattern honest is enforced by the repo's `CLAUDE.md` →
-"The reviewer skeletons are copies of one file":
+"The generator skeletons are copies of one file":
 
 - **The skill is tier-blind.** It carries no tier parameter and never
   asks which variant is running it, so the variants cannot diverge in
