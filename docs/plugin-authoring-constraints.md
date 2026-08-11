@@ -192,6 +192,23 @@ carve-out in its "Never do work an agent owns" constraint, because a
 rule that says "spawn the teammate that owns this" otherwise reads as
 an instruction to delegate the very thing that cannot be delegated.
 
+**A fanned-out agent must check out detached.** Every `isolation:
+worktree` worktree of a repo shares that repo's single ref store, and
+a branch can be checked out in only one worktree at a time. So an
+agent definition that mandates `git checkout <branch>` caps its own
+fan-out at one: the second and every later sibling dies at `fatal:
+'<branch>' is already used by worktree at '…'` (exit 128) before it
+reads a line of code, and a standalone run hits the same wall whenever
+the primary clone happens to be sitting on that branch. Write
+`git checkout --detach origin/<branch>` instead — identical tree, no
+claim taken — and the agent's end-of-run cleanup then has no claim to
+release. This applies to any agent that both reads a branch and can be
+spawned more than once concurrently; an agent that *commits* to the
+branch (`issue-developer`, `issue-fixer`, `doc-updater`) still needs
+an attached checkout, and never more than one of them holds a given
+branch at a time — `sdlc` runs several in parallel only when each has
+a branch of its own.
+
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same

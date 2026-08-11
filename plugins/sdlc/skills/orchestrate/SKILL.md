@@ -500,10 +500,14 @@ like every other memory-declaring teammate — and the review-round cap
 (Hard Constraints → "Max review rounds per PR") counts pipeline runs
 only, at whichever tier "Picking a generator tier" selected.
 
-Both run in fresh worktrees and check out the PR branch. Because each
-subagent's end-of-run cleanup deletes the local feature branch, the
-next subagent can re-check-out the branch from `origin` without git
-refusing.
+`doc-updater` runs in a fresh worktree and checks out the PR branch
+attached, because it commits and pushes. Its end-of-run cleanup
+deletes that local branch again, so the next subagent that needs the
+branch attached — an `issue-fixer`, the `agent-memory-scrubber` — can
+check it out from `origin` without git refusing. The review pipeline
+runs in this session and claims nothing; the generator and disprovers
+it spawns each check out `origin/<branch>` **detached**, which is what
+lets k disprovers share one repo's ref store at once.
 
 Cleanup of each subagent's worktree directory happens in this phase too,
 **serially within the wave** — never in parallel. See
