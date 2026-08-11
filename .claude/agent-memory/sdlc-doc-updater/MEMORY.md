@@ -65,6 +65,10 @@
   — adding an sdlc agent variant / preloaded-instruction skill leaves
   docs/plugin-authoring-constraints.md's pattern list and fresh count
   words unswept.
+- [agent-retirement doc surfaces](project_agent-retirement-doc-surfaces.md)
+  — retiring an agent leaves issues/lib repo-config's per-field consumer
+  claims and "previously performed / mirrors what" history sentences false;
+  no sdlc file pins schema-version, whatever that lib says.
 - [Qualifier that contradicts the next paragraph](feedback_qualifier-that-contradicts-the-next-paragraph.md)
   — a first exception gets patched with a vague hedge ("every teammate
   you spawn by name") that still includes the exception; read the
