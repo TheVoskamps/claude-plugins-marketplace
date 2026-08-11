@@ -70,8 +70,11 @@ and writes the cross to a file, and drive that file. That single table
 is the negative control, the regression evidence and the enumeration of
 every direction, and it costs one run. Keep a `cat <same-path>` row in
 it: if the probe cwd loses repo context every row reads `ask` and the
-table is meaningless (see [[guardrails-binary-verification]] in the
-reviewer's memory for the cwd traps). Never settle any of this by
+table is meaningless. Two cwd traps produce exactly that — a cwd that
+does not EXIST resolves no repo context (paste the worktree path, not
+the primary clone's), and `../` levels counted by feel rather than
+against the scratch repo root resolve back inside the primary clone
+and read `allow`. Never settle any of this by
 running the publishing verb itself — the root `CLAUDE.md` forbids it,
 and the binary replay answers the question anyway.
 

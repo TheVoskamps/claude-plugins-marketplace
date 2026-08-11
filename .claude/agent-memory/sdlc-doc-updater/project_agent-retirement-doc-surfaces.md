@@ -15,9 +15,9 @@ sweeps `orchestrate/SKILL.md`, `git-review-pr`, `github-prs` docs,
   Each front-matter field bullet names who reads it, and the
   "Migration policy" paragraph claims a named list of readers "pin
   schema-version 6 and defer to the canonical read sequence". Grep
-  `plugins/sdlc/` for `schema-version` before believing that: as of
-  #249 **no** `sdlc` file mentions it — they left the contract in #143
-  and now parse `issue-link-prefix` inline. The rename sweep edits the
+  `plugins/sdlc/` for `schema-version` before believing that: **no**
+  `sdlc` file mentions it — they left the reader contract behind and
+  now parse `issue-link-prefix` inline. The rename sweep edits the
   one retired name inside the list and leaves the surrounding
   predicate false for every remaining member. The sibling claim lives
   in `skills/lib/issue.md`'s "the six canonical keys the multi-issue
