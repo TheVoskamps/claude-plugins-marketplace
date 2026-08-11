@@ -107,7 +107,7 @@ Review is a further exception to the "an agent's contract lives in its
 own file" shape above, because review is not an agent at all: it is
 `plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the main
 session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So a
-change to what a review does sweeps three files, not one — the
+change to what a review does sweeps several files, not one — the
 pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
 generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
@@ -122,9 +122,14 @@ Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
 opening paragraph and repeats the diff-consumer list in its `/pr-diff`
-section, and `plugins/issues/skills/**` names the agents as repo-config
-readers, with `lib/repo-config.md` adding which of them dispatch on
-`source-control`. The root `README.md`'s `sdlc` bullet names them by
+section, and `plugins/issues/skills/**` names the `sdlc` readers and
+what each of them still reads — `lib/repo-config.md` says per field
+who consumes it (no `sdlc` reader dispatches on `source-control` any
+more, and of the `sdlc` readers only the orchestrator and the review
+pipeline parse `issue-link-prefix`), and its "Migration policy"
+section records that
+the `sdlc` readers left the reader contract entirely in #143. The root
+`README.md`'s `sdlc` bullet names them by
 shorthand only, with no behavior to falsify.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.

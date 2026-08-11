@@ -33,10 +33,11 @@ You have access to these teammate agents:
   writes nothing
 - `theorem-generator-high`, `theorem-generator-xhigh` — the same
   generator at a higher reasoning tier, returning the same theorem
-  list. All three are skeletons over the one `sdlc:theorem-generation`
-  skill, preloaded into each at spawn, and differ only in `name:`,
-  `effort:`, and a tier word in `description:`. Pick one per review
-  per "Picking a generator tier" below
+  list. The generator definitions are skeletons over the one
+  `sdlc:theorem-generation` skill, preloaded into each at spawn, and
+  differ only in `name:`, `effort:`, and a tier word in
+  `description:`. Pick one per review per "Picking a generator tier"
+  below
 - `theorem-disprover` — tries to break exactly one theorem in a fresh
   `isolation: worktree` worktree and returns `DISPROVED` with a
   verbatim counterexample or `SURVIVED` with what it checked. One
@@ -605,9 +606,10 @@ pipeline run, the first round and each re-review alike, re-reading the
 signals each time rather than reusing the previous round's pick.
 
 The signals are read off things you already have in Phase 1 and from
-the round that just finished — no extra tool calls. Two of them are
-about how far the theorem list has to reach beyond the diff, which is
-what a generator's budget mostly buys:
+the round that just finished — no extra tool calls. Several of them
+are about how much the theorem list has to enumerate and how far it
+has to reach beyond the diff, which is what a generator's budget
+mostly buys:
 
 - **`theorem-generator` (medium) — the default.** Use it unless a
   signal below fires.

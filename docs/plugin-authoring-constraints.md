@@ -169,6 +169,29 @@ Such a skill is machinery, not a user verb: give it
 `user-invocable: false` (constraint 4) so it stays out of the human `/`
 menu while remaining loadable by the agents that declare it.
 
+### Fanning out parallel agents: a main-session skill, not an agent
+
+A subagent cannot spawn subagents, so a procedure whose design **is** a
+parallel fan-out of agents cannot live in an agent definition. An agent
+handed that job does not fail — it quietly collapses to one reader
+doing the work by hand, which is the shape the fan-out existed to
+replace.
+
+Package such a procedure as a skill (`user-invocable: false`,
+constraint 4, when it is machinery rather than a user verb) and have
+every caller **run it in the main session** rather than delegate it to
+an agent. The skill spawns the agents itself; each caller passes the
+same parameter vocabulary.
+
+`sdlc`'s PR review is the worked instance:
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` spawns a
+`theorem-generator` and then one `theorem-disprover` per theorem, and
+its callers — `/sdlc:git-review-pr` and `/sdlc:orchestrate` — each run
+it in their own session. The orchestrator's copy needs an explicit
+carve-out in its "Never do work an agent owns" constraint, because a
+rule that says "spawn the teammate that owns this" otherwise reads as
+an instruction to delegate the very thing that cannot be delegated.
+
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same

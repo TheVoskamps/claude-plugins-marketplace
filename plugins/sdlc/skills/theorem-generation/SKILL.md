@@ -74,8 +74,9 @@ You are given exactly these, as double-dash parameters:
    git fetch origin && git checkout <branch>
    ```
 
-   This is not optional colour. Theorem classes 3 and 4 below quantify
-   over the repo, and you cannot state them from a diff alone. A
+   This is not optional colour. The codebase-consistency and
+   design-shape sources below quantify over the repo, and you cannot
+   state them from a diff alone. A
    generator that reads only the diff reproduces the failure this
    pipeline replaced.
 
@@ -88,8 +89,9 @@ You are given exactly these, as double-dash parameters:
 
 ## Theorem sources
 
-Work these four sources in order. Each produces claims of a different
-shape, and the last two are what force the review out of the diff.
+Work these sources in the order given. Each produces claims of a
+different shape, and codebase consistency and design shape are what
+force the review out of the diff.
 
 ### 1. Acceptance criteria
 
@@ -133,7 +135,7 @@ this class: each one names a surface that restates something and goes
 stale silently. Read them and turn each that the diff touches into a
 theorem naming the specific surfaces.
 
-Two more reliable members of this class:
+Further reliable members of this class:
 
 - **Cross-reference pointers.** A `file.md → "Section name"` pointer
   is an unchecked claim that the heading exists. When the diff renames

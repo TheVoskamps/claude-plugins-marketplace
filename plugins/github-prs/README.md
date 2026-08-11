@@ -7,17 +7,17 @@ ready-for-review, link it to the issues it resolves via one closing
 keyword each in the PR body, and read those closing lines back to say
 which issues it closes.
 
-These skills serve the `/sdlc:orchestrate` flow and its agents — the
-`issue-developer` opens the PR, the `sdlc:pr-review-pipeline` reviews
-and posts on it — reading its closing lines, when run standalone on a
-bare PR number, to learn which issues it claims — its
-`theorem-generator` and `theorem-disprover` agents diff it, the
-`issue-fixer` and `doc-updater`
-diff it, and the orchestrator keeps PRs draft through the review/fix
-loop, reads those same closing lines for the issues it flips to In
-Review, and only flips draft → ready once the human blesses the PR at
-end-of-loop — but each skill is a standalone verb usable by a human or
-any caller.
+These skills serve the `/sdlc:orchestrate` flow, its agents, and its
+review pipeline. The `issue-developer` opens the PR. The
+`sdlc:pr-review-pipeline` posts the single review that carries the
+verdict, and — when run standalone on a bare PR number — reads the
+PR's closing lines to learn which issues it claims; the
+`theorem-generator` and `theorem-disprover` agents it spawns fetch the
+diff, as do the `issue-fixer` and `doc-updater`. The orchestrator
+keeps PRs draft through the review/fix loop, reads those same closing
+lines for the issues it flips to In Review, and only flips draft →
+ready once the human blesses the PR at end-of-loop. Each skill is
+still a standalone verb usable by a human or any caller.
 
 ## One PR, one issue set
 

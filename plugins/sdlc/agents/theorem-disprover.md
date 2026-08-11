@@ -88,7 +88,7 @@ calls in a subagent context.
    facts by running commands, not by reasoning about what the code
    probably does. See "Establishing a fact" below.
 
-4. **Report** in one of the two formats below. Nothing else.
+4. **Report** in one of the formats below. Nothing else.
 
 ## Establishing a fact
 
@@ -145,7 +145,7 @@ fabricated one reaches the human as fact.
 
 ## Output
 
-Exactly one of these two shapes, and nothing around it.
+Exactly one of these shapes, and nothing around it.
 
 **Disproved** — you found a counterexample:
 

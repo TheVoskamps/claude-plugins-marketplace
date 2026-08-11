@@ -18,7 +18,7 @@ subagent. A subagent cannot spawn subagents, and the fan-out in step 4
 is the whole design, so a pipeline run from inside an agent would
 collapse to a single reader — exactly the shape this replaced.
 
-Both entry paths are main-session paths:
+Each entry path is a main-session path:
 
 - `/sdlc:git-review-pr <PR>` — the standalone review.
 - The `/sdlc:orchestrate` loop, after each `doc-updater` pass.
@@ -41,8 +41,8 @@ re-reviewing by hand — a fourth opinion nothing asked for.
 
 ## Inputs
 
-The pipeline takes double-dash parameters. One vocabulary serves both
-entry paths: the orchestrator writes exactly these tokens when it
+The pipeline takes double-dash parameters. One vocabulary serves every
+entry path: the orchestrator writes exactly these tokens when it
 invokes the pipeline, and a standalone invocation passes the same
 flags.
 
@@ -177,7 +177,7 @@ per member, and forbidden in a **commit message**; the same words as
 ordinary English prose with no adjacent issue reference are fine
 anywhere and must not be flagged.
 
-These two findings are the only ones this pipeline raises outside the
+The findings above are the only ones this pipeline raises outside the
 theorem list. Everything else it posts is a disproved theorem.
 
 ### 3. Spawn the theorem generator
