@@ -36,6 +36,17 @@ paragraph, not the changed line.
 implement the behavior; the constraint doc is where the *next* author
 looks.
 
+A round that adds a whole new **stage** to the pipeline (a second
+fan-out, a new spawned agent) leaves a wider set stale, and the
+developer reliably updates only the files that name the pipeline:
+`plugins/github-prs/skills/pr-diff/SKILL.md` (its own consumer list,
+separate from the two lists in that plugin's README),
+`plugins/sdlc/agents/agent-memory-scrubber.md`'s "You persist no
+memory" section (which names the review agents that declare none), and
+`plugins/sdlc/agents/doc-updater.md`'s end-of-run cleanup paragraph
+(which names the review agents that detach and claim nothing). Grep
+the *old* agent names across the repo, not the new one.
+
 **How to apply:** on any sdlc fan-out or brief-parameter change, open
 `docs/plugin-authoring-constraints.md`'s fan-out section and CLAUDE.md's
 review-exception paragraph before deciding the round has no doc
