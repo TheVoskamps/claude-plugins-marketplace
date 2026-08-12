@@ -15,10 +15,14 @@ files. Two classes were wrong on that PR:
 - **A cited scope grant the named agent does not have.** The prose
   read "a standing 'do NOT edit the PR body' aimed at `doc-updater`
   … carves away scope the agent definition grants". Neither
-  `doc-updater.md` nor `issue-fixer.md` mentions the PR body at all —
-  `issue-developer` authors it and is the only agent whose definition
-  names it. The prohibition removed nothing *granted*; keeping the PR
-  description current is scope a brief has to add.
+  `doc-updater.md` nor `issue-fixer.md` grants scope over the PR body
+  — `issue-developer` authors it and is the only agent whose
+  definition puts it in scope. (`issue-fixer.md` does *mention* it:
+  step 5 lists a "PR-body sentence" among the prose whose claims it
+  must verify. That is a standard applied to prose it was already
+  authorised to write, not a grant of the surface.) The prohibition
+  removed nothing *granted*; keeping the PR description current is
+  scope a brief has to add.
 - **A destination that only partly receives what the prose says.**
   "Its result goes into the plan table" for the Phase 1 analysis: the
   table has Complexity and Notes columns, so dependencies and

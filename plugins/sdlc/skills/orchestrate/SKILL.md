@@ -268,11 +268,11 @@ Produce an internal analysis with the following for each issue:
 This analysis is **internal**. You need it to batch — grouping turns
 on shared change surface, and conflict detection between batches is
 impossible without it — and what it yields surfaces to the human in
-the plan table: complexity in its own column, dependencies and
-conflicts in the Notes column, the file list only where a conflict
-names the file two batches collide on. None of it goes into a spawn
-prompt. See "Spawn-prompt principle" below for why forwarding it is
-the error rather than doing it.
+the plan table: complexity in its own column, dependencies, conflicts
+and the batching rationale in the Notes column, the file list only
+where a conflict names the file two batches collide on. None of it
+goes into a spawn prompt. See "Spawn-prompt principle" below for why
+forwarding it is the error rather than doing it.
 
 ### Grouping: assign issues to batches, then order the batches
 
@@ -443,7 +443,14 @@ Pass what the agent cannot derive:
   implementation order, the compound slug (when the batch has two or
   more members), branch name, PR number, head SHA — whichever the task
   needs.
-- **Review findings to act on**, tagged with the member each came from.
+- **Review findings to act on**, tagged with the member each came
+  from. A pipeline finding is the case the cut half above does not
+  reach, because the pipeline produced it and you did not: relaying
+  it into an `issue-fixer` brief *is* that fixer's task definition
+  rather than your search, and withholding it would leave the fixer
+  nothing to fix. A finding **of your own** stays cut — the exemption
+  is about where the finding came from, not about findings being
+  useful.
 
 Then let the agent discover the rest.
 
@@ -497,10 +504,11 @@ Further rules govern **findings** wherever you pass them onward — into
 an `issue-fixer` brief or to the human:
 
 - **Never pre-set or soften a severity.** A severity is derived
-  mechanically from the disprovers' consequence statements (see "Run
-  the review pipeline"); re-tiering a finding on its way into a brief
-  substitutes your judgment for that derivation, and the fixer gives
-  back the tier you handed it.
+  mechanically from the disprovers' consequence statements, by the
+  grading rules in the `sdlc:pr-review-pipeline` skill → "Findings by
+  severity"; re-tiering a finding on its way into a brief substitutes
+  your judgment for that derivation, and the fixer gives back the tier
+  you handed it.
 - **Supply consequence, not a consistency checklist.** The question is
   whether being wrong changes what someone does. A doc claim that
   teaches a wrong security boundary qualifies; a row-count footnote
@@ -746,8 +754,8 @@ APPROVED / NEEDS_CHANGES / BLOCKED, the severity counts, and the
 theorem tally. Remove the generator's and every disprover's worktree
 afterwards, serially, like any other subagent's.
 
-That return is a report, and "Report-consumption principle" applies to
-it — cutting both ways.
+That return is a report, so read it per "Report-consumption
+principle" — which cuts both ways here.
 
 In its favour: you write neither the generator's brief nor a
 disprover's. The pipeline fixes both, from parameters you pass
@@ -930,10 +938,10 @@ pushes nothing and reports "no agent memory to curate" or "no changes
 to curate".
 
 Reading the head from the API rather than from the scrubber's reported
-SHA is "Report-consumption principle" applied to the one report whose
-work is destructive: the scrubber's per-entry lines are the record of
-deletions and transfers, so pass them through to the human as it wrote
-them, and take the head from the territory.
+SHA is per "Report-consumption principle", applied to the one report
+whose work is destructive: the scrubber's per-entry lines are the
+record of deletions and transfers, so pass them through to the human
+as it wrote them, and take the head from the territory.
 
 Curation is destructive, so it is agent-owned work: the orchestrator
 never deletes, transfers, or rewrites memory entries itself, and never
@@ -1254,9 +1262,8 @@ pipeline's. Fill them per "Report-consumption principle":
   expected conclusion, and no finding or location **of your own** — a
   brief carries standards, scope boundaries, decisions, and
   identifiers, not the answer. Findings the review pipeline produced
-  are not yours and are exempt: relaying them into an `issue-fixer`
-  brief *is* that fixer's task definition, not your search. See
-  "Spawn-prompt principle" for the keep/cut test.
+  are the exemption. See "Spawn-prompt principle" for the keep/cut
+  test and for why that exemption holds.
 - **Never relay a teammate's report as your own observation, and never
   present it as independent corroboration of something you pointed it
   at.** Verify a load-bearing claim against the territory, or label it
