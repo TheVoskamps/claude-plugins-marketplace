@@ -423,30 +423,31 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // since the value can simply be set again, so neither adds exposure the set
 // verb has not already accepted.
 //
-// The generic `updateIssue` and the native-field `updateIssueFieldValue` are on
-// the list for the same reason (#256). `updateIssue` is how an issue's type,
-// state, title, body, labels, assignees, milestone or project associations are
-// set through the one generic verb rather than a narrow one, and
-// `updateIssueFieldValue` rewrites a native issue-field value that can simply be
-// set back — the same surface `setIssueFieldValue`/`deleteIssueFieldValue`
-// already cover. Both spellings were confirmed against GitHub's `Mutation` type
-// by introspection; the observed-in-the-wild `updateIssueIssueFieldValue` is NOT
-// a real field and is deliberately absent, since a command using it fails
-// regardless of verdict.
+// The native-field `updateIssueFieldValue` joined the list on that same basis
+// (#256): it rewrites a native issue-field value that can simply be set back —
+// the same surface `setIssueFieldValue`/`deleteIssueFieldValue` already cover.
+// Its existence as a `Mutation` field was confirmed by introspection.
 //
-// Recorded trade-off for `updateIssue` specifically: it is broader than the
-// narrow set-verbs — it can rewrite an issue's title and body, not just its
-// metadata. That much is accepted on the same recoverability basis as the rest
-// of the list: such an edit lands on the issue's human-visible edit history and
-// is directly reversible, and the state change it can make is the close/reopen
-// surface `closeIssue`/`reopenIssue` already allow.
+// The generic `updateIssue` is deliberately NOT on the list, and putting it
+// there is the tempting change to resist. It looks like the rest of the set —
+// one verb that sets an issue's type, state, title, body, labels, assignees,
+// milestone or project associations — but `UpdateIssueInput` also carries an
+// `agentAssignment` arm: a Copilot target repository ID, base ref, custom
+// instructions and custom agent (measured by introspecting
+// `UpdateIssueInput` and `AgentAssignmentInput`). That dispatches a
+// third-party coding agent at an arbitrary repository with attacker-chosen
+// instructions, prompt-free — not a recoverable, human-visible metadata write,
+// and a surface no narrower allow-listed verb reaches. The allowlist is keyed
+// on the mutation FIELD name only — allGraphQLMutationFieldsAllowed below
+// inspects names and never arguments — so the gate cannot tell that arm from a
+// title edit, and the whole verb therefore keeps its ASK. The triage friction
+// that motivated #256 was `updateIssue` used only to set `issueTypeId`, and
+// that has its own narrow verb, `updateIssueIssueType`, already on this list
+// and what the issues plugin's canonical templates use.
 //
-// `UpdateIssueInput` reaches one thing that basis does NOT cover, and that no
-// narrower allow-listed verb reaches: an `agentAssignment` arm carrying a
-// Copilot target repository, base ref, custom instructions and custom agent
-// (measured by introspecting `UpdateIssueInput`/`AgentAssignmentInput`). The
-// allowlist is keyed on the mutation FIELD name only, so the gate cannot
-// distinguish that arm from a title edit.
+// The observed-in-the-wild `updateIssueIssueFieldValue` is absent for a
+// different reason: GitHub's `Mutation` type has no such field, so a command
+// using it fails regardless of verdict.
 //
 // Recorded trade-off: these mutations address opaque node IDs, so — unlike the
 // `-R`/`--repo` foreign-target check — the gate cannot see which repo the
@@ -460,7 +461,6 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 	"setIssueFieldValue":            true,
 	"deleteIssueFieldValue":         true,
 	"updateIssueFieldValue":         true,
-	"updateIssue":                   true,
 	"updateProjectV2ItemFieldValue": true,
 	"clearProjectV2ItemFieldValue":  true,
 	"addProjectV2ItemById":          true,
