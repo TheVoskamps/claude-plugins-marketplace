@@ -127,3 +127,7 @@
   — a fix's prose exempts a sibling gate ("sits inside a list element,
   no prune reaches it"); the round measured only what it changed. Read
   the recursive operator's expression, then probe the sibling.
+- [Token locality is not gloss locality](feedback_token-locality-is-not-gloss-locality.md)
+  — "the tokens live in these N files" is settled by a token grep; the
+  definitions get restated against another vocabulary (classes →
+  severities) where that grep never looks. Grep a phrase from the gloss.
