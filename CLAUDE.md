@@ -113,14 +113,13 @@ whose model the review pipeline routes per spawn: SKILL.md describes
 the routing without spelling either model, per "The generator
 skeletons are copies of one file" below. It does state the
 `effort: medium` default — twice, in the teammate-frontmatter prose
-near the top and in the "Token Efficiency" bullet — because that
-value is a decision (the
-bounded, spec-driven tasks the teammates get are more solid at medium)
-rather than a per-agent tier, and because effort has no `Agent`-tool
-override, so frontmatter is the only lever. A PR that changes any
-teammate's `effort:` therefore updates both SKILL.md statements as
-well; grep SKILL.md for `effort` and confirm every hit still describes
-the agents it claims to.
+near the top and in the "Token Efficiency" bullet — because that value
+is a decision (the bounded, spec-driven tasks the teammates get are
+more solid at medium) rather than a per-agent tier, and because effort
+has no `Agent`-tool override, so frontmatter is the only lever. A PR
+that changes any teammate's `effort:` therefore updates both SKILL.md
+statements as well; grep SKILL.md for `effort` and confirm every hit
+still describes the agents it claims to.
 
 Both statements carry a named exception, so neither reads "every
 teammate" unqualified: `theorem-generator-high` and
@@ -166,9 +165,8 @@ what each of them still reads — `lib/repo-config.md` says per field
 who consumes it (no `sdlc` reader dispatches on `source-control` any
 more, and of the `sdlc` readers only the orchestrator and the review
 pipeline parse `issue-link-prefix`), and its "Migration policy"
-section records that
-the `sdlc` readers left the reader contract entirely in #143. The root
-`README.md`'s `sdlc` bullet names them by
+section records that the `sdlc` readers left the reader contract
+entirely in #143. The root `README.md`'s `sdlc` bullet names them by
 shorthand only, with no behavior to falsify.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
