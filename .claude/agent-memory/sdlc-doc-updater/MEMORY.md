@@ -106,3 +106,7 @@
   — a fix's prose exempts a sibling gate ("sits inside a list element,
   no prune reaches it"); the round measured only what it changed. Read
   the recursive operator's expression, then probe the sibling.
+- [orchestrate rationale clauses](project_orchestrate-rationale-clauses.md)
+  — narrowing what a spawn prompt carries leaves the far-away "because
+  Phase 1 already carries the plan" clauses standing; grep SKILL.md for
+  `because` / `Phase 1` / `spawn prompt` after any such round.
