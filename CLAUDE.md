@@ -163,17 +163,20 @@ comes back, lives in SKILL.md → "Spawn-prompt principle" and
 "Report-consumption principle"; a change to either contract updates
 the principle rather than the one brief that prompted it.
 
-Every other mention of those two principles in SKILL.md — at each
-point where a brief is written or a report is consumed, and in the two
-Hard Constraints — is a `see`/`per` pointer, and what follows a
-pointer is that site's *application* of the rule, never the rule's own
+Every mention of those two principles at a SKILL.md point where a
+brief is written or a report is consumed — plus the two Hard
+Constraints — is a `see`/`per` pointer, and what follows a pointer is
+that site's *application* of the rule, never the rule's own
 justification restated. "Never pre-solve a teammate's task" names the
 review-findings exemption and points; "When a teammate escalates"
 declares itself the named carve-out from "Own the synthesis" and
 points. Re-arguing a rule at a consumption point reads like a helpful
 reminder and reinstates the second source of truth the pointer shape
-exists to prevent. Grep `principle"` in SKILL.md and grade each hit
-that way rather than by whether it is short.
+exists to prevent. The file's opening paragraph names both principles
+in a bare parenthetical and is the one hit outside this rule: it
+introduces them rather than applying them, so it neither points nor
+restates. Grep `principle"` in SKILL.md and grade each hit that way
+rather than by whether it is short.
 
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step

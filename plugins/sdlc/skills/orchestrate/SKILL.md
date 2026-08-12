@@ -713,7 +713,12 @@ Track a "worktrees cleaned" count for the final report.
 branch name. The same prompt serves both the developer's round and
 every fixer round; the agent works from the PR diff, so it needs no
 telling which round produced the commits, and a batch PR needs nothing
-extra — k issues produce one diff. The set is context only:
+extra — k issues produce one diff. The set is context only, and the
+titles ride along as a human-readable label on the numbers rather than
+as issue content to work from: `doc-updater`'s own Inputs section says
+it never reads those issues, so the developer template's cut of
+title / body / labels — which exists because that agent *does* read
+each issue — has nothing to withhold here:
 
 ```text
 PR <PR_N> for issues <link-prefix><issue_N1> ("<title>"),
@@ -988,11 +993,9 @@ When a teammate escalates:
    not perform "obvious" cleanup of the teammate's environment
    (worktree, lock state, branch claim, in-flight commits). This is
    the named carve-out from "Own the synthesis" in
-   "Report-consumption principle": that rule tells you to judge and
-   decide rather than forward ambiguity, and it applies to teammates
-   that **completed**. An escalation is an incomplete run whose
-   lifecycle decision the rules reserve for the human, so here the
-   verbatim forward is the correct move rather than an abdication.
+   "Report-consumption principle". An escalation is an incomplete run
+   whose lifecycle decision the rules reserve for the human, so here
+   the verbatim forward is the correct move rather than an abdication.
 2. Wait for direction. The lifecycle decision belongs to the human —
    see "Never act on a subagent escalation without human input" under
    Hard Constraints.

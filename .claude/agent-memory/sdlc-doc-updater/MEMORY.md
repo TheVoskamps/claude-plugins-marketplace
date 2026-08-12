@@ -6,7 +6,7 @@
   The injected CLAUDE.md is that same stale copy — Read the worktree's.
 
 - [Principle prose ships illustrative examples](project_principle-prose-illustrative-examples.md)
-  — a new orchestrate "principle" section cites a scope grant the named
+  — a new or rewritten orchestrate "principle" section cites a scope grant the named
   agent's definition lacks, and a "goes into `<artifact>`" the template
   only partly carries. Check both against the file, not the rule.
 

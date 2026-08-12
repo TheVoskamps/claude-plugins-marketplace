@@ -1,16 +1,16 @@
 ---
 name: principle-prose-illustrative-examples
-description: A round that adds a named "principle" section to orchestrate/SKILL.md pays for itself in illustrative examples — each asserts a scope grant or a template shape that must be checked against the named agent's definition
+description: A round that adds or rewrites a named "principle" section in orchestrate/SKILL.md pays for itself in illustrative examples — each asserts a scope grant or a template shape that must be checked against the named agent's definition
 metadata:
   type: project
 ---
 
-When an sdlc round adds a *principle* section to
-`plugins/sdlc/skills/orchestrate/SKILL.md` (PR #258 added
-"Spawn-prompt principle" and "Report-consumption principle"), the
-rules themselves are policy and not checkable — but each is sold with
-an **illustrative example**, and those are ordinary claims about other
-files. Two classes were wrong on that PR:
+When an sdlc round adds or rewrites a *principle* section in
+`plugins/sdlc/skills/orchestrate/SKILL.md` (PR #258 rewrote the
+existing "Spawn-prompt principle" and added "Report-consumption
+principle"), the rules themselves are policy and not checkable — but
+each is sold with an **illustrative example**, and those are ordinary
+claims about other files. These classes were wrong on that PR:
 
 - **A cited scope grant the named agent does not have.** The prose
   read "a standing 'do NOT edit the PR body' aimed at `doc-updater`
