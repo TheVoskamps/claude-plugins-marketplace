@@ -9,15 +9,17 @@ This skill is a thin wrapper around the `sdlc:pr-review-pipeline`
 skill (`skills/pr-review-pipeline/SKILL.md`), which is the single
 source of truth for *what* a review checks and *how* it is reported:
 its inputs, issue-set resolution, generator spawn, disprover fan-out,
-severity rubric, verbatim-quote finding format, file-topology
-verification rule, verdict derivation, and the single-call review
-posting. Do not restate or fork that guidance here.
+counterexample-verifier fan-out, consequence-class-to-severity
+transcription, verbatim-quote finding format, file-topology
+verification rule, verdict derivation, argued body structure, and the
+single-call review posting. Do not restate or fork that guidance here.
 
 You run the pipeline **in this session**, not inside a subagent. The
-pipeline spawns a `theorem-generator` and then one `theorem-disprover`
-per theorem in parallel, and a subagent cannot spawn subagents — so a
-delegated pipeline would collapse to a single reader, which is the
-shape this replaced.
+pipeline spawns a `theorem-generator`, then one `theorem-disprover`
+per theorem in parallel, then one `counterexample-verifier` per
+disproved theorem in parallel, and a subagent cannot spawn subagents —
+so a delegated pipeline would collapse to a single reader, which is
+the shape this replaced.
 
 This path always spawns the base `theorem-generator` (medium effort).
 The higher tiers — `theorem-generator-high` and
@@ -49,8 +51,9 @@ pipeline themselves.
 
    The pipeline reads `issue-link-prefix` from the repo's
    `.claude/rules/repo-config.md` (for recognizing `References:`
-   trailers), resolves the issue set, spawns the generator and the
-   disprovers in their own throwaway worktrees, derives the verdicts,
+   trailers), resolves the issue set, spawns the generator, the
+   disprovers, and then the verifiers in their own throwaway
+   worktrees, derives the verdicts,
    and **posts the review to the PR as a single call** via
    `/github-prs:pr-review-submit`, carrying both verdict and body,
    exactly as it does in the `/sdlc:orchestrate` pipeline. It commits
@@ -60,4 +63,5 @@ pipeline themselves.
    the overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every
    per-issue verdict (a PR may deliver a batch of several), plus the
    severity counts (Critical, High, Medium, Low) and the theorem tally
-   — generated, disproved, survived, unsettled.
+   — generated, disproved, of those refuted by verification, survived,
+   unsettled.

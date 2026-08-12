@@ -151,6 +151,16 @@ from them whether to fetch. Grep the parameter name across
 `plugins/sdlc/` rather than editing the end that the change started
 from.
 
+One vocabulary spans three of those files instead of two: the
+consequence-class tokens. `theorem-disprover` proposes one,
+`counterexample-verifier` confirms or corrects it, and the pipeline
+transcribes it into a severity. Only the pipeline states the
+class-to-severity mapping — the two agent files enumerate the tokens
+and say outright that the severity is not theirs to argue — so adding,
+renaming, or removing a class edits all three files, and a severity
+table appearing in an agent file is the defect this split exists to
+prevent.
+
 On any brief or spawn-template widening — the pipeline's briefs and
 the orchestrator's teammate templates alike — the receiving side is
 the half that stays stale, and the half to check is the bullet *list*
@@ -269,18 +279,19 @@ one-file edit.
 
 ## Review writes nothing, so review lore is a PR
 
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` and the two agents
-it spawns are strictly non-mutating on the PR branch: neither
-`theorem-generator` nor `theorem-disprover` declares `memory:`, and
-neither carries a `Write` or `Edit` tool. A review round therefore
-commits nothing, pushes nothing, and adds nothing to
-`.claude/agent-memory/`.
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` and the agents it
+spawns are strictly non-mutating on the PR branch: none of
+`theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
+declares `memory:`, and none carries a `Write` or `Edit` tool. A
+review round therefore commits nothing, pushes nothing, and adds
+nothing to `.claude/agent-memory/`.
 
 That is enforcement, not convention, so keep it structural: do not add
-a `memory:` key or a writing tool to either definition, and do not
-give the pipeline a commit step. A durable lesson learned while
+a `memory:` key or a writing tool to any of those definitions, and do
+not give the pipeline a commit step. A durable lesson learned while
 reviewing lands as a PR against `theorem-generation` (how to state a
-better theorem), `theorem-disprover` (how to establish a fact), or
+better theorem), `theorem-disprover` (how to establish a fact),
+`counterexample-verifier` (how to reject a bad counterexample), or
 this file — never as a memory commit on the branch being reviewed.
 
 `agent-memory-scrubber`'s roster of memory-declaring agents is
