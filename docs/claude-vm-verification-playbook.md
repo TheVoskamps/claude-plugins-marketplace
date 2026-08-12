@@ -120,7 +120,7 @@ Established facts worth reusing:
 
 ### The probe container must match the guest's package set
 
-An "verified against the real linux-arm64 CLI in a container" claim
+A "verified against the real linux-arm64 CLI in a container" claim
 does **not** transfer to the guest unless the container's package set
 matches the image's. The guest's packages are the mkosi `Packages=`
 list in `provisioners/podman-mkosi.sh`; the build container is much

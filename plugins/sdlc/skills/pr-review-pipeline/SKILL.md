@@ -236,8 +236,9 @@ Route the model by the theorem's class:
 - **`mechanical`** — pass `model: haiku` on the `Agent` call. A
   grep-shaped claim is settled by running the grep, and the cheap
   model runs it as well as any other.
-- **`semantic`** — pass no `model`, so the spawn uses the disprover's
-  declared `model: sonnet`.
+- **`semantic`** — pass no `model`, so the spawn uses whatever
+  `theorem-disprover`'s frontmatter declares. Read the value there
+  rather than restating it here.
 
 This per-theorem routing is deliberate. A frontmatter `model:` is a
 default, not a floor or a ceiling — the `Agent` tool's `model`
@@ -245,7 +246,7 @@ parameter may name a lower, higher, or equal model for a single spawn
 — so `mechanical` naming haiku is an ordinary use of that parameter
 for a class of theorem the design has already decided is cheap. If a
 harness ever refuses to route below the declared default, the
-mechanical spawn simply runs at sonnet: costlier, never wrong.
+mechanical spawn simply runs at that default: costlier, never wrong.
 
 Each disprover's brief is one theorem and nothing more:
 

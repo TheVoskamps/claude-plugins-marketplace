@@ -108,9 +108,13 @@ only the roster bullet.
 
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
-confined to the agent file. It does state the `effort: medium` default
-— twice, in the teammate-frontmatter prose near the top and in the
-"Token Efficiency" bullet — because that value is a decision (the
+confined to the agent file. That holds of `theorem-disprover` too,
+whose model the review pipeline routes per spawn: SKILL.md describes
+the routing without spelling either model, per "The generator
+skeletons are copies of one file" below. It does state the
+`effort: medium` default — twice, in the teammate-frontmatter prose
+near the top and in the "Token Efficiency" bullet — because that
+value is a decision (the
 bounded, spec-driven tasks the teammates get are more solid at medium)
 rather than a per-agent tier, and because effort has no `Agent`-tool
 override, so frontmatter is the only lever. A PR that changes any
@@ -220,9 +224,13 @@ definition and no tiers, and its instructions live in the agent file
 because there is no sibling to drift from. What varies per spawn is
 its `model`, which the pipeline routes by theorem class. A frontmatter
 `model:` is only a default — the `Agent` tool's `model` parameter may
-name a lower, higher, or equal model on any spawn — so `model: sonnet`
-in the disprover's frontmatter is what an unrouted spawn gets, not a
-bound on what the pipeline may pass.
+name a lower, higher, or equal model on any spawn — so the value in
+the disprover's frontmatter is what an unrouted spawn gets, not a
+bound on what the pipeline may pass. No file outside that frontmatter
+spells the value, here included: the pipeline names only the cheaper
+model it passes for a `mechanical` theorem and otherwise says "the
+declared default", which is what keeps a disprover model change a
+one-file edit.
 
 ## Review writes nothing, so review lore is a PR
 

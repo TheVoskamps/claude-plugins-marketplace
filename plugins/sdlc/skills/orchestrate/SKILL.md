@@ -125,11 +125,13 @@ findings: a surplus theorem costs one cheap disproof attempt, where a
 surplus finding cost a human a triage.
 
 The `theorem-disprover` is where a per-spawn `model` is routed rather
-than fixed. Its frontmatter `model: sonnet` is the default the pipeline
-uses for most theorems; the pipeline passes `model: haiku` on the spawn
-for a `mechanical` theorem, because a grep-shaped claim is settled by
-running the grep. That routing is confined to the pipeline's fan-out
-and never applies to a teammate spawn you make.
+than fixed. Its frontmatter `model:` is the default the pipeline uses
+for most theorems; for a `mechanical` theorem the pipeline passes a
+cheaper model on the spawn, because a grep-shaped claim is settled by
+running the grep. Neither model is named here: the default lives in
+the disprover's frontmatter and the routed value in the pipeline
+skill. That routing is confined to the pipeline's fan-out and never
+applies to a teammate spawn you make.
 
 Each agent still pins its own `effort:` in frontmatter, because a
 subagent frontmatter with no `effort:` key inherits the effort level of
@@ -1286,9 +1288,9 @@ These carve-outs keep this rule from being over-broad:
   `effort: high` and `effort: xhigh`, so a costlier review is bought
   by naming a different generator (see "Picking a generator tier"),
   never by an effort override. The pipeline routes a `model` per spawn
-  of its own, described above: `theorem-disprover` declares
-  `model: sonnet` and the pipeline passes haiku for `mechanical`
-  theorems. That is inside the pipeline's fan-out, not a teammate spawn
+  of its own, described above: a `mechanical` theorem is spawned below
+  `theorem-disprover`'s declared default, and neither value is named
+  here. That is inside the pipeline's fan-out, not a teammate spawn
   you make.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only
