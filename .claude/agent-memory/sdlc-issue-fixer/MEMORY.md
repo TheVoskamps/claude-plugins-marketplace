@@ -82,3 +82,4 @@
 - [One mechanism, several routes](project_one-mechanism-many-routes-grade-each-member.md) — the named prune is one of three; build the (member × spelling × LAYER) matrix through the real merge, and negative-control with the pre-fix LAUNCHER via `git archive <sha>`
 - [Recover deleted memory via git show](project_recovering-deleted-memory-into-docs.md) — the branch has the directory gone; and the recovered doc falsifies CLAUDE.md's "no other file describes X" claims
 - [A dangling pointer usually has the rule inline](project_a-dangling-pointer-usually-has-the-rule-inline.md) — repair by deleting the pointer or aiming it at an existing skill, never by duplicating instructions
+- [De-specify rather than widen the exception](project_de-specify-rather-than-widen-the-exception.md) — dropping the restated value ends the sweep obligation; then grep the literal and expect only its owner back
