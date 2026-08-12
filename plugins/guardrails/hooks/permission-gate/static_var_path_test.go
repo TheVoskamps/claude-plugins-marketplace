@@ -99,7 +99,7 @@ func TestStaticVarPathFromCmdSubstStillEscalates_60(t *testing.T) {
 
 	cmd := `D=$(git log); cat "$D/README.md"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#60 cmd-subst-assigned var still escalates")
+	wantBucket(t, d, BucketDefer, "#60 cmd-subst-assigned var still escalates")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
 		t.Errorf("#60: cmd-subst var should hit the dynamic-path ask; got %q", d.Reason)
 	}
@@ -108,7 +108,7 @@ func TestStaticVarPathFromCmdSubstStillEscalates_60(t *testing.T) {
 	// previously-known value: `P=/repo; P=$(git log); cat "$P/x"` escalates.
 	cmd2 := `P=` + repo + `; P=$(git log); cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev)
-	wantBucket(t, d2, BucketAsk, "#60 static-then-dynamic reassignment escalates")
+	wantBucket(t, d2, BucketDefer, "#60 static-then-dynamic reassignment escalates")
 }
 
 // TestUndefinedVarPathStillEscalates_60 covers case (c): a variable that was
@@ -127,7 +127,7 @@ func TestUndefinedVarPathStillEscalates_60(t *testing.T) {
 
 	cmd := `cat "$FOO/.ssh/id_rsa"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#60 undefined/env var still escalates")
+	wantBucket(t, d, BucketDefer, "#60 undefined/env var still escalates")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
 		t.Errorf("#60: undefined var should hit the dynamic-path ask; got %q", d.Reason)
 	}
@@ -136,7 +136,7 @@ func TestUndefinedVarPathStillEscalates_60(t *testing.T) {
 	// resolved — it keeps the word inexact and escalates.
 	cmd2 := `P=` + repo + `; cat "${P:-/etc}/passwd"`
 	d2 := classifyBash(cmd2, ev)
-	wantBucket(t, d2, BucketAsk, "#60 non-plain expansion of known var still escalates")
+	wantBucket(t, d2, BucketDefer, "#60 non-plain expansion of known var still escalates")
 }
 
 // TestEnvPrefixVarDoesNotPersist_60 guards an edge of the resolution semantics:
@@ -153,7 +153,7 @@ func TestEnvPrefixVarDoesNotPersist_60(t *testing.T) {
 	// persist; the later cat must escalate.
 	cmd := `P=` + repo + ` true; cat "$P/README.md"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#60 env-prefix var must not persist")
+	wantBucket(t, d, BucketDefer, "#60 env-prefix var must not persist")
 }
 
 // Follow-up: an assignment made inside a SCOPED construct — a `( … )`
@@ -179,7 +179,7 @@ func TestSubshellAssignmentDoesNotLeak_60(t *testing.T) {
 	// the top-level use is unresolved and escalates.
 	cmd := `( P=` + repo + ` ); cat "$P/README.md"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#60 subshell assignment must not leak to top-level use")
+	wantBucket(t, d, BucketDefer, "#60 subshell assignment must not leak to top-level use")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
 		t.Errorf("#60: subshell-scoped var should hit the dynamic-path ask; got %q", d.Reason)
 	}
@@ -190,7 +190,7 @@ func TestSubshellAssignmentDoesNotLeak_60(t *testing.T) {
 	// verdict therefore stays ASK.
 	cmd2 := `( P=` + repo + `; cat "$P/README.md" ); cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev)
-	wantBucket(t, d2, BucketAsk, "#60 subshell assignment must not leak past the subshell")
+	wantBucket(t, d2, BucketDefer, "#60 subshell assignment must not leak past the subshell")
 }
 
 // TestFuncBodyAssignmentDoesNotLeak_60 covers scope case (b): a static
@@ -208,7 +208,7 @@ func TestFuncBodyAssignmentDoesNotLeak_60(t *testing.T) {
 	// body, so the top-level use is unresolved and escalates.
 	cmd := `f() { P=` + repo + `; }; cat "$P/README.md"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#60 function-body assignment must not leak to outside call")
+	wantBucket(t, d, BucketDefer, "#60 function-body assignment must not leak to outside call")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
 		t.Errorf("#60: function-scoped var should hit the dynamic-path ask; got %q", d.Reason)
 	}
@@ -217,7 +217,7 @@ func TestFuncBodyAssignmentDoesNotLeak_60(t *testing.T) {
 	// not leak: `f() { local P=/repo; }; cat "$P/README.md"` escalates.
 	cmd2 := `f() { local P=` + repo + `; }; cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev)
-	wantBucket(t, d2, BucketAsk, "#60 function-body local assignment must not leak")
+	wantBucket(t, d2, BucketDefer, "#60 function-body local assignment must not leak")
 }
 
 // TestBackgroundedGroupAssignmentDoesNotLeak_60 covers the backgrounded-scope
@@ -234,12 +234,12 @@ func TestBackgroundedGroupAssignmentDoesNotLeak_60(t *testing.T) {
 	// backgrounded child shell and must not leak; the foreground cat escalates.
 	cmd := `{ P=` + repo + `; } & cat "$P/README.md"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#60 backgrounded-group assignment must not leak")
+	wantBucket(t, d, BucketDefer, "#60 backgrounded-group assignment must not leak")
 
 	// `( P=/repo ) & cat "$P/README.md"` — backgrounded subshell, same outcome.
 	cmd2 := `( P=` + repo + ` ) & cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev)
-	wantBucket(t, d2, BucketAsk, "#60 backgrounded-subshell assignment must not leak")
+	wantBucket(t, d2, BucketDefer, "#60 backgrounded-subshell assignment must not leak")
 }
 
 // TestTopLevelVarResolvesInsideScope_60 pins the CORRECT direction of shell
@@ -358,7 +358,7 @@ func TestForLoopDynamicInListStillEscalates_131(t *testing.T) {
 
 	cmd := `for f in $LIST; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 dynamic for-in list must still escalate")
+	wantBucket(t, d, BucketDefer, "#131 dynamic for-in list must still escalate")
 }
 
 // TestForLoopGlobInListResolvesUnderValidCwd_131 (follow-up) covers a glob
@@ -412,7 +412,7 @@ func TestForLoopGlobInListCwdInvalidStillEscalates_131(t *testing.T) {
 
 	cmd := `cd "$UNKNOWN" && for f in *.md; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: glob for-in list with invalid running cwd must still escalate")
+	wantBucket(t, d, BucketDefer, "#131 follow-up: glob for-in list with invalid running cwd must still escalate")
 }
 
 // Loop follow-up (from PR review): braces, known-variable expansion, and
@@ -559,7 +559,7 @@ func TestForLoopBraceNestedFormStillFailsClosed_131(t *testing.T) {
 
 	cmd := `for f in {a,{b,../c}}; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: a nested '..'-bearing brace group is not the fallback's grammar and must still fail closed")
+	wantBucket(t, d, BucketDefer, "#131 follow-up: a nested '..'-bearing brace group is not the fallback's grammar and must still fail closed")
 }
 
 // TestForLoopBraceInListEscapingMemberDeniedNoDotDot_131 covers the same
@@ -620,7 +620,7 @@ func TestForLoopBraceWithUnresolvableVarStillEscalates_131(t *testing.T) {
 
 	cmd := `for f in {a,b}$X.md; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: brace+unresolvable-var for-in list must still escalate")
+	wantBucket(t, d, BucketDefer, "#131 follow-up: brace+unresolvable-var for-in list must still escalate")
 }
 
 // TestForLoopKnownVarListContained_131 covers `for f in $LIST` where LIST was
@@ -659,7 +659,7 @@ func TestForLoopUnknownVarListStillEscalates_131(t *testing.T) {
 
 	cmd := `for f in $LIST; do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: unknown-var for-in list must still escalate")
+	wantBucket(t, d, BucketDefer, "#131 follow-up: unknown-var for-in list must still escalate")
 }
 
 // TestForLoopEmptyInListClassifiesBodyZeroTimes_131 pins the deliberate empty
@@ -694,7 +694,7 @@ func TestForLoopCommandSubstInListStillEscalates_131(t *testing.T) {
 
 	cmd := `for f in $(ls); do cat "$f"; done`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 follow-up: command-substitution for-in list must still escalate")
+	wantBucket(t, d, BucketDefer, "#131 follow-up: command-substitution for-in list must still escalate")
 }
 
 // TestForLoopNoInListStillEscalates_131 covers a `for x; do …` with no `in`
@@ -709,7 +709,7 @@ func TestForLoopNoInListStillEscalates_131(t *testing.T) {
 
 	cmd := `f() { for f; do cat "$f"; done; }`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#131 in-less for loop must still escalate")
+	wantBucket(t, d, BucketDefer, "#131 in-less for loop must still escalate")
 }
 
 // TestForLoopNestedSaveRestoresOuterBinding_131 covers the save/restore

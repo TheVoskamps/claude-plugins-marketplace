@@ -33,8 +33,8 @@ import (
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
-		return ask("file:unreadable-input", fmt.Sprintf(
-			"Blocked: could not read the file path from this %s event (%v); escalating to a human (fail-closed).",
+		return deferJudgment("file:unreadable-input", fmt.Sprintf(
+			"could not read the file path from this %s event (%v), so there is no target to contain.",
 			ev.ToolName, err))
 	}
 	if len(paths) == 0 {
@@ -44,12 +44,13 @@ func classifyFileTool(ev *Event) Decision {
 
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
-		// Fail-closed: we cannot establish the boundary, so we cannot prove
-		// the target is in-bounds. ASK rather than allow.
-		return ask("file:no-repo-context", fmt.Sprintf(
-			"Blocked: could not resolve the repository/worktree boundary for this %s (%v). "+
-				"Escalating to a human decision (fail-closed) rather than allowing a possibly out-of-bounds path.",
-			ev.ToolName, err))
+		// We cannot establish the boundary, so we cannot prove the target is
+		// in-bounds — but neither can we say anything a human click would be
+		// better informed by. DEFER rather than allow, with the resolution
+		// failure as the analysis.
+		return deferJudgment("file:no-repo-context", fmt.Sprintf(
+			"could not resolve the repository/worktree boundary for this %s (%v), so no target can be proven "+
+				"in-bounds.", ev.ToolName, err))
 	}
 
 	// allScratch stays true only while EVERY target so far is an allow-eligible
@@ -127,7 +128,7 @@ func classifyFileTool(ev *Event) Decision {
 		case harnessScratchBadRoot:
 			// Record, do not return: a later target may be a genuine escape,
 			// and a deny must outrank this ask.
-			badRoot = harnessScratchBadRootAsk("file:scratchpad-root (#193)",
+			badRoot = harnessScratchBadRootDefer("file:scratchpad-root (#193)",
 				fmt.Sprintf("%s target '%s'", ev.ToolName, p))
 			haveBadRoot = true
 		case harnessScratchSession:
@@ -176,12 +177,13 @@ func classifyFileTool(ev *Event) Decision {
 func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event) Decision {
 	if sc.hasUnknownExpansion {
 		// A path built from a command substitution / unresolved variable can't
-		// be statically contained → escalate to a human (fail-closed).
-		return ask("bash-read:dynamic-path", fmt.Sprintf(
-			"Blocked: '%s' has a path argument built from an expansion the gate cannot resolve statically; "+
-				"escalating to a human decision (fail-closed).", prog))
+		// be statically contained → hand it to the judge that CAN read the
+		// surrounding context, with the reason it was unpinnable.
+		return deferJudgment("bash-read:dynamic-path", fmt.Sprintf(
+			"'%s' has a path argument built from an expansion the gate cannot resolve statically, so containment "+
+				"cannot be run on it.", prog))
 	}
-	if d, hit := cdInvalidAsk(prog, sc); hit {
+	if d, hit := cdInvalidDefer(prog, sc); hit {
 		return d
 	}
 
@@ -191,24 +193,22 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 	return deferToPipeline()
 }
 
-// cdInvalidAsk reports the fail-closed ASK for a command whose running cwd was
+// cdInvalidDefer reports the DEFER for a command whose running cwd was
 // invalidated by an earlier dynamic `cd` (`cd "$UNKNOWN" && cat ../x`).
 // A relative path operand cannot be safely resolved against an unknown cwd, so
 // this must be checked before containment runs — mirroring the existing
-// hasUnknownExpansion fail-closed check the same callers already perform. An
-// invocation with no relative operands at all (only absolute / no path
-// operands) would still be safe, but the gate cannot cheaply distinguish that
-// case here without duplicating the operand walk, so it fails closed for the
-// whole command; this only costs an extra human confirmation, never a wrong
-// allow.
-func cdInvalidAsk(prog string, sc simpleCommand) (Decision, bool) {
+// hasUnknownExpansion check the same callers already perform. An invocation
+// with no relative operands at all (only absolute / no path operands) would
+// still be safe, but the gate cannot cheaply distinguish that case here
+// without duplicating the operand walk, so it withholds its own verdict for
+// the whole command. It never rides the allow track.
+func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 	if !sc.cwdInvalid {
 		return Decision{}, false
 	}
-	return ask("bash-read:cd-unresolved-cwd", fmt.Sprintf(
-		"Blocked: '%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, or "+
-			"'cd -'), so any relative path argument cannot be safely resolved against the actual current directory; "+
-			"escalating to a human decision (fail-closed). Use a static 'cd <literal-path>' or an absolute path.",
+	return deferJudgment("bash-read:cd-unresolved-cwd", fmt.Sprintf(
+		"'%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, or "+
+			"'cd -'), so any relative path argument cannot be resolved against the actual current directory.",
 		prog)), true
 }
 
@@ -252,8 +252,8 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
-		return ask("bash-read:no-repo-context", fmt.Sprintf(
-			"Blocked: could not resolve the repository boundary for '%s' (%v); escalating to a human (fail-closed).",
+		return deferJudgment("bash-read:no-repo-context", fmt.Sprintf(
+			"could not resolve the repository boundary for '%s' (%v), so no operand can be graded against it.",
 			prog, err)), false
 	}
 
@@ -307,7 +307,7 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// Not under .git/: a legitimate shared-content read (the git-tree
 			// intent). Treat as contained rather than escalating.
 		case harnessScratchBadRoot:
-			badRoot = harnessScratchBadRootAsk("bash-read:scratchpad-root (#193)",
+			badRoot = harnessScratchBadRootDefer("bash-read:scratchpad-root (#193)",
 				fmt.Sprintf("'%s' operand '%s'", prog, p))
 			haveBadRoot = true
 		case harnessScratchSession, harnessScratchBundled:
@@ -467,30 +467,31 @@ func scratchDestinations(repoRoot string) string {
 		repoRoot, harnessScratchDisplay())
 }
 
-// harnessScratchBadRootAsk builds the ASK for a target that resolves through a
-// harness scratchpad root (<system-tmp>/claude-<uid>) that is not a plain
-// directory owned by this uid. The root is the one component of the
+// harnessScratchBadRootDefer builds the DEFER for a target that resolves
+// through a harness scratchpad root (<system-tmp>/claude-<uid>) that is not a
+// plain directory owned by this uid. The root is the one component of the
 // scratchpad path that needs its own check — see resolveHarnessScratchRoot for
 // why nothing below it does.
 //
-// The reason NAMES the defect (a symlink, a non-directory, another user's
-// directory) rather than reading as a containment escape, so an operator who
-// hits it diagnoses their own broken /tmp instead of concluding that the
-// carve-out has regressed.
+// What this arm establishes is only that the CARVE-OUT cannot be applied: the
+// gate cannot prove where a path under a defective root actually lands, so it
+// withholds the scratchpad ALLOW. That is not a human-policy question, so the
+// analysis NAMES the defect (a symlink, a non-directory, another user's
+// directory) rather than reading as a containment escape, and the call goes to
+// the judgment middle rather than to a prompt.
 //
 // lead identifies the offending call in the caller's own voice, e.g.
 // `Write target '/tmp/claude-501/…'` or `'cat' operand '…'`.
-func harnessScratchBadRootAsk(op string, lead string) Decision {
+func harnessScratchBadRootDefer(op string, lead string) Decision {
 	defect := harnessScratchRootResolver().defect
 	if defect == "" {
 		// The root recovered between the containment test and this message.
 		defect = "not in the state the carve-out requires"
 	}
-	return ask(op, fmt.Sprintf(
-		"Blocked: %s resolves through the harness scratchpad root %s, which is %s rather than a plain directory "+
-			"owned by this user. The scratchpad carve-out needs a real directory to prove where a path under it "+
-			"actually lands, so this escalates to a human decision (fail-closed). This is the scratchpad-root "+
-			"check, NOT a containment escape — inspect %s (`ls -ld`) before re-running.",
+	return deferJudgment(op, fmt.Sprintf(
+		"%s resolves through the harness scratchpad root %s, which is %s rather than a plain directory "+
+			"owned by this user, so the scratchpad carve-out cannot prove where the path lands. This is the "+
+			"scratchpad-root check, NOT a containment escape — %s is worth inspecting (`ls -ld`).",
 		lead, harnessScratchDisplay(), defect, harnessScratchDisplay()))
 }
 
@@ -600,10 +601,28 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 	return false
 }
 
-// credentialedRedirectAsk grades the real-file redirect of a credentialed tool
-// (git / gh / aws) and returns a TERMINAL ask when the destination is one the
-// gate cannot bless. hit=false means every destination is fine and the caller
-// may proceed to its own verdict.
+// credentialedRedirectVerdict grades the real-file redirect of a credentialed
+// tool (git / gh / aws) and returns a TERMINAL decision when the destination is
+// one the gate cannot bless. hit=false means every destination is fine and the
+// caller may proceed to its own verdict.
+//
+// The two PROVEN-bad destinations DENY (#262), with the same prescriptive
+// prose the Write tool's denies carry for the identical destination. Before
+// #262 they asked, which made one escape carry two verdicts decided purely by
+// spelling: `Write` to /tmp/x.md denied with scratchDestinations guidance,
+// while `git show HEAD:f > /tmp/x.md` — same escape, same containment
+// predicate, same message — prompted the operator. It was observed in the
+// wild: an sdlc:theorem-disprover redirecting `git show` output to /tmp/
+// prompted a human when the message it was shown would have redirected it
+// perfectly. The deny is also the tier that TEACHES: a redirect has a
+// prescriptive alternative (write under <repo>/.claude/tmp/, or the harness
+// scratchpad), which is exactly what qualifies it for BucketDeny rather than
+// the judgment middle.
+//
+// The UNPINNABLE arms go the other way and DEFER: "the gate cannot resolve
+// this statically" is not a proven escape, it is an absence of proof, and a
+// context-reading judge is better placed to grade it than a prompt. They still
+// never ride the allow track.
 //
 // The check it replaces fired on the bare sc.hasRedirectToFile bool, before any
 // containment ran, so two spellings of one write carried two verdicts:
@@ -619,19 +638,19 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 // grading is the write-operand grading (readClass=false, the same predicate
 // `tee`/`cp` are held to), and the reason names clobber and escape.
 //
-// It fails closed on every axis the graded redirect check already fails closed
-// on: an expansion the gate cannot pin, an invalidated running cwd, an
-// unresolvable repo boundary, and a `.git/` destination all keep the ask, and
-// EVERY destination must qualify (`gh … > <scratchpad>/f 2> ../x` still asks).
-func credentialedRedirectAsk(tool string, sc simpleCommand, ev *Event) (Decision, bool) {
+// It withholds the ALLOW on every axis the graded redirect check already
+// withholds it on: an expansion the gate cannot pin, an invalidated running
+// cwd, and an unresolvable repo boundary all defer, a `.git/` destination
+// denies, and EVERY destination must qualify (`gh … > <scratchpad>/f 2> ../x`
+// still returns a terminal for the second one).
+func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Decision, bool) {
 	if !sc.hasRedirectToFile {
 		return Decision{}, false
 	}
 	unpinnable := func(why string) (Decision, bool) {
-		return ask(tool+" redirect-unresolvable", fmt.Sprintf(
+		return deferJudgment(tool+" redirect-unresolvable", fmt.Sprintf(
 			"'%s' redirects output to a file the gate cannot pin statically (%s), so it cannot prove the write "+
-				"lands inside this worktree rather than clobbering something outside it. Escalating to a human "+
-				"decision (fail-closed). Redirect to a literal path under this worktree instead.", tool, why)), true
+				"lands inside this worktree rather than clobbering something outside it.", tool, why)), true
 	}
 	if sc.hasUnknownExpansion {
 		return unpinnable("the destination is built from an expansion or command substitution")
@@ -652,19 +671,19 @@ func credentialedRedirectAsk(tool string, sc simpleCommand, ev *Event) (Decision
 	}
 	for _, t := range sc.redirectTargets {
 		if isUnderGitDir(canonicalizeFrom(t, base), rc) {
-			return ask(tool+" redirect-into-.git", fmt.Sprintf(
-				"'%s' redirects output to '%s', inside a .git/ directory. Writing there can rewrite committer "+
-					"identity, inject hooks, or corrupt repo state. %s",
+			return deny(tool+" redirect-into-.git", fmt.Sprintf(
+				"Blocked: '%s' redirects output to '%s', inside a .git/ directory. Writing there can rewrite "+
+					"committer identity, inject hooks, or corrupt repo state. %s",
 				tool, t, scratchDestinations(rc.topLevel))), true
 		}
 		res, real := testContainmentFrom(t, base, rc)
 		if res == contained || scratchAllowEligible(res, false) {
 			continue
 		}
-		return ask(tool+" redirect-escapes-worktree", fmt.Sprintf(
-			"'%s' redirects output to '%s', which resolves to %s — outside this worktree (%s). A redirect "+
-				"clobbers whatever is at the destination, and the gate cannot vouch for a destination it does "+
-				"not own. Confirm this is intended. %s",
+		return deny(tool+" redirect-escapes-worktree", fmt.Sprintf(
+			"Blocked: '%s' redirects output to '%s', which resolves to %s — outside this worktree (%s). A "+
+				"redirect clobbers whatever is at the destination, and the gate cannot vouch for a destination "+
+				"it does not own. %s",
 			tool, t, real, rc.topLevel, scratchDestinations(rc.topLevel))), true
 	}
 	return Decision{}, false

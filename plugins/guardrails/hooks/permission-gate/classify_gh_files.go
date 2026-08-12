@@ -195,7 +195,7 @@ var ghNotesFileFlags = map[string]bool{"-F": true, "--notes-file": true}
 //
 // Read verbs are deliberately absent. A read sends nothing of the local disk to
 // GitHub, so it has no publish surface to grade, and its output-redirect surface
-// is already graded by credentialedRedirectAsk.
+// is already graded by credentialedRedirectVerdict.
 //
 // Flag sets transcribed from `gh <noun> <verb> --help` (gh 2.97.0). A flag gh
 // annotates `file` is a pathValueFlag; one it annotates `string`, `text`,
@@ -504,12 +504,12 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		// .claude/tmp/body.md` is the ordinary agent spelling, which #229 requires
 		// to keep allowing.
 		if ghPathTokensDynamic(refs, rest, sc) {
-			return ask("gh publish-file:dynamic-path (#229)", fmt.Sprintf(
-				"Blocked: '%s' reads a local file whose path is built from an expansion the gate cannot resolve "+
-					"statically, and it publishes that file's contents to GitHub. Escalating to a human decision "+
-					"(fail-closed). Spell the path literally so containment can grade it.", label)), true
+			return deferJudgment("gh publish-file:dynamic-path (#229)", fmt.Sprintf(
+				"'%s' reads a local file whose path is built from an expansion the gate cannot resolve "+
+					"statically, and it publishes that file's contents to GitHub, so containment cannot grade "+
+					"what leaves the machine.", label)), true
 		}
-		if d, hit := cdInvalidAsk(label, sc); hit {
+		if d, hit := cdInvalidDefer(label, sc); hit {
 			return d, true
 		}
 		// containReadSources forwards an escape verdict and discards the ALLOW: a
@@ -786,10 +786,9 @@ func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision
 				"notes-file flag, or a file operand), so an unmodelled flag could name a file that leaves the " +
 				"machine without ever being graded against the repository boundary."
 		}
-		return ask("gh publish-file:unknown-flag (#229)", fmt.Sprintf(
-			"'%s %s' carries a flag the permission gate does not model. %s Escalating "+
-				"to a human rather than allowing it. If the flag is a routine one, it can be added to the gate's "+
-				"per-verb flag model.", label, tok, risk)), true
+		return deferJudgment("gh publish-file:unknown-flag (#229)", fmt.Sprintf(
+			"'%s %s' carries a flag the permission gate does not model. %s If the flag is a routine one, it "+
+				"can be added to the gate's per-verb flag model.", label, tok, risk)), true
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]

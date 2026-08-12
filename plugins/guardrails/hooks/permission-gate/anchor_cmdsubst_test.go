@@ -155,7 +155,7 @@ func TestCompoundCmdSubstNotAnAnchor_132(t *testing.T) {
 
 	cmd := `x=$(git rev-parse --show-toplevel; echo hi); cat "$x/y"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#132: compound command substitution must not be recognized as an anchor")
+	wantBucket(t, d, BucketDefer, "#132: compound command substitution must not be recognized as an anchor")
 }
 
 // TestNonAllowlistedCmdSubstStillEscalates_132 pins the negative case: an
@@ -170,7 +170,7 @@ func TestNonAllowlistedCmdSubstStillEscalates_132(t *testing.T) {
 
 	cmd := `x=$(git log); cat "$x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#132: non-allowlisted command substitution must still escalate")
+	wantBucket(t, d, BucketDefer, "#132: non-allowlisted command substitution must still escalate")
 }
 
 // TestAnchorInSubshellDoesNotLeak_132 pins scopeDepth discipline for anchor
@@ -183,5 +183,5 @@ func TestAnchorInSubshellDoesNotLeak_132(t *testing.T) {
 
 	cmd := `( root=$(git rev-parse --show-toplevel) ) ; cat "$root/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#132: anchor assigned inside a subshell must not leak to the enclosing scope")
+	wantBucket(t, d, BucketDefer, "#132: anchor assigned inside a subshell must not leak to the enclosing scope")
 }

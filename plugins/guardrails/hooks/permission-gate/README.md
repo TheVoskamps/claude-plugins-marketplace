@@ -6,10 +6,84 @@ the deterministic enforcement layer the OS sandbox structurally cannot
 provide (issue #247). It replaces the shell hooks
 `auto-approve-compound-commands.sh` and `worktree-file-guard.sh`.
 
+## The verdict model
+
+The gate buckets a call by **what it does better than the downstream
+tuned automode evaluator**, not by how confident it is. That is the
+whole of the model; the tier membership below follows from it.
+
+The old posture was ask-defaulting — uncertainty escalated to a human,
+never to allow — and it was right for the world it was designed in,
+where everything downstream of the gate was a static prefix rule.
+Downstream now ends in an LLM judge that reads the actual command and
+its context, driven by built-in rules plus the operator's automode
+rules in `settings.json`. Against that stack a gate ASK is a guaranteed
+hard prompt that BYPASSES the smartest layer available, so spending one
+on uncertainty buys prompt fatigue rather than safety.
+
+- **DENY, with teaching.** A known-bad call for which a
+  **prescriptive redirect** exists. The deny reason is fed back to the
+  model, so the agent self-corrects on its next tool call. This tier
+  keeps its value BECAUSE of automode, not despite it: a defer that
+  automode happens to deny produces a generic denial, while the gate's
+  deny carries the redirect prose. Membership requires the redirect to
+  be **total** — a deny that leaves some legitimate use with nowhere to
+  go is a dead end, not a redirect, and belongs in the defer middle.
+- **ALLOW, with positive grounds.** Proven read-only operations and
+  contained writes (see `decision.go`, `BucketAllow`, for the bar).
+  This is what keeps the hot path off the evaluator entirely.
+- **Hard ASK — a short, enumerated human-click tier.** Only where fleet
+  policy demands an actual human decision regardless of how good the
+  judge is. Policy, not classification: an LLM must not be able to
+  waive these, which is exactly what a defer would permit. The whole
+  tier is:
+  - **Publish verbs** — `gh release create`, `gh gist create`,
+    `gh gist edit`, `gh repo edit --visibility`. CLAUDE.md already
+    treats the human click as the sanctioned escalation for publishing.
+  - **History-destroying pushes** — `git push --force`/`-f` and a
+    `+`-prefixed forced refspec. Fleet rules (core-principles §1)
+    require explicit human permission. `--force-with-lease` stays
+    ALLOW and is named in the reason. `git push --mirror` is stronger
+    still: it DENIES, and always has.
+  - **Credential/secret reads** — the `aws` credential-read
+    operations, `gh auth token`, `gh auth status -t`/`--show-token`
+    (and the `gh auth status` unknown-flag screen that exists to stop
+    a credential print riding the verb's allow), `gh auth login
+    --hostname`. Credential surfaces are user-owned.
+- **DEFER — the judgment middle, and everything else.** Every arm that
+  says "the gate cannot statically classify this" (dynamic and
+  expansion-built paths, an unresolved `cd` cwd, no repo context, an
+  unreadable event, an unmodelled flag, an unhandled bash construct, a
+  defective scratchpad root, an unrecognized `gh` command), plus the
+  generic remote mutations (`gh api` non-GET REST and method-override,
+  a `gh api graphql` mutation that is neither allow-listed nor
+  redirect-denied, a non-read `aws` op, an MCP mutation or unknown
+  tool) and the context-dependent operations (`git reset --hard` in a
+  main session, `git remote add`/`set-url`, a `gh` foreign-target
+  write). These sites use `deferJudgment`, which is a bare defer on the
+  wire plus an analysis for the evolution log.
+
+Two consequences are worth stating because they are what a reader
+checks the code against:
+
+- **A residual-bucket change can silently drop a call out of a tier.**
+  `gh auth token` escalated only because it fell through to the
+  unrecognized-`gh` floor, and that floor was an ASK; moving the floor
+  to DEFER would have dropped a live credential print out of the
+  hard-ask tier with nothing about `gh auth token` having changed. It
+  now has its own explicit arm in `classifyGh`'s `auth` switch. Any
+  future residual change is graded the same way: enumerate what the
+  residual was catching before assuming only the residual moved.
+- **The defer tier's safety budget assumes the tuned evaluator, and a
+  broad static allow rule in `settings.json` gets there first.** A
+  `Bash(<prog>:*)`-shaped allow matches before automode sees the call,
+  so a deferred unpinnable invocation of that program rides it. The
+  fix for any such rule is tightening the rule; keeping a gate ask in
+  its place would only re-buy the prompt.
+
 ## What it does
 
-The gate's engines feed the allow/deny/ask (plus defer) decision,
-ask-defaulting (uncertainty escalates to a human, never to allow):
+The gate's engines feed that decision:
 
 - **Engine A — command classifier** (`engine_a_bash.go`,
   `classify_command.go`, `rules.go`, `readonly_util.go`,
@@ -147,9 +221,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   every later command in the walk; a `cd` whose target cannot be
   resolved statically (a command substitution, an unresolved variable,
   or `cd -`) invalidates it, and every later command with a relative
-  path operand in that scope **asks** rather than guessing (fail-closed
-  — a later re-anchoring `cd` can clear the invalid state, since bash
-  itself would). A `cd` inside a `( … )` subshell, a function body, or a
+  path operand in that scope **defers** rather than guessing (it can
+  never ride the allow track — a later re-anchoring `cd` can clear the
+  invalid state, since bash itself would). A `cd` inside a `( … )`
+  subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
   the static-variable scope discipline above. Each `cd` also records the
   **prior** running cwd as `$OLDPWD`'s tracked source (#156, mirroring
@@ -206,7 +281,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   and the silent-drop shape and performs the split itself, so every
   member — including the escaping one — still flows through normal
   containment (worst-wins) instead of the whole list falling back to
-  an unnecessary ASK. The fallback only understands the single,
+  an unnecessary escalation. The fallback only understands the single,
   unnested `{a,b,c}` comma-list grammar; a brace form it does not
   handle (nested braces combined with `..`, a bare range form like
   `{1..9}` — ranges without a top-level comma resolve via the upstream
@@ -287,7 +362,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `--from-file=/dev/null` with "Unknown option"), so its file values
   always arrive as separate non-flag tokens the plain walk already
   contains. The read
-  still **denies/asks** when a path operand escapes
+  still **denies** when a path operand escapes
   containment (#148 cross-repo, #127 worktree) — and an **input
   redirect source** (`cat < f`) is graded by that same containment,
   including for a utility whose own operands are not paths, so
@@ -299,7 +374,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `more`, `od`,
   `xxd`, `hexdump`) are deliberately out of this ALLOW set: they keep
   the prior path-reader posture (contained → defer, escape →
-  deny/ask). A redirect target built from an unresolved expansion
+  deny). A redirect target built from an unresolved expansion
   (`cmd > "$DYNAMIC"`) or from an OUTPUT process substitution
   (`cat > >(tee x)`) marks the command unprovable so it cannot ride the
   allow track. An INPUT process substitution (`wc -l < <(grep x f)`) is
@@ -346,10 +421,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   operand that escapes the repo (#148) or the worktree into the primary
   clone (#127) **denies** with the worktree-anchored remediation; a
   target under `.git/` **denies** (#125); an operand built from an
-  unresolved expansion **asks** (#1) — except that a command-substitution
+  unresolved expansion **defers** (#1) — except that a command-substitution
   operand also carries the substituted command's own verdict, which outranks
-  that ask when it denies (`cp "$(cat ../sibling-repo/.env)" x` denies, while
-  `cp "$(echo hi)" x` asks); a real-file redirect **defers**
+  that defer when it denies (`cp "$(cat ../sibling-repo/.env)" x` denies, while
+  `cp "$(echo hi)" x` defers); a real-file redirect **defers**
   unless every destination is a session-shaped harness scratchpad
   (#193), the same graded veto the read track carries. An **input
   redirect source** is graded by the *read* containment, so
@@ -357,16 +432,19 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   the parser sees is in-repo; a read source can only withhold this
   classifier's allow, never earn it.
   `rm` is deliberately **excluded** (the conservative #32 posture): the
-  highest-blast-radius mutating program stays on the ask/defer track so a
-  human sees each one. `sed` and `tee` are dual-mode — their read-only
+  highest-blast-radius mutating program stays off the allow track, so no
+  `rm` is ever blessed by the gate. `sed` and `tee` are dual-mode — their read-only
   forms (`sed -n`, `tee /dev/null`) stay on the read-only-utility track;
   only the mutating form routes here.
 - **Dangerous git / gh / aws classifier** (`classify_command.go`,
   `rules.go`, #64, #163): the deny/ask half of the command classifier
   for the tools whose remote operations can damage or expose a
   remote GitHub repo (`git`/`gh`) or exfil credentials/data or mutate
-  remote cloud state (`aws`). The classifiers **never defer** — every
-  path resolves to allow/ask/deny. The tiering rests on the **#163 "two
+  remote cloud state (`aws`). Every path through them is **accounted
+  for** — it reaches a verdict carrying an operation label and an
+  analysis, never a bare unlabelled defer (#262 replaced the earlier
+  "never defer" property, which was a proxy for this one back when the
+  residual was an ASK). The tiering rests on the **#163 "two
   boundaries, split by visibility"** role (which replaces the earlier
   "the hook is a filter; containment lives in the microVM" premise):
   the microVM's egress proxy is the **network boundary** — it filters
@@ -390,15 +468,18 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
     (`isGhReadOnly`) and an enumerated recoverable-own-repo-write set
     (`isGhRecoverableWrite`: `pr create`/`comment`/`merge`/`close`,
     `issue create`/`comment`/`close`/`edit`, `label`, …). An
-    **unrecognized `gh` noun/verb ASKs** (fail-closed, #64 principle 2)
-    rather than the pre-#163 silent ALLOW. An enumerated write whose
-    explicit target (`-R`/`--repo`, or a `gh api` `repos/{owner}/{repo}`
-    segment) differs from the session's `origin` **ASKs** — an
-    exfil-by-write to a foreign repo (`gh issue comment -R attacker/repo
-    …`) rides inside the same allowed-host TLS the proxy cannot inspect;
-    reads stay unscoped. The companion `git remote add`/`set-url` ASK
-    closes the git version of that channel.
-  - For **`aws`** the default is **ASK** (#124): an aws mutation is not
+    **unrecognized `gh` noun/verb DEFERS** (#64 principle 2, rebucketed
+    by #262) rather than the pre-#163 silent ALLOW. An enumerated write
+    whose explicit target (`-R`/`--repo`, or a `gh api`
+    `repos/{owner}/{repo}` segment) differs from the session's `origin`
+    **DEFERS** — an exfil-by-write to a foreign repo (`gh issue comment
+    -R attacker/repo …`) rides inside the same allowed-host TLS the
+    proxy cannot inspect, but whether a given cross-repo write is that
+    channel or ordinary work on a fork is read from the context, not
+    from the slug; reads stay unscoped. The companion `git remote
+    add`/`set-url` DEFER closes the git version of that channel.
+  - For **`aws`** the default is **DEFER** (#124, rebucketed by #262):
+    an aws mutation is not
     a guest-local operation — it carries the guest's credentials to a
     control plane outside the microVM and mutates real cloud state the
     VM cannot roll back, and the egress proxy gates only host:port/SNI,
@@ -447,7 +528,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   allows); (4) **`git push` is classified on its refspec**, not just its
   flags — a `+src:dst` refspec **asks**, because the `+` is git's
   per-ref equivalent of `--force`; `--mirror`/`--prune` **deny** (bulk
-  remote delete), plain `--force`/`-f` **ask**, while
+  remote delete), plain `--force`/`-f` **ask** (both of those asks are
+  hard-ask-tier members: fleet policy reserves a history-destroying
+  push for an explicit human decision, so no downstream judge may waive
+  them), while
   `--force-with-lease`, a
   clean named-branch delete (`--delete <branch>`, `origin :branch`), an
   ordinary fast-forward push, and a plain `src:dst` refspec **allow**.
@@ -461,16 +545,19 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   never inspected the `+` at all; `+src:dst` reached the ask only
   incidentally, because it also contains a colon. And **`git remote add`/
   `set-url`** (which re-aim where a later ALLOWed push sends its
-  refspec) **ask** (#163) — the git version of the gh foreign-target
-  exfil channel. For `gh`: `gh api` is routed
+  refspec) **defer** (#163, rebucketed by #262) — the git version of the
+  gh foreign-target exfil channel, and context-dependent in exactly the
+  same way. For `gh`: `gh api` is routed
   through a method/body/endpoint gate (#64, extended by #113 and #162).
   A REST write — a non-GET method, an implicit-POST-flipping body flag
-  on a REST endpoint, or an `x-http-method-override` header — **asks**
-  (#162): a `gh api` REST write is a credential-carrying mutation of
-  remote repo state the microVM cannot roll back, the same
-  not-backstopped-by-containment class as an `aws` mutation (#124) and a
-  `git push` refspec, so it gets a one-click human ask rather than a
-  no-escape-hatch deny. `--hostname` (which aims the signed request at a
+  on a REST endpoint, or an `x-http-method-override` header — **defers**
+  (#162, rebucketed by #262): a `gh api` REST write is a
+  credential-carrying mutation of remote repo state the microVM cannot
+  roll back, the same not-backstopped-by-containment class as an `aws`
+  mutation (#124) — but which endpoint it writes, and whether that is
+  the write the session is meant to be making, is read from the
+  arguments and the context rather than from the method token this arm
+  matches on. `--hostname` (which aims the signed request at a
   non-default host — the gh analog of `--endpoint-url`) keeps its own
   **deny**: it is the one shape the egress proxy's host-allowlist can
   see and control, not a write/read question. On the `graphql` endpoint
@@ -510,8 +597,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   neither recoverable nor human-visible in the way the rest of the
   list is, and no narrower allow-listed verb reaches it; because the
   allowlist keys on the mutation field NAME and never on its
-  arguments, the gate cannot tell that arm from a title edit, so the
-  whole verb keeps its **ask**. The triage friction that prompted #256
+  arguments, the gate cannot tell that arm from a title edit, so no
+  argument inspection would make the verb allowable. #262 therefore
+  moved it from ASK to **DENY, with teaching**: every legitimate use of
+  it has an allowed spelling, so the deny reason enumerates them per
+  concept — field values via
+  `updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
+  issue type via `updateIssueIssueType`, state via
+  `closeIssue`/`reopenIssue`, and title/body/labels/assignees/milestone
+  via `gh issue edit` (already an allowed recoverable-write verb). That
+  TOTAL redirect is what qualifies it for the deny tier; the other
+  non-allowlisted mutations have no such enumeration and defer instead,
+  because a deny without total coverage is a dead end rather than a
+  redirect. Individual verbs graduate to the allowlist or into the
+  redirect map case-by-case as evidence accumulates, as
+  `updateIssueFieldValue` did in #256/#257. The triage friction that prompted #256
   was `updateIssue` used only to set `issueTypeId`, and that has its
   own narrow verb on the list already — `updateIssueIssueType`, which
   is what the issues plugin's canonical templates use. The
@@ -519,10 +619,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `updateIssueIssueFieldValue` is off the list for an unrelated reason:
   GitHub's `Mutation` type has no such field, so a command using it
   fails whatever the verdict. Any other mutation-bearing document
-  **asks** with the mutation field names in the reason (so the human
-  sees `addSubIssue` vs `deleteIssue`), and a document bundling an
-  allow-listed field with anything else — an off-list field or a
-  subscription — asks too, because a multi-operation document is
+  **defers** with the mutation field names in the analysis (so the
+  evolution log records `addSubIssue` vs `deleteIssue`), and a document
+  bundling an allow-listed field with anything else — an off-list field
+  or a subscription — defers too, because a multi-operation document is
   judged by its broadest operation. The
   fragment-free requirement is what keeps that judgement honest: the
   scanner names the identifier that follows a `...` and never expands
@@ -532,9 +632,13 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   Mutation { deleteIssue(…) }` — GitHub's mutation root type is
   literally `Mutation`, so that type condition executes). Any `...`
   spread or `fragment` definition therefore withholds the #195 allow
-  and the document keeps its mutation **ask**, even when the fragment
+  and the document keeps its mutation **defer**, even when the fragment
   is benign; the query-only allow above is unaffected, since a query
-  operation's fragments cannot reach a mutation field. Those
+  operation's fragments cannot reach a mutation field. The same
+  untrustworthy names keep a fragment-bearing document out of the
+  `updateIssue` deny: `mutation { ...updateIssue }` names a FRAGMENT,
+  not the field, so denying on it would teach a redirect for a call that
+  was never made. Those
   allow-listed mutations address opaque node IDs, so (unlike the #163
   `-R` check) the gate cannot see which repo the target belongs to;
   accepted because the writes are recoverable, land on human-visible
@@ -548,10 +652,12 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a
   leading `/` and any `?query` suffix stripped first) **allows**; a
   `://`- or `..`-bearing endpoint **denies**; an unknown flag or a
-  non-allowlisted endpoint **asks** (the two owner-decision deviations
-  from the appendix GET-gate — a false ask costs one click, whereas a
-  hard deny would recreate the no-escape-hatch wall this gate exists to
-  remove). The egress proxy backstops a GET only against a
+  non-allowlisted endpoint **defers** (the two owner-decision
+  deviations from the appendix GET-gate — a hard deny would recreate the
+  no-escape-hatch wall this gate exists to remove, and #262 dropped the
+  human click that stood in for it, since "the gate does not model this
+  flag" is an absence of gate knowledge rather than evidence of harm).
+  The egress proxy backstops a GET only against a
   **disallowed** host; against an already-allowed host it sees
   ciphertext and cannot distinguish a read from an exfil, so the GET
   allowlist (not "no-egress") is the gate's own control here (#163).
@@ -560,16 +666,19 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
   `repo edit --visibility`, `release create`, **every**
   `gist create` — with `--public` and without it — and **every**
-  `gist edit` **ask** (see the gist-publish paragraphs below, which are
+  `gist edit` **ask** — all hard-ask-tier publish verbs (see the
+  gist-publish paragraphs below, which are
   also why `ghRecoverableWriteVerbs` carries no `gist` entry at all).
-  Beyond those carve-outs, a recognized gh command ALLOWs only
+  `gh auth token` and `gh auth status -t`/`--show-token` **ask** as
+  hard-ask-tier credential reads. Beyond those carve-outs, a recognized
+  gh command ALLOWs only
   when it is an enumerated read or an enumerated recoverable-own-repo
-  write (#163); an **unrecognized noun/verb asks** (fail-closed) — after
+  write (#163); an **unrecognized noun/verb defers** — after
   gh's own command ALIASES have been resolved to the canonical spelling,
   so `gh gist new` is `gh gist create` and not an unrecognized verb (see
   the alias paragraph below) — and an
   enumerated write whose explicit `-R`/`--repo` target differs from the
-  session `origin` **asks** (foreign-target exfil-by-write scoping —
+  session `origin` **defers** (foreign-target exfil-by-write scoping —
   reads stay unscoped). The leading global-flag screen is parsed before
   the noun/verb so a value-taking global (`-R owner/repo`) has its value
   token consumed (otherwise `gh -R owner/repo issue delete` would read
@@ -648,7 +757,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   no `defaultsToStdin`: given no second positional it opens an editor
   rather than reading stdin, so there is no implicit marker to
   synthesize. A published path the gate cannot resolve statically
-  **asks** (fail-closed — containment has nothing to grade), and that
+  **defers** (containment has nothing to grade), and that
   question is asked of the PATH TOKENS rather than of the whole
   command, so `gh pr create --title "$TITLE" --body-file
   .claude/tmp/body.md` keeps its **allow**: the dynamic token is a
@@ -666,10 +775,15 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `gh issue create` (annotated `name`, resolved server-side) — the one
   divergence that makes the table per-verb rather than a union. The
   second half is the **fail-safe: each spec enumerates its verb's
-  COMPLETE flag grammar, and an unrecognized flag asks**, the same
+  COMPLETE flag grammar, and an unrecognized flag defers**, the same
   whitelist shape `ghAuthStatusEscalates` holds for `gh auth status`,
-  so a gh release that adds another file-reading flag costs one click
-  rather than a silent publish. The specs are transcribed from
+  so a gh release that adds another file-reading flag reaches the
+  automode evaluator rather than a silent publish. The two whitelists
+  land in different tiers on purpose: this one grades a command whose
+  CLASS is otherwise established, while the `gh auth status` one exists
+  solely to stop a credential print riding the verb's allow, which
+  makes it a credential-read guard wearing an unknown-flag shape and
+  keeps it in the hard-ask tier. The specs are transcribed from
   `gh <noun> <verb> --help`, and that output is not gh's accepted
   grammar, so what it never renders is modelled by hand instead: pflag
   answers an unregistered `h` shorthand with the command's help rather
@@ -677,7 +791,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   modelled pairs, gh 2.97.0) while the INHERITED FLAGS block prints
   `--help` alone — it is carried in `ghInheritedBoolFlags` beside the
   long spelling, since otherwise a help invocation would be the one
-  documented gh spelling this whitelist escalates. That ask's wording
+  documented gh spelling this whitelist escalates. That analysis's wording
   follows the verb's
   own modelled surface: a verb with no path flag, no file positional
   and no stdin default (`gh pr close`, `gh issue pin`, `gh label edit`,
@@ -687,7 +801,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   field values is deliberately NOT part of this, and `gh api` keeps the
   verdicts the api gate already gave it: the expansion is done by
   `-F`/`--field` and `--input` (`-f`/`--raw-field` passes its value
-  literally), a body flag with no explicit method **asks** as an
+  literally), a body flag with no explicit method **defers** as an
   implicit POST, and `gh api graphql -F query=@file` **denies** for
   carrying no statically-present document. The residual is the
   explicit-GET carve-out, which stays a read: `gh api -X GET -F
@@ -766,10 +880,10 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   subcommand by NAME or by cobra alias — `gh gist new` renders
   `gh gist create`'s own USAGE line — while every tier here dispatched by
   name, so an aliased spelling matched none of them and fell through to
-  the fail-closed ask. That turned a documented respelling into a
-  click-through past a verdict the gate had already reached:
+  the residual. That routed a documented respelling past a verdict the
+  gate had already reached:
   `gh gist create /etc/passwd` **denies** on containment while
-  `gh gist new /etc/passwd` **asked**. Resolution gives each alias its
+  `gh gist new /etc/passwd` did not. Resolution gives each alias its
   canonical command's real verdict, in every direction — `gh gist new`
   gains the containment deny and the publish ask, `gh issue ls` /
   `gh pr ls` / `gh gist ls` gain the read **allow**, and `gh secret ls` /
@@ -816,21 +930,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   noun this gate models is a member of either allow table — the names are
   `ls`, `new`, `co`, `remove` and the noun aliases, against read verbs
   view/list/status/diff/checks/get and the recoverable-write verbs — so
-  before this change every aliased spelling landed on the fail-closed
-  ask and none rode an outright allow. Only the noun and verb positions
+  before this change every aliased spelling landed on the residual and
+  none rode an outright allow. Only the noun and verb positions
   are rewritten, which is every position a tier reads; gh's third-level
   aliases (`gh repo autolink new`, `gh repo deploy-key ls`, …) sit at a
   position no dispatch reads and classify identically either way. The
-  **fail-closed floor is untouched**: a token in neither table is left
-  exactly as written, so `gh gist nw` still asks — nothing here guesses
-  by prefix or edit distance. gh's OTHER alias mechanism, the
+  **residual floor is untouched**: a token in neither table is left
+  exactly as written, so `gh gist nw` still lands on it — nothing here
+  guesses by prefix or edit distance. gh's OTHER alias mechanism, the
   user-editable `aliases:` map `gh alias set` writes, is deliberately not
   modelled: the gate does not read the user's gh config, so those
-  spellings keep the fail-closed ask, and `gh alias set` refuses any name
+  spellings keep the residual verdict, and `gh alias set` refuses any name
   that is "already a gh command or extension", so a config alias cannot
   shadow a modelled noun. The one gh ships by default (`co: pr checkout`)
-  diverges from nothing — `gh co` and `gh pr checkout` both ask, since
-  `checkout` is in neither allow table.
+  diverges from nothing — `gh co` and `gh pr checkout` both land on the
+  residual, since `checkout` is in neither allow table.
   For `aws`: `--endpoint-url` **denies**
   (redirects the signed
   request, with credentials, to an arbitrary host); credential/secret
@@ -870,9 +984,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `describe-*` reads return collections/metadata (e.g. `iam
   list-access-keys`, `codecatalyst list-access-tokens` return
   identifiers, never the secret) and stay ALLOW. The gh analog is `gh
-  auth token` (prints the active token) — noun `auth` is not in
-  `isGhReadOnly`'s known nouns, so it falls to the #163 fail-closed
-  **ask**. `gh auth status` **allows** (#225) without disturbing that:
+  auth token` (prints the active token), which has its own hard-ask arm
+  in `classifyGh`'s `auth` switch (#262). Until then it escalated only
+  INCIDENTALLY — noun `auth` is not in `isGhReadOnly`'s known nouns, so
+  it fell to the unrecognized-`gh` residual, and that residual was an
+  ASK. When #262 moved the residual to DEFER, an explicit arm was the
+  difference between the credential tier keeping this call and silently
+  losing it, with nothing about `gh auth token` itself having changed.
+  That is the general shape of a residual-bucket change: enumerate what
+  the residual was catching before assuming only the residual moved.
+  `gh auth status` **allows** (#225) without disturbing that:
   status reports the active account and its scopes, and it is
   recognized in `classifyGh`'s dedicated `auth` switch rather than by
   admitting the noun. Admitting it would make every `auth` verb's
@@ -898,7 +1019,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   costs a leak while a spurious escalation costs a click.
   **Every other aws op — including
   ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
-  `cloudformation delete-stack`, `lambda invoke`, …) — asks (#124)**:
+  `cloudformation delete-stack`, `lambda invoke`, …) — defers (#124,
+  rebucketed by #262)**:
   the gate cannot prove the op read-only, and an aws mutation carries
   the guest's credentials to a control plane outside the microVM and
   mutates real cloud state the VM cannot roll back. To find the
@@ -916,7 +1038,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   get-session-token` in the credential-read **ask** tier rather than
   desyncing the operation. Only a **genuinely unrecognized** flag of
   unknown arity, appearing before both the service and operation tokens
-  are captured, **fails closed to ask** (a value-taking unknown would
+  are captured, **defers** (a value-taking unknown would
   otherwise leave its value as a stray positional and shift the
   operation token) — a rare last resort, since the global set is
   complete; an unknown flag after both tokens are captured is a harmless
@@ -1028,7 +1150,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   | remainder matches the session shape | `allow` | `allow` | `allow` |
   | remainder matches the bundled-skills shape | `allow` | `allow` | `defer` |
   | under the prefix, remainder matches neither | `defer` | `allow` | `defer` |
-  | the `claude-<uid>` root is not a plain, this-uid-owned directory | `ask` | `ask` | `ask` |
+  | the `claude-<uid>` root is not a plain, this-uid-owned directory | `defer` | `defer` | `defer` |
   | anything else under `/tmp` | `deny` | `deny` | `deny` |
 
   The curated read-utility column's `allow` on the unshaped-remainder
@@ -1129,9 +1251,12 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   region. Only the `claude-<uid>` root gets its own check
   (`os.Lstat` on the final component after `EvalSymlinks` on the
   parent; `Lstat`-ing the whole path would break macOS outright, where
-  `/tmp` is itself a symlink), and a defective root yields the `ask`
-  above with a reason naming the defect, so the failure is not mistaken
-  for this bug reappearing. Nothing **below** the root needs a check:
+  `/tmp` is itself a symlink), and a defective root yields the `defer`
+  above with an analysis naming the defect, so the failure is not
+  mistaken for this bug reappearing. What that arm establishes is only
+  that the CARVE-OUT cannot be applied — not that anything escaped —
+  which is why it withholds the allow rather than spending a human
+  click (#262). Nothing **below** the root needs a check:
   canonicalization already resolves those components and produces a
   better verdict than an `Lstat` refusal would — a symlinked
   `scratchpad` -> `~/.ssh` resolves out of the region and earns the
@@ -1164,7 +1289,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   read-only-utility classifier and the in-repo-write classifier.
 
   **The credentialed tools grade their redirect too** (#225,
-  `credentialedRedirectAsk`). #193 left `git`/`gh`/`aws` on the
+  `credentialedRedirectVerdict`). #193 left `git`/`gh`/`aws` on the
   ungraded veto, which reproduced the very inconsistency it had just
   removed one track over: `tee .claude/tmp/x.md` allowed while
   `gh pr diff 224 > .claude/tmp/x.md` asked, and the ask fired hardest
@@ -1178,10 +1303,19 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   redirect is graded as a write operand — the same `readClass=false`
   predicate `tee`/`cp` are held to — and **allows** when every
   destination is contained in this worktree or lands in a #193-blessed
-  region. It keeps the **ask** when a destination escapes, sits under
-  `.git/`, cannot be resolved statically (#1), or runs under an
-  invalidated cwd (#129), and the reason names clobber and escape rather
-  than exfiltration. `acli` is untouched: it still gates its read-only
+  region. A destination that PROVABLY escapes, or that sits under
+  `.git/`, **denies** (#262) — with the same prescriptive
+  scratch-destination prose the `Write` tool's deny for the identical
+  path carries. Until #262 those asked while `Write` denied: one escape,
+  one containment predicate, one message, two verdicts decided purely by
+  spelling. It was observed in the wild, an `sdlc:theorem-disprover`
+  redirecting `git show` output to `/tmp/` prompting the operator when
+  the message it was shown would have redirected it perfectly. A
+  destination that merely cannot be pinned — an unresolvable expansion
+  (#1), an invalidated cwd (#129), an unresolvable repo boundary —
+  **defers** instead: that is an absence of proof rather than a proven
+  escape. The deny reason names clobber and escape rather than
+  exfiltration. `acli` is untouched: it still gates its read-only
   allow on the ungraded `allowEligible()`, so a redirect there
   **defers**.
 
@@ -1210,8 +1344,8 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   are deliberately not swept in; `<>` is graded for its read half but
   sets no write flag, since `hasRedirectToFile` is checked *before*
   containment and would replace this deny with a defer. An input source
-  built from an unresolved expansion fails closed on the existing
-  dynamic-path `ask`.
+  built from an unresolved expansion lands on the existing
+  dynamic-path `defer`.
 
   **A redirect on a compound command is graded like one on a simple
   command.** Redirects live on the enclosing `*syntax.Stmt`, and only
@@ -1271,7 +1405,7 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.
-  Neither the carve-out nor the root `ask` short-circuits the operand
+  Neither the carve-out nor the root `defer` short-circuits the operand
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
 
@@ -1299,10 +1433,26 @@ The decision is emitted as JSON on stdout with exit 0
 fail-closed backstop for crash / parse-error / panic / malformed-event
 paths.
 
-Every ASK and DENY is appended to an evolution log
+Every ASK, DENY and DEFER is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
-`PERMISSION_GATE_LOG`) for promoting recurring ASKs into explicit
-rules.
+`PERMISSION_GATE_LOG`), and every record carries the gate's own
+**analysis** — the `analysis` field holds the Decision's reason
+("the destination is built from an expansion or command substitution"),
+where `operation` holds only the taxonomy label. An ALLOW is not
+logged: the allow track exists precisely to keep the hot path out of
+this feed.
+
+The DEFER rows are what make the log a tuning input rather than a
+tally. A deferred call lands in the automode evaluator, and the record
+tells whoever is tuning that evaluator what the gate could and could
+not establish about the same call. A defer's analysis travels **only**
+here: `emitDecision` blanks the reason for a defer, so the call reaches
+the evaluator exactly as a bare defer does and the gate puts no words
+in the judge's mouth.
+
+Logging swallows every failure — an unwritable path, a marshal error, a
+panic — because it must never change a verdict. A logging failure that
+bubbled up would turn an allow into a fail-closed block.
 
 ## Comments state the invariant, not the ticket
 
@@ -1321,10 +1471,12 @@ number.
 
 Agent-facing `Reason` text is a different surface, and the text the
 gate emits is behavior rather than documentation: `trackerRefInReason`
-(`TestRemediationReasonsAreActionable_58`) asserts that no deny/ask
-`Reason` carries a bare issue pointer, because an issue number tells a
-blocked agent nothing about what to do — a Reason must be
-self-sufficiently actionable.
+(`TestRemediationReasonsAreActionable_58`) asserts that no
+reason-bearing `Reason` carries a bare issue pointer — deny, ask and a
+`deferJudgment` analysis alike. An issue number tells a blocked agent
+nothing about what to do, and tells whoever is tuning the evaluator
+from the §7 log no more, so a Reason must be self-sufficiently
+actionable wherever it surfaces.
 
 ## Rules are compiled in
 

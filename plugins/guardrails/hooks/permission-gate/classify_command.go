@@ -29,7 +29,8 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	}
 
 	if len(sc.args) == 0 {
-		return ask("bash:no-program", "Blocked: could not determine the program for a command part; escalating to a human (fail-closed).")
+		return deferJudgment("bash:no-program",
+			"could not determine the program for a command part, so there is nothing to classify.")
 	}
 
 	prog := basename(sc.args[0])
@@ -119,14 +120,14 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 
 	if len(sc.inputRedirectTargets) > 0 {
 		// A source built from an expansion the gate cannot resolve, or a relative
-		// one after a dynamic `cd`, cannot be contained — fail closed ASK, the
-		// same posture the read tracks hold for an unresolvable operand.
+		// one after a dynamic `cd`, cannot be contained — DEFER, the same posture
+		// the read tracks hold for an unresolvable operand.
 		if sc.hasUnknownExpansion {
-			return ask("bash-read:dynamic-path", fmt.Sprintf(
-				"Blocked: '%s' opens a path built from an expansion the gate cannot resolve "+
-					"statically; escalating to a human decision (fail-closed).", prog))
+			return deferJudgment("bash-read:dynamic-path", fmt.Sprintf(
+				"'%s' opens a path built from an expansion the gate cannot resolve statically, so containment "+
+					"cannot be run on it.", prog))
 		}
-		if d, hit := cdInvalidAsk(prog, sc); hit {
+		if d, hit := cdInvalidDefer(prog, sc); hit {
 			return d
 		}
 		// containPathOperands is called directly rather than through
@@ -377,16 +378,19 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// refspec without re-checking the remote's URL, so re-pointing `origin`
 	// (or adding a new remote) at an allowed-host foreign repo turns a benign
 	// push into an exfil-by-push the egress proxy — which sees only the allowed
-	// host, not the repo path inside the TLS — cannot distinguish. ASK so a
-	// human owns the remote change; a `git remote -v` / `get-url` read is not a
-	// mutation and is not caught here.
+	// host, not the repo path inside the TLS — cannot distinguish. Whether a
+	// given remote change is that channel or a routine one is exactly the
+	// context-dependent call the tuned evaluator reads the surrounding session
+	// for, so it DEFERS with that analysis rather than spending a hard prompt
+	// on it (#262). A `git remote -v` / `get-url` read is not a mutation and is
+	// not caught here.
 	if sub == "remote" && len(rest) >= 1 {
 		switch rest[0] {
 		case "add", "set-url", "set-url-add", "set-branches", "set-head":
-			return ask("git remote add/set-url (#163)",
+			return deferJudgment("git remote add/set-url (#163)",
 				"'git remote "+rest[0]+"' changes where a later 'git push' sends its refspec. Re-aiming a remote "+
 					"at a different repo turns an otherwise-allowed push into an exfil-by-push channel the egress proxy "+
-					"cannot see (it filters on host, not repo path). Confirm this remote change is intended.")
+					"cannot see (it filters on host, not repo path).")
 		}
 	}
 
@@ -399,12 +403,17 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 					"detached checkout of origin — e.g. 'git fetch origin <branch>' then 'git checkout --detach origin/<branch>' — "+
 					"or 'git switch -c <branch> origin/<branch>'.")
 		}
-		// Main session: still destructive — escalate to a human rather than
-		// auto-allow. (settings.json also lists this in its ask set.)
-		return ask("git reset --hard",
-			"'git reset --hard' discards committed and working-tree state. Confirm this is intended. "+
-				"A safer alternative is a detached checkout of the origin tip — e.g. 'git fetch origin <branch>' "+
-				"then 'git checkout --detach origin/<branch>'.")
+		// Main session: still destructive, but whether it is destructive HERE
+		// depends on what the working tree holds and what the session was doing
+		// — context the gate cannot read and the tuned evaluator can. DEFER with
+		// the analysis rather than auto-allowing. (settings.json also lists this
+		// in its ask set, which still applies downstream.) The subagent case
+		// above stays a DENY: there the redirect is prescriptive, which is what
+		// earns that tier.
+		return deferJudgment("git reset --hard",
+			"'git reset --hard' discards committed and working-tree state. A safer alternative is a detached "+
+				"checkout of the origin tip — e.g. 'git fetch origin <branch>' then "+
+				"'git checkout --detach origin/<branch>'.")
 	}
 
 	// --- ALLOW default: every recognized git subcommand that is not a
@@ -419,8 +428,9 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// A real-file redirect is GRADED, not vetoed: a destination inside this
 	// worktree (or in a scratchpad region designated safe by construction) is the
 	// same write `tee <path>` already performs under an ALLOW, while an escaping
-	// or unpinnable destination still ASKs. See credentialedRedirectAsk.
-	if d, hit := credentialedRedirectAsk("git", sc, ev); hit {
+	// destination DENIES and an unpinnable one DEFERS. See
+	// credentialedRedirectVerdict.
+	if d, hit := credentialedRedirectVerdict("git", sc, ev); hit {
 		return d
 	}
 	return allow(fmt.Sprintf("git %s is not a guarded dangerous operation", sub))
@@ -581,12 +591,17 @@ func classifyGitPush(rest []string) Decision {
 		// merits. Before, `+src:dst` reached the same ask only incidentally,
 		// because it also contained a colon — the '+' was never inspected.
 		if strings.HasPrefix(src, "+") {
+			// HARD ASK tier (#262): a history-destroying push is one of the
+			// enumerated calls fleet policy (core-principles §1) reserves for an
+			// explicit human decision, so it must not be waivable by a
+			// downstream judge however sensible the context looks.
 			return ask("git push forced-refspec (#64)",
 				"'git push' with a '+' prefix on the refspec (e.g. 'origin +HEAD:branch') forces the update: "+
 					"the '+' is git's per-ref equivalent of --force, so the remote accepts a non-fast-forward "+
-					"and the overwritten commits are lost unless someone captured the prior SHA. Confirm this is "+
-					"intended. Drop the '+' for a plain fast-forward push, or use --force-with-lease for race "+
-					"protection.")
+					"and the overwritten commits are lost unless someone captured the prior SHA. Fleet policy "+
+					"requires explicit human permission for a history-destroying push, so this is a human "+
+					"decision by policy rather than an unclassifiable command. Drop the '+' for a plain "+
+					"fast-forward push, or use --force-with-lease for race protection.")
 		}
 		// A plain 'src:dest' (`HEAD:branch`, `HEAD:refs/heads/branch`) is NOT an
 		// overwrite. receive-pack rejects a non-fast-forward ref update unless
@@ -606,9 +621,14 @@ func classifyGitPush(rest []string) Decision {
 	}
 
 	if hasForce && !hasForceWithLease {
+		// HARD ASK tier (#262): same policy basis as the forced-refspec arm
+		// above — fleet rules reserve a history-destroying push for an explicit
+		// human decision. --force-with-lease and --force-if-includes are exempt
+		// there and here (hasForceWithLease clears this arm).
 		return ask("git push --force (#64)",
 			"'git push --force' overwrites the remote ref and, if nobody captured the prior SHA, degrades to "+
-				"irreparable. Confirm this is intended. Prefer 'git push --force-with-lease' for race protection.")
+				"irreparable. Fleet policy requires explicit human permission for a history-destroying push. "+
+				"Prefer 'git push --force-with-lease' for race protection, which is allowed without a prompt.")
 	}
 
 	// --force-with-lease, --delete <branch>, tag deletion, and an ordinary

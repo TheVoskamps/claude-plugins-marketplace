@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -116,9 +117,9 @@ func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 	// or decided on them upstream), but we still skip their value tokens so a
 	// value like `-q .login` is not misread as an unknown flag.
 	if unknown, ok := ghAPIRESTUnknownFlag(restArgs); ok {
-		return ask("gh api unknown-flag (#113)",
+		return deferJudgment("gh api unknown-flag (#113)",
 			"'gh api "+unknown+"' carries a flag the permission gate does not model for the installed gh version. "+
-				"Confirm the command is intended; it parses as a read (GET) but the gate cannot fully classify the flag.")
+				"It parses as a read (GET) but the gate cannot fully classify the flag.")
 	}
 
 	// Step 3: path-prefix allowlist → ALLOW.
@@ -126,10 +127,11 @@ func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 		return allow("gh api " + endpoint + " is an allow-listed read (GET) endpoint")
 	}
 
-	// Step 4: non-matching endpoint (or no endpoint at all) → ASK (Deviation 2).
-	return ask("gh api (#113)",
+	// Step 4: non-matching endpoint (or no endpoint at all) → DEFER
+	// (Deviation 2, rebucketed by #262).
+	return deferJudgment("gh api (#113)",
 		"'gh api' can perform reads and writes against the GitHub API. This form parses as a read (GET) but its "+
-			"endpoint is not on the allow-listed read surface; confirm it is intended.")
+			"endpoint is not on the allow-listed read surface.")
 }
 
 // restEndpointAllowed reports whether a REST endpoint is on the GET allowlist.
@@ -428,8 +430,9 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // the same surface `setIssueFieldValue`/`deleteIssueFieldValue` already cover.
 // Its existence as a `Mutation` field was confirmed by introspection.
 //
-// The generic `updateIssue` is deliberately NOT on the list, and putting it
-// there is the tempting change to resist. It looks like the rest of the set —
+// The generic `updateIssue` is deliberately NOT on the list — it is DENIED
+// instead, by ghGraphQLMutationRedirect below — and putting it on the list is
+// the tempting change to resist. It looks like the rest of the set —
 // one verb that sets an issue's type, state, title, body, labels, assignees,
 // milestone or project associations. That is a list of CONCEPTS, not of input
 // fields: `UpdateIssueInput` spells several of them two ways
@@ -443,7 +446,7 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // and a surface no narrower allow-listed verb reaches. The allowlist is keyed
 // on the mutation FIELD name only — allGraphQLMutationFieldsAllowed below
 // inspects names and never arguments — so the gate cannot tell that arm from a
-// title edit, and the whole verb therefore keeps its ASK. The triage friction
+// title edit, and the whole verb therefore stays off the allowlist. The triage friction
 // that motivated #256 was `updateIssue` used only to set `issueTypeId`, and
 // that has its own narrow verb, `updateIssueIssueType`, already on this list
 // and what the issues plugin's canonical templates use.
@@ -474,6 +477,60 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 	"removeBlockedBy":               true,
 	"closeIssue":                    true,
 	"reopenIssue":                   true,
+}
+
+// ghGraphQLMutationRedirects maps a mutation FIELD name the gate refuses to a
+// TOTAL enumeration of the allowed spellings that reach the same concepts. A
+// verb belongs here only when that enumeration is total: a deny whose reason
+// leaves some legitimate use with nowhere to go is a dead end rather than a
+// redirect, which is why the other non-allowlisted mutations DEFER instead of
+// joining this map.
+//
+// `updateIssue` is the founding member (#262). It can never join
+// ghGraphQLMutationAllowlist — `UpdateIssueInput`'s `agentAssignment` arm
+// dispatches a Copilot coding agent at an arbitrary repository with
+// attacker-chosen instructions, and the allowlist is keyed on field NAMES only,
+// so the gate cannot tell that arm from a title edit. But every legitimate use
+// of it does have an allowed spelling, which is what makes the deny a teaching
+// one: the model reads the reason and re-issues the call correctly on its next
+// tool use, where a defer that automode happened to deny would produce a
+// generic denial with no such prose.
+//
+// Individual verbs graduate to the allowlist or into this map case-by-case as
+// evidence accumulates, exactly as `updateIssueFieldValue` did in #257.
+var ghGraphQLMutationRedirects = map[string]string{
+	"updateIssue": "Every legitimate use has an allowed spelling: for a native issue-FIELD value use " +
+		"'updateIssueFieldValue' / 'setIssueFieldValue' / 'deleteIssueFieldValue'; for the issue TYPE use " +
+		"'updateIssueIssueType'; for the issue STATE use 'closeIssue' / 'reopenIssue'; and for title, body, " +
+		"labels, assignees or milestone use 'gh issue edit', which is already an allowed recoverable-write verb.",
+}
+
+// ghGraphQLMutationRedirect returns the deny-with-teaching for a document whose
+// top-level mutation fields include one of ghGraphQLMutationRedirects.
+//
+// Callers MUST first reject a document whose graphqlDocResult reports
+// sawFragment or sawSubscription — the same precondition
+// allGraphQLMutationFieldsAllowed carries, and for the same reason. The scanner
+// names a fragment SPREAD rather than the fields it expands to, so in
+// `mutation { ...updateIssue }` the string "updateIssue" is a fragment name and
+// the document may call something else entirely. Denying on an untrustworthy
+// name would teach a redirect for a call that was never made; such a document
+// falls through to the defer below instead.
+func ghGraphQLMutationRedirect(fields []string) (Decision, bool) {
+	for _, f := range fields {
+		redirect, ok := ghGraphQLMutationRedirects[f]
+		if !ok {
+			continue
+		}
+		return deny("gh api graphql "+f+" (#262)", fmt.Sprintf(
+			"Blocked: 'gh api graphql' carries the '%s' mutation, which the gate denies rather than escalates. "+
+				"Its input carries an 'agentAssignment' arm that dispatches a third-party coding agent at an "+
+				"arbitrary repository with attacker-chosen instructions, and the gate classifies GraphQL by "+
+				"mutation field name alone — so it cannot tell that arm from a title edit, and no argument "+
+				"inspection would make the verb safe to allow. %s",
+			f, redirect)), true
+	}
+	return Decision{}, false
 }
 
 // allGraphQLMutationFieldsAllowed reports whether EVERY named top-level

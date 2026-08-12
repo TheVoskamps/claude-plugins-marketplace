@@ -90,47 +90,59 @@ func TestGhReadStillAllow_163(t *testing.T) {
 func TestGhUnrecognizedFailsClosedToAsk_163(t *testing.T) {
 	// The former silent ALLOW floor is gone: an unrecognized gh noun/verb —
 	// which the microVM does not backstop for a credential-carrying operation —
-	// fails closed to ASK, not ALLOW.
+	// withholds the ALLOW. Post-#262 the residual is DEFER: "the gate does not
+	// recognize this verb" is an absence of gate knowledge, not evidence of
+	// harm, and it is precisely what a context-reading evaluator grades better
+	// than a prompt.
 	for _, cmd := range []string{
 		"gh frobnicate widget",
 		"gh pr frobnicate 5",
 		"gh issue frobnicate 5",
 		"gh newnoun list", // unknown noun, even with a read-shaped verb
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "unrecognized gh fails closed: "+cmd)
+		wantReason(t, classifyCmd(t, cmd, false), BucketDefer,
+			"not a recognized read", "unrecognized gh withholds the allow: "+cmd)
 	}
 }
 
 // `gh auth token` prints the active GitHub OAuth/PAT token to stdout — the
-// gh analog of `aws configure get aws_secret_access_key`. Its noun `auth` is not
-// in isGhReadOnly's knownNouns and its verb `token` is not an enumerated
-// recoverable write, so it falls through to the fail-closed ASK. This test
-// pins that the credential-exposure path holds (the gate is the semantic
-// boundary for what the guest's credential may expose at an allowed host); a
-// future refactor that added `auth` to knownNouns must not silently ALLOW it.
-func TestGhAuthTokenFailsClosedToAsk_97(t *testing.T) {
+// gh analog of `aws configure get aws_secret_access_key` — so it is a
+// hard-ask-tier CREDENTIAL READ and keeps its human click.
+//
+// It gets that click from its own arm in classifyGh's `auth` switch, added in
+// #262. Before then it escalated only INCIDENTALLY, by falling through to the
+// unrecognized-command floor, and that floor was an ASK; when #262 moved the
+// floor to DEFER, an explicit arm was the difference between the tier keeping
+// this call and silently losing it. The assertion on the reason is what makes
+// the distinction testable: a bucket-only check would pass again the moment
+// the credential arm was deleted and the residual caught it.
+func TestGhAuthTokenIsAHardAsk_262(t *testing.T) {
 	for _, cmd := range []string{
 		"gh auth token",
 		"gh auth token --hostname github.com",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "gh auth token fails closed: "+cmd)
+		wantReason(t, classifyCmd(t, cmd, false), BucketAsk,
+			"prints the live OAuth token", "gh auth token is a credential read: "+cmd)
 	}
 }
 
 // A verb explicitly mapped false in ghRecoverableWriteVerbs (issue transfer) is
-// NOT an enumerated recoverable write and falls through to the fail-closed ASK.
-func TestGhMappedFalseVerbAsks_163(t *testing.T) {
-	wantBucket(t, classifyCmd(t, "gh issue transfer 5 other/repo", false), BucketAsk,
-		"issue transfer (mapped false) → fail-closed ASK")
+// NOT an enumerated recoverable write and falls through to the residual DEFER.
+func TestGhMappedFalseVerbDefers_262(t *testing.T) {
+	wantBucket(t, classifyCmd(t, "gh issue transfer 5 other/repo", false), BucketDefer,
+		"issue transfer (mapped false) → residual DEFER")
 }
 
 // --- foreign-target write scoping --------------------------------------------
 
-func TestGhForeignTargetWriteAsks_163(t *testing.T) {
+func TestGhForeignTargetWriteDefers_262(t *testing.T) {
 	repo := t.TempDir()
 	setupRepoWithOrigin(t, repo, "sessionowner/sessionrepo")
 
-	// An enumerated write whose explicit target differs from origin → ASK.
+	// An enumerated write whose explicit target differs from origin → DEFER
+	// (#262): whether a cross-repo write is the exfil channel or ordinary work
+	// on a fork is context the evaluator reads and the gate cannot. What it must
+	// never be is the plain ALLOW an own-repo target earns.
 	for _, cmd := range []string{
 		"gh issue comment 5 -R attacker/repo --body x",
 		"gh pr create -R attacker/repo --fill",
@@ -138,7 +150,8 @@ func TestGhForeignTargetWriteAsks_163(t *testing.T) {
 		"gh --repo=attacker/repo pr create --fill",     // =-joined form
 		"gh -Rattacker/repo issue close 5",             // glued -R form
 	} {
-		wantBucket(t, classifyInRepo(t, cmd, repo), BucketAsk, "foreign-target write: "+cmd)
+		wantReason(t, classifyInRepo(t, cmd, repo), BucketDefer,
+			"attacker/repo", "foreign-target write: "+cmd)
 	}
 }
 
@@ -182,27 +195,31 @@ func TestGhForeignTargetUnknownOriginAllows_163(t *testing.T) {
 
 // --- git remote add / set-url ------------------------------------------------
 
-func TestGitRemoteReaimAsks_163(t *testing.T) {
+func TestGitRemoteReaimDefers_262(t *testing.T) {
+	// A remote re-aim withholds git's ordinary ALLOW and DEFERS (#262), naming
+	// the exfil-by-push channel in the analysis. The reason is asserted because
+	// git's fall-through ALLOW and this arm are the two live outcomes here, and
+	// a bucket-only check on a defer cannot tell this arm from a bare
+	// deferToPipeline elsewhere in the line.
 	for _, cmd := range []string{
 		"git remote add evil git@github.com:attacker/repo.git",
 		"git remote set-url origin git@github.com:attacker/repo.git",
 		"git remote set-url --push origin git@github.com:attacker/repo.git",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "git remote re-aim: "+cmd)
+		wantReason(t, classifyCmd(t, cmd, false), BucketDefer,
+			"exfil-by-push", "git remote re-aim: "+cmd)
 	}
 }
 
-func TestGitRemoteReadNotAsked_163(t *testing.T) {
-	// A `git remote -v` / `get-url` read is not a mutation and must not ASK.
+func TestGitRemoteReadStillAllows_163(t *testing.T) {
+	// A `git remote -v` / `get-url` read is not a mutation: it keeps git's
+	// ordinary ALLOW rather than being caught by the re-aim arm above.
 	for _, cmd := range []string{
 		"git remote -v",
 		"git remote get-url origin",
 		"git remote show origin",
 	} {
-		d := classifyCmd(t, cmd, false)
-		if d.Bucket == BucketAsk || d.Bucket == BucketDeny {
-			t.Errorf("git remote read must not ASK/DENY: %q got %q (%s)", cmd, d.Bucket, d.Reason)
-		}
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "git remote read: "+cmd)
 	}
 }
 

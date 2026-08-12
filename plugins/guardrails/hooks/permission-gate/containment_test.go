@@ -1151,15 +1151,15 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 
 		for _, tool := range []string{"Read", "Write", "Edit"} {
 			d := fileToolBucket(t, tool, root, target)
-			wantBucket(t, d, BucketAsk, tc.defect+": "+tool+" through a defective scratchpad root")
+			wantBucket(t, d, BucketDefer, tc.defect+": "+tool+" through a defective scratchpad root")
 			if !containsSubstr(d.Reason, tc.wantIn) {
-				t.Errorf("%s: the ask reason must name the defect (%q); got %q", tc.defect, tc.wantIn, d.Reason)
+				t.Errorf("%s: the analysis must name the defect (%q); got %q", tc.defect, tc.wantIn, d.Reason)
 			}
 			if !containsSubstr(d.Reason, harnessScratchDisplay()) {
-				t.Errorf("%s: the ask reason must name the scratchpad root; got %q", tc.defect, d.Reason)
+				t.Errorf("%s: the analysis must name the scratchpad root; got %q", tc.defect, d.Reason)
 			}
 			if !containsSubstr(d.Reason, "NOT a containment escape") {
-				t.Errorf("%s: the ask reason must distinguish itself from a containment escape; got %q",
+				t.Errorf("%s: the analysis must distinguish itself from a containment escape; got %q",
 					tc.defect, d.Reason)
 			}
 		}
@@ -1167,9 +1167,9 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 		bev := bashEvIn(t, root, "issue-developer")
 		for _, cmd := range []string{"cat " + target, "less " + target, "tee " + target, "touch " + target} {
 			d := classifyBash(cmd, bev)
-			wantBucket(t, d, BucketAsk, tc.defect+": "+cmd)
+			wantBucket(t, d, BucketDefer, tc.defect+": "+cmd)
 			if !containsSubstr(d.Reason, tc.wantIn) {
-				t.Errorf("%s: %q ask reason must name the defect; got %q", tc.defect, cmd, d.Reason)
+				t.Errorf("%s: %q defer analysis must name the defect; got %q", tc.defect, cmd, d.Reason)
 			}
 		}
 	}
@@ -2045,9 +2045,12 @@ func TestContainmentSymlinkPrimaryCloneRead_130(t *testing.T) {
 	}
 }
 
-// §10: fail-closed when git rev-parse cannot resolve the context.
-func TestContainmentFailClosed_NoRepo(t *testing.T) {
-	// A cwd that is not a git repo → resolveRepoContext errors → ASK, never allow.
+// §10: never ALLOW when git rev-parse cannot resolve the context. Post-#262
+// the residual is a DEFER carrying the resolution failure as its analysis —
+// the boundary is unknown, which is an absence of proof rather than a proven
+// escape, and a human clicking Yes learns nothing the evaluator would not.
+// What must never happen, then or now, is the ALLOW.
+func TestContainmentNoRepoNeverAllows(t *testing.T) {
 	nonRepo := t.TempDir()
 	ev := &Event{
 		ToolName:  "Write",
@@ -2056,17 +2059,23 @@ func TestContainmentFailClosed_NoRepo(t *testing.T) {
 		ToolInput: []byte(`{"file_path":"` + filepath.Join(nonRepo, "x") + `"}`),
 	}
 	d := classifyFileTool(ev)
-	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
-		t.Errorf("no-repo containment must fail closed (ask/deny); got %q", d.Bucket)
+	if d.Bucket != BucketDefer {
+		t.Errorf("no-repo containment must defer; got %q (%s)", d.Bucket, d.Reason)
+	}
+	if d.Operation != "file:no-repo-context" || d.Reason == "" {
+		t.Errorf("no-repo defer must be loggable; got op=%q reason=%q", d.Operation, d.Reason)
 	}
 }
 
-// §10: fail-closed when the event has no cwd.
-func TestContainmentFailClosed_NoCWD(t *testing.T) {
+// §10: the same when the event has no cwd at all.
+func TestContainmentNoCWDNeverAllows(t *testing.T) {
 	ev := &Event{ToolName: "Write", CWD: "", ToolInput: []byte(`{"file_path":"/etc/passwd"}`)}
 	d := classifyFileTool(ev)
-	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
-		t.Errorf("empty cwd must fail closed; got %q", d.Bucket)
+	if d.Bucket != BucketDefer {
+		t.Errorf("empty cwd must defer; got %q (%s)", d.Bucket, d.Reason)
+	}
+	if d.Operation != "file:no-repo-context" || d.Reason == "" {
+		t.Errorf("no-cwd defer must be loggable; got op=%q reason=%q", d.Operation, d.Reason)
 	}
 }
 

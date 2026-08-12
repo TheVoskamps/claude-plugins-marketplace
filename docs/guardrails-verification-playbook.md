@@ -39,14 +39,20 @@ The gate blocks tool-mediated writes outside the repo root and blocks
 worktree root. Do not `cd` in one call and `git init -q .` in the next:
 cwd does not persist between Bash calls, so the second call
 reinitializes the worktree root instead and the scratch dir ends up
-with no `.git`, after which every probe reads `ask`.
+with no `.git`, after which every probe reads `defer` — the
+no-repo-context residual (#262 moved it off `ask`, so a stale note
+expecting `ask` here reads as a probe failure rather than the setup
+mistake it is).
 
 Two probe-cwd traps fake a whole result table:
 
 - A cwd that does not **exist** resolves no repo context, so every row
-  — including the control — comes back `ask` and the table looks
-  uniform and meaningless. Paste the worktree path, not the primary
-  clone's.
+  — including the control — comes back `defer` and the table looks
+  uniform and meaningless. That residual is a QUIET one: `defer` is
+  also the honest verdict for several rows under test, so the table
+  looks plausible where the old `ask` looked odd. Assert the control
+  row's expected bucket explicitly rather than eyeballing the column,
+  and paste the worktree path, not the primary clone's.
 - Count `../` levels against the scratch repo root, not by feel. A
   path that escapes a worktree root can still resolve back inside the
   primary clone. Always run `cat <same-path>` as the paired control:
@@ -302,9 +308,10 @@ exactly the fact a reader checks. Dump it per pair with
 byte.
 
 `ALIASES` is the one with teeth. A table keyed on the canonical verb
-misses every alias, so an aliased spelling lands on the fail-closed
-unrecognized-verb *ask* instead of the containment *deny*. Resolve the
-alias to its canonical spelling before any tier runs.
+misses every alias, so an aliased spelling lands on the
+unrecognized-verb residual (*defer* since #262) instead of the
+containment *deny*. Resolve the alias to its canonical spelling before
+any tier runs.
 
 Enumerating aliases: the block is rendered per command, so the complete
 set needs a walk of the whole tree — and the section headings are not
@@ -341,11 +348,18 @@ input carries an `agentAssignment` arm (`targetRepositoryId`,
 `baseRef`, `customInstructions`, `customAgent`), which dispatches a
 third-party coding agent at an arbitrary repository — a surface the
 gate cannot distinguish from a title edit, since it never inspects
-arguments, so the verb keeps its `ask` whichever arm the document
-sets, aliased or not (measured on the branch binary: a bare `title`
-arm, an `agentAssignment` arm, and an aliased `a: updateIssue` all
-`ask`). Grade **every** arm the input declares, and follow a composite
-arm into its own input type.
+arguments, so no argument inspection would make the verb allowable and
+it is refused whichever arm the document sets, aliased or not. #262
+moved that refusal from `ask` to `deny`, on the second half of the same
+grading: the introspection settles whether a verb can ever be ALLOWED,
+and a separate question — is there a TOTAL set of allowed spellings
+covering every legitimate use? — settles whether refusing it is a
+teaching deny or a dead end. For `updateIssue` there is one
+(`updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
+`updateIssueIssueType`, `closeIssue`/`reopenIssue`, `gh issue edit`),
+so it denies; a verb with no such enumeration defers instead. Grade
+**every** arm the input declares, and follow a composite arm into its
+own input type.
 
 Two traps in running the query itself:
 
@@ -454,8 +468,12 @@ Three more replays are cheap once the rig exists:
 - **The same cross with operand suffixes** — escaping positional, each
   path flag escaping, `--`, `-` with a redirect, bare redirect,
   contained counterparts, an unmodelled flag, `-h`. **Zero**
-  `deny -> ask` or `deny -> allow` is a much stronger statement that
-  containment still outranks the new arm than a hand-picked probe list.
+  `deny -> ask`, `deny -> defer` or `deny -> allow` is a much stronger
+  statement that containment still outranks the new arm than a
+  hand-picked probe list. Count `defer` as a weakening target since
+  #262: it is now the residual bucket, so a lost deny lands there as
+  readily as in `allow`, and a cross that only watches `allow` misses
+  it.
 - **Alias parity**: for every row whose noun or verb is an alias,
   assert `tip(alias) == tip(canonical)`. Zero violations settles that
   the resolution grants exactly the canonical verdict and nothing
@@ -479,6 +497,32 @@ on both the input and output axis. Assert the operand control alongside
 it, which proves the *construct* is walked and isolates a lost redirect
 from an unwalked node. An escaped write redirect earns `allow`, which
 outranks `settings.json` and so beats the user's own deny list.
+
+## Enumerate what a residual bucket was catching before you move it
+
+Changing the bucket a *residual* arm returns — the unrecognized-verb
+floor, the no-repo-context arm, the unknown-flag screen — moves every
+call that was reaching it only by falling through, and those calls are
+invisible in the diff. #262 moved the unrecognized-`gh` floor from
+`ask` to `defer` and would have dropped `gh auth token` (which prints
+the live OAuth token) out of the credential tier, purely because
+nothing else classified it.
+
+The enumeration is a replay, not a reading. Cross the tip binary
+against the merge-base binary over the whole probe corpus and list
+every row whose bucket moved; then grade each mover on its own terms
+rather than as a consequence of the intended change. A row that was
+only ever escalating by accident shows up here as a bucket change with
+no corresponding arm in the diff.
+
+The synthetic replay also reads the evolution log, which is the second
+half of the evidence since #262: `PERMISSION_GATE_LOG=<path>` puts the
+record where the probe can read it, and `ask`, `deny` and `defer` all
+append one carrying `operation` and `analysis`. That is how a probe
+distinguishes *which* arm produced a `defer` — two arms returning the
+same bucket are indistinguishable on stdout, because `emitDecision`
+blanks a defer's reason. Assert the `operation` label, not just the
+bucket, whenever more than one arm can produce the verdict under test.
 
 ## When an ask becomes an allow, re-audit the helpers
 

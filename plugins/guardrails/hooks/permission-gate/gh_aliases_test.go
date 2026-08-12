@@ -49,15 +49,15 @@ func TestGhAliasInheritsCanonicalVerdict_229(t *testing.T) {
 	wantReason(t, classifyInRepo(t, "gh release new v1 -F notes.md", repo), BucketAsk,
 		"publishes a release", "#229 alias inherits the release publish ask")
 
-	// ASK — the unmodelled-flag screen, which an unresolved alias never reached
-	// because it had no spec at all. The path is CONTAINED here: on a verb with
-	// file positionals an unmodelled flag's value is left counted as a
-	// positional, so an escaping one would earn the stronger containment deny
+	// DEFER — the unmodelled-flag screen, which an unresolved alias never
+	// reached because it had no spec at all. The path is CONTAINED here: on a
+	// verb with file positionals an unmodelled flag's value is left counted as
+	// a positional, so an escaping one would earn the stronger containment deny
 	// instead (asserted for the canonical spelling in
-	// TestGhPublishUnmodelledFlagAsks_229).
-	wantReason(t, classifyInRepo(t, "gh gist new --from notes.md", repo), BucketAsk,
+	// TestGhPublishUnmodelledFlagDefers_262).
+	wantReason(t, classifyInRepo(t, "gh gist new --from notes.md", repo), BucketDefer,
 		"does not model", "#229 alias inherits the unmodelled-flag screen")
-	wantReason(t, classifyInRepo(t, "gh issue new -t x --attach /etc/passwd", repo), BucketAsk,
+	wantReason(t, classifyInRepo(t, "gh issue new -t x --attach /etc/passwd", repo), BucketDefer,
 		"does not model", "#229 alias inherits the unmodelled-flag screen (no file positional)")
 
 	// ALLOW — an enumerated read and an enumerated recoverable write.
@@ -86,8 +86,8 @@ func TestGhAliasInheritsCanonicalVerdict_229(t *testing.T) {
 	// keyed on the resolved verb reaching isGhRecoverableWrite.
 	foreign := t.TempDir()
 	setupRepoWithOrigin(t, foreign, "owner/repo")
-	wantReason(t, classifyInRepo(t, "gh issue new -R attacker/repo -t x", foreign), BucketAsk,
-		"exfil-by-write channel", "#229 alias inherits the foreign-target ask")
+	wantReason(t, classifyInRepo(t, "gh issue new -R attacker/repo -t x", foreign), BucketDefer,
+		"exfil-by-write channel", "#229 alias inherits the foreign-target scoping")
 
 	// `gh secret remove` / `gh variable remove` are the alias rows that already
 	// denied: the secret/variable arm default-denies every verb that is not
@@ -131,9 +131,10 @@ func TestGhAliasesClassifyAsCanonical_229(t *testing.T) {
 // --- The fail-closed floor is intact ------------------------------------------
 
 // A token in neither alias table is left exactly as written, so an unrecognized
-// verb still escalates. A resolver that guessed — a prefix match, an
-// edit-distance match — would turn `gh gist nw` into a publish.
-func TestGhUnknownVerbStillFailsClosed_229(t *testing.T) {
+// verb still lands on the residual rather than a publish verdict. A resolver
+// that guessed — a prefix match, an edit-distance match — would turn
+// `gh gist nw` into a publish, which is what the reason assertion catches.
+func TestGhUnknownVerbStillHitsTheResidual_229(t *testing.T) {
 	repo := ghPublishRepo(t)
 	for _, cmd := range []string{
 		"gh gist bogus notes.md",
@@ -144,7 +145,7 @@ func TestGhUnknownVerbStillFailsClosed_229(t *testing.T) {
 		"gh bogus list",
 		"gh bogus ls",
 	} {
-		wantReason(t, classifyInRepo(t, cmd, repo), BucketAsk, "is not a recognized read",
+		wantReason(t, classifyInRepo(t, cmd, repo), BucketDefer, "is not a recognized read",
 			"#229 fail-closed floor intact: "+cmd)
 	}
 }
@@ -247,7 +248,7 @@ func TestGhAliasNegativeControl_229(t *testing.T) {
 		"gh issue ls",
 		"gh rs ls",
 	} {
-		wantReason(t, classifyInRepo(t, cmd, repo), BucketAsk, "is not a recognized read",
+		wantReason(t, classifyInRepo(t, cmd, repo), BucketDefer, "is not a recognized read",
 			"#229 alias negative control (pre-fix fail-closed ask): "+cmd)
 	}
 	// The `secret`/`variable` rows did NOT read the fail-closed ask before the

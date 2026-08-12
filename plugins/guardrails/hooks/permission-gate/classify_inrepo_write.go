@@ -101,19 +101,18 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 
 	// A command substitution / unresolved expansion in ANY argument means a path
 	// operand may be dynamically built and cannot be statically contained.
-	// Fail closed ASK, the same posture the read side holds for dynamic paths.
+	// DEFER, the same posture the read side holds for dynamic paths.
 	if sc.hasUnknownExpansion {
-		return ask("bash-write:dynamic-path", fmt.Sprintf(
-			"Blocked: '%s' has an argument built from an expansion the gate cannot resolve statically, so its "+
-				"write target cannot be proven in-repo; escalating to a human decision (fail-closed).", prog))
+		return deferJudgment("bash-write:dynamic-path", fmt.Sprintf(
+			"'%s' has an argument built from an expansion the gate cannot resolve statically, so its write "+
+				"target cannot be proven in-repo.", prog))
 	}
 	// A preceding dynamic `cd` invalidated the running cwd: a relative
-	// write target cannot be safely resolved. Fail closed ASK.
+	// write target cannot be safely resolved. DEFER.
 	if sc.cwdInvalid {
-		return ask("bash-write:cd-unresolved-cwd", fmt.Sprintf(
-			"Blocked: '%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, "+
-				"or 'cd -'), so its write target cannot be safely resolved against the actual current directory; "+
-				"escalating to a human decision (fail-closed). Use a static 'cd <literal-path>' or an absolute path.",
+		return deferJudgment("bash-write:cd-unresolved-cwd", fmt.Sprintf(
+			"'%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, "+
+				"or 'cd -'), so its write target cannot be resolved against the actual current directory.",
 			prog))
 	}
 
@@ -194,8 +193,8 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 func containWriteOperands(prog string, operands []string, baseCWD string, ev *Event) (Decision, bool) {
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
-		return ask("bash-write:no-repo-context", fmt.Sprintf(
-			"Blocked: could not resolve the repository boundary for '%s' (%v); escalating to a human (fail-closed).",
+		return deferJudgment("bash-write:no-repo-context", fmt.Sprintf(
+			"could not resolve the repository boundary for '%s' (%v), so no write target can be graded against it.",
 			prog, err)), false
 	}
 
@@ -249,7 +248,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 					"filesystem. %s",
 				prog, p, real, rc.topLevel, scratchDestinations(rc.topLevel))), false
 		case harnessScratchBadRoot:
-			badRoot = harnessScratchBadRootAsk("bash-write:scratchpad-root (#193)",
+			badRoot = harnessScratchBadRootDefer("bash-write:scratchpad-root (#193)",
 				fmt.Sprintf("'%s' target '%s'", prog, p))
 			haveBadRoot = true
 		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch:

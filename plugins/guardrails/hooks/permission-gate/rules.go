@@ -132,13 +132,16 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 					"Do not switch identities. If the wrong identity is active, surface it to the human; "+
 					"App-managed repos should call the gh_wrapper which mints the correct token per call.")
 		case "login":
-			// login can also re-target identity; treat as ASK (the normal
-			// pipeline allow-lists 'gh auth login', but a switch via re-login
-			// is the multi-identity-switch form the deny warns about).
+			// HARD ASK tier (#262): login can re-target identity, and the
+			// credential surface is user-owned, so this is a human decision by
+			// policy rather than an unclassifiable command. (The normal pipeline
+			// allow-lists 'gh auth login', but a switch via re-login is the
+			// multi-identity-switch form the deny above warns about.)
 			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") {
 				return ask("gh auth login --hostname (#117)",
-					"'gh auth login' targeting a specific host can switch the active identity. "+
-						"Confirm this is intended and not an unprompted identity switch.")
+					"'gh auth login' targeting a specific host can switch the active identity. Credential "+
+						"surfaces are user-owned, so this is a human decision by policy. Confirm this is "+
+						"intended and not an unprompted identity switch.")
 			}
 		case "status":
 			// A read of WHICH account is active and what scopes its token carries
@@ -153,17 +156,34 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 			// NAME: admitting the noun would make every `auth` verb's verdict
 			// turn on the verb spelling alone, and `readVerbs` contains `get`,
 			// so an `auth` verb named `get` would ride the read allow whatever
-			// it printed. `gh auth token` keeps its ask either way — the switch
+			// it printed. `gh auth token` has its own arm below — the switch
 			// is what makes that structural rather than incidental. The flag
 			// screen above is the other half, which the switch alone never
 			// covered.
 			if d, hit := ghAuthStatusEscalates(cmd[2:]); hit {
 				return d
 			}
-			if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+			if d, hit := credentialedRedirectVerdict("gh", sc, ev); hit {
 				return d
 			}
 			return allow("gh auth status reports the active account and scopes without printing a credential")
+		case "token":
+			// HARD ASK tier (#262), and an EXPLICIT arm rather than a
+			// fall-through. `gh auth token` prints the live OAuth token — the
+			// same credential read `gh auth status --show-token` performs, with
+			// no flag needed — so it belongs beside that ask on policy grounds.
+			//
+			// Before #262 it escalated only because it reached the unrecognized-
+			// command floor, and that floor was an ASK. Moving the floor to
+			// DEFER would have silently dropped a credential print out of the
+			// tier, which is exactly the class of regression a residual-bucket
+			// change causes: nothing about `gh auth token` changed, only what
+			// happened to catch it.
+			return ask("gh auth token (#262)",
+				"'gh auth token' prints the live OAuth token in plain text — a credential read, not a status "+
+					"read. Credential surfaces are user-owned, so this is a human decision by policy. Confirm "+
+					"this is intended; 'gh auth status' reports the active account and its scopes without "+
+					"printing the credential.")
 		}
 	}
 
@@ -201,7 +221,10 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return d
 	}
 
-	// ASK tier: gh repo edit --visibility (sanctioned-skill territory).
+	// HARD ASK tier (#262): gh repo edit --visibility (sanctioned-skill
+	// territory). A visibility flip is a publish in the sense this tier cares
+	// about — CLAUDE.md already treats the human click as the sanctioned
+	// escalation for publishing — so it is not waivable downstream.
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {
 			return ask("gh repo edit --visibility (#64)",
@@ -210,11 +233,14 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		}
 	}
 
-	// ASK tier: release / gist publish (exposure, irreversible). The
-	// spec DENYs publish "unless via sanctioned visibility skill"; the gate has
-	// no signal for that wrapper, and a hard DENY would leave no escape hatch
-	// for legitimate release creation, so it routes to ASK (one human click)
-	// rather than DENY.
+	// HARD ASK tier (#262): release / gist publish (exposure, irreversible).
+	// The spec DENYs publish "unless via sanctioned visibility skill"; the gate
+	// has no signal for that wrapper, and a hard DENY would leave no escape
+	// hatch for legitimate release creation, so it routes to ASK (one human
+	// click) rather than DENY. It does NOT defer: the human click IS the
+	// sanctioned escalation for publishing per CLAUDE.md, and letting an
+	// evaluator waive it would remove the one control on an irreversible
+	// exposure.
 	if cmd[0] == "release" && len(cmd) >= 2 && cmd[1] == "create" {
 		return ask("gh release create (#64 publish)",
 			"'gh release create' publishes a release — exposure that is effectively irreversible. "+
@@ -278,7 +304,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// the exfil channel — that is consummated only by a WRITE to an
 	// attacker-readable place, which the enumerated-write scoping below covers.
 	if isGhReadOnly(cmd) {
-		if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+		if d, hit := credentialedRedirectVerdict("gh", sc, ev); hit {
 			return d
 		}
 		return allow(fmt.Sprintf("gh %s is a read-only subcommand", strings.Join(cmd, " ")))
@@ -293,7 +319,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// uses only enumerated verbs, so the prompt cost is ~zero, and a gh-version
 	// -drift miss now costs one click instead of a silent auto-allow.
 	if isGhRecoverableWrite(cmd) {
-		if d, hit := credentialedRedirectAsk("gh", sc, ev); hit {
+		if d, hit := credentialedRedirectVerdict("gh", sc, ev); hit {
 			return d
 		}
 		// Foreign-target write scoping: an otherwise-ALLOWed gh write whose
@@ -301,31 +327,33 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		// post-noun position) differs from the session repo's origin is an
 		// exfil-by-write channel (`gh issue comment -R attacker/repo …`) the
 		// egress proxy — which sees only ciphertext to an allowed host — cannot
-		// distinguish from an own-repo comment. ASK so a human owns the
-		// cross-repo write. An own-repo target (or no explicit target) stays
-		// ALLOW; an undeterminable origin fails open to the former ALLOW (the
-		// verb already passed the recoverable-write allowlist).
+		// distinguish from an own-repo comment. Whether a given cross-repo write
+		// is that channel or ordinary work (a fork, an upstream issue) is
+		// context the gate cannot read and the evaluator can, so it DEFERS with
+		// the target named (#262). An own-repo target (or no explicit target)
+		// stays ALLOW; an undeterminable origin fails open to the former ALLOW
+		// (the verb already passed the recoverable-write allowlist).
 		if target := ghExplicitRepoTarget(leadingRepo, cmd); target != "" {
 			if origin := sessionOriginRepo(ev.CWD); origin != "" && target != origin {
-				return ask("gh foreign-target write (#163)",
+				return deferJudgment("gh foreign-target write (#163)",
 					"'gh "+strings.Join(cmd, " ")+"' writes to '"+target+"', which differs from this session's "+
 						"origin repo ('"+origin+"'). A write to another repo is an exfil-by-write channel the egress "+
-						"proxy cannot see (it sees only ciphertext to an allowed host). Confirm this cross-repo write "+
-						"is intended.")
+						"proxy cannot see (it sees only ciphertext to an allowed host).")
 			}
 		}
 		return allow(fmt.Sprintf("gh %s is an enumerated recoverable write", strings.Join(cmd, " ")))
 	}
 
-	// Fail-closed floor: an unrecognized gh command (neither an enumerated
-	// read nor an enumerated recoverable write) ASKs rather than taking the former
-	// silent ALLOW. This is the restated role — the gate is the semantic boundary
-	// for what the guest's credential may do at an allowed host, and an
-	// unrecognized shape is precisely what the gate cannot vouch for.
-	return ask("gh unrecognized command (#163)",
-		"'gh "+strings.Join(cmd, " ")+"' is not a recognized read or an enumerated recoverable write. The "+
-			"permission gate cannot classify it, so it escalates to a human (fail-closed) rather than "+
-			"auto-allowing. Confirm this is intended; if it is a routine safe operation, it can be added to the "+
+	// Residual floor: an unrecognized gh command (neither an enumerated read nor
+	// an enumerated recoverable write) DEFERS rather than taking the former
+	// silent ALLOW. The gate is the semantic boundary for what the guest's
+	// credential may do at an allowed host, and an unrecognized shape is
+	// precisely what the gate cannot vouch for — but "unrecognized" is an
+	// absence of gate knowledge, not evidence of harm, so it is the judgment
+	// middle rather than a human click.
+	return deferJudgment("gh unrecognized command (#163)",
+		"'gh "+strings.Join(cmd, " ")+"' is not a recognized read or an enumerated recoverable write, so the "+
+			"permission gate cannot classify it. If it is a routine safe operation, it can be added to the "+
 			"gate's enumerated verb set.")
 }
 
@@ -350,8 +378,17 @@ var ghAuthStatusBoolFlags = map[string]bool{
 }
 
 // ghAuthStatusEscalates screens the flags of a `gh auth status` invocation and
-// returns a terminal ASK for any form the gate cannot vouch for as
+// returns a terminal HARD ASK for any form the gate cannot vouch for as
 // credential-free. flags is the token slice AFTER `auth status`.
+//
+// Both arms sit in the enumerated hard-ask tier (#262), including the
+// unknown-flag one — which is why it does NOT defer alongside the other
+// unmodelled-flag arms (`gh api`, the aws global, the publish-file model).
+// Those grade a command whose CLASS is otherwise established; this one exists
+// solely to keep a credential print from riding the verb's allow, so it is a
+// credential-read guard wearing an unknown-flag shape. Deferring it would let
+// the evaluator waive the very control the whitelist is, and the whitelist is
+// deliberately narrower than gh's own parser for exactly that reason.
 //
 // `--show-token` is caught in every spelling: the bare long flag, the
 // `=`-joined `--show-token=true`, the short `-t`, and any single-dash token
@@ -774,23 +811,20 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 		case a == "-H" || a == "--header":
 			if i+1 < len(args) {
 				if headerIsMethodOverride(args[i+1]) {
-					return ask("gh api x-http-method-override (#162)",
-						"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET. "+
-							"Confirm this write is intended.")
+					return deferJudgment("gh api x-http-method-override (#162)",
+						"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET.")
 				}
 				i++
 			}
 		case strings.HasPrefix(a, "-H") && len(a) > 2:
 			if headerIsMethodOverride(strings.TrimPrefix(a, "-H")) {
-				return ask("gh api x-http-method-override (#162)",
-					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET. "+
-						"Confirm this write is intended.")
+				return deferJudgment("gh api x-http-method-override (#162)",
+					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET.")
 			}
 		case strings.HasPrefix(a, "--header="):
 			if headerIsMethodOverride(strings.TrimPrefix(a, "--header=")) {
-				return ask("gh api x-http-method-override (#162)",
-					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET. "+
-						"Confirm this write is intended.")
+				return deferJudgment("gh api x-http-method-override (#162)",
+					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET.")
 			}
 		case strings.HasPrefix(a, "-") && a != "-":
 			// A flag the walker does not consume above. The REST GET-gate's
@@ -808,13 +842,13 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 		}
 	}
 
-	// Write ASK tiers: an explicit non-GET method, or a body-bearing
+	// Write DEFER tiers: an explicit non-GET method, or a body-bearing
 	// flag with no explicit GET method (implicit-POST flip). These fire BEFORE the
 	// endpoint branch so a `-X DELETE graphql` or a `-f a=b`-flipped POST to a
-	// REST endpoint asks regardless of endpoint.
+	// REST endpoint is graded regardless of endpoint.
 	if method != "" && !strings.EqualFold(method, "GET") {
-		return ask("gh api non-GET method (#162)",
-			"'gh api' with a non-GET method (-X/--method "+method+") performs a write. Confirm this write is intended.")
+		return deferJudgment("gh api non-GET method (#162)",
+			"'gh api' with a non-GET method (-X/--method "+method+") performs a write.")
 	}
 	if bodyBearing && method == "" && !graphql {
 		// Body-bearing on a REST endpoint with no explicit method flips the
@@ -822,9 +856,9 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 		// is how the query is passed; the graphql path below classifies the
 		// document instead of asking on the body flag.) The `-XGET -f …`
 		// carve-out (method == "GET") stays a read and falls through.
-		return ask("gh api implicit-POST body flag (#162)",
+		return deferJudgment("gh api implicit-POST body flag (#162)",
 			"'gh api' with a request-body flag (-f/-F/--field/--raw-field/--input) and no explicit GET method "+
-				"implicitly flips to POST and performs a write. Confirm this write is intended.")
+				"implicitly flips to POST and performs a write.")
 	}
 
 	// --- graphql endpoint (Design A): classify the query document. ---
@@ -845,7 +879,7 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 		}
 		res := scanGraphQLDoc(doc)
 		if res.queryOnly {
-			if d, hit := credentialedRedirectAsk("gh api graphql", sc, ev); hit {
+			if d, hit := credentialedRedirectVerdict("gh api graphql", sc, ev); hit {
 				return d
 			}
 			return allow("gh api graphql is a provably query-only (read) document")
@@ -862,16 +896,32 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 			// launder an arbitrary one (`mutation { ...addSubIssue } fragment
 			// addSubIssue on Mutation { deleteIssue(…) }`). Both signals only ever
 			// withhold the ALLOW: the document falls through to the ASK below.
-			if !res.sawSubscription && !res.sawFragment && allGraphQLMutationFieldsAllowed(res.mutationFields) {
-				if d, hit := credentialedRedirectAsk("gh api graphql", sc, ev); hit {
+			if !res.sawSubscription && !res.sawFragment {
+				if allGraphQLMutationFieldsAllowed(res.mutationFields) {
+					if d, hit := credentialedRedirectVerdict("gh api graphql", sc, ev); hit {
+						return d
+					}
+					return allow("gh api graphql carries only allow-listed issue-metadata mutations (" +
+						strings.Join(res.mutationFields, ", ") + ")")
+				}
+				// A named mutation the gate refuses AND can redirect totally
+				// (today: updateIssue) is a deny-with-teaching, not a defer.
+				// Same trustworthy-names precondition as the allowlist above:
+				// a fragment spread can be NAMED after a mutation without
+				// calling it, so a fragment-bearing document must not be
+				// denied on the strength of that name.
+				if d, hit := ghGraphQLMutationRedirect(res.mutationFields); hit {
 					return d
 				}
-				return allow("gh api graphql carries only allow-listed issue-metadata mutations (" +
-					strings.Join(res.mutationFields, ", ") + ")")
 			}
-			return ask("gh api graphql mutation (#113)",
-				"'gh api graphql' carries a mutation operation ("+strings.Join(res.mutationFields, ", ")+"). "+
-					"Mutations write to GitHub; confirm this is intended.")
+			// Every other mutation is the judgment middle: a remote write whose
+			// target is an opaque node ID the gate cannot resolve, which is
+			// exactly what a context-reading evaluator grades better than a
+			// prompt.
+			return deferJudgment("gh api graphql mutation (#113)",
+				"'gh api graphql' carries a mutation operation ("+strings.Join(res.mutationFields, ", ")+") "+
+					"that is not on the gate's issue-metadata allowlist. Mutations write to GitHub, and these "+
+					"address opaque node IDs the gate cannot resolve to a repository.")
 		}
 		// Not query-only and no nameable mutation field: a subscription, an
 		// unbalanced/garbage document, or otherwise unclassifiable → DENY.
@@ -884,7 +934,7 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 	// --- REST endpoint (Design B): path-prefix GET-gate. ---
 	rest := classifyGhAPIREST(endpoint, args)
 	if rest.Bucket == BucketAllow {
-		if d, hit := credentialedRedirectAsk("gh api", sc, ev); hit {
+		if d, hit := credentialedRedirectVerdict("gh api", sc, ev); hit {
 			return d
 		}
 	}
@@ -939,21 +989,24 @@ func isGhReadOnly(cmd []string) bool {
 	return readVerbs[verb]
 }
 
-// classifyAws classifies an `aws <service> <operation>` invocation. Per the
-// resolved design decisions this classifier NEVER defers:
+// classifyAws classifies an `aws <service> <operation>` invocation:
 //
 //   - DENY:  the precondition (non-static argv, inline env-assignment);
 //     --endpoint-url (redirects the SIGNED request to an attacker host —
 //     credential/data exfil + SSRF).
 //   - ASK:   reads that return credentials/secrets (sts get-session-token,
 //     ecr get-login-password, secretsmanager get-secret-value, ssm
-//     get-parameter --with-decryption, …); and every other aws
-//     op the gate cannot prove read-only. An aws mutation is not a
-//     guest-local operation: it carries the guest's credentials to a control
-//     plane OUTSIDE the VM and mutates real cloud state the VM cannot roll
-//     back, so containment-lives-in-the-microVM does not apply to it.
+//     get-parameter --with-decryption, …). This is the enumerated hard-ask
+//     tier: credential surfaces are user-owned, so the click is policy.
 //   - ALLOW: read-only ops only (describe-/list-/get- hyphen anchor + the
 //     explicit read-only whitelist).
+//   - DEFER: every other aws op, plus the unknown-global desync (#262). An
+//     aws mutation is not a guest-local operation — it carries the guest's
+//     credentials to a control plane OUTSIDE the VM and mutates real cloud
+//     state the VM cannot roll back, so containment-lives-in-the-microVM does
+//     not apply to it — but which mutation it is, and whether it is the one
+//     the session is meant to be making, is read from the arguments and the
+//     context, not from the operation name this classifier matches on.
 //
 // Classification is on the parsed operation TOKEN, never a substring match (§4).
 func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
@@ -976,12 +1029,15 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	if !ok {
 		// An unrecognized leading global flag of unknown arity desynced the
 		// service/operation split. We cannot trust which token is the operation,
-		// so a credential read could be hiding behind the shift. Fail closed to
-		// ASK rather than guess (the anti-desync decision).
-		return ask("aws unknown-global (#64)",
+		// so a credential read could be hiding behind the shift. The gate cannot
+		// classify the operation at all, which is an unmodelled-flag case rather
+		// than an established credential read, so it DEFERS with the desync
+		// named (#262). The enumerated credential reads below keep their hard
+		// ask; this arm is the one that could not reach them.
+		return deferJudgment("aws unknown-global (#64)",
 			"'aws' has an unrecognized leading global flag whose argument shape the permission gate cannot "+
-				"determine; this can hide a credential read behind a shifted operation token. Confirm the command "+
-				"is intended, or remove the unrecognized global flag.")
+				"determine; this can hide a credential read behind a shifted operation token, so the operation "+
+				"token itself cannot be trusted.")
 	}
 	if svc == "" || op == "" {
 		// Not a recognizable `aws <service> <operation>` shape, so there is no
@@ -991,11 +1047,15 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 		return allow("aws (no classifiable service/operation)")
 	}
 
-	// ASK: credential/secret reads.
+	// HARD ASK tier (#262): credential/secret reads. Credential surfaces are
+	// user-owned, so this stays a human click by policy — it is not a
+	// classification the gate is unsure about, and an LLM must not be able to
+	// waive it.
 	if awsCredentialRead(svc, op, args) {
 		return ask("aws credential-read (#64)",
-			fmt.Sprintf("'aws %s %s' returns credentials or secrets. Confirm this is intended; do not pipe the "+
-				"output anywhere it could be captured.", svc, op))
+			fmt.Sprintf("'aws %s %s' returns credentials or secrets. Credential surfaces are user-owned, so this "+
+				"is a human decision by policy. Confirm this is intended; do not pipe the output anywhere it "+
+				"could be captured.", svc, op))
 	}
 
 	// `aws configure get <non-secret-key>` reads the LOCAL config store
@@ -1008,28 +1068,30 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 		return allow("aws configure get <non-secret-key> reads local config only")
 	}
 
-	// A real-file redirect is GRADED, not vetoed: see credentialedRedirectAsk
+	// A real-file redirect is GRADED, not vetoed: see credentialedRedirectVerdict
 	// for why an in-worktree destination is the same write the in-repo-write
 	// track already allows through argv, and an escaping or unpinnable one
 	// still ASKs.
-	if d, hit := credentialedRedirectAsk("aws", sc, ev); hit {
+	if d, hit := credentialedRedirectVerdict("aws", sc, ev); hit {
 		return d
 	}
 
 	if awsReadOnlyOp(op) {
 		return allow(fmt.Sprintf("aws %s %s is a read-only operation", svc, op))
 	}
-	// ASK default: every aws op the gate cannot prove read-only ASKs. The
-	// microVM cannot contain an authenticated AWS mutation: the call carries
-	// the guest's credentials to a control plane OUTSIDE the VM and mutates
-	// real cloud state the VM cannot roll back. The only VM-level AWS control
-	// is the egress proxy, which gates by host:port/SNI (per service per
-	// region) and cannot distinguish `s3 ls` from `s3 rm` inside one TLS
-	// stream. So a non-read aws op escalates to a human rather than
-	// auto-allowing.
-	return ask("aws non-read op",
+	// DEFER default: every aws op the gate cannot prove read-only goes to the
+	// judgment middle. The microVM cannot contain an authenticated AWS
+	// mutation: the call carries the guest's credentials to a control plane
+	// OUTSIDE the VM and mutates real cloud state the VM cannot roll back. The
+	// only VM-level AWS control is the egress proxy, which gates by
+	// host:port/SNI (per service per region) and cannot distinguish `s3 ls`
+	// from `s3 rm` inside one TLS stream. None of that is decided by the
+	// operation NAME, which is all this arm has — so it hands the call, and its
+	// analysis, to the evaluator that can read the arguments. The enumerated
+	// credential reads above keep their hard ask.
+	return deferJudgment("aws non-read op",
 		fmt.Sprintf("'aws %s %s' is not a provably read-only operation and can mutate real "+
-			"cloud state that the sandbox cannot roll back. Confirm this is intended.", svc, op))
+			"cloud state that the sandbox cannot roll back.", svc, op))
 }
 
 // awsHasEndpointURL reports whether the args carry an --endpoint-url flag in

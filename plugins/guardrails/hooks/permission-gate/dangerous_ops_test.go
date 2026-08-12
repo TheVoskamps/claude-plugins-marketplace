@@ -108,7 +108,7 @@ func TestGhAPIGate_64(t *testing.T) {
 		"gh api repos/o/r --input body.json",
 		"gh api -fa=b repos/o/r", // glued -f form
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "gh api implicit POST: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "gh api implicit POST: "+cmd)
 	}
 	// Explicit non-GET method → ASK (incl. casing / glued forms; was
 	// a blanket deny before the gh-api gate).
@@ -118,15 +118,15 @@ func TestGhAPIGate_64(t *testing.T) {
 		"gh api --method=POST repos/o/r",
 		"gh api --method patch repos/o/r",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "gh api non-GET: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "gh api non-GET: "+cmd)
 	}
 	// graphql with a mutation document → ASK naming the mutation field (was
 	// a blanket graphql deny before the gh-api gate).
-	wantBucket(t, classifyCmd(t, "gh api graphql -f query='mutation{x}'", false), BucketAsk, "gh api graphql mutation")
+	wantBucket(t, classifyCmd(t, "gh api graphql -f query='mutation{x}'", false), BucketDefer, "gh api graphql mutation")
 	// x-http-method-override header → ASK, case-insensitive (was
 	// a blanket deny before the gh-api gate).
-	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H X-HTTP-Method-Override:DELETE", false), BucketAsk, "method-override header")
-	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H x-http-method-override:delete", false), BucketAsk, "method-override header lc")
+	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H X-HTTP-Method-Override:DELETE", false), BucketDefer, "method-override header")
+	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H x-http-method-override:delete", false), BucketDefer, "method-override header lc")
 	// A plain GET on an allow-listed endpoint → ALLOW (was ASK
 	// under the every-REST-GET-asks default).
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r", false), BucketAllow, "gh api plain GET allow-listed")
@@ -378,26 +378,43 @@ func TestAwsConfigureGetSecretAsk_64(t *testing.T) {
 // slipping a credential read past the ASK tier to the ALLOW floor.
 // awsServiceAndOp returns ok=false on an unknown leading flag → classifyAws ASKs.
 func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
-	// The exploit strings: an unknown global flag prefix in front of a
-	// credential read. Each MUST ask, never allow.
+	// The exploit strings: an UNKNOWN global flag in front of (or wedged into) a
+	// credential read. The desync means awsServiceAndOp cannot trust the
+	// operation token at all, so the credential-read arm is never reached and
+	// the residual applies — DEFER post-#262. Never ALLOW.
+	//
+	// The rows are split by which arm actually fires, because the merged loop
+	// this replaces passed vacuously: every row expected ASK, and the
+	// known-value-flag rows earned that ASK from the CREDENTIAL-READ arm rather
+	// than from the desync guard under test. #262 separated the two verdicts and
+	// made the conflation visible.
 	for _, cmd := range []string{
 		"aws --totally-unknown-flag less configure get aws_secret_access_key",
-		"aws --cli-binary-format raw-in-base64-out sts get-session-token",
 		"aws --another-unknown-flag less secretsmanager get-secret-value --secret-id s",
 		// A genuinely-unknown flag (not even in the new value-flag map) must
-		// also fail closed rather than be guessed as a boolean.
+		// also withhold the allow rather than be guessed as a boolean.
 		"aws --totally-unknown-flag xyz sts get-session-token",
 		// Same desync CLASS, WEDGED between the service and operation tokens:
 		// aws places the real op after global flags for `configure get`,
 		// `sts get-session-token`, etc., so an unknown value-flag there shifts
-		// the OP token, not the service token. The fail-closed window must
-		// extend until BOTH positionals are captured, not just the service.
+		// the OP token, not the service token. The guard's window must extend
+		// until BOTH positionals are captured, not just the service.
+		"aws ecr --totally-unknown-flag x get-login-password",
+	} {
+		wantReason(t, classifyCmd(t, cmd, false), BucketDefer,
+			"unrecognized leading global flag", "aws unknown-global desync: "+cmd)
+	}
+	// The mirror rows: a KNOWN value flag in the same wedged positions is
+	// consumed correctly, so the operation token IS trustworthy and the
+	// credential read is recognized — a hard ASK, not the desync residual.
+	for _, cmd := range []string{
+		"aws --cli-binary-format raw-in-base64-out sts get-session-token",
 		"aws configure --cli-error-format json get aws_secret_access_key",
 		"aws sts --cli-error-format json get-session-token",
 		"aws secretsmanager --cli-error-format json get-secret-value --secret-id foo",
-		"aws ecr --totally-unknown-flag x get-login-password",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws unknown-global desync: "+cmd)
+		wantReason(t, classifyCmd(t, cmd, false), BucketAsk,
+			"returns credentials or secrets", "aws known-global + credential read: "+cmd)
 	}
 	// A known value flag, when consumed correctly, must NOT over-block a benign
 	// read: a plain read still resolves (not a spurious unknown-global ASK).
@@ -405,7 +422,7 @@ func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
 	// aws exposes the pager control only as boolean `--no-cli-pager`; there is no
 	// value-taking `--cli-pager` global, so `--cli-pager less` is an UNKNOWN flag
 	// before both positionals and must fail closed to ASK, not reach ALLOW.
-	wantBucket(t, classifyCmd(t, "aws --cli-pager less ec2 describe-instances", false), BucketAsk, "phantom --cli-pager value form fails closed")
+	wantBucket(t, classifyCmd(t, "aws --cli-pager less ec2 describe-instances", false), BucketDefer, "phantom --cli-pager value form withholds the allow")
 	wantBucket(t, classifyCmd(t, "aws --no-cli-pager ec2 describe-instances", false), BucketAllow, "real boolean --no-cli-pager + benign read")
 	// --cli-error-format is now a known value flag: consumed cleanly in every
 	// position, so it neither over-blocks a benign read nor lets a credential
@@ -457,7 +474,7 @@ func TestAwsGlobalAbbreviation_64(t *testing.T) {
 	// An AMBIGUOUS prefix matching ≥2 globals is not a known global (aws rejects
 	// it too); before both tokens are captured it fails closed to ASK. `--c`
 	// matches --ca-bundle/--cli-*/--color/--color.
-	wantBucket(t, classifyCmd(t, "aws --c x sts get-session-token", false), BucketAsk, "ambiguous-prefix global fails closed")
+	wantBucket(t, classifyCmd(t, "aws --c x sts get-session-token", false), BucketDefer, "ambiguous-prefix global withholds the allow")
 }
 
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
@@ -510,16 +527,23 @@ func TestAwsAskNonReadOp_124(t *testing.T) {
 		"aws dynamodb delete-item --table-name t --key k",
 		"aws s3api delete-object --bucket b --key k",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketAsk, "aws non-read ask: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "aws non-read defer: "+cmd)
 	}
 }
 
-// --- classifiers never defer -------------------------------------------------
+// --- every classifier path is reason-bearing ---------------------------------
 
-// Every path through classifyGit/classifyGh/classifyAws must resolve to
-// allow/ask/deny, never defer. We sample representative shapes and assert the
-// bucket is never BucketDefer.
-func TestClassifiersNeverDefer_64(t *testing.T) {
+// #64 asserted that classifyGit/classifyGh/classifyAws never defer: with an
+// ask-default, every residual was an ASK, so a defer meant a path had escaped
+// classification entirely. #262 makes DEFER the residual by design, so the
+// never-defer form would now fail on the shapes it was written to bless.
+//
+// The invariant it was protecting survives, restated on what it was actually
+// after: no sampled shape may fall out of the classifier UNACCOUNTED FOR. A
+// bare deferToPipeline is exactly that — no operation label, no analysis, and
+// therefore no §7 log record — so it is what this test forbids. A DEFER with
+// both is the classifier having reached a verdict and said why.
+func TestClassifierResidualsAreAccountedFor_262(t *testing.T) {
 	cmds := []string{
 		"git status", "git commit -m x", "git push origin main", "git push --force origin main",
 		"git -c core.pager=evil log", "git reset --hard",
@@ -531,8 +555,12 @@ func TestClassifiersNeverDefer_64(t *testing.T) {
 		// subagent=true exercises the subagent-conditioned git reset path too.
 		for _, sub := range []bool{false, true} {
 			d := classifyCmd(t, cmd, sub)
-			if d.Bucket == BucketDefer {
-				t.Errorf("classifier must never defer (#64): %q (subagent=%v) deferred", cmd, sub)
+			if d.Bucket == BucketAllow {
+				continue // an allow states its positive grounds in Reason; nothing to log.
+			}
+			if d.Operation == "" || d.Reason == "" {
+				t.Errorf("classifier residual must be accounted for (#262): %q (subagent=%v) gave bucket %q "+
+					"with op=%q reason=%q", cmd, sub, d.Bucket, d.Operation, d.Reason)
 			}
 		}
 	}

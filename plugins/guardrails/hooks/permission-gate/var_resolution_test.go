@@ -135,7 +135,7 @@ func TestPWDInvalidAfterDynamicCdFailsClosed_156(t *testing.T) {
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cat "$PWD/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#156: $PWD must fail closed after a dynamic cd invalidates the tracked cwd")
+	wantBucket(t, d, BucketDefer, "#156: $PWD must fail closed after a dynamic cd invalidates the tracked cwd")
 }
 
 // TestOLDPWDResolvesToPriorTrackedCwd_156 pins the issue's $OLDPWD
@@ -185,7 +185,7 @@ func TestOLDPWDBeforeAnyCdFailsClosed_156(t *testing.T) {
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cat "$OLDPWD/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#156: $OLDPWD with no preceding cd in the program must fail closed")
+	wantBucket(t, d, BucketDefer, "#156: $OLDPWD with no preceding cd in the program must fail closed")
 }
 
 // TestOLDPWDInvalidAfterDynamicCdFailsClosed_156 pins $OLDPWD's fail-closed
@@ -197,7 +197,7 @@ func TestOLDPWDInvalidAfterDynamicCdFailsClosed_156(t *testing.T) {
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cd ` + wt + ` && cat "$OLDPWD/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#156: $OLDPWD must fail closed when the prior tracked cwd was invalid")
+	wantBucket(t, d, BucketDefer, "#156: $OLDPWD must fail closed when the prior tracked cwd was invalid")
 }
 
 // TestUserAndTmpdirResolveFromProcessEnv_156 pins the issue's $USER/$TMPDIR
@@ -300,7 +300,7 @@ func TestUnsupportedEnvVarStaysUnresolvable_156(t *testing.T) {
 		`cat "$PATH/.ssh/id_rsa"`,
 	} {
 		d := classifyBash(cmd, ev)
-		wantBucket(t, d, BucketAsk, "#156: "+cmd+" must stay unresolvable — the allowlist is closed")
+		wantBucket(t, d, BucketDefer, "#156: "+cmd+" must stay unresolvable — the allowlist is closed")
 	}
 }
 

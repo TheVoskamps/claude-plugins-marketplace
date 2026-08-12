@@ -54,25 +54,66 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "contained redirect: "+cmd)
 	}
 
-	// An escaping destination still escalates, and the reason names clobber and
-	// escape rather than exfiltration.
+	// A PROVEN escape DENIES (#262), and the reason names clobber and escape
+	// rather than exfiltration. It also carries the same prescriptive scratch
+	// destinations the Write tool's deny for the identical path carries — which
+	// is the whole point of the ask→deny move: one escape, one verdict,
+	// whichever spelling reaches it.
 	esc := classifyBash("gh pr diff 224 > "+filepath.Join(sib, "x.diff"), ev)
-	wantBucket(t, esc, BucketAsk, "redirect escaping to a sibling repo")
+	wantBucket(t, esc, BucketDeny, "redirect escaping to a sibling repo")
 	if !containsSubstr(esc.Reason, "clobber") {
-		t.Errorf("the escape ask must name clobber; got %q", esc.Reason)
+		t.Errorf("the escape deny must name clobber; got %q", esc.Reason)
 	}
 	if containsSubstr(esc.Reason, "exfiltrate") {
-		t.Errorf("the escape ask must not claim exfiltration for a local file write; got %q", esc.Reason)
+		t.Errorf("the escape deny must not claim exfiltration for a local file write; got %q", esc.Reason)
+	}
+	if !containsSubstr(esc.Reason, ".claude/tmp/") || !containsSubstr(esc.Reason, harnessScratchDisplay()) {
+		t.Errorf("the escape deny must prescribe both scratch destinations; got %q", esc.Reason)
+	}
+	// The spelling control: the Write tool's deny for the SAME destination
+	// prescribes the same thing. Before #262 these two diverged — Write denied
+	// with this prose while the redirect asked — which is the defect the move
+	// closes.
+	wd := fileToolBucket(t, "Write", root, filepath.Join(sib, "x.diff"))
+	wantBucket(t, wd, BucketDeny, "control: Write to the same escaping destination")
+	if !containsSubstr(wd.Reason, ".claude/tmp/") {
+		t.Errorf("the Write control must carry the scratch prescription; got %q", wd.Reason)
 	}
 
-	// A destination the gate cannot pin statically still escalates, and so does
-	// one under .git/.
-	wantBucket(t, classifyBash("gh pr diff 224 > $DEST", ev), BucketAsk, "unpinnable redirect destination")
-	wantBucket(t, classifyBash("gh pr diff 224 > .git/x", ev), BucketAsk, "redirect into .git/")
+	// A `.git/` destination denies too, for parity with the Write tool's
+	// treatment of the same tree.
+	wantBucket(t, classifyBash("gh pr diff 224 > .git/x", ev), BucketDeny, "redirect into .git/")
 
-	// EVERY destination must qualify: one good and one escaping still asks.
+	// A destination the gate cannot PIN is a different thing: an absence of
+	// proof, not a proven escape. It withholds the allow and DEFERS, carrying
+	// why into the §7 log.
+	unp := classifyBash("gh pr diff 224 > $DEST", ev)
+	wantBucket(t, unp, BucketDefer, "unpinnable redirect destination")
+	if unp.Operation == "" || !containsSubstr(unp.Reason, "cannot pin statically") {
+		t.Errorf("the unpinnable defer must be loggable and say why; got op=%q reason=%q",
+			unp.Operation, unp.Reason)
+	}
+
+	// EVERY destination must qualify: one good and one escaping still denies.
 	wantBucket(t, classifyBash("gh pr diff 224 > .claude/tmp/x.md 2> "+filepath.Join(sib, "e"), ev),
-		BucketAsk, "mixed redirect destinations")
+		BucketDeny, "mixed redirect destinations")
+
+	// The wild-caught spelling #262 was filed on, tool by tool: `git show` into
+	// `/tmp/` prompted an sdlc:theorem-disprover when the message it was shown
+	// would have redirected it perfectly. All three credentialed tools reach the
+	// same grading, so all three are pinned — a per-tool call site means a
+	// per-tool regression is possible.
+	for _, cmd := range []string{
+		"git show HEAD:README.md > /tmp/x.md",
+		"gh pr diff 224 > /tmp/x.md",
+		"aws sts get-caller-identity > /tmp/x.json",
+	} {
+		d := classifyBash(cmd, ev)
+		wantBucket(t, d, BucketDeny, "credentialed redirect to /tmp: "+cmd)
+		if !containsSubstr(d.Reason, ".claude/tmp/") {
+			t.Errorf("the /tmp redirect deny must prescribe a scratch destination; got %q", d.Reason)
+		}
+	}
 }
 
 // TestCredentialedRedirectToScratchpadAllows_225 covers the second blessed
@@ -145,7 +186,7 @@ func TestAnchorStillRunsThroughContainment_225(t *testing.T) {
 	wantBucket(t, classifyBash(`cat "$(git rev-parse --show-toplevel)/../../../../etc/passwd"`, ev),
 		BucketDeny, "an escaping path built on an anchor still denies")
 	// A non-allowlisted substitution is still not an anchor.
-	wantBucket(t, classifyBash(`find "$(git log -1 --format=%H)/x" -type f`, ev), BucketAsk,
+	wantBucket(t, classifyBash(`find "$(git log -1 --format=%H)/x" -type f`, ev), BucketDefer,
 		"a non-allowlisted substitution is not an anchor")
 }
 

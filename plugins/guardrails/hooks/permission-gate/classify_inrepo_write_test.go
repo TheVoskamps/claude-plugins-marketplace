@@ -207,8 +207,15 @@ func TestInRepoWriteDynamicPathAsks_32(t *testing.T) {
 		`mkdir "$DIR"`,
 	} {
 		d := classifyBash(cmd, ev)
-		if d.Bucket != BucketAsk {
-			t.Errorf("dynamic-path write must ASK (fail-closed), not %q: %s", d.Bucket, cmd)
+		if d.Bucket != BucketDefer {
+			t.Errorf("dynamic-path write must DEFER, not %q: %s", d.Bucket, cmd)
+		}
+		// The half that carries the safety: it must never ride the in-repo-write
+		// ALLOW, and the defer must be loggable so the unpinnable write shows up
+		// in the tuning feed rather than vanishing.
+		if d.Operation == "" || d.Reason == "" {
+			t.Errorf("dynamic-path write defer must carry the gate's analysis; got op=%q reason=%q for %s",
+				d.Operation, d.Reason, cmd)
 		}
 	}
 }

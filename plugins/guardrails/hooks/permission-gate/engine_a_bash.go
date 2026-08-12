@@ -142,10 +142,9 @@ func classifyBash(command string, ev *Event) Decision {
 
 	cmds, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver(), rc)
 	if extractErr != nil {
-		return ask("bash:unhandled-construct", fmt.Sprintf(
-			"Blocked: the Bash command contains a construct the permission gate "+
-				"cannot statically classify (%v). Escalating to a human decision "+
-				"(fail-closed).", extractErr))
+		return deferJudgment("bash:unhandled-construct", fmt.Sprintf(
+			"the Bash command contains a construct the permission gate cannot statically classify (%v), so no "+
+				"command part could be extracted for grading.", extractErr))
 	}
 	if len(cmds) == 0 {
 		// Nothing executable (e.g. only assignments / comments). Defer.
@@ -155,6 +154,13 @@ func classifyBash(command string, ev *Event) Decision {
 	worst := BucketAllow
 	var worstDecision Decision
 	sawNonAllow := false
+	// The FIRST defer that carries an analysis (deferJudgment) is kept so the
+	// whole line's defer reaches the §7 log with an account of why, instead of
+	// collapsing to a bare, unloggable deferToPipeline. A defer is not "worse"
+	// than another defer, so first-wins is the whole rule; an ASK anywhere in
+	// the line still outranks every defer below.
+	var deferDecision Decision
+	haveDeferAnalysis := false
 
 	for _, sc := range cmds {
 		d := classifySimpleCommand(sc, ev)
@@ -171,6 +177,10 @@ func classifyBash(command string, ev *Event) Decision {
 		case BucketDefer:
 			// This part has no high-confidence allow; the line cannot be a
 			// clean allow. Remember that we saw a non-allow.
+			if !haveDeferAnalysis && d.Operation != "" {
+				deferDecision = d
+				haveDeferAnalysis = true
+			}
 			sawNonAllow = true
 		case BucketAllow:
 			// keep scanning
@@ -185,6 +195,9 @@ func classifyBash(command string, ev *Event) Decision {
 		// — hand the whole line back to the normal permission pipeline rather
 		// than auto-allowing. This keeps the allow track to cheap, certain
 		// wins only (§4 posture).
+		if haveDeferAnalysis {
+			return deferDecision
+		}
 		return deferToPipeline()
 	}
 	// Every part earned BucketAllow. The reason must state the bar that bucket
@@ -2023,7 +2036,7 @@ func hasGlobMeta(s string) bool {
 // ok is false when the prefix cannot be safely resolved: cwdInvalid (an
 // earlier dynamic `cd` invalidated the running cwd) means a RELATIVE
 // glob cannot be safely anchored, so the caller fails the whole for-list
-// closed (ASK), matching cdInvalidAsk's fail-closed posture for every other
+// closed (ASK), matching cdInvalidDefer's fail-closed posture for every other
 // relative operand. An absolute glob (`/abs/*.md`) is unaffected by
 // cwdInvalid, since it needs no cwd to resolve.
 func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {

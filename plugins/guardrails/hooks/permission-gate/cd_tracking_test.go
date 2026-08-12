@@ -95,7 +95,7 @@ func TestCdTrackingDynamicCdFailsClosed_129(t *testing.T) {
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cat ../x`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#129 dynamic cd must invalidate running cwd and fail closed")
+	wantBucket(t, d, BucketDefer, "#129 dynamic cd must invalidate running cwd and withhold the allow")
 }
 
 // TestCdTrackingAbsoluteOperandUnaffected_129 covers `cd <worktree>/a &&

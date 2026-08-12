@@ -18,9 +18,26 @@
 //     against the EVENT's cwd, with symlink canonicalization on both sides and
 //     fail-closed subprocess handling.
 //
-// Posture: ask-defaulting. The explicit allow set and explicit deny set are
-// small and authoritative; everything uncertain ASKs (fail toward human
-// decision, never toward allow).
+// Posture: three tiers plus a defer middle (#262). The gate buckets a call by
+// what it can do BETTER than the downstream tuned automode evaluator, not by
+// how confident it is:
+//
+//   - DENY with teaching — a known-bad call for which a prescriptive redirect
+//     exists. This tier keeps its value BECAUSE of automode: a defer that
+//     automode denies produces a generic denial, while the gate's deny carries
+//     the redirect prose the model self-corrects on.
+//   - ALLOW with positive grounds — proven read-only operations and contained
+//     writes. This is what keeps the hot path off the evaluator entirely.
+//   - Hard ASK — a short, enumerated human-click tier: publish verbs,
+//     history-destroying pushes, credential/secret reads. Policy, not
+//     classification; an LLM must not be able to waive these.
+//
+// Everything else — the whole judgment middle, including every "the gate
+// cannot statically classify this" arm — DEFERS, carrying the gate's analysis
+// into the §7 log for the evaluator's tuning. The old ask-default is gone: a
+// gate ask is a guaranteed hard prompt that BYPASSES the smartest layer in the
+// stack, so spending one on uncertainty bought prompt fatigue rather than
+// safety.
 package main
 
 import (
@@ -61,9 +78,12 @@ func main() {
 
 	d := classify(ev)
 
-	// Log every ASK (and every DENY) for rule evolution (§7). Logging failure
-	// must never change the verdict, so errors are swallowed inside logEvent.
-	if d.Bucket == BucketAsk || d.Bucket == BucketDeny {
+	// Log every ASK, DENY and DEFER for rule evolution (§7). DEFER is logged
+	// because it is now the judgment middle's terminal, and the log is the feed
+	// for tuning the evaluator those calls land in: a deferred call that
+	// appears nowhere is a call nobody can tune for. Logging failure must never
+	// change the verdict, so errors are swallowed inside logEvent.
+	if d.Bucket == BucketAsk || d.Bucket == BucketDeny || d.Bucket == BucketDefer {
 		logEvent(ev, d)
 	}
 
@@ -71,17 +91,18 @@ func main() {
 }
 
 // classify routes the event to the right engine and returns a Decision.
-// It NEVER returns BucketAllow for an uncertain call: the residual is ASK.
+// It NEVER returns BucketAllow for an uncertain call: the residual is DEFER.
 func classify(ev *Event) Decision {
 	switch {
 	case ev.ToolName == "Bash":
 		cmd, err := ev.bashCommand()
 		if err != nil {
-			// A Bash event we cannot read the command from is fail-closed:
-			// ASK rather than allow (we cannot prove it safe).
-			return ask("bash:unreadable", fmt.Sprintf(
-				"Blocked: could not read the Bash command from this event (%v). "+
-					"Escalating to a human decision (fail-closed).", err))
+			// A Bash event we cannot read the command from: the gate has no
+			// command to classify, so it has nothing a human click would be
+			// better informed by. Defer with the read error as the analysis.
+			return deferJudgment("bash:unreadable", fmt.Sprintf(
+				"could not read the Bash command from this event (%v), so the gate has no command text to "+
+					"classify.", err))
 		}
 		return classifyBash(cmd, ev)
 
@@ -109,14 +130,24 @@ func isFileTool(name string) bool {
 }
 
 // emitDecision writes the verdict on the JSON-stdout / exit-0 channel
-// (Resolved decision 1). A defer with no reason still emits a structured
-// "defer" so the rest of the pipeline proceeds explicitly.
+// (Resolved decision 1). A defer emits a structured "defer" so the rest of the
+// pipeline proceeds explicitly.
+//
+// A defer's reason is DROPPED here. deferJudgment sites carry the gate's
+// analysis for the §7 log, but a deferred call must reach the downstream
+// evaluator exactly as a bare defer does: the gate did not decide, so it puts
+// no words in the judge's mouth, and every defer emits the identical payload
+// whatever its analysis says.
 func emitDecision(d Decision) {
+	reason := d.Reason
+	if d.Bucket == BucketDefer {
+		reason = ""
+	}
 	out := map[string]any{
 		"hookSpecificOutput": map[string]any{
 			"hookEventName":            "PreToolUse",
 			"permissionDecision":       string(d.Bucket),
-			"permissionDecisionReason": d.Reason,
+			"permissionDecisionReason": reason,
 		},
 	}
 	b, err := json.Marshal(out)

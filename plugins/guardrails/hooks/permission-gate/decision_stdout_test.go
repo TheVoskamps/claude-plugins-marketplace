@@ -57,8 +57,12 @@ func TestEveryBucketWritesJSONToStdoutWithExitZero(t *testing.T) {
 		},
 		{
 			// MCP branch: an explicit remote-state mutation escalates to a human.
+			// A hard-ask-tier member. The MCP mutation that used to sit here
+			// moved to DEFER in #262, so this row now names a call the tier
+			// keeps by POLICY — a credential read — which is what makes it a
+			// stable choice rather than one more classification residue.
 			BucketAsk,
-			`{"hook_event_name":"PreToolUse","tool_name":"mcp__example__merge_pull_request","cwd":"/tmp","tool_input":{}}`,
+			`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"gh auth token"}}`,
 		},
 		{
 			// classify's default arm: an unknown tool hands back to the pipeline.

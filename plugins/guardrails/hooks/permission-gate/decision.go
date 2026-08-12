@@ -34,14 +34,26 @@ const (
 	// from the call and the path alone, which is all the gate has.
 	BucketAllow Bucket = "allow"
 	// BucketDeny hard-blocks a known-destructive / boundary-violating call.
+	// Membership requires a PRESCRIPTIVE REDIRECT: a deny reason is fed back to
+	// the model, so the agent self-corrects on its next tool call instead of
+	// stalling. A known-bad call with no allowed spelling to name is not a
+	// deny — it is a dead end, and belongs in BucketDefer.
 	BucketDeny Bucket = "deny"
-	// BucketAsk escalates to a human decision. This is the ask-default for
-	// uncertainty (fail toward human decision, never toward allow).
+	// BucketAsk escalates to a human decision. It is NOT an uncertainty
+	// default: it is a short, enumerated policy tier — the calls fleet policy
+	// says a human must click regardless of how good the downstream judge is
+	// (publish verbs, history-destroying pushes, credential/secret reads). An
+	// LLM must not be able to waive these, which is exactly what a defer would
+	// permit.
 	BucketAsk Bucket = "ask"
 	// BucketDefer hands the call back to the normal permission pipeline
-	// (settings.json allow/deny/ask lists, interactive prompt, etc.). Used
-	// when the gate has no opinion and does NOT want to short-circuit the
-	// rest of the pipeline.
+	// (settings.json allow/deny/ask lists, the tuned automode evaluator, an
+	// interactive prompt). It carries the ENTIRE judgment middle: everything
+	// the gate cannot statically classify, plus the context-dependent remote
+	// mutations. "The gate cannot pin this statically" is precisely where a
+	// context-reading judge outperforms both the gate and a prompt-fatigued
+	// human, so those sites defer WITH the gate's analysis (deferJudgment)
+	// rather than asking.
 	BucketDefer Bucket = "defer"
 )
 
@@ -51,7 +63,13 @@ const (
 type Decision struct {
 	Bucket Bucket
 	// Reason is the §6 teaching message: what was blocked, why, and the
-	// remediation. Required for Deny and Ask; ignored for Defer.
+	// remediation. Required for Deny and Ask.
+	//
+	// A Defer may also carry one — the gate's ANALYSIS of what it could and
+	// could not establish — but it is never emitted on the stdout verdict
+	// (emitDecision blanks it for a defer, so a deferred call reaches the
+	// downstream judge exactly as it did before). It exists for the §7
+	// evolution log, which is the feed for automode re-tuning.
 	Reason string
 	// Operation is a short classified-operation label used for evolution
 	// logging (§7), e.g. "git reset --hard" or "containment:worktree-escape".
@@ -66,3 +84,13 @@ func ask(op, reason string) Decision {
 	return Decision{Bucket: BucketAsk, Reason: reason, Operation: op}
 }
 func deferToPipeline() Decision { return Decision{Bucket: BucketDefer} }
+
+// deferJudgment is deferToPipeline for a site that HAS an account of why it
+// could not decide — an unpinnable path, an unmodelled flag, a remote mutation
+// whose target the gate cannot see. The verdict is identical to a bare defer
+// (the reason is blanked before it reaches stdout); what it adds is the §7 log
+// record, which carries the operation label AND the analysis text so the
+// automode re-tune has the gate's own account of each deferred call.
+func deferJudgment(op, reason string) Decision {
+	return Decision{Bucket: BucketDefer, Reason: reason, Operation: op}
+}
