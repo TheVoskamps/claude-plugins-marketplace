@@ -486,8 +486,8 @@ Do not:
   templates.** The agents read the config and know their own workflow.
   Trust them.
 
-Two further rules govern **findings** wherever you pass them onward —
-into an `issue-fixer` brief or to the human:
+Further rules govern **findings** wherever you pass them onward — into
+an `issue-fixer` brief or to the human:
 
 - **Never pre-set or soften a severity.** A severity is derived
   mechanically from the disprovers' consequence statements (see "Run
@@ -740,7 +740,7 @@ theorem tally. Remove the generator's and every disprover's worktree
 afterwards, serially, like any other subagent's.
 
 That return is a report, and "Report-consumption principle" applies to
-it — with one thing in its favour and one against.
+it — cutting both ways.
 
 In its favour: you write neither the generator's brief nor a
 disprover's. The pipeline fixes both, from parameters you pass
