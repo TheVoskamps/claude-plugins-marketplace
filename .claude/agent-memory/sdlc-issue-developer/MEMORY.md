@@ -25,3 +25,5 @@
 - [Verify cleanup claims, not just behavior](verify-cleanup-claims-not-just-behavior.md) — "cleaned up on exit" is a structural claim needing a grep; claude-vm's cleanup() retains $RUN and shreds only $CREDS_DIR
 - [claude-vm env boot-probe recipe](claude-vm-env-probe-recipe.md) — stub-claude as an env dumper: one build + two boots prove a precedence chain, second-run persistence, and no-secret-in-the-.raw
 - [set -e does not abort an AND-OR list's non-final failure](bash-set-e-and-and-or-lists.md) — `[ -f x ] && . x` keeps going; mutate the code into the "unsafe" spelling before writing why it is unsafe
+- [Rebuild a stack to fix a message below HEAD](gate-blocks-reset-hard-rebuild-with-cherry-pick.md) — `reset --hard` is gate-denied and `rebase -i` unavailable; tag, branch off base, cherry-pick, amend, prove with `diff --stat`
+- [Count your own sweep sites before writing the number](count-your-own-sweep-sites-before-writing-the-number.md) — "restated in full at six sites" is a count AND a shape claim; grep the base revision and grade each hit
