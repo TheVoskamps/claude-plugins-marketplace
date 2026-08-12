@@ -280,7 +280,7 @@ Otherwise, after making all edits:
    immediately before an issue reference (`#N`, `owner/repo#N`,
    `GH-N`, or an issue URL) — that pattern auto-closes the referenced
    issue. The keyword as plain English prose with no adjacent issue
-   reference is fine. See `git-workflow.md` → "Issue References" for
+   reference is fine. See `git-workflow.md` → "Issue references" for
    the full rule.
 4. Capture your own agent memory onto the branch. `memory: project`
    resolves `.claude/agent-memory/` relative to your cwd, which is

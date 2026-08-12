@@ -95,19 +95,17 @@ them when a finding's intent is only clear from its issue.
      it in your report instead of guessing (see "Rules" below) —
      don't silently skip it.
 
-6. Build and lint changed code. The cwd is the worktree root, so most
-   commands run bare. If a step requires running inside a subdirectory,
-   use a **single Bash call** of the form `cd <subdir> && <cmd>`. This
-   is allowed **only when `<cmd>` is not git** — the harness's
-   CVE-2025-59536 gate prompts on `cd <path> && git ...` regardless of
-   context. The lint/build commands below are all non-git, so the
-   pattern is safe for them.
-   - If backend Python files changed: `ruff check .` (or
-     `cd <subdir> && ruff check .` if scoped to a subdirectory)
-   - If frontend files changed: `npm run lint`, then `npm run build`
-     (scope to a subdirectory the same way if needed)
-   - If CDK files changed: `npm run build` (or scoped)
-   - Fix any errors before proceeding.
+6. Build and lint what you changed, with the project's own commands —
+   the ones its `CLAUDE.md`, package scripts, or tool config declare,
+   for the languages the change actually touched. Fix every error
+   before proceeding.
+
+   The cwd is the worktree root, so most commands run bare. If a step
+   requires running inside a subdirectory, use a **single Bash call**
+   of the form `cd <subdir> && <cmd>`. This is allowed **only when
+   `<cmd>` is not git** — the harness's CVE-2025-59536 gate prompts on
+   `cd <path> && git ...` regardless of context, so a build or lint
+   command is safe in that form and a git command is not.
 
 7. Run the test suite: if tests fail and aren't related to your fixes,
    note it.
@@ -119,7 +117,7 @@ them when a finding's intent is only clear from its issue.
    `GH-N`, or an issue URL) — that pattern auto-closes the
    referenced issue. The keyword as plain English prose with no
    adjacent issue reference is fine. See `git-workflow.md` → "Issue
-   References" for the full rule.
+   references" for the full rule.
 
 9. Push the branch (it's already tracking the remote).
 

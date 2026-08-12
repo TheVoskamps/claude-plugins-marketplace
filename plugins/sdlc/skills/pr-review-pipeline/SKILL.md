@@ -129,7 +129,7 @@ one branch — and a batch of one is the ordinary single-issue PR.
 - **Reconcile the claim against the branch.** Invoke
   `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
   skill that parses a branch name and the one place the global
-  issue-to-branch rule in `rules/git-workflow.md` → "Issue References"
+  issue-to-branch rule in `rules/git-workflow.md` → "Issue references"
   is applied. Never parse a branch name and never re-derive the
   resolution yourself. **The set you review against is the resolved
   set it reports.**

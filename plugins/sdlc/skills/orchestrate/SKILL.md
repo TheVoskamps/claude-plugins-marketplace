@@ -153,8 +153,9 @@ Each teammate, at the start of every run, reads `~/.claude/CLAUDE.md`
 get those auto-expanded the way the main session does) and then
 re-reads `.claude/rules/repo-config.md` from its own worktree. Trust
 them to do their own workflow; do not duplicate the agent's own
-runbook in spawn prompts. A spawn prompt is a brief — what to fix,
-where, and why — not a runbook.
+runbook in spawn prompts. A spawn prompt is a brief — what to do and
+under what constraints — not a runbook and not a solution. See
+"Spawn-prompt principle" for the test that decides each line of one.
 
 ## Invocation
 
@@ -257,6 +258,12 @@ Produce an internal analysis with the following for each issue:
 3. **Dependencies**: does this issue depend on another of the issues
    you were given being fixed first?
 4. **Conflicts**: does it touch the same files as another of them?
+
+This analysis is **internal**. You need it to batch — grouping turns
+on shared change surface, and conflict detection between batches is
+impossible without it — and its result goes into the plan table, never
+into a spawn prompt. See "Spawn-prompt principle" below for why
+forwarding it is the error rather than doing it.
 
 ### Grouping: assign issues to batches, then order the batches
 
@@ -399,26 +406,97 @@ once up front.
 
 ### Spawn-prompt principle
 
-Pass only what the agent needs to do its specific task:
+A spawn prompt is a brief: it says what to do and under what
+constraints. It is not a runbook, and it is not a solution. One test
+decides every line in it:
 
-- the batch's issue numbers **in implementation order**, and each
-  issue's title, body, and labels
-- the compound slug (when the batch has two or more members)
-- files-likely-affected (your Phase 1 analysis)
-- branch name (when applicable)
-- PR number (when applicable)
-- review findings, tagged with the member each came from (when
-  applicable)
+- **A standard, a scope boundary, or a decision** is yours to impose —
+  keep it. No agent can derive an owner's ruling, a sequencing choice,
+  or the bar its output has to clear, and a brief that withholds those
+  produces worse work rather than more independent work.
+- **A finding, a location, or an implementation shape** is the agent's
+  to derive — cut it. It derives these from the tree it is about to
+  open, more accurately than your brief can describe them, and
+  supplying them turns its report into an echo of what you already
+  believed.
 
-Do NOT pass:
+Both halves carry weight. Trim the first and briefs go vague; keep the
+second and you get confident-looking corroboration of your own
+hypothesis, wearing the agent's byline — and you can no longer tell the
+difference.
 
-- the resolved repo-config values (the agent re-reads the config itself)
-- generic git workflow instructions
-- end-of-run cleanup steps
-- "use this gh command" templates
-- anything else that belongs in the agent definition
+Pass what the agent cannot derive:
 
-The agents read the config and know their own workflow. Trust them.
+- **Decisions, sequencing, and scope rulings**, including an owner's
+  ruling that some class of work is settled or out of scope for this
+  run. These are the highest-value content a brief carries.
+- **The identifiers that name the work**: the batch's issue numbers in
+  implementation order, the compound slug (when the batch has two or
+  more members), branch name, PR number, head SHA — whichever the task
+  needs.
+- **Review findings to act on**, tagged with the member each came from.
+
+Then let the agent discover the rest.
+
+Do not:
+
+- **Restate anything already durable.** `CLAUDE.md`, `.claude/rules/`,
+  and the agent's own definition are read at the start of every run,
+  so a brief that repeats them is pure cross-surface repetition. If a
+  constraint keeps needing repetition across briefs, the repetition is
+  the signal to make it durable — a PR against `CLAUDE.md` or the
+  agent definition — not to repeat it better.
+- **Name the expected conclusion, the likely dominant move, or where
+  to look.** Naming the finding makes the agent's report an echo of
+  your judgment, which destroys the independence the teammate exists
+  to provide. It also constrains the exploration space the same way
+  leading with examples does.
+- **Run the search.** This is finer than the line above. Imposing a
+  standard the output must meet is your job: *"fix it by adding the
+  missing case, not by softening the sentence — the claim should
+  become true rather than smaller"* states a bar on a genuine fork
+  where both branches are defensible, and it names nothing the agent
+  will find. *"Check the three other figures in that sentence"* is the
+  search, itemised. Keep the first, cut the second.
+- **Specify the implementation.** If the agent is about to open the
+  file, it does not need to be told what is in it — including that its
+  change should match the siblings already there.
+- **Carve away scope the agent definition grants.** Over-specification
+  subtracts as well as adds, and the subtraction leaves no trace in
+  the output: a standing "do NOT edit the PR body" aimed at
+  `doc-updater` is what lets a PR description go stale round after
+  round while the one agent whose job is stale documentation is
+  forbidden to fix it. When a scope constraint is genuinely needed,
+  state the constraint rather than the prohibition — *"do not add,
+  remove, or retarget a closing keyword; touch nothing outside the
+  description"* protects what matters and leaves the agent its remit.
+- **Carry a brief forward.** Write each one from the task, never by
+  editing its predecessor. Adding a constraint feels free and removing
+  one feels risky, so an edited brief's constraint block only ever
+  grows — monotonically, across every round of a long loop, shedding
+  nothing.
+- **Pass resolved repo-config values, generic git-workflow
+  instructions, end-of-run cleanup steps, or "use this `gh` command"
+  templates.** The agents read the config and know their own workflow.
+  Trust them.
+
+Two further rules govern **findings** wherever you pass them onward —
+into an `issue-fixer` brief or to the human:
+
+- **Never pre-set or soften a severity.** A severity is derived
+  mechanically from the disprovers' consequence statements (see "Run
+  the review pipeline"); re-tiering a finding on its way into a brief
+  substitutes your judgment for that derivation, and the fixer gives
+  back the tier you handed it.
+- **Supply consequence, not a consistency checklist.** The question is
+  whether being wrong changes what someone does. A doc claim that
+  teaches a wrong security boundary qualifies; a row-count footnote
+  does not. A checklist of consistency items reliably yields
+  consistency findings, which then read as thoroughness.
+
+Escalation and safety rules belong in durable rules and agent
+definitions, not in per-run prose. A rule that lives only in a brief is
+one long session away from being forgotten.
 
 ### For each wave, spawn one issue-developer per batch, simultaneously
 
@@ -434,22 +512,24 @@ Implementation order (work them in this order): <N1>, <N2>, …
 Compound slug for the branch name: <compound-slug>
 Why these are batched: <the criteria you applied>
 
-For each issue, in that order:
-
-<link-prefix><N1>
-Issue title: <title>
-Issue body: <full body>
-Labels: <labels>
-Files most likely affected based on Phase 1 analysis: <list>
-
-<link-prefix><N2>
-…
-
 Implement the batch end-to-end per your agent definition. Report back:
 PR URL (or equivalent), the issue set the PR closes, branch name, and
 per issue what you implemented, its commit, and its test result — plus
 any member you had to drop and why, and any decisions you made.
 ```
+
+Everything the template carries is an identifier or a decision. It
+deliberately carries **no** issue content and **no** file list:
+
+- The developer reads each issue itself with `/issue-view`, which also
+  surfaces type, slot fields, and relationships that a pasted title /
+  body / labels block omits. Pasting them adds nothing and costs the
+  agent a stale copy to reconcile against the live issue.
+- Your Phase 1 files-likely-affected analysis stays yours. You grepped
+  the repo once, before reading anything; the developer greps the repo
+  it is about to edit. Handing over the weaker analysis anchors the
+  stronger one, and "where to look" is the category the principle
+  above says to cut.
 
 For a batch of one, drop the batch scaffolding: the opening line reads
 "You are fixing issue `<link-prefix><N>` in this repo", and the
@@ -824,7 +904,7 @@ becomes of the dropped issue. Unless the human says otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
   A PR closing a subset of its branch's issue set is sanctioned by
-  `rules/git-workflow.md` → "Issue References", so the PR closes only
+  `rules/git-workflow.md` → "Issue references", so the PR closes only
   the landed subset and the developer names the deferral in the PR
   body.
 - The rest of the loop runs on that subset: `/pr-link-issue`,
@@ -1053,13 +1133,20 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   instead.
 - **Never duplicate agent runbooks in spawn prompts.** Trust the agent
   to read its own definition and the per-repo config.
+- **Never pre-solve a teammate's task in its spawn prompt.** No
+  expected conclusion, and no finding or location **of your own** — a
+  brief carries standards, scope boundaries, decisions, and
+  identifiers, not the answer. Findings the review pipeline produced
+  are not yours and are exempt: relaying them into an `issue-fixer`
+  brief *is* that fixer's task definition, not your search. See
+  "Spawn-prompt principle" for the keep/cut test.
 - **Never instruct a teammate to use a closing keyword adjacent to an
   issue reference.** A closing keyword (`close`/`closes`/`closed`/
   `fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`,
   case-insensitive) **immediately followed by** an issue reference
   (`#N`, `owner/repo#N`, `GH-N`, or issue URL) auto-closes the
   referenced issue and must never appear. See
-  `rules/git-workflow.md` → "Issue References" for the full rule.
+  `rules/git-workflow.md` → "Issue references" for the full rule.
 - **Never run subagent worktree cleanup in parallel.** Cleanup is
   serial within a wave, per Anthropic issue #48927.
 - **Always wait for explicit human confirmation** before starting
