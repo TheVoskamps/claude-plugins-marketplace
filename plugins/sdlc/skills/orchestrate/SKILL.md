@@ -813,9 +813,9 @@ When the review pipeline reports back:
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member. Do not spawn the fixer — no loop
-runs for Lows alone. Relay each Low as the review stated it: a Low you
-soften on the way to the human is a severity you re-tiered, which is
-the pipeline's derivation to make, not yours.
+runs for Lows alone. Relay each Low as the review stated it — the
+never-soften-a-severity rule under "Spawn-prompt principle" governs
+this hand-off as much as a brief.
 
 **If APPROVED with no findings**: No further action needed for this PR.
 
