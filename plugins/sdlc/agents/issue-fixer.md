@@ -113,7 +113,7 @@ them when a finding's intent is only clear from its issue.
    note it.
 
 8. Commit with an imperative message describing the fixes. Closing
-   keywords are governed by `git-workflow.md` → "Issue References",
+   keywords are governed by `git-workflow.md` → "Issue references",
    which you read at start of run: a commit message is never their
    placement.
 

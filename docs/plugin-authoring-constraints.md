@@ -148,7 +148,7 @@ An agent file therefore **cites** such a rule — the rules file, an
 arrow, the section name — and adds only the consequence local to that
 step. The
 closing-keyword rule is the worked instance: `rules/git-workflow.md` →
-"Issue References" owns the keyword list, the reference grammar, and
+"Issue references" owns the keyword list, the reference grammar, and
 the placement policy, while `issue-developer`, `issue-fixer`, and
 `doc-updater` each say at their commit step only that a commit message
 is never a keyword's placement, and `issue-developer` says at its PR

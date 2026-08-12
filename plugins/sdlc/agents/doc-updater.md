@@ -272,7 +272,7 @@ Otherwise, after making all edits:
    nothing else.
 3. Commit with an imperative message describing the doc updates, e.g.
    `Update documentation for self-update workflow`. Closing keywords
-   are governed by `git-workflow.md` → "Issue References", which you
+   are governed by `git-workflow.md` → "Issue references", which you
    read at start of run: a commit message is never their placement.
 4. Capture your own agent memory onto the branch. `memory: project`
    resolves `.claude/agent-memory/` relative to your cwd, which is

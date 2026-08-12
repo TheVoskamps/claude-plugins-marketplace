@@ -389,9 +389,13 @@ leaves everything else to the agent. One test decides any line in it —
 
 - **A standard, a scope boundary, or a decision** → keep. These are
   yours to impose, and no amount of reading the tree yields them.
-- **A finding, a location, or an implementation shape** → cut. The
-  agent derives these better than you can, and supplying them turns
-  its report into an echo of what you already believed.
+- **A finding you reached, a location you found, or an implementation
+  shape** → cut. The agent derives these better than you can, and
+  supplying them turns its report into an echo of what you already
+  believed. A finding that is not yours is the other case: a
+  reviewer's findings, handed to a fixer, are the task definition
+  rather than your search, and the pass-list below carries them
+  locations and all.
 
 Pass what the agent cannot derive:
 
@@ -421,9 +425,9 @@ Do NOT pass:
   `gh` command" templates, and safety rules already transferred into
   `CLAUDE.md` are all this case.
 - **The expected conclusion, the likely dominant move, or where to
-  look.** Naming the finding is what makes the report an echo, and
-  once it is an echo you can no longer tell corroboration from your
-  own hypothesis wearing the agent's byline.
+  look.** Naming the finding you expect is what makes the report an
+  echo, and once it is an echo you can no longer tell corroboration
+  from your own hypothesis wearing the agent's byline.
 - **The search.** Setting the bar is yours; running the search is the
   agent's. This is finer than "don't say what to conclude": a method,
   a technique, a priority-ordered list of things to check, and a
@@ -470,7 +474,10 @@ The section above governs what goes into a brief; this one governs
 what you do with what comes back. The judgment at both ends is yours,
 and a report is **input to your decision, never a substitute for it**.
 Apply this to every teammate's report — developer, doc-updater,
-reviewer, fixer, scrubber alike.
+reviewer, fixer, scrubber alike. What follows is
+`~/.claude/rules/label-uncertainty.md` applied to a surface that rule
+does not itself name: a teammate's report, which is a map of a
+territory you can read yourself.
 
 - **Label provenance when you relay a finding to the human.** "The
   reviewer found X" is a claim of independent corroboration. When your
@@ -881,7 +888,7 @@ becomes of the dropped issue. Unless the human says otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
   A PR closing a subset of its branch's issue set is sanctioned by
-  `rules/git-workflow.md` → "Issue References", so the PR closes only
+  `rules/git-workflow.md` → "Issue references", so the PR closes only
   the landed subset and the developer names the deferral in the PR
   body.
 - The rest of the loop runs on that subset: `/pr-link-issue`,
@@ -1122,12 +1129,15 @@ the reports said:
   working directory. Pass branch name + PR number + the issue set
   instead.
 - **Never over-specify a spawn prompt.** No runbook the agent
-  definition already carries, no durable rule it already reads, no
-  named finding, no location, no search plan. Apply "Spawn-prompt
-  principle" to every brief you write.
+  definition already carries, no durable rule it already reads, none
+  of your own findings or locations, no search plan. A reviewer's
+  findings handed to a fixer are not this case — they are the task
+  you are assigning, so they go across with their locations and
+  per-issue tags intact. Apply "Spawn-prompt principle" to every
+  brief you write.
 - **Never instruct a teammate to write a closing keyword into a commit
   message.** The keyword-adjacent-to-reference pattern and where it is
-  allowed are `rules/git-workflow.md` → "Issue References"; every
+  allowed are `rules/git-workflow.md` → "Issue references"; every
   teammate reads that rule at start of run, so a brief neither
   restates it nor contradicts it.
 - **Never run subagent worktree cleanup in parallel.** Cleanup is

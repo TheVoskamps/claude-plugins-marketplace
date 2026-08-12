@@ -54,6 +54,17 @@ You must be given:
   orchestrator chooses this at plan time and passes it to you. If you
   are given two or more issues and no compound slug, stop and report
   back — do not invent one.
+- **Why the members are batched**, when the list has two or more —
+  the criteria the orchestrator applied when it grouped them. This is
+  a decision only the orchestrator can supply, and it is what tells
+  you which shared surface the members collide on. Its absence is not
+  a stop condition: implement the batch in the order given and say in
+  your report that you were not told.
+
+The list is the minimum, not the whole brief. An orchestrator may also
+pass sequencing it decided, a scope ruling, or an owner decision — see
+the `/sdlc:orchestrate` skill → "Spawn-prompt principle" for what a
+brief may and may not carry.
 
 ## Workflow
 
@@ -130,7 +141,7 @@ You must be given:
 7. Commit with an imperative commit message, naming the member the
    commit implements — a `References: <issue-ref>` trailer is the
    canonical form. Closing keywords are governed by
-   `git-workflow.md` → "Issue References", which you read at start of
+   `git-workflow.md` → "Issue references", which you read at start of
    run: a commit message is never their placement.
 
 8. **Do the per-PR side effects once, at the end** — after the last
@@ -163,7 +174,7 @@ You must be given:
       too stays inert while the PR is draft.
     - The closing keywords in the **PR body** are REQUIRED, not
       forbidden — the PR body is the one placement `git-workflow.md` →
-      "Issue References" sanctions, and `/pr-create` writes them for
+      "Issue references" sanctions, and `/pr-create` writes them for
       you. Check what it wrote against that rule rather than
       re-deriving the rule here.
     - The orchestrator also calls `/github-prs:pr-link-issue <PR>
@@ -243,7 +254,7 @@ The batch does not die with the member. The default remedy:
 - The members you already committed **stay**. Do not revert them.
 - The branch **keeps its name**. A PR closing a subset of its
   branch's issue set is sanctioned by `rules/git-workflow.md` →
-  "Issue References" — see that rule — so there is nothing to rename
+  "Issue references" — see that rule — so there is nothing to rename
   on a branch that already carries commits.
 - The PR closes **only the landed subset**: pass just those members to
   `/github-prs:pr-create`, and name the dropped issue and the reason
