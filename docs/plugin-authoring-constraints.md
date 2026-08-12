@@ -210,6 +210,21 @@ time, running several in parallel only when each has a branch of its
 own. An agent that only *reads* the branch and can be spawned more
 than once concurrently must detach.
 
+**The spawning session fetches; the fan-out does not.** The same shared
+ref store makes `git fetch origin` a contended write: k siblings
+fetching at once compete for one `.git`, and a loser of that lock race
+fails rather than waiting. So run the fetch once, in the session that
+spawns, and give each agent enough to skip its own — the pipeline reads
+the PR's `headRefOid` alongside `headRefName`, fetches, confirms
+`origin/<branch>` carries that commit, and passes `--head-sha` and
+`--fetched yes` in every disprover brief. A parameter of that kind is
+an assertion about what the caller did, so the agent that receives it
+must still work without it: `theorem-disprover` fetches whenever the
+brief carries neither parameter, the ref is missing, or the SHA
+differs, which is what keeps a standalone run correct. See
+`docs/verification-playbook.md` → "Skip the fetch when
+`origin/<branch>` already matches".
+
 ### Plugin grouping heuristics
 
 - Keep a skill/orchestrator and the agents it spawns in the **same

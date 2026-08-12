@@ -9,7 +9,7 @@ plugin change without a version bump is incomplete.
 
 ## Settle a claim with the playbook, not by reasoning
 
-Three `/docs` files carry the techniques that establish a fact about
+The `/docs` playbooks carry the techniques that establish a fact about
 this repo's code — how to build the harness, what control each probe
 needs, and which convincing-sounding shortcuts measure the wrong
 thing. Read the matching one before asserting behavior you have not
@@ -73,7 +73,7 @@ than denying it, so the gate is not the backstop for this — the rule
 is. The prohibition is on establishing behavior; publishing a PR or a
 comment the task actually asks for is ordinary work.
 
-The two questions that tempt an agent into one both have a safe answer:
+The questions that tempt an agent into one each have a safe answer:
 
 - **A gate verdict** is settled by replaying a synthetic `PreToolUse`
   event against the built `permission-gate` binary. No verdict
@@ -136,6 +136,17 @@ pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
 generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
 does not pass.
+
+The briefs the pipeline writes are a two-sided contract, and both
+sides are prose. A double-dash parameter added to, removed from, or
+redefined in a generator or disprover brief lands in the pipeline's
+brief block *and* in the receiving agent's "Inputs" list — plus, when
+the parameter changes what a step does, in that step itself:
+`--head-sha` and `--fetched yes` are described in the pipeline's
+fan-out step and again in `theorem-disprover`'s step 1, which decides
+from them whether to fetch. Grep the parameter name across
+`plugins/sdlc/` rather than editing the end that the change started
+from.
 
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step

@@ -120,9 +120,8 @@ with `fatal: bad revision` — cannot occur.
       lock from a returned or crashed subagent — run
       `git worktree unlock <path>` then re-run
       `git worktree remove <path>` (no `--force`). If the lock reason
-      does
-      not match the harness shape, or the uncommitted/unpushed check
-      above failed, skip and report — do not unlock and do not
+      does not match the harness shape, or the uncommitted/unpushed
+      check above failed, skip and report — do not unlock and do not
       force-remove.
    b. Delete the local branch (`git branch -D`).
       (Safe because step 3 already confirmed the PR was merged AND the
@@ -137,7 +136,7 @@ with `fatal: bad revision` — cannot occur.
    produces branch names matching `worktree-*` (e.g.
    `worktree-agent-a39b0297dc3421b9e`).
 
-   Enumerate candidates in two passes:
+   Enumerate candidates in these passes:
 
    a. **Pass 1 — worktrees that still exist.** List all worktrees
       under `.claude/worktrees/` whose checked-out branch matches
@@ -162,8 +161,8 @@ with `fatal: bad revision` — cannot occur.
       subagent has already returned), this is a stale end-state lock
       and the canonical cleanup is `git worktree unlock <path>`
       followed by `git worktree remove <path>` (no `--force`). If the
-      lock reason does
-      not match the harness shape, or the PID is still alive (the
+      lock reason does not match the harness shape, or the PID is
+      still alive (the
       subagent may be mid-run), **skip and report** — do not unlock
       a live subagent's worktree and do not force-remove. `--force`
       remains reserved for the data-loss carve-out (uncommitted work
