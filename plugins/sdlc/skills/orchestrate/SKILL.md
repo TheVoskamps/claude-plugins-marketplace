@@ -783,9 +783,8 @@ counterexample refuted by verification, the number that says what the
 verification stage bought that round. What the tally enumerates, and
 which of its counts never reach severity, is the pipeline skill's own
 "Report back" section; this summary defers to it rather than
-restating it. Remove the generator's,
-every disprover's, and every verifier's worktree afterwards, serially,
-like any other subagent's.
+restating it. Remove the generator's, every disprover's, and every
+verifier's worktree afterwards, serially, like any other subagent's.
 
 That return is a report, so read it per "Report-consumption
 principle" — which cuts both ways here.

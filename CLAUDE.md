@@ -162,14 +162,22 @@ One vocabulary spans three of those files instead of two: the
 consequence-class tokens. `theorem-disprover` proposes one,
 `counterexample-verifier` confirms or corrects it, and the pipeline
 transcribes it into a severity. The *tokens* appear in all three
-files, but the defining glosses — what each class means — live in the
-two agent files only; the pipeline carries the bare tokens in its
-class-to-severity table and nothing more. Only the pipeline states
-that mapping, and the two agent files say outright that the severity
-is not theirs to argue. So adding, renaming, or removing a class edits
-all three files — the gloss in each agent file, the token in the
-pipeline's table — and a severity table appearing in an agent file is
-the defect this split exists to prevent.
+files: glossed in the two agent files, bare in the pipeline's
+class-to-severity table. Only the pipeline states that mapping, and
+the two agent files say outright that the severity is not theirs to
+argue. So adding, renaming, or removing a class edits all three files
+— the gloss in each agent file, the token in the pipeline's table —
+and a severity table appearing in an agent file is the defect this
+split exists to prevent.
+
+The glosses themselves have a fourth home, which a token grep does not
+reach: the pipeline's "The two findings that carry no class" section
+restates those same definitions against the **severity** names,
+because step 2's findings come from no theorem and no verifier grades
+them. Those bullets say outright that they are "the same ones the
+classes name", so a change to what a class *means* — as opposed to
+what it is called — edits them too, and they are the surface that
+silently keeps the old meaning.
 
 On any brief or spawn-template widening — the pipeline's briefs and
 the orchestrator's teammate templates alike — the receiving side is
