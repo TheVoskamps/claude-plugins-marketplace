@@ -268,11 +268,19 @@ Produce an internal analysis with the following for each issue:
 This analysis is **internal**. You need it to batch — grouping turns
 on shared change surface, and conflict detection between batches is
 impossible without it — and what it yields surfaces to the human in
-the plan table: complexity in its own column, dependencies, conflicts
-and the batching rationale in the Notes column, the file list only
-where a conflict names the file two batches collide on. None of it
-goes into a spawn prompt. See "Spawn-prompt principle" below for why
-forwarding it is the error rather than doing it.
+the plan table: complexity in its own column, dependencies and
+conflicts in the Notes column, the file list only where a conflict
+names the file two batches collide on. None of those four goes into a
+spawn prompt. See "Spawn-prompt principle" below for why forwarding
+them is the error rather than doing the analysis.
+
+What the analysis *feeds* — the grouping decision — is the exception,
+because a decision is yours to impose rather than a finding to hand
+over. It reaches the human twice, on the plan's `Batch criteria
+applied` line and in the Notes cells that say why a row was batched,
+and it is the one thing here that also travels in a brief: the
+developer spawn template's `Why these are batched` line, which
+`issue-developer`'s "Inputs" takes as context for its scope calls.
 
 ### Grouping: assign issues to batches, then order the batches
 
@@ -1138,8 +1146,13 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
 Every cell in those tables is a claim to the human, and most of them
 arrive from a teammate's report rather than from something you
 observed — the `Doc Changes` list is `doc-updater`'s account of its
-own commit, the `Review Verdict` and `Review Rounds` are the
-pipeline's. Fill them per "Report-consumption principle":
+own commit, and the `Review Verdict` and the severity detail behind it
+are the pipeline's. `Review Rounds` is the cell that is genuinely
+yours: the pipeline reports one round's verdict, tally and tier and
+never a round count, so the number is your own tally of loop
+iterations, while the parenthetical explaining it draws on the
+pipeline's severity line and the fixer's report. Fill them per
+"Report-consumption principle":
 
 - The PR column and the verdict are load-bearing — the human decides
   whether to merge on them — so verify them against the live PR rather
