@@ -42,7 +42,9 @@ You must be given:
 - PR number (for the diff fetch via `/github-prs:pr-diff`)
 - Issue number(s) (for context — the issue set this PR closes; one
   number for an ordinary single-issue PR, several when the PR delivers
-  a batch)
+  a batch). Each number may arrive with its issue's title attached, as
+  a human-readable tag on the number rather than issue content to work
+  from
 - Branch name (`<branch-name>`) — you check this out before making changes
 
 This agent works purely from the **PR diff** (the committed code
