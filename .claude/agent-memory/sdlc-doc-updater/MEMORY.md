@@ -76,6 +76,10 @@
   — retiring an agent leaves issues/lib repo-config's per-field consumer
   claims and "previously performed / mirrors what" history sentences false;
   no sdlc file pins schema-version, whatever that lib says.
+- [de-specify round leftovers](project_de-specify-round-leftovers.md)
+  — moving a value into one file leaves ragged paragraph wrapping,
+  an unmeasured "no other file spells it" claim, and cross-plugin
+  consumer prose crediting the wrong caller.
 - [Qualifier that contradicts the next paragraph](feedback_qualifier-that-contradicts-the-next-paragraph.md)
   — a first exception gets patched with a vague hedge ("every teammate
   you spawn by name") that still includes the exception; read the
