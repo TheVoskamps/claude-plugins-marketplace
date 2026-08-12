@@ -151,6 +151,16 @@ from them whether to fetch. Grep the parameter name across
 `plugins/sdlc/` rather than editing the end that the change started
 from.
 
+On any brief or spawn-template widening — the pipeline's briefs and
+the orchestrator's teammate templates alike — the receiving side is
+the half that stays stale, and the half to check is the bullet *list*
+under that agent's `## Inputs`, not the prose around it. A widening is
+often argued by quoting that prose, which reads like checking the
+other end: the quoted sentence can be true while the enumeration above
+it still omits the new field. Match the list against the template
+block field by field and repair on the receiving side, since the
+template is what actually gets sent.
+
 The orchestrator's own teammate briefs are two-sided the same way, and
 the load-bearing side is what a brief may **not** carry.
 `issue-developer`'s "Inputs" states that nothing of an issue's

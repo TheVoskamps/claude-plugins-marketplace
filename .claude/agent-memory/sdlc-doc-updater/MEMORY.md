@@ -10,10 +10,6 @@
   agent's definition lacks, and a "goes into `<artifact>`" the template
   only partly carries. Check both against the file, not the rule.
 
-- [A two-sided brief: the receiving list](project_two-sided-brief-the-receiving-list.md)
-  — a widened spawn template in orchestrate/SKILL.md cites the agent's Inputs
-  prose as sanction while that Inputs bullet list still omits the new field.
-
 - [Branch claimed by a manual-test worktree](feedback_branch-claimed-by-a-manual-test-worktree.md)
   — checkout fails naming Edwin's live test worktree: detach at
   `origin/<branch>`, push `HEAD:<branch>`, skip the branch -D. Never remove it.
