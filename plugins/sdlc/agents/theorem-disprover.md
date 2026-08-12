@@ -38,6 +38,11 @@ Your brief carries exactly these double-dash parameters:
 - `--branch <name>` — the PR's head branch. This is what step 1 checks
   out; without it you have no branch to settle the claim against, so
   stop and say so rather than reading the branch from GitHub yourself.
+- `--head-sha <oid>` — optional. The PR's head commit. When your
+  `origin/<branch>` already points at it, there is nothing to fetch.
+- `--fetched yes` — optional. The caller fetched `origin` in its own
+  session immediately before spawning you, so the ref store is already
+  current.
 - `--theorem T<k>` — the handle to report back under.
 - `--claim <text>` — the one claim you try to disprove.
 - `--issues <N…>` — the member issue(s) the theorem is tagged to.
@@ -73,16 +78,42 @@ calls in a subagent context.
 
 1. **Check out the PR's head commit first, detached.**
 
+   Check whether you need to fetch at all before you fetch:
+
+   ```bash
+   git rev-parse origin/<branch>
+   ```
+
+   When that succeeds and its output equals `--head-sha` — or the ref
+   resolves and your brief carries `--fetched yes` with no
+   `--head-sha` — the ref store already carries the head commit. Skip
+   the fetch entirely and go straight to:
+
+   ```bash
+   git checkout --detach origin/<branch>
+   ```
+
+   Otherwise — neither parameter in your brief, the ref missing, or
+   the SHA different — fetch first:
+
    ```bash
    git fetch origin && git checkout --detach origin/<branch>
    ```
 
+   Skipping the redundant fetch is not just a saved second. You are
+   one of k disprovers running at once in k worktrees of one repo, and
+   those worktrees share that repo's single ref store: k concurrent
+   fetches contend for the same `.git`, and a loser of that lock race
+   fails outright rather than waiting. The pipeline fetches once
+   before it fans out and tells you so with `--fetched yes`, so on
+   that path the check above passes and no disprover fetches at
+   all. Run standalone, with neither parameter, you fetch — the ref
+   may be stale or absent, and one fetch racing nothing is free.
+
    A fresh worktree can start on the base branch, so a build, a test
    run, or a binary inspected before this checkout measures base code
    rather than the change — and a test suite for new code often will
-   not even compile there. If `git rev-parse origin/<branch>` already
-   matches the PR's `headRefOid`, skip the fetch and detach from the
-   ref you already have.
+   not even compile there.
 
    `--detach` is not a style choice, it is what makes the fan-out
    possible. Every worktree of a repo shares one ref store, and a

@@ -107,11 +107,13 @@ value.
 ### 1. Read the PR's shape
 
 ```bash
-gh pr view <PR> --json headRefName,body,changedFiles,additions,deletions
+gh pr view <PR> --json headRefName,headRefOid,body,changedFiles,additions,deletions
 ```
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
-review body reports. `headRefName` and `body` feed step 2. Do not
+review body reports. `headRefName` and `body` feed step 2;
+`headRefOid` feeds step 4's single fetch and each disprover's brief.
+Do not
 fetch the diff — see "Why the diff never lands in your context" above.
 
 ### 2. Identify the issue set this PR is for
@@ -207,8 +209,24 @@ yourself — you are not a source of theorems.
 
 ### 4. Fan out one disprover per theorem, in parallel
 
-Spawn one `theorem-disprover` per theorem, **all in a single message
-block** so they run concurrently, each with
+**Fetch once, here, before you spawn anything.** The k disprovers run
+in k worktrees of one repo, and those worktrees share that repo's
+single ref store — so k concurrent `git fetch origin` calls contend
+for the same `.git`, and the loser of a lock race fails rather than
+waiting. Run the fetch yourself, in this session, and confirm the ref
+carries the head commit step 1 read:
+
+```bash
+git fetch origin
+git rev-parse origin/<headRefName>   # must equal <headRefOid>
+```
+
+If it does not match, the branch moved between step 1 and now: re-read
+the PR's shape (step 1) and restart the review from step 2 against the
+new head, rather than reviewing a mix of two trees.
+
+Then spawn one `theorem-disprover` per theorem, **all in a single
+message block** so they run concurrently, each with
 `run_in_background: false`. One disprover per theorem is the starting
 point; if missed counterexamples show up in practice, N disprovers per
 theorem is a one-line change here.
@@ -221,20 +239,21 @@ Route the model by the theorem's class:
 - **`semantic`** — pass no `model`, so the spawn uses the disprover's
   declared `model: sonnet`.
 
-This per-theorem downshift is deliberate and is **not** the
-orchestrator's raise-only rule for teammate spawns (see the
-`/sdlc:orchestrate` skill → "Token Efficiency"). That rule keeps a
-teammate from being quietly under-resourced for feature work it owns;
-here the frontmatter default is the *ceiling* for a class of theorem
-the design has already decided is cheap. If a harness ever refuses to
-route below the declared default, the mechanical spawn simply runs at
-sonnet: costlier, never wrong.
+This per-theorem routing is deliberate. A frontmatter `model:` is a
+default, not a floor or a ceiling — the `Agent` tool's `model`
+parameter may name a lower, higher, or equal model for a single spawn
+— so `mechanical` naming haiku is an ordinary use of that parameter
+for a class of theorem the design has already decided is cheap. If a
+harness ever refuses to route below the declared default, the
+mechanical spawn simply runs at sonnet: costlier, never wrong.
 
 Each disprover's brief is one theorem and nothing more:
 
 ```text
 --pr <PR_N>
 --branch <headRefName>
+--head-sha <headRefOid>
+--fetched yes
 --theorem T<k>
 --claim <the claim, verbatim from the generator's record>
 --issues <the member(s) the theorem is tagged to>
@@ -254,6 +273,14 @@ this fan-out possible at all: worktrees of one repo share a single ref
 store and a branch can be checked out in only one of them at a time,
 so an attached checkout would leave k−1 of your k disprovers dead at
 `fatal: '<branch>' is already used by worktree at '…'`.
+
+`--head-sha` and `--fetched yes` are what keep the fetch you just ran
+from being run k more times: a disprover given both, and finding
+`origin/<branch>` already at that SHA, checks out straight from the
+ref it has. Pass them only when you really did fetch in this session —
+a disprover told `--fetched yes` against a ref that is behind would
+review the wrong tree, so the honest omission costs one fetch and the
+dishonest claim costs the whole round.
 
 Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a

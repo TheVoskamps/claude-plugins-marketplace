@@ -94,9 +94,9 @@ the `effort: medium` default, stated in the paragraph below
 and again under "Token Efficiency": raising or lowering any teammate's
 `effort:` falsifies both of those and must update them in the same PR.
 The two keys are not equally adjustable at spawn time. The `Agent` tool takes a
-per-invocation `model` parameter, and a per-call `model` override may
-only **raise** an agent above its declared frontmatter default for a
-single spawn, never lower it — the frontmatter is the floor. There is
+per-invocation `model` parameter, so an agent's frontmatter `model:` is
+a **default**, not a floor or a ceiling: a spawn may name a lower, a
+higher, or the same model for that one call. There is
 no `effort` equivalent on the `Agent` tool: a subagent's effort
 resolves from environment variable, then frontmatter, then the
 spawning session, then the model default, so **effort cannot be
@@ -112,8 +112,7 @@ spec-driven tasks the teammates receive, because Phase 1 and the issue
 bodies already carry the plan, and surplus reasoning budget gets spent
 generating candidate findings rather than better answers. So when an
 issue is genuinely hard, escalate that single spawn with the per-call
-`model` override described above — raise-only. Effort never varies per
-spawn.
+`model` override described above. Effort never varies per spawn.
 
 Theorem generation is the one job that ships pre-built alternatives to
 that default, and it does not bend the rule: `theorem-generator-high`
@@ -125,12 +124,12 @@ generator spends it enumerating claims to check rather than hunting
 findings: a surplus theorem costs one cheap disproof attempt, where a
 surplus finding cost a human a triage.
 
-The `theorem-disprover` inverts the raise-only rule on purpose, and it
-is the one place that happens. Its `model: sonnet` is a **ceiling**
-for a cheap class of work: the pipeline passes `model: haiku` on the
-spawn for a `mechanical` theorem, because a grep-shaped claim is
-settled by running the grep. That downshift is confined to the
-pipeline's fan-out and never applies to a teammate spawn you make.
+The `theorem-disprover` is where a per-spawn `model` is routed rather
+than fixed. Its frontmatter `model: sonnet` is the default the pipeline
+uses for most theorems; the pipeline passes `model: haiku` on the spawn
+for a `mechanical` theorem, because a grep-shaped claim is settled by
+running the grep. That routing is confined to the pipeline's fan-out
+and never applies to a teammate spawn you make.
 
 Each agent still pins its own `effort:` in frontmatter, because a
 subagent frontmatter with no `effort:` key inherits the effort level of
@@ -537,12 +536,13 @@ git worktree unlock .claude/worktrees/<name>
 git worktree remove .claude/worktrees/<name>
 ```
 
-See `~/.claude/rules/worktree-cleanup.md` for the full rule,
-including the cases where unlock-then-remove is **not** allowed
-(subagent still mid-run, lock reason doesn't match the standard
-harness shape, or the worktree has uncommitted work / unpushed
-commits — that last case is the genuine data-loss case and needs
-human approval).
+Unlock-then-remove is **not** allowed when the subagent is still
+mid-run, when the lock reason doesn't match the standard harness
+shape, or when the worktree has uncommitted work / unpushed commits —
+that last case is the genuine data-loss case and needs human
+approval. The `/git-tools:git-cleanup-branches-and-worktrees` skill
+applies the same pattern, with the same skip-and-report conditions,
+when you want a whole-repo sweep rather than one worktree.
 
 Track a "worktrees cleaned" count for the final report.
 
@@ -686,8 +686,9 @@ member)**:
 
 3. After issue-fixer returns, remove its worktree
    (`git worktree remove ...`, or unlock-then-remove if the harness
-   left a stale end-state lock — see
-   `~/.claude/rules/worktree-cleanup.md`) before spawning the next
+   left a stale end-state lock — the unlock-then-remove pattern is
+   spelled out under "After each issue-developer or issue-fixer:
+   doc-updater, then review" above) before spawning the next
    subagent.
 4. Spawn `doc-updater` against the branch, with the same spawn prompt
    as after the developer's round (see "After each issue-developer or
@@ -1000,7 +1001,7 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
     NOT the right tool for routine end-of-wave cleanup of a
     locked worktree whose subagent has returned — use
     `git worktree unlock` then plain `git worktree remove`
-    instead (see `~/.claude/rules/worktree-cleanup.md`).
+    instead.
   - `git branch -D` of a feature branch while a subagent still
     holds it
   - Resuming an escalated subagent via `SendMessage` (always
@@ -1013,8 +1014,9 @@ To start the sequential queue, reply: "continue with <link-prefix>103"
   decision belongs to the human. Routine end-of-wave cleanup of a
   *returned* subagent's worktree — including unlocking the harness's
   stale end-state lock — is allowed orchestration mechanics; see
-  `~/.claude/rules/worktree-cleanup.md` for the canonical pattern
-  and "What the orchestrator IS allowed to do" below.
+  "What the orchestrator IS allowed to do" below for the canonical
+  pattern, and the `/git-tools:git-cleanup-branches-and-worktrees`
+  skill for the whole-repo sweep of the same shape.
 - **Never run subagents in the background.** Permission requests and
   escalations need to bubble up to the human in real time. This
   covers both `run_in_background: true` on initial spawn AND
@@ -1088,7 +1090,7 @@ itself:
   `git worktree remove <path>` when the worktree carries the
   harness's stale end-of-run lock (lock reason matches
   `claude agent agent-<hash> (pid NNNN)` and the subagent has
-  returned — see `~/.claude/rules/worktree-cleanup.md`),
+  returned),
   `git branch -D` for the same returned-subagent case, `git push`
   of an agent's work that the agent committed but couldn't push
   due to a credential prompt (rare). Force-removal (`-f` / `-f -f`)
@@ -1274,18 +1276,20 @@ These carve-outs keep this rule from being over-broad:
   bounded, spec-driven tasks the teammates receive. For a genuinely
   hard issue, escalate that single spawn to a stronger model via the
   `Agent` tool's per-call `model` override rather than editing front
-  matter; an override may only raise a teammate above its declared
-  default, never lower it. Changing an effort is always a frontmatter
+  matter; the frontmatter `model:` is a default, and an override may
+  name a lower, higher, or equal model for that one spawn. Changing an
+  effort is always a frontmatter
   edit plus an `sdlc` version bump, and it changes every spawn of that
   agent — it is not a per-run lever. Review is the exception in
   *selection*, not in mechanism: `theorem-generator-high` and
   `theorem-generator-xhigh` are separate definitions pinning
   `effort: high` and `effort: xhigh`, so a costlier review is bought
   by naming a different generator (see "Picking a generator tier"),
-  never by an effort override. The one downward `model` route is the
-  pipeline's own, described above: `theorem-disprover`'s sonnet is a
-  ceiling and the pipeline routes haiku to `mechanical` theorems. That
-  is inside the pipeline's fan-out, not a teammate spawn you make.
+  never by an effort override. The pipeline routes a `model` per spawn
+  of its own, described above: `theorem-disprover` declares
+  `model: sonnet` and the pipeline passes haiku for `mechanical`
+  theorems. That is inside the pipeline's fan-out, not a teammate spawn
+  you make.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only
 - If the run is large (>8 issues across all batches), split into two

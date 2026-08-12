@@ -7,6 +7,30 @@ that plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`,
 in the same PR. The version bump is a separate, deliberate edit. A
 plugin change without a version bump is incomplete.
 
+## Settle a claim with the playbook, not by reasoning
+
+Three `/docs` files carry the techniques that establish a fact about
+this repo's code — how to build the harness, what control each probe
+needs, and which convincing-sounding shortcuts measure the wrong
+thing. Read the matching one before asserting behavior you have not
+run:
+
+- [`docs/guardrails-verification-playbook.md`](docs/guardrails-verification-playbook.md)
+  — binary provenance (recipe rebuild, `nm` tables, build IDs,
+  comment-only rounds), synthetic `PreToolUse` probing, flag-whitelist
+  audits, and row-cross replays.
+- [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
+  — non-booting vfkit probes, privileged-container mount semantics,
+  probe-container/guest package parity, mkosi source checks, and
+  launcher-loop slicing.
+- [`docs/verification-playbook.md`](docs/verification-playbook.md) —
+  cross-domain: suite baselining and hybrid-tree negative controls,
+  bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,
+  rebase verification, and lint baselining.
+
+They record technique, not policy: when a playbook step and a rule
+here disagree, the rule wins and the playbook is the thing to fix.
+
 ## MD041 on a SKILL.md is convention, not debt
 
 `npx markdownlint-cli2` reports
@@ -183,10 +207,11 @@ names.
 `theorem-disprover` is deliberately **not** a skeleton set. It has one
 definition and no tiers, and its instructions live in the agent file
 because there is no sibling to drift from. What varies per spawn is
-its `model`, which the pipeline routes by theorem class — and that is
-a downshift below the declared `model: sonnet`, the one place in
-`sdlc` where a spawn goes below a frontmatter default rather than
-above it.
+its `model`, which the pipeline routes by theorem class. A frontmatter
+`model:` is only a default — the `Agent` tool's `model` parameter may
+name a lower, higher, or equal model on any spawn — so `model: sonnet`
+in the disprover's frontmatter is what an unrouted spawn gets, not a
+bound on what the pipeline may pass.
 
 ## Review writes nothing, so review lore is a PR
 
@@ -240,7 +265,13 @@ itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin or `/docs` markdown describes it. Its one in-plugin sibling is
+plugin describes it. `docs/guardrails-verification-playbook.md` is the
+one `/docs` surface that does, and it names verdicts only as the
+*controls a probe needs* — which track terminates in allow and which in
+defer, which probe rows must still deny, which spellings a widening
+already allowed on the base. A verdict change that moves any of those
+control rows updates it; grep it for `deny`, `allow`, `defer` and
+`ask` alongside the README. The gate README's one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
 verdicts only where they decide **which destination an agent should
 write a scratch file to** — the containment and `.git/` denies, their
@@ -329,6 +360,10 @@ comment, which restates the same rule in one line —
 `-o rw` comment, `skills/claude-vm/SKILL.md`, and
 `skills/claude-vm-config-repo/SKILL.md`. `payload/test/config-test.sh`
 pins the abort in every spelling.
+`docs/claude-vm-verification-playbook.md` carries the vfkit and
+kernel measurements the claim rests on — that virtio-fs has no
+read-only knob, and that guest root remounts a `ro` bind `rw` — so
+enforced read-only lands there too, as the measurement that changed.
 
 A `read-only` grep across `plugins/claude-vm/` also turns up a second,
 opposite class, and the two are easy to conflate: the **built-in** shares

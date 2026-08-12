@@ -119,8 +119,8 @@ with `fatal: bad revision` — cannot occur.
       here, since we're inside step 4)), this is a stale end-state
       lock from a returned or crashed subagent — run
       `git worktree unlock <path>` then re-run
-      `git worktree remove <path>` (no `--force`). See
-      `~/.claude/rules/worktree-cleanup.md`. If the lock reason does
+      `git worktree remove <path>` (no `--force`). If the lock reason
+      does
       not match the harness shape, or the uncommitted/unpushed check
       above failed, skip and report — do not unlock and do not
       force-remove.
@@ -161,8 +161,8 @@ with `fatal: bad revision` — cannot occur.
       (`kill -0 <pid>` fails — the harness exited uncleanly or the
       subagent has already returned), this is a stale end-state lock
       and the canonical cleanup is `git worktree unlock <path>`
-      followed by `git worktree remove <path>` (no `--force`). See
-      `~/.claude/rules/worktree-cleanup.md`. If the lock reason does
+      followed by `git worktree remove <path>` (no `--force`). If the
+      lock reason does
       not match the harness shape, or the PID is still alive (the
       subagent may be mid-run), **skip and report** — do not unlock
       a live subagent's worktree and do not force-remove. `--force`

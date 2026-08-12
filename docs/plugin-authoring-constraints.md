@@ -202,12 +202,13 @@ reads a line of code, and a standalone run hits the same wall whenever
 the primary clone happens to be sitting on that branch. Write
 `git checkout --detach origin/<branch>` instead — identical tree, no
 claim taken — and the agent's end-of-run cleanup then has no claim to
-release. This applies to any agent that both reads a branch and can be
-spawned more than once concurrently; an agent that *commits* to the
-branch (`issue-developer`, `issue-fixer`, `doc-updater`) still needs
-an attached checkout, and never more than one of them holds a given
-branch at a time — `sdlc` runs several in parallel only when each has
-a branch of its own.
+release. Decide by what the agent does with the branch, not by which
+agent it is: an agent that *commits* to the branch needs an attached
+checkout and therefore cannot be fanned out over that branch at all —
+its caller guarantees at most one such agent holds a given branch at a
+time, running several in parallel only when each has a branch of its
+own. An agent that only *reads* the branch and can be spawned more
+than once concurrently must detach.
 
 ### Plugin grouping heuristics
 
