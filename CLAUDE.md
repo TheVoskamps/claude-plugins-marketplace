@@ -151,6 +151,43 @@ from them whether to fetch. Grep the parameter name across
 `plugins/sdlc/` rather than editing the end that the change started
 from.
 
+On any brief or spawn-template widening — the pipeline's briefs and
+the orchestrator's teammate templates alike — the receiving side is
+the half that stays stale, and the half to check is the bullet *list*
+under that agent's `## Inputs`, not the prose around it. A widening is
+often argued by quoting that prose, which reads like checking the
+other end: the quoted sentence can be true while the enumeration above
+it still omits the new field. Match the list against the template
+block field by field and repair on the receiving side, since the
+template is what actually gets sent.
+
+The orchestrator's own teammate briefs are two-sided the same way, and
+the load-bearing side is what a brief may **not** carry.
+`issue-developer`'s "Inputs" states that nothing of an issue's
+*content* reaches it, and SKILL.md's spawn-prompt template carries no
+title, body, labels, or files-likely-affected list — the two only
+agree because both were changed together. Re-adding either end,
+however helpful it looks, silently falsifies the other. The reasoning
+for both, and for what the orchestrator may do with the report that
+comes back, lives in SKILL.md → "Spawn-prompt principle" and
+"Report-consumption principle"; a change to either contract updates
+the principle rather than the one brief that prompted it.
+
+Every mention of those two principles at a SKILL.md point where a
+brief is written or a report is consumed — plus the two Hard
+Constraints — is a `see`/`per` pointer, and what follows a pointer is
+that site's *application* of the rule, never the rule's own
+justification restated. "Never pre-solve a teammate's task" names the
+review-findings exemption and points; "When a teammate escalates"
+declares itself the named carve-out from "Own the synthesis" and
+points. Re-arguing a rule at a consumption point reads like a helpful
+reminder and reinstates the second source of truth the pointer shape
+exists to prevent. The file's opening paragraph names both principles
+in a bare parenthetical and is the one hit outside this rule: it
+introduces them rather than applying them, so it neither points nor
+restates. Grep `principle"` in SKILL.md and grade each hit that way
+rather than by whether it is short.
+
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step
 quote a `### After each ...` heading verbatim, so renaming a heading in

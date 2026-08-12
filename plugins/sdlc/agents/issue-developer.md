@@ -54,6 +54,17 @@ You must be given:
   orchestrator chooses this at plan time and passes it to you. If you
   are given two or more issues and no compound slug, stop and report
   back — do not invent one.
+- **Why the batch is a batch**, when the list has two or more members:
+  the grouping criteria the orchestrator applied. It is context for
+  scope calls — which shared surface the members are expected to
+  collide on — not an instruction.
+
+Nothing of the issues' *content* is an input. You read each issue
+yourself in step 1, and you derive the files a fix touches yourself;
+neither arrives in the brief. This list is the required minimum, so a
+brief may carry a further decision or scope ruling the orchestrator
+owns — but never a finding, a location, or an implementation shape
+(see the `/sdlc:orchestrate` skill → "Spawn-prompt principle").
 
 ## Workflow
 
@@ -110,19 +121,18 @@ You must be given:
    Do not interleave members. Finish and commit one before starting
    the next, so the commit boundary stays honest.
 
-5. Build and lint changed code. The cwd is the worktree root, so most
-   commands run bare. If a step requires running inside a subdirectory
-   (e.g. a per-package lint), use a **single Bash call** of the form
-   `cd <subdir> && <cmd>`. This is allowed **only when `<cmd>` is not
-   git** — the harness's CVE-2025-59536 gate prompts on
-   `cd <path> && git ...` regardless of context. The lint/build
-   commands below are all non-git, so the pattern is safe for them.
-   - If backend Python files changed: `ruff check .` (or
-     `cd <subdir> && ruff check .` if scoped to a subdirectory)
-   - If frontend files changed: `npm run lint`, then `npm run build`
-     (scope to a subdirectory the same way if needed)
-   - If CDK files changed: `npm run build` (or scoped)
-   - Fix any errors before proceeding.
+5. Build and lint what you changed, with the project's own commands —
+   the ones its `CLAUDE.md`, package scripts, or tool config declare,
+   for the languages the change actually touched. Fix every error
+   before proceeding.
+
+   The cwd is the worktree root, so most commands run bare. If a step
+   requires running inside a subdirectory (e.g. a per-package lint),
+   use a **single Bash call** of the form `cd <subdir> && <cmd>`. This
+   is allowed **only when `<cmd>` is not git** — the harness's
+   CVE-2025-59536 gate prompts on `cd <path> && git ...` regardless of
+   context, so a build or lint command is safe in that form and a git
+   command is not.
 
 6. Run the test suite: if tests fail and aren't related to your fix,
    note it in the PR.
@@ -135,7 +145,7 @@ You must be given:
    before an issue reference (`#N`, `owner/repo#N`, `GH-N`, or an
    issue URL) — that pattern auto-closes the referenced issue. The
    keyword as plain English prose with no adjacent issue reference
-   is fine. See `git-workflow.md` → "Issue References" for the full
+   is fine. See `git-workflow.md` → "Issue references" for the full
    rule.
 
 8. **Do the per-PR side effects once, at the end** — after the last
@@ -251,7 +261,7 @@ The batch does not die with the member. The default remedy:
 - The members you already committed **stay**. Do not revert them.
 - The branch **keeps its name**. A PR closing a subset of its
   branch's issue set is sanctioned by `rules/git-workflow.md` →
-  "Issue References" — see that rule — so there is nothing to rename
+  "Issue references" — see that rule — so there is nothing to rename
   on a branch that already carries commits.
 - The PR closes **only the landed subset**: pass just those members to
   `/github-prs:pr-create`, and name the dropped issue and the reason

@@ -69,8 +69,14 @@ end-to-end check afterward, and run that check **in both directions**,
 per conflicted file: `git diff origin/main HEAD -- <f>` must reproduce
 the branch's own `git diff <old-base> <old-head> -- <f>` numstat, and
 `git diff <old-head> HEAD -- <f>` must reproduce main's
-`git diff <old-base> origin/main -- <f>` numstat. Tag `<old-head>`
-before the rebase so it survives the force-push. One direction alone
+`git diff <old-base> origin/main -- <f>` numstat. Write `<old-head>`'s
+raw SHA down before the rebase — the force-push moves the branch ref,
+but the object stays reachable for the diffs. Do **not** rely on a
+local tag as the anchor: this repo sets `fetch.prunetags true`
+(measured with `git config --get-regexp '^fetch\.'`), so any later
+`git fetch origin` deletes a tag the remote does not have, reporting
+it as `- [deleted] (none) -> <tag>` — and a pre-push `fetch` to
+re-check main is exactly when you would lose it. One direction alone
 proves only that one side landed.
 
 An exact match on both sides is the proof. A mismatch is a *pointer*,
