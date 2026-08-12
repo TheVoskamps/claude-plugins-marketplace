@@ -28,6 +28,23 @@ files. Two classes were wrong on that PR:
   table has Complexity and Notes columns, so dependencies and
   conflicts arrive as Notes prose and the files-likely-affected list
   mostly does not arrive at all.
+- **A widened enumeration that collides with the absolute right after
+  it.** Repairing the bullet above by folding "the batching rationale"
+  into the list of what the analysis yields falsified the very next
+  sentence, "None of it goes into a spawn prompt" — the developer
+  template's `Why these are batched` line carries exactly that, and
+  `issue-developer`'s Inputs receives it. Loosening prose to match an
+  example is only safe if you re-read the sentence the enumeration
+  governs. Repaired by carving the grouping *decision* out as the
+  named exception (a decision is passed; a finding is not).
+- **A report-provenance sentence crediting the wrong producer.** The
+  final-report paragraph called `Review Verdict` and `Review Rounds`
+  "the pipeline's"; the pipeline's own "Report back" lists verdicts,
+  severity counts, theorem tally and tier — no round count. The
+  orchestrator counts its own loop iterations, so a section about
+  which cells are second-hand had miscategorised an own-observation
+  cell. Open the named producer's Report-back section and match it
+  field by field.
 
 **Why:** principle prose reads as pure policy, so the reflex is to
 leave it alone; the examples inside it are the falsifiable part and
