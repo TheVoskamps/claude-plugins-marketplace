@@ -1,0 +1,41 @@
+---
+name: principle-prose-illustrative-examples
+description: A round that adds a named "principle" section to orchestrate/SKILL.md pays for itself in illustrative examples — each asserts a scope grant or a template shape that must be checked against the named agent's definition
+metadata:
+  type: project
+---
+
+When an sdlc round adds a *principle* section to
+`plugins/sdlc/skills/orchestrate/SKILL.md` (PR #258 added
+"Spawn-prompt principle" and "Report-consumption principle"), the
+rules themselves are policy and not checkable — but each is sold with
+an **illustrative example**, and those are ordinary claims about other
+files. Two classes were wrong on that PR:
+
+- **A cited scope grant the named agent does not have.** The prose
+  read "a standing 'do NOT edit the PR body' aimed at `doc-updater`
+  … carves away scope the agent definition grants". Neither
+  `doc-updater.md` nor `issue-fixer.md` mentions the PR body at all —
+  `issue-developer` authors it and is the only agent whose definition
+  names it. The prohibition removed nothing *granted*; keeping the PR
+  description current is scope a brief has to add.
+- **A destination that only partly receives what the prose says.**
+  "Its result goes into the plan table" for the Phase 1 analysis: the
+  table has Complexity and Notes columns, so dependencies and
+  conflicts arrive as Notes prose and the files-likely-affected list
+  mostly does not arrive at all.
+
+**Why:** principle prose reads as pure policy, so the reflex is to
+leave it alone; the examples inside it are the falsifiable part and
+they are written by the same agent that wrote the rule.
+
+**How to apply:** for every example naming an agent, open that agent's
+definition and grep for the surface the example claims it owns or is
+denied. For every "goes into `<artifact>`" clause, open the artifact's
+template and match it field by field. Related:
+[[no-blanket-predicate-over-a-list]] and
+[[feedback_qualifier-that-contradicts-the-next-paragraph]]. The
+PR-body half is the other side of
+[[pr-description-is-a-doc-surface]]: that entry is why the spawn
+prompt must grant the surface, this one is why the agent definition
+alone never does.

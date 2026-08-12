@@ -19,6 +19,13 @@ mismatch between `grep -n` (run from cwd, i.e. the worktree) and a
 Read of 505-560 shows something else there, you are reading two
 different files, not misremembering.
 
+The **injected CLAUDE.md in your system context is that same stale
+copy** — on PR #258 it was several sections behind the worktree's
+(it still named `pr-reviewer` skeletons the branch's base had already
+renamed to `theorem-generator`). So never sweep against the CLAUDE.md
+you were handed; Read the worktree's before deciding what a repo rule
+says.
+
 **How to apply:** set `R=$(git rev-parse --show-toplevel)` in the first
 Bash call and prefix every Read/Edit/grep path with it. Related:
 [[no-blanket-predicate-over-a-list]], since a wrong-file read is the

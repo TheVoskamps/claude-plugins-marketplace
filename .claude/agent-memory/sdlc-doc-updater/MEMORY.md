@@ -3,6 +3,12 @@
 - [Read the worktree, not the primary clone](feedback_read-the-worktree-not-the-primary-clone.md)
   — build paths from `git rev-parse --show-toplevel`; a primary-clone Read
   silently returns pre-PR prose. Tell: grep -n and Read disagree on line numbers.
+  The injected CLAUDE.md is that same stale copy — Read the worktree's.
+
+- [Principle prose ships illustrative examples](project_principle-prose-illustrative-examples.md)
+  — a new orchestrate "principle" section cites a scope grant the named
+  agent's definition lacks, and a "goes into `<artifact>`" the template
+  only partly carries. Check both against the file, not the rule.
 
 - [Branch claimed by a manual-test worktree](feedback_branch-claimed-by-a-manual-test-worktree.md)
   — checkout fails naming Edwin's live test worktree: detach at
