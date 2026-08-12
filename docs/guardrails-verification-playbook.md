@@ -322,6 +322,55 @@ every match — grading the prefix bounds the expansion without resolving
 it. Probe both directions plus the unquoted twins, and pick the
 contained probe on a verb whose own tier still allows.
 
+## Grade a GraphQL allowlist entry against the schema, not the verb name
+
+`ghGraphQLMutationAllowlist` keys on the top-level mutation **field
+name** and never on the arguments — `allGraphQLMutationFieldsAllowed`
+is handed a list of names — so an entry admits every arm of that
+field's input type. A justification of the form "this verb only sets
+recoverable issue metadata" is therefore a claim about GitHub's
+schema, and it is settled by a read-only introspection query rather
+than by the verb's name or by gh's docs:
+
+```bash
+gh api graphql -f query='query { __type(name: "UpdateIssueInput") { inputFields { name } } }'
+```
+
+That is what kept the generic `updateIssue` off the list in #256: its
+input carries an `agentAssignment` arm (`targetRepositoryId`,
+`baseRef`, `customInstructions`, `customAgent`), which dispatches a
+third-party coding agent at an arbitrary repository — a surface the
+gate cannot distinguish from a title edit, since it never inspects
+arguments, so the verb keeps its `ask` whichever arm the document
+sets, aliased or not (measured on the branch binary: a bare `title`
+arm, an `agentAssignment` arm, and an aliased `a: updateIssue` all
+`ask`). Grade **every** arm the input declares, and follow a composite
+arm into its own input type.
+
+Two traps in running the query itself:
+
+- **`__Type.inputFields` may be used at most twice per document.** A
+  third alias fails the whole query with
+  `INTROSPECTION_LIMIT_EXCEEDED`: "Introspection fields may only be
+  used 2 times, but some fields were used more than that:
+  `__Type.inputFields` (3)". Split the query rather than adding a
+  third alias.
+- **An input field's name is not the concept.** `UpdateIssueInput`
+  spells one concept two ways in several places (`state`/`stateInput`,
+  `issueTypeId`/`issueType`, `assignees`/`assigneeIds`,
+  `labels`/`labelIds`), so prose enumerating what a verb sets reads as
+  a field list unless it says it is a list of concepts.
+
+Whether a spelling exists as a mutation at all is the sibling query —
+`__type(name: "Mutation") { fields { name } }` — and it settles a
+"this verb is absent for a different reason" claim: GitHub has
+`updateIssueFieldValue` and `updateIssueIssueType` but no
+`updateIssueIssueFieldValue`.
+
+Neither query mutates anything, and neither substitutes for a verdict
+probe: replay the document through the built binary (see *Exercise the
+committed binary*) to confirm where the verb actually lands.
+
 ## Audit a widening: the regression hides in flag values
 
 When a PR adds a program to the read-only allow table or gives one an
