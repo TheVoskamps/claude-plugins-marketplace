@@ -113,6 +113,29 @@ count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
 below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
+**An allowlist add whose new entry is a GENERIC verb is not the
+zero-work class (#256, PR #257).** Adding `updateIssue` /
+`updateIssueFieldValue` landed with the README paragraph and the map's
+Go comment both rewritten, as the #209 entry above predicts — but the
+prose justified the entry by ENUMERATING what the verb sets ("type,
+state, title, body, labels, assignees or milestone"), and that
+enumeration is a claim about GitHub's schema, settled in one
+non-mutating call:
+`gh api graphql -f query='query { __type(name: "UpdateIssueInput") { inputFields { name description } } }'`.
+It omitted `projectIds` and, load-bearingly, `agentAssignment` — a
+Copilot target repo, base ref, custom instructions and custom agent,
+a surface no narrow allow-listed verb reaches and one the
+"recoverable, human-visible, reversible" basis does not cover. The
+allowlist keys on the mutation FIELD name only
+(`allGraphQLMutationFieldsAllowed` never looks at arguments), so the
+gate cannot tell that arm from a title edit; probing an
+`agentAssignment`-carrying document confirms **allow**. Generalize:
+when an allowlist gains a verb that takes a single generic input
+object, introspect the input type and grade the justification against
+every arm — the narrow verbs the list was built from have no such
+gap. Introspection is capped at two `__Type.inputFields` uses per
+document; split the query rather than aliasing three.
+
 **A big README pass by the developer is the HIGH-risk case, not the
 low-risk one (#225, PR #227).** The developer rewrote ~150 README lines
 across eight classifier changes, and the prose was authored in the same
