@@ -84,3 +84,5 @@
 - [A dangling pointer usually has the rule inline](project_a-dangling-pointer-usually-has-the-rule-inline.md) — repair by deleting the pointer or aiming it at an existing skill, never by duplicating instructions
 - [De-specify rather than widen the exception](project_de-specify-rather-than-widen-the-exception.md) — dropping the restated value ends the sweep obligation; then grep the literal and expect only its owner back
 - [An owner scope cut leaves advocacy prose behind](project_an-owner-scope-cut-leaves-its-advocacy-prose-behind.md) — deleting the entry is the small part; convert the comment, doc, tests, PR title/body and agent-memory into a documented exclusion
+- [A pointer's target must carry the claim](project_pointer-target-must-carry-the-claim.md) — "(see X)" asserts X states the rule; grep the heading and retarget cross-skill when it does not
+- [The absolute half of a standing claim](project_the-absolute-half-of-a-standing-claim.md) — "substance stands, phrasing does not": swap the over-broad verb, name the counterexample, say why it is not one
