@@ -12,6 +12,15 @@ fail with: "This agent is isolated in the worktree
 `<repo>/.claude/worktrees/agent-<hash>`. Edit the worktree copy of
 this file instead of the shared-checkout path."
 
+**The same message fires on a correct worktree path whose parent
+directory does not exist yet.** Writing
+`<worktree>/.claude/tmp/<slug>/msg.txt` before `mkdir -p` on that
+`<slug>` directory is rejected with the identical "Edit the worktree
+copy of this file instead of the shared-checkout path" text, which
+sends you hunting a path bug that is not there. `mkdir -p` the
+directory first — despite the "write to it directly, do not run mkdir"
+advice that applies to the pre-created `agent-memory` directory only.
+
 The second half of the trap: the Read-before-Write requirement is
 tracked **per exact path string**. Having read the shared-checkout
 copy does not satisfy it for the worktree copy, so the retry needs its
