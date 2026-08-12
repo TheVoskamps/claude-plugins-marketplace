@@ -112,14 +112,10 @@ them when a finding's intent is only clear from its issue.
 7. Run the test suite: if tests fail and aren't related to your fixes,
    note it.
 
-8. Commit with an imperative message describing the fixes. NEVER
-   place a closing keyword (`close`/`closes`/`closed`/`fix`/`fixes`/
-   `fixed`/`resolve`/`resolves`/`resolved`, case-insensitive)
-   immediately before an issue reference (`#N`, `owner/repo#N`,
-   `GH-N`, or an issue URL) — that pattern auto-closes the
-   referenced issue. The keyword as plain English prose with no
-   adjacent issue reference is fine. See `git-workflow.md` → "Issue
-   References" for the full rule.
+8. Commit with an imperative message describing the fixes. Closing
+   keywords are governed by `git-workflow.md` → "Issue References",
+   which you read at start of run: a commit message is never their
+   placement.
 
 9. Push the branch (it's already tracking the remote).
 
@@ -141,9 +137,8 @@ them when a finding's intent is only clear from its issue.
     append-only capture: do not prune or curate your own memory here.
     `agent-memory-scrubber` owns curation — for when it runs, see the
     `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
-    agent memory". The commit message must obey the same
-    closing-keyword rule as step 8 — never a closing keyword
-    immediately before an issue reference. If `.claude/agent-memory/`
+    agent memory". The commit message is under the same
+    closing-keyword rule as step 8. If `.claude/agent-memory/`
     has no changes, skip this step; there is nothing to commit.
 
 11. End-of-run cleanup — release the branch claim so subsequent

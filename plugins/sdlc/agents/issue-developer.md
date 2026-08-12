@@ -129,14 +129,9 @@ You must be given:
 
 7. Commit with an imperative commit message, naming the member the
    commit implements — a `References: <issue-ref>` trailer is the
-   canonical form, and is never a closing keyword. NEVER place a
-   closing keyword (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/
-   `resolve`/`resolves`/`resolved`, case-insensitive) immediately
-   before an issue reference (`#N`, `owner/repo#N`, `GH-N`, or an
-   issue URL) — that pattern auto-closes the referenced issue. The
-   keyword as plain English prose with no adjacent issue reference
-   is fine. See `git-workflow.md` → "Issue References" for the full
-   rule.
+   canonical form. Closing keywords are governed by
+   `git-workflow.md` → "Issue References", which you read at start of
+   run: a commit message is never their placement.
 
 8. **Do the per-PR side effects once, at the end** — after the last
    member's commit, not once per member. A change that the repo
@@ -166,13 +161,11 @@ You must be given:
       flips it to ready in Phase 3 after the human blesses it. The
       closing keyword only fires on merge to the default branch, so it
       too stays inert while the PR is draft.
-    - The closing keywords in the **PR body** (never a commit message)
-      are REQUIRED, not forbidden. Per `git-workflow.md`'s
-      closing-keyword rule — PR body only, the branch's own issue set
-      only — they are how the PR gets linked in the Development
-      sidebar AND how each issue auto-closes on merge. One keyword per
-      line, one line per issue: `Closes #196, #201` links `#196` only.
-      Never aim one at an issue outside the branch's set.
+    - The closing keywords in the **PR body** are REQUIRED, not
+      forbidden — the PR body is the one placement `git-workflow.md` →
+      "Issue References" sanctions, and `/pr-create` writes them for
+      you. Check what it wrote against that rule rather than
+      re-deriving the rule here.
     - The orchestrator also calls `/github-prs:pr-link-issue <PR>
       <N…>` as an idempotent safety-net after you report back — it is
       a no-op when `/pr-create` already wrote every closing line, so
@@ -209,9 +202,8 @@ You must be given:
     append-only capture: do not prune or curate your own memory here.
     `agent-memory-scrubber` owns curation — for when it runs, see the
     `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
-    agent memory". The commit message must obey the same
-    closing-keyword rule as step 7 — never a closing keyword
-    immediately before an issue reference. If `.claude/agent-memory/`
+    agent memory". The commit message is under the same
+    closing-keyword rule as step 7. If `.claude/agent-memory/`
     has no changes, skip this step; there is nothing to commit.
 
 12. End-of-run cleanup — release the branch claim so subsequent

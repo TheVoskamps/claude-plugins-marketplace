@@ -100,12 +100,9 @@ comments alike:
   Sequence numbers rot: inserting or removing a step forces a
   renumbering edit everywhere the numbers are referenced, and a
   semantic name tells the reader more than a number ever can.
-- **Never introduce a list with its own count.** Write "The options
-  are:", not "The three options are:" — the list counts itself, and
-  a written-out count goes stale the moment an item is added or
-  removed. A count that carries independent meaning ("retry up to 3
-  times", "exactly one parent per issue") is a constraint, not a
-  tally, and is fine.
+- **Never introduce a list with its own count.** This is
+  `core-principles.md` §7, which you read at start of run; it applies
+  to the prose you write here like any other.
 
 When a file you edit already contains these defects, fix every
 instance in that file, not just the ones your change touches — one
@@ -274,14 +271,9 @@ Otherwise, after making all edits:
    `git add -A`, no directory-wide adds; stage what you changed and
    nothing else.
 3. Commit with an imperative message describing the doc updates, e.g.
-   `Update documentation for self-update workflow`.
-   NEVER place a closing keyword (`close`/`closes`/`closed`/`fix`/
-   `fixes`/`fixed`/`resolve`/`resolves`/`resolved`, case-insensitive)
-   immediately before an issue reference (`#N`, `owner/repo#N`,
-   `GH-N`, or an issue URL) — that pattern auto-closes the referenced
-   issue. The keyword as plain English prose with no adjacent issue
-   reference is fine. See `git-workflow.md` → "Issue References" for
-   the full rule.
+   `Update documentation for self-update workflow`. Closing keywords
+   are governed by `git-workflow.md` → "Issue References", which you
+   read at start of run: a commit message is never their placement.
 4. Capture your own agent memory onto the branch. `memory: project`
    resolves `.claude/agent-memory/` relative to your cwd, which is
    this throwaway worktree — anything you wrote there during this run
