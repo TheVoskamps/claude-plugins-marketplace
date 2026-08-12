@@ -118,6 +118,16 @@ shorthand only, with no behavior to falsify.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
 
+A rule that already lives in `~/.claude/rules/` is **cited** in an sdlc
+agent file, a spawn-prompt template, or a Hard Constraint — never
+copied into one. Every teammate reads those rules at start of run, so a
+local copy is a second source of truth that outranks the original in
+the agent's context and drifts without anything noticing. Write the
+pointer plus the consequence local to that step, and resist the pull to
+re-inline "just the important part" of the rule; see
+`docs/plugin-authoring-constraints.md` → "Citing a global rule instead
+of restating it in an agent".
+
 SKILL.md's `Phase 1` / `Phase 2` / `Phase 3` headings stay as they
 are. They violate the writing-style no-sequence-names rule, but they
 are load-bearing across the file's own report templates and a Hard

@@ -96,9 +96,10 @@ do.
 The declared effort is `medium` on every teammate but the higher
 reviewer tiers, and that is a deliberate default rather than an unset
 one: medium has proven more solid than higher efforts on the bounded,
-spec-driven tasks the teammates receive, because Phase 1 and the issue
-bodies already carry the plan, and surplus reasoning budget gets spent
-generating candidate findings rather than better answers. So when an
+spec-driven tasks the teammates receive, because the spec each one
+works from — its issues, its review findings, or the PR diff itself —
+is already written down when it starts, and surplus reasoning budget
+gets spent generating candidate findings rather than better answers. So when an
 issue is genuinely hard, escalate that single spawn with the per-call
 `model` override described above — raise-only. Effort never varies per
 spawn.
@@ -236,10 +237,11 @@ Produce an internal analysis with the following for each issue:
 
 This analysis exists for the grouping decision — batching turns on
 shared change surface, and you cannot detect a conflict between two
-batches without it. Its *result* is not forwarded: the developer greps
-the repo it is about to edit, where you grepped it before reading
-anything, so handing over your file list anchors the stronger analysis
-to the weaker one. See "Spawn-prompt principle".
+batches without it. Its *result* is not forwarded: you grepped the repo
+from the issue body alone, to size and group the work, where the
+developer greps it with the change it is about to make in hand — so
+handing over your file list anchors the stronger analysis to the weaker
+one. See "Spawn-prompt principle".
 
 ### Grouping: assign issues to batches, then order the batches
 
@@ -448,7 +450,7 @@ definition — not to repeat it better. Escalation and safety rules
 belong there for the same reason: a rule that lives only in a brief is
 one long session away from being forgotten.
 
-Two rules apply specifically to a reviewer brief, because a reviewer's
+Further rules apply to a reviewer brief specifically, because a reviewer's
 output is a **verdict** and a verdict is worth exactly what its
 independence is worth:
 
@@ -1146,7 +1148,10 @@ itself:
 
 - **Read freely.** `gh pr view`, `gh pr diff`, `git log`, `git diff`,
   file reads. Reading is planning; the more the orchestrator reads
-  before spawning, the better its spawn prompts. These read-only
+  before spawning, the better its grouping, its wave order, and its
+  judgment of what comes back. What it does **not** buy is a fuller
+  spawn prompt — a brief carries what only you can impose, never what
+  you found (see "Spawn-prompt principle"). These read-only
   planning commands have **no `/issue-*` equivalent**, so raw `gh` /
   `git` stays the right tool for them. For *reading an issue*,
   however, prefer `/issue-view <N>` over `gh issue view <N> --json

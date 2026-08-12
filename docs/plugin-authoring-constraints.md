@@ -134,6 +134,38 @@ closing lines and reports which issues the PR closes, so
 running standalone, and `/sdlc:orchestrate`'s end-of-loop status flip
 each invoke it instead of describing the scan again.
 
+### Citing a global rule instead of restating it in an agent
+
+Every `sdlc` teammate is told, in its own definition, to read
+`~/.claude/CLAUDE.md` and each `@~/` include it names before doing
+anything else. So a rule that already lives in `~/.claude/rules/` is in
+that agent's context by the time it acts, and a copy of the rule in the
+agent definition is a second source of truth: the copy is what the
+agent reads *last*, it cannot be corrected by editing the rule, and it
+drifts silently because nothing compares the two.
+
+An agent file therefore **cites** such a rule — the rules file, an
+arrow, the section name — and adds only the consequence local to that
+step. The
+closing-keyword rule is the worked instance: `rules/git-workflow.md` →
+"Issue References" owns the keyword list, the reference grammar, and
+the placement policy, while `issue-developer`, `issue-fixer`, and
+`doc-updater` each say at their commit step only that a commit message
+is never a keyword's placement, and `issue-developer` says at its PR
+step only that the PR body is. `/sdlc:orchestrate`'s matching Hard
+Constraint is a pointer for the same reason. `doc-updater`'s
+writing-style list cites `core-principles.md` §7 the same way rather
+than re-deriving the no-count rule.
+
+The pull the other way is real — a restated rule feels safer than a
+pointer — so the test is whether the restatement can be *wrong*. A
+citation plus a local consequence cannot contradict the rule; a
+reproduced keyword list can. The same test governs a spawn
+prompt: a brief never restates a durable rule the agent already reads,
+and a constraint that turns out to be needed in every brief is a signal
+to make it durable rather than to word it better
+(`/sdlc:orchestrate` → "Spawn-prompt principle").
+
 ### Varying one agent's budget: skeletons over a preloaded skill
 
 An agent's reasoning tier is its frontmatter `effort:`, and the `Agent`
