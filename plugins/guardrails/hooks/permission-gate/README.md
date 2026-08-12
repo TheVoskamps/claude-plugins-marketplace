@@ -494,14 +494,19 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   `updateProjectV2ItemFieldValue` cannot clear; extended again in #256
   with the generic `updateIssue` and the native-field
   `updateIssueFieldValue` — the one sets an issue's type, state, title,
-  body, labels, assignees or milestone through the generic verb rather
-  than a narrow one, the other rewrites a native issue-field value that
-  can simply be set back, and both are recoverable on the surfaces the
-  narrow verbs already cover. `updateIssue` is the broadest entry on
-  the list, since it can rewrite title and body and not only metadata;
-  accepted because such an edit lands on the issue's human-visible edit
-  history and is directly reversible, and its state change is the
-  close/reopen surface `closeIssue`/`reopenIssue` already allow. The
+  body, labels, assignees, milestone or project associations through
+  the generic verb rather than a narrow one, the other rewrites a
+  native issue-field value that can simply be set back, on the same
+  surface `setIssueFieldValue`/`deleteIssueFieldValue` already covers.
+  `updateIssue` is the broadest entry on the list, since it can rewrite
+  title and body and not only metadata; that much is accepted because
+  such an edit lands on the issue's human-visible edit history and is
+  directly reversible, and its state change is the close/reopen surface
+  `closeIssue`/`reopenIssue` already allow. `UpdateIssueInput` also
+  carries an `agentAssignment` arm — a Copilot target repository, base
+  ref, custom instructions and custom agent — which the
+  recoverable-metadata reasoning above does not cover and which no
+  narrower allow-listed verb reaches. The
   observed-in-the-wild spelling `updateIssueIssueFieldValue` is
   deliberately NOT on the list: GitHub's `Mutation` type has no such
   field, so a command using it fails whatever the verdict) also

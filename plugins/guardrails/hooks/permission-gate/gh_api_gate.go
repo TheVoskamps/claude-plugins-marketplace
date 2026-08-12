@@ -425,20 +425,28 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 //
 // The generic `updateIssue` and the native-field `updateIssueFieldValue` are on
 // the list for the same reason (#256). `updateIssue` is how an issue's type,
-// state, title, body, labels, assignees or milestone are set through the one
-// generic verb rather than a narrow one, and `updateIssueFieldValue` rewrites a
-// native issue-field value that can simply be set back — the same surface
-// `setIssueFieldValue`/`deleteIssueFieldValue` already cover. Both spellings
-// were confirmed against GitHub's `Mutation` type by introspection; the
-// observed-in-the-wild `updateIssueIssueFieldValue` is NOT a real field and is
-// deliberately absent, since a command using it fails regardless of verdict.
+// state, title, body, labels, assignees, milestone or project associations are
+// set through the one generic verb rather than a narrow one, and
+// `updateIssueFieldValue` rewrites a native issue-field value that can simply be
+// set back — the same surface `setIssueFieldValue`/`deleteIssueFieldValue`
+// already cover. Both spellings were confirmed against GitHub's `Mutation` type
+// by introspection; the observed-in-the-wild `updateIssueIssueFieldValue` is NOT
+// a real field and is deliberately absent, since a command using it fails
+// regardless of verdict.
 //
 // Recorded trade-off for `updateIssue` specifically: it is broader than the
 // narrow set-verbs — it can rewrite an issue's title and body, not just its
-// metadata. Accepted on the same recoverability basis as the rest of the list:
-// such an edit lands on the issue's human-visible edit history and is directly
-// reversible, and the state change it can make is the close/reopen surface
-// `closeIssue`/`reopenIssue` already allow.
+// metadata. That much is accepted on the same recoverability basis as the rest
+// of the list: such an edit lands on the issue's human-visible edit history and
+// is directly reversible, and the state change it can make is the close/reopen
+// surface `closeIssue`/`reopenIssue` already allow.
+//
+// `UpdateIssueInput` reaches one thing that basis does NOT cover, and that no
+// narrower allow-listed verb reaches: an `agentAssignment` arm carrying a
+// Copilot target repository, base ref, custom instructions and custom agent
+// (measured by introspecting `UpdateIssueInput`/`AgentAssignmentInput`). The
+// allowlist is keyed on the mutation FIELD name only, so the gate cannot
+// distinguish that arm from a title edit.
 //
 // Recorded trade-off: these mutations address opaque node IDs, so — unlike the
 // `-R`/`--repo` foreign-target check — the gate cannot see which repo the
