@@ -114,9 +114,10 @@ below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
 **An allowlist add whose new entry is a GENERIC verb is not the
-zero-work class (#256, PR #257).** Adding `updateIssue` /
-`updateIssueFieldValue` landed with the README paragraph and the map's
-Go comment both rewritten, as the #209 entry above predicts — but the
+zero-work class (#256, PR #257) — and the doc pass can overturn the
+code.** The PR first added `updateIssue` alongside
+`updateIssueFieldValue`, with the README paragraph and the map's Go
+comment both rewritten as the #209 entry above predicts — but the
 prose justified the entry by ENUMERATING what the verb sets ("type,
 state, title, body, labels, assignees or milestone"), and that
 enumeration is a claim about GitHub's schema, settled in one
@@ -128,13 +129,19 @@ a surface no narrow allow-listed verb reaches and one the
 "recoverable, human-visible, reversible" basis does not cover. The
 allowlist keys on the mutation FIELD name only
 (`allGraphQLMutationFieldsAllowed` never looks at arguments), so the
-gate cannot tell that arm from a title edit; probing an
-`agentAssignment`-carrying document confirms **allow**. Generalize:
-when an allowlist gains a verb that takes a single generic input
-object, introspect the input type and grade the justification against
-every arm — the narrow verbs the list was built from have no such
-gap. Introspection is capped at two `__Type.inputFields` uses per
-document; split the query rather than aliasing three.
+gate could not tell that arm from a title edit, and probing an
+`agentAssignment`-carrying document against the then-current binary
+confirmed **allow**. The owner's ruling on that finding was to drop
+`updateIssue` from the list entirely and keep only
+`updateIssueFieldValue`, so the verb ASKs again as it always did;
+`updateIssueIssueType` covers the type-setting the widening was asked
+for. Generalize: when an allowlist gains a verb that takes a single
+generic input object, introspect the input type and grade the
+justification against every arm — the narrow verbs the list was built
+from have no such gap, and the finding is worth raising even though it
+lands as a scope cut to the PR rather than a doc fix. Introspection is
+capped at two `__Type.inputFields` uses per document; split the query
+rather than aliasing three.
 
 **A big README pass by the developer is the HIGH-risk case, not the
 low-risk one (#225, PR #227).** The developer rewrote ~150 README lines
