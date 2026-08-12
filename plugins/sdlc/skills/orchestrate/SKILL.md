@@ -462,6 +462,42 @@ independence is worth:
 
 The agents read the config and know their own workflow. Trust them.
 
+### Report-consumption principle
+
+The section above governs what goes into a brief; this one governs
+what you do with what comes back. The judgment at both ends is yours,
+and a report is **input to your decision, never a substitute for it**.
+Apply this to every teammate's report — developer, doc-updater,
+reviewer, fixer, scrubber alike.
+
+- **Label provenance when you relay a finding to the human.** "The
+  reviewer found X" is a claim of independent corroboration. When your
+  own brief pointed at X, the honest relay is "the reviewer confirmed
+  the X I pointed it at". Those are different evidence and must never
+  be written the same way — an echo presented as corroboration is a
+  false claim about how much you know.
+- **Own the synthesis.** When reports conflict, hedge, or come back
+  thin, judge and decide — then report the decision, the reasoning
+  behind it, and the disagreement it resolved. Forwarding the
+  ambiguity to the human as a status update is abdication wearing
+  transparency's clothes. An **escalation** is the one report you do
+  not synthesize: it is relayed verbatim and undecided, because the
+  decision it raises is reserved to the human (see "When a teammate
+  escalates").
+- **Verify a load-bearing claim before acting on it or relaying it.**
+  A reported pushed SHA, a posted review, a claimed no-op: when your
+  next step or the human's decision rests on it, spend the one tool
+  call to re-read the territory (`gh pr view`, `gh pr diff`,
+  `git ls-remote`, the live issue) rather than trusting the report.
+  Anything you did not verify is relayed **as the agent's report** —
+  "the fixer reports it pushed `<sha>`" — never as something you
+  observed.
+- **A report is input, not authority.** Do not defer to a report
+  against your own evidence, and do not silently overrule one either.
+  A gap between what an agent reported and what you observe is itself
+  a finding: surface it, with both sides, rather than quietly picking
+  the version that fits.
+
 ### For each wave, spawn one issue-developer per batch, simultaneously
 
 One developer per batch, all of a wave's batches spawned at once. For
@@ -490,6 +526,12 @@ nothing to justify. What is left is the issue number and the
 report-back instruction.
 
 ### After each issue-developer reports back: link the PR to its issues
+
+This is the run's first report-consumption point, and the developer's
+report carries exactly the load-bearing claims "Report-consumption
+principle" is about: the PR it says it opened, the set it says that PR
+closes, the commits it says it pushed. Everything below builds on
+them, so read them off the live PR rather than off the report.
 
 Before spawning the follow-up agents, call `/github-prs:pr-link-issue
 <PR> <issues>` for the PR the developer just reported, passing every
@@ -665,7 +707,11 @@ per-issue verdicts tell you which member's criteria each finding is
 measured against; carry those tags into the fixer's brief rather than
 flattening them.
 
-When a pr-reviewer reports back:
+When a pr-reviewer reports back, consume the report per
+"Report-consumption principle" before acting on it. A reported verdict
+is the reviewer's; whether it is also independent evidence depends on
+what your brief carried, and that distinction has to survive into
+whatever you tell the human.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member. Do not spawn the fixer — no loop
@@ -955,6 +1001,26 @@ Nothing has been merged.
 
 To start the sequential queue, reply: "continue with <link-prefix>103"
 ```
+
+Every cell in those tables is a claim the human will act on, so fill
+them under "Report-consumption principle" rather than by copying what
+the reports said:
+
+- **The table columns are attributed by construction** — a verdict
+  belongs to the reviewer that posted it, a PR number to the PR. The
+  prose you write around them is not, so any finding you describe
+  there carries its provenance: say whether the reviewer found it or
+  confirmed something your brief pointed at, and never write the
+  second as the first.
+- **Verify the cells before you write them.** The verdict, the round
+  count, and the doc-changes list each came back in a report; the PR
+  and the issue statuses are readable from the live territory. Where
+  they disagree, the territory wins and the disagreement is itself a
+  **Needs Your Attention** row.
+- **The Problem column states your judgment, not the ambiguity.** A
+  row that forwards a conflict between two reports without resolving
+  it hands the human your job. Decide, then say what you decided and
+  why.
 
 ---
 
