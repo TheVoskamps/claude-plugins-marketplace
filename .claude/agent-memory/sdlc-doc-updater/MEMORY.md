@@ -104,6 +104,10 @@
   — settle a gate reach-claim ("descends into every X") with a throwaway
   _test.go calling classifyBash; the helper is right, its call sites are
   the scope. Never prescribe a spelling you have not run.
+- [Verdict rebucketing rots the comment vocabulary](project_verdict-rebucketing-comment-vocabulary.md)
+  — an ask→defer round falsifies every "fail-closed ASK" in the PACKAGE
+  (incl. files outside the diff) and every tier-summary header; grep
+  `ask(` for the surviving tier, probe the residual rows.
 - [Gate Go comment edits need a binary rebuild](project_permgate-go-comment-edits-need-binary-rebuild.md)
   — Go embeds file:line, so a comment-only edit under
   hooks/permission-gate/ invalidates all three committed binaries;
