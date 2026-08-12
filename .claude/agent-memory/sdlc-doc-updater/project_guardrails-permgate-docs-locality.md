@@ -472,3 +472,20 @@ which has no preceding flag. Both survived the round that wrote them
 because the enumeration itself was measured and correct. Grade a
 "closed because" clause member by member, exactly as
 [[feedback_no-blanket-predicate-over-a-list]] prescribes.
+
+**The gate README's gh bullet is one run-on bullet with no paragraph
+breaks, so an appended rationale silently splits subject from verb
+(#256, PR #257 second round).** The exclusion paragraphs the owner's
+scope cut called for were appended *inside* the pre-existing `(#195 —
+…)` parenthetical, which then ran ~30 lines between "a fragment-free
+mutation document whose every top-level mutation field is on the
+curated issue-metadata allowlist (" and its own verb ") also
+**allows**". The whole `gh api` bullet is deliberately unbroken running
+prose, so the repair is NOT a new paragraph: close the parenthetical
+where it used to close, finish the main clause, and re-emit the
+appended sentences after it (capitalising the "any other …" that
+followed). Restore any pronoun whose antecedent the move strips —
+"Its adjacent spellings" became "The spellings adjacent to
+`updateIssueFieldValue`". Zero markdownlint issues before and after,
+and no Go file touched, so no binary rebuild
+([[project_permgate-go-comment-edits-need-binary-rebuild]]).
