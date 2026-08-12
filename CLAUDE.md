@@ -151,6 +151,18 @@ from them whether to fetch. Grep the parameter name across
 `plugins/sdlc/` rather than editing the end that the change started
 from.
 
+The orchestrator's own teammate briefs are two-sided the same way, and
+the load-bearing side is what a brief may **not** carry.
+`issue-developer`'s "Inputs" states that nothing of an issue's
+*content* reaches it, and SKILL.md's spawn-prompt template carries no
+title, body, labels, or files-likely-affected list — the two only
+agree because both were changed together. Re-adding either end,
+however helpful it looks, silently falsifies the other. The reasoning
+for both, and for what the orchestrator may do with the report that
+comes back, lives in SKILL.md → "Spawn-prompt principle" and
+"Report-consumption principle"; a change to either contract updates
+the principle rather than the one brief that prompted it.
+
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step
 quote a `### After each ...` heading verbatim, so renaming a heading in

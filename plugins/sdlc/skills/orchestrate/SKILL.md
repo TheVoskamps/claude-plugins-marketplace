@@ -267,9 +267,12 @@ Produce an internal analysis with the following for each issue:
 
 This analysis is **internal**. You need it to batch — grouping turns
 on shared change surface, and conflict detection between batches is
-impossible without it — and its result goes into the plan table, never
-into a spawn prompt. See "Spawn-prompt principle" below for why
-forwarding it is the error rather than doing it.
+impossible without it — and what it yields surfaces to the human in
+the plan table: complexity in its own column, dependencies and
+conflicts in the Notes column, the file list only where a conflict
+names the file two batches collide on. None of it goes into a spawn
+prompt. See "Spawn-prompt principle" below for why forwarding it is
+the error rather than doing it.
 
 ### Grouping: assign issues to batches, then order the batches
 
@@ -467,12 +470,16 @@ Do not:
 - **Specify the implementation.** If the agent is about to open the
   file, it does not need to be told what is in it — including that its
   change should match the siblings already there.
-- **Carve away scope the agent definition grants.** Over-specification
-  subtracts as well as adds, and the subtraction leaves no trace in
-  the output: a standing "do NOT edit the PR body" aimed at
-  `doc-updater` is what lets a PR description go stale round after
-  round while the one agent whose job is stale documentation is
-  forbidden to fix it. When a scope constraint is genuinely needed,
+- **Carve away scope the agent needs.** Over-specification subtracts
+  as well as adds, and the subtraction leaves no trace in the output.
+  The PR description is where this bites: `issue-developer` authors it
+  and verifies its claims, and no later agent's definition puts it
+  back in scope — neither `issue-fixer`'s nor `doc-updater`'s — so
+  keeping it true across the fix loop is scope a brief has to grant. A
+  standing "do NOT edit the PR body" aimed at `doc-updater` in the
+  same brief block withholds it again, round after round, from the one
+  agent whose job is stale documentation. When a scope constraint is
+  genuinely needed,
   state the constraint rather than the prohibition — *"do not add,
   remove, or retarget a closing keyword; touch nothing outside the
   description"* protects what matters and leaves the agent its remit.
@@ -1280,7 +1287,10 @@ itself:
 
 - **Read freely.** `gh pr view`, `gh pr diff`, `git log`, `git diff`,
   file reads. Reading is planning; the more the orchestrator reads
-  before spawning, the better its spawn prompts. These read-only
+  before spawning, the better its batching, sequencing, and scope
+  rulings — which is what a brief carries. It does not make the brief
+  longer: what the reading turns up stays yours (see "Spawn-prompt
+  principle"). These read-only
   planning commands have **no `/issue-*` equivalent**, so raw `gh` /
   `git` stays the right tool for them. For *reading an issue*,
   however, prefer `/issue-view <N>` over `gh issue view <N> --json
