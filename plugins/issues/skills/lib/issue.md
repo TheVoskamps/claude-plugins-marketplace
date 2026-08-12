@@ -39,8 +39,7 @@ tail.
 
 The library's read sequence resolves **two sections**:
 
-1. **Front-matter** — the six canonical keys the multi-issue
-   orchestrator also reads: `source-control`, `issues`,
+1. **Front-matter** — the canonical keys: `source-control`, `issues`,
    `issue-link-prefix`, `default-issue-source-branch`,
    `default-pr-target-branch`, `issue-branch-naming-prefix`. Used for
    tracker dispatch and issue-link formatting.

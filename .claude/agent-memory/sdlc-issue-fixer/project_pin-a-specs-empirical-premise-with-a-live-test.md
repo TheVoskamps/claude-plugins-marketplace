@@ -40,4 +40,7 @@ shipped at all.
 
 Related: [[permission-gate-read-only-utility-allow-hides-carve-outs]]
 (the other way a permission-gate test passes without testing
-anything), and the pr-reviewer's `harness-slugs-can-double-dash`.
+anything). Same shape as the harness-slug case: a session-shape regex
+must be checked against real `ls /tmp/claude-<uid>/` and
+`~/.claude/projects/` output, because a hidden-directory cwd slugs
+`/.` to `--` and an issue's "observed layout" claim can miss it.

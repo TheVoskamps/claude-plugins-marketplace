@@ -6,10 +6,15 @@ description: Interactively create or fully rewrite `.claude/rules/repo-config.md
 You are running the `/repo-config` skill. Your job is to create the
 **target repo's** `.claude/rules/repo-config.md` from scratch, or to
 fully rewrite it when it already exists, by interviewing the user.
-This file is read by the multi-issue orchestrator and the
-`issue-developer`, `issue-fixer`, `doc-updater`, and `pr-reviewer`
-subagents at the start of every run, so it must be present and well
-formed before any of those flows will work.
+This file is read by the multi-issue orchestrator, by its
+`sdlc:pr-review-pipeline` review skill, and by every `/issue-*` skill,
+so it must be present and well formed before any of those flows will
+work. The orchestrator's `issue-developer`, `issue-fixer`, and
+`doc-updater` subagents read no repo-config themselves — they delegate
+every value they once needed to the `git-tools:*` and `github-prs:*`
+skills they invoke (see `skills/lib/repo-config.md` → "Migration
+policy") — but they run under an orchestrator that does, so the file
+is still a precondition for their flows.
 
 `/repo-config` does **not** merge with the existing file or rewrite
 parts of it in place. When the file already exists, the user confirms

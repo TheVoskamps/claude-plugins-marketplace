@@ -113,9 +113,9 @@ deliberate per-caller differences.
 branch-name grammar is stated once, in
 `git-tools:git-branch-create` → "Branch name", and
 `git-issues-from-branch` is the one skill that parses it —
-`github-prs:pr-create`, `github-prs:pr-link-issue`, and `sdlc`'s
-`pr-reviewer` invoke `git-issues-from-branch` rather than each
-restating the rule. The same skill also applies the global
+`github-prs:pr-create`, `github-prs:pr-link-issue`, and
+`sdlc:pr-review-pipeline` invoke `git-issues-from-branch` rather than
+each restating the rule. The same skill also applies the global
 issue-to-branch reconciliation rule in `rules/git-workflow.md`,
 because that rule is global rather than per-caller; what each consumer
 keeps is its own **action** per reported outcome, which is exactly the
@@ -130,8 +130,9 @@ there.
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's
 closing lines and reports which issues the PR closes, so
-`github-prs:pr-link-issue`'s idempotency check, `sdlc`'s `pr-reviewer`
-running standalone, and `/sdlc:orchestrate`'s end-of-loop status flip
+`github-prs:pr-link-issue`'s idempotency check,
+`sdlc:pr-review-pipeline` running standalone, and
+`/sdlc:orchestrate`'s end-of-loop status flip
 each invoke it instead of describing the scan again.
 
 ### Varying one agent's budget: skeletons over a preloaded skill
@@ -150,11 +151,12 @@ the skill. The definitions then differ only in `name:`, `effort:`, and
 the tier word in `description:`, and choosing a tier is choosing which
 definition to spawn.
 
-`sdlc`'s reviewers are the worked instance: `pr-reviewer`,
-`pr-reviewer-high`, and `pr-reviewer-xhigh` are skeletons over
-`plugins/sdlc/skills/pr-review-protocol/SKILL.md`. What keeps the
+`sdlc`'s theorem generators are the worked instance:
+`theorem-generator`, `theorem-generator-high`, and
+`theorem-generator-xhigh` are skeletons over
+`plugins/sdlc/skills/theorem-generation/SKILL.md`. What keeps the
 pattern honest is enforced by the repo's `CLAUDE.md` →
-"The reviewer skeletons are copies of one file":
+"The generator skeletons are copies of one file":
 
 - **The skill is tier-blind.** It carries no tier parameter and never
   asks which variant is running it, so the variants cannot diverge in
@@ -166,6 +168,62 @@ pattern honest is enforced by the repo's `CLAUDE.md` →
 Such a skill is machinery, not a user verb: give it
 `user-invocable: false` (constraint 4) so it stays out of the human `/`
 menu while remaining loadable by the agents that declare it.
+
+### Fanning out parallel agents: a main-session skill, not an agent
+
+A subagent cannot spawn subagents, so a procedure whose design **is** a
+parallel fan-out of agents cannot live in an agent definition. An agent
+handed that job does not fail — it quietly collapses to one reader
+doing the work by hand, which is the shape the fan-out existed to
+replace.
+
+Package such a procedure as a skill (`user-invocable: false`,
+constraint 4, when it is machinery rather than a user verb) and have
+every caller **run it in the main session** rather than delegate it to
+an agent. The skill spawns the agents itself; each caller passes the
+same parameter vocabulary.
+
+`sdlc`'s PR review is the worked instance:
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` spawns a
+`theorem-generator` and then one `theorem-disprover` per theorem, and
+its callers — `/sdlc:git-review-pr` and `/sdlc:orchestrate` — each run
+it in their own session. The orchestrator's copy needs an explicit
+carve-out in its "Never do work an agent owns" constraint, because a
+rule that says "spawn the teammate that owns this" otherwise reads as
+an instruction to delegate the very thing that cannot be delegated.
+
+**A fanned-out agent must check out detached.** Every `isolation:
+worktree` worktree of a repo shares that repo's single ref store, and
+a branch can be checked out in only one worktree at a time. So an
+agent definition that mandates `git checkout <branch>` caps its own
+fan-out at one: the second and every later sibling dies at `fatal:
+'<branch>' is already used by worktree at '…'` (exit 128) before it
+reads a line of code, and a standalone run hits the same wall whenever
+the primary clone happens to be sitting on that branch. Write
+`git checkout --detach origin/<branch>` instead — identical tree, no
+claim taken — and the agent's end-of-run cleanup then has no claim to
+release. Decide by what the agent does with the branch, not by which
+agent it is: an agent that *commits* to the branch needs an attached
+checkout and therefore cannot be fanned out over that branch at all —
+its caller guarantees at most one such agent holds a given branch at a
+time, running several in parallel only when each has a branch of its
+own. An agent that only *reads* the branch and can be spawned more
+than once concurrently must detach.
+
+**The spawning session fetches; the fan-out does not.** The same shared
+ref store makes `git fetch origin` a contended write: k siblings
+fetching at once compete for one `.git`, and a loser of that lock race
+fails rather than waiting. So run the fetch once, in the session that
+spawns, and give each agent enough to skip its own — the pipeline reads
+the PR's `headRefOid` alongside `headRefName`, fetches, confirms
+`origin/<branch>` carries that commit, and passes `--head-sha` and
+`--fetched yes` in every disprover brief. A parameter of that kind is
+an assertion about what the caller did, so the agent that receives it
+must still work without it: `theorem-disprover` fetches whenever the
+brief carries neither parameter, the ref is missing, or the SHA
+differs, which is what keeps a standalone run correct. See
+`docs/verification-playbook.md` → "Skip the fetch when
+`origin/<branch>` already matches".
 
 ### Plugin grouping heuristics
 

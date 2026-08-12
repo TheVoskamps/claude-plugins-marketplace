@@ -7,6 +7,30 @@ that plugin's `version` in `plugins/<name>/.claude-plugin/plugin.json`,
 in the same PR. The version bump is a separate, deliberate edit. A
 plugin change without a version bump is incomplete.
 
+## Settle a claim with the playbook, not by reasoning
+
+The `/docs` playbooks carry the techniques that establish a fact about
+this repo's code — how to build the harness, what control each probe
+needs, and which convincing-sounding shortcuts measure the wrong
+thing. Read the matching one before asserting behavior you have not
+run:
+
+- [`docs/guardrails-verification-playbook.md`](docs/guardrails-verification-playbook.md)
+  — binary provenance (recipe rebuild, `nm` tables, build IDs,
+  comment-only rounds), synthetic `PreToolUse` probing, flag-whitelist
+  audits, and row-cross replays.
+- [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
+  — non-booting vfkit probes, privileged-container mount semantics,
+  probe-container/guest package parity, mkosi source checks, and
+  launcher-loop slicing.
+- [`docs/verification-playbook.md`](docs/verification-playbook.md) —
+  cross-domain: suite baselining and hybrid-tree negative controls,
+  bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,
+  rebase verification, and lint baselining.
+
+They record technique, not policy: when a playbook step and a rule
+here disagree, the rule wins and the playbook is the thing to fix.
+
 ## MD041 on a SKILL.md is convention, not debt
 
 `npx markdownlint-cli2` reports
@@ -49,7 +73,7 @@ than denying it, so the gate is not the backstop for this — the rule
 is. The prohibition is on establishing behavior; publishing a PR or a
 comment the task actually asks for is ordinary work.
 
-The two questions that tempt an agent into one both have a safe answer:
+The questions that tempt an agent into one each have a safe answer:
 
 - **A gate verdict** is settled by replaying a synthetic `PreToolUse`
   event against the built `permission-gate` binary. No verdict
@@ -84,23 +108,48 @@ only the roster bullet.
 
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
-confined to the agent file. It does state the `effort: medium` default
-— twice, in the teammate-frontmatter prose near the top and in the
-"Token Efficiency" bullet — because that value is a decision (the
-bounded, spec-driven tasks the teammates get are more solid at medium)
-rather than a per-agent tier, and because effort has no `Agent`-tool
-override, so frontmatter is the only lever. A PR that changes any
-teammate's `effort:` therefore updates both SKILL.md statements as
-well; grep SKILL.md for `effort` and confirm every hit still describes
-the agents it claims to.
+confined to the agent file. That holds of `theorem-disprover` too,
+whose model the review pipeline routes per spawn: SKILL.md describes
+the routing without spelling either model, per "The generator
+skeletons are copies of one file" below. It does state the
+`effort: medium` default — twice, in the teammate-frontmatter prose
+near the top and in the "Token Efficiency" bullet — because that value
+is a decision (the bounded, spec-driven tasks the teammates get are
+more solid at medium) rather than a per-agent tier, and because effort
+has no `Agent`-tool override, so frontmatter is the only lever. A PR
+that changes any teammate's `effort:` therefore updates both SKILL.md
+statements as well; grep SKILL.md for `effort` and confirm every hit
+still describes the agents it claims to.
 
 Both statements carry a named exception, so neither reads "every
-teammate" unqualified: `pr-reviewer-high` and `pr-reviewer-xhigh` pin
-`effort: high` and `effort: xhigh`. That is not effort varying per
-spawn — the thing the same statements forbid — but a different agent
-definition being spawned, per "The reviewer skeletons are copies of one
-file" below. A PR that adds a further off-default variant extends the
-exception in both places rather than deleting the default.
+teammate" unqualified: `theorem-generator-high` and
+`theorem-generator-xhigh` pin `effort: high` and `effort: xhigh`. That
+is not effort varying per spawn — the thing the same statements forbid
+— but a different agent definition being spawned, per "The generator
+skeletons are copies of one file" below. A PR that adds a further
+off-default variant extends the exception in both places rather than
+deleting the default.
+
+Review is a further exception to the "an agent's contract lives in its
+own file" shape above, because review is not an agent at all: it is
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the main
+session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So a
+change to what a review does sweeps several files, not one — the
+pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
+generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
+is the standalone caller and states which parameters it deliberately
+does not pass.
+
+The briefs the pipeline writes are a two-sided contract, and both
+sides are prose. A double-dash parameter added to, removed from, or
+redefined in a generator or disprover brief lands in the pipeline's
+brief block *and* in the receiving agent's "Inputs" list — plus, when
+the parameter changes what a step does, in that step itself:
+`--head-sha` and `--fetched yes` are described in the pipeline's
+fan-out step and again in `theorem-disprover`'s step 1, which decides
+from them whether to fetch. Grep the parameter name across
+`plugins/sdlc/` rather than editing the end that the change started
+from.
 
 Cross-reference strings need the same sweep:
 `plugins/sdlc/agents/doc-updater.md` and SKILL.md's own fix-loop step
@@ -111,9 +160,13 @@ Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
 opening paragraph and repeats the diff-consumer list in its `/pr-diff`
-section, and `plugins/issues/skills/**` names the agents as repo-config
-readers, with `lib/repo-config.md` adding which of them dispatch on
-`source-control`. The root `README.md`'s `sdlc` bullet names them by
+section, and `plugins/issues/skills/**` names the `sdlc` readers and
+what each of them still reads — `lib/repo-config.md` says per field
+who consumes it (no `sdlc` reader dispatches on `source-control` any
+more, and of the `sdlc` readers only the orchestrator and the review
+pipeline parse `issue-link-prefix`), and its "Migration policy"
+section records that the `sdlc` readers left the reader contract
+entirely in #143. The root `README.md`'s `sdlc` bullet names them by
 shorthand only, with no behavior to falsify.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
@@ -125,13 +178,14 @@ Constraint ("wait for confirmation before starting Phase 2"), so
 renaming them is a cross-file refactor rather than a doc-pass sweep.
 Say so in the report instead of churning on them.
 
-## The reviewer skeletons are copies of one file
+## The generator skeletons are copies of one file
 
-`plugins/sdlc/agents/pr-reviewer.md`, `pr-reviewer-high.md`, and
-`pr-reviewer-xhigh.md` are byte-identical except for the frontmatter
-lines `name:` and `effort:` and the tier word inside `description:`.
-That is the whole design — the reviewing instructions live in
-`plugins/sdlc/skills/pr-review-protocol/SKILL.md`, preloaded into each
+`plugins/sdlc/agents/theorem-generator.md`,
+`theorem-generator-high.md`, and `theorem-generator-xhigh.md` are
+byte-identical except for the frontmatter lines `name:` and `effort:`
+and the tier word inside `description:`. That is the whole design —
+the generation instructions live in
+`plugins/sdlc/skills/theorem-generation/SKILL.md`, preloaded into each
 skeleton through its `skills:` frontmatter, so a tier is a choice of
 which definition to spawn rather than a parameter anything passes.
 
@@ -139,26 +193,69 @@ So an edit to any one skeleton sweeps every other one, and the check
 is mechanical:
 
 ```bash
-diff plugins/sdlc/agents/pr-reviewer.md \
-     plugins/sdlc/agents/pr-reviewer-high.md
-diff plugins/sdlc/agents/pr-reviewer.md \
-     plugins/sdlc/agents/pr-reviewer-xhigh.md
+diff plugins/sdlc/agents/theorem-generator.md \
+     plugins/sdlc/agents/theorem-generator-high.md
+diff plugins/sdlc/agents/theorem-generator.md \
+     plugins/sdlc/agents/theorem-generator-xhigh.md
 ```
 
 Each must report only those lines. Any further differing line is a
 defect however sensible it reads: a variant that says something the
-base does not is a second source of truth for review behavior, which
-is exactly what moving the protocol out of the agent files removed.
+base does not is a second source of truth for generation behavior,
+which is exactly what keeping the instructions out of the agent files
+removed.
 
-Review guidance itself never goes in a skeleton. It goes in the
-protocol skill, which is tier-blind by construction — it takes `--pr`,
-`--issues`, `--branch` and no tier parameter, and asking it which
-variant is running would let the tiers drift apart in behavior as well
-as budget. The orchestrator's selection rule lives in
-`plugins/sdlc/skills/orchestrate/SKILL.md` → "Picking a reviewer tier";
-adding or removing a variant updates that section, the teammate roster
-above it, and both `effort` statements the sdlc sweep section already
+Generation guidance itself never goes in a skeleton. It goes in
+`theorem-generation`, which is tier-blind by construction — it takes
+`--pr`, `--issues`, `--branch` and no tier parameter, and asking it
+which variant is running would let the tiers drift apart in behavior
+as well as budget. The pipeline's `--generator` parameter and the
+orchestrator's selection rule
+(`plugins/sdlc/skills/orchestrate/SKILL.md` → "Picking a generator
+tier") are where a variant is named; adding or removing one updates
+that section, the teammate roster above it, the pipeline skill's
+Inputs, and both `effort` statements the sdlc sweep section already
 names.
+
+`theorem-disprover` is deliberately **not** a skeleton set. It has one
+definition and no tiers, and its instructions live in the agent file
+because there is no sibling to drift from. What varies per spawn is
+its `model`, which the pipeline routes by theorem class. A frontmatter
+`model:` is only a default — the `Agent` tool's `model` parameter may
+name a lower, higher, or equal model on any spawn — so the value in
+the disprover's frontmatter is what an unrouted spawn gets, not a
+bound on what the pipeline may pass. No file outside that frontmatter
+spells the value, here included: the pipeline names only the cheaper
+model it passes for a `mechanical` theorem and otherwise says "the
+declared default", which is what keeps a disprover model change a
+one-file edit.
+
+## Review writes nothing, so review lore is a PR
+
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` and the two agents
+it spawns are strictly non-mutating on the PR branch: neither
+`theorem-generator` nor `theorem-disprover` declares `memory:`, and
+neither carries a `Write` or `Edit` tool. A review round therefore
+commits nothing, pushes nothing, and adds nothing to
+`.claude/agent-memory/`.
+
+That is enforcement, not convention, so keep it structural: do not add
+a `memory:` key or a writing tool to either definition, and do not
+give the pipeline a commit step. A durable lesson learned while
+reviewing lands as a PR against `theorem-generation` (how to state a
+better theorem), `theorem-disprover` (how to establish a fact), or
+this file — never as a memory commit on the branch being reviewed.
+
+`agent-memory-scrubber`'s roster of memory-declaring agents is
+therefore `issue-developer`, `issue-fixer`, `doc-updater` and nothing
+else. `plugins/sdlc/skills/orchestrate/SKILL.md` restates that roster
+in its frontmatter-baseline paragraph, in the capture-then-curate
+paragraph below it, and again under "Being last is the whole point" —
+so a PR that changes which agents declare `memory:` sweeps every one
+of them plus the scrubber's own "You persist no memory" section.
+`grep -rn 'memory: project' plugins/sdlc/` finds the first; the other
+restatements name the agents without the key, so grep the agent names
+too.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
@@ -185,7 +282,13 @@ itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin or `/docs` markdown describes it. Its one in-plugin sibling is
+plugin describes it. `docs/guardrails-verification-playbook.md` is the
+one `/docs` surface that does, and it names verdicts only as the
+*controls a probe needs* — which track terminates in allow and which in
+defer, which probe rows must still deny, which spellings a widening
+already allowed on the base. A verdict change that moves any of those
+control rows updates it; grep it for `deny`, `allow`, `defer` and
+`ask` alongside the README. The gate README's one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
 verdicts only where they decide **which destination an agent should
 write a scratch file to** — the containment and `.git/` denies, their
@@ -274,6 +377,10 @@ comment, which restates the same rule in one line —
 `-o rw` comment, `skills/claude-vm/SKILL.md`, and
 `skills/claude-vm-config-repo/SKILL.md`. `payload/test/config-test.sh`
 pins the abort in every spelling.
+`docs/claude-vm-verification-playbook.md` carries the vfkit and
+kernel measurements the claim rests on — that virtio-fs has no
+read-only knob, and that guest root remounts a `ro` bind `rw` — so
+enforced read-only lands there too, as the measurement that changed.
 
 A `read-only` grep across `plugins/claude-vm/` also turns up a second,
 opposite class, and the two are easy to conflate: the **built-in** shares

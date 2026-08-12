@@ -33,9 +33,9 @@ string as the tag, and had no charset check at all.
    "field in a comma-delimited string".
 3. Measure each candidate against the real consumer rather than
    reasoning: vfkit and the guest's own util-linux are both reachable
-   from this host (see the pr-reviewer's
-   `vfkit-is-installed-probe-it-directly` and
-   `probe-mount-semantics-in-a-privileged-container`). That is what
+   from this host — vfkit is installed at `/opt/homebrew/bin/vfkit`,
+   and guest-mount kernel claims settle in a `--privileged` podman
+   container run with `--platform linux/arm64`. That is what
    separated the members worth guarding from the ones that already fail
    closed — only `mount -a` fails **open** among the dash spellings.
 4. Write the enumeration into a durable doc and point the guard's

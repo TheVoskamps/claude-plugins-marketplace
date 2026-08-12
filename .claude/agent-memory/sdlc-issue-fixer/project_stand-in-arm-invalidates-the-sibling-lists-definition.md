@@ -18,7 +18,7 @@ replaces `C` entirely. With `B = {206}` and `C = {310}` the resolved
 set is `{206}`, but `B \ C` still reports `206` as *not claimed*. The
 consumers act on that list: `pr-create` would write "deferred #206"
 into a body whose only closing line is `Closes #206`, and
-`pr-reviewer` would file a High against the very issue it is
+the review pipeline would file a High against the very issue it is
 reviewing. The correct definition is `B \ resolved`, which collapses
 to `B \ C` on the ordinary overlap arm and to `∅` on the stand-in arm.
 Its sibling stays `C \ B` — computed against the claim **as passed**,

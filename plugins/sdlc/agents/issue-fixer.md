@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback for an existing issue branch. Given a PR number, the issue set the PR closes, branch name, and review findings, applies fixes and pushes updates. Use this after a pr-reviewer requests changes.
+description: Addresses PR review feedback for an existing issue branch. Given a PR number, the issue set the PR closes, branch name, and review findings, applies fixes and pushes updates. Use this after the PR review pipeline requests changes.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -61,8 +61,8 @@ them when a finding's intent is only clear from its issue.
    ```
 
 2. Read the review findings carefully. Address every finding in the
-   spawn prompt, including Low — the reviewer has already graded
-   severity; your job is to fix, not to re-tier.
+   spawn prompt, including Low — the review pipeline has already
+   graded severity; your job is to fix, not to re-tier.
 
    If you need fuller issue context than the spawn brief carries —
    an issue body, its acceptance criteria, or its
@@ -87,7 +87,7 @@ them when a finding's intent is only clear from its issue.
 
 5. Address each finding handed to you, including Low:
    - Implement the fix
-   - Verify the fix addresses the reviewer's concern
+   - Verify the fix addresses the concern the finding states
    - Verify any prose you write about the fix — code comment, README
      line, commit message, PR-body sentence — against the code, the
      same way (see "Verify the claims in your own prose" below)
@@ -189,7 +189,7 @@ it, and confirm every verdict row of the behavior — then, in the same
 commit, write an unchecked sentence about which helper the code routes
 through. The behavior is correct and test-pinned; the stated reason it
 is correct is false. No test fails on that. You verified the expensive
-half and skipped the cheap one, and the reviewer who catches it costs
+half and skipped the cheap one, and the theorem that catches it costs
 a full round trip.
 
 If the code, not the prose, turns out to be the wrong half of the

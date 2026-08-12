@@ -24,11 +24,11 @@ Then quote the real error strings in the docs; a quoted string a reader
 can grep for is falsifiable, "fails with EBUSY" is not.
 
 For claude-vm's kernel/mount claims the probe vehicle is a privileged
-podman container — see the sibling `sdlc-pr-reviewer` entry
-`reference_probe-mount-semantics-in-a-privileged-container.md` for the
-exact invocation (`--platform linux/arm64` is required, loop mounts are
-refused even under `--privileged`, so reach `ro` via bind +
-`remount,ro`). `docker.io/library/debian:12` has `sed` but not `git`;
+podman container. `--platform linux/arm64` is required — the cached
+debian image is amd64 and podman otherwise emulates silently, running
+the wrong binary — and loop mounts are refused even under
+`--privileged`, so reach `ro` via bind + `remount,ro`.
+`docker.io/library/debian:12` has `sed` but not `git`;
 `docker.io/alpine/git` has git and needs `--entrypoint sh`.
 
 Same family as [[a-recorded-digest-is-of-a-pipeline]] (a quoted result

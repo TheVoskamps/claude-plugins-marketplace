@@ -77,7 +77,8 @@ happens to sit at that exact relative path — not because cross-plugin
 resolution works. Delete the duplicate and every such reference breaks
 at once.
 
-`pr-reviewer` is the same case at a smaller scale: it needs one real
+`sdlc:pr-review-pipeline` is the same case at a smaller scale: it
+needs one real
 field (`issue-link-prefix`, for recognizing `References:` trailers — an
 issue-tracker concern, independent of the PR-diff/review-post mechanics
 `github-prs` owns), and gets the same inline-parse treatment.

@@ -19,7 +19,8 @@ lines only the branch added, and one line both sides rewrote from the
 same ancestor. Union-pasting keeps main's additions but re-installs the
 branch's stale copy of every line main revised — a silent revert with
 no marker and no diff line to notice missing. Concretely, on PR #220 a
-single conflict region in `sdlc-pr-reviewer/MEMORY.md` held: three
+single conflict region in the then-existing
+`sdlc-pr-reviewer/MEMORY.md` held: three
 entries main had newly added, two entries main had *retitled and
 rewritten* (`GraphQL relationship read gate-blocked` →
 `GraphQL reads pass the gate now`; a one-clause

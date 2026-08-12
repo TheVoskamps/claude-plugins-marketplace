@@ -11,7 +11,7 @@ aimed at.
 
 This skill is the only parser of closing lines in this marketplace.
 Its consumers — `github-prs:pr-link-issue` for its idempotency check,
-`sdlc`'s `pr-reviewer` for its claim when run standalone on a bare PR
+`sdlc:pr-review-pipeline` for its claim when run standalone on a bare PR
 number, and `/sdlc:orchestrate` for the member list its end-of-loop
 status flip acts on — invoke it rather than each describing the scan
 again. Skill invocation crosses the plugin sandbox boundary that a

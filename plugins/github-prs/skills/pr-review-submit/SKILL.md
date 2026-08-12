@@ -7,8 +7,9 @@ description: Post a single GitHub PR review carrying both a verdict and a body i
 
 Post a **single** pull-request review on a GitHub PR, carrying both a
 verdict and a review body in one `gh pr review` call. This is the
-review-submission the `/sdlc:orchestrate` flow's `pr-reviewer`
-previously performed as a raw `gh pr review`; the skill now owns it.
+review-submission the `/sdlc:orchestrate` flow previously performed as
+a raw `gh pr review` of its own; the skill now owns it, and
+`sdlc:pr-review-pipeline` is the caller that posts through it.
 
 Posting the verdict and body in a single call is deliberate: a
 separate `--comment` followed by an `--approve`/`--request-changes`
@@ -81,10 +82,11 @@ gh pr review <PR> --comment --body "APPROVED
 ```
 
 Prefix the body with an explicit `APPROVED` verdict line so the review
-still carries the verdict a real approval would have. This mirrors what
-`pr-reviewer` already does in the self-review case: the reviewer and
-author are frequently the same identity in the orchestrate flow, so the
-approve verdict has to travel in the comment body.
+still carries the verdict a real approval would have. Handling the
+downgrade here is why `sdlc:pr-review-pipeline` can hand this skill an
+`approve` verdict unconditionally: reviewer and author are frequently
+the same identity in the orchestrate flow, so the approve verdict has
+to travel in the comment body.
 
 Report back a single line: the PR number, the verdict actually posted
 (and, if it was downgraded to an inline `--comment` because of the

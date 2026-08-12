@@ -103,8 +103,8 @@ You must be given:
    - Build and lint what you changed, and run the test suite, per
      steps 5 and 6 below.
    - **Commit that issue's work as its own commit**, per step 7. One
-     commit per issue keeps the batch reviewable: the reviewer grades
-     each member separately, and a dropped or reverted member is one
+     commit per issue keeps the batch reviewable: the review pipeline
+     grades each member separately, and a dropped or reverted member is one
      commit rather than a surgical extraction.
 
    Do not interleave members. Finish and commit one before starting
@@ -257,7 +257,7 @@ The batch does not die with the member. The default remedy:
   `/github-prs:pr-create`, and name the dropped issue and the reason
   in the PR body. A batch member missing from the body with no
   explanation is indistinguishable from silent under-delivery, which
-  is what the reviewer is looking for.
+  is what the review pipeline raises as a finding.
 - Say it again in your report-back. The orchestrator relays it to the
   human, who decides whether the dropped issue gets its own branch
   later; it stays In Progress in the meantime.
@@ -287,13 +287,14 @@ behavior, and in the same commit write an unchecked sentence about
 which helper the code routes through. The behavior is correct and
 test-pinned; the stated reason it is correct is false. No test fails
 on that. You verified the expensive half and skipped the cheap one,
-and the reviewer who catches it costs a full round trip.
+and the theorem that catches it costs a full round trip.
 
 ## Rules
 
 - Fix only what the issues in your batch describe. Do not refactor
   unrelated code, and do not let one member's fix quietly grow to
-  cover another's scope — the reviewer grades each member separately.
+  cover another's scope — the review pipeline grades each member
+  separately.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.

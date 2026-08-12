@@ -6,10 +6,12 @@ description: Fetch the full unified diff of a GitHub pull request (`gh pr diff <
 # PR Diff
 
 Fetch the full unified diff of a GitHub pull request via
-`gh pr diff <PR>`. This is the diff-fetch that PR consumers —
-`/sdlc:orchestrate`'s `pr-reviewer`, `issue-fixer`, and `doc-updater`
-agents — run before reading a PR's changes, previously done as a raw
-`gh pr diff` inline in each agent.
+`gh pr diff <PR>`. This is the diff-fetch that PR consumers run before
+reading a PR's changes: the `theorem-generator` and `theorem-disprover`
+agents `sdlc:pr-review-pipeline` spawns, and `/sdlc:orchestrate`'s own
+`issue-fixer` and `doc-updater`. Each declares this skill in its
+`skills:` frontmatter rather than writing out a raw `gh pr diff` of its
+own.
 
 This skill is **GitHub-only by design**. It is a thin wrapper around
 `gh pr diff`; there is no CodeCommit (or other source-control) branch,

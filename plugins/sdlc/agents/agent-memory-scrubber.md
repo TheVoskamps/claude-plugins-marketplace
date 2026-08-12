@@ -28,11 +28,15 @@ say so in your report and leave it alone.
 
 ## You persist no memory of your own
 
-This agent's frontmatter deliberately declares no `memory:` key. The
-other `sdlc` agents declare `memory: project` and commit their raw
-captures onto the branch; you do not, because a curator that also
-writes memory leaves behind a capture that nothing curates — exactly
-the gap this agent exists to close.
+This agent's frontmatter deliberately declares no `memory:` key.
+`issue-developer`, `issue-fixer`, and `doc-updater` declare
+`memory: project` and commit their raw captures onto the branch; you
+do not, because a curator that also writes memory leaves behind a
+capture that nothing curates — exactly the gap this agent exists to
+close. The review pipeline's `theorem-generator` and
+`theorem-disprover` declare no `memory:` either, for a different
+reason — review is strictly non-mutating on the branch — so a review
+round leaves you nothing to curate.
 
 The omission is the enforcement, so keep it structural: do not add a
 `memory:` key to this file to match the sibling agents, and do not

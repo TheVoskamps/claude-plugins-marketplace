@@ -20,7 +20,7 @@ them, and the slug it used. A branch it did not create is the
 This skill is the only parser of branch names in this marketplace, and
 the only place the issue-to-branch reconciliation rule is applied.
 Consumers in other plugins — `github-prs:pr-create`,
-`github-prs:pr-link-issue`, and `sdlc`'s `pr-reviewer` — invoke it
+`github-prs:pr-link-issue`, and `sdlc:pr-review-pipeline` — invoke it
 instead of restating either rule: skill invocation crosses the plugin
 sandbox boundary that a `Read` cannot (see
 `docs/plugin-authoring-constraints.md` → "Skill invocation

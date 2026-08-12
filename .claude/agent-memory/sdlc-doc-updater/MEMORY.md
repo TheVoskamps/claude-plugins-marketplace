@@ -40,6 +40,14 @@
 - [known gaps are a doc surface](project_issue-known-gaps-are-a-doc-surface.md)
   — an issue's "Known gaps left in place" section is the part the
   developer reliably never carries into the README; check it every run.
+- [checkout-contract doc surfaces](project_checkout-contract-doc-surfaces.md)
+  — attached→detached checkout changes break orchestrate's "Both run in
+  fresh worktrees" paragraph and sibling agents' cleanup examples.
+- [fan-out doc surfaces](project_fan-out-doc-surfaces.md) — a
+  fetch-once/brief-parameter round documents both ends of the brief and
+  misses plugin-authoring-constraints' fan-out section, whose ref-store
+  invariant covers checkout but not fetch; CLAUDE.md already carries the
+  two-sided brief contract; mechanical repoints leave line-wrap stubs.
 - [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when
@@ -62,10 +70,17 @@
   the consumer README's new `dependencies` edge; no CLAUDE.md sweep
   section.
 - [agent-variant doc surfaces](project_agent-variant-doc-surfaces.md)
-  — adding an sdlc agent variant / preloaded-protocol skill leaves
+  — adding an sdlc agent variant / preloaded-instruction skill leaves
   docs/plugin-authoring-constraints.md's pattern list and fresh count
-  words unswept; issues/lib repo-config's pr-reviewer claims are stale
-  but out of scope.
+  words unswept.
+- [agent-retirement doc surfaces](project_agent-retirement-doc-surfaces.md)
+  — retiring an agent leaves issues/lib repo-config's per-field consumer
+  claims and "previously performed / mirrors what" history sentences false;
+  no sdlc file pins schema-version, whatever that lib says.
+- [de-specify round leftovers](project_de-specify-round-leftovers.md)
+  — moving a value into one file leaves ragged paragraph wrapping,
+  an unmeasured "no other file spells it" claim, and cross-plugin
+  consumer prose crediting the wrong caller.
 - [Qualifier that contradicts the next paragraph](feedback_qualifier-that-contradicts-the-next-paragraph.md)
   — a first exception gets patched with a vague hedge ("every teammate
   you spawn by name") that still includes the exception; read the

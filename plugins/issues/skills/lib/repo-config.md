@@ -253,9 +253,14 @@ file. Order is fixed; `schema-version` is always first.
   abort messages above.
 
 - **`source-control`** — `GitHub` or `CodeCommit`. Selects between
-  `gh` and `aws codecommit` for VCS operations. The
-  `issue-developer`, `issue-fixer`, and `pr-reviewer` agents
-  dispatch on this value when creating PRs / opening reviews.
+  `gh` and `aws codecommit` for VCS operations. No `sdlc` reader
+  dispatches on it any more: `issue-developer`, `issue-fixer` and
+  `doc-updater` delegate their PR mechanics to the `github-prs:*`
+  skills, `sdlc:pr-review-pipeline` reads `issue-link-prefix` only,
+  and every one of those skills is GitHub-only by design. No skill in
+  this marketplace branches on the value today; it stays a required
+  front-matter field so a future non-GitHub reader has one place to
+  read it from.
 
 - **`issues`** — `GitHub` or `Jira`. Selects between `gh issue`
   and the Atlassian CLI (`acli`) for issue operations. Both backends
@@ -266,7 +271,8 @@ file. Order is fixed; `schema-version` is always first.
 
 - **`issue-link-prefix`** — string. The literal string
   concatenated with an issue number in commit messages and PR
-  bodies. The orchestrator and agents substitute it as
+  bodies. The multi-issue orchestrator and the
+  `sdlc:pr-review-pipeline` skill substitute it as
   `<issue-link-prefix><N>`. For GitHub repos, `#` so references
   render as `#123`; for Jira, the project key plus dash
   (e.g. `SET-` for `SET-123`). Quote the value in YAML if it
@@ -459,11 +465,15 @@ top of the `schema-version: 6` baseline, but does **not** migrate
 every reader at once. The bump is additive: the `jira:` block lives
 in the body, so an un-migrated reader ignores it and a
 schema-version-6 reader still reads a schema-version-7 file. The
-four agent definitions
-(`issue-developer`, `issue-fixer`, `doc-updater`, `pr-reviewer`)
-and the multi-issue orchestrator's SKILL.md follow this
-contract: they pin schema-version 6 and defer to the canonical read
-sequence and abort messages above (migrated in #115). The user-facing
+`sdlc` readers went further and dropped out of this contract
+altogether (#143): `issue-developer`, `issue-fixer` and `doc-updater`
+read no repo-config at all, delegating every value they once needed to
+the `git-tools:*` and `github-prs:*` skills they invoke, while the
+multi-issue orchestrator's SKILL.md and the `sdlc:pr-review-pipeline`
+skill each parse `issue-link-prefix` (plus, in the orchestrator, the
+optional status slot) inline and reuse only this library's "File
+missing" abort wording — they check no `schema-version` and consume no
+other part of the read sequence. The user-facing
 `/issue-*`
 namespace follows it too: its shared `skills/lib/issue.md`
 "Repo-config parsing" section and each `/issue-*` SKILL.md pin
