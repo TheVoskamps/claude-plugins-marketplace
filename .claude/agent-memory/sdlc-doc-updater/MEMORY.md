@@ -43,6 +43,10 @@
 - [checkout-contract doc surfaces](project_checkout-contract-doc-surfaces.md)
   — attached→detached checkout changes break orchestrate's "Both run in
   fresh worktrees" paragraph and sibling agents' cleanup examples.
+- [fan-out doc surfaces](project_fan-out-doc-surfaces.md) — a
+  fetch-once/brief-parameter round documents both ends of the brief and
+  misses plugin-authoring-constraints' fan-out section + CLAUDE.md's
+  review-exception paragraph; mechanical repoints leave line-wrap stubs.
 - [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when
