@@ -235,6 +235,68 @@ func TestGhAPIGraphQLMixedClearMutationAsks_209(t *testing.T) {
 	}
 }
 
+// The generic `updateIssue` and the native-field `updateIssueFieldValue` ALLOW:
+// both are recoverable issue-metadata writes on the surfaces the narrow verbs
+// already cover, and both were the shapes live triage sessions were being
+// prompted on.
+func TestGhAPIGraphQLUpdateIssueMutationsAllow_256(t *testing.T) {
+	for _, cmd := range []string{
+		// Each verb on its own, bare input.
+		`gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } }'`,
+		`gh api graphql -f query='mutation { updateIssueFieldValue(input: {}) { issue { id } } }'`,
+		// The observed live-session shape: setting an issue's type through the
+		// generic verb rather than `updateIssueIssueType`.
+		`gh api graphql -f query='mutation($id: ID!, $typeId: ID!) { updateIssue(input: { id: $id, issueTypeId: $typeId }) { issue { id number } } }'`,
+		// The observed batched document mixing `updateIssue` with fields the
+		// allowlist already carried.
+		`gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } setIssueFieldValue(input: {}) { issue { id } } addProjectV2ItemById(input: {}) { item { id } } }'`,
+		// Aliases resolve to the real field name before the allowlist check.
+		`gh api graphql -f query='mutation { u: updateIssue(input: {}) { issue { id } } }'`,
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "graphql updateIssue mutation: "+cmd)
+	}
+}
+
+// All-fields-must-pass is unchanged by the two new entries: a document bundling
+// `updateIssue` with a non-allow-listed mutation still ASKs, naming both fields.
+func TestGhAPIGraphQLMixedUpdateIssueMutationAsks_256(t *testing.T) {
+	for _, tc := range []struct {
+		cmd  string
+		want []string
+	}{
+		// Generic update alongside an off-list destructive mutation.
+		{
+			`gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } deleteIssue(input: {}) { repository { id } } }'`,
+			[]string{"updateIssue", "deleteIssue"},
+		},
+		// Native-field update in one operation, an off-list mutation in the next.
+		{
+			`gh api graphql -f query='mutation a { updateIssueFieldValue(input: {}) { issue { id } } } mutation b { deleteProjectV2Item(input: {}) { deletedItemId } }'`,
+			[]string{"updateIssueFieldValue", "deleteProjectV2Item"},
+		},
+	} {
+		d := classifyCmd(t, tc.cmd, false)
+		wantBucket(t, d, BucketAsk, "graphql mixed updateIssue mutation: "+tc.cmd)
+		for _, f := range tc.want {
+			if !strings.Contains(d.Reason, f) {
+				t.Errorf("mixed updateIssue-mutation ASK reason must name %q, got: %q", f, d.Reason)
+			}
+		}
+	}
+}
+
+// `updateIssueIssueFieldValue` — the spelling observed in a live session — is
+// NOT a GitHub `Mutation` field, so it is deliberately off the allowlist and
+// keeps its ASK. Pinning it here stops a future reader from "completing" the
+// set with a name GitHub would reject anyway.
+func TestGhAPIGraphQLNonexistentIssueFieldVerbAsks_256(t *testing.T) {
+	d := classifyCmd(t, `gh api graphql -f query='mutation { updateIssueIssueFieldValue(input: {}) { issue { id } } }'`, false)
+	wantBucket(t, d, BucketAsk, "graphql nonexistent updateIssueIssueFieldValue asks")
+	if !strings.Contains(d.Reason, "updateIssueIssueFieldValue") {
+		t.Errorf("ASK reason must name updateIssueIssueFieldValue, got: %q", d.Reason)
+	}
+}
+
 // The redirect-to-file carve-out stays AHEAD of the new ALLOW: an allow-listed
 // mutation whose stdout/stderr lands in a real file still ASKs.
 func TestGhAPIGraphQLAllowlistedMutationRedirectAsks_195(t *testing.T) {

@@ -423,6 +423,23 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // since the value can simply be set again, so neither adds exposure the set
 // verb has not already accepted.
 //
+// The generic `updateIssue` and the native-field `updateIssueFieldValue` are on
+// the list for the same reason (#256). `updateIssue` is how an issue's type,
+// state, title, body, labels, assignees or milestone are set through the one
+// generic verb rather than a narrow one, and `updateIssueFieldValue` rewrites a
+// native issue-field value that can simply be set back — the same surface
+// `setIssueFieldValue`/`deleteIssueFieldValue` already cover. Both spellings
+// were confirmed against GitHub's `Mutation` type by introspection; the
+// observed-in-the-wild `updateIssueIssueFieldValue` is NOT a real field and is
+// deliberately absent, since a command using it fails regardless of verdict.
+//
+// Recorded trade-off for `updateIssue` specifically: it is broader than the
+// narrow set-verbs — it can rewrite an issue's title and body, not just its
+// metadata. Accepted on the same recoverability basis as the rest of the list:
+// such an edit lands on the issue's human-visible edit history and is directly
+// reversible, and the state change it can make is the close/reopen surface
+// `closeIssue`/`reopenIssue` already allow.
+//
 // Recorded trade-off: these mutations address opaque node IDs, so — unlike the
 // `-R`/`--repo` foreign-target check — the gate cannot see which repo the
 // target belongs to. Accepted because the writes are recoverable, land on
@@ -434,6 +451,8 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 var ghGraphQLMutationAllowlist = map[string]bool{
 	"setIssueFieldValue":            true,
 	"deleteIssueFieldValue":         true,
+	"updateIssueFieldValue":         true,
+	"updateIssue":                   true,
 	"updateProjectV2ItemFieldValue": true,
 	"clearProjectV2ItemFieldValue":  true,
 	"addProjectV2ItemById":          true,

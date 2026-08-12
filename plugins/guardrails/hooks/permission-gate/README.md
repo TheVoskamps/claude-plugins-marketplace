@@ -491,8 +491,21 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   a project-board item field respectively — recoverable exactly as
   their set counterparts are (the value can just be set again), and for
   a board field the only spelling, since
-  `updateProjectV2ItemFieldValue` cannot clear) also **allows**, with
-  aliases resolved to the real field name first; any other
+  `updateProjectV2ItemFieldValue` cannot clear; extended again in #256
+  with the generic `updateIssue` and the native-field
+  `updateIssueFieldValue` — the one sets an issue's type, state, title,
+  body, labels, assignees or milestone through the generic verb rather
+  than a narrow one, the other rewrites a native issue-field value that
+  can simply be set back, and both are recoverable on the surfaces the
+  narrow verbs already cover. `updateIssue` is the broadest entry on
+  the list, since it can rewrite title and body and not only metadata;
+  accepted because such an edit lands on the issue's human-visible edit
+  history and is directly reversible, and its state change is the
+  close/reopen surface `closeIssue`/`reopenIssue` already allow. The
+  observed-in-the-wild spelling `updateIssueIssueFieldValue` is
+  deliberately NOT on the list: GitHub's `Mutation` type has no such
+  field, so a command using it fails whatever the verdict) also
+  **allows**, with aliases resolved to the real field name first; any other
   mutation-bearing document **asks** with the mutation field names in
   the reason (so the human sees `addSubIssue` vs `deleteIssue`), and a
   document bundling an allow-listed field with anything else — an
