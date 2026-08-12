@@ -489,3 +489,27 @@ followed). Restore any pronoun whose antecedent the move strips —
 `updateIssueFieldValue`". Zero markdownlint issues before and after,
 and no Go file touched, so no binary rebuild
 ([[project_permgate-go-comment-edits-need-binary-rebuild]]).
+
+**A gh-api/graphql round's real doc gap is in the PLAYBOOK, not the
+gate README (#256, PR #257 third round).** By round three the README
+paragraph and the `ghGraphQLMutationAllowlist` comment were both
+accurate — every claim settled by one command: the four concept pairs
+in `UpdateIssueInput` (`state`/`stateInput`, `issueTypeId`/`issueType`,
+`assignees`/`assigneeIds`, `labels`/`labelIds`), the
+`AgentAssignmentInput` arms, the absence of
+`updateIssueIssueFieldValue` from `Mutation`, the 13-member README
+enumeration matching the map exactly, `updateIssueIssueType` being what
+`plugins/issues/skills/**` templates use, and every verdict replayed
+through the branch binary. What no surface carried was the *technique*
+that overturned the code two rounds earlier, so
+`docs/guardrails-verification-playbook.md` got a new section (schema
+introspection as the way to grade an allowlist entry, the verbatim
+`INTROSPECTION_LIMIT_EXCEEDED` cap at two `__Type.inputFields` per
+document, `__type(name: "Mutation") { fields { name } }` for
+existence). **How to apply:** when the gate docs are already correct on
+a round, ask which *playbook* technique the round used and whether it
+is written down — CLAUDE.md's "Settle a claim with the playbook"
+section makes that a first-class doc surface, and a `/docs` edit needs
+no plugin version bump. Word any verdict you state there with the
+literal words `ask`/`allow`/`deny`/`defer` so CLAUDE.md's
+grep-the-playbook-on-a-verdict-change sweep can find it.
