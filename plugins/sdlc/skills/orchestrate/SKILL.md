@@ -778,9 +778,12 @@ names, per the next section.
 
 The pipeline returns every verdict line it posted, the overall
 APPROVED / NEEDS_CHANGES / BLOCKED, the severity counts, and the
-theorem tally — which now includes how many disproved theorems had
-their counterexample refuted by verification, the number that says
-what the verification stage bought that round. Remove the generator's,
+theorem tally — which includes how many disproved theorems had their
+counterexample refuted by verification, the number that says what the
+verification stage bought that round. What the tally enumerates, and
+which of its counts never reach severity, is the pipeline skill's own
+"Report back" section; this summary defers to it rather than
+restating it. Remove the generator's,
 every disprover's, and every verifier's worktree afterwards, serially,
 like any other subagent's.
 

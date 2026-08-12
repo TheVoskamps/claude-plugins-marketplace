@@ -42,7 +42,8 @@ developer reliably updates only the files that name the pipeline:
 `plugins/github-prs/skills/pr-diff/SKILL.md` (its own consumer list,
 separate from the two lists in that plugin's README),
 `plugins/sdlc/agents/agent-memory-scrubber.md`'s "You persist no
-memory" section (which names the review agents that declare none), and
+memory of your own" section (which names the review agents that
+declare none), and
 `plugins/sdlc/agents/doc-updater.md`'s end-of-run cleanup paragraph
 (which names the review agents that detach and claim nothing). Grep
 the *old* agent names across the repo, not the new one.

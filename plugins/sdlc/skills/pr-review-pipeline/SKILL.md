@@ -382,15 +382,18 @@ counterexample.
 | `SURVIVED` | not spawned | **Verified** list, carrying what the disprover checked |
 | `DISPROVED` | `REFUTED` | **Verified** list, with the offered counterexample and the rejection reason on the line |
 | `DISPROVED` | `STANDS` | a **finding** → severity → verdict, per the chain below |
-| malformed twice (either agent's own re-spawn path) | — | **could not be settled**, no severity |
+| `DISPROVED` | malformed twice (the verifier's own re-spawn path) | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
+| malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 
 A standing finding is written in the format under "Findings must
 quote, not paraphrase" below. Its `**Evidence:**` block is the
 disprover's counterexample quote **verbatim** — you do not re-quote
 the source yourself, and you never paraphrase what either agent sent.
-Its severity is the transcription of the verifier's consequence class
-per "Consequence classes are transcribed, not graded" below, and it is
-tagged to the member issue(s) the theorem carried.
+Its severity is the transcription of the consequence class the row
+above assigns it — the verifier's, or the disprover's proposal on the
+verifier-malformed-twice row — per "Consequence classes are
+transcribed, not graded" below, and it is tagged to the member
+issue(s) the theorem carried.
 
 A `REFUTED` theorem is **not** proved. It had one counterexample
 offered against it and rejected, and its Verified line says exactly

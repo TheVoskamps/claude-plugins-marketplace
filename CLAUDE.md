@@ -161,12 +161,15 @@ started from.
 One vocabulary spans three of those files instead of two: the
 consequence-class tokens. `theorem-disprover` proposes one,
 `counterexample-verifier` confirms or corrects it, and the pipeline
-transcribes it into a severity. Only the pipeline states the
-class-to-severity mapping — the two agent files enumerate the tokens
-and say outright that the severity is not theirs to argue — so adding,
-renaming, or removing a class edits all three files, and a severity
-table appearing in an agent file is the defect this split exists to
-prevent.
+transcribes it into a severity. The *tokens* appear in all three
+files, but the defining glosses — what each class means — live in the
+two agent files only; the pipeline carries the bare tokens in its
+class-to-severity table and nothing more. Only the pipeline states
+that mapping, and the two agent files say outright that the severity
+is not theirs to argue. So adding, renaming, or removing a class edits
+all three files — the gloss in each agent file, the token in the
+pipeline's table — and a severity table appearing in an agent file is
+the defect this split exists to prevent.
 
 On any brief or spawn-template widening — the pipeline's briefs and
 the orchestrator's teammate templates alike — the receiving side is
@@ -286,6 +289,16 @@ spells the value, here included: the pipeline names only the cheaper
 model it passes for a `mechanical` theorem and otherwise says "the
 declared default", which is what keeps a disprover model change a
 one-file edit.
+
+`counterexample-verifier` is the same shape and holds the same
+property. It too is a single definition with no tiers, its model is
+routed per spawn by the same theorem class, and no file outside its
+frontmatter spells its value — the pipeline's verifier fan-out names
+the cheaper `mechanical` model and otherwise points at the agent
+file, and `plugins/sdlc/skills/orchestrate/SKILL.md`'s
+model-routing paragraph names neither agent's default. So a verifier
+model change is a one-file edit too, and adding a restatement to
+either the pipeline or orchestrate is what would end that.
 
 ## Review writes nothing, so review lore is a PR
 

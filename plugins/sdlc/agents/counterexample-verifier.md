@@ -64,7 +64,8 @@ Your brief carries exactly these double-dash parameters:
   session immediately before spawning you, so the ref store is already
   current.
 - `--theorem T<k>` — the handle to report back under.
-- `--claim <text>` — the theorem the counterexample claims to refute.
+- `--claim <text>` — the generator's claim, verbatim from its record:
+  the one the counterexample claims to refute.
 - `--issues <N…>` — the member issue(s) the theorem is tagged to.
   Context for your consequence statement; you never review against
   them.
@@ -145,8 +146,9 @@ calls in a subagent context.
    check against the head tree usually does not need it.
 
 3. **Attack the counterexample** along these axes, in this
-   order. Any one of them failing is a `REFUTED`, and you can stop
-   there:
+   order. A quote that does not exist, or that does not contradict the
+   claim, is a `REFUTED` and you can stop there. An overstated
+   consequence is not — you correct it, per that axis's own bullet:
 
    - **Does the evidence exist, byte for byte, at the cited
      location?** Extract it rather than eyeballing it:
