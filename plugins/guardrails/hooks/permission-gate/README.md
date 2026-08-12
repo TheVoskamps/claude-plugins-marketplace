@@ -499,19 +499,23 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   The spellings adjacent to `updateIssueFieldValue` are deliberately
   NOT on the list. The generic `updateIssue` — the one verb that sets
   an issue's type, state, title, body, labels, assignees, milestone or
-  project associations — is excluded because `UpdateIssueInput` also
-  carries an `agentAssignment` arm: a Copilot target repository, base
-  ref, custom instructions and custom agent, i.e. dispatching a
-  third-party coding agent at an arbitrary repository with
-  attacker-chosen instructions, prompt-free. That is neither
-  recoverable nor human-visible in the way the rest of the list is, and
-  no narrower allow-listed verb reaches it; because the allowlist keys
-  on the mutation field NAME and never on its arguments, the gate
-  cannot tell that arm from a title edit, so the whole verb keeps its
-  **ask**. The triage friction that prompted #256 was `updateIssue`
-  used only to set `issueTypeId`, and that has its own narrow verb on
-  the list already — `updateIssueIssueType`, which is what the issues
-  plugin's canonical templates use. The observed-in-the-wild spelling
+  project associations (that is a list of *concepts*, not of input
+  fields: `UpdateIssueInput` spells several of them two ways, e.g.
+  `state`/`stateInput`, `issueTypeId`/`issueType`,
+  `assignees`/`assigneeIds`, `labels`/`labelIds`) — is excluded because
+  that same input also carries an `agentAssignment` arm: a Copilot
+  target repository, base ref, custom instructions and custom agent,
+  i.e. dispatching a third-party coding agent at an arbitrary
+  repository with attacker-chosen instructions, prompt-free. That is
+  neither recoverable nor human-visible in the way the rest of the
+  list is, and no narrower allow-listed verb reaches it; because the
+  allowlist keys on the mutation field NAME and never on its
+  arguments, the gate cannot tell that arm from a title edit, so the
+  whole verb keeps its **ask**. The triage friction that prompted #256
+  was `updateIssue` used only to set `issueTypeId`, and that has its
+  own narrow verb on the list already — `updateIssueIssueType`, which
+  is what the issues plugin's canonical templates use. The
+  observed-in-the-wild spelling
   `updateIssueIssueFieldValue` is off the list for an unrelated reason:
   GitHub's `Mutation` type has no such field, so a command using it
   fails whatever the verdict. Any other mutation-bearing document

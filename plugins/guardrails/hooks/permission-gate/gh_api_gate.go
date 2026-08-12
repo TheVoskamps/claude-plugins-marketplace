@@ -431,7 +431,10 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // The generic `updateIssue` is deliberately NOT on the list, and putting it
 // there is the tempting change to resist. It looks like the rest of the set —
 // one verb that sets an issue's type, state, title, body, labels, assignees,
-// milestone or project associations — but `UpdateIssueInput` also carries an
+// milestone or project associations. That is a list of CONCEPTS, not of input
+// fields: `UpdateIssueInput` spells several of them two ways
+// (`state`/`stateInput`, `issueTypeId`/`issueType`, `assignees`/`assigneeIds`,
+// `labels`/`labelIds`), and the same input also carries an
 // `agentAssignment` arm: a Copilot target repository ID, base ref, custom
 // instructions and custom agent (measured by introspecting
 // `UpdateIssueInput` and `AgentAssignmentInput`). That dispatches a
