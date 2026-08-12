@@ -207,6 +207,41 @@ func TestGhAPIGraphQLClearMutationsAllow_209(t *testing.T) {
 	}
 }
 
+// `updateIssue` and `updateIssueFieldValue` ALLOW. Broader than the narrow
+// set-verbs, but they pass the same recoverability test: `updateIssue` edits
+// land on the issue's human-visible edit history or are directly reversible
+// (state, `issueTypeId`), and `updateIssueFieldValue` rewrites a native issue
+// field value that can simply be set back. The gate protects against
+// unrecoverable damage, not against off-template spellings of recoverable
+// writes — both spellings were observed ASKing in live triage sessions.
+func TestGhAPIGraphQLUpdateIssueMutationsAllow_253(t *testing.T) {
+	for _, cmd := range []string{
+		// The live-session shape that motivated the change: set an issue's
+		// type through the generic updateIssue mutation.
+		`gh api graphql -f query='mutation { updateIssue(input: {id: "I_x", issueTypeId: "IT_x"}) { issue { issueType { name } } } }'`,
+		// Named with variable definitions.
+		`gh api graphql -f query='mutation($id: ID!, $type: ID!) { updateIssue(input: {id: $id, issueTypeId: $type}) { issue { id } } }'`,
+		`gh api graphql -f query='mutation { updateIssueFieldValue(input: {}) { issue { id } } }'`,
+		// Bundled with already-allow-listed fields: all fields pass.
+		`gh api graphql -f query='mutation { t: updateIssue(input: {}) { issue { id } } p: setIssueFieldValue(input: {}) { issue { id } } a: addProjectV2ItemById(input: {}) { item { id } } }'`,
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketAllow, "graphql updateIssue-family mutation: "+cmd)
+	}
+}
+
+// All-fields-must-pass is unchanged: updateIssue bundled with an off-list
+// destructive mutation still ASKs, naming both fields.
+func TestGhAPIGraphQLMixedUpdateIssueMutationAsks_253(t *testing.T) {
+	cmd := `gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } deleteIssue(input: {}) { repository { id } } }'`
+	d := classifyCmd(t, cmd, false)
+	wantBucket(t, d, BucketAsk, "graphql mixed updateIssue mutation: "+cmd)
+	for _, f := range []string{"updateIssue", "deleteIssue"} {
+		if !strings.Contains(d.Reason, f) {
+			t.Errorf("mixed-mutation ASK reason must name %q, got: %q", f, d.Reason)
+		}
+	}
+}
+
 // All-fields-must-pass is unchanged by the clear verbs: a document bundling
 // either clear with a non-allow-listed mutation still ASKs, naming both fields.
 func TestGhAPIGraphQLMixedClearMutationAsks_209(t *testing.T) {

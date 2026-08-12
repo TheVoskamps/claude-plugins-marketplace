@@ -430,9 +430,19 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // access the credential already holds. Later configuration work makes this
 // list repo-extendable via `repo-can-extend`.
 //
+// `updateIssue` and `updateIssueFieldValue` are broader than the narrow
+// set-verbs but pass the same recoverability test: `updateIssue` edits land
+// on an issue's human-visible edit history (title/body) or are directly
+// reversible (state, type via issueTypeId), and `updateIssueFieldValue`
+// rewrites a native issue field value that can simply be set back. The gate
+// protects against unrecoverable damage, not against off-template spellings
+// of recoverable writes.
+//
 // GraphQL names are case-sensitive, so lookups are exact-match by design.
 var ghGraphQLMutationAllowlist = map[string]bool{
 	"setIssueFieldValue":            true,
+	"updateIssue":                   true,
+	"updateIssueFieldValue":         true,
 	"deleteIssueFieldValue":         true,
 	"updateProjectV2ItemFieldValue": true,
 	"clearProjectV2ItemFieldValue":  true,

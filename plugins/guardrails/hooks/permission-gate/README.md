@@ -487,7 +487,16 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   a project-board item field respectively — recoverable exactly as
   their set counterparts are (the value can just be set again), and for
   a board field the only spelling, since
-  `updateProjectV2ItemFieldValue` cannot clear) also **allows**, with
+  `updateProjectV2ItemFieldValue` cannot clear; extended in #253 with
+  `updateIssue` and `updateIssueFieldValue` — broader than the narrow
+  set-verbs, but they pass the same recoverability test: `updateIssue`
+  edits land on the issue's human-visible edit history (title/body) or
+  are directly reversible (state, type via `issueTypeId`), and
+  `updateIssueFieldValue` rewrites a native issue field value that can
+  simply be set back — the gate protects against unrecoverable damage,
+  not against off-template spellings of recoverable writes, and both
+  spellings were observed asking in live triage sessions) also
+  **allows**, with
   aliases resolved to the real field name first; any other
   mutation-bearing document **asks** with the mutation field names in
   the reason (so the human sees `addSubIssue` vs `deleteIssue`), and a
