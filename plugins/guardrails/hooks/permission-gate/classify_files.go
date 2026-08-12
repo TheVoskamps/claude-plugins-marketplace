@@ -58,7 +58,7 @@ func classifyFileTool(ev *Event) Decision {
 	// Eligibility is read/write-graded for the bundled-skills tree, so the
 	// call's class is computed once here from isMutatingFileTool, the same
 	// predicate the .git/-tree rule below already uses. badRoot records a
-	// scratchpad-root ASK without short-circuiting the walk, so a genuine
+	// scratchpad-root DEFER without short-circuiting the walk, so a genuine
 	// escape later in the same call still outranks it.
 	readClass := !isMutatingFileTool(ev.ToolName)
 	allScratch := true
@@ -127,7 +127,7 @@ func classifyFileTool(ev *Event) Decision {
 				ev.ToolName, p, real, rc.topLevel, scratchHint(ev.ToolName, rc.topLevel)))
 		case harnessScratchBadRoot:
 			// Record, do not return: a later target may be a genuine escape,
-			// and a deny must outrank this ask.
+			// and a deny must outrank this defer.
 			badRoot = harnessScratchBadRootDefer("file:scratchpad-root (#193)",
 				fmt.Sprintf("%s target '%s'", ev.ToolName, p))
 			haveBadRoot = true
@@ -170,7 +170,7 @@ func classifyFileTool(ev *Event) Decision {
 // Bash program (less/more/od/xxd/hexdump). Flags and option values are skipped;
 // the remaining tokens are treated as path operands and tested with Engine B.
 // A contained read DEFERS (the normal pipeline governs it); only an escape
-// denies/asks. The read-only-utility classifier (classifyReadOnlyUtility) uses
+// denies. The read-only-utility classifier (classifyReadOnlyUtility) uses
 // the same containment via containPathOperands but ALLOWs the contained form.
 //
 // A bash-read targeting a sibling repo's node_modules is blocked.
@@ -222,15 +222,15 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 // for classifyPathReader).
 //
 // ok=false means the returned Decision is TERMINAL — return it verbatim.
-// Usually that is a deny (cross-repo, or a .git/-tree read) or an
-// ask (no-repo-context fail-closed, or a defective scratchpad root), but
+// Usually that is a deny (cross-repo, or a .git/-tree read) or a
+// defer-with-analysis (no repo context, or a defective scratchpad root), but
 // it is also how the scratchpad ALLOW is delivered: when every operand
 // lands in a read-eligible region of the harness prefix (a session-shaped
 // scratchpad directory, or the bundled-skills tree), the read is allowed
 // outright rather than left to the caller's terminal, because the DEFER
 // terminal would still lose to a `/tmp` deny entry in settings.json. A deny
 // found anywhere in the operand walk returns immediately and so always
-// outranks both the ask and the allow.
+// outranks both the defer and the allow.
 //
 // With no operands there is nothing to contain, so ok=true and the caller's
 // own terminal applies. The caller is responsible for the hasUnknownExpansion
@@ -388,7 +388,8 @@ func readTargets(operands []string, sc simpleCommand) []string {
 // input-redirect sources (`tee f.md < /etc/passwd`) and the values of its
 // path-valued flags (`sed -i -f ../sibling-repo/x.sed f.md`) — through the same
 // read containment that grades read operands, and reports ok=false with a
-// TERMINAL deny/ask when one of them escapes.
+// TERMINAL deny — or, for an unresolvable boundary or a defective scratchpad
+// root, a terminal defer — when one of them escapes.
 //
 // The read tracks do not need this: they merge their input sources straight into
 // their operand walk via readTargets. A write command cannot, because

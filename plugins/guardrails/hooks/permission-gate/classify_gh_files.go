@@ -53,8 +53,9 @@ import (
 // ghInheritedBoolFlags) and the `-F=FILE` short form (see
 // ghPflagEqualValueRefs, plus the `=` stop both cluster walks below make).
 //
-// A path the gate cannot resolve statically fails closed to an ASK, and that
-// question is asked PER TOKEN (ghPathTokensDynamic) rather than of the whole
+// A path the gate cannot resolve statically DEFERS with the analysis (it can
+// never ride the allow track), and that question is asked PER TOKEN
+// (ghPathTokensDynamic) rather than of the whole
 // command: the ordinary agent spelling
 // `gh pr create --title "$TITLE" --body-file .claude/tmp/body.md` carries a
 // dynamic value on a deliberately shielded flag beside a perfectly literal body
@@ -108,8 +109,8 @@ type ghFileSpec struct {
 // verb: a path-valued flag, a file positional, or the stdin default. Roughly half
 // the table's verbs have none — `pr close`, `issue pin`, `label edit`,
 // `cache delete` and their neighbours write to GitHub and read nothing off the
-// local disk — and the unmodelled-flag ASK words itself on that, so it does not
-// tell a human about a body-file risk the command cannot have.
+// local disk — and the unmodelled-flag analysis words itself on that, so it does
+// not report a body-file risk the command cannot have.
 func (s ghFileSpec) readsLocalFiles() bool {
 	return len(s.pathValueFlags) > 0 || s.filePositionalsFrom >= 0 || s.defaultsToStdin
 }
@@ -127,7 +128,7 @@ func (s ghFileSpec) readsLocalFiles() bool {
 // in their INHERITED FLAGS block and answer both spellings with `unknown flag`
 // / `unknown shorthand flag` (measured, gh 2.97.0) — a gist is not a repository
 // resource. ghSpec folds the pair into those two specs anyway: modelling a flag
-// gh itself rejects withholds an ask from an invocation that cannot run.
+// gh itself rejects withholds an escalation from an invocation that cannot run.
 var ghInheritedValueFlags = map[string]bool{"-R": true, "--repo": true}
 
 // `--help` is the spelling gh's INHERITED FLAGS block renders; `-h` is the one
@@ -462,9 +463,9 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 //
 // The order of the checks is the failure asymmetry: a containment DENY is the
 // strongest verdict and is returned first, so an escaping path denies even when
-// the same command also carries an unmodelled flag. The unknown-flag ASK follows,
-// then the verb's own tier (publish ASK, foreign-target ASK, recoverable-write
-// ALLOW) decides the rest back in classifyGh.
+// the same command also carries an unmodelled flag. The unknown-flag DEFER
+// follows, then the verb's own tier (publish hard-ASK, foreign-target DEFER,
+// recoverable-write ALLOW) decides the rest back in classifyGh.
 func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decision, bool) {
 	if len(cmd) < 2 {
 		return Decision{}, false
@@ -494,9 +495,9 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		// its value IS classification-bearing now. Only that LONG spelling reaches
 		// here — the shield table's `-t` is `gh pr create`'s `--title` and names no
 		// file, and the verb's short template flag `-T` is not shielded at all, so
-		// `gh pr create -T $X` still denies at the precondition. Fail closed
-		// ASK — the same posture the read and write tracks hold for a dynamic
-		// path.
+		// `gh pr create -T $X` still denies at the precondition. DEFER with the
+		// analysis — the same posture the read and write tracks hold for a
+		// dynamic path.
 		//
 		// The question is asked of the PATH TOKENS, not of the whole command: a
 		// dynamic value on a SHIELDED non-path flag leaves a literal body file
@@ -761,15 +762,20 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 }
 
 // ghUnmodelledFlagAsk screens a publish verb's flags against the verb's complete
-// modelled grammar and returns a terminal ASK for the first token the gate does
-// not recognize. This is the whitelist half of the fix: without it, a gh release
+// modelled grammar and returns a terminal DEFER for the first token the gate does
+// not recognize (#262 rebucketed it; the name predates that). This is the
+// whitelist half of the fix: without it, a gh release
 // that adds a second file-reading flag would ride the verb's existing ALLOW and
 // publish an ungraded file, exactly as `-F` did before this change.
 //
-// It is the same shape ghAuthStatusEscalates holds for `gh auth status` and
-// parseGhGlobals holds for an unknown leading global: a recognized flag continues,
-// anything else escalates, and the cost of being wrong is one human click rather
-// than a silent publish. A POSITIONAL token is not screened — the verbs here take
+// It is the same whitelist SHAPE ghAuthStatusEscalates holds for `gh auth
+// status` and parseGhGlobals holds for an unknown leading global — a recognized
+// flag continues, anything else escalates — but not the same tier: this one
+// grades a command whose class is otherwise established, so it withholds the
+// allow and hands the call to the evaluator, where the `gh auth status` screen
+// is a credential-read guard and stays a hard ask and parseGhGlobals denies. The
+// cost of being wrong here is a graded call rather than a silent publish. A
+// POSITIONAL token is not screened — the verbs here take
 // issue numbers, tags, gist ids and filenames positionally, and those are graded
 // by containment (when they name files) or carry no local read at all.
 func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision, bool) {
@@ -777,8 +783,8 @@ func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision
 		// The risk clause is branched on the verb's own modelled surface. Roughly
 		// half this table's verbs read no local file at all (`gh pr close`,
 		// `gh issue pin`, `gh label edit`, `gh cache delete`, …), and telling a
-		// human that such a command "can read a local file via a body-file flag"
-		// asks them to adjudicate a risk the command does not have.
+		// downstream reader that such a command "can read a local file via a
+		// body-file flag" reports a risk the command does not have.
 		risk := "This command writes to GitHub, and an unmodelled flag could change what that write does — or " +
 			"give the verb a local-file surface its model does not have — so the gate cannot vouch for it."
 		if spec.readsLocalFiles() {
@@ -825,7 +831,7 @@ func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision
 				// here to screen. gh accepts the spelling for every bool it
 				// documents, and screening the `=` as a flag character would
 				// escalate it. Restricted to j > 1 so a leading `-=x`, which pflag
-				// rejects outright, still reaches the unmodelled-flag ask.
+				// rejects outright, still reaches the unmodelled-flag screen.
 				break
 			}
 			f := "-" + string(a[j])

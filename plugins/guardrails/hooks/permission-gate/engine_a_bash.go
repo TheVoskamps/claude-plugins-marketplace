@@ -94,8 +94,9 @@ type cwdCtx struct {
 // high-confidence ALLOW the whole line is allowed; otherwise it defers to the
 // normal pipeline.
 //
-// Fail-closed: a parse error or an unhandled AST construct yields ASK (the
-// gate cannot prove the line safe, so it escalates to a human), never allow.
+// Fail-closed: a parse error DENIES (bash would refuse the same string — see
+// the arm below) and an unhandled AST construct yields a DEFER carrying that as
+// its analysis (the gate cannot prove the line safe), never allow.
 func classifyBash(command string, ev *Event) Decision {
 	parser := syntax.NewParser(syntax.KeepComments(false))
 	file, err := parser.Parse(strings.NewReader(command), "")
@@ -191,7 +192,7 @@ func classifyBash(command string, ev *Event) Decision {
 		return worstDecision
 	}
 	if sawNonAllow {
-		// Some part wasn't a high-confidence allow and wasn't deny/ask either
+		// Some part was not a high-confidence allow and was not a deny or a hard ask
 		// — hand the whole line back to the normal permission pipeline rather
 		// than auto-allowing. This keeps the allow track to cheap, certain
 		// wins only (§4 posture).
@@ -285,7 +286,7 @@ func containsUnescapedByte(s string, c byte) bool {
 type simpleCommand struct {
 	// args[0] is the program; args[1:] are its arguments (literal-expanded
 	// where statically possible). Empty args means "could not determine the
-	// program" → the caller treats it as fail-closed ASK.
+	// program" → the caller defers with that as the analysis; it never allows.
 	args []string
 	// hasUnknownExpansion is true when any word contained a command
 	// substitution or an unresolved parameter expansion. Such a command
@@ -776,7 +777,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// path — see procSubstFD), so the substituted command has to be judged on
 	// its own terms instead of riding the enclosing command's verdict. Both
 	// operators are descended into: `>(cmd)` really does run cmd too, and
-	// classifying it can only add a deny/ask, never an allow.
+	// classifying it can only add a deny or an escalation, never an allow.
 	//
 	// The inner statements inherit NO redirects, for the same reason
 	// descendCmdSubsts passes none: the substitution is set up during word
@@ -1486,7 +1487,7 @@ var anchorCommands = []anchorCommand{
 		// $(git rev-parse --git-common-dir) → the shared git dir. A path
 		// anchored here lands under .git/ and is subject to the isUnderGitDir
 		// deny once resolved — resolving it makes that deny deterministic
-		// instead of a fail-closed ASK. It is NOT treated as a
+		// instead of an unpinnable-path DEFER. It is NOT treated as a
 		// writable/contained anchor.
 		match: func(args []string) bool {
 			return len(args) == 3 && args[0] == "git" && args[1] == "rev-parse" && args[2] == "--git-common-dir"
@@ -1768,8 +1769,8 @@ func staticForItems(wi *syntax.WordIter, knownVars map[string]string, cwdInvalid
 // brace-comma-list (declined, silently short — the residual check alone
 // would miss this), staticExpandBraceFallback below does the comma-list
 // split itself, so every member (including the escaping one) still flows
-// through the existing containment pipeline and gets worst-wins DENY/ASK
-// rather than being silently dropped or bulk-ASKed. staticExpandBraceFallback
+// through the existing containment pipeline and gets its own worst-wins
+// verdict rather than being silently dropped or bulk-escalated. staticExpandBraceFallback
 // only understands the single unnested `{x,y,z}` comma-list grammar; a
 // range form (`{1..9}`, `{a..z}`) it does not recognize is left to fail
 // closed exactly as before — the accepted carve-out: a brace form the
@@ -1903,7 +1904,8 @@ func hasDotDotBraceMember(raw string) bool {
 // depth-1 commaCount stays 0), nested braces (`{a,{b,c}}` — ok is false
 // because a nested "{" is found at depth 1), or more than one top-level
 // brace group in the same word. Any of those returns ok=false so the caller
-// fails closed to ASK rather than guess at bash's grammar.
+// keeps the word inexact — it cannot ride the allow track, and lands on the
+// unpinnable-path DEFER — rather than guess at bash's grammar.
 //
 // $VAR / other non-literal word parts around the brace group (e.g.
 // `{a,../b}$X.md`) are not visible in raw's flat text once mutated by
@@ -2035,9 +2037,9 @@ func hasGlobMeta(s string) bool {
 //
 // ok is false when the prefix cannot be safely resolved: cwdInvalid (an
 // earlier dynamic `cd` invalidated the running cwd) means a RELATIVE
-// glob cannot be safely anchored, so the caller fails the whole for-list
-// closed (ASK), matching cdInvalidDefer's fail-closed posture for every other
-// relative operand. An absolute glob (`/abs/*.md`) is unaffected by
+// glob cannot be safely anchored, so the caller keeps the whole for-list
+// inexact and off the allow track, matching cdInvalidDefer's posture for every
+// other relative operand. An absolute glob (`/abs/*.md`) is unaffected by
 // cwdInvalid, since it needs no cwd to resolve.
 func globDirPrefix(pattern string, cwdInvalid bool) (string, bool) {
 	segs := strings.Split(pattern, "/")

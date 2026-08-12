@@ -14,13 +14,15 @@ import (
 //   - the GraphQL document scanner (Design A): a provably query-only document
 //     supplied literally via `-f query=…` / `--raw-field query=…` ALLOWs, as
 //     does a fragment-free mutation document whose every top-level field is on
-//     the curated issue-metadata allowlist (ghGraphQLMutationAllowlist);
-//     any other mutation-bearing document ASKs (naming the mutation fields);
+//     the curated issue-metadata allowlist (ghGraphQLMutationAllowlist); a
+//     mutation the gate refuses AND can redirect totally
+//     (ghGraphQLMutationRedirects) DENYs with that teaching; any other
+//     mutation-bearing document DEFERS (naming the mutation fields);
 //     everything else (non-literal query source, unbalanced/garbage,
 //     subscription) DENYs.
 //   - the REST GET-gate (Design B): a known-flag-only GET whose endpoint is on
 //     the path-prefix allowlist ALLOWs; an unknown flag or a non-matching
-//     endpoint ASKs; a `://`- or `..`-bearing endpoint DENYs.
+//     endpoint DEFERS; a `://`- or `..`-bearing endpoint DENYs.
 //
 // The issues plugin makes `gh api` (both graphql and REST) hot in the loop, so
 // the prior wall (graphql → DENY with no escape hatch; every REST read → ASK,
@@ -33,7 +35,7 @@ import (
 // their own value and are handled by prefix checks in the walker, not this map.
 //
 // Pinning the table to the installed gh version is deliberate (Design B): an
-// unmodeled future flag lands in the unknown-flag → ASK path rather than being
+// unmodeled future flag lands in the unknown-flag → DEFER path rather than being
 // silently mis-parsed. `--hostname`, `-H/--header`, `-X/--method`, and the
 // body-bearing flags (`-f/-F/--field/--raw-field/--input`) are NOT in this
 // table — they are consumed by the dedicated deny/classify tiers in
@@ -90,11 +92,13 @@ var restEndpointAllowPrefixes = []string{
 //  1. endpoint containing `://` (full-URL prefix-match bypass) or `..`
 //     (server-side path traversal) → DENY (appendix step 7).
 //  2. any flag not in ghAPIRESTFlags (and not one already handled upstream) →
-//     ASK (Deviation 1: a false ask costs one click; a hard deny on every future
-//     gh flag is the no-escape-hatch failure this gate exists to remove).
+//     DEFER (Deviation 1: a hard deny on every future gh flag is the
+//     no-escape-hatch failure this gate exists to remove, and "the gate does
+//     not model this flag" is an absence of gate knowledge rather than evidence
+//     of harm, so it is the judgment middle rather than a click).
 //  3. endpoint on the path-prefix allowlist → ALLOW.
-//  4. otherwise → ASK (Deviation 2: preserve today's human escape hatch rather
-//     than getting stricter).
+//  4. otherwise → DEFER (Deviation 2: preserve the escape hatch rather than
+//     getting stricter).
 func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 	// Step 1: full-URL / traversal endpoints deny (before any allow can fire).
 	if endpoint != "" {
@@ -112,7 +116,7 @@ func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 
 	// Step 2: unknown-flag scan. Walk restArgs, skipping the endpoint positional
 	// and consuming each known flag's value; any residual flag token that is not
-	// in ghAPIRESTFlags is unmodeled → ASK. The body-bearing / method /
+	// in ghAPIRESTFlags is unmodeled → DEFER. The body-bearing / method /
 	// method-override / hostname flags never reach here (classifyGhAPI consumed
 	// or decided on them upstream), but we still skip their value tokens so a
 	// value like `-q .login` is not misread as an unknown flag.
@@ -211,7 +215,7 @@ func ghAPIRESTUnknownFlag(args []string) (string, bool) {
 			}
 			continue
 		}
-		// Unrecognized flag → surface it (ASK, Deviation 1).
+		// Unrecognized flag → surface it (DEFER, Deviation 1).
 		return a, true
 	}
 	return "", false
@@ -321,7 +325,8 @@ type graphqlDocResult struct {
 	// definition) and the document is well-formed enough to prove it.
 	queryOnly bool
 	// mutationFields holds the top-level selection-set field names of any
-	// `mutation` operation found, in source order (for the ASK reason). Non-nil
+	// `mutation` operation found, in source order (they are named in the deny or
+	// defer reason). Non-nil
 	// and non-empty only when a mutation operation was found.
 	mutationFields []string
 	// sawSubscription is true when a top-level `subscription` operation was
@@ -343,10 +348,12 @@ type graphqlDocResult struct {
 	// deleteIssue(…) }` reports the field `addSubIssue` while GitHub executes
 	// `deleteIssue` (`__schema { mutationType { name } }` is literally
 	// `Mutation`, so `on Mutation` is a valid type condition and the shape does
-	// execute). That mislabel was harmless while EVERY mutation ASKed; the
-	// allowlist turns some mutations into an ALLOW, which would make the
-	// mislabel a laundering bypass. A fragment-bearing mutation document
-	// therefore may not ride the allowlist and keeps its un-narrowed ASK.
+	// execute). That mislabel was harmless while EVERY mutation escalated
+	// identically; the allowlist turns some mutations into an ALLOW, and
+	// ghGraphQLMutationRedirects turns one into a teaching DENY, either of which
+	// the mislabel could launder. A fragment-bearing mutation document therefore
+	// may neither ride the allowlist nor be denied on a name it does not trust:
+	// it keeps the un-narrowed DEFER.
 	//
 	// The signal deliberately does not gate the query-only ALLOW: a
 	// query-only document executes against the Query root type, so no fragment
@@ -363,7 +370,8 @@ type graphqlDocResult struct {
 // residue, or unbalanced braces — fails closed (queryOnly=false).
 //
 // When a `mutation` operation is present, its top-level selection-set field
-// names are collected so the ASK reason can name them (e.g. `addSubIssue`) and
+// names are collected so the verdict's reason can name them (e.g.
+// `addSubIssue`) and
 // so the allowlist can judge them. Because those names are only as
 // faithful as the document is fragment-free, any fragment indirection in the
 // document also sets sawFragment (see that field, and
@@ -397,8 +405,8 @@ func scanGraphQLDoc(doc string) graphqlDocResult {
 // sufficient and exact.
 //
 // Callers use this only to REFUSE an ALLOW, so the one direction that could
-// matter — a false positive on a `...` that is not a spread — costs at most an
-// unnecessary ASK.
+// matter — a false positive on a `...` that is not a spread — costs at most a
+// withheld allow (the document defers instead).
 func graphqlDocHasFragmentSpread(stripped string) bool {
 	return strings.Contains(stripped, "...")
 }
@@ -406,7 +414,7 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // ghGraphQLMutationAllowlist is the curated set of top-level GraphQL mutation
 // FIELD names whose document ALLOWs. The issues plugin's hot loop is
 // mutation-heavy — a single `/issue-create` or triage pass costs several
-// prompts under the plain "any mutation → ASK" rule — for operations
+// escalations under the plain "any mutation escalates" rule — for operations
 // that are that plugin's sanctioned job.
 //
 // The principled basis is the GraphQL spelling of the verbs classifyGh already
@@ -539,7 +547,7 @@ func ghGraphQLMutationRedirect(fields []string) (Decision, bool) {
 // aliased multi-operation document is judged on the fields it actually calls.
 //
 // All fields must pass: a document bundling an allow-listed field with
-// anything else still ASKs, because a multi-operation document is judged by
+// anything else does not, because a multi-operation document is judged by
 // its broadest operation. An empty list is NOT "all allowed" — it means no
 // mutation field was nameable, which is the fail-closed DENY path, not an
 // allowlist hit.
@@ -797,7 +805,7 @@ func extractBracedBlock(doc string, open int) (body string, next int, ok bool) {
 // topLevelSelectionFields returns the field names at the top level of a
 // selection-set body (the content between the outer braces), skipping nested
 // braces, arguments (…), and directives. It names the mutation fields in the
-// ASK reason (e.g. `addSubIssue`) and feeds the allowlist decision. A
+// verdict's reason (e.g. `addSubIssue`) and feeds the allowlist decision. A
 // field is an identifier at brace depth 0 of the body; an alias
 // (`alias: field`) resolves to the field name after the ':'.
 //

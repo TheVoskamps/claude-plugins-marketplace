@@ -517,12 +517,19 @@ no corresponding arm in the diff.
 
 The synthetic replay also reads the evolution log, which is the second
 half of the evidence since #262: `PERMISSION_GATE_LOG=<path>` puts the
-record where the probe can read it, and `ask`, `deny` and `defer` all
-append one carrying `operation` and `analysis`. That is how a probe
-distinguishes *which* arm produced a `defer` — two arms returning the
-same bucket are indistinguishable on stdout, because `emitDecision`
-blanks a defer's reason. Assert the `operation` label, not just the
-bucket, whenever more than one arm can produce the verdict under test.
+record where the probe can read it, and `ask`, `deny` and `defer` each
+append one. That is how a probe distinguishes *which* arm produced a
+`defer` — two arms returning the same bucket are indistinguishable on
+stdout, because `emitDecision` blanks a defer's reason. Assert the
+`operation` label, not just the bucket, whenever more than one arm can
+produce the verdict under test.
+
+`operation` and `analysis` are populated only where the arm had an
+account to give: a `deferJudgment` site fills both, while a bare
+`deferToPipeline` — a contained pager read, say — logs a record with
+both fields empty. An empty `operation` is therefore a positive result
+(the line reached no analysed arm), not a probe that failed to capture
+one, and an ALLOW appends nothing at all.
 
 ## When an ask becomes an allow, re-audit the helpers
 

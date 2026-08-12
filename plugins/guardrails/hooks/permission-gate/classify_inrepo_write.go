@@ -21,12 +21,12 @@ import (
 // Engine B containment. Any operand that escapes the repo, or escapes the
 // worktree into the primary clone, DENIES, reusing the worktree-anchored
 // remediation. An operand built from an unresolved expansion (`$(...)`) cannot
-// be statically contained, so the gate ASKS (matching the read side's
-// bash-read:dynamic-path posture).
+// be statically contained, so the gate DEFERS with that as its analysis
+// (matching the read side's bash-read:dynamic-path posture).
 //
 // `rm` is deliberately NOT in this set: it is the highest-blast-radius mutating
-// program, and the conservative posture keeps `rm`/`rm -rf` on the
-// ask/defer track so a human sees each one.
+// program, and the conservative posture keeps `rm`/`rm -rf` off the allow
+// track entirely, so the gate never blesses one.
 
 // inRepoWriteSpec describes how to extract the path operands of a mutating
 // program. operandsFn returns the tokens that name files the command will touch;
@@ -82,7 +82,7 @@ var inRepoWriters = map[string]inRepoWriteSpec{
 }
 
 // classifyInRepoWrite ALLOWs a curated file-mutating program when every path
-// operand is provably contained in the current worktree, else denies/asks per
+// operand is provably contained in the current worktree, else denies per
 // the escape, or defers when the gate cannot prove the form is a clean in-repo
 // write. The caller has already confirmed prog is in inRepoWriters.
 func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event) Decision {
@@ -135,10 +135,10 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	//
 	// A DENY from either side is a genuine escape, so whichever fires wins; the
 	// deny is taken FIRST here so it outranks the DEFER containWriteOperands
-	// returns for a merely-ineligible carve-out operand. A read-side ASK (a
+	// returns for a merely-ineligible carve-out operand. A read-side DEFER (a
 	// defective scratchpad root, an unresolvable repo boundary) is held back
 	// until after the write walk, so a write escape still outranks it — the same
-	// ordering containWriteOperands applies to its own recorded ask.
+	// ordering containWriteOperands applies to its own recorded defer.
 	readSources := append(pathFlagValues(args, spec.valueFlags, spec.pathValueFlags), sc.inputRedirectTargets...)
 	inputEscape, inputClean := containReadSources(prog, readSources, sc, ev)
 	if !inputClean && inputEscape.Bucket == BucketDeny {
@@ -171,8 +171,8 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // prefix, including the read-only-by-policy bundled-skills tree) is neither
 // contained-for-allow nor an escape: it withholds the ALLOW and
 // returns a DEFER. A defective scratchpad root (a symlinked,
-// non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns an ASK
-// naming the defect. When an operand escapes, ok is false and the returned
+// non-directory, or foreign-owned <system-tmp>/claude-<uid>) returns a DEFER
+// whose analysis names the defect. When an operand escapes, ok is false and the returned
 // Decision is the appropriate write-side deny: cross-repo or
 // worktree-escape, each carrying the worktree-anchored remediation
 // (mirroring the file-tool deny wording).
@@ -205,7 +205,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 	// A carve-out operand withholds the ALLOW but must NOT short-circuit the
 	// loop: `cp <scratchpad-file> <sibling-repo-path>` has to keep walking to
 	// the destination so it still earns the cross-repo DENY. Record the defer
-	// (and, likewise, a scratchpad-root ASK) and apply it only once every
+	// (and, likewise, a scratchpad-root DEFER) and apply it only once every
 	// operand has been checked, so a genuine escape anywhere in the command
 	// always outranks it.
 	deferForCarveOut := false

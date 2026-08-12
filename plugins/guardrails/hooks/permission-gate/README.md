@@ -63,7 +63,7 @@ on uncertainty buys prompt fatigue rather than safety.
   write). These sites use `deferJudgment`, which is a bare defer on the
   wire plus an analysis for the evolution log.
 
-Two consequences are worth stating because they are what a reader
+Some consequences are worth stating because they are what a reader
 checks the code against:
 
 - **A residual-bucket change can silently drop a call out of a tier.**
@@ -1435,12 +1435,15 @@ paths.
 
 Every ASK, DENY and DEFER is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
-`PERMISSION_GATE_LOG`), and every record carries the gate's own
-**analysis** — the `analysis` field holds the Decision's reason
-("the destination is built from an expansion or command substitution"),
-where `operation` holds only the taxonomy label. An ALLOW is not
-logged: the allow track exists precisely to keep the hot path out of
-this feed.
+`PERMISSION_GATE_LOG`), and a record that has an account to give
+carries the gate's own **analysis** — the `analysis` field holds the
+Decision's reason ("the destination is built from an expansion or
+command substitution"), where `operation` holds only the taxonomy
+label. Every deny and every ask carries both, as does every
+`deferJudgment` site; a bare `deferToPipeline` has neither to give, so
+its record spells `operation` and `analysis` empty, which is itself how
+a reader tells the two kinds of defer apart. An ALLOW is not logged:
+the allow track exists precisely to keep the hot path out of this feed.
 
 The DEFER rows are what make the log a tuning input rather than a
 tally. A deferred call lands in the automode evaluator, and the record

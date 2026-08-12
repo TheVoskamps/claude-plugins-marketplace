@@ -38,33 +38,45 @@ var gitReadOnlySubcommands = map[string]bool{
 	"version":       true,
 }
 
-// classifyGh classifies a `gh` invocation. Per the resolved design
-// decisions this classifier NEVER defers. Under the "two boundaries, split
+// classifyGh classifies a `gh` invocation. Every path through it is ACCOUNTED
+// FOR: it reaches a verdict carrying an operation label and an analysis, never
+// a bare unlabelled defer. Under the "two boundaries, split
 // by visibility" role, ALLOW is NOT a floor — it is a property of an enumerated
 // verb. The egress proxy is the network boundary (it owns only the CONNECT
 // target host); the gate is the semantic boundary for the proxy's TLS-opaque
 // blind spot — what the guest's credential may do at an already-allowed host.
 // So a classifier miss on an unrecognized gh command is NOT "one un-prompted run
 // in a trusted box" (the microVM does not backstop a credential-carrying write
-// to an allowed host); it fails closed to ASK. The tiers:
+// to an allowed host); it withholds the allow and defers with its analysis. The
+// tiers:
 //
 //   - DENY: identity switches; irreparable destructive verbs (repo/
 //     release/issue/gist delete, secret/variable writes, repo rename/transfer,
 //     ruleset delete); the precondition (non-static argv, inline
 //     env-assignment); gh api --hostname (signed-request redirect — the one
-//     shape the egress proxy genuinely owns) and an unclassifiable graphql
-//     document (approval cannot be informed) (see classifyGhAPI).
-//   - ASK:  gh repo edit --visibility; gh auth login --hostname; the publish
+//     shape the egress proxy genuinely owns), an unclassifiable graphql
+//     document (approval cannot be informed) and a graphql mutation the gate
+//     can redirect TOTALLY (ghGraphQLMutationRedirects, today `updateIssue`)
+//     (see classifyGhAPI); a redirect whose destination provably escapes the
+//     worktree or lands under `.git/` (credentialedRedirectVerdict).
+//   - HARD ASK (the enumerated human-click tier, never waivable downstream):
+//     gh repo edit --visibility; gh auth login --hostname; the publish
 //     verbs (gh release create; EVERY gh gist create, secret and public
 //     alike — a secret gist is unlisted, not private; and EVERY gh gist edit,
 //     which pushes local content into a gist that may already have readers);
+//     and the credential reads — gh auth token, and gh auth status in any
+//     spelling ghAuthStatusEscalates screens out.
+//   - DEFER (the judgment middle, with the gate's analysis on the §7 log):
 //     a gh api
-//     graphql mutation outside the curated allowlist — or one whose document
-//     carries a fragment, whose names the scanner cannot trust; an
+//     graphql mutation outside the curated allowlist and outside the redirect
+//     map — or one whose document carries a fragment, whose names the scanner
+//     cannot trust; an
 //     unknown gh api flag, a non-allowlisted gh api REST endpoint, or a
 //     gh api REST write — non-GET method, implicit-POST body flag, or
-//     method-override header; a foreign-target enumerated write;
-//     and any UNRECOGNIZED gh noun/verb (the fail-closed floor).
+//     method-override header; a foreign-target enumerated write; an unmodelled
+//     publish-verb flag or an unpinnable published path; a redirect
+//     destination the gate cannot pin;
+//     and any UNRECOGNIZED gh noun/verb (the residual floor).
 //   - ALLOW: enumerated read-only verbs (isGhReadOnly) and enumerated
 //     recoverable own-repo write verbs (isGhRecoverableWrite: pr create/comment/
 //     merge/close, issue create/comment/close/edit, label, …); a provably
@@ -114,11 +126,11 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// Resolve gh's own command aliases to their canonical spelling BEFORE any
 	// tier runs. gh finds a subcommand by name OR alias, so `gh gist new` IS
 	// `gh gist create`, while every tier below dispatches by name — an alias
-	// therefore matched nothing and fell through to the fail-closed ASK, turning
-	// a documented respelling into a click-through past the containment DENY the
+	// therefore matched nothing and fell through to the unrecognized-command
+	// residual, routing a documented respelling past the containment DENY the
 	// canonical spelling earns. Resolving here lets each alias inherit its
 	// canonical command's real verdict; a token in neither alias table is left
-	// exactly as written, so the fail-closed floor is untouched. See
+	// exactly as written, so the residual floor is untouched. See
 	// classify_gh_aliases.go.
 	cmd = ghCanonicalCommand(cmd)
 
@@ -152,7 +164,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 			// flags against the credential-free set and escalates anything else.
 			//
 			// Recognizing `auth` HERE rather than by adding it to isGhReadOnly's
-			// knownNouns keeps the rest of the noun on the fail-closed track by
+			// knownNouns keeps the rest of the noun off the allow track by
 			// NAME: admitting the noun would make every `auth` verb's verdict
 			// turn on the verb spelling alone, and `readVerbs` contains `get`,
 			// so an `auth` verb named `get` would ride the read allow whatever
@@ -188,12 +200,15 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	}
 
 	// Bypass gate 1: `gh api` defeats subcommand-shape classification.
-	// Route it through the api gate. Write signals (non-GET method, implicit-POST
-	// body flag, method-override header, --hostname) still DENY; a graphql POST is
-	// now classified from its query document (query-only → ALLOW, mutation → ASK,
-	// unclassifiable → DENY) and a REST GET is run through the path-prefix
-	// GET-gate. sc is threaded through so the redirect-to-file ASK carve-out the
-	// other gh paths get also applies to an otherwise-allowed gh api form.
+	// Route it through the api gate. `--hostname` DENIES (the signed-request
+	// redirect); the other write signals — non-GET method, implicit-POST body
+	// flag, method-override header — DEFER with their analysis. A graphql POST
+	// is classified from its query document (query-only or wholly allow-listed
+	// mutation → ALLOW, a totally-redirectable mutation → DENY, any other
+	// mutation → DEFER, unclassifiable → DENY) and a REST GET is run through the
+	// path-prefix GET-gate. sc is threaded through so the redirect-to-file
+	// grading the other gh paths get also applies to an otherwise-allowed gh api
+	// form.
 	if cmd[0] == "api" {
 		return classifyGhAPI(args, sc, ev)
 	}
@@ -209,7 +224,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// that may be public and that outlives any local cleanup, so the path is
 	// graded by the same Engine B read containment that answers
 	// `cat /etc/passwd` with a cross-repo deny. An escaping path DENIES; an
-	// unmodelled flag on a publish verb ASKs. See classify_gh_files.go.
+	// unmodelled flag on a publish verb DEFERS. See classify_gh_files.go.
 	//
 	// Placed BELOW the irreparable-deny tier so those keep their specific
 	// messages, and ABOVE the publish ASK tier so an escaping path on
@@ -314,10 +329,11 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// command that was not carved out above) is gone. ALLOW is now a property of
 	// an ENUMERATED recoverable-own-repo write verb — the sanctioned hot-loop
 	// mutations (pr create/comment/merge/close, issue create/comment/close/edit,
-	// label, …). An UNRECOGNIZED gh noun/verb ASKs (fail-closed): principle 2
-	// (unknown subcommands fail closed) applied where it is cheap — the hot loop
-	// uses only enumerated verbs, so the prompt cost is ~zero, and a gh-version
-	// -drift miss now costs one click instead of a silent auto-allow.
+	// label, …). An UNRECOGNIZED gh noun/verb DEFERS: principle 2 (unknown
+	// subcommands never ride the allow track) applied where it is cheap — the
+	// hot loop uses only enumerated verbs, so the cost is ~zero, and a
+	// gh-version-drift miss now costs a trip through the downstream evaluator
+	// instead of a silent auto-allow.
 	if isGhRecoverableWrite(cmd) {
 		if d, hit := credentialedRedirectVerdict("gh", sc, ev); hit {
 			return d
@@ -483,7 +499,7 @@ var ghRecoverableWriteVerbs = map[string]map[string]bool{
 	"issue": {
 		"create": true, "comment": true, "close": true, "edit": true,
 		"reopen": true, "pin": true, "unpin": true, "lock": true, "unlock": true,
-		"transfer": false, // irreparable-ish cross-repo move; not a hot-loop verb → leave to fail-closed ASK
+		"transfer": false, // irreparable-ish cross-repo move; not a hot-loop verb → leave to the residual DEFER
 	},
 	"release": {
 		// `create` is already routed to ASK (publish) above; `edit`/`upload` are
@@ -493,7 +509,7 @@ var ghRecoverableWriteVerbs = map[string]map[string]bool{
 	"label": {
 		"create": true, "edit": true, "clone": true,
 		// `label delete` is a recoverable re-creatable metadata delete, but it is
-		// not a hot-loop verb; leave it to fail-closed ASK.
+		// not a hot-loop verb; leave it to the residual DEFER.
 	},
 	"cache": {
 		"delete": true, // CI cache is regenerated on next run — recoverable.
@@ -504,7 +520,7 @@ var ghRecoverableWriteVerbs = map[string]map[string]bool{
 // recoverable-own-repo write verb. cmd is the flag-stripped command path
 // (noun verb …). A noun/verb pair present in ghRecoverableWriteVerbs with a
 // true value matches; everything else (unknown noun, unknown verb, or a verb
-// explicitly mapped false) does not, and falls through to the fail-closed ASK.
+// explicitly mapped false) does not, and falls through to the residual DEFER.
 func isGhRecoverableWrite(cmd []string) bool {
 	if len(cmd) < 2 {
 		return false
@@ -589,8 +605,8 @@ func denyGhNakedAppRepo() Decision {
 // that are NOT git objects (repo/release/issue/gist), write-only secret/variable
 // values, repo rename/transfer, and ruleset deletion (branch-protection
 // weakening). Release and gist PUBLISH are NOT here — irreversible as
-// they are, they route to the ASK tier back in classifyGh, since a hard deny
-// would leave legitimate publishing no escape hatch.
+// they are, they route to the hard-ASK tier back in classifyGh, since a hard
+// deny would leave legitimate publishing no escape hatch.
 //
 // cmd is the flag-stripped command path (noun verb …), already alias-resolved
 // by ghCanonicalCommand, so `gh secret remove` reaches the secret arm as
@@ -599,7 +615,7 @@ func denyGhNakedAppRepo() Decision {
 // Default-deny within the gate is per-noun, not global: an unrecognized
 // `secret`/`variable` subcommand denies (fail closed), while `ruleset` denies
 // `delete` alone — any other ruleset verb falls through, to the enumerated-read
-// ALLOW if it is one and otherwise to classifyGh's fail-closed ASK.
+// ALLOW if it is one and otherwise to classifyGh's residual DEFER.
 func ghIrreparableDeny(cmd []string) (Decision, bool) {
 	if len(cmd) < 2 {
 		return Decision{}, false
@@ -692,43 +708,49 @@ func classifyghAPIDeny(reason string) Decision {
 }
 
 // classifyGhAPI gates `gh api` (bypass gate 1). It walks the argv after
-// `api`, applies the --hostname DENY and the write ASK tiers first, then
+// `api`, applies the --hostname DENY and the write tiers first, then
 // branches on the endpoint:
 //
 //   - --hostname (any form, signed-request redirect to a non-default host) →
 //     DENY unconditionally — this is the one shape the egress proxy's
 //     host-allowlist can see and control, so it keeps its own justification
 //     (not the write/read asymmetry the other tiers below hinge on).
-//   - Write ASK tiers (they denied outright before): an x-http-method-override
-//     header, an explicit non-GET method, and a request-body flag
+//   - Write DEFER tiers (they denied outright before, then asked): an
+//     x-http-method-override header, an explicit non-GET method, and a
+//     request-body flag
 //     (-f/-F/--field/--raw-field/--input) with no explicit GET method
 //     (implicit-POST flip). A `gh api` REST write is a credential-carrying
 //     mutation of remote repo state the microVM cannot roll back — the same
 //     "not backstopped by containment" class as an `aws` mutation and a
-//     `git push` refspec — so it ASKs (one-click human approval) rather than
-//     DENYs. The `-XGET -f …` carve-out (a GET with params) is preserved.
+//     `git push` refspec — but WHICH endpoint it writes, and whether that is
+//     the write the session is meant to be making, is read from the arguments
+//     and the context rather than from the method token this arm matches on, so
+//     it goes to the judgment middle rather than to a human click. The
+//     `-XGET -f …` carve-out (a GET with params) is preserved.
 //   - graphql endpoint (Design A): classify the query DOCUMENT instead of
 //     blanket-denying. The document is extractable only from a literal
 //     `-f query=…` / `--raw-field query=…` value; `-F query=…`, `--input`, or no
 //     statically-present query → DENY (genuinely unclassifiable). A provably
-//     query-only document → ALLOW (subject to the redirect-to-file ASK); a
+//     query-only document → ALLOW (subject to the redirect grading); a
 //     fragment-free mutation document whose every top-level field is on the
-//     curated issue-metadata allowlist → ALLOW (same redirect-to-file
-//     ASK); any other mutation-bearing document → ASK naming the mutation
+//     curated issue-metadata allowlist → ALLOW (same redirect grading); a
+//     fragment-free document naming a mutation the gate can redirect TOTALLY
+//     (ghGraphQLMutationRedirects) → DENY with that teaching; any other
+//     mutation-bearing document → DEFER naming the mutation
 //     fields; anything else (subscription, garbage, unbalanced) → DENY.
 //   - REST endpoint (Design B): a known-flag-only GET whose endpoint is on
-//     the path-prefix allowlist → ALLOW (subject to the redirect-to-file ASK); a
+//     the path-prefix allowlist → ALLOW (subject to the redirect grading); a
 //     `://`- or `..`-bearing endpoint → DENY; an unknown flag or a non-matching
-//     endpoint → ASK.
+//     endpoint → DEFER.
 //
 // args is the full gh argv (after the program), i.e. it still contains the
 // leading `api` token and gh's globals. sc is threaded through only for the
-// redirect-to-file ASK carve-out on an otherwise-allowed form.
+// redirect-to-file grading on an otherwise-allowed form.
 func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 	// Walk the tokens after `api`. Track method, body-bearing flags, graphql,
 	// the endpoint positional, and whether the graphql query (if any) was
 	// supplied via a body flag that is NOT a literal string field. hostname
-	// DENYs immediately; the method-override header ASKs immediately.
+	// DENYs immediately; the method-override header DEFERS immediately.
 	var method string
 	var endpoint string
 	bodyBearing := false
@@ -895,7 +917,9 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 			// a spread named after an allow-listed mutation would otherwise
 			// launder an arbitrary one (`mutation { ...addSubIssue } fragment
 			// addSubIssue on Mutation { deleteIssue(…) }`). Both signals only ever
-			// withhold the ALLOW: the document falls through to the ASK below.
+			// withhold the ALLOW: the document falls through to the DEFER below, and
+			// never to the redirect DENY, whose teaching would be aimed at a call
+			// the document may not be making.
 			if !res.sawSubscription && !res.sawFragment {
 				if allGraphQLMutationFieldsAllowed(res.mutationFields) {
 					if d, hit := credentialedRedirectVerdict("gh api graphql", sc, ev); hit {
@@ -978,8 +1002,8 @@ func isGhReadOnly(cmd []string) bool {
 	// `gh api` is never classified here: classifyGh routes it to classifyGhAPI
 	// (the api gate) BEFORE isGhReadOnly is ever consulted, so this
 	// guard is belt-and-suspenders. The api gate — not this read-only shortcut —
-	// owns the allow/ask/deny decision for `gh api` (a graphql query-only doc or
-	// an allow-listed REST GET allows there; a write denies/asks there).
+	// owns the verdict for `gh api` (a graphql query-only doc or
+	// an allow-listed REST GET allows there; a write denies or defers there).
 	if noun == "api" {
 		return false
 	}
@@ -1042,7 +1066,7 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	if svc == "" || op == "" {
 		// Not a recognizable `aws <service> <operation>` shape, so there is no
 		// service/operation to apply policy to — ALLOW. This is unrelated to
-		// the ask-by-default-for-mutations policy below: with nothing
+		// the defer-by-default-for-mutations policy below: with nothing
 		// classifiable, there is simply nothing here to gate.
 		return allow("aws (no classifiable service/operation)")
 	}
@@ -1070,8 +1094,9 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 
 	// A real-file redirect is GRADED, not vetoed: see credentialedRedirectVerdict
 	// for why an in-worktree destination is the same write the in-repo-write
-	// track already allows through argv, and an escaping or unpinnable one
-	// still ASKs.
+	// track already allows through argv, while a destination that provably
+	// escapes (or lands under `.git/`) DENIES and one the gate cannot pin
+	// DEFERS.
 	if d, hit := credentialedRedirectVerdict("aws", sc, ev); hit {
 		return d
 	}
@@ -1160,7 +1185,7 @@ func awsCredentialRead(svc, op string, args []string) bool {
 	// Structural whitelist anchor: any `get-*` operation whose NAME carries a
 	// credential-material token is treated as a credential read regardless of
 	// service, so a credential-returning `get-*` the exact-pair switch above does
-	// not enumerate still ASKs instead of reaching the ALLOW floor.
+	// not enumerate still reaches the credential-read ASK instead of the ALLOW floor.
 	return awsCredentialShapedGet(op)
 }
 
@@ -1348,9 +1373,11 @@ func resolveAwsGlobal(token string) (canonical string, takesValue, glued, known 
 // tokens have been captured. Guessing the arity is the exact desync the
 // anti-desync decision warns about: a value-taking flag the gate does not know
 // (`--some-unknown-global x`) would leave its value (`x`) as a stray positional,
-// shifting svc/op by one and slipping a credential read past the ASK tier to
-// the ALLOW floor. So an unknown flag in that window fails closed:
-// awsServiceAndOp returns ok=false and classifyAws routes that to ASK.
+// shifting svc/op by one and slipping a credential read past the hard-ask tier
+// to the ALLOW floor. So an unknown flag in that window withholds the allow:
+// awsServiceAndOp returns ok=false and classifyAws routes that to a DEFER that
+// names the desync (it cannot claim a credential read, only that the operation
+// token is untrustworthy).
 //
 // The fail-closed window extends until BOTH positionals are captured, not just
 // the service token. aws places the real operation AFTER global flags for

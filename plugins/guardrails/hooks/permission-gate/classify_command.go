@@ -10,12 +10,14 @@ import (
 //
 //  1. A synthetic redirect-only command (no program at all, just redirects the
 //     shell performs) → graded on the paths those redirects open.
-//  2. A command we cannot statically pin (no program token) → ASK.
+//  2. A command we cannot statically pin (no program token) → DEFER (with the
+//     analysis; it never reaches the allow track).
 //  3. A command with a redirect to a real file → DEFER (the normal pipeline's
 //     allow-list will not match it; we do not auto-allow exfiltration) — unless
 //     every destination is a session-shaped harness scratchpad, the one
 //     region designated safe by construction. See redirectVetoesAllow.
-//  4. Program-specific DENY/ASK rules (git, gh, aws identity, etc.).
+//  4. Program-specific DENY / hard-ASK / DEFER rules (git, gh, aws identity,
+//     etc.).
 //  5. Program-specific ALLOW rules (read-only git/gh/aws/acli).
 //  6. Path-bearing read/write programs → Engine B containment.
 //  7. Otherwise DEFER to the normal pipeline.
@@ -56,7 +58,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	case "less", "more", "od", "xxd", "hexdump":
 		// Read-class pagers / binary dumpers whose path arguments must stay
 		// inside the repo (do not read a sibling repo's node_modules to
-		// verify APIs). Contained reads DEFER; only an escape denies/asks. These
+		// verify APIs). Contained reads DEFER; only an escape denies. These
 		// are deliberately NOT in the read-only-utility ALLOW set — they
 		// are interactive / binary-dump tools, out of that track's scope.
 		return classifyPathReader(prog, args, sc, ev)
@@ -156,9 +158,12 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 // subcommand), so a hit DENYs rather than allowing. Returns the deny Decision
 // and true on a hit; the zero Decision and false otherwise.
 //
-// Per the resolved design decisions, these classifiers never defer:
-// callers must convert this into a concrete DENY here rather than handing a
-// non-static command back to the pipeline.
+// This precondition is one of the arms that keeps every path through the
+// git/gh/aws classifiers ACCOUNTED FOR: callers convert a non-static command
+// into a concrete DENY here rather than handing it back to the pipeline
+// unlabelled. (Those classifiers no longer "never defer" — #262 moved their
+// residual and their context-dependent arms onto deferJudgment — but a defer
+// they return carries an operation label and an analysis, never silence.)
 //
 // The argv half used to fire on the whole-command hasUnknownExpansion bool, so
 // ANY dynamic token anywhere denied. Its rationale — a dynamic token can hide a
@@ -329,7 +334,7 @@ func fieldKeyPinned(staticPrefix string) bool {
 // contained by the disposable microVM ("two boundaries, split by
 // visibility"), and git objects are content-addressed / recoverable
 // (principle 4). The remote-touching git shapes (push refspecs, remote re-aim)
-// are individually classified in the deny/ask tiers below — they do NOT rest on
+// are individually classified in the deny/ask/defer tiers below — they do NOT rest on
 // containment, because a credential-carrying push to an allowed host is exactly
 // the proxy's TLS-opaque blind spot.
 func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
@@ -423,7 +428,7 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// microVM and recoverable from content-addressed git objects (the one
 	// premise the egress proxy genuinely backstops, for guest-local effects). The
 	// credential-carrying remote shapes (push, remote re-aim) do NOT reach here —
-	// they are classified in the deny/ask tiers above, because a push to an
+	// they are classified in the deny/ask/defer tiers above, because a push to an
 	// allowed host is the proxy's TLS-opaque blind spot, not a contained effect.
 	// A real-file redirect is GRADED, not vetoed: a destination inside this
 	// worktree (or in a scratchpad region designated safe by construction) is the

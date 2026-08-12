@@ -24,7 +24,7 @@ import (
 //   - Path operands of a path-bearing utility must pass Engine B containment,
 //     so a `cat ../sibling-repo/node_modules/x` still denies; a target
 //     resolving into the primary clone / shared git dir is treated as
-//     contained rather than asking, except under `.git/`, which still
+//     contained rather than escalating, except under `.git/`, which still
 //     denies. Reused from classifyPathReader via containPathOperands.
 //
 // Every utility in the ALLOW set carries a defersForm predicate: it reports
@@ -389,8 +389,9 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 	// carve-out designates safe by construction and which `tee`/`cp` already
 	// write to under an ALLOW. redirectVetoesAllow owns that grading; see why
 	// the lift is exactly that narrow. (The unknown-expansion half of
-	// allowEligible is handled below: a path-bearing utility fails closed ASK on
-	// a dynamic path operand, a stronger posture than defer.)
+	// allowEligible is handled below: a path-bearing utility DEFERS WITH ITS
+	// ANALYSIS on a dynamic path operand — the same bucket as this bare defer,
+	// but the §7 log records why.)
 	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}
@@ -429,7 +430,7 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		}
 		// Engine B containment on every path it reads: a cross-repo read still
 		// denies; a primary-clone/worktree-escape read is treated as
-		// contained instead of asking, except a target under `.git/`,
+		// contained instead of escalating, except a target under `.git/`,
 		// which still denies. A non-contained path returns that
 		// deny verdict; otherwise ALLOW.
 		if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {

