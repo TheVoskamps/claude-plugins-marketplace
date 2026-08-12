@@ -423,6 +423,35 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // since the value can simply be set again, so neither adds exposure the set
 // verb has not already accepted.
 //
+// The native-field `updateIssueFieldValue` joined the list on that same basis
+// (#256): it rewrites a native issue-field value that can simply be set back —
+// the same surface `setIssueFieldValue`/`deleteIssueFieldValue` already cover.
+// Its existence as a `Mutation` field was confirmed by introspection.
+//
+// The generic `updateIssue` is deliberately NOT on the list, and putting it
+// there is the tempting change to resist. It looks like the rest of the set —
+// one verb that sets an issue's type, state, title, body, labels, assignees,
+// milestone or project associations. That is a list of CONCEPTS, not of input
+// fields: `UpdateIssueInput` spells several of them two ways
+// (`state`/`stateInput`, `issueTypeId`/`issueType`, `assignees`/`assigneeIds`,
+// `labels`/`labelIds`), and the same input also carries an
+// `agentAssignment` arm: a Copilot target repository ID, base ref, custom
+// instructions and custom agent (measured by introspecting
+// `UpdateIssueInput` and `AgentAssignmentInput`). That dispatches a
+// third-party coding agent at an arbitrary repository with attacker-chosen
+// instructions, prompt-free — not a recoverable, human-visible metadata write,
+// and a surface no narrower allow-listed verb reaches. The allowlist is keyed
+// on the mutation FIELD name only — allGraphQLMutationFieldsAllowed below
+// inspects names and never arguments — so the gate cannot tell that arm from a
+// title edit, and the whole verb therefore keeps its ASK. The triage friction
+// that motivated #256 was `updateIssue` used only to set `issueTypeId`, and
+// that has its own narrow verb, `updateIssueIssueType`, already on this list
+// and what the issues plugin's canonical templates use.
+//
+// The observed-in-the-wild `updateIssueIssueFieldValue` is absent for a
+// different reason: GitHub's `Mutation` type has no such field, so a command
+// using it fails regardless of verdict.
+//
 // Recorded trade-off: these mutations address opaque node IDs, so — unlike the
 // `-R`/`--repo` foreign-target check — the gate cannot see which repo the
 // target belongs to. Accepted because the writes are recoverable, land on
@@ -434,6 +463,7 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 var ghGraphQLMutationAllowlist = map[string]bool{
 	"setIssueFieldValue":            true,
 	"deleteIssueFieldValue":         true,
+	"updateIssueFieldValue":         true,
 	"updateProjectV2ItemFieldValue": true,
 	"clearProjectV2ItemFieldValue":  true,
 	"addProjectV2ItemById":          true,

@@ -113,6 +113,36 @@ count-before-list sweep, and stop. Contrast the #156/#132 counterexamples
 below — Engine A *static-resolution* changes do reliably need new README
 prose.
 
+**An allowlist add whose new entry is a GENERIC verb is not the
+zero-work class (#256, PR #257) — and the doc pass can overturn the
+code.** The PR first added `updateIssue` alongside
+`updateIssueFieldValue`, with the README paragraph and the map's Go
+comment both rewritten as the #209 entry above predicts — but the
+prose justified the entry by ENUMERATING what the verb sets ("type,
+state, title, body, labels, assignees or milestone"), and that
+enumeration is a claim about GitHub's schema, settled in one
+non-mutating call:
+`gh api graphql -f query='query { __type(name: "UpdateIssueInput") { inputFields { name description } } }'`.
+It omitted `projectIds` and, load-bearingly, `agentAssignment` — a
+Copilot target repo, base ref, custom instructions and custom agent,
+a surface no narrow allow-listed verb reaches and one the
+"recoverable, human-visible, reversible" basis does not cover. The
+allowlist keys on the mutation FIELD name only
+(`allGraphQLMutationFieldsAllowed` never looks at arguments), so the
+gate could not tell that arm from a title edit, and probing an
+`agentAssignment`-carrying document against the then-current binary
+confirmed **allow**. The owner's ruling on that finding was to drop
+`updateIssue` from the list entirely and keep only
+`updateIssueFieldValue`, so the verb ASKs again as it always did;
+`updateIssueIssueType` covers the type-setting the widening was asked
+for. Generalize: when an allowlist gains a verb that takes a single
+generic input object, introspect the input type and grade the
+justification against every arm — the narrow verbs the list was built
+from have no such gap, and the finding is worth raising even though it
+lands as a scope cut to the PR rather than a doc fix. Introspection is
+capped at two `__Type.inputFields` uses per document; split the query
+rather than aliasing three.
+
 **A big README pass by the developer is the HIGH-risk case, not the
 low-risk one (#225, PR #227).** The developer rewrote ~150 README lines
 across eight classifier changes, and the prose was authored in the same
@@ -442,3 +472,44 @@ which has no preceding flag. Both survived the round that wrote them
 because the enumeration itself was measured and correct. Grade a
 "closed because" clause member by member, exactly as
 [[feedback_no-blanket-predicate-over-a-list]] prescribes.
+
+**The gate README's gh bullet is one run-on bullet with no paragraph
+breaks, so an appended rationale silently splits subject from verb
+(#256, PR #257 second round).** The exclusion paragraphs the owner's
+scope cut called for were appended *inside* the pre-existing `(#195 —
+…)` parenthetical, which then ran ~30 lines between "a fragment-free
+mutation document whose every top-level mutation field is on the
+curated issue-metadata allowlist (" and its own verb ") also
+**allows**". The whole `gh api` bullet is deliberately unbroken running
+prose, so the repair is NOT a new paragraph: close the parenthetical
+where it used to close, finish the main clause, and re-emit the
+appended sentences after it (capitalising the "any other …" that
+followed). Restore any pronoun whose antecedent the move strips —
+"Its adjacent spellings" became "The spellings adjacent to
+`updateIssueFieldValue`". Zero markdownlint issues before and after,
+and no Go file touched, so no binary rebuild
+([[project_permgate-go-comment-edits-need-binary-rebuild]]).
+
+**A gh-api/graphql round's real doc gap is in the PLAYBOOK, not the
+gate README (#256, PR #257 third round).** By round three the README
+paragraph and the `ghGraphQLMutationAllowlist` comment were both
+accurate — every claim settled by one command: the four concept pairs
+in `UpdateIssueInput` (`state`/`stateInput`, `issueTypeId`/`issueType`,
+`assignees`/`assigneeIds`, `labels`/`labelIds`), the
+`AgentAssignmentInput` arms, the absence of
+`updateIssueIssueFieldValue` from `Mutation`, the 13-member README
+enumeration matching the map exactly, `updateIssueIssueType` being what
+`plugins/issues/skills/**` templates use, and every verdict replayed
+through the branch binary. What no surface carried was the *technique*
+that overturned the code two rounds earlier, so
+`docs/guardrails-verification-playbook.md` got a new section (schema
+introspection as the way to grade an allowlist entry, the verbatim
+`INTROSPECTION_LIMIT_EXCEEDED` cap at two `__Type.inputFields` per
+document, `__type(name: "Mutation") { fields { name } }` for
+existence). **How to apply:** when the gate docs are already correct on
+a round, ask which *playbook* technique the round used and whether it
+is written down — CLAUDE.md's "Settle a claim with the playbook"
+section makes that a first-class doc surface, and a `/docs` edit needs
+no plugin version bump. Word any verdict you state there with the
+literal words `ask`/`allow`/`deny`/`defer` so CLAUDE.md's
+grep-the-playbook-on-a-verdict-change sweep can find it.

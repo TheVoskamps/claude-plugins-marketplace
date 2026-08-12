@@ -491,13 +491,39 @@ ask-defaulting (uncertainty escalates to a human, never to allow):
   a project-board item field respectively — recoverable exactly as
   their set counterparts are (the value can just be set again), and for
   a board field the only spelling, since
-  `updateProjectV2ItemFieldValue` cannot clear) also **allows**, with
-  aliases resolved to the real field name first; any other
-  mutation-bearing document **asks** with the mutation field names in
-  the reason (so the human sees `addSubIssue` vs `deleteIssue`), and a
-  document bundling an allow-listed field with anything else — an
-  off-list field or a subscription — asks too, because a
-  multi-operation document is judged by its broadest operation. The
+  `updateProjectV2ItemFieldValue` cannot clear; extended again in #256
+  with the native-field `updateIssueFieldValue`, which rewrites a
+  native issue-field value that can simply be set back, on the same
+  surface `setIssueFieldValue`/`deleteIssueFieldValue` already covers)
+  also **allows**, with aliases resolved to the real field name first.
+  The spellings adjacent to `updateIssueFieldValue` are deliberately
+  NOT on the list. The generic `updateIssue` — the one verb that sets
+  an issue's type, state, title, body, labels, assignees, milestone or
+  project associations (that is a list of *concepts*, not of input
+  fields: `UpdateIssueInput` spells several of them two ways, e.g.
+  `state`/`stateInput`, `issueTypeId`/`issueType`,
+  `assignees`/`assigneeIds`, `labels`/`labelIds`) — is excluded because
+  that same input also carries an `agentAssignment` arm: a Copilot
+  target repository, base ref, custom instructions and custom agent,
+  i.e. dispatching a third-party coding agent at an arbitrary
+  repository with attacker-chosen instructions, prompt-free. That is
+  neither recoverable nor human-visible in the way the rest of the
+  list is, and no narrower allow-listed verb reaches it; because the
+  allowlist keys on the mutation field NAME and never on its
+  arguments, the gate cannot tell that arm from a title edit, so the
+  whole verb keeps its **ask**. The triage friction that prompted #256
+  was `updateIssue` used only to set `issueTypeId`, and that has its
+  own narrow verb on the list already — `updateIssueIssueType`, which
+  is what the issues plugin's canonical templates use. The
+  observed-in-the-wild spelling
+  `updateIssueIssueFieldValue` is off the list for an unrelated reason:
+  GitHub's `Mutation` type has no such field, so a command using it
+  fails whatever the verdict. Any other mutation-bearing document
+  **asks** with the mutation field names in the reason (so the human
+  sees `addSubIssue` vs `deleteIssue`), and a document bundling an
+  allow-listed field with anything else — an off-list field or a
+  subscription — asks too, because a multi-operation document is
+  judged by its broadest operation. The
   fragment-free requirement is what keeps that judgement honest: the
   scanner names the identifier that follows a `...` and never expands
   the fragment's own body, so without it a spread named after an

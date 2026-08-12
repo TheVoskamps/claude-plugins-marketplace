@@ -38,3 +38,13 @@ the one the reviewer cited — that is exactly how the extra two bullets
 here got caught. This is an instance of
 [[verify-territory-not-relay]]; related sweep lore in
 [[sweep-sibling-agent-guards]].
+
+The **PR title** is part of this surface and is missed because it is a
+different `gh` field. On PR #257 the owner cut half the change; the
+title still read "Allow updateIssue and updateIssueFieldValue GraphQL
+mutations" after the body was rewritten to say `updateIssue` is
+excluded. Titles outlive bodies — the squash commit's subject line is
+the title — so `gh pr edit <N> --title` in the same round. The branch
+NAME encodes the issue set and is not renamed; only the title moves.
+See [[an-owner-scope-cut-leaves-its-advocacy-prose-behind]] for the
+rest of that sweep.
