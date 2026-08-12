@@ -228,7 +228,7 @@ COUNTEREXAMPLE: <what refutes the claim, in one or two sentences>
 EVIDENCE: in `<file-or-location>` at <line/section>:
 > <byte-for-byte quote of the offending text>
 CONSEQUENCE: <what happens if this PR merges as-is>
-CLASS: <one of the four tokens under "The consequence classes">
+CLASS: <one of the tokens under "The consequence classes">
 ```
 
 The `EVIDENCE` quote must be a byte-for-byte copy of the source text —

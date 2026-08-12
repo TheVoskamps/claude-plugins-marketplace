@@ -144,7 +144,7 @@ calls in a subagent context.
    counterexample's consequence turns on what the PR changed. A quote
    check against the head tree usually does not need it.
 
-3. **Attack the counterexample** along these three axes, in this
+3. **Attack the counterexample** along these axes, in this
    order. Any one of them failing is a `REFUTED`, and you can stop
    there:
 
@@ -244,8 +244,8 @@ Exactly one of these shapes, and nothing around it.
 ```text
 VERDICT: REFUTED
 THEOREM: T<k>
-REASON: <what is wrong with this counterexample — which of the three
-axes failed, and the command output or quoted text that shows it>
+REASON: <what is wrong with this counterexample — which attack axis
+failed, and the command output or quoted text that shows it>
 ```
 
 `REASON` is published in the review's Verified list next to the
@@ -266,7 +266,7 @@ VERDICT: STANDS
 THEOREM: T<k>
 CONSEQUENCE: <what happens if this PR merges as-is — the disprover's
 statement confirmed, or your corrected version of it>
-CLASS: <one of the four tokens above>
+CLASS: <one of the tokens above>
 ```
 
 State the consequence as an effect of merging, not as a topic. "An

@@ -138,18 +138,25 @@ change to what a review does sweeps several files, not one — the
 pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
 generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
-does not pass.
+does not pass. A change to the pipeline's *stages* — which agents it
+spawns, in how many fan-outs — reaches one surface outside
+`plugins/sdlc/` as well: `docs/plugin-authoring-constraints.md` →
+"Fanning out parallel agents: a main-session skill, not an agent"
+cites the pipeline as its worked instance and names the stages, and
+the fetch-once paragraph below it names the agents that skip their own
+fetch.
 
 The briefs the pipeline writes are a two-sided contract, and both
 sides are prose. A double-dash parameter added to, removed from, or
-redefined in a generator or disprover brief lands in the pipeline's
-brief block *and* in the receiving agent's "Inputs" list — plus, when
-the parameter changes what a step does, in that step itself:
-`--head-sha` and `--fetched yes` are described in the pipeline's
-fan-out step and again in `theorem-disprover`'s step 1, which decides
-from them whether to fetch. Grep the parameter name across
-`plugins/sdlc/` rather than editing the end that the change started
-from.
+redefined in a generator, disprover, or verifier brief lands in the
+pipeline's brief block *and* in the receiving agent's "Inputs" list —
+plus, when the parameter changes what a step does, in that step
+itself: `--head-sha` and `--fetched yes` are described in each of the
+pipeline's two fan-out steps, and again in step 1 of
+`theorem-disprover` and step 1 of `counterexample-verifier`, each of
+which decides from them whether to fetch. Grep the parameter name
+across `plugins/sdlc/` rather than editing the end that the change
+started from.
 
 One vocabulary spans three of those files instead of two: the
 consequence-class tokens. `theorem-disprover` proposes one,
@@ -207,7 +214,10 @@ Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
 opening paragraph and repeats the diff-consumer list in its `/pr-diff`
-section, and `plugins/issues/skills/**` names the `sdlc` readers and
+section, and `plugins/github-prs/skills/pr-diff/SKILL.md` spells that
+same consumer list once more — a surface a `sdlc`-only PR reaches only
+by remembering that adding a diff-reading agent bumps `github-prs`
+too. `plugins/issues/skills/**` names the `sdlc` readers and
 what each of them still reads — `lib/repo-config.md` says per field
 who consumes it (no `sdlc` reader dispatches on `source-control` any
 more, and of the `sdlc` readers only the orchestrator and the review
