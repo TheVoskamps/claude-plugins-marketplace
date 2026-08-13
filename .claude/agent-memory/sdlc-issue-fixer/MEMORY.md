@@ -90,3 +90,5 @@
 - [A merged table row hides two rules](project_a-merged-table-row-hides-two-rules.md) — "either agent's path" collapses two actors whose outcomes differ; split per actor and re-grade the sentence under the table
 - [A PR-body count over a live list rots](project_pr-body-count-over-a-live-list-rots.md) — a Testing bullet counting `git diff --name-only ... '*.md'` is re-falsified every round; name the command, drop the number
 - [Encode the interpretation, not the instance](project_encode-the-interpretation-not-the-instance.md) — rounds ruling opposite ways on one check means the check's wording is the defect; settle the rule, then re-check the instances
+- [Derive the stale-name list by parsing bodies](project_derive-the-stale-name-list-by-parsing-bodies.md) — a finding's "candidates" list is a sample; diff each test's asserted `Bucket*` against its name, and grade the false positives
+- [A teaching deny is graded per document](project_a-teaching-deny-is-graded-per-document.md) — the per-VERB redirect rule is half of it; a bundle with an uncovered field is the dead end the tier forbids
