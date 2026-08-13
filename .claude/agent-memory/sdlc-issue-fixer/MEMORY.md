@@ -92,3 +92,5 @@
 - [Encode the interpretation, not the instance](project_encode-the-interpretation-not-the-instance.md) — rounds ruling opposite ways on one check means the check's wording is the defect; settle the rule, then re-check the instances
 - [Derive the stale-name list by parsing bodies](project_derive-the-stale-name-list-by-parsing-bodies.md) — a finding's "candidates" list is a sample; diff each test's asserted `Bucket*` against its name, and grade the false positives
 - [A teaching deny is graded per document](project_a-teaching-deny-is-graded-per-document.md) — the per-VERB redirect rule is half of it; a bundle with an uncovered field is the dead end the tier forbids
+- [A thin account needs a rank, not a blank](project_a-thin-account-needs-a-rank-not-a-blank.md) — filling a blank residual record makes it WIN under a first-wins aggregator; rank it below the specific labels
+- [Soften the fact, keep the membership](project_unpinnable-guarantee-soften-the-fact-keep-the-membership.md) — grade every "must not waive" hit: normative intent survives, mechanism-fact claims get the caveat, and say what does NOT change
