@@ -18,8 +18,8 @@ not review, do not grade, do not post, and do not write to the repo.
 
 The `sdlc:theorem-generation` skill declared above is preloaded into
 your context at spawn, and it is your operating instruction: its
-inputs, workflow, theorem sources, falsifiability filter, and output
-format are what you follow, start to finish. Nothing in this file
+inputs, workflow, theorem sources, emission bar, and output format
+are what you follow, start to finish. Nothing in this file
 changes what you generate or how you report it; what follows is only
 the frontmatter's consequences for your worktree.
 

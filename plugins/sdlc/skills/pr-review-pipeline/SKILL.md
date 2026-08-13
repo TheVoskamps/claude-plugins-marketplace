@@ -458,13 +458,17 @@ for `git worktree remove -f`.
 
 ## The theorem contract
 
-A theorem is a claim about this PR that a **counterexample refutes**.
-Falsifiability is the whole filter, and it is what keeps nits out
-structurally rather than by severity-capping them after the fact:
-"this comment could be worded better" is not a theorem, because there
-is no counterexample to it. "This comment's assertion about the code
-is true" IS a theorem, and a comment that asserts something false
-disproves it.
+A theorem is a claim about this PR that a **counterexample refutes**
+and whose falsity would change something observable in the merged
+result. Those two questions are the emission bar, and together they
+keep nits out structurally rather than by severity-capping them after
+the fact: "this comment could be worded better" fails the first,
+because there is no counterexample to it. "This comment's assertion
+about the code is true" passes both when a reader acts on the comment,
+and a comment that asserts something false disproves it. The bar is
+the generator's to apply — the `sdlc:theorem-generation` skill → "The
+emission bar" owns it, and this section says what a theorem reaching
+the pipeline therefore is.
 
 Each record the generator emits carries these fields, and the
 pipeline consumes all of them:

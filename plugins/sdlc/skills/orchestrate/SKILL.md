@@ -136,8 +136,12 @@ pinning its own `effort:`, so choosing a tier is choosing *which
 definition to spawn*, never overriding effort on a spawn. See "Picking
 a generator tier". Extra effort pays there and only there, because the
 generator spends it enumerating claims to check rather than hunting
-findings: a surplus theorem costs one cheap disproof attempt, where a
-surplus finding cost a human a triage.
+findings. It pays only up to the diff's stakes, though: a surplus
+theorem that survives is cheap, but one that gets disproved drives a
+fix round whether or not its falsity harmed anyone, so the tier is
+picked from blast radius and the generator emits nothing it cannot
+price (see "Picking a generator tier" for the first, the
+`sdlc:theorem-generation` skill → "The emission bar" for the second).
 
 The `theorem-disprover` and the `counterexample-verifier` are where a
 per-spawn `model` is routed rather than fixed. Each one's frontmatter
@@ -811,33 +815,42 @@ reasoning-budget lever review has. Apply this rule on **every**
 pipeline run, the first round and each re-review alike, re-reading the
 signals each time rather than reusing the previous round's pick.
 
-The signals are read off things you already have in Phase 1 and from
-the round that just finished — no extra tool calls. Several of them
-are about how much the theorem list has to enumerate and how far it
-has to reach beyond the diff, which is what a generator's budget
-mostly buys:
+The signals measure **blast radius** — what breaks if a claim about
+this diff is wrong and nobody catches it — and never the effort of
+making the change. Those two come apart constantly: a long,
+many-issue, many-file doc sweep is expensive to write and cheap to be
+wrong about, while a one-line change to a config parse is the
+opposite. Read the signals off things you already have in Phase 1 and
+off the round that just finished — no extra tool calls:
 
 - **`theorem-generator` (medium) — the default.** Use it unless a
-  signal below fires.
-- **`theorem-generator-high`** when any one of these holds:
-  - the issue's size/Effort field is the highest option (`High` on the
-    native Effort field), on any member of the batch;
-  - the PR closes a batch of several issues, where one member can be
-    under-delivered while the diff as a whole reads well;
-  - the diff is large enough that per-criterion and per-claim theorems
-    will not be enumerated exhaustively at medium;
-  - the change touches an interface, config key, or convention with
-    consumers spread across the repo, so the codebase-consistency
-    theorems have to quantify over a wide surface.
+  signal below fires. A diff that is doc-only, agent-memory-only,
+  config-hygiene, or a mechanical sweep stays here **whatever** its
+  issue count, its size, or its issues' Effort fields. That is a cap,
+  not a preference: no combination of those raises such a diff off the
+  default.
+- **`theorem-generator-high`** when the diff changes the **executable
+  behavior of a shared mechanism** — something other code, other
+  agents, or an operator depends on at run time. Gate verdict logic, a
+  config parse or merge, the launcher, a skill contract other agents
+  consume. A wrong claim there ships a behavior defect; a wrong claim
+  about prose ships a stale sentence.
 - **`theorem-generator-xhigh`** when either holds:
-  - a `theorem-generator-high` signal above coincides with a
-    security-sensitive surface — the `guardrails` permission-gate,
-    credential handling, or anything that decides what a command is
-    allowed to do;
+  - that shared-mechanism change coincides with a security-sensitive
+    surface — the `guardrails` permission-gate, credential handling,
+    or anything that decides what a command is allowed to do;
   - you are re-reviewing after a round in which a lower tier's theorem
     list missed a defect the human then caught. That is direct
     evidence the tier was too low for this PR, and it holds for the
-    rest of the PR's rounds.
+    rest of the PR's rounds, whatever class the diff is.
+
+Over-tiering is not merely wasted tokens, which is why the default is
+a floor to argue off rather than a starting bid. A generator given
+more effort than the diff has stakes for spends it manufacturing
+immaterial claims to fill the floor — and each one that gets disproved
+drives a fix, which is a new diff for the next round to harvest more
+of the same from. Too high a tier therefore degrades review quality,
+not just its cost.
 
 This is a starting rule, tunable at review: it is a first-cut estimate
 like any heuristic, and the human may override the pick in either
