@@ -51,9 +51,10 @@
   fresh worktrees" paragraph and sibling agents' cleanup examples.
 - [fan-out doc surfaces](project_fan-out-doc-surfaces.md) — a
   fetch-once/brief-parameter round documents both ends of the brief and
-  misses plugin-authoring-constraints' fan-out section, whose ref-store
-  invariant covers checkout but not fetch; CLAUDE.md already carries the
-  two-sided brief contract; mechanical repoints leave line-wrap stubs.
+  misses plugin-authoring-constraints' fan-out section, which carries one
+  ref-store consequence per git operation the fan-out runs; CLAUDE.md
+  already carries the two-sided brief contract; mechanical repoints leave
+  line-wrap stubs.
 - [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when

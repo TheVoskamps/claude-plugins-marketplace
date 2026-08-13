@@ -1,6 +1,6 @@
 ---
 name: fan-out-doc-surfaces
-description: A round that adds a caller-did-this parameter to a fan-out brief (--fetched/--head-sha) documents both ends of the brief and misses docs/plugin-authoring-constraints.md's fan-out section, whose shared-ref-store invariant covers checkout but not fetch contention
+description: A round that adds a caller-did-this parameter to a fan-out brief (--fetched/--head-sha) documents both ends of the brief and misses docs/plugin-authoring-constraints.md's fan-out section, which carries one shared-ref-store consequence per git operation the fan-out runs
 metadata:
   type: project
 ---
@@ -12,12 +12,14 @@ step, the agent's Inputs list and its step 1) and stops there.
 
 The surface it leaves is
 **`docs/plugin-authoring-constraints.md` → "Fanning out parallel
-agents"**. That section carries the shared-ref-store consequence for
-*checkout* (detach or die at exit 128) and nothing about contention on
-`git fetch`, which is the same invariant with a second consequence — a
-future fan-out author reads the section, not the sdlc pipeline.
-Generalize it as: the spawning session fetches, and the receiving
-agent must still work when the assertion parameter is absent.
+agents"**. One shared ref store has a consequence per git operation the
+fan-out runs — detach-or-die at exit 128 for *checkout*, contention on
+`git fetch` — and that section is where a future fan-out author reads
+them, not the sdlc pipeline. Each consequence is generalized there, not
+left as an sdlc detail: the spawning session fetches, and the receiving
+agent must still work when the assertion parameter is absent. A round
+that gives the fan-out a further git operation adds its consequence to
+the same section.
 
 CLAUDE.md's sdlc sweep section is not that surface: it already states
 the brief as a two-sided contract, so a double-dash parameter added,
