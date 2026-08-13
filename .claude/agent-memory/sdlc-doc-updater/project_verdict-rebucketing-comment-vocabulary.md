@@ -86,6 +86,23 @@ for a bare `deferToPipeline`) and "the reason names the fields so the
 HUMAN sees them" (`emitDecision` blanks a defer's reason on the wire —
 the reason reaches the evolution log only).
 
+A THIRD pass finds a shape both earlier ones filter out: the
+illustrative example inside a **test HELPER's** doc comment. `wantReason`
+in `classify_bash_test.go` justified itself with "a row asserting a
+publish ASK keeps passing after it starts earning a no-repo-context ASK
+instead" — a helper, so no `func Test…` parse reaches it, and the
+sentence is about a *hypothetical* row, so no body has a `Bucket*` token
+to compare against. It went false the moment the no-repo-context arm
+became a `deferJudgment`. Grep helper and file-header comments for a
+named ARM plus a bucket word, and re-check the arm's current return.
+
+The same round's other leftover: a numbered precedence list in a
+function header whose LAST item is the residual ("7. Otherwise DEFER to
+the normal pipeline") stays literally true when the residual gains an
+operation label, while ceasing to describe what the arm now does. Reread
+the header list of any function whose residual the round touched, even
+when no word in it is false.
+
 The `ghUnmodelledFlagAsk` leftover this note flagged for a fixer was
 renamed to `ghUnmodelledFlagDefer` in #262's fix round, alongside the
 sibling renames (`cdInvalidAsk` → `cdInvalidDefer`,
