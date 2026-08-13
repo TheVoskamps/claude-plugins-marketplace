@@ -24,7 +24,8 @@ the falsehood sits in the incidental clause, not the imperative.
 not the rule's vocabulary — the stale sentences name the actor and
 never name the exception. Repair by widening the attribution and
 leaving the pointer to do the work ("a consequence class one of the
-review agents assigned, by the rules in <skill> → <section>"), rather
+review agents assigned, by the rules in `<skill>` → `<section>`"),
+rather
 than restating the carve-out at the pointer site: CLAUDE.md's sdlc
 sweep section forbids re-arguing a rule at a consumption point.
 Related: [[deferral-pointer-outruns-its-target]],
