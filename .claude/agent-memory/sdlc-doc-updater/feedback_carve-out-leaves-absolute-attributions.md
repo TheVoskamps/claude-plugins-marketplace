@@ -25,9 +25,13 @@ not the rule's vocabulary — the stale sentences name the actor and
 never name the exception. Repair by widening the attribution and
 leaving the pointer to do the work ("a consequence class one of the
 review agents assigned, by the rules in `<skill>` → `<section>`"),
-rather
-than restating the carve-out at the pointer site: CLAUDE.md's sdlc
-sweep section forbids re-arguing a rule at a consumption point.
+rather than restating the carve-out at the pointer site: CLAUDE.md's
+sdlc sweep section forbids re-arguing a rule at a consumption point.
+Include the rule's OWN file in that grep: `pr-review-pipeline`'s
+"Consequence classes are transcribed, not graded" opened with the
+unqualified "the verifier already assigned" two paragraphs above the
+sentence stating the exception — three fixer rounds widened the
+downstream restatements and never touched the header sentence.
 Related: [[deferral-pointer-outruns-its-target]],
 [[widened-enumeration-trailing-clause]].
 

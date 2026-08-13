@@ -138,3 +138,6 @@
   — a new exception path falsifies sibling prose naming WHO assigned
   the value; grep the actor, not the rule. Also: "the one entry" for a
   per-entry rule.
+- [Shared-copy claims need a diff](feedback_shared-copy-claims-need-a-diff.md)
+  — "only the bullets are shared copy" is a diff result; a per-agent
+  paragraph can still end in a byte-identical sentence. Drop the tally.
