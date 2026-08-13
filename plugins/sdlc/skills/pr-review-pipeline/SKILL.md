@@ -704,8 +704,9 @@ unchanged.
 #### Consequence classes are transcribed, not graded
 
 For a finding that came from a theorem, you do not read the
-consequence statement and decide a severity: the verifier already
-assigned a **consequence class**, and you transcribe it.
+consequence statement and decide a severity: an agent that read the
+code already assigned a **consequence class**, and you transcribe it.
+Which agent's class you take is settled under the table.
 
 | Consequence class | Severity |
 | --- | --- |

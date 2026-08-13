@@ -170,16 +170,20 @@ argue. So adding, renaming, or removing a class edits all three files
 and a severity table appearing in an agent file is the defect this
 split exists to prevent.
 
-Inside those two "The consequence classes" sections, only the four
-gloss bullets are the shared copy — they are byte-identical and must
-stay so. The sentence introducing them and the paragraph closing them
-are deliberately per-agent, because the two agents stand in different
-places in the chain: the disprover's say its class is a *proposal* the
-verifier may correct, the verifier's say the disprover proposed one
-and that on disagreement the verifier's wins. Do not converge those
-framing sentences while sweeping the bullets; a disprover file that
-claims its class is final, or a verifier file that calls its own class
-a proposal, is the error the split wording prevents.
+Inside those two "The consequence classes" sections, the gloss bullets
+are shared copy — byte-identical, and they must stay so. So is the
+sentence that ends both sections, handing the severity to the pipeline
+("What severity each class becomes is the pipeline's business, not
+yours…"); it is the same wording in both files at a different line
+wrap, so a change to it edits both. What is deliberately per-agent is
+the sentence introducing the bullets and the sentences that precede
+that closing one, because the two agents stand in different places in
+the chain: the disprover's say its class is a *proposal* the verifier
+may correct, the verifier's say the disprover proposed one and that on
+disagreement the verifier's wins. Do not converge those framing
+sentences while sweeping the bullets; a disprover file that claims its
+class is final, or a verifier file that calls its own class a
+proposal, is the error the split wording prevents.
 
 The glosses themselves have a fourth home, which a token grep does not
 reach: the pipeline's "The findings that carry no class" section

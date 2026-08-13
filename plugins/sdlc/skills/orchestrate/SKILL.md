@@ -1214,12 +1214,12 @@ pipeline's severity line and the fixer's report. Fill them per
     the review pipeline"). Running it is not doing its work: the
     theorems come from the generator, the counterexamples from the
     disprovers, the check on each counterexample from the verifiers,
-    and its consequence class from one of the review agents, by the
-    rules in the `sdlc:pr-review-pipeline` skill → "Findings by
-    severity"; the verdict is a mechanical derivation from what they
-    returned. You never author a review
-    finding, never write a review body from your own reading of the
-    diff, and never run
+    and each finding's consequence class from one of the review
+    agents, by the rules in the `sdlc:pr-review-pipeline` skill →
+    "Findings by severity"; the verdict is a mechanical derivation
+    from what they returned. You never author a review finding, never
+    write a review body from your own reading of the diff, and never
+    run
     `gh pr review --approve|--request-changes|--comment` — the
     pipeline posts through `/github-prs:pr-review-submit`.
   - **Merge-conflict resolution** — owned by `issue-fixer`. The
