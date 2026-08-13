@@ -612,7 +612,11 @@ body with these sections, in this order:
    narrative built on the disprover's `**Evidence:**` quote copied
    through verbatim, the consequence reasoning as the verifier
    confirmed or corrected it, and a closing cross-link `→ Finding N`.
-   This is where the evidence lives.
+   This is where the evidence lives. On the one entry where no usable
+   verifier report exists — a verifier malformed twice, whose finding
+   stands anyway — give the consequence as the *disprover* proposed it
+   and say the verifier's report was malformed, so the entry never
+   claims a verifier confirmation that did not happen.
 5. **Findings** — numbered, terse, and actionable, ranked by severity,
    each in the `**Finding:** / **Evidence:** / **Recommendation:**`
    format, each tagged with the theorem id it came from and the
@@ -714,7 +718,7 @@ The class comes from the verifier's `STANDS` report. The disprover
 proposed one and the verifier confirmed or corrected it; where the two
 disagree the verifier's wins, because it is the second reader and it
 had the first opinion in hand. The one case where you take the
-disprover's proposal is the one step 5 names: a verifier malformed
+disprover's proposal is the one step 5 defines: a verifier malformed
 twice, whose finding stands anyway. If a `STANDS` report carries no
 class at all, that is a malformed report — re-spawn per step 5 rather
 than assigning a class yourself. You are not a source of consequence
