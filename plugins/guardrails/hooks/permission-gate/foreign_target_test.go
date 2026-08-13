@@ -7,9 +7,11 @@ import (
 
 // Coverage for the gh ALLOW floor being replaced by ALLOW-by-enumeration
 // (recognized reads + an enumerated recoverable-own-repo-write verb set);
-// unrecognized gh noun/verb ASKs (fail-closed); an enumerated write to a
-// FOREIGN repo ASKs (exfil-by-write scoping); and `git remote add`/`set-url`
-// ASKs (the git version of the same channel).
+// unrecognized gh noun/verb DEFERs (the residual floor, an ASK until #262);
+// an enumerated write to a FOREIGN repo DEFERs (exfil-by-write scoping); and
+// `git remote add`/`set-url` DEFERs (the git version of the same channel).
+// All three withhold the allow; #262 settled which side of the allow line
+// they land on, not whether they land there.
 
 // setupRepoWithOrigin creates a real git repo whose `origin` remote points at
 // the given owner/repo, so sessionOriginRepo can resolve the session repo.
@@ -31,7 +33,7 @@ func classifyInRepo(t *testing.T, cmd, repoDir string) Decision {
 	return classifyBash(cmd, ev)
 }
 
-// --- gh ALLOW-by-enumeration; unrecognized ASKs ------------------------------
+// --- gh ALLOW-by-enumeration; unrecognized DEFERs ----------------------------
 
 func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
 	// The sanctioned hot-loop write verbs ALLOW (own repo, no explicit target).

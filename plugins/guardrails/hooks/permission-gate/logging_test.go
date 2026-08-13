@@ -46,8 +46,12 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 	return string(out), code, recs
 }
 
-// The §7 evolution log records ASK, DENY and DEFER, and every record carries
-// the gate's ANALYSIS — not just the operation label. The defer rows are the
+// The §7 evolution log records ASK, DENY and DEFER, and a record from a site
+// that reached a verdict carries the gate's ANALYSIS — not just the operation
+// label. Every ask, every deny and every `deferJudgment` site is such a site;
+// a bare `deferToPipeline` has no account to give and logs both fields empty,
+// which is how a reader tells the two kinds of defer apart. The rows below are
+// all verdict-reaching sites. The defer rows are the
 // point of #262: they are the feed for tuning the evaluator those calls now
 // land in, and a deferred call that appears nowhere is a call nobody can tune
 // for.

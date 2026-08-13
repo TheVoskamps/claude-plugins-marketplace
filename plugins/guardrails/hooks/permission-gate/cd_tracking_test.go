@@ -88,7 +88,7 @@ func TestCdTrackingMultipleDotDotLevels_129(t *testing.T) {
 
 // TestCdTrackingDynamicCdFailsClosed_129 covers `cd "$UNKNOWN" && cat ../x`:
 // a dynamic cd target invalidates the running cwd, so the later relative
-// operand must fail closed (ASK), not silently resolve against ev.CWD.
+// operand must fail closed (DEFER), not silently resolve against ev.CWD.
 func TestCdTrackingDynamicCdFailsClosed_129(t *testing.T) {
 	_, wt := setupWorktree(t)
 

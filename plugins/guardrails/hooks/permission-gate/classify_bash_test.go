@@ -302,8 +302,9 @@ func TestReadOnlyAllowed(t *testing.T) {
 	}
 }
 
-// The aws terminal fall-through changed from ALLOW to ASK: an aws op the
-// gate cannot prove read-only (e.g. s3api delete-object) now ASKs, because the
+// The aws terminal fall-through inverted from ALLOW to a withheld allow, and
+// #262 settled it in the DEFER middle: an aws op the gate cannot prove
+// read-only (e.g. s3api delete-object) defers, because the
 // call carries the guest's credentials to a control plane outside the
 // microVM and mutates real cloud state the VM cannot roll back — containment
 // does not live in the microVM for aws. The deny/ask tiers (--endpoint-url,
@@ -321,7 +322,7 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 	// A read-only op gets the read-only label (token-anchored list-/describe-/
 	// get- prefix) and ALLOWs. Check the ALLOW-branch's exact label ("is a
 	// read-only operation"), not the bare substring "read-only operation" —
-	// the ASK branch's message also contains that bare substring (as
+	// the DEFER branch's message also contains that bare substring (as
 	// "is not a provably read-only operation"), so the bare substring check
 	// would no longer distinguish the two branches.
 	_, d := mk("aws", "s3api", "list-buckets")

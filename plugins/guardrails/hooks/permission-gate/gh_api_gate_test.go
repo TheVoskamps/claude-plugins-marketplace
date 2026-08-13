@@ -9,17 +9,20 @@ import (
 // plugin's `gh api` (graphql + REST) usage. The old behavior — graphql →
 // DENY, every REST GET → ASK — walled off the entire issues plugin. This suite
 // pins the new behavior: query-only graphql documents ALLOW, mutation documents
-// ASK (naming the field), unclassifiable graphql DENYs; allow-listed REST GETs
+// DEFER (naming the field), unclassifiable graphql DENYs; allow-listed REST GETs
 // ALLOW. The REST/graphql write tiers (non-GET method, implicit-POST
-// body flag, method-override header) ASK rather than DENY — a `gh api` REST
+// body flag, method-override header) DEFER rather than DENY — a `gh api` REST
 // write is a credential-carrying remote mutation the microVM cannot roll back,
 // the same class as an `aws` mutation; --hostname keeps its own DENY
 // (the one shape the egress proxy's host-allowlist can see and control).
+// Those withheld allows were ASKs until #262 moved the judgment middle to
+// DEFER; the tier boundaries this suite pins are otherwise unchanged.
 //
-// The mutation ASK is narrowed by a curated issue-metadata allowlist:
+// The mutation DEFER is narrowed by a curated issue-metadata allowlist:
 // a document whose EVERY top-level mutation field is on it ALLOWs (subject to
-// the same redirect-to-file ASK), while any other mutation-bearing document
-// keeps today's ASK naming the fields.
+// the same redirect-to-file grading), while any other mutation-bearing document
+// keeps the DEFER naming the fields — except a document the gate can redirect
+// TOTALLY, which DENYs with that teaching.
 
 // --- Design A: graphql document classification -------------------------------
 
@@ -78,20 +81,20 @@ func TestGhAPIGraphQLMutationDefers_113(t *testing.T) {
 	}
 
 	// A multi-operation document mixing query and mutation is NOT query-only →
-	// ASK naming the mutation field.
+	// DEFER naming the mutation field.
 	d3 := classifyCmd(t, `gh api graphql -f query='query a { viewer { login } } mutation b { deleteIssue(input: {}) { repository { id } } }'`, false)
-	wantBucket(t, d3, BucketDefer, "multi-op query+mutation asks")
+	wantBucket(t, d3, BucketDefer, "multi-op query+mutation defers")
 	if !strings.Contains(d3.Reason, "deleteIssue") {
-		t.Errorf("multi-op ASK reason must name deleteIssue, got: %q", d3.Reason)
+		t.Errorf("multi-op DEFER reason must name deleteIssue, got: %q", d3.Reason)
 	}
 
 	// A mutation whose variable definitions carry an input-object default
-	// value (`{a: 1}`) must still ASK naming the real field — the
+	// value (`{a: 1}`) must still DEFER naming the real field — the
 	// selection-set-brace skip that allows the query-only sibling case must
 	// not accidentally let a mutation's default-value brace get mistaken for
 	// (or otherwise swallow) its actual selection set.
 	d4 := classifyCmd(t, `gh api graphql -f query='mutation Foo($x: Input = {a: 1}) { deleteIssue(input: {}) { clientMutationId } }'`, false)
-	wantBucket(t, d4, BucketDefer, "mutation with default-value brace in variable defs asks")
+	wantBucket(t, d4, BucketDefer, "mutation with default-value brace in variable defs defers")
 	if !strings.Contains(d4.Reason, "deleteIssue") {
 		t.Errorf("mutation-with-default-value-brace ASK reason must name deleteIssue, got: %q", d4.Reason)
 	}
@@ -101,7 +104,8 @@ func TestGhAPIGraphQLMutationDefers_113(t *testing.T) {
 
 // A mutation document whose every top-level field is on the curated allowlist
 // ALLOWs — the issues plugin's sanctioned metadata writes, which cost 2–5
-// prompts per triage pass under the plain "any mutation → ASK" rule.
+// prompts per triage pass under the plain "any mutation → withhold the allow"
+// rule (an ASK when the allowlist was written, a DEFER since #262).
 func TestGhAPIGraphQLAllowlistedMutationAllows_195(t *testing.T) {
 	for _, cmd := range []string{
 		// The fields the allowlist launched with, one document each. The two
@@ -143,9 +147,10 @@ func TestGhAPIGraphQLAliasedAllowlistedMutationAllows_195(t *testing.T) {
 }
 
 // All fields must pass: a document bundling an allow-listed field with a
-// non-allow-listed one still DEFERs, and the reason names the fields so the human
-// sees what is being written. A multi-operation document is judged by its
-// broadest operation.
+// non-allow-listed one still DEFERs, and the reason names the fields so the
+// evolution log records what is being written (a defer's reason is blanked on
+// the wire, so the log is where it lands). A multi-operation document is judged
+// by its broadest operation.
 func TestGhAPIGraphQLMixedMutationDefers_195(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
@@ -167,7 +172,7 @@ func TestGhAPIGraphQLMixedMutationDefers_195(t *testing.T) {
 			[]string{"deleteIssue"},
 		},
 		// A subscription bundled with an allow-listed mutation rides no
-		// allowlist entry — it keeps the un-narrowed ASK verdict.
+		// allowlist entry — it keeps the un-narrowed DEFER verdict.
 		{
 			`gh api graphql -f query='subscription s { x } mutation m { addSubIssue(input: {}) { issue { id } } }'`,
 			[]string{"addSubIssue"},
@@ -177,7 +182,7 @@ func TestGhAPIGraphQLMixedMutationDefers_195(t *testing.T) {
 		wantBucket(t, d, BucketDefer, "graphql mixed mutation: "+tc.cmd)
 		for _, f := range tc.want {
 			if !strings.Contains(d.Reason, f) {
-				t.Errorf("mixed-mutation ASK reason must name %q, got: %q", f, d.Reason)
+				t.Errorf("mixed-mutation DEFER reason must name %q, got: %q", f, d.Reason)
 			}
 		}
 	}
@@ -525,7 +530,7 @@ func TestGhAPIGraphQLDuplicateQueryFieldDenies_113(t *testing.T) {
 }
 
 // The graphql write tiers still fire regardless of the document: an explicit
-// non-GET method ASKs and --hostname still DENYs, both before document
+// non-GET method DEFERs and --hostname still DENYs, both before document
 // classification.
 func TestGhAPIGraphQLWriteTiersUnchanged_113(t *testing.T) {
 	wantBucket(t, classifyCmd(t, `gh api -X DELETE graphql -f query='query { viewer { login } }'`, false), BucketDefer, "graphql -X DELETE")
@@ -586,8 +591,8 @@ func TestGhAPIRESTDeny_113(t *testing.T) {
 	}
 }
 
-// The REST write tiers ASK (they denied outright before this gate, for all but
-// --hostname, which keeps its own DENY justification — see rules.go
+// The REST write tiers DEFER (they denied outright before this gate, for all
+// but --hostname, which keeps its own DENY justification — see rules.go
 // classifyGhAPI).
 func TestGhAPIRESTWriteTiersUnchanged_113(t *testing.T) {
 	for _, cmd := range []string{

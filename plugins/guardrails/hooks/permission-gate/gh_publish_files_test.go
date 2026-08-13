@@ -569,9 +569,9 @@ func TestGhFilePositionalRefsStopAtPflagEquals_229(t *testing.T) {
 // reintroduce a spelling-shaped hole unnoticed.
 //
 // The reason is asserted, not just the bucket: dropping the verb from
-// ghRecoverableWriteVerbs alone would make these rows ASK on the fail-closed
-// unrecognized-command floor, which is the same bucket for an entirely
-// different reason.
+// ghRecoverableWriteVerbs alone would still withhold the allow, on the
+// unrecognized-command floor — a DEFER since #262 rather than this publish
+// ASK, and the reason is what says which of the two a row earned.
 func TestGhGistCreateAlwaysAsks_229(t *testing.T) {
 	repo := ghPublishRepo(t)
 	for _, cmd := range []string{
@@ -1026,7 +1026,7 @@ func TestGhFileSpecsCoverEveryRecoverableWrite_229(t *testing.T) {
 	for noun, verbs := range ghRecoverableWriteVerbs {
 		for verb, allowed := range verbs {
 			if !allowed {
-				continue // mapped false: falls through to the fail-closed ASK
+				continue // mapped false: falls through to the unrecognized-command DEFER
 			}
 			if _, ok := ghFileSpecs[noun][verb]; !ok {
 				t.Errorf("#229 ghFileSpecs is missing %q %q, which isGhRecoverableWrite ALLOWs", noun, verb)
@@ -1048,8 +1048,9 @@ func TestGhFileSpecsCoverEveryRecoverableWrite_229(t *testing.T) {
 	}
 	// The converse: the table holds NOTHING outside that set. A spec for a verb
 	// the gate does not otherwise allow would screen its flags — and so escalate
-	// on an unmodelled one — for a command that was already going to ASK on the
-	// fail-closed floor, trading a clear message for a confusing one.
+	// on an unmodelled one — for a command that was already going to DEFER on
+	// the unrecognized-command floor, trading a clear message for a confusing
+	// one.
 	for noun, verbs := range ghFileSpecs {
 		for verb := range verbs {
 			if ghRecoverableWriteVerbs[noun][verb] || publishAsk[noun][verb] {

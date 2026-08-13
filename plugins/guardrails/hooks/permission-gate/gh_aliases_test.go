@@ -14,7 +14,8 @@ import (
 //
 // The rows below assert the fix in all three buckets, and
 // TestGhAliasNegativeControl_229 re-runs them with the alias tables emptied and
-// asserts they read exactly the fail-closed ask they read before.
+// asserts they fall back to that same unrecognized-command floor — a DEFER
+// since #262 rebucketed it, an ASK when this coverage was written.
 
 // --- An alias earns its canonical command's verdict ---------------------------
 
@@ -224,8 +225,9 @@ func degradeGhAliases(t *testing.T) {
 }
 
 // With the resolution off, every row of TestGhAliasInheritsCanonicalVerdict_229
-// must read the fail-closed ASK it read before the fix — the click-through the
-// finding reported. A row that still denies or allows is a row whose verdict
+// must fall back to the unrecognized-command floor it read before the fix —
+// the click-through the finding reported, which #262 rebucketed from ASK to
+// DEFER. A row that still denies or allows is a row whose verdict
 // comes from somewhere other than the resolution, and its counterpart above
 // proves nothing.
 func TestGhAliasNegativeControl_229(t *testing.T) {
@@ -249,9 +251,9 @@ func TestGhAliasNegativeControl_229(t *testing.T) {
 		"gh rs ls",
 	} {
 		wantReason(t, classifyInRepo(t, cmd, repo), BucketDefer, "is not a recognized read",
-			"#229 alias negative control (pre-fix fail-closed ask): "+cmd)
+			"#229 alias negative control (pre-fix unrecognized-command floor): "+cmd)
 	}
-	// The `secret`/`variable` rows did NOT read the fail-closed ask before the
+	// The `secret`/`variable` rows did NOT reach that floor before the
 	// fix. That arm default-denies every verb but `list`/`get`, so BOTH alias
 	// spellings reached a deny under their own name — which makes `gh secret ls`
 	// AND `gh variable ls` the rows whose verdict the resolution moves the

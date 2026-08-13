@@ -48,11 +48,11 @@ on uncertainty buys prompt fatigue rather than safety.
   - **Credential/secret reads and mints** — the `aws` credential-read
     operations and the `aws` credential *mints* (`sts assume-role`,
     `iam create-access-key`, …, which issue a live credential the
-    caller did not previously hold), `gh auth token`, `gh auth status
-    -t`/`--show-token`
-    (and the `gh auth status` unknown-flag screen that exists to stop
-    a credential print riding the verb's allow), `gh auth login
-    --hostname`. Credential surfaces are user-owned.
+    caller did not previously hold), `gh auth token`,
+    `gh auth status -t`/`--show-token` (and the `gh auth status`
+    unknown-flag screen that exists to stop a credential print riding
+    the verb's allow), `gh auth login --hostname`. Credential surfaces
+    are user-owned.
 - **DEFER — the judgment middle, and everything else.** Every arm that
   says "the gate cannot statically classify this" (dynamic and
   expansion-built paths, an unresolved `cd` cwd, no repo context, an
@@ -74,9 +74,14 @@ checks the code against:
   unrecognized-`gh` floor, and that floor was an ASK; moving the floor
   to DEFER would have dropped a live credential print out of the
   hard-ask tier with nothing about `gh auth token` having changed. It
-  now has its own explicit arm in `classifyGh`'s `auth` switch. Any
-  future residual change is graded the same way: enumerate what the
-  residual was catching before assuming only the residual moved.
+  now has its own explicit arm in `classifyGh`'s `auth` switch. The
+  `aws` credential MINTS (`sts assume-role`, `iam create-access-key`)
+  are the second instance of the same shape, and the one this branch
+  found late: they rode the "aws non-read op" residual, so moving it
+  cost the tier a live credential issue until `awsCredentialMint` gave
+  them a signal of their own. Any future residual change is graded the
+  same way: enumerate what the residual was catching before assuming
+  only the residual moved.
 - **The defer tier's safety budget assumes the tuned evaluator, and a
   broad static allow rule in `settings.json` gets there first.** A
   `Bash(<prog>:*)`-shaped allow matches before automode sees the call,
@@ -1009,10 +1014,11 @@ The gate's engines feed that decision:
   So a credential-material token under a MINT prefix
   (`create-`/`reset-`/`update-`/`generate-`/`request-`) **asks**, with
   `key`/`keys` added to the token set on that side only (`iam
-  create-access-key`, `ec2 create-key-pair`, `iot
-  create-keys-and-certificate` all return private key material, while
-  `key` on a `get-*` would pull routine metadata reads such as `kms
-  get-key-policy` off the allow floor for no exposure gain).
+  create-access-key` returns the secret access key, and `ec2
+  create-key-pair` / `iot create-keys-and-certificate` return private
+  key material, while `key` on a `get-*` would pull routine metadata
+  reads such as `kms get-key-policy` off the allow floor for no
+  exposure gain).
   `sts assume-role*` is matched by PREFIX because its name carries no
   material token at all. The breadth is safe-side by construction:
   every op this catches would otherwise DEFER, never ALLOW, so a false

@@ -368,7 +368,10 @@ refuse defers, because the deny would teach about one field and leave
 the other with nowhere to go. So a redirect-deny probe needs both
 controls: the verb alone (and bundled with allow-listed companions)
 must deny, and the verb bundled with an unredirectable mutation —
-`mutation { updateIssue(…) deleteIssue(…) }` — must defer.
+`mutation { updateIssue(…) deleteIssue(…) }` — must defer. Run the
+bundled row in both field orders. The check walks the document's
+fields, so a probe that always puts the redirectable verb first cannot
+tell a whole-document rule from a first-match one.
 
 Two traps in running the query itself:
 

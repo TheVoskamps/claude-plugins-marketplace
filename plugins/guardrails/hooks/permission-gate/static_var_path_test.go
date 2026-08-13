@@ -402,7 +402,7 @@ func TestForLoopGlobInListEscapingPrefixDenied_131(t *testing.T) {
 
 // TestForLoopGlobInListCwdInvalidStillEscalates_131 covers a glob item after
 // an earlier dynamic `cd` invalidated the running cwd: a relative glob
-// cannot be safely anchored, so the loop must still fail closed (ASK).
+// cannot be safely anchored, so the loop must still fail closed (DEFER).
 func TestForLoopGlobInListCwdInvalidStillEscalates_131(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -545,7 +545,7 @@ func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied_131(t *testing.T
 // but leaves residual "{"/"}" text for the nested "{b,../c}" sub-part), so
 // staticExpandItem's declined-detection fires and hands the raw text to
 // staticExpandBraceFallback, whose depth-tracking correctly detects the
-// nested "{" and returns ok=false — the whole item then fails closed to ASK
+// nested "{" and returns ok=false — the whole item then fails closed to DEFER
 // rather than mis-splitting it.
 func TestForLoopBraceNestedFormStillFailsClosed_131(t *testing.T) {
 	base := t.TempDir()

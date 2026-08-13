@@ -1243,8 +1243,9 @@ var awsCredentialMaterialTokens = map[string]bool{
 // list-access-tokens` return identifiers/metadata, never the secret), so
 // scanning them would trade real over-blocking of routine surveys for no
 // exposure gain. Non-read prefixes (`generate-`/`request-`/`send-`) never reach
-// the ALLOW floor at all — they already fall through awsReadOnlyOp to the
-// ASK default — so they need no guard here.
+// the ALLOW floor at all — they already fall through awsReadOnlyOp to the DEFER
+// residual, and `generate-`/`request-` carrying credential material are caught
+// by awsCredentialMint's hard ask (#262) — so they need no guard here.
 func awsCredentialShapedGet(op string) bool {
 	op = strings.ToLower(op)
 	if !strings.HasPrefix(op, "get-") {
@@ -1264,8 +1265,8 @@ func awsCredentialShapedGet(op string) bool {
 // `get-*` read would pull routine metadata reads (`kms get-key-policy`,
 // `s3api get-object-lock-configuration`) off the ALLOW floor for no exposure
 // gain, whereas on a MINT prefix it is exactly the signal (`iam
-// create-access-key`, `ec2 create-key-pair`, `iot create-keys-and-certificate`
-// all return private key material).
+// create-access-key` returns the secret access key, and `ec2 create-key-pair` /
+// `iot create-keys-and-certificate` return private key material).
 var awsCredentialMintTokens = map[string]bool{
 	"key":  true,
 	"keys": true,
@@ -1386,8 +1387,9 @@ func awsConfigureReadsSecret(args []string) bool {
 // `aws` command reference, and `aws help`, CLI 2.34.x), each mapped to whether
 // it consumes a following VALUE token. It is deliberately exhaustive: the whole
 // point of the aws classifier is to ALLOW the many safe commands without
-// interrupting the human, so an incomplete map (which would push benign
-// commands to a spurious ASK) is a defect, not a safe default. Global flags are
+// spending the evaluator (or the human) on them, so an incomplete map (which
+// would push benign commands to a spurious DEFER, and desynced ones further)
+// is a defect, not a safe default. Global flags are
 // a closed, slow-moving set — unlike the open-ended per-operation flags, which
 // appear AFTER the operation and never move the service/operation split.
 //
@@ -1425,7 +1427,8 @@ var awsGlobalFlags = map[string]bool{
 // Handling abbreviations here is load-bearing: without it, `--endp http://evil`
 // (an abbreviation of --endpoint-url) would evade the endpoint-url deny AND
 // desync the operation, and `--reg us-east-1 ec2 describe-instances` (benign)
-// would spuriously ASK — both failures the exhaustive-allow goal forbids.
+// would spuriously fall off the ALLOW floor — both failures the
+// exhaustive-allow goal forbids.
 func resolveAwsGlobal(token string) (canonical string, takesValue, glued, known bool) {
 	if !strings.HasPrefix(token, "--") {
 		return "", false, false, false

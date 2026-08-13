@@ -163,8 +163,8 @@ func TestGhAskTier_64(t *testing.T) {
 	// `gist create` carries a FILE operand, which #229 now grades
 	// through read containment, so the event cwd must be a real repo for the
 	// PUBLISH ask to be what the row proves. Against the `/tmp` cwd classifyCmd
-	// uses, these rows would still read ASK — but for the no-repo-context
-	// fail-closed instead, never reaching the publish tier at all.
+	// uses, these rows would still withhold the allow — but as the
+	// no-repo-context DEFER instead, never reaching the publish tier at all.
 	//
 	// Both visibilities ask: a gist without `--public` is unlisted rather than
 	// private, so it is exposure too (#229).
@@ -201,9 +201,9 @@ func TestGhAllowDefault_64(t *testing.T) {
 	// these rows instead (#229).
 	//
 	// The REASON is pinned, not just the bucket: dropping a verb from
-	// ghRecoverableWriteVerbs WITHOUT adding its publish arm also yields an ASK,
-	// on the fail-closed unrecognized-command floor, which is the same bucket for
-	// an entirely different reason.
+	// ghRecoverableWriteVerbs WITHOUT adding its publish arm also withholds the
+	// allow, on the unrecognized-command floor — a DEFER since #262 rather than
+	// this ASK, and the reason is what says which of the two a row earned.
 	repo := t.TempDir()
 	gitInit(t, repo)
 	wantReason(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAsk,
@@ -518,7 +518,7 @@ func TestAwsGlobalAbbreviation_64(t *testing.T) {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "abbrev --endpoint-url deny: "+cmd)
 	}
 	// An AMBIGUOUS prefix matching ≥2 globals is not a known global (aws rejects
-	// it too); before both tokens are captured it fails closed to ASK. `--c`
+	// it too); before both tokens are captured it fails closed to DEFER. `--c`
 	// matches --ca-bundle/--cli-*/--color/--color.
 	wantBucket(t, classifyCmd(t, "aws --c x sts get-session-token", false), BucketDefer, "ambiguous-prefix global withholds the allow")
 }
@@ -526,7 +526,7 @@ func TestAwsGlobalAbbreviation_64(t *testing.T) {
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
 // `op == "get"`/`"list"`/`"describe"` previously short-circuited to ALLOW,
 // defeating the hyphen anchor. Bare verbs the spec does not name fall to the
-// non-read-op ASK default; the dangerous bare verb (`configure get`
+// non-read-op DEFER residual (#262); the dangerous bare verb (`configure get`
 // secret) is caught by the credential-read ASK tier above.
 func TestAwsBareVerbNotReadAnchored_64(t *testing.T) {
 	// The hyphenated forms still ALLOW (anchor intact).

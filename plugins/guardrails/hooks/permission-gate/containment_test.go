@@ -586,8 +586,8 @@ func TestInputRedirectContained_193(t *testing.T) {
 	// form's verdict. `~/.claude` and the unresolved expansion are listed for the
 	// same reason as the rest — whatever the operand form does, the redirect form
 	// does. (Measured today: the curated read-utility track ALLOWs a ~/.claude
-	// operand, and an unresolvable path ASKs rather than defers, because a
-	// path-bearing utility fails closed on a dynamic path.)
+	// operand, and an unresolvable path DEFERs, because a path-bearing utility
+	// fails closed on a dynamic path.)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
