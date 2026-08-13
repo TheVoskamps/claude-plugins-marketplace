@@ -29,6 +29,11 @@ on uncertainty buys prompt fatigue rather than safety.
   deny carries the redirect prose. Membership requires the redirect to
   be **total** — a deny that leaves some legitimate use with nowhere to
   go is a dead end, not a redirect, and belongs in the defer middle.
+  A shape with **no** legitimate use (`gh api --hostname`,
+  `aws --endpoint-url`, `gh auth switch`) strands none, so it stays a
+  deny; its prescription is to drop the shape and stay on the
+  sanctioned one, and the reason states that rather than leaving it
+  implied.
 - **ALLOW, with positive grounds.** Proven read-only operations and
   contained writes (see `decision.go`, `BucketAllow`, for the bar).
   This is what keeps the hot path off the evaluator entirely.

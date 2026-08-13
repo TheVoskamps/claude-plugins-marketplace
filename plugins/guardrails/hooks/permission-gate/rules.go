@@ -709,6 +709,16 @@ func classifyghAPIDeny(reason string) Decision {
 	return deny("gh api deny (#64/#113)", reason)
 }
 
+// ghAPIHostnameDenyReason is shared by the `--hostname` and `--hostname=…`
+// arms so the two spellings of one flag cannot drift apart. Its closing
+// sentence is the prescription the DENY tier requires: the flag has no
+// legitimate use here, so the redirect is "drop it and stay on the default
+// host" rather than an alternative spelling — worded to match the
+// `aws --endpoint-url` deny it is symmetric with.
+const ghAPIHostnameDenyReason = "Blocked: 'gh api --hostname' redirects the SIGNED request — carrying your " +
+	"credential — to a non-default host (credential/data exfil and SSRF), the gh analog of " +
+	"'aws --endpoint-url'. Denied. Remove --hostname; the default GitHub host is the only sanctioned target."
+
 // classifyGhAPI gates `gh api` (bypass gate 1). It walks the argv after
 // `api`, applies the --hostname DENY and the write tiers first, then
 // branches on the endpoint:
@@ -824,14 +834,12 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 			// the gh analog of `aws --endpoint-url`. The signed request (carrying
 			// the credential) can be aimed at an attacker-controlled host
 			// (credential/data exfil, SSRF). DENY unconditionally, symmetric with
-			// the aws --endpoint-url deny (the spec's appendix step 6).
-			return classifyghAPIDeny(
-				"Blocked: 'gh api --hostname' redirects the SIGNED request — carrying your credential — to a " +
-					"non-default host (credential/data exfil and SSRF), the gh analog of 'aws --endpoint-url'. Denied.")
+			// the aws --endpoint-url deny (the spec's appendix step 6) — including
+			// that deny's closing prescription, since the shape has no legitimate
+			// use and "stay on the default host" is the whole redirect.
+			return classifyghAPIDeny(ghAPIHostnameDenyReason)
 		case strings.HasPrefix(a, "--hostname="):
-			return classifyghAPIDeny(
-				"Blocked: 'gh api --hostname' redirects the SIGNED request — carrying your credential — to a " +
-					"non-default host (credential/data exfil and SSRF), the gh analog of 'aws --endpoint-url'. Denied.")
+			return classifyghAPIDeny(ghAPIHostnameDenyReason)
 		case a == "-H" || a == "--header":
 			if i+1 < len(args) {
 				if headerIsMethodOverride(args[i+1]) {

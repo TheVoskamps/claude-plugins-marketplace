@@ -115,9 +115,12 @@ func TestGhUnrecognizedFailsClosedToDefer_163(t *testing.T) {
 // #262. Before then it escalated only INCIDENTALLY, by falling through to the
 // unrecognized-command floor, and that floor was an ASK; when #262 moved the
 // floor to DEFER, an explicit arm was the difference between the tier keeping
-// this call and silently losing it. The assertion on the reason is what makes
-// the distinction testable: a bucket-only check would pass again the moment
-// the credential arm was deleted and the residual caught it.
+// this call and silently losing it. What the assertion on the reason adds is
+// WHICH rule produced the ask: with the floor now at DEFER, deleting the arm
+// is caught by the bucket alone (measured — the arm removed, `gh auth token`
+// answers `defer`), but a bucket-only check would still pass on any future
+// rule that escalates this call for some unrelated account, which is exactly
+// the incidental escalation #262 removed.
 func TestGhAuthTokenIsAHardAsk_262(t *testing.T) {
 	for _, cmd := range []string{
 		"gh auth token",

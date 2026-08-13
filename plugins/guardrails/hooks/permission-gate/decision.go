@@ -36,8 +36,19 @@ const (
 	// BucketDeny hard-blocks a known-destructive / boundary-violating call.
 	// Membership requires a PRESCRIPTIVE REDIRECT: a deny reason is fed back to
 	// the model, so the agent self-corrects on its next tool call instead of
-	// stalling. A known-bad call with no allowed spelling to name is not a
-	// deny — it is a dead end, and belongs in BucketDefer.
+	// stalling. The redirect must be TOTAL over the call's LEGITIMATE uses — a
+	// deny that leaves one of them with nowhere to go is a dead end, not a
+	// redirect, and belongs in BucketDefer. That is the whole difference
+	// between the `updateIssue` deny, whose reason names an allowed spelling
+	// per concept the verb covers, and the `deleteIssue` defer, which has none
+	// to name.
+	//
+	// A shape with NO legitimate use — `gh api --hostname`, `aws --endpoint-url`,
+	// `gh auth switch` — is not a dead end by that test: there is no legitimate
+	// use stranded, and the prescription is to drop the shape and stay on the
+	// sanctioned one. Such a reason still has to SAY so ("Remove --hostname;
+	// the default GitHub host is the only sanctioned target", "surface it to
+	// the human"), because an unstated prescription teaches nothing.
 	BucketDeny Bucket = "deny"
 	// BucketAsk escalates to a human decision. It is NOT an uncertainty
 	// default: it is a short, enumerated policy tier — the calls fleet policy
