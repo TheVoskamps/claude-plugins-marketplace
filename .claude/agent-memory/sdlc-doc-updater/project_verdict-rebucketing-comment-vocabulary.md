@@ -103,6 +103,28 @@ operation label, while ceasing to describe what the arm now does. Reread
 the header list of any function whose residual the round touched, even
 when no word in it is false.
 
+A FOURTH pass has its own signature: the cost sentence. Grep `click`
+(not a bucket word) across the package and grade each hit — a
+"therefore costs one human click, not a silent publish" survives in a
+FILE-HEADER property list long after the function it summarises was
+renamed to `…Defer` and its own doc comment corrected. On #262 that
+shape appeared in `classify_gh_files.go`'s `#225 properties` list and
+twice more in the deny arms, where "the cost of a false deny is one
+human click" contradicts `decision.go`'s own `BucketDeny` definition (a
+deny teaches the model, it never prompts) — grep `false deny` too.
+
+The same pass turns up the one defect class that is NOT vocabulary: a
+test whose doc explains WHY it passes, wrongly. `classifyCmd`'s cwd is
+`/tmp`, so every path-bearing row lands on the no-repo-context residual
+— and `TestProcessSubstitutionDoesNotPanic_5`'s "procsubst is not
+statically resolvable, so it must NOT ride the allow track" is refuted
+by replaying the same six rows with a REAL repo cwd, where three of
+them ALLOW (the gate descends into the inner command; `cat <(ls /etc)`
+denies on the inner operand). Behaviour right, stated reason false, no
+test fails. Whenever a test doc gives a mechanism for a bucket
+assertion, replay its rows through the binary with repo context before
+letting the sentence stand.
+
 The `ghUnmodelledFlagAsk` leftover this note flagged for a fixer was
 renamed to `ghUnmodelledFlagDefer` in #262's fix round, alongside the
 sibling renames (`cdInvalidAsk` → `cdInvalidDefer`,
