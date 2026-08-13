@@ -348,8 +348,9 @@ func TestGhAPIGraphQLUpdateIssuePlusUnredirectableDefers_262(t *testing.T) {
 // All-fields-must-pass is unchanged by the new entry: a document bundling
 // `updateIssueFieldValue` with a non-allow-listed mutation still withholds the
 // ALLOW, naming both fields. It DEFERS rather than denying — no total redirect
-// exists for `deleteIssue`/`deleteProjectV2Item`, and a deny with no allowed
-// spelling to name is a dead end, so those are judgment-middle calls.
+// exists for `deleteIssue`/`deleteProjectV2Item`, and a deny that strands a
+// legitimate use with no allowed spelling to name is a dead end, so those are
+// judgment-middle calls.
 func TestGhAPIGraphQLMixedUpdateIssueMutationDefers_262(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
@@ -379,10 +380,14 @@ func TestGhAPIGraphQLMixedUpdateIssueMutationDefers_262(t *testing.T) {
 
 // `updateIssueIssueFieldValue` — the spelling observed in a live session — is
 // NOT a GitHub `Mutation` field, so it is deliberately off the allowlist and
-// lands in the defer middle. It is NOT denied: the deny tier is for verbs with
-// a total redirect, and a name GitHub itself rejects has no legitimate use to
-// redirect. Pinning it here stops a future reader from "completing" the set
-// with a name GitHub would reject anyway.
+// lands in the defer middle with every other non-allowlisted mutation. It is
+// NOT denied, and the disqualifier is not that the name has no legitimate use
+// to redirect — a shape with no legitimate use can still earn a deny, which is
+// exactly what `gh api --hostname` does (decision.go, BucketDeny). It is that
+// no rule declares this name known-bad at all: GitHub rejects the field, so the
+// call fails whatever verdict the gate returns, and there is nothing to teach.
+// Pinning it here stops a future reader from "completing" the set with a name
+// GitHub would reject anyway.
 func TestGhAPIGraphQLNonexistentIssueFieldVerbDefers_262(t *testing.T) {
 	d := classifyCmd(t, `gh api graphql -f query='mutation { updateIssueIssueFieldValue(input: {}) { issue { id } } }'`, false)
 	wantBucket(t, d, BucketDefer, "graphql nonexistent updateIssueIssueFieldValue defers")

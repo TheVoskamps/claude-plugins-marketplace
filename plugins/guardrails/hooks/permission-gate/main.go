@@ -10,7 +10,7 @@
 //     blocks via exit 2 with a teaching message on stderr (stderr is fed back
 //     to the model). See failClosed.
 //
-// Two engines feed the three-bucket decision:
+// The engines that produce that verdict:
 //
 //   - Engine A (engine_a_bash.go, engine_a_mcp.go): command classifier over
 //     the Bash AST, plus an MCP tool-name branch.
