@@ -44,9 +44,12 @@ func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 // wantReason asserts the bucket AND a distinguishing fragment of the reason.
 // The gate stacks many rules that produce the SAME bucket for one event, so a
 // bucket-only assertion can pass without ever reaching the rule under test —
-// which is how a row asserting a publish ASK keeps passing after it starts
-// earning a no-repo-context ASK instead. Use this wherever the bucket alone
-// does not identify which rule fired.
+// which is how a row asserting one particular DEFER keeps passing after it
+// starts earning the no-repo-context DEFER instead. (That residual was an ASK
+// until #262 rebucketed it, so the same trap used to be aimed at rows
+// asserting a publish ASK; the collision moved tiers, it did not go away, and
+// the DEFER tier now holds far more arms for a row to land on by accident.)
+// Use this wherever the bucket alone does not identify which rule fired.
 func wantReason(t *testing.T, d Decision, want Bucket, reasonFragment, label string) {
 	t.Helper()
 	if d.Bucket != want {

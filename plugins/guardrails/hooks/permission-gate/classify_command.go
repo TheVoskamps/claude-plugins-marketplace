@@ -20,7 +20,8 @@ import (
 //     etc.).
 //  5. Program-specific ALLOW rules (read-only git/gh/aws/acli).
 //  6. Path-bearing read/write programs → Engine B containment.
-//  7. Otherwise DEFER to the normal pipeline.
+//  7. Otherwise DEFER to the normal pipeline, labelled bash:no-specific-rule
+//     (deferResidualOp) so the §7 log records which program went unrecognized.
 func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	// Redirects the shell performs for a construct that runs no program
 	// (`[[ -f x ]] > f`, `(( i++ )) > f`, `export A=1 > f`, `case q in esac > f`).
