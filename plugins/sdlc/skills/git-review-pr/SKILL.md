@@ -53,11 +53,11 @@ pipeline themselves.
    `.claude/rules/repo-config.md` (for recognizing `References:`
    trailers), resolves the issue set, spawns the generator, the
    disprovers, and then the verifiers in their own throwaway
-   worktrees, derives the verdicts,
-   and **posts the review to the PR as a single call** via
-   `/github-prs:pr-review-submit`, carrying both verdict and body,
-   exactly as it does in the `/sdlc:orchestrate` pipeline. It commits
-   nothing and pushes nothing.
+   worktrees, derives the verdicts, and **posts the review to the PR
+   as a single call** via `/github-prs:pr-review-submit`, carrying
+   both verdict and body, exactly as it does in the
+   `/sdlc:orchestrate` pipeline. It commits nothing and pushes
+   nothing.
 
 3. **Relay the pipeline's verdicts and findings** back to the user:
    the overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every

@@ -171,7 +171,7 @@ and a severity table appearing in an agent file is the defect this
 split exists to prevent.
 
 The glosses themselves have a fourth home, which a token grep does not
-reach: the pipeline's "The two findings that carry no class" section
+reach: the pipeline's "The findings that carry no class" section
 restates those same definitions against the **severity** names,
 because step 2's findings come from no theorem and no verifier grades
 them. Those bullets say outright that they are "the same ones the

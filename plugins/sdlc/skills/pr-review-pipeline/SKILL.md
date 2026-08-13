@@ -127,8 +127,8 @@ gh pr view <PR> --json headRefName,headRefOid,body,changedFiles,additions,deleti
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed step 2;
 `headRefOid` feeds step 4's single fetch and every disprover's and
-verifier's brief. Do not
-fetch the diff — see "Why the diff never lands in your context" above.
+verifier's brief. Do not fetch the diff — see "Why the diff never
+lands in your context" above.
 
 ### 2. Identify the issue set this PR is for
 
@@ -313,7 +313,7 @@ concurrently, each with `run_in_background: false`.
 attack, and verifying survivals would double the cost of the common
 case for nothing.
 
-Two kinds of `DISPROVED` report are malformed and never reach a
+These kinds of `DISPROVED` report are malformed and never reach a
 verifier: one whose counterexample is not a verbatim quote, and one
 that asserts file topology without having run a topology command (see
 "Before claiming file-topology issues" below). Re-spawn that one
@@ -734,11 +734,11 @@ claim states and the verifier need not know. It only ever raises a
 severity; a `breaks-production` class on such a theorem stays
 Critical.
 
-#### The two findings that carry no class
+#### The findings that carry no class
 
 Step 2's findings — a claimed issue outside the branch's set, and an
 unexplained undelivered branch member — come from no theorem, so no
-verifier graded them. Grade those two by these definitions, which are
+verifier graded them. Grade them by these definitions, which are
 the same ones the classes name:
 
 - **Critical**: merging causes data loss, opens a security hole, or
@@ -788,8 +788,11 @@ one overall" — plus the overall verdict, plus severity counts
 (Critical, High, Medium, Low) covering findings only. Report the
 theorem tally alongside: how many were generated, how many disproved,
 how many of those disproved had their counterexample **refuted by
-verification**, how many survived, how many went unsettled. Surviving
-and refuted theorems are never counted toward severity.
+verification**, how many survived, how many went unsettled. Surviving,
+refuted, and unsettled theorems are never counted toward severity: a
+surviving or refuted theorem lands in the Verified list and an
+unsettled one under "Theorems that could not be settled", and none of
+them produces a finding.
 
 The refuted count is the one number that says what the verification
 stage bought this round, so report it even when it is zero.

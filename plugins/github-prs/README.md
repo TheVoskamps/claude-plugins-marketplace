@@ -14,11 +14,11 @@ verdict, and — when run standalone on a bare PR number — reads the
 PR's closing lines to learn which issues it claims; the
 `theorem-generator`, `theorem-disprover`, and `counterexample-verifier`
 agents it spawns fetch the diff, as do the `issue-fixer` and
-`doc-updater`. The orchestrator
-keeps PRs draft through the review/fix loop, reads those same closing
-lines for the issues it flips to In Review, and only flips draft →
-ready once the human blesses the PR at end-of-loop. Each skill is
-still a standalone verb usable by a human or any caller.
+`doc-updater`. The orchestrator keeps PRs draft through the review/fix
+loop, reads those same closing lines for the issues it flips to In
+Review, and only flips draft → ready once the human blesses the PR at
+end-of-loop. Each skill is still a standalone verb usable by a human
+or any caller.
 
 ## One PR, one issue set
 

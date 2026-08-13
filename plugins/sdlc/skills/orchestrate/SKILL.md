@@ -48,14 +48,14 @@ You have access to these teammate agents:
   `isolation: worktree` worktree and returns `DISPROVED` with a
   verbatim counterexample, a consequence statement, and a proposed
   consequence class, or `SURVIVED` with what it checked. One
-  definition, no tiers. It posts nothing, commits nothing, and writes
-  nothing
+  definition, no tiers. It posts nothing, commits nothing, and
+  writes nothing
 - `counterexample-verifier` — tries to reject exactly one disprover's
   counterexample in a fresh `isolation: worktree` worktree and returns
   `REFUTED` with the rejection reason or `STANDS` with a confirmed or
   corrected consequence statement and its consequence class. One
-  definition, no tiers. It posts nothing, commits nothing, and writes
-  nothing
+  definition, no tiers. It posts nothing, commits nothing, and
+  writes nothing
 - `agent-memory-scrubber` — curates the PR's `.claude/agent-memory/`
   in a fresh `isolation: worktree` worktree via the
   `/cc-tools:agent-memory-cleanup` skill, pushes the curated result
@@ -86,9 +86,9 @@ path — and none of them judges any memory, its own or anyone else's.
 The review pipeline's agents are outside this flow entirely: none of
 `theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
 declares `memory:`, so a review round adds nothing to the tree and a
-durable review lesson
-arrives as a PR against `sdlc:theorem-generation`, the pipeline skill,
-or the repo's `CLAUDE.md` rather than as a memory commit. Curation is
+durable review lesson arrives as a PR against
+`sdlc:theorem-generation`, the pipeline skill, or the repo's
+`CLAUDE.md` rather than as a memory commit. Curation is
 owned by `agent-memory-scrubber`, which runs as the **last agent to
 touch the branch** before `/pr-ready` (see "Before `/pr-ready`: curate
 the PR's agent memory"), and it curates the whole tree. Running last
@@ -525,9 +525,8 @@ an `issue-fixer` brief or to the human:
   mechanically from the consequence class a `counterexample-verifier`
   assigned, by the rules in the `sdlc:pr-review-pipeline` skill →
   "Findings by severity"; re-tiering a finding on its way into a brief
-  substitutes
-  your judgment for that derivation, and the fixer gives back the tier
-  you handed it.
+  substitutes your judgment for that derivation, and the fixer gives
+  back the tier you handed it.
 - **Supply consequence, not a consistency checklist.** The question is
   whether being wrong changes what someone does. A doc claim that
   teaches a wrong security boundary qualifies; a row-count footnote
@@ -691,8 +690,7 @@ for a parallel-cleanup data-loss bug.
 After each subagent (issue-developer, doc-updater, issue-fixer,
 agent-memory-scrubber, and each `theorem-generator`,
 `theorem-disprover`, and `counterexample-verifier` the review pipeline
-spawned) returns, run
-`git worktree list`
+spawned) returns, run `git worktree list`
 to find the subagent's worktree (it will be the most recently added
 one matching the worktree-naming pattern; cross-check by branch or
 path), then:
@@ -757,10 +755,10 @@ Running it here rather than delegating it is structural, not a
 convenience: the pipeline spawns a generator, then one
 `theorem-disprover` per theorem in parallel, then one
 `counterexample-verifier` per disproved theorem in parallel, and a
-subagent cannot spawn subagents. It is
-also the one carve-out in "Never do work an agent owns" — see that
-Hard Constraint, which still forbids you from writing a review body or
-running `gh pr review` yourself. The pipeline owns both.
+subagent cannot spawn subagents. It is also the one carve-out in
+"Never do work an agent owns" — see that Hard Constraint, which still
+forbids you from writing a review body or running `gh pr review`
+yourself. The pipeline owns both.
 
 The issue set is not context here: it is the **claim** the pipeline
 reconciles against the branch name, so pass the set the PR actually
@@ -792,12 +790,11 @@ principle" — which cuts both ways here.
 
 In its favour: you write none of the briefs — not the generator's, not
 a disprover's, not a verifier's. The pipeline fixes them all, from
-parameters you pass
-(`--pr`, `--issues`, `--branch`, `--generator`) and nothing else, so a
-review finding is independent of your judgment by construction and
-"the review found X" is an honest relay. Your one lever is the tier,
-and naming it in the round's report is what lets an override disagree
-with it.
+parameters you pass (`--pr`, `--issues`, `--branch`, `--generator`)
+and nothing else, so a review finding is independent of your judgment
+by construction and "the review found X" is an honest relay. Your one
+lever is the tier, and naming it in the round's report is what lets an
+override disagree with it.
 
 Against: the verdict is a claim you act on and relay, and the review
 is **posted** on the PR, so whether it says what the pipeline reported
@@ -933,9 +930,9 @@ branch work is queued.
 Being last is the whole point: by that moment every agent that writes
 memory (`issue-developer`, `issue-fixer`, `doc-updater` —
 `theorem-generator`, `theorem-disprover` and `counterexample-verifier`
-write none) has captured onto the branch, so the
-scrubber's pass curates the entire PR's memory delta and nothing is
-deferred to a later PR.
+write none) has captured onto the branch, so the scrubber's pass
+curates the entire PR's memory delta and nothing is deferred to a
+later PR.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running last — not a budget, and not a rule that survives later work.
@@ -1219,8 +1216,8 @@ pipeline's severity line and the fixer's report. Fill them per
     disprovers, the check on each counterexample and its consequence
     class from the verifiers, and the verdict is a mechanical
     derivation from what they returned. You never author a review
-    finding, never write a
-    review body from your own reading of the diff, and never run
+    finding, never write a review body from your own reading of the
+    diff, and never run
     `gh pr review --approve|--request-changes|--comment` — the
     pipeline posts through `/github-prs:pr-review-submit`.
   - **Merge-conflict resolution** — owned by `issue-fixer`. The
@@ -1324,8 +1321,8 @@ pipeline's severity line and the fixer's report. Fill them per
   round is one `sdlc:pr-review-pipeline` run at any generator tier —
   the fan-outs inside a round are one round, however many
   `theorem-disprover` and `counterexample-verifier` agents they
-  spawned; the `doc-updater` pass that precedes
-  each one is not a review and never counts against the cap.
+  spawned; the `doc-updater` pass that precedes each one is not a
+  review and never counts against the cap.
 
 ### What the orchestrator IS allowed to do
 
@@ -1550,9 +1547,9 @@ These carve-outs keep this rule from being over-broad:
   never by an effort override. The pipeline routes a `model` per spawn
   of its own, described above: a `mechanical` theorem is spawned below
   the declared default of `theorem-disprover` and of
-  `counterexample-verifier` alike, and no such value is named
-  here. That is inside the pipeline's fan-outs, not a teammate spawn
-  you make.
+  `counterexample-verifier` alike, and no such value is named here.
+  That is inside the pipeline's fan-outs, not a teammate spawn you
+  make.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only
 - If the run is large (>8 issues across all batches), split into two
