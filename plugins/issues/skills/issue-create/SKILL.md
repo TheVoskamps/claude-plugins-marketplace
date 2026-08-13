@@ -536,7 +536,7 @@ Created issue #1042 "Add /issue-create skill"
   priority:   P0
   size:       M
   status:     Backlog
-  assignee:   edwinvoskamp
+  assignee:   octocat
   parent:     #18
 
 https://github.com/<owner>/<repo>/issues/1042
@@ -553,7 +553,7 @@ Created issue #1043 "Tidy up the create runbook"
   priority:   P2
   size:       skipped: slot kind: skip
   status:     skipped: flag not passed and no default
-  assignee:   edwinvoskamp
+  assignee:   octocat
 
 https://github.com/<owner>/<repo>/issues/1043
 ```

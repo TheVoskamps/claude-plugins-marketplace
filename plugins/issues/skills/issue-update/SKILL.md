@@ -171,7 +171,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      When comparing requested assignee logins against the
      actual-added/actual-removed sets, lowercase both sides before
      comparison (GitHub logins are case-insensitive on input, so
-     e.g. `Evoskamp` and `evoskamp` are the same user). The mismatch
+     e.g. `Octocat` and `octocat` are the same user). The mismatch
      report line (see "Output" below) should echo the user's input
      string verbatim so they recognize what they typed.
    - **Compare against the requested deltas** (the comma-separated
@@ -226,8 +226,8 @@ mismatch line per direction immediately under the relevant
 
 ```text
 Updated issue #<N>:
-  assignees added: evoskamp
-  assignees requested but not added: edwinvoskamp (not a valid
+  assignees added: octocat
+  assignees requested but not added: octocat-typo (not a valid
     assignee on this repo, or permission denied)
   labels requested but not added: bugg (not a valid label on this repo)
   labels requested but not removed: needs-triage (label is on the
