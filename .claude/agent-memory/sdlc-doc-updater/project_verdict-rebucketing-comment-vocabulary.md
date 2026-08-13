@@ -125,6 +125,40 @@ test fails. Whenever a test doc gives a mechanism for a bucket
 assertion, replay its rows through the binary with repo context before
 letting the sentence stand.
 
+A FIFTH pass runs after the round that refines a TIER-MEMBERSHIP RULE
+rather than a verdict. #262's last fix round scoped `BucketDeny`'s rule
+from "a known-bad call with no allowed spelling to name is not a deny"
+to "the redirect must be total over the call's LEGITIMATE uses; a shape
+with none stranded (`gh api --hostname`, `aws --endpoint-url`,
+`gh auth switch`) stays a deny". Every site that RESTATES the rule then
+has to be re-graded, and the one that goes false is a *sibling* site
+that reasoned from the old unscoped form and reached the opposite
+conclusion: `TestGhAPIGraphQLNonexistentIssueFieldVerbDefers_262`
+justified `updateIssueIssueFieldValue`'s defer with "a name GitHub
+itself rejects has no legitimate use to redirect" — which under the new
+rule is an argument for DENYING it. The behaviour is right (nothing
+declares the name known-bad; GitHub rejects the field, so the call
+fails whatever the gate says) and no test fails. Grep the package for
+`dead end`, `no allowed spelling`, `legitimate use`, `prescriptive` and
+grade each hit as a restatement of the rule, not as prose about its own
+arm; the README's own account of the same verb was already correct, so
+the Markdown surface does not flag the defect.
+
+Same round, cheap and worth doing: replay the round's own measured rows
+rather than trusting the commit message. `PERMISSION_GATE_LOG=<path>`
+plus a scratchpad probe script settled all of it in one run —
+`cd <dir> && git … > f` denies as `forbidden-form:cd-&&-git` (Form 1 is
+git-specific, so the `gh` and `aws` `&&` rows defer), the prefix-free
+and `;`-joined git/gh/aws redirects to an unpinnable destination defer
+as `<tool> redirect-unresolvable`, and a bare
+`git show … > .claude/tmp/<slug>/<file>` ALLOWs, which is what the
+playbook's extraction step now prescribes.
+
+Editing only `_test.go` comments needs no binary rebuild (`go build`
+never compiles them); editing `main.go` does
+([[project_permgate-go-comment-edits-need-binary-rebuild]]), and the
+rebuilt binaries must replay the probe table identically.
+
 The `ghUnmodelledFlagAsk` leftover this note flagged for a fixer was
 renamed to `ghUnmodelledFlagDefer` in #262's fix round, alongside the
 sibling renames (`cdInvalidAsk` → `cdInvalidDefer`,
