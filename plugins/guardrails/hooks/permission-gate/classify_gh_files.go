@@ -40,9 +40,12 @@ import (
 //     walk.
 //   - FAIL SAFE on an unmodelled flag. Each spec enumerates its verb's COMPLETE
 //     flag set, and an unrecognized flag escalates rather than riding the verb's
-//     allow — the same whitelist shape ghAuthStatusEscalates holds for
-//     `gh auth status`. A future gh release that adds another file-reading flag
-//     therefore costs one human click, not a silent publish.
+//     allow — the same whitelist SHAPE ghAuthStatusEscalates holds for
+//     `gh auth status`, though not the same tier: this one DEFERS with its
+//     analysis (#262 rebucketed it from ask), where the `gh auth status` screen
+//     is a credential-read guard and stays a hard ask. A future gh release that
+//     adds another file-reading flag therefore costs a graded, deferred call,
+//     not a silent publish. See ghUnmodelledFlagDefer.
 //
 // The specs are transcribed from `gh <noun> <verb> --help`, and that output is
 // NOT gh's accepted grammar: gh parses with cobra/pflag, which accept spellings

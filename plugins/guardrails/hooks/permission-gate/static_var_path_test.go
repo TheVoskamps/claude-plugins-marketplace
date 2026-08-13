@@ -453,9 +453,11 @@ func TestForLoopBraceInListBothContained_131(t *testing.T) {
 // `{x..y}` sequence form — and empirically that decline is not even
 // "leave literal braces behind": for other list shapes it can silently DROP
 // members instead (see engine_a_bash.go staticExpandItem's doc comment).
-// Falling back to ASK whenever upstream declines would push an entirely
-// mechanical case onto a human for every escaping-path brace list — the
-// guardrails gate's job is to MINIMIZE unnecessary ASK, not maximize it.
+// Falling back to the unresolved-expansion residual whenever upstream declines
+// would hand an entirely mechanical case to someone else for every
+// escaping-path brace list — a human click when this was written, the
+// downstream evaluator since #262 rebucketed that residual to DEFER. Either
+// way the gate's job is to decide what it CAN decide, and this it can.
 // staticExpandBraceFallback now does the comma-list split itself whenever
 // upstream's result is declined or suspect, so every member — including the
 // escaping one — flows through the existing containment pipeline and gets

@@ -1614,7 +1614,8 @@ var ghGlobalBoolFlags = map[string]bool{
 //     rather than skipping the flag, because an unrecognized global could take a
 //     value (desyncing detection) or otherwise change behavior the gate cannot
 //     reason about. Default-deny within the gate mirrors the gh-api unknown-flag
-//     handling; the cost of a false deny is one human click.
+//     handling; the cost of a false deny is one blocked call the agent respells
+//     from the deny's own remediation sentence, not a human prompt.
 //
 // On the fail-closed path the second return is a non-nil DENY Decision and the
 // caller returns it immediately. On the normal path the second return is nil.

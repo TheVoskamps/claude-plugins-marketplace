@@ -685,14 +685,14 @@ The gate's engines feed that decision:
   accepted because the writes are recoverable, land on human-visible
   surfaces, and need only write access the credential already holds. A
   subscription-ONLY document, an unbalanced/garbage document, or a query
-  supplied
-  non-literally (`-F query=…`, which does `@file` expansion /
+  supplied non-literally (`-F query=…`, which does `@file` expansion /
   coercion, or `--input`) **denies** as unclassifiable. The
   subscription-only scoping is load-bearing: a subscription bundled with
   a mutation is a mutation-bearing document and takes that path's
   **defer** under the multi-operation rule above, never this deny.
-  `TestGhAPIGraphQLFailClosed_113` pins the standalone `subscription { x }`
-  deny and `TestGhAPIGraphQLMixedMutationDefers_195` the bundled defer. On a REST
+  `TestGhAPIGraphQLFailClosed_113` pins the standalone
+  `subscription { x }` deny and
+  `TestGhAPIGraphQLMixedMutationDefers_195` the bundled defer. On a REST
   endpoint the gate runs a path-prefix GET-gate (#113): a
   known-flag-only GET whose endpoint is on the read allowlist (exact
   `rate_limit`/`meta`/`user`;

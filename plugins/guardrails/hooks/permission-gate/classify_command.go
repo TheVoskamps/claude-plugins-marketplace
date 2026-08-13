@@ -477,7 +477,9 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 // execute code is denied. We allow a conservative allowlist of inert display
 // knobs (color.*, core.pager=cat is still denied because pager values run a
 // shell) and deny the rest of `-c`, because the cost of a false deny is one
-// human click while a false allow is arbitrary code execution (principle 3).
+// blocked call the agent respells from the reason below — a deny teaches, it
+// does not prompt — while a false allow is arbitrary code execution
+// (principle 3).
 func gitGlobalRCEDeny(args []string) (Decision, bool) {
 	rceDeny := func() (Decision, bool) {
 		return deny("git -c config-injection RCE (#64)",

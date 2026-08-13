@@ -307,9 +307,11 @@ func TestGhPublishFileStdinRedirectGraded_229(t *testing.T) {
 // --- Fail safe on an unmodelled flag -----------------------------------------
 
 // An unrecognized flag on a publish verb escalates rather than riding the verb's
-// allow, so a future gh release that adds a second file-reading flag costs one
-// human click instead of a silent publish. This is the same whitelist shape
-// ghAuthStatusEscalates holds for `gh auth status`.
+// allow, so a future gh release that adds a second file-reading flag costs a
+// graded, deferred call instead of a silent publish. This is the same whitelist
+// SHAPE ghAuthStatusEscalates holds for `gh auth status`, but not the same
+// tier: #262 rebucketed this one to DEFER, while the `gh auth status` screen
+// stays a hard ask.
 func TestGhPublishUnmodelledFlagDefers_262(t *testing.T) {
 	repo := ghPublishRepo(t)
 	for _, cmd := range []string{
@@ -357,16 +359,19 @@ func TestGhPublishUnmodelledFlagDefers_262(t *testing.T) {
 			t.Errorf("#229 documented gh flag must not escalate: %q got %q (%s)", cmd, d.Bucket, d.Reason)
 		}
 	}
-	// An escaping path OUTRANKS the unmodelled-flag ask: the deny is the stronger
-	// verdict, so a command carrying both must deny.
+	// An escaping path OUTRANKS the unmodelled-flag defer: the deny is the
+	// stronger verdict, so a command carrying both must deny.
 	wantReason(t, classifyInRepo(t, "gh pr comment 227 -F /etc/passwd --frobnicate x", repo),
-		BucketDeny, "resolves outside the current repository", "#229 deny outranks unmodelled-flag ask")
+		BucketDeny, "resolves outside the current repository", "#229 deny outranks unmodelled-flag defer")
 }
 
-// The ask's RISK sentence is branched on the verb's own modelled surface. A verb
-// with a body-file flag or a file positional is described as reading a local
-// file; a verb with neither — roughly half the table — must not be, or the human
-// is asked to adjudicate a risk that command does not have.
+// The defer's RISK sentence is branched on the verb's own modelled surface. A
+// verb with a body-file flag or a file positional is described as reading a
+// local file; a verb with neither — roughly half the table — must not be, or the
+// analysis reports a risk that command does not have. Since #262 that sentence
+// is the gate's ANALYSIS rather than a prompt: emitDecision blanks a defer's
+// reason on the wire, so it reaches the §7 evolution log and the re-tune that
+// reads it, never a human prompt.
 func TestGhPublishUnmodelledFlagMessageMatchesSurface_229(t *testing.T) {
 	repo := ghPublishRepo(t)
 	const fileRisk = "can read a local file"
