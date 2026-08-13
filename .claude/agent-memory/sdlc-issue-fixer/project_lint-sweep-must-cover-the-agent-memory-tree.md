@@ -53,6 +53,14 @@ author — a `(#229, PR\n#232)` reference wrapped at the wrong space puts
    issues" proves nothing until the command has been shown to fail on
    the pre-fix bytes. See [[negative-control-the-approved-snippet]].
 
+The defect class an agent's own memory prose reaches for most is
+MD033: a placeholder written `<skill>` or `<section>` is inline HTML,
+and lint names the element (`Inline HTML [Element: skill]`) rather than
+the placeholder. Memory notes about *pointer wording* attract it,
+because the natural way to write the shape being taught is
+`"... by the rules in <skill> → <section>"`. Backtick every angle
+bracket that is a placeholder.
+
 Repo-wide, `git ls-files '*.md'` turns up a standing set of pre-existing
 MD041 hits in `plugins/issues/skills/**/SKILL.md` and `PRIOR_ART.md` —
 frontmatter-then-prose, the same format contract the agent-memory config

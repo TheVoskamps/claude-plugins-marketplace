@@ -138,18 +138,61 @@ change to what a review does sweeps several files, not one — the
 pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
 generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
-does not pass.
+does not pass. A change to the pipeline's *stages* — which agents it
+spawns, in how many fan-outs — reaches one surface outside
+`plugins/sdlc/` as well: `docs/plugin-authoring-constraints.md` →
+"Fanning out parallel agents: a main-session skill, not an agent"
+cites the pipeline as its worked instance and names the stages, and
+the fetch-once paragraph below it names the agents that skip their own
+fetch.
 
 The briefs the pipeline writes are a two-sided contract, and both
 sides are prose. A double-dash parameter added to, removed from, or
-redefined in a generator or disprover brief lands in the pipeline's
-brief block *and* in the receiving agent's "Inputs" list — plus, when
-the parameter changes what a step does, in that step itself:
-`--head-sha` and `--fetched yes` are described in the pipeline's
-fan-out step and again in `theorem-disprover`'s step 1, which decides
-from them whether to fetch. Grep the parameter name across
-`plugins/sdlc/` rather than editing the end that the change started
-from.
+redefined in a generator, disprover, or verifier brief lands in the
+pipeline's brief block *and* in the receiving agent's "Inputs" list —
+plus, when the parameter changes what a step does, in that step
+itself: `--head-sha` and `--fetched yes` are described in each of the
+pipeline's two fan-out steps, and again in step 1 of
+`theorem-disprover` and step 1 of `counterexample-verifier`, each of
+which decides from them whether to fetch. Grep the parameter name
+across `plugins/sdlc/` rather than editing the end that the change
+started from.
+
+One vocabulary spans three of those files instead of two: the
+consequence-class tokens. `theorem-disprover` proposes one,
+`counterexample-verifier` confirms or corrects it, and the pipeline
+transcribes it into a severity. The *tokens* appear in all three
+files: glossed in the two agent files, bare in the pipeline's
+class-to-severity table. Only the pipeline states that mapping, and
+the two agent files say outright that the severity is not theirs to
+argue. So adding, renaming, or removing a class edits all three files
+— the gloss in each agent file, the token in the pipeline's table —
+and a severity table appearing in an agent file is the defect this
+split exists to prevent.
+
+Inside those two "The consequence classes" sections, the gloss bullets
+are shared copy — byte-identical, and they must stay so. So is the
+sentence that ends both sections, handing the severity to the pipeline
+("What severity each class becomes is the pipeline's business, not
+yours…"); it is the same wording in both files at a different line
+wrap, so a change to it edits both. What is deliberately per-agent is
+the sentence introducing the bullets and the sentences that precede
+that closing one, because the two agents stand in different places in
+the chain: the disprover's say its class is a *proposal* the verifier
+may correct, the verifier's say the disprover proposed one and that on
+disagreement the verifier's wins. Do not converge those framing
+sentences while sweeping the bullets; a disprover file that claims its
+class is final, or a verifier file that calls its own class a
+proposal, is the error the split wording prevents.
+
+The glosses themselves have a fourth home, which a token grep does not
+reach: the pipeline's "The findings that carry no class" section
+restates those same definitions against the **severity** names,
+because step 2's findings come from no theorem and no verifier grades
+them. Those bullets say outright that they are "the same ones the
+classes name", so a change to what a class *means* — as opposed to
+what it is called — edits them too, and they are the surface that
+silently keeps the old meaning.
 
 On any brief or spawn-template widening — the pipeline's briefs and
 the orchestrator's teammate templates alike — the receiving side is
@@ -197,7 +240,10 @@ Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
 opening paragraph and repeats the diff-consumer list in its `/pr-diff`
-section, and `plugins/issues/skills/**` names the `sdlc` readers and
+section, and `plugins/github-prs/skills/pr-diff/SKILL.md` spells that
+same consumer list once more — a surface a `sdlc`-only PR reaches only
+by remembering that adding a diff-reading agent bumps `github-prs`
+too. `plugins/issues/skills/**` names the `sdlc` readers and
 what each of them still reads — `lib/repo-config.md` says per field
 who consumes it (no `sdlc` reader dispatches on `source-control` any
 more, and of the `sdlc` readers only the orchestrator and the review
@@ -267,20 +313,31 @@ model it passes for a `mechanical` theorem and otherwise says "the
 declared default", which is what keeps a disprover model change a
 one-file edit.
 
+`counterexample-verifier` is the same shape and holds the same
+property. It too is a single definition with no tiers, its model is
+routed per spawn by the same theorem class, and no file outside its
+frontmatter spells its value — the pipeline's verifier fan-out names
+the cheaper `mechanical` model and otherwise points at the agent
+file, and `plugins/sdlc/skills/orchestrate/SKILL.md`'s
+model-routing paragraph names neither agent's default. So a verifier
+model change is a one-file edit too, and adding a restatement to
+either the pipeline or orchestrate is what would end that.
+
 ## Review writes nothing, so review lore is a PR
 
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` and the two agents
-it spawns are strictly non-mutating on the PR branch: neither
-`theorem-generator` nor `theorem-disprover` declares `memory:`, and
-neither carries a `Write` or `Edit` tool. A review round therefore
-commits nothing, pushes nothing, and adds nothing to
-`.claude/agent-memory/`.
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` and the agents it
+spawns are strictly non-mutating on the PR branch: none of
+`theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
+declares `memory:`, and none carries a `Write` or `Edit` tool. A
+review round therefore commits nothing, pushes nothing, and adds
+nothing to `.claude/agent-memory/`.
 
 That is enforcement, not convention, so keep it structural: do not add
-a `memory:` key or a writing tool to either definition, and do not
-give the pipeline a commit step. A durable lesson learned while
+a `memory:` key or a writing tool to any of those definitions, and do
+not give the pipeline a commit step. A durable lesson learned while
 reviewing lands as a PR against `theorem-generation` (how to state a
-better theorem), `theorem-disprover` (how to establish a fact), or
+better theorem), `theorem-disprover` (how to establish a fact),
+`counterexample-verifier` (how to reject a bad counterexample), or
 this file — never as a memory commit on the branch being reviewed.
 
 `agent-memory-scrubber`'s roster of memory-declaring agents is

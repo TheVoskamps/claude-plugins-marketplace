@@ -51,9 +51,10 @@
   fresh worktrees" paragraph and sibling agents' cleanup examples.
 - [fan-out doc surfaces](project_fan-out-doc-surfaces.md) — a
   fetch-once/brief-parameter round documents both ends of the brief and
-  misses plugin-authoring-constraints' fan-out section, whose ref-store
-  invariant covers checkout but not fetch; CLAUDE.md already carries the
-  two-sided brief contract; mechanical repoints leave line-wrap stubs.
+  misses plugin-authoring-constraints' fan-out section, which carries one
+  ref-store consequence per git operation the fan-out runs; CLAUDE.md
+  already carries the two-sided brief contract; mechanical repoints leave
+  line-wrap stubs.
 - [no blanket predicate over a list](feedback_no-blanket-predicate-over-a-list.md)
   — `<these files> all <predicate>` is one claim per file; open each
   before writing it, and treat a shared predicate as weak warrant when
@@ -127,3 +128,17 @@
   — a fix's prose exempts a sibling gate ("sits inside a list element,
   no prune reaches it"); the round measured only what it changed. Read
   the recursive operator's expression, then probe the sibling.
+- [Token locality is not gloss locality](feedback_token-locality-is-not-gloss-locality.md)
+  — "the tokens live in these N files" is settled by a token grep; the
+  definitions get restated against another vocabulary (classes →
+  severities) where that grep never looks. Grep a phrase from the gloss.
+- [Deferral pointer outruns its target](project_deferral-pointer-outruns-its-target.md)
+  — "defers to X's own section rather than restating" is a claim about
+  what X says; open X and check it covers every noun the pointer names.
+- [A carve-out leaves absolute attributions](feedback_carve-out-leaves-absolute-attributions.md)
+  — a new exception path falsifies sibling prose naming WHO assigned
+  the value; grep the actor, not the rule. Also: "the one entry" for a
+  per-entry rule.
+- [Shared-copy claims need a diff](feedback_shared-copy-claims-need-a-diff.md)
+  — "only the bullets are shared copy" is a diff result; a per-agent
+  paragraph can still end in a byte-identical sentence. Drop the tally.

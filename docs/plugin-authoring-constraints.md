@@ -185,7 +185,9 @@ same parameter vocabulary.
 
 `sdlc`'s PR review is the worked instance:
 `plugins/sdlc/skills/pr-review-pipeline/SKILL.md` spawns a
-`theorem-generator` and then one `theorem-disprover` per theorem, and
+`theorem-generator`, then one `theorem-disprover` per theorem, then one
+`counterexample-verifier` per disproved theorem — two fan-outs in one
+procedure, the second stage reading only what the first broke — and
 its callers — `/sdlc:git-review-pr` and `/sdlc:orchestrate` — each run
 it in their own session. The orchestrator's copy needs an explicit
 carve-out in its "Never do work an agent owns" constraint, because a
@@ -217,11 +219,13 @@ fails rather than waiting. So run the fetch once, in the session that
 spawns, and give each agent enough to skip its own — the pipeline reads
 the PR's `headRefOid` alongside `headRefName`, fetches, confirms
 `origin/<branch>` carries that commit, and passes `--head-sha` and
-`--fetched yes` in every disprover brief. A parameter of that kind is
-an assertion about what the caller did, so the agent that receives it
-must still work without it: `theorem-disprover` fetches whenever the
-brief carries neither parameter, the ref is missing, or the SHA
-differs, which is what keeps a standalone run correct. See
+`--fetched yes` in every disprover and verifier brief, the second
+fan-out riding the same single fetch as the first. A parameter of that
+kind is an assertion about what the caller did, so the agent that
+receives it must still work without it: `theorem-disprover` and
+`counterexample-verifier` alike fetch whenever the brief carries
+neither parameter, the ref is missing, or the SHA differs, which is
+what keeps a standalone run correct. See
 `docs/verification-playbook.md` → "Skip the fetch when
 `origin/<branch>` already matches".
 

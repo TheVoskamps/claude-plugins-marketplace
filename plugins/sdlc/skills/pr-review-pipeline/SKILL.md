@@ -1,6 +1,6 @@
 ---
 name: pr-review-pipeline
-description: The sdlc PR review pipeline — resolve the issue set, spawn a theorem-generator, fan out one theorem-disprover per theorem in parallel, derive severities and verdicts mechanically, and post a single review. Runs in the main session, invoked by /sdlc:git-review-pr and by the /sdlc:orchestrate loop; not invoked from the user's slash menu.
+description: The sdlc PR review pipeline — resolve the issue set, spawn a theorem-generator, fan out one theorem-disprover per theorem in parallel, fan out one counterexample-verifier per disproved theorem, derive severities and verdicts mechanically, and post a single argued review. Runs in the main session, invoked by /sdlc:git-review-pr and by the /sdlc:orchestrate loop; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -8,15 +8,25 @@ user-invocable: false
 
 This is the `sdlc` review procedure. It replaces the reviewer agent
 that used to hold it: review is now a **pipeline** — a theorem
-generator, a parallel fan-out of disprovers, and a mechanical
+generator, a parallel fan-out of disprovers, a second parallel fan-out
+of verifiers over what the disprovers broke, and a mechanical
 synthesis — rather than one agent reading a diff against a checklist.
+
+The verification stage is what stands between a disprover's mistake
+and a filed finding. A counterexample nobody re-checked is one agent's
+word: the quote can be misread, the excerpt can be cut against its own
+context, the consequence can be overstated. So every `DISPROVED`
+theorem gets a second, adversarial reader whose brief is to reject the
+counterexample, and only a counterexample that survives that becomes a
+finding.
 
 ## Run this in the main session
 
 You run this pipeline **in the main session**, never inside a
-subagent. A subagent cannot spawn subagents, and the fan-out in step 4
-is the whole design, so a pipeline run from inside an agent would
-collapse to a single reader — exactly the shape this replaced.
+subagent. A subagent cannot spawn subagents, and the two fan-outs in
+steps 4 and 5 are the whole design, so a pipeline run from inside an
+agent would collapse to a single reader — exactly the shape this
+replaced.
 
 Each entry path is a main-session path:
 
@@ -26,18 +36,22 @@ Each entry path is a main-session path:
 You write no code and you post exactly one review. You never commit,
 never push, and never edit a file: the pipeline is strictly
 non-mutating on the branch. The agents it spawns are non-mutating too
-— neither declares `memory:`, so there is no memory capture to commit
-and nothing for `agent-memory-scrubber` to curate from this pipeline.
+— `theorem-generator`, `theorem-disprover`, and
+`counterexample-verifier` each declare no `memory:`, so there is no
+memory capture to commit and nothing for `agent-memory-scrubber` to
+curate from this pipeline.
 
 ## Why the diff never lands in your context
 
 You do not fetch the PR diff. The generator reads it in its own
 worktree and returns a theorem list; each disprover reads only the
-region its own theorem points at. What reaches you is the theorem
-list, the per-theorem verdicts, and the change counts you read from
-`gh pr view`. That is deliberate: the main session's job here is
-routing and derivation, and a diff in context would tempt it into
-re-reviewing by hand — a fourth opinion nothing asked for.
+region its own theorem points at, and each verifier only the region
+the counterexample it was handed points at. What reaches you is the
+theorem list, the per-theorem verdicts, the verification verdicts, and
+the change counts you read from `gh pr view`. That is deliberate: the
+main session's job here is routing and derivation, and a diff in
+context would tempt it into re-reviewing by hand — an opinion nothing
+asked for.
 
 ## Inputs
 
@@ -112,9 +126,9 @@ gh pr view <PR> --json headRefName,headRefOid,body,changedFiles,additions,deleti
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed step 2;
-`headRefOid` feeds step 4's single fetch and each disprover's brief.
-Do not
-fetch the diff — see "Why the diff never lands in your context" above.
+`headRefOid` feeds step 4's single fetch and every disprover's and
+verifier's brief. Do not fetch the diff — see "Why the diff never
+lands in your context" above.
 
 ### 2. Identify the issue set this PR is for
 
@@ -262,8 +276,9 @@ Each disprover's brief is one theorem and nothing more:
 --pointers <the generator's pointers, verbatim>
 
 Try to disprove this one claim per your agent definition. Report
-DISPROVED with a verbatim-quoted counterexample and a consequence
-statement, or SURVIVED with what you checked. Nothing else.
+DISPROVED with a verbatim-quoted counterexample, a consequence
+statement, and a proposed consequence class, or SURVIVED with what
+you checked. Nothing else.
 ```
 
 `--branch` is the same `headRefName` you passed the generator. Every
@@ -287,33 +302,113 @@ Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
 disprover from wandering into unrelated nits.
 
-### 5. Grade each counterexample
+### 5. Fan out one verifier per disproved theorem, in parallel
+
+A `DISPROVED` report is a candidate finding, not a finding. Once
+**every** disprover has returned, spawn one `counterexample-verifier`
+per `DISPROVED` theorem, **all in a single message block** so they run
+concurrently, each with `run_in_background: false`.
+
+`SURVIVED` theorems spawn no verifier. There is no counterexample to
+attack, and verifying survivals would double the cost of the common
+case for nothing.
+
+These kinds of `DISPROVED` report are malformed and never reach a
+verifier: one whose counterexample is not a verbatim quote, and one
+that asserts file topology without having run a topology command (see
+"Before claiming file-topology issues" below). Re-spawn that one
+disprover with the same brief rather than filing the finding on a
+paraphrase or dropping it silently; if the second run is malformed
+too, the theorem is unsettled — see the disposition table in step 6.
+Spawning a verifier against a malformed report would waste the check
+on evidence that has already failed a cheaper one.
+
+Route the model exactly as step 4 did, by the theorem's class:
+`model: haiku` on the `Agent` call for a `mechanical` theorem, no
+`model` for a `semantic` one, so that spawn uses whatever
+`counterexample-verifier`'s frontmatter declares. Read the value there
+rather than restating it here.
+
+You fetched in step 4 and the branch has not moved since, so pass the
+same `--head-sha` and `--fetched yes` a disprover got — the same
+lock-race reasoning applies to k verifiers sharing one ref store.
+
+Each verifier's brief is one counterexample and nothing more:
+
+```text
+--pr <PR_N>
+--branch <headRefName>
+--head-sha <headRefOid>
+--fetched yes
+--theorem T<k>
+--claim <the claim, verbatim from the generator's record>
+--issues <the member(s) the theorem is tagged to>
+--class <mechanical|semantic>
+--pointers <the generator's pointers, verbatim>
+--counterexample <the disprover's full DISPROVED report, verbatim>
+
+Try to refute this one counterexample per your agent definition.
+Report REFUTED with the rejection reason, or STANDS with a confirmed
+or corrected consequence statement and a consequence class. Nothing
+else.
+```
+
+The disprover's report is copied through **unchanged**, exactly as its
+quote is copied unchanged into a finding. Never summarize it for the
+verifier: a paraphrase is precisely the thing the verifier is checking
+for, so paraphrasing it here would make the check meaningless.
+
+**No retry ping-pong.** A `REFUTED` counterexample ends that theorem's
+round: you do not re-spawn the disprover for another attack, and you
+do not spawn a second verifier to check the refutation. One attack,
+one check.
+
+A verifier report that carries no reason, or a reason that does not
+engage the counterexample it was handed, is malformed. Re-spawn that
+one verifier with the same brief; if the second report is malformed
+too, the finding **stands** — resolve toward filing, never toward
+silently dropping a counterexample that carried verbatim evidence, and
+take the consequence class from the disprover's proposal in that case.
+
+### 6. Derive the disposition of every theorem
 
 This step is a **derivation, not a judgment**. There is no synthesizer
-agent because there is nothing left to judge: each disprover has
-already returned a verdict on its own claim.
+agent because there is nothing left to judge: the disprover returned a
+verdict on the claim, and the verifier returned a verdict on the
+counterexample.
 
-- **`SURVIVED`** → an entry in the **Verified** list, carrying what
-  the disprover checked. Never a finding, never a severity.
-- **`DISPROVED`** → a finding, in the format under "Findings must
-  quote, not paraphrase" below. Its `**Evidence:**` block is the
-  disprover's counterexample quote **verbatim** — you do not re-quote
-  the source yourself, and you never paraphrase what the disprover
-  sent. Grade its severity from the disprover's consequence statement
-  per "Findings by severity" below, and tag it to the member issue(s)
-  the theorem carried.
+| Disprover | Verifier | Disposition |
+| --- | --- | --- |
+| `SURVIVED` | not spawned | **Verified** list, carrying what the disprover checked |
+| `DISPROVED` | `REFUTED` | **Verified** list, with the offered counterexample and the rejection reason on the line |
+| `DISPROVED` | `STANDS` | a **finding** → severity → verdict, per the chain below |
+| `DISPROVED` | malformed twice (the verifier's own re-spawn path) | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
+| malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 
-A `DISPROVED` report whose counterexample is not a verbatim quote is
-malformed. Re-spawn that one disprover with the same brief rather than
-filing the finding on a paraphrase or dropping it silently; if the
-second run is malformed too, report the theorem in the review body as
-"could not be settled" and give it no severity.
+"Could not be settled" and "unsettled" are the same disposition —
+this last row. The long form is what the posted review body's section
+is titled; "unsettled" is the shorthand this file and the report-back
+tally use for it.
+
+A standing finding is written in the format under "Findings must
+quote, not paraphrase" below. Its `**Evidence:**` block is the
+disprover's counterexample quote **verbatim** — you do not re-quote
+the source yourself, and you never paraphrase what either agent sent.
+Its severity is the transcription of the consequence class the row
+above assigns it — the verifier's, or the disprover's proposal on the
+verifier-malformed-twice row — per "Consequence classes are
+transcribed, not graded" below, and it is tagged to the member
+issue(s) the theorem carried.
+
+A `REFUTED` theorem is **not** proved. It had one counterexample
+offered against it and rejected, and its Verified line says exactly
+that rather than claiming the claim was checked and held.
 
 Then derive the verdicts per "Per-issue verdicts, one overall" and
 "Verdict follows from findings" below. Every step from here to the
 posted review is mechanical.
 
-### 6. Post one review
+### 7. Post one review
 
 Post via `/github-prs:pr-review-submit <PR> <verdict> <body>`, with
 `<verdict>` the **overall** verdict — one of `approve`,
@@ -328,13 +423,14 @@ The body carries the **full theorem list**, per "Review body" below.
 Coverage is auditable that way: a reader can see every claim that was
 checked, not only the ones that broke.
 
-### 7. Clean up the spawned worktrees
+### 8. Clean up the spawned worktrees
 
-Every generator and disprover runs in its own `isolation: worktree`
-worktree, and none of them ever claims the PR branch — each checks out
-`origin/<branch>` detached (see their definitions), so there is no
-claim to release and no local branch to delete. What is left is the
-worktree *directories*, which the spawner removes:
+Every generator, disprover, and verifier runs in its own
+`isolation: worktree` worktree, and none of them ever claims the PR
+branch — each checks out `origin/<branch>` detached (see their
+definitions), so there is no claim to release and no local branch to
+delete. What is left is the worktree *directories*, which the spawner
+removes:
 
 ```bash
 git worktree list
@@ -343,9 +439,10 @@ git worktree remove .claude/worktrees/<name>
 
 Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
-for a parallel-cleanup data-loss bug. A fan-out of k disprovers leaves
-k worktrees; remove them one after another once they have all
-returned.
+for a parallel-cleanup data-loss bug. A round leaves one worktree per
+agent it spawned: the generator, k disprovers, and one verifier per
+disproved theorem, plus one more for each re-spawn. Remove them one
+after another once they have all returned.
 
 If a removal fails with `fatal: cannot remove a locked working tree`
 and the lock reason matches the harness's standard end-state shape
@@ -453,24 +550,30 @@ diff <path-A> <path-B>          # do two paths have different content?
 ```
 
 A disprover that reports `DISPROVED` on a topology claim without such
-a command has not disproved it. Send that theorem back once; if the
-second report is still unverified, treat the theorem as unsettled
-rather than filing the finding. A hedged-but-wrong topology finding
+a command has not disproved it. That report is malformed, so it is
+sent back at step 5 before any verifier is spawned; if the second
+report is still unverified, treat the theorem as unsettled rather than
+filing the finding. A hedged-but-wrong topology finding
 ("appears to be a separate copy", "likely out of sync") still lands as
 fact to the reader and is the exact failure mode this section exists
 to prevent.
 
-## A finding is a disproved theorem
+## A finding is a disproved theorem whose counterexample survived
 
 That is the entire definition. A finding is never a candidate
 observation somebody had while reading; it is a claim that was stated
-in advance and then broken by a counterexample. Nothing else in the
-review body gets a severity label.
+in advance, broken by a counterexample, and then held after a second
+reader tried to reject that counterexample. Nothing else in the review
+body gets a severity label.
 
 The non-finding homes are:
 
 - **A surviving theorem** → the **Verified** list, unnumbered and
   unsevered. Never a finding.
+- **A theorem whose counterexample the verifier refuted** → the same
+  **Verified** list, with the offered counterexample and the rejection
+  reason on its line. Never a finding, and never silently dropped
+  either: a near-miss a human can audit is the point of publishing it.
 - **An intentional, documented design choice nobody disputes** → not a
   finding at all. If the pipeline disputes it, that dispute was a
   theorem and it is a finding graded on its consequence.
@@ -487,27 +590,61 @@ every review — exactly the work this pipeline exists to do.
 
 ## Review body
 
-Post one body with these sections, in this order:
+The body is an **argued report**, not a filled-in form: it says how
+the review was conducted, argues each standing counterexample in full,
+and keeps the near-misses visible instead of discarding them. Post one
+body with these sections, in this order:
 
 1. **Verdicts** — one line per member of the set you review against,
    plus one per any other issue a finding names, plus the overall
    line. See "Per-issue verdicts, one overall".
-2. **Change counts** — files changed, additions, deletions, from
+2. **Review method** — the generator tier that ran, how many theorems
+   it emitted, and one paragraph stating the method: theorems
+   generated against the PR and its issues, one disprover per theorem
+   in parallel, one verifier per disproved theorem attacking the
+   counterexample, severities transcribed from the surviving
+   counterexample's consequence class. Write it so a reader who has
+   never seen this pipeline can weigh the rest of the body.
+3. **Change counts** — files changed, additions, deletions, from
    step 1.
-3. **Findings** — ranked by severity, each in the
-   `**Finding:** / **Evidence:** / **Recommendation:**` format, each
-   tagged with the theorem id it came from and the member(s) it
-   belongs to.
-4. **Verified** — every surviving theorem, one line each: the id, the
-   claim, and what the disprover checked. Unnumbered, never counted
-   toward severity.
-5. **Theorems that could not be settled**, if any — id and claim, no
+4. **Disproved theorems** — one entry per standing finding's theorem,
+   in theorem-id order: the theorem's claim, the counterexample
+   narrative built on the disprover's `**Evidence:**` quote copied
+   through verbatim, the consequence reasoning as the verifier
+   confirmed or corrected it, and a closing cross-link `→ Finding N`.
+   This is where the evidence lives. On any entry for which no usable
+   verifier report exists — a verifier malformed twice, whose finding
+   stands anyway — give the consequence as the *disprover* proposed it
+   and say the verifier's report was malformed, so the entry never
+   claims a verifier confirmation that did not happen.
+5. **Findings** — numbered, terse, and actionable, ranked by severity,
+   each in the `**Finding:** / **Evidence:** / **Recommendation:**`
+   format, each tagged with the theorem id it came from and the
+   member(s) it belongs to. Alongside — never instead of — the
+   Critical / High / Medium / Low grade, a finding may carry a
+   free-text character phrase, and each carries a fix-size
+   characterization: "mechanical", "one line", "needs a human ruling",
+   or the like. The full evidence narrative is section 4; the finding
+   points back at it.
+6. **Verified** — every theorem that produced no finding, one line
+   each: the id, the claim, and what the disprover checked. For a
+   theorem whose counterexample was refuted, the line also carries the
+   offered counterexample and the verifier's rejection reason, worded
+   as what it is — one offered counterexample, rejected, not a proof
+   of the claim. Unnumbered, never counted toward severity.
+7. **Theorems that could not be settled**, if any — id and claim, no
    severity.
+8. **Verdict** — the overall verdict from section 1 restated in prose,
+   with a path to approve: what has to change for it to become
+   APPROVED, summarizing the fix sizes from section 5. On an overall
+   APPROVED, say what the approval rests on instead.
 
-Sections 3, 4, and 5 together are the **full theorem list**: every
+Sections 4, 6, and 7 together are the **full theorem list**: every
 theorem the generator emitted appears in exactly one of them. That is
-the coverage audit — a reader can see what was checked, not only what
-broke.
+the coverage audit — a reader can see what was checked, what broke,
+and what nearly broke, rather than only the survivors and the
+findings. Section 5 is not part of that partition: each of its
+findings is the actionable face of an entry in section 4.
 
 ### Per-issue verdicts, one overall
 
@@ -558,19 +695,61 @@ verdict, which is the single-issue review as it has always been.
 
 ### Findings by severity
 
-Grade every finding by the **consequence of merging the PR as-is** —
-never by topic. A performance nit and a security hole are not
+Severity is a property of the **consequence of merging the PR as-is** —
+never of the topic. A performance nit and a security hole are not
 automatically the same severity just because both are "non-functional
-concerns"; grade what actually happens if this ships unchanged. The
-disprover's consequence statement is the input to this grading.
+concerns"; what matters is what actually happens if this ships
+unchanged.
+
+#### Consequence classes are transcribed, not graded
+
+For a finding that came from a theorem, you do not read the
+consequence statement and decide a severity: an agent that read the
+code already assigned a **consequence class**, and you transcribe it.
+Which agent's class you take is settled under the table.
+
+| Consequence class | Severity |
+| --- | --- |
+| `breaks-production` | Critical |
+| `behavior-broken-or-criterion-unmet` | High |
+| `defect-no-shipped-breakage` | Medium |
+| `optional-polish` | Low |
+
+The class comes from the verifier's `STANDS` report. The disprover
+proposed one and the verifier confirmed or corrected it; where the two
+disagree the verifier's wins, because it is the second reader and it
+had the first opinion in hand. The one case where you take the
+disprover's proposal is the one step 5 defines: a verifier malformed
+twice, whose finding stands anyway. If a `STANDS` report carries no
+class at all, that is a malformed report — re-spawn per step 5 rather
+than assigning a class yourself. You are not a source of consequence
+grades any more than you are a source of theorems.
+
+This is the same derivation-not-judgment principle the verdicts
+already follow, moved one link up the chain: the agent that read the
+code grades the consequence, and the main session transcribes.
+
+**The acceptance-criterion floor overrides the table.** A standing
+finding on a theorem the generator emitted as an acceptance-criterion
+claim is **at minimum High**, whatever class the verifier assigned,
+regardless of how small the remaining work looks — a disproved
+acceptance-criterion theorem IS an unmet acceptance criterion. That
+override keys off the theorem's provenance, which the generator's
+claim states and the verifier need not know. It only ever raises a
+severity; a `breaks-production` class on such a theorem stays
+Critical.
+
+#### The findings that carry no class
+
+Step 2's findings — a claimed issue outside the branch's set, and an
+unexplained undelivered branch member — come from no theorem, so no
+verifier graded them. Grade them by these definitions, which are
+the same ones the classes name:
 
 - **Critical**: merging causes data loss, opens a security hole, or
   breaks production.
-- **High**: shipped behavior is materially broken, OR an acceptance
-  criterion of the issue is unmet. An unmet acceptance criterion is
-  **always at minimum High**, regardless of how small the remaining
-  work looks. A disproved acceptance-criterion theorem IS an unmet
-  acceptance criterion.
+- **High**: shipped behavior is materially broken, or an acceptance
+  criterion of a member issue is unmet.
 - **Medium**: a real defect or debt that should be fixed in this PR
   but does not break shipped behavior.
 - **Low**: genuinely optional polish. If it must be fixed before
@@ -580,7 +759,7 @@ A finding whose entire remedy is rewording a comment or docstring is
 at most Low — *unless* the comment masks an unmet acceptance criterion
 (e.g. a comment asserting a criterion is satisfied when it isn't), in
 which case the finding IS the unmet criterion and is graded High per
-the rule above, not Low for "just a comment fix."
+the floor above, not Low for "just a comment fix."
 
 ## Verdict follows from findings
 
@@ -613,8 +792,15 @@ BLOCKED, one per member plus any extra line per "Per-issue verdicts,
 one overall" — plus the overall verdict, plus severity counts
 (Critical, High, Medium, Low) covering findings only. Report the
 theorem tally alongside: how many were generated, how many disproved,
-how many survived, how many went unsettled. Surviving theorems are
-never counted toward severity.
+how many of those disproved had their counterexample **refuted by
+verification**, how many survived, how many went unsettled. Surviving,
+refuted, and unsettled theorems are never counted toward severity: a
+surviving or refuted theorem lands in the Verified list and an
+unsettled one under "Theorems that could not be settled", and none of
+them produces a finding.
+
+The refuted count is the one number that says what the verification
+stage bought this round, so report it even when it is zero.
 
 Also report which generator tier ran, so an override has something to
 disagree with.

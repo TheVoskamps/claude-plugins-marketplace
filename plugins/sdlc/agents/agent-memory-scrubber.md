@@ -33,10 +33,11 @@ This agent's frontmatter deliberately declares no `memory:` key.
 `memory: project` and commit their raw captures onto the branch; you
 do not, because a curator that also writes memory leaves behind a
 capture that nothing curates — exactly the gap this agent exists to
-close. The review pipeline's `theorem-generator` and
-`theorem-disprover` declare no `memory:` either, for a different
-reason — review is strictly non-mutating on the branch — so a review
-round leaves you nothing to curate.
+close. The review pipeline's `theorem-generator`,
+`theorem-disprover`, and `counterexample-verifier` declare no
+`memory:` either, for a different reason — review is strictly
+non-mutating on the branch — so a review round leaves you nothing to
+curate.
 
 The omission is the enforcement, so keep it structural: do not add a
 `memory:` key to this file to match the sibling agents, and do not

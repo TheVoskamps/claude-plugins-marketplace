@@ -312,8 +312,9 @@ Otherwise, after making all edits:
 Release the branch claim so subsequent subagents that check the branch
 out attached (e.g. an `issue-fixer` or the `agent-memory-scrubber`)
 can do so in their own worktrees. The review pipeline's agents are not
-among them — a `theorem-generator` and a `theorem-disprover` each
-detach from `origin/<branch>` and claim nothing.
+among them — a `theorem-generator`, a `theorem-disprover`, and a
+`counterexample-verifier` each detach from `origin/<branch>` and claim
+nothing.
 Run this only if your commit and push both succeeded, or if you had
 nothing to commit — if either the commit or the push failed, `git
 branch -D` would destroy the only copy of your work, so stop and

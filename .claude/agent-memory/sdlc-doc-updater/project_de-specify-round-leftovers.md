@@ -23,7 +23,9 @@ lands as small in-paragraph substitutions and leaves two things:
 
 A third surface no de-specify round touches: consumer-attribution
 prose in *other* plugins. `github-prs/skills/pr-diff/SKILL.md` named
-the pipeline-spawned `theorem-generator` / `theorem-disprover` as
+the agents the pipeline spawns — `theorem-generator` /
+`theorem-disprover` then, `counterexample-verifier` as well now, and
+the roster grows with each new stage — as
 "`/sdlc:orchestrate`'s agents", which is false on the
 `/sdlc:git-review-pr` path — the pipeline has two callers. Attribute a
 fanned-out agent to the skill that spawns it, not to the flow that

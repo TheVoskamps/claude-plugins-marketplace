@@ -187,6 +187,34 @@ tried. Guessing a counterexample is worse than reporting a survival:
 the pipeline copies your quote into the posted review verbatim, so a
 fabricated one reaches the human as fact.
 
+A `DISPROVED` report is handed to a `counterexample-verifier`, which
+tries to reject your counterexample before it can become a finding.
+That is not a safety net to lean on — a rejection costs the round a
+theorem's worth of work and publishes your rejected counterexample
+next to the reason it failed — but it is why the `EVIDENCE` quote and
+the cited location have to survive somebody else running
+`git show` on them.
+
+## The consequence classes
+
+A `DISPROVED` report proposes one of exactly these tokens as its
+`CLASS`, alongside its `CONSEQUENCE` statement:
+
+- `breaks-production` — merging causes data loss, opens a security
+  hole, or breaks production.
+- `behavior-broken-or-criterion-unmet` — shipped behavior is
+  materially broken, or an acceptance criterion of a member issue is
+  unmet.
+- `defect-no-shipped-breakage` — a real defect or debt that should be
+  fixed in this PR but does not break shipped behavior.
+- `optional-polish` — genuinely optional. If it must be fixed before
+  merge, it is not this one.
+
+Your class is a **proposal**: the verifier confirms or corrects it,
+and on disagreement the verifier's wins. What severity each class
+becomes is the pipeline's business, not yours — grade the consequence,
+not the severity, and never argue for a severity in your report.
+
 ## Output
 
 Exactly one of these shapes, and nothing around it.
@@ -200,6 +228,7 @@ COUNTEREXAMPLE: <what refutes the claim, in one or two sentences>
 EVIDENCE: in `<file-or-location>` at <line/section>:
 > <byte-for-byte quote of the offending text>
 CONSEQUENCE: <what happens if this PR merges as-is>
+CLASS: <one of the tokens under "The consequence classes">
 ```
 
 The `EVIDENCE` quote must be a byte-for-byte copy of the source text —
@@ -214,10 +243,13 @@ For a claim about the **absence** of something, `EVIDENCE` must both
 name where the thing would normally appear and quote the surrounding
 text that should have contained it. Both parts are required.
 
-`CONSEQUENCE` is what the pipeline grades severity from, so state the
-effect of merging, not the topic. "An acceptance criterion of #206 is
-unmet" and "the guest can write a share documented as read-only" are
-consequences; "this is a documentation problem" is not.
+`CONSEQUENCE` is what the severity is ultimately derived from, so
+state the effect of merging, not the topic. "An acceptance criterion
+of #206 is unmet" and "the guest can write a share documented as
+read-only" are consequences; "this is a documentation problem" is not.
+`CLASS` is your proposed grade of that consequence, per "The
+consequence classes" above; both lines are required on a `DISPROVED`
+report.
 
 **Survived** — you could not break it:
 
