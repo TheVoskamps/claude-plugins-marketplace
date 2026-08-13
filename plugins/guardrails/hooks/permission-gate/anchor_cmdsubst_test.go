@@ -119,14 +119,19 @@ func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 	}
 }
 
-// TestHomeAnchorStillDefersToClaudeConfigCarveOut_132 is regression coverage
+// TestHomeAnchorStillYieldsToClaudeConfigCarveOut_132 is regression coverage
 // for the $HOME/$PWD env-var read-side resolution: $HOME must keep
 // resolving (this test confirms the existing behavior rather than pinning
 // anything new). A $HOME-anchored path under
 // ~/.claude/ hits the claudeConfig carve-out — not an escape, so the calling
 // track's own terminal for a contained target governs — distinct from the DENY
 // a $HOME/.ssh/id_rsa path gets.
-func TestHomeAnchorStillDefersToClaudeConfigCarveOut_132(t *testing.T) {
+//
+// The name says "yields", not "defers": the body asserts only that the verdict
+// is neither ASK nor DENY, and deliberately does not pin WHICH of the
+// remaining buckets the carve-out lands in. An earlier name said "Defers",
+// which read as a BucketDefer assertion the body never makes.
+func TestHomeAnchorStillYieldsToClaudeConfigCarveOut_132(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -138,7 +143,7 @@ func TestHomeAnchorStillDefersToClaudeConfigCarveOut_132(t *testing.T) {
 		t.Errorf("#132/#159: $HOME must still resolve (not fail closed); got ASK (%s)", d.Reason)
 	}
 	if d.Bucket == BucketDeny {
-		t.Errorf("#132/#159: $HOME/.claude/* must defer to the claudeConfig carve-out, not DENY; got DENY (%s)", d.Reason)
+		t.Errorf("#132/#159: $HOME/.claude/* must yield to the claudeConfig carve-out, not DENY; got DENY (%s)", d.Reason)
 	}
 }
 

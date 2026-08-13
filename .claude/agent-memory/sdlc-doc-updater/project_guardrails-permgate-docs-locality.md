@@ -83,8 +83,14 @@ comments for it too, not just the Markdown.
 **Slash-joined classifier lists are a claim class of their own (#193,
 PR #208):** the fixer wrote "The `git`/`gh`/`aws`/`acli` classifiers
 keep their own unconditional redirect-to-file `ask`". Three of the four
-do; `classifyAcli` gates its read-only allow on `sc.allowEligible()`,
-so a redirect there **defers**. The lumping is seductive because those
+did; `classifyAcli` gates its read-only allow on `sc.allowEligible()`,
+so a redirect there **defers**. (The bucket word has since moved on:
+in #262 the credentialed redirect became
+`credentialedRedirectVerdict`, which denies a proven escape and returns
+no verdict at all for a contained destination, leaving the calling
+track's own terminal to govern — but the lumping lesson is the durable
+part.)
+The lumping is seductive because those
 four are always named together elsewhere in the file (the classifier
 dispatch, the bypass-gate paragraph), so the habit of writing them as
 one slash-joined group survives into a sentence where they diverge.
@@ -133,7 +139,8 @@ gate could not tell that arm from a title edit, and probing an
 `agentAssignment`-carrying document against the then-current binary
 confirmed **allow**. The owner's ruling on that finding was to drop
 `updateIssue` from the list entirely and keep only
-`updateIssueFieldValue`, so the verb ASKs again as it always did;
+`updateIssueFieldValue`, so the verb left the allow track again (it
+ASKed at the time; #262 rebucketed it to a teaching DENY);
 `updateIssueIssueType` covers the type-setting the widening was asked
 for. Generalize: when an allowlist gains a verb that takes a single
 generic input object, introspect the input type and grade the

@@ -231,6 +231,14 @@ func TestDeferAnalysisStaysOutOfTheStdoutVerdict_262(t *testing.T) {
 // Fault injection: logging must NEVER change a verdict. With the log path
 // unwritable — a plain FILE where the gate needs a directory, so MkdirAll and
 // OpenFile both fail — every bucket must still emit its normal exit-0 decision.
+//
+// Each subtest injects a fault only for a bucket main.go actually LOGS: with a
+// bucket missing from main.go's log condition, logEvent is never reached for
+// it, nothing fails, and that subtest passes vacuously. Measured: deleting the
+// `|| d.Bucket == BucketDefer` arm leaves all three subtests here green, and
+// fails TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262 instead.
+// That test is the one that pins which buckets are wired; this one pins only
+// that a wired bucket's log failure is swallowed.
 func TestLoggingFailureChangesNoVerdict_262(t *testing.T) {
 	bin := buildBinary(t)
 	blocker := filepath.Join(t.TempDir(), "not-a-dir")
