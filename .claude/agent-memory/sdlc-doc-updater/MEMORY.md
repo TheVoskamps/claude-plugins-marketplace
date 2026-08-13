@@ -131,3 +131,6 @@
   — "the tokens live in these N files" is settled by a token grep; the
   definitions get restated against another vocabulary (classes →
   severities) where that grep never looks. Grep a phrase from the gloss.
+- [Deferral pointer outruns its target](project_deferral-pointer-outruns-its-target.md)
+  — "defers to X's own section rather than restating" is a claim about
+  what X says; open X and check it covers every noun the pointer names.
