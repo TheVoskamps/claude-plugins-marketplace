@@ -42,9 +42,17 @@ const (
 	// BucketAsk escalates to a human decision. It is NOT an uncertainty
 	// default: it is a short, enumerated policy tier — the calls fleet policy
 	// says a human must click regardless of how good the downstream judge is
-	// (publish verbs, history-destroying pushes, credential/secret reads). An
-	// LLM must not be able to waive these, which is exactly what a defer would
-	// permit.
+	// (publish verbs, history-destroying pushes, credential/secret reads and
+	// mints). An LLM must not be able to waive these, which is exactly what a
+	// defer would permit.
+	//
+	// That intent RESTS on a precedence the gate does not itself enforce: that
+	// a hook `ask` outranks a settings.json / automode allow rather than being
+	// waived by it. That is the documented contract of the PreToolUse
+	// permission channel, but it is unpinned here — no test in this package
+	// exercises real hook/settings resolution, so treat "a hard ask cannot be
+	// waived downstream" as the tier's design intent, not as a measured
+	// property. See README.md, "The hard-ask tier's precedence is unpinned".
 	BucketAsk Bucket = "ask"
 	// BucketDefer hands the call back to the normal permission pipeline
 	// (settings.json allow/deny/ask lists, the tuned automode evaluator, an

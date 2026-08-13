@@ -181,13 +181,13 @@ func TestSubshellAssignmentDoesNotLeak_60(t *testing.T) {
 	d := classifyBash(cmd, ev)
 	wantBucket(t, d, BucketDefer, "#60 subshell assignment must not leak to top-level use")
 	if !containsSubstr(d.Reason, "expansion the gate cannot resolve statically") {
-		t.Errorf("#60: subshell-scoped var should hit the dynamic-path ask; got %q", d.Reason)
+		t.Errorf("#60: subshell-scoped var should hit the dynamic-path defer; got %q", d.Reason)
 	}
 
 	// A subshell assignment must also not SHADOW a later genuinely-unknown use:
 	// `( P=/repo; cat "$P/x" ); cat "$P/y"` — the inner cat resolves inside the
-	// subshell (correct), but the outer cat must still escalate. The aggregate
-	// verdict therefore stays ASK.
+	// subshell (correct), but the outer cat must still withhold the allow. The
+	// aggregate verdict therefore stays DEFER.
 	cmd2 := `( P=` + repo + `; cat "$P/README.md" ); cat "$P/README.md"`
 	d2 := classifyBash(cmd2, ev)
 	wantBucket(t, d2, BucketDefer, "#60 subshell assignment must not leak past the subshell")

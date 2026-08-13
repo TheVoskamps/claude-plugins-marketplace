@@ -35,8 +35,10 @@ on uncertainty buys prompt fatigue rather than safety.
 - **Hard ASK — a short, enumerated human-click tier.** Only where fleet
   policy demands an actual human decision regardless of how good the
   judge is. Policy, not classification: an LLM must not be able to
-  waive these, which is exactly what a defer would permit. The whole
-  tier is:
+  waive these, which is exactly what a defer would permit. (That a hook
+  ask does in fact outrank a downstream allow is design intent, not a
+  measured property — see *The hard-ask tier's precedence is unpinned*
+  below.) The whole tier is:
   - **Publish verbs** — `gh release create`, `gh gist create`,
     `gh gist edit`, `gh repo edit --visibility`. CLAUDE.md already
     treats the human click as the sanctioned escalation for publishing.
@@ -88,6 +90,25 @@ checks the code against:
   so a deferred unpinnable invocation of that program rides it. The
   fix for any such rule is tightening the rule; keeping a gate ask in
   its place would only re-buy the prompt.
+- **The hard-ask tier's precedence is unpinned.** The tier's whole
+  justification is that a hard ASK survives whatever sits downstream —
+  a `settings.json` allow entry, an automode judgment — so that an LLM
+  cannot waive a publish, a history-destroying push, or a credential
+  read/mint. That precedence is the documented contract of the
+  PreToolUse permission channel and is what `decision.go` is written
+  against, but **nothing in this repo measures it.** Every test in this
+  package replays a synthetic event straight into the classifier; none
+  brings up a real harness with a hook and a competing `settings.json`
+  allow and observes which wins. So read every "not waivable
+  downstream" statement here and in the code as the tier's *design
+  intent*, pending a live-harness pin. Two things follow. The tier's
+  membership rule is unaffected — an enumerated policy call belongs in
+  ASK whether or not the precedence holds, because the alternative
+  (DEFER) is unambiguously waivable. But a reader must not cite the
+  guarantee as established: if the pin ever shows a downstream allow
+  outranking a hook ask, the tier needs a different mechanism, not a
+  reworded README. Pinning it needs a real harness invocation, which is
+  outside what this Go package can exercise.
 
 ## What it does
 
@@ -538,8 +559,9 @@ The gate's engines feed that decision:
   per-ref equivalent of `--force`; `--mirror`/`--prune` **deny** (bulk
   remote delete), plain `--force`/`-f` **ask** (both of those asks are
   hard-ask-tier members: fleet policy reserves a history-destroying
-  push for an explicit human decision, so no downstream judge may waive
-  them), while
+  push for an explicit human decision, which is meant to stand against
+  any downstream judge — see *The hard-ask tier's precedence is
+  unpinned*), while
   `--force-with-lease`, a
   clean named-branch delete (`--delete <branch>`, `origin :branch`), an
   ordinary fast-forward push, and a plain `src:dst` refspec **allow**.
@@ -1484,6 +1506,20 @@ label. Every deny and every ask carries both, as does every
 its record spells `operation` and `analysis` empty, which is itself how
 a reader tells the two kinds of defer apart. An ALLOW is not logged:
 the allow track exists precisely to keep the hot path out of this feed.
+
+The **no-specific-rule residual** — an unrecognized program (`npm`,
+`python3`, `make`, …) reaching the end of `classifySimpleCommand` — is
+deliberately a `deferJudgment` (`bash:no-specific-rule`) rather than a
+bare defer, even though its account is thin. It is by volume the
+largest single source of DEFER records, so a blank row there would hide
+the bulk of real deferred traffic from the tuning feed. Its analysis
+says only which program the gate saw and that no table matched, which
+is the whole of what the gate established, and it is enough to bucket
+the log by program. Because that account is generic,
+`classifyBash`'s aggregation ranks it BELOW every other defer analysis:
+in `npm test && git reset --hard`, the `git reset --hard` account wins
+the record whichever part came first, and the residual is used only
+when it is the sole account on the line.
 
 The DEFER rows are what make the log a tuning input rather than a
 tally. A deferred call lands in the automode evaluator, and the record

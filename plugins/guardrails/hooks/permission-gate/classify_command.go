@@ -87,9 +87,29 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		return classifyReadOnlyUtility(prog, args, sc, ev)
 	}
 
-	// No specific rule. The gate has no opinion; hand back to the pipeline.
-	return deferToPipeline()
+	// No specific rule. The gate has no opinion on the program itself; hand the
+	// call back to the pipeline.
+	//
+	// It defers WITH an account rather than bare, even though the account is
+	// thin (#262 review). This is the residual an unrecognized program reaches —
+	// `npm test`, `python3 x.py`, `make`, every tool the gate has no table for —
+	// so it is by volume the largest single source of DEFER records, and a blank
+	// `{"operation":"","analysis":""}` row makes exactly that traffic invisible
+	// to the automode re-tune the §7 log feeds. The program name plus "no rule
+	// matched" is the whole of what the gate established, and it is enough to
+	// bucket the log by program.
+	return deferJudgment(deferResidualOp, fmt.Sprintf(
+		"no permission-gate rule matches the program '%s': it is on none of the classifier tables "+
+			"(git/gh/aws/acli), none of the in-repo-write or read-only-utility sets, and none of the "+
+			"path-reader set, so the gate established nothing about it either way.", prog))
 }
+
+// deferResidualOp is the §7 operation label for the no-specific-rule residual
+// above. It is named rather than inlined because the aggregator in
+// engine_a_bash.go ranks it BELOW every other defer analysis: for a line like
+// `npm test && git reset --hard`, the account worth logging is the one from the
+// arm that recognized something, not the residual that fired first.
+const deferResidualOp = "bash:no-specific-rule"
 
 // classifyRedirectOnly grades a synthetic redirect-only command: a statement
 // whose redirects the shell performs even though there is no program attached to

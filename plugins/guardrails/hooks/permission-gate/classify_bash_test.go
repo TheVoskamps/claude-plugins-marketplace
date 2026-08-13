@@ -350,7 +350,7 @@ func TestRedirectToFileNotAllowed(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git status 2>/dev/null", false), BucketAllow, "redirect /dev/null")
 }
 
-// §10: unparseable command fails closed (ASK, never allow).
+// §10: unparseable command fails closed (never allow, never defer).
 func TestUnparseableFailsClosed(t *testing.T) {
 	d := classifyCmd(t, "git status && (", false) // unbalanced paren
 	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {

@@ -55,6 +55,13 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 // point of #262: they are the feed for tuning the evaluator those calls now
 // land in, and a deferred call that appears nowhere is a call nobody can tune
 // for.
+//
+// The `defer-residual` row is the highest-VOLUME of them: every program the
+// gate has no table for (`npm`, `python3`, `make`, …) lands on
+// classifySimpleCommand's no-specific-rule residual, so a blank record there
+// would leave the largest share of real deferred traffic invisible to the
+// re-tune. It is the one row whose analysis is thin by construction — the gate
+// genuinely established only which program it saw.
 func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
 	bin := buildBinary(t)
 
@@ -89,6 +96,12 @@ func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
 			`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"aws s3 rm s3://b/k"}}`,
 			"defer", "aws non-read op", "not a provably read-only operation",
 		},
+		{
+			// The judgment middle's residual: a program on none of the tables.
+			"defer-residual",
+			`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"npm test"}}`,
+			"defer", "bash:no-specific-rule", "no permission-gate rule matches the program 'npm'",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			logPath := filepath.Join(t.TempDir(), "nested", "gate.jsonl")
@@ -117,6 +130,52 @@ func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
 				t.Errorf("record is missing context fields: %+v", rec)
 			}
 		})
+	}
+}
+
+// The no-specific-rule residual is ranked BELOW every other defer analysis when
+// a line carries several parts. `npm test && git reset --hard HEAD` (main
+// session) defers on both parts, and the residual fires FIRST, so a plain
+// first-wins aggregation would log "the gate has no table for npm" and lose the
+// reset's account — the informative half, and the one an automode re-tune acts
+// on.
+//
+// The negative control is the reversed order: with the informative part first,
+// first-wins and ranking agree, so a run that logged the reset in BOTH
+// orderings only proves the ranking when the residual-first ordering is the one
+// asserted.
+func TestResidualDeferRanksBelowAnInformativeDefer_262(t *testing.T) {
+	bin := buildBinary(t)
+
+	for _, tc := range []struct{ name, command string }{
+		{"residual first", "npm test && git reset --hard HEAD"},
+		{"residual second", "git reset --hard HEAD && npm test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "gate.jsonl")
+			event := `{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"` +
+				tc.command + `"}}`
+			out, _, recs := runBinaryWithLog(t, bin, logPath, event)
+			if !strings.Contains(out, `"permissionDecision":"defer"`) {
+				t.Fatalf("this line must defer for the test to mean anything; stdout=%s", out)
+			}
+			if len(recs) != 1 {
+				t.Fatalf("expected exactly one log record; got %d", len(recs))
+			}
+			if recs[0].Operation != "git reset --hard" {
+				t.Errorf("the informative defer must win the log record whatever its position; got %q (analysis %q)",
+					recs[0].Operation, recs[0].Analysis)
+			}
+		})
+	}
+
+	// The residual still reaches the log when it is the ONLY account on the
+	// line — the ranking demotes it, it does not discard it.
+	logPath := filepath.Join(t.TempDir(), "gate.jsonl")
+	_, _, recs := runBinaryWithLog(t, bin, logPath,
+		`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"npm test && npm run build"}}`)
+	if len(recs) != 1 || recs[0].Operation != "bash:no-specific-rule" {
+		t.Errorf("a line whose only account is the residual must still log it; got %+v", recs)
 	}
 }
 

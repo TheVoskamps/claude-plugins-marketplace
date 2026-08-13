@@ -543,6 +543,14 @@ both fields empty. An empty `operation` is therefore a positive result
 (the line reached no analysed arm), not a probe that failed to capture
 one, and an ALLOW appends nothing at all.
 
+An unrecognized *program* is not one of those empty rows: it reaches
+the `bash:no-specific-rule` residual, which is a `deferJudgment`. So
+`npm test` yields a populated record, and a probe that expected an
+empty `operation` from "the gate has no rule for this" is measuring the
+wrong thing. That label also loses to any other defer analysis on the
+same line, so a probe asserting it must not put a git/gh/aws arm in the
+same command.
+
 ## When an ask becomes an allow, re-audit the helpers
 
 A PR that turns a blanket ask into a conditional allow silently

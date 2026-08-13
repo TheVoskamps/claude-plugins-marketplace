@@ -1360,7 +1360,7 @@ func TestScratchRootCheck_193(t *testing.T) {
 	}
 
 	// The final component IS a symlink → defect, and the comparison root
-	// becomes the destination so the ASK can fire at all (a fully-canonicalized
+	// becomes the destination so the defective-root DEFER can fire at all (a fully-canonicalized
 	// target lands there, not on the un-followed root).
 	elsewhere := filepath.Join(base, "elsewhere")
 	if err := os.MkdirAll(elsewhere, 0o755); err != nil {

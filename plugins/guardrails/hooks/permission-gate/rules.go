@@ -59,7 +59,8 @@ var gitReadOnlySubcommands = map[string]bool{
 //     can redirect TOTALLY (ghGraphQLMutationRedirects, today `updateIssue`)
 //     (see classifyGhAPI); a redirect whose destination provably escapes the
 //     worktree or lands under `.git/` (credentialedRedirectVerdict).
-//   - HARD ASK (the enumerated human-click tier, never waivable downstream):
+//   - HARD ASK (the enumerated human-click tier, INTENDED to be unwaivable
+//     downstream — see README.md, "The hard-ask tier's precedence is unpinned"):
 //     gh repo edit --visibility; gh auth login --hostname; the publish
 //     verbs (gh release create; EVERY gh gist create, secret and public
 //     alike — a secret gist is unlisted, not private; and EVERY gh gist edit,
@@ -239,7 +240,8 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// HARD ASK tier (#262): gh repo edit --visibility (sanctioned-skill
 	// territory). A visibility flip is a publish in the sense this tier cares
 	// about — CLAUDE.md already treats the human click as the sanctioned
-	// escalation for publishing — so it is not waivable downstream.
+	// escalation for publishing — so it is meant to stand rather than be waived
+	// downstream (that precedence is design intent, not a pinned fact).
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {
 			return ask("gh repo edit --visibility (#64)",

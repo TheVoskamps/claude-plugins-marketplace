@@ -96,7 +96,7 @@ func TestGhAPIGraphQLMutationDefers_113(t *testing.T) {
 	d4 := classifyCmd(t, `gh api graphql -f query='mutation Foo($x: Input = {a: 1}) { deleteIssue(input: {}) { clientMutationId } }'`, false)
 	wantBucket(t, d4, BucketDefer, "mutation with default-value brace in variable defs defers")
 	if !strings.Contains(d4.Reason, "deleteIssue") {
-		t.Errorf("mutation-with-default-value-brace ASK reason must name deleteIssue, got: %q", d4.Reason)
+		t.Errorf("mutation-with-default-value-brace DEFER reason must name deleteIssue, got: %q", d4.Reason)
 	}
 }
 

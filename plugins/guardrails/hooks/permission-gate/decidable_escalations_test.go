@@ -119,6 +119,12 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 // TestCredentialedRedirectToScratchpadAllows_225 covers the second blessed
 // destination: the harness scratchpad the #193 carve-out designates safe by
 // construction, which the ungraded veto rejected just as hard as a sibling repo.
+//
+// All three credentialed tools are enumerated for the same reason the sibling
+// `.claude/tmp/` and `/tmp` controls above enumerate them: the grading is
+// reached from a per-tool call site (credentialedRedirectVerdict is invoked
+// separately from classifyGit, classifyGh and classifyAws), so a per-tool
+// regression is possible and a gh-only row would not catch it.
 func TestCredentialedRedirectToScratchpadAllows_225(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -127,8 +133,14 @@ func TestCredentialedRedirectToScratchpadAllows_225(t *testing.T) {
 	ev := bashEvIn(t, root, "issue-developer")
 
 	dst := scratchTarget(os.Getuid(), sessionSlug, sessionUUID, "scratchpad", "pr224.diff")
-	wantBucket(t, classifyBash("gh pr diff 224 > "+dst, ev), BucketAllow,
-		"redirect into the session scratchpad")
+	for _, cmd := range []string{
+		"gh pr diff 224 > " + dst,
+		"git show HEAD:README.md > " + dst,
+		"aws sts get-caller-identity > " + dst,
+	} {
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow,
+			"redirect into the session scratchpad: "+cmd)
+	}
 }
 
 // --- 2. anchor command substitutions resolve wherever they appear -------------

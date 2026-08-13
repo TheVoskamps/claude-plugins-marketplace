@@ -160,8 +160,18 @@ func classifyBash(command string, ev *Event) Decision {
 	// collapsing to a bare, unloggable deferToPipeline. A defer is not "worse"
 	// than another defer, so first-wins is the whole rule; an ASK anywhere in
 	// the line still outranks every defer below.
+	//
+	// The no-specific-rule residual (deferResidualOp) is the one exception to
+	// first-wins, and it is a ranking rather than a discard: it is kept
+	// separately and used only when NO other defer analysis was seen. Its
+	// account is "the gate has no table for this program", which every
+	// unrecognized program produces, so letting it win a line by position would
+	// hide the informative analysis behind it (`npm test && git reset --hard`
+	// would log the npm residual instead of the reset).
 	var deferDecision Decision
 	haveDeferAnalysis := false
+	var residualDefer Decision
+	haveResidualDefer := false
 
 	for _, sc := range cmds {
 		d := classifySimpleCommand(sc, ev)
@@ -178,7 +188,13 @@ func classifyBash(command string, ev *Event) Decision {
 		case BucketDefer:
 			// This part has no high-confidence allow; the line cannot be a
 			// clean allow. Remember that we saw a non-allow.
-			if !haveDeferAnalysis && d.Operation != "" {
+			switch {
+			case d.Operation == deferResidualOp:
+				if !haveResidualDefer {
+					residualDefer = d
+					haveResidualDefer = true
+				}
+			case !haveDeferAnalysis && d.Operation != "":
 				deferDecision = d
 				haveDeferAnalysis = true
 			}
@@ -198,6 +214,9 @@ func classifyBash(command string, ev *Event) Decision {
 		// wins only (§4 posture).
 		if haveDeferAnalysis {
 			return deferDecision
+		}
+		if haveResidualDefer {
+			return residualDefer
 		}
 		return deferToPipeline()
 	}

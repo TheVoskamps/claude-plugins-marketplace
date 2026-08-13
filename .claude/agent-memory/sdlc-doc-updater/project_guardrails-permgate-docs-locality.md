@@ -368,7 +368,9 @@ comment, untouched since #64: it billed the function as covering
 "release/gist publish" (publish is an ASK in `classifyGh`, not in that
 function at all) and claimed "an unrecognized secret/variable/ruleset
 subcommand denies (fail closed)" when the `ruleset` arm denies `delete`
-alone — `gh ruleset bogus` asks. A summary sentence at the top of a
+alone — `gh ruleset bogus` escapes to the unrecognized-`gh` residual
+(an ASK when this was written; a DEFER since #262). A summary sentence
+at the top of a
 DENY-tier function is where a tier list rots, because nobody rereads it
 when the tier next to it changes. When a round moves rows into or out
 of a tier, read that tier's function comment end to end against its own
@@ -376,13 +378,22 @@ switch.
 
 **An alias-resolution round is a diagnostic-detail change too.** Every
 message downstream quotes the CANONICAL spelling, so `gh secret remove
-FOO` is refused as `'gh secret delete'`, `gh pr co 1` asks about
-`'gh pr checkout 1'`, and even the fail-closed ask echoes `'gh repo
-create foo'` for a typed `gh repo new foo`. Nothing said so on either
-doc surface; an agent grepping a deny reason for the words it typed
-finds nothing. Same class as
-[[feedback_diagnostic-detail-claims]] — check what the message STRING
-interpolates after any rewrite of the tokens it is built from.
+FOO` is refused as `'gh secret delete'`, `gh pr co 1` is analysed as
+`'gh pr checkout 1'`, and the unrecognized-`gh` residual echoes `'gh
+repo create foo'` for a typed `gh repo new foo`. Nothing said so on
+either doc surface; an agent grepping a deny reason for the words it
+typed finds nothing.
+
+Since #262 that residual DEFERS rather than asking (measured against
+the branch binary: `gh pr co 1`, `gh repo new foo` and `gh ruleset
+bogus` all return `defer` with operation `gh unrecognized command
+(#163)`), and `emitDecision` blanks a defer's reason — so the canonical
+spelling now reaches only the §7 log's `analysis` field, never the
+agent. The class is unchanged and the surface moved: after an alias
+round, check what the message STRING interpolates *and* which channel
+still carries it. The `gh secret` deny above does still show the agent
+its canonical spelling; a deny is where that check pays. Same class as
+[[feedback_diagnostic-detail-claims]].
 
 **Grade a verdict-move COUNT by its DERIVATION, never by adjudicating
 the total.** A gate PR that changes `classifyGh` states "N rows move"

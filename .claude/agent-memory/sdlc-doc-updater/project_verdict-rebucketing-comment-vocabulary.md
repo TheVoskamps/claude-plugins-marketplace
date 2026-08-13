@@ -5,9 +5,9 @@ metadata:
   type: project
 ---
 
-A gate PR that rebuckets a residual (#262 moved the ask-default to
-defer) leaves far more doc residue than a classifier PR, and the residue
-is uniform: the phrase **"fail-closed ASK"** and its relatives
+A gate PR that rebuckets a residual (in #262 the gate's then-standing
+ask-default became defer) leaves far more doc residue than a classifier
+PR, and the residue is uniform: the phrase **"fail-closed ASK"** and its relatives
 ("escalates to a human", "costs one click", "→ ASK", "denies/asks",
 "never defers") were the package's whole vocabulary for *withholding an
 allow*. Every occurrence is a bucket claim, and the ones that go false
@@ -33,8 +33,12 @@ nobody rereads it when an arm below changes.
   describes. Slurp comment BLOCKS, since the phrase wraps.
 - Enumerate the surviving hard-ask tier mechanically —
   `grep -n "ask(" *.go | grep -v _test` — and check the README's
-  "the whole tier is" bullet against that list. On #262 the 11 sites
-  matched exactly: publish verbs, forced pushes, credential reads.
+  "the whole tier is" bullet against that list. On #262 the sites
+  matched exactly: publish verbs, forced pushes, credential reads AND
+  credential mints (`aws sts assume-role`, `iam create-access-key` —
+  added late in that PR, and the README bullet, `main.go`'s package
+  header and `decision.go`'s `BucketAsk` comment each name the tier
+  separately, so all three take the widening).
 - Distinguish a bucket claim from a *shape* claim. "This is the same
   whitelist shape `ghAuthStatusEscalates` holds" survives; "the same
   fail-closed posture" does not, once the two land in different tiers.
@@ -50,7 +54,10 @@ nobody rereads it when an arm below changes.
   `operation` and `analysis` are EMPTY for a bare `deferToPipeline`
   (measured: `less README.md`). Any prose saying "every record carries
   the analysis" is the blanket-predicate defect —
-  [[feedback_no-blanket-predicate-over-a-list]].
+  [[feedback_no-blanket-predicate-over-a-list]]. An unrecognized
+  PROGRAM is not one of the empty rows: `npm test` reaches
+  `bash:no-specific-rule`, a `deferJudgment`, and that label loses to
+  any other defer analysis on the same line.
 - Rebuild the three binaries afterwards
   ([[project_permgate-go-comment-edits-need-binary-rebuild]]).
 

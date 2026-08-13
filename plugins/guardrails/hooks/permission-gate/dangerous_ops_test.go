@@ -98,8 +98,9 @@ func TestGitPushRefspecBypass_64(t *testing.T) {
 // --- bypass gate 1 + gh api method/body/graphql ------------------------------
 
 func TestGhAPIGate_64(t *testing.T) {
-	// Implicit POST flip: a body-bearing flag with no explicit method → ASK
-	// (it was a blanket deny before the gh-api gate).
+	// Implicit POST flip: a body-bearing flag with no explicit method → DEFER
+	// (a blanket deny before the gh-api gate, an ASK until #262 moved the
+	// generic remote mutations into the judgment middle).
 	for _, cmd := range []string{
 		"gh api repos/o/r/issues -f title=x",
 		"gh api repos/o/r -F a=b",
@@ -110,8 +111,8 @@ func TestGhAPIGate_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "gh api implicit POST: "+cmd)
 	}
-	// Explicit non-GET method → ASK (incl. casing / glued forms; was
-	// a blanket deny before the gh-api gate).
+	// Explicit non-GET method → DEFER (incl. casing / glued forms; a blanket
+	// deny before the gh-api gate, an ASK until #262).
 	for _, cmd := range []string{
 		"gh api -X DELETE repos/o/r",
 		"gh api -XDELETE repos/o/r",
@@ -120,11 +121,11 @@ func TestGhAPIGate_64(t *testing.T) {
 	} {
 		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "gh api non-GET: "+cmd)
 	}
-	// graphql with a mutation document → ASK naming the mutation field (was
-	// a blanket graphql deny before the gh-api gate).
+	// graphql with a mutation document → DEFER naming the mutation field (a
+	// blanket graphql deny before the gh-api gate, an ASK until #262).
 	wantBucket(t, classifyCmd(t, "gh api graphql -f query='mutation{x}'", false), BucketDefer, "gh api graphql mutation")
-	// x-http-method-override header → ASK, case-insensitive (was
-	// a blanket deny before the gh-api gate).
+	// x-http-method-override header → DEFER, case-insensitive (a blanket deny
+	// before the gh-api gate, an ASK until #262).
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H X-HTTP-Method-Override:DELETE", false), BucketDefer, "method-override header")
 	wantBucket(t, classifyCmd(t, "gh api repos/o/r -H x-http-method-override:delete", false), BucketDefer, "method-override header lc")
 	// A plain GET on an allow-listed endpoint → ALLOW (was ASK

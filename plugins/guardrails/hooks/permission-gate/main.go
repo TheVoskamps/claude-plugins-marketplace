@@ -29,8 +29,10 @@
 //   - ALLOW with positive grounds — proven read-only operations and contained
 //     writes. This is what keeps the hot path off the evaluator entirely.
 //   - Hard ASK — a short, enumerated human-click tier: publish verbs,
-//     history-destroying pushes, credential/secret reads. Policy, not
-//     classification; an LLM must not be able to waive these.
+//     history-destroying pushes, credential/secret reads and mints. Policy, not
+//     classification; an LLM must not be able to waive these. (That the ask
+//     survives a downstream allow is design intent, not a measured fact — see
+//     README.md, "The hard-ask tier's precedence is unpinned".)
 //
 // Everything else — the whole judgment middle, including every "the gate
 // cannot statically classify this" arm — DEFERS, carrying the gate's analysis
