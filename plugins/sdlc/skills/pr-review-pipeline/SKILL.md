@@ -612,7 +612,7 @@ body with these sections, in this order:
    narrative built on the disprover's `**Evidence:**` quote copied
    through verbatim, the consequence reasoning as the verifier
    confirmed or corrected it, and a closing cross-link `→ Finding N`.
-   This is where the evidence lives. On the one entry where no usable
+   This is where the evidence lives. On any entry for which no usable
    verifier report exists — a verifier malformed twice, whose finding
    stands anyway — give the consequence as the *disprover* proposed it
    and say the verifier's report was malformed, so the entry never

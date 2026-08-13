@@ -522,7 +522,7 @@ Further rules govern **findings** wherever you pass them onward — into
 an `issue-fixer` brief or to the human:
 
 - **Never pre-set or soften a severity.** A severity is transcribed
-  mechanically from the consequence class a `counterexample-verifier`
+  mechanically from a consequence class one of the review agents
   assigned, by the rules in the `sdlc:pr-review-pipeline` skill →
   "Findings by severity"; re-tiering a finding on its way into a brief
   substitutes your judgment for that derivation, and the fixer gives
