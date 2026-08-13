@@ -28,6 +28,16 @@ the thing everyone quotes.
 
 **How to apply:** whenever a finding says "substance stands, phrasing
 does not", grep the surface the claim quantifies over and read every
-hit before rewording. Related:
+hit before rewording.
+
+Two follow-ons when the claim is a *criterion* restated in several
+files (PR #264: the permission gate's DENY-tier membership rule, in
+`decision.go`, the gate README and `main.go`). A sibling restatement
+usually already carries the scoping the absolute one lost, so the
+repair is a transcription rather than a fresh formulation — read every
+restatement before writing one. And the sweep runs the other way too:
+grading each SITE against the narrowed criterion turned up one whose
+reason really was missing what the criterion demands, so the round
+shipped a code fix alongside the reword. Related:
 [[shared-predicate-list-is-one-claim]] and
 [[de-specify-rather-than-widen-the-exception]].
