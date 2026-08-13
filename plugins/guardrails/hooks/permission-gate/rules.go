@@ -929,8 +929,13 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 						strings.Join(res.mutationFields, ", ") + ")")
 				}
 				// A named mutation the gate refuses AND can redirect totally
-				// (today: updateIssue) is a deny-with-teaching, not a defer.
-				// Same trustworthy-names precondition as the allowlist above:
+				// (today: updateIssue) is a deny-with-teaching, not a defer —
+				// but only when EVERY other field in the document is itself
+				// redirectable or allow-listed. Bundle it with a mutation the
+				// gate can only refuse and the teaching would cover one half
+				// and say nothing about the other, which is the dead-end deny
+				// the tier exists to avoid; that document falls through to the
+				// DEFER below. Same trustworthy-names precondition as the allowlist above:
 				// a fragment spread can be NAMED after a mutation without
 				// calling it, so a fragment-bearing document must not be
 				// denied on the strength of that name.
@@ -1020,7 +1025,8 @@ func isGhReadOnly(cmd []string) bool {
 //     credential/data exfil + SSRF).
 //   - ASK:   reads that return credentials/secrets (sts get-session-token,
 //     ecr get-login-password, secretsmanager get-secret-value, ssm
-//     get-parameter --with-decryption, …). This is the enumerated hard-ask
+//     get-parameter --with-decryption, …), and the MINTS that issue fresh
+//     ones (sts assume-role, iam create-access-key, …). This is the hard-ask
 //     tier: credential surfaces are user-owned, so the click is policy.
 //   - ALLOW: read-only ops only (describe-/list-/get- hyphen anchor + the
 //     explicit read-only whitelist).
@@ -1082,6 +1088,21 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 				"could be captured.", svc, op))
 	}
 
+	// HARD ASK tier (#262): credential MINTS. `aws sts assume-role` and
+	// `aws iam create-access-key` return live credentials on stdout exactly as
+	// `sts get-session-token` does, but they are not `get-*` READS, so neither
+	// the exact-pair switch nor awsCredentialShapedGet reaches them and they
+	// rode the residual — which #262 moved from ask to defer, dropping
+	// credential minting out of the hard-ask tier altogether. Credential
+	// surfaces are user-owned, so an evaluator must not be able to waive a call
+	// that hands the session fresh live AWS credentials.
+	if awsCredentialMint(svc, op) {
+		return ask("aws credential-mint (#262)",
+			fmt.Sprintf("'aws %s %s' MINTS live credential material and returns it. Credential surfaces are "+
+				"user-owned, so this is a human decision by policy. Confirm this is intended; do not pipe the "+
+				"output anywhere it could be captured.", svc, op))
+	}
+
 	// `aws configure get <non-secret-key>` reads the LOCAL config store
 	// only (no network call, no cloud-side effect), so it ALLOWs even though it
 	// is a bare-verb command excluded from awsReadOnlyOp's hyphen anchor.
@@ -1113,7 +1134,8 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	// from `s3 rm` inside one TLS stream. None of that is decided by the
 	// operation NAME, which is all this arm has — so it hands the call, and its
 	// analysis, to the evaluator that can read the arguments. The enumerated
-	// credential reads above keep their hard ask.
+	// credential reads and the structural credential MINTS above keep their hard
+	// ask.
 	return deferJudgment("aws non-read op",
 		fmt.Sprintf("'aws %s %s' is not a provably read-only operation and can mutate real "+
 			"cloud state that the sandbox cannot roll back.", svc, op))
@@ -1230,6 +1252,74 @@ func awsCredentialShapedGet(op string) bool {
 	}
 	for _, seg := range strings.Split(op, "-") {
 		if awsCredentialMaterialTokens[seg] {
+			return true
+		}
+	}
+	return false
+}
+
+// awsCredentialMintTokens are the extra name tokens that mark a credential
+// MINT. They are the material tokens of awsCredentialMaterialTokens plus the
+// key-material segments, which are deliberately NOT in that map: `key` on a
+// `get-*` read would pull routine metadata reads (`kms get-key-policy`,
+// `s3api get-object-lock-configuration`) off the ALLOW floor for no exposure
+// gain, whereas on a MINT prefix it is exactly the signal (`iam
+// create-access-key`, `ec2 create-key-pair`, `iot create-keys-and-certificate`
+// all return private key material).
+var awsCredentialMintTokens = map[string]bool{
+	"key":  true,
+	"keys": true,
+}
+
+// awsCredentialMintPrefixes are the operation-name action prefixes under which
+// a credential-material token means the call MINTS credential material rather
+// than describing it. `get-` is absent on purpose: a `get-*` credential read is
+// awsCredentialShapedGet's surface and already asks there.
+var awsCredentialMintPrefixes = []string{"create-", "reset-", "update-", "generate-", "request-"}
+
+// awsCredentialMint reports whether an `aws <svc> <op>` MINTS live credential
+// material — issues a fresh credential the caller did not previously hold, and
+// prints it. This is the same hard-ask tier as awsCredentialRead and the same
+// STRUCTURAL shape as awsCredentialShapedGet: a whole-hyphen-segment match on a
+// credential-material name token, scoped to the action prefixes under which
+// such a token means minting.
+//
+// It exists because the read-shaped signals miss the mint-shaped ops entirely.
+// `sts assume-role` and `iam create-access-key` return live credentials exactly
+// as `sts get-session-token` does, but they are not `get-*` reads, so before
+// #262 they merely rode the ask-default residual; when that residual became a
+// defer, they silently left the hard-ask tier. Enumerating only the two ops the
+// review named would reinstate the same one-release-behind blacklist the
+// awsCredentialRead comment argues against, so the match is structural.
+//
+// `sts assume-role*` is matched by prefix rather than by token: its name
+// carries no credential-material segment at all, yet the whole point of the
+// call is to return a fresh temporary credential set (and its `-with-saml` /
+// `-with-web-identity` siblings do the same).
+//
+// The breadth is safe-side by construction. Every op this catches would
+// otherwise DEFER, never ALLOW, so a false positive costs one human click on a
+// call that was already being withheld (`kms create-key` mints a key whose
+// material never leaves KMS), while a false negative hands an agent live
+// credentials with an evaluator-waivable verdict.
+func awsCredentialMint(svc, op string) bool {
+	svc = strings.ToLower(svc)
+	op = strings.ToLower(op)
+	if svc == "sts" && strings.HasPrefix(op, "assume-role") {
+		return true
+	}
+	prefixed := false
+	for _, p := range awsCredentialMintPrefixes {
+		if strings.HasPrefix(op, p) {
+			prefixed = true
+			break
+		}
+	}
+	if !prefixed {
+		return false
+	}
+	for _, seg := range strings.Split(op, "-") {
+		if awsCredentialMaterialTokens[seg] || awsCredentialMintTokens[seg] {
 			return true
 		}
 	}

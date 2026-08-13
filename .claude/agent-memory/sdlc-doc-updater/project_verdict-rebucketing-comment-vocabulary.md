@@ -54,6 +54,16 @@ nobody rereads it when an arm below changes.
 - Rebuild the three binaries afterwards
   ([[project_permgate-go-comment-edits-need-binary-rebuild]]).
 
-Leftover for a fixer, not a doc pass: `ghUnmodelledFlagAsk` still returns
-a `deferJudgment`, so the name outlived its bucket where two sibling
-helpers were renamed. Flag it; do not rename it from a doc pass.
+The rename class runs one level past the helpers: TEST NAMES and their
+doc comments assert buckets too, and a rebucketing round leaves a
+`TestFooAsks` whose body checks `BucketDefer`. Derive the list rather
+than eyeballing it — parse each `func Test…` body for its `Bucket*`
+tokens and diff that set against the bucket word in the name — since a
+name like `TestContainmentNoRepoNeverAllows` legitimately claims the
+bucket it does NOT assert.
+
+The `ghUnmodelledFlagAsk` leftover this note flagged for a fixer was
+renamed to `ghUnmodelledFlagDefer` in #262's fix round, alongside the
+sibling renames (`cdInvalidAsk` → `cdInvalidDefer`,
+`credentialedRedirectAsk` → `credentialedRedirectVerdict`). The rule
+stands: flag such a rename from a doc pass, do not perform it.

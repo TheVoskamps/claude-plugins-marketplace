@@ -314,6 +314,52 @@ func TestAwsCredentialShapedGetAsk_97(t *testing.T) {
 	}
 }
 
+// Credential MINTS are the hard-ask tier too (#262). `sts assume-role` and
+// `iam create-access-key` return live credentials on stdout exactly as
+// `sts get-session-token` does, but they are not `get-*` READS, so neither the
+// exact-pair switch nor awsCredentialShapedGet reaches them. Before #262 they
+// merely rode the ask-default residual; when that residual became a DEFER they
+// would have silently left the tier, letting an evaluator waive a call that
+// hands the session fresh live AWS credentials. The rows below are the
+// structural signal, not a two-op enumeration.
+func TestAwsCredentialMintAsk_262(t *testing.T) {
+	for _, cmd := range []string{
+		"aws sts assume-role --role-arn arn:aws:iam::1:role/r --role-session-name s",
+		"aws sts assume-role-with-saml --role-arn a --principal-arn p --saml-assertion x",
+		"aws sts assume-role-with-web-identity --role-arn a --role-session-name s --web-identity-token t",
+		"aws iam create-access-key --user-name u",
+		"aws iam create-service-specific-credential --user-name u --service-name codecommit",
+		"aws iam reset-service-specific-credential --service-specific-credential-id c",
+		"aws ec2 create-key-pair --key-name k",
+		"aws iot create-keys-and-certificate",
+		"aws rds generate-db-auth-token --hostname h --port 3306 --username u",
+		"aws sso-oidc create-token --client-id c --client-secret s --grant-type g",
+	} {
+		wantReason(t, classifyCmd(t, cmd, false), BucketAsk,
+			"MINTS live credential material", "aws credential mint (#262): "+cmd)
+	}
+	// Negative control: the same MINT prefixes without a credential-material
+	// token stay in the DEFER middle — the arm is a name-token signal, not a
+	// blanket escalation of every `create-*`.
+	for _, cmd := range []string{
+		"aws ec2 create-tags --resources i-1 --tags Key=a,Value=b",
+		"aws s3api create-bucket --bucket b",
+		"aws cloudformation create-stack --stack-name s --template-body {}",
+	} {
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "aws non-credential create stays defer: "+cmd)
+	}
+	// Negative control on the other side: a credential-material token under a
+	// READ prefix is not a mint, and the ordinary `get-*` reads still resolve
+	// through their own arms rather than being re-labelled.
+	wantReason(t, classifyCmd(t, "aws sts get-session-token", false), BucketAsk,
+		"returns credentials or secrets", "get-session-token stays a credential READ")
+	// `sts assume-role` is matched by PREFIX (its name carries no material
+	// token), so the sibling read verbs on the same service must not be dragged
+	// in by that prefix arm.
+	wantBucket(t, classifyCmd(t, "aws sts get-caller-identity", false), BucketAllow,
+		"sts get-caller-identity is not a mint")
+}
+
 // Regression guard: the credential-material name signal must NOT over-block
 // the many benign `get-*` reads. A spurious ASK here is the accepted cost on the
 // allow side, but a wide false-positive would defeat the classifier's purpose
@@ -376,8 +422,8 @@ func TestAwsConfigureGetSecretAsk_64(t *testing.T) {
 // flag the gate doesn't know (`--totally-unknown-flag x`) is value-taking but
 // not consumed, its value becomes a stray positional and shifts svc/op by one,
 // slipping a credential read past the ASK tier to the ALLOW floor.
-// awsServiceAndOp returns ok=false on an unknown leading flag → classifyAws ASKs.
-func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
+// awsServiceAndOp returns ok=false on an unknown leading flag → classifyAws DEFERS.
+func TestAwsUnknownGlobalDesyncDefers_64(t *testing.T) {
 	// The exploit strings: an UNKNOWN global flag in front of (or wedged into) a
 	// credential read. The desync means awsServiceAndOp cannot trust the
 	// operation token at all, so the credential-read arm is never reached and
@@ -417,11 +463,11 @@ func TestAwsUnknownGlobalDesyncAsk_64(t *testing.T) {
 			"returns credentials or secrets", "aws known-global + credential read: "+cmd)
 	}
 	// A known value flag, when consumed correctly, must NOT over-block a benign
-	// read: a plain read still resolves (not a spurious unknown-global ASK).
+	// read: a plain read still resolves (not a spurious unknown-global DEFER).
 	wantBucket(t, classifyCmd(t, "aws --cli-binary-format raw-in-base64-out s3api list-buckets", false), BucketAllow, "cli-binary-format + benign read")
 	// aws exposes the pager control only as boolean `--no-cli-pager`; there is no
 	// value-taking `--cli-pager` global, so `--cli-pager less` is an UNKNOWN flag
-	// before both positionals and must fail closed to ASK, not reach ALLOW.
+	// before both positionals and must fail closed to DEFER, not reach ALLOW.
 	wantBucket(t, classifyCmd(t, "aws --cli-pager less ec2 describe-instances", false), BucketDefer, "phantom --cli-pager value form withholds the allow")
 	wantBucket(t, classifyCmd(t, "aws --no-cli-pager ec2 describe-instances", false), BucketAllow, "real boolean --no-cli-pager + benign read")
 	// --cli-error-format is now a known value flag: consumed cleanly in every
@@ -509,14 +555,15 @@ func TestAwsAllow_64(t *testing.T) {
 	}
 }
 
-// --- aws ASK: non-read-only ops ----------------------------------------------
+// --- aws DEFER: non-read-only ops --------------------------------------------
 
-// The aws terminal fall-through inverted from ALLOW to ASK. An aws
+// The aws terminal fall-through inverted from ALLOW to ASK (#124), and #262
+// rebucketed that residual to DEFER. An aws
 // mutation carries the guest's credentials to a control plane outside the
 // microVM and mutates real cloud state the VM cannot roll back, so
 // containment-lives-in-the-microVM does not backstop it the way it does for
 // guest-local operations.
-func TestAwsAskNonReadOp_124(t *testing.T) {
+func TestAwsDeferNonReadOp_124(t *testing.T) {
 	for _, cmd := range []string{
 		"aws s3 rm s3://bucket/key",
 		"aws s3 cp a s3://b/c",

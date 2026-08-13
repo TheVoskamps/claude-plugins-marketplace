@@ -45,8 +45,11 @@ on uncertainty buys prompt fatigue rather than safety.
     require explicit human permission. `--force-with-lease` stays
     ALLOW and is named in the reason. `git push --mirror` is stronger
     still: it DENIES, and always has.
-  - **Credential/secret reads** — the `aws` credential-read
-    operations, `gh auth token`, `gh auth status -t`/`--show-token`
+  - **Credential/secret reads and mints** — the `aws` credential-read
+    operations and the `aws` credential *mints* (`sts assume-role`,
+    `iam create-access-key`, …, which issue a live credential the
+    caller did not previously hold), `gh auth token`, `gh auth status
+    -t`/`--show-token`
     (and the `gh auth status` unknown-flag screen that exists to stop
     a credential print riding the verb's allow), `gh auth login
     --hostname`. Credential surfaces are user-owned.
@@ -609,7 +612,18 @@ The gate's engines feed that decision:
   TOTAL redirect is what qualifies it for the deny tier; the other
   non-allowlisted mutations have no such enumeration and defer instead,
   because a deny without total coverage is a dead end rather than a
-  redirect. Individual verbs graduate to the allowlist or into the
+  redirect. That membership rule applies per DOCUMENT as well as per
+  verb, which is the teaching set's own all-fields-must-pass: the
+  redirect deny fires only when every other field in the document is
+  itself redirectable or allow-listed. A document bundling
+  `updateIssue` with a mutation the gate can only refuse — `mutation {
+  updateIssue(…) deleteIssue(…) }` — therefore **defers**, because a
+  deny there would enumerate `updateIssue`'s allowed spellings and say
+  nothing about `deleteIssue`, which is the dead end the rule forbids;
+  it is the same shape the `updateIssueFieldValue + deleteIssue`
+  analogue already deferred on. Bundled with ALLOW-listed companions it
+  still denies — those need no redirect of their own, being already the
+  allowed spelling. Individual verbs graduate to the allowlist or into the
   redirect map case-by-case as evidence accumulates, as
   `updateIssueFieldValue` did in #256/#257. The triage friction that prompted #256
   was `updateIssue` used only to set `issueTypeId`, and that has its
@@ -983,7 +997,27 @@ The gate's engines feed that decision:
   credential material, whereas the convention-allowed `list-*`/
   `describe-*` reads return collections/metadata (e.g. `iam
   list-access-keys`, `codecatalyst list-access-tokens` return
-  identifiers, never the secret) and stay ALLOW. The gh analog is `gh
+  identifiers, never the secret) and stay ALLOW.
+  **Credential MINTS are the same hard-ask tier, on a separate
+  structural signal (#262).** `sts assume-role` and `iam
+  create-access-key` return live credentials on stdout exactly as `sts
+  get-session-token` does, but they are not `get-*` READS, so neither
+  the exact-pair switch nor the `get-*` name signal reaches them: they
+  rode the residual, which #262 moved from ask to defer — the same
+  residual-drop shape as `gh auth token`, and an evaluator-waivable
+  defer on a call that hands the session fresh live AWS credentials.
+  So a credential-material token under a MINT prefix
+  (`create-`/`reset-`/`update-`/`generate-`/`request-`) **asks**, with
+  `key`/`keys` added to the token set on that side only (`iam
+  create-access-key`, `ec2 create-key-pair`, `iot
+  create-keys-and-certificate` all return private key material, while
+  `key` on a `get-*` would pull routine metadata reads such as `kms
+  get-key-policy` off the allow floor for no exposure gain).
+  `sts assume-role*` is matched by PREFIX because its name carries no
+  material token at all. The breadth is safe-side by construction:
+  every op this catches would otherwise DEFER, never ALLOW, so a false
+  positive costs one click on a call that was already being withheld,
+  while a false negative loses the tier. The gh analog is `gh
   auth token` (prints the active token), which has its own hard-ask arm
   in `classifyGh`'s `auth` switch (#262). Until then it escalated only
   INCIDENTALLY — noun `auth` is not in `isGhReadOnly`'s known nouns, so

@@ -451,7 +451,7 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 //
 // What the screen shared with the two walks below survives at their own sites:
 // the `=`-after-a-shorthand rule is documented and relied on in
-// ghFilePositionalRefs and ghUnmodelledFlagAsk, and `-p`/`--public` stays in the
+// ghFilePositionalRefs and ghUnmodelledFlagDefer, and `-p`/`--public` stays in the
 // `gist create` spec's boolFlags so the unmodelled-flag screen still recognizes
 // it.
 
@@ -521,7 +521,7 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		}
 	}
 
-	if d, hit := ghUnmodelledFlagAsk(label, rest, spec); hit {
+	if d, hit := ghUnmodelledFlagDefer(label, rest, spec); hit {
 		return d, true
 	}
 	return Decision{}, false
@@ -732,7 +732,7 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 					// out below — but this walk consults valueFlags only, so the
 					// `=` may follow a modelled bool (`-p=false`) or a character
 					// the spec models not at all (`-Zp=f`), which gh itself
-					// rejects and which ghUnmodelledFlagAsk escalates on its own
+					// rejects and which ghUnmodelledFlagDefer escalates on its own
 					// account. Stopping is the safe direction for both: it can
 					// only leave MORE tokens in the positional walk. Missing it
 					// would let `gh gist create -p=f /etc/passwd` read the
@@ -761,10 +761,10 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 	return positionals[spec.filePositionalsFrom:]
 }
 
-// ghUnmodelledFlagAsk screens a publish verb's flags against the verb's complete
+// ghUnmodelledFlagDefer screens a publish verb's flags against the verb's complete
 // modelled grammar and returns a terminal DEFER for the first token the gate does
-// not recognize (#262 rebucketed it; the name predates that). This is the
-// whitelist half of the fix: without it, a gh release
+// not recognize (#262 rebucketed it from ask, and renamed it to match). This is
+// the whitelist half of the fix: without it, a gh release
 // that adds a second file-reading flag would ride the verb's existing ALLOW and
 // publish an ungraded file, exactly as `-F` did before this change.
 //
@@ -778,7 +778,7 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 // POSITIONAL token is not screened — the verbs here take
 // issue numbers, tags, gist ids and filenames positionally, and those are graded
 // by containment (when they name files) or carry no local read at all.
-func ghUnmodelledFlagAsk(label string, args []string, spec ghFileSpec) (Decision, bool) {
+func ghUnmodelledFlagDefer(label string, args []string, spec ghFileSpec) (Decision, bool) {
 	unknown := func(tok string) (Decision, bool) {
 		// The risk clause is branched on the verb's own modelled surface. Roughly
 		// half this table's verbs read no local file at all (`gh pr close`,

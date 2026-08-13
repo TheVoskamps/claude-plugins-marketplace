@@ -57,24 +57,24 @@ func TestGhAPIGraphQLQueryOnly_113(t *testing.T) {
 	}
 }
 
-// A mutation-bearing document → ASK, and the reason must name the top-level
+// A mutation-bearing document → DEFER, and the reason must name the top-level
 // mutation field(s) so the human sees what is being written.
 //
 // The fields exercised here are deliberately OFF the issue-metadata
 // allowlist — an allow-listed field now ALLOWs, and that path is pinned by the
-// _195 tests below. This test owns the residual "any other mutation" ASK.
-func TestGhAPIGraphQLMutationAsks_113(t *testing.T) {
+// _195 tests below. This test owns the residual "any other mutation" DEFER.
+func TestGhAPIGraphQLMutationDefers_113(t *testing.T) {
 	d := classifyCmd(t, `gh api graphql -f query='mutation { deleteIssue(input: {}) { clientMutationId } }'`, false)
-	wantBucket(t, d, BucketDefer, "graphql mutation asks")
+	wantBucket(t, d, BucketDefer, "graphql mutation defers")
 	if !strings.Contains(d.Reason, "deleteIssue") {
-		t.Errorf("mutation ASK reason must name the field deleteIssue, got: %q", d.Reason)
+		t.Errorf("mutation DEFER reason must name the field deleteIssue, got: %q", d.Reason)
 	}
 
 	// A named mutation with an alias resolves to the real field name.
 	d2 := classifyCmd(t, `gh api graphql -f query='mutation Del { a: deleteIssue(input: {}) { clientMutationId } }'`, false)
-	wantBucket(t, d2, BucketDefer, "named mutation with alias asks")
+	wantBucket(t, d2, BucketDefer, "named mutation with alias defers")
 	if !strings.Contains(d2.Reason, "deleteIssue") {
-		t.Errorf("aliased mutation ASK reason must name deleteIssue (not the alias), got: %q", d2.Reason)
+		t.Errorf("aliased mutation DEFER reason must name deleteIssue (not the alias), got: %q", d2.Reason)
 	}
 
 	// A multi-operation document mixing query and mutation is NOT query-only →
@@ -143,10 +143,10 @@ func TestGhAPIGraphQLAliasedAllowlistedMutationAllows_195(t *testing.T) {
 }
 
 // All fields must pass: a document bundling an allow-listed field with a
-// non-allow-listed one still ASKs, and the reason names the fields so the human
+// non-allow-listed one still DEFERs, and the reason names the fields so the human
 // sees what is being written. A multi-operation document is judged by its
 // broadest operation.
-func TestGhAPIGraphQLMixedMutationAsks_195(t *testing.T) {
+func TestGhAPIGraphQLMixedMutationDefers_195(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
 		want []string
@@ -208,8 +208,8 @@ func TestGhAPIGraphQLClearMutationsAllow_209(t *testing.T) {
 }
 
 // All-fields-must-pass is unchanged by the clear verbs: a document bundling
-// either clear with a non-allow-listed mutation still ASKs, naming both fields.
-func TestGhAPIGraphQLMixedClearMutationAsks_209(t *testing.T) {
+// either clear with a non-allow-listed mutation still DEFERs, naming both fields.
+func TestGhAPIGraphQLMixedClearMutationDefers_209(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string
 		want []string
@@ -229,7 +229,7 @@ func TestGhAPIGraphQLMixedClearMutationAsks_209(t *testing.T) {
 		wantBucket(t, d, BucketDefer, "graphql mixed clear mutation: "+tc.cmd)
 		for _, f := range tc.want {
 			if !strings.Contains(d.Reason, f) {
-				t.Errorf("mixed clear-mutation ASK reason must name %q, got: %q", f, d.Reason)
+				t.Errorf("mixed clear-mutation DEFER reason must name %q, got: %q", f, d.Reason)
 			}
 		}
 	}
@@ -293,6 +293,48 @@ func TestGhAPIGraphQLUpdateIssueDenies_262(t *testing.T) {
 		} {
 			if !strings.Contains(d.Reason, spelling) {
 				t.Errorf("updateIssue DENY reason must redirect to %q, got: %q", spelling, d.Reason)
+			}
+		}
+	}
+}
+
+// The teaching set obeys all-fields-must-pass too (#262). A document bundling
+// `updateIssue` with a mutation the gate can only refuse must NOT take the
+// redirect DENY: the reason would enumerate `updateIssue`'s allowed spellings
+// and say nothing at all about `deleteIssue`, leaving the other half of the
+// call with nowhere to go — the dead-end deny the tier's own membership rule
+// forbids, and the same shape the `updateIssueFieldValue + deleteIssue`
+// analogue below already DEFERS on. The complement is pinned in
+// TestGhAPIGraphQLUpdateIssueDenies_262, whose batched row bundles
+// `updateIssue` only with ALLOW-listed companions and still denies.
+func TestGhAPIGraphQLUpdateIssuePlusUnredirectableDefers_262(t *testing.T) {
+	for _, tc := range []struct {
+		cmd  string
+		want []string
+	}{
+		// Both fields in one selection set.
+		{
+			`gh api graphql -f query='mutation { updateIssue(input: {}) { issue { id } } deleteIssue(input: {}) { repository { id } } }'`,
+			[]string{"updateIssue", "deleteIssue"},
+		},
+		// One per operation: a multi-operation document is judged by its
+		// broadest operation, so the split spelling behaves identically.
+		{
+			`gh api graphql -f query='mutation a { updateIssue(input: {}) { issue { id } } } mutation b { deleteProjectV2Item(input: {}) { deletedItemId } }'`,
+			[]string{"updateIssue", "deleteProjectV2Item"},
+		},
+		// The unredirectable field FIRST: the verdict must not depend on which
+		// field the scanner names first.
+		{
+			`gh api graphql -f query='mutation { deleteIssue(input: {}) { repository { id } } updateIssue(input: {}) { issue { id } } }'`,
+			[]string{"updateIssue", "deleteIssue"},
+		},
+	} {
+		d := classifyCmd(t, tc.cmd, false)
+		wantBucket(t, d, BucketDefer, "graphql updateIssue + unredirectable mutation: "+tc.cmd)
+		for _, f := range tc.want {
+			if !strings.Contains(d.Reason, f) {
+				t.Errorf("mixed updateIssue defer analysis must name %q, got: %q", f, d.Reason)
 			}
 		}
 	}
@@ -515,20 +557,20 @@ func TestGhAPIRESTAllow_113(t *testing.T) {
 	}
 }
 
-// Non-matching endpoints ASK (Deviation 2 — preserve the human escape hatch),
-// and an unknown flag ASKs (Deviation 1).
-func TestGhAPIRESTAsk_113(t *testing.T) {
+// Non-matching endpoints DEFER (Deviation 2 — preserve the escalation escape
+// hatch), and an unknown flag DEFERs (Deviation 1).
+func TestGhAPIRESTDefer_113(t *testing.T) {
 	for _, cmd := range []string{
 		"gh api some/odd/endpoint",
 		"gh api gists",
 		"gh api notifications",
-		// segment-boundary: reposecret must NOT match the repos/ prefix → ASK.
+		// segment-boundary: reposecret must NOT match the repos/ prefix → DEFER.
 		"gh api repository/o/r",
-		// unknown flag → ASK even on an allow-listed endpoint.
+		// unknown flag → DEFER even on an allow-listed endpoint.
 		"gh api repos/o/r --bogus-flag",
 		"gh api user --unmodeled",
 	} {
-		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "REST ask: "+cmd)
+		wantBucket(t, classifyCmd(t, cmd, false), BucketDefer, "REST defer: "+cmd)
 	}
 }
 

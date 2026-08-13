@@ -15,9 +15,9 @@ import (
 //     supplied literally via `-f query=…` / `--raw-field query=…` ALLOWs, as
 //     does a fragment-free mutation document whose every top-level field is on
 //     the curated issue-metadata allowlist (ghGraphQLMutationAllowlist); a
-//     mutation the gate refuses AND can redirect totally
-//     (ghGraphQLMutationRedirects) DENYs with that teaching; any other
-//     mutation-bearing document DEFERS (naming the mutation fields);
+//     document whose every field the gate refuses AND can redirect totally
+//     (ghGraphQLMutationRedirects), or is allow-listed, DENYs with that
+//     teaching; any other mutation-bearing document DEFERS (naming the fields);
 //     everything else (non-literal query source, unbalanced/garbage,
 //     subscription) DENYs.
 //   - the REST GET-gate (Design B): a known-flag-only GET whose endpoint is on
@@ -506,15 +506,45 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 //
 // Individual verbs graduate to the allowlist or into this map case-by-case as
 // evidence accumulates, exactly as `updateIssueFieldValue` did in #257.
-var ghGraphQLMutationRedirects = map[string]string{
-	"updateIssue": "Every legitimate use has an allowed spelling: for a native issue-FIELD value use " +
-		"'updateIssueFieldValue' / 'setIssueFieldValue' / 'deleteIssueFieldValue'; for the issue TYPE use " +
-		"'updateIssueIssueType'; for the issue STATE use 'closeIssue' / 'reopenIssue'; and for title, body, " +
-		"labels, assignees or milestone use 'gh issue edit', which is already an allowed recoverable-write verb.",
+//
+// Both halves of an entry are per-VERB, which is why the value is a struct
+// rather than a bare redirect string: `why` is the reason this particular verb
+// can never be allow-listed, and it would be a false statement about the next
+// member if the deny message hard-coded `updateIssue`'s `agentAssignment`
+// rationale for every entry.
+type ghGraphQLMutationRedirectEntry struct {
+	why      string
+	redirect string
+}
+
+var ghGraphQLMutationRedirects = map[string]ghGraphQLMutationRedirectEntry{
+	"updateIssue": {
+		why: "Its input carries an 'agentAssignment' arm that dispatches a third-party coding agent at an " +
+			"arbitrary repository with attacker-chosen instructions, and the gate classifies GraphQL by " +
+			"mutation field name alone — so it cannot tell that arm from a title edit, and no argument " +
+			"inspection would make the verb safe to allow.",
+		redirect: "Every legitimate use has an allowed spelling: for a native issue-FIELD value use " +
+			"'updateIssueFieldValue' / 'setIssueFieldValue' / 'deleteIssueFieldValue'; for the issue TYPE use " +
+			"'updateIssueIssueType'; for the issue STATE use 'closeIssue' / 'reopenIssue'; and for title, body, " +
+			"labels, assignees or milestone use 'gh issue edit', which is already an allowed recoverable-write verb.",
+	},
 }
 
 // ghGraphQLMutationRedirect returns the deny-with-teaching for a document whose
-// top-level mutation fields include one of ghGraphQLMutationRedirects.
+// top-level mutation fields are ENTIRELY covered by the teaching: every field is
+// either in ghGraphQLMutationRedirects or on ghGraphQLMutationAllowlist, and at
+// least one is a redirect member.
+//
+// The all-fields condition is what keeps the deny a redirect rather than a dead
+// end (#262). The deny's whole justification is that the caller can read the
+// reason and re-issue the call correctly, so a document bundling a redirectable
+// verb with one the gate can only refuse — `mutation { updateIssue(…)
+// deleteIssue(…) }` — must NOT deny: the teaching would cover `updateIssue` and
+// say nothing about `deleteIssue`, leaving the legitimate half of the call with
+// nowhere to go. Such a document falls through to the DEFER middle, which is
+// exactly where the `updateIssueFieldValue + deleteIssue` analogue already
+// lands. It is the same rule as allGraphQLMutationFieldsAllowed's
+// all-fields-must-pass, applied to the teaching set instead of the allow set.
 //
 // Callers MUST first reject a document whose graphqlDocResult reports
 // sawFragment or sawSubscription — the same precondition
@@ -525,20 +555,48 @@ var ghGraphQLMutationRedirects = map[string]string{
 // name would teach a redirect for a call that was never made; such a document
 // falls through to the defer below instead.
 func ghGraphQLMutationRedirect(fields []string) (Decision, bool) {
+	var named []string
+	var entries []ghGraphQLMutationRedirectEntry
+	seen := map[string]bool{}
 	for _, f := range fields {
-		redirect, ok := ghGraphQLMutationRedirects[f]
-		if !ok {
+		entry, ok := ghGraphQLMutationRedirects[f]
+		if ok {
+			if !seen[f] {
+				seen[f] = true
+				named = append(named, f)
+				entries = append(entries, entry)
+			}
 			continue
 		}
-		return deny("gh api graphql "+f+" (#262)", fmt.Sprintf(
-			"Blocked: 'gh api graphql' carries the '%s' mutation, which the gate denies rather than escalates. "+
-				"Its input carries an 'agentAssignment' arm that dispatches a third-party coding agent at an "+
-				"arbitrary repository with attacker-chosen instructions, and the gate classifies GraphQL by "+
-				"mutation field name alone — so it cannot tell that arm from a title edit, and no argument "+
-				"inspection would make the verb safe to allow. %s",
-			f, redirect)), true
+		if ghGraphQLMutationAllowlist[f] {
+			// An allow-listed companion needs no teaching of its own — it has
+			// nowhere else to go because it is already the allowed spelling.
+			continue
+		}
+		// A field that is neither redirectable nor allow-listed: the deny would
+		// name no allowed spelling for it, so the document is a dead end and
+		// belongs in the DEFER middle instead.
+		return Decision{}, false
 	}
-	return Decision{}, false
+	if len(named) == 0 {
+		return Decision{}, false
+	}
+	// The per-verb halves are qualified by field name only when there is more
+	// than one to tell apart; with the single member the map has today the
+	// message reads as one continuous explanation of that verb.
+	noun := "mutation"
+	var teaching []string
+	for i, e := range entries {
+		if len(entries) == 1 {
+			teaching = append(teaching, e.why+" "+e.redirect)
+			continue
+		}
+		noun = "mutations"
+		teaching = append(teaching, fmt.Sprintf("'%s': %s %s", named[i], e.why, e.redirect))
+	}
+	return deny("gh api graphql "+strings.Join(named, ", ")+" (#262)", fmt.Sprintf(
+		"Blocked: 'gh api graphql' carries the '%s' %s, which the gate denies rather than escalates. %s",
+		strings.Join(named, "', '"), noun, strings.Join(teaching, " "))), true
 }
 
 // allGraphQLMutationFieldsAllowed reports whether EVERY named top-level

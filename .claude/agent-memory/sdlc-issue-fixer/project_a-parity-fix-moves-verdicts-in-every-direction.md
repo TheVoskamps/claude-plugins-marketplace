@@ -69,7 +69,8 @@ throwaway `zz_dump_rows_test.go` in the copy that walks the real Go maps
 and writes the cross to a file, and drive that file. That single table
 is the negative control, the regression evidence and the enumeration of
 every direction, and it costs one run. Keep a `cat <same-path>` row in
-it: if the probe cwd loses repo context every row reads `ask` and the
+it: if the probe cwd loses repo context every row reads `defer` (it
+read `ask` before #262 rebucketed the no-repo-context arm) and the
 table is meaningless. Two cwd traps produce exactly that — a cwd that
 does not EXIST resolves no repo context (paste the worktree path, not
 the primary clone's), and `../` levels counted by feel rather than

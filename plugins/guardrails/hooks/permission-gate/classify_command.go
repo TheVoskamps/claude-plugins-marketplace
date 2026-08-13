@@ -328,8 +328,11 @@ func fieldKeyPinned(staticPrefix string) bool {
 // subcommand. Positional guessing is obsolete — we consume globals
 // explicitly, then dispatch on the real subcommand.
 //
-// Per the resolved design decisions this classifier NEVER defers: the
-// catch-all for a recognized git subcommand is ALLOW. For git that ALLOW rests
+// This classifier's CATCH-ALL is ALLOW, not defer: a recognized git
+// subcommand with no dangerous shape falls through to ALLOW. Defer is reached
+// only from the individually-classified arms below — `git remote
+// add`/`set-url`/… (#163) and a main-session `git reset --hard` (#262) — plus
+// an unpinnable credentialed redirect. For git that catch-all ALLOW rests
 // on a boundary the egress proxy DOES own: guest-local git effects are
 // contained by the disposable microVM ("two boundaries, split by
 // visibility"), and git objects are content-addressed / recoverable

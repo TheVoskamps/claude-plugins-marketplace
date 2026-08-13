@@ -361,6 +361,15 @@ so it denies; a verb with no such enumeration defers instead. Grade
 **every** arm the input declares, and follow a composite arm into its
 own input type.
 
+The teaching question is asked of the DOCUMENT, not only of the verb,
+and a probe that sends the verb alone cannot see the difference. A
+document bundling a redirectable verb with one the gate can only
+refuse defers, because the deny would teach about one field and leave
+the other with nowhere to go. So a redirect-deny probe needs both
+controls: the verb alone (and bundled with allow-listed companions)
+must deny, and the verb bundled with an unredirectable mutation —
+`mutation { updateIssue(…) deleteIssue(…) }` — must defer.
+
 Two traps in running the query itself:
 
 - **`__Type.inputFields` may be used at most twice per document.** A

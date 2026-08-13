@@ -87,7 +87,7 @@ func TestGhReadStillAllow_163(t *testing.T) {
 	}
 }
 
-func TestGhUnrecognizedFailsClosedToAsk_163(t *testing.T) {
+func TestGhUnrecognizedFailsClosedToDefer_163(t *testing.T) {
 	// The former silent ALLOW floor is gone: an unrecognized gh noun/verb —
 	// which the microVM does not backstop for a credential-carrying operation —
 	// withholds the ALLOW. Post-#262 the residual is DEFER: "the gate does not

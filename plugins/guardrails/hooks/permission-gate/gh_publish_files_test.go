@@ -379,9 +379,9 @@ func TestGhPublishUnmodelledFlagMessageMatchesSurface_229(t *testing.T) {
 		"gh gist edit abc123 --frobnicate x",
 	} {
 		d := classifyInRepo(t, cmd, repo)
-		wantReason(t, d, BucketDefer, "does not model", "#229 unmodelled flag on afile-reading verb: "+cmd)
+		wantReason(t, d, BucketDefer, "does not model", "#229 unmodelled flag on a file-reading verb: "+cmd)
 		if !strings.Contains(d.Reason, fileRisk) {
-			t.Errorf("#229 %q: unmodelled-flag ask should name the local-file risk, got %q", cmd, d.Reason)
+			t.Errorf("#229 %q: unmodelled-flag defer should name the local-file risk, got %q", cmd, d.Reason)
 		}
 	}
 	// Verbs with no local-file surface at all: no path flag, no file positional,
@@ -405,9 +405,9 @@ func TestGhPublishUnmodelledFlagMessageMatchesSurface_229(t *testing.T) {
 	}
 	for _, cmd := range fileFree {
 		d := classifyInRepo(t, cmd, repo)
-		wantReason(t, d, BucketDefer, "does not model", "#229 unmodelled flag on afile-free verb: "+cmd)
+		wantReason(t, d, BucketDefer, "does not model", "#229 unmodelled flag on a file-free verb: "+cmd)
 		if strings.Contains(d.Reason, fileRisk) {
-			t.Errorf("#229 %q: verb reads no local file, so the ask must not assert a body-file risk, got %q",
+			t.Errorf("#229 %q: verb reads no local file, so the defer must not assert a body-file risk, got %q",
 				cmd, d.Reason)
 		}
 	}
@@ -465,7 +465,7 @@ func TestGhPublishHelpShorthandAllows_229(t *testing.T) {
 	// ghInheritedBoolFlags in at package init, so the control has to rebuild the
 	// set rather than mutate the shared map.)
 	spec := ghFileSpecs["pr"]["comment"]
-	if _, hit := ghUnmodelledFlagAsk("gh pr comment", []string{"227", "-h"}, spec); hit {
+	if _, hit := ghUnmodelledFlagDefer("gh pr comment", []string{"227", "-h"}, spec); hit {
 		t.Error("#229 `gh pr comment 227 -h` must not reach the unmodelled-flag ask")
 	}
 	degraded := spec
@@ -475,7 +475,7 @@ func TestGhPublishHelpShorthandAllows_229(t *testing.T) {
 			degraded.boolFlags[f] = true
 		}
 	}
-	if _, hit := ghUnmodelledFlagAsk("gh pr comment", []string{"227", "-h"}, degraded); !hit {
+	if _, hit := ghUnmodelledFlagDefer("gh pr comment", []string{"227", "-h"}, degraded); !hit {
 		t.Error("#229 negative control: without `-h` in the bool set the screen must escalate")
 	}
 }

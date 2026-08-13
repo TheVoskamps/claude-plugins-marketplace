@@ -188,9 +188,9 @@ func TestInRepoWriteSymlinkEscape_12(t *testing.T) {
 	wantBucket(t, d, BucketDeny, "#12 cp through symlink escaping worktree")
 }
 
-// Unknown-expansion targets ASK, not ALLOW (a $(...)-built target cannot be
+// Unknown-expansion targets DEFER, not ALLOW (a $(...)-built target cannot be
 // statically contained).
-func TestInRepoWriteDynamicPathAsks_32(t *testing.T) {
+func TestInRepoWriteDynamicPathDefers_32(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)

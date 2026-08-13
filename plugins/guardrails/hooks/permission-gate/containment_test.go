@@ -1130,11 +1130,12 @@ func TestHarnessScratchShapeMissDefers_193(t *testing.T) {
 	}
 }
 
-// Defective-root row (ASK): when the claude-<uid> root is not a plain directory
+// Defective-root row (DEFER, and DENY for the write tracks): when the
+// claude-<uid> root is not a plain directory
 // owned by this uid, the gate cannot prove where a path under it lands, so it
 // escalates — with a reason that NAMES the defect, so the failure is not
 // mistaken for the containment bug reappearing.
-func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
+func TestHarnessScratchDefectiveRootEscalates_193(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -1174,7 +1175,7 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 		}
 	}
 
-	// A genuine escape in the same command still outranks the root ASK: the
+	// A genuine escape in the same command still outranks the root DEFER: the
 	// scratchpad-root finding is recorded, not returned inline.
 	withScratchRoot(t, harnessScratchRootState{root: fake, defect: "a symlink"})
 	sibling := filepath.Join(base, "sibling")
@@ -1182,7 +1183,7 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 	src := filepath.Join(fake, sessionSlug, sessionUUID, "scratchpad", "x.md")
 	cpBev := bashEvIn(t, root, "issue-developer")
 	wantBucket(t, classifyBash("cp "+src+" "+filepath.Join(canonicalize(sibling), "stolen.md"), cpBev),
-		BucketDeny, "a cross-repo destination outranks the defective-root ask")
+		BucketDeny, "a cross-repo destination outranks the defective-root defer")
 }
 
 // Outside-the-prefix row (DENY): everything else under /tmp still denies
