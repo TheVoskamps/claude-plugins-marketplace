@@ -74,8 +74,9 @@ Your brief carries exactly these double-dash parameters:
   settled, not a cap on what you may read.
 - `--pointers <text>` — the generator's pointers, verbatim.
 - `--counterexample <text>` — the disprover's full `DISPROVED` report,
-  verbatim: its `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and
-  `CLASS` lines as it wrote them. This is the thing you attack.
+  verbatim: every line of it as the disprover wrote it — `VERDICT`,
+  `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
+  This is the thing you attack.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.

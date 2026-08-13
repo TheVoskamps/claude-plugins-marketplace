@@ -385,6 +385,11 @@ counterexample.
 | `DISPROVED` | malformed twice (the verifier's own re-spawn path) | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 
+"Could not be settled" and "unsettled" are the same disposition —
+this last row. The long form is what the posted review body's section
+is titled; "unsettled" is the shorthand this file and the report-back
+tally use for it.
+
 A standing finding is written in the format under "Findings must
 quote, not paraphrase" below. Its `**Evidence:**` block is the
 disprover's counterexample quote **verbatim** — you do not re-quote
@@ -738,8 +743,8 @@ the same ones the classes name:
 
 - **Critical**: merging causes data loss, opens a security hole, or
   breaks production.
-- **High**: shipped behavior is materially broken, OR an acceptance
-  criterion of the issue is unmet.
+- **High**: shipped behavior is materially broken, or an acceptance
+  criterion of a member issue is unmet.
 - **Medium**: a real defect or debt that should be fixed in this PR
   but does not break shipped behavior.
 - **Low**: genuinely optional polish. If it must be fixed before

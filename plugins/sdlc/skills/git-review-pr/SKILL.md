@@ -62,6 +62,8 @@ pipeline themselves.
 3. **Relay the pipeline's verdicts and findings** back to the user:
    the overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every
    per-issue verdict (a PR may deliver a batch of several), plus the
-   severity counts (Critical, High, Medium, Low) and the theorem tally
-   — generated, disproved, of those refuted by verification, survived,
-   unsettled.
+   severity counts (Critical, High, Medium, Low) and the theorem
+   tally. What that tally enumerates, and which of its counts never
+   reach severity, is the pipeline skill's own "Report back" section;
+   relay it as the pipeline returned it rather than restating the
+   enumeration here.

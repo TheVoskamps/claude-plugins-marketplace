@@ -754,9 +754,10 @@ branch name as its own double-dash parameters (`--pr`, `--issues`,
 vocabulary both this path and a standalone `/sdlc:git-review-pr` use.
 
 Running it here rather than delegating it is structural, not a
-convenience: the pipeline spawns a generator, then one disprover per
-theorem in parallel, then one verifier per disproved theorem in
-parallel, and a subagent cannot spawn subagents. It is
+convenience: the pipeline spawns a generator, then one
+`theorem-disprover` per theorem in parallel, then one
+`counterexample-verifier` per disproved theorem in parallel, and a
+subagent cannot spawn subagents. It is
 also the one carve-out in "Never do work an agent owns" — see that
 Hard Constraint, which still forbids you from writing a review body or
 running `gh pr review` yourself. The pipeline owns both.
@@ -930,8 +931,9 @@ settled — APPROVED, or the review-round cap reached — and no further
 branch work is queued.
 
 Being last is the whole point: by that moment every agent that writes
-memory (`issue-developer`, `issue-fixer`, `doc-updater` — the review
-pipeline's agents write none) has captured onto the branch, so the
+memory (`issue-developer`, `issue-fixer`, `doc-updater` —
+`theorem-generator`, `theorem-disprover` and `counterexample-verifier`
+write none) has captured onto the branch, so the
 scrubber's pass curates the entire PR's memory delta and nothing is
 deferred to a later PR.
 
@@ -1320,8 +1322,9 @@ pipeline's severity line and the fixer's report. Fill them per
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A
   round is one `sdlc:pr-review-pipeline` run at any generator tier —
-  the fan-outs inside a round are one round, however many disprovers
-  and verifiers they spawned; the `doc-updater` pass that precedes
+  the fan-outs inside a round are one round, however many
+  `theorem-disprover` and `counterexample-verifier` agents they
+  spawned; the `doc-updater` pass that precedes
   each one is not a review and never counts against the cap.
 
 ### What the orchestrator IS allowed to do
