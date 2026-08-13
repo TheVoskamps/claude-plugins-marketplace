@@ -88,3 +88,4 @@
 - [The absolute half of a standing claim](project_the-absolute-half-of-a-standing-claim.md) — "substance stands, phrasing does not": swap the over-broad verb, name the counterexample, say why it is not one
 - [Pick the remedy that keeps the exemplar](project_pick-the-remedy-that-keeps-the-exemplar.md) — when the rule CITES the violating site as its model of compliance, move the site, not the rule
 - [A merged table row hides two rules](project_a-merged-table-row-hides-two-rules.md) — "either agent's path" collapses two actors whose outcomes differ; split per actor and re-grade the sentence under the table
+- [A PR-body count over a live list rots](project_pr-body-count-over-a-live-list-rots.md) — a Testing bullet counting `git diff --name-only ... '*.md'` is re-falsified every round; name the command, drop the number
