@@ -134,3 +134,7 @@
 - [Deferral pointer outruns its target](project_deferral-pointer-outruns-its-target.md)
   — "defers to X's own section rather than restating" is a claim about
   what X says; open X and check it covers every noun the pointer names.
+- [A carve-out leaves absolute attributions](feedback_carve-out-leaves-absolute-attributions.md)
+  — a new exception path falsifies sibling prose naming WHO assigned
+  the value; grep the actor, not the rule. Also: "the one entry" for a
+  per-entry rule.
