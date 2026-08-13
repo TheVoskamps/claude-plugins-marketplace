@@ -13,7 +13,7 @@ whenever some consumer restates the definitions against its own names.
 glosses "live in the two agent files only; the pipeline carries the
 bare tokens in its class-to-severity table and nothing more". True of
 the tokens, false of the glosses: the same PR added
-`pr-review-pipeline/SKILL.md` → "The two findings that carry no class",
+`pr-review-pipeline/SKILL.md` → "The findings that carry no class",
 which restates every class definition keyed to the **severity** names
 (Critical/High/Medium/Low) and says outright they are "the same ones
 the classes name". A token grep returns zero hits there, so the
