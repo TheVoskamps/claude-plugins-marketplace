@@ -62,6 +62,23 @@ tokens and diff that set against the bucket word in the name — since a
 name like `TestContainmentNoRepoNeverAllows` legitimately claims the
 bucket it does NOT assert.
 
+The test sweep needs a SECOND pass after the fixer's: a round that
+renames every `TestFooAsks` still leaves the prose in the block above
+it, and the doc comment is where the tier claim actually lives. Run the
+same parse against the DOC COMMENT, not the name — for each `func
+Test…`, collect the body's `Bucket*` tokens and print the block above
+whenever it says `ASK`/`asks` and the body never checks `BucketAsk`.
+That found 20 blocks the two prior rounds had left on #262, in ten
+files. Three shapes survive the filter and are NOT defects: a
+historical sentence ("#262 moved it from ASK to…"), a negative claim
+("must not ASK" — a defer satisfies it), and a hard-ask row that really
+does still ask. Everything else — file-level suite headers most of all
+— is false. Two claims in that harvest were not bucket words at all and
+matter more: a blanket "every log record carries the analysis" (false
+for a bare `deferToPipeline`) and "the reason names the fields so the
+HUMAN sees them" (`emitDecision` blanks a defer's reason on the wire —
+the reason reaches the evolution log only).
+
 The `ghUnmodelledFlagAsk` leftover this note flagged for a fixer was
 renamed to `ghUnmodelledFlagDefer` in #262's fix round, alongside the
 sibling renames (`cdInvalidAsk` → `cdInvalidDefer`,

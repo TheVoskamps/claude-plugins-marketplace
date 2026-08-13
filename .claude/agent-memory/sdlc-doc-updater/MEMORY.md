@@ -107,7 +107,8 @@
 - [Verdict rebucketing rots the comment vocabulary](project_verdict-rebucketing-comment-vocabulary.md)
   — an ask→defer round falsifies every "fail-closed ASK" in the PACKAGE
   (incl. files outside the diff) and every tier-summary header; grep
-  `ask(` for the surviving tier, probe the residual rows.
+  `ask(` for the surviving tier, probe the residual rows. Needs a
+  second pass over test DOC COMMENTS after the fixer renames the tests.
 - [Gate Go comment edits need a binary rebuild](project_permgate-go-comment-edits-need-binary-rebuild.md)
   — Go embeds file:line, so a comment-only edit under
   hooks/permission-gate/ invalidates all three committed binaries;
