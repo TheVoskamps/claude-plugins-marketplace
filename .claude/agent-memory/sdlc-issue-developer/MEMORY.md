@@ -2,7 +2,6 @@
 
 - [permission-gate is self-hosting](permission-gate-self-hosting.md) — the guardrails gate is ACTIVE while you edit it; it will block your own git/sed/mkdir; work with it, not around it
 - [Origin-aware gate rules need a real repo cwd](permission-gate-origin-aware-rules-need-real-cwd.md) — foreign-target scoping reads live git origin; the /tmp default in classifyCmd fails it open, so tests/probes need a real temp repo with an origin remote
-- [Moving a residual bucket drops its accidental callers](residual-bucket-change-drops-callers.md) — calls that escalate only by falling through vanish from the tier and from the diff; enumerate by binary-vs-binary replay
 - [permission-gate tests can pass vacuously](permission-gate-tests-can-pass-vacuously.md) — negate the new condition and confirm the test FAILS; overlapping rules make "must not DENY" assertions pass without reaching the new code
 - [Gate tests: /tmp cwd fails CLOSED on operands](gate-tests-tmp-cwd-fails-closed-on-operands.md) — new containment breaks classifyCmd rows carrying a path; ALLOW rows fail loudly, ASK rows keep passing for the wrong reason
 - [gh --help annotates each flag's value type](gh-help-flag-annotations-are-the-source.md) — `file`/`string`/`name` is the source for "is this a path?"; `--recover`, `gist edit --add` and per-verb `--template` are what it gets wrong, and pflag's `-h` / `-F=FILE` are never rendered
