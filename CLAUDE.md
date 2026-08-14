@@ -300,6 +300,16 @@ that section, the teammate roster above it, the pipeline skill's
 Inputs, and both `effort` statements the sdlc sweep section already
 names.
 
+A skeleton must not *enumerate* what that skill supplies either. Its
+shared body says the generation procedure lives there in full and that
+the generator follows every section of it, deliberately naming none:
+any list of the skill's parts reads as its section set, and the one
+the skeletons carried had already fallen behind, naming some of
+`theorem-generation`'s H2 sections and silently omitting the rest. The
+repair that fails next time is widening such a list; a skeleton
+pointing at the whole file cannot go stale as the skill gains or
+renames a section.
+
 What a generator may emit at all is generation guidance too, so it has
 the same single owner: `theorem-generation` → "The emission bar:
 falsifiability, then stakes", where a claim is admitted only if a
