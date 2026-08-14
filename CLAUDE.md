@@ -236,6 +236,24 @@ Cross-reference strings need the same sweep:
 quote a `### After each ...` heading verbatim, so renaming a heading in
 SKILL.md means grepping the quoted title across `plugins/sdlc/`.
 
+That verbatim bar governs every quoted heading, not only the
+`### After each ...` ones, and a returned grep is not the check. A
+`→ "Section"` pointer that quotes the readable half of a longer title
+— "The emission bar" for "The emission bar: falsifiability, then
+stakes" — greps to a hit while quoting a string that is no heading in
+that file, so a round that renames a heading and points at it in the
+same commit is where truncated pointers appear. Compare each pointer
+against the heading line itself. A line wrap inside the quotes is not
+a mismatch: these files wrap at a column limit, so a title near it has
+to break somewhere, and forbidding the break would be unsatisfiable.
+Join the quoted string back across its line breaks — each newline and
+the following line's leading whitespace collapsing to the single space
+the wrap replaced — and compare that. What the comparison catches is a
+pointer whose *words* differ from the heading's: a truncation, a
+reordering, a dropped subtitle. A wrapped pointer and an unwrapped one
+to the same heading both pass, so never reflow surrounding prose just
+to unwrap one.
+
 Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
@@ -299,6 +317,36 @@ tier") are where a variant is named; adding or removing one updates
 that section, the teammate roster above it, the pipeline skill's
 Inputs, and both `effort` statements the sdlc sweep section already
 names.
+
+A skeleton must not *enumerate* what that skill supplies either. Its
+shared body says the generation procedure lives there in full and that
+the generator follows every section of it, deliberately naming none:
+any list of the skill's parts reads as its section set, and the one
+the skeletons carried had already fallen behind, naming some of
+`theorem-generation`'s H2 sections and silently omitting the rest. The
+repair that fails next time is widening such a list; a skeleton
+pointing at the whole file cannot go stale as the skill gains or
+renames a section. The `diff` above is no protection here: that list
+was byte-identical in all three skeletons, so it passed the check while
+naming a section set the skill no longer had. Read a skeleton's pointer
+against `theorem-generation`'s own headings, not against its siblings.
+
+What a generator may emit at all is generation guidance too, so it has
+the same single owner: `theorem-generation` → "The emission bar:
+falsifiability, then stakes", which states the questions a candidate
+must clear to be emitted at all. Nowhere else — this file included —
+is that bar restated rather than reached by pointer, and each pointing
+site is deliberately bounded: the pipeline's "The theorem contract"
+says only what a theorem arriving at the pipeline therefore is, and
+orchestrate's teammate-effort paragraph only prices a surplus theorem
+against the diff's stakes. A change to
+either question edits the skill and then re-reads every such site,
+because a bar spelled out at one of them is the second source of truth
+that keeping generation guidance in one file removes. The bar is
+tier-blind, like the rest of that skill: a higher tier buys a deeper
+search for claims that clear it, never a lower one, which is why
+"Picking a generator tier" reads blast radius and not the effort the
+change took to write.
 
 `theorem-disprover` is deliberately **not** a skeleton set. It has one
 definition and no tiers, and its instructions live in the agent file

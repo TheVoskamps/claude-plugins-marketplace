@@ -164,6 +164,13 @@ pattern honest is enforced by the repo's `CLAUDE.md` →
 - **Guidance never lands in a skeleton.** Anything a skeleton says that
   its siblings do not is the second source of truth the pattern exists
   to remove; a `diff` of the skeletons is the mechanical check.
+- **A skeleton points at the whole skill, not at its parts.** The `diff`
+  check above catches only what one skeleton says and its siblings do
+  not, so a list of the skill's sections — identical in every skeleton,
+  and read by the agent as the skill's section set — passes it while
+  falling behind the skill. `sdlc`'s skeletons carried such a list and
+  it had already gone stale; the repair is a pointer at the file as a
+  whole, which cannot go stale, rather than a wider list, which can.
 
 Such a skill is machinery, not a user verb: give it
 `user-invocable: false` (constraint 4) so it stays out of the human `/`

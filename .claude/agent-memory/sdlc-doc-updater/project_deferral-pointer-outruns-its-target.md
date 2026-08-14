@@ -28,3 +28,9 @@ already established elsewhere in that file — that keeps the single
 source of truth single. Same shape as
 [[no-blanket-predicate-over-a-list]]: a pointer is one claim per thing
 it promises. Related: [[fan-out-doc-surfaces]] on two-sided contracts.
+
+**Prefix-quoted headings are the cheap sibling of this**, and the
+repo states that rule itself: CLAUDE.md's cross-reference-sweep
+paragraph carries how strictly a `→ "Section"` pointer must resolve —
+that a grep hit is not the check, and that a line wrap inside the
+quotes is joined back before comparing. Apply it from there.
