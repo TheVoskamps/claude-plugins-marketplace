@@ -28,3 +28,15 @@ already established elsewhere in that file — that keeps the single
 source of truth single. Same shape as
 [[no-blanket-predicate-over-a-list]]: a pointer is one claim per thing
 it promises. Related: [[fan-out-doc-surfaces]] on two-sided contracts.
+
+**Prefix-quoted headings are the cheap sibling of this.** A round that
+renames a heading and adds pointers to it in the same commit tends to
+quote the *readable half* of the new title, not the title — #265 gave
+`theorem-generation` the heading "The emission bar: falsifiability,
+then stakes" and pointed at it from `orchestrate` and
+`pr-review-pipeline` as → "The emission bar". A grep for the pointer
+string finds the heading, so it looks resolved; the repo's rule (and
+`theorem-generation`'s own cross-reference-pointer bullet) is verbatim.
+On any round that renames or adds a heading, grep the new title's
+words and compare each pointer to the heading line character for
+character, not by whether the grep returned a hit.
