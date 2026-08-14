@@ -460,15 +460,11 @@ for `git worktree remove -f`.
 
 A theorem is a claim about this PR that a **counterexample refutes**
 and whose falsity would change something observable in the merged
-result. Those two questions are the emission bar, and together they
-keep nits out structurally rather than by severity-capping them after
-the fact: "this comment could be worded better" fails the first,
-because there is no counterexample to it. "This comment's assertion
-about the code is true" passes both when a reader acts on the comment,
-and a comment that asserts something false disproves it. The bar is
-the generator's to apply — the `sdlc:theorem-generation` skill → "The
-emission bar: falsifiability, then stakes" owns it, and this section
-says what a theorem reaching the pipeline therefore is.
+result. Those two questions are the emission bar, and applying them is
+the generator's job: the `sdlc:theorem-generation` skill → "The
+emission bar: falsifiability, then stakes" owns them, along with which
+candidates they exclude and why. This section states only what a
+theorem reaching the pipeline therefore is.
 
 Each record the generator emits carries these fields, and the
 pipeline consumes all of them:
