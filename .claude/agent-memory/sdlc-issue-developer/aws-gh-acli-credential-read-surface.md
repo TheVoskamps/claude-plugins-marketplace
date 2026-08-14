@@ -19,8 +19,15 @@ credential-returning read), the three tools split like this:
   list-access-tokens` return identifiers, never the secret), verified against
   the CLI reference.
 - **gh** (`isGhReadOnly`/`classifyGh`): does NOT leak. `gh auth token` prints
-  the active token, but noun `auth` is absent from `knownNouns`, so it already
-  falls to the #163 fail-closed ASK. Pinned by `TestGhAuthTokenFailsClosedToAsk_97`.
+  the active token, and noun `auth` is absent from `knownNouns`. It used to
+  escalate only INCIDENTALLY, via the unrecognized-`gh` residual, which was an
+  ASK; #262 moved that residual to DEFER and gave `gh auth token` its own
+  hard-ask arm in `classifyGh`'s `auth` switch. Pinned by
+  `TestGhAuthTokenIsAHardAsk_262`, which asserts the reason and not just the
+  bucket — a bucket-only check would pass again the moment the arm was deleted
+  and the residual caught it. **The general lesson: a call that escalates only
+  by falling through is one residual-bucket change away from not escalating at
+  all.** Enumerate what a residual is catching before moving it.
 - **acli** (`classifyAcli`): does NOT leak. Its `get` read-verb matches
   Jira/Confluence/Bitbucket **entity** reads (issues, projects) — none returns
   credential material. acli's `auth` subcommand is login/logout/status/switch,

@@ -110,7 +110,8 @@ func (e *Event) filePaths() ([]string, error) {
 //
 // Conservative bias: the gate treats the session as a subagent whenever it
 // can detect a worktree context OR an explicit non-main agent_type. The
-// subagent-conditioned rules only DENY/ASK on destructive ops, so erring
+// one subagent-conditioned rule only TIGHTENS a destructive op (a subagent's
+// `git reset --hard` DENIES where a main session's defers), so erring
 // toward "subagent" fails safe.
 func (e *Event) isSubagent() bool {
 	switch e.AgentType {

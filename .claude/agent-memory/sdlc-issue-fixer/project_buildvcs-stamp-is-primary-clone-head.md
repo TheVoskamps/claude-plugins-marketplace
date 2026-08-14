@@ -58,9 +58,10 @@ hashes prove the other platforms' binaries came from the same tree.
 
 **Build the discriminator container to match the guest.** The first
 attempt used bare `debian:bookworm-slim`, which has no `git`, and *every*
-Engine B path decision fell back to the same fail-closed `ask` — the old
-and new binaries printed byte-identical output and the probe proved
-nothing. `apt-get install -y git` (an ephemeral container layer, neither a
+Engine B path decision fell back to the same fail-closed verdict (`ask`
+when measured; `defer` since #262 rebucketed the no-repo-context arm) —
+the old and new binaries printed byte-identical output and the probe
+proved nothing. `apt-get install -y git` (an ephemeral container layer, neither a
 host nor a project-dependency install) makes the deny Reasons real and the
 discriminator crisp. Pair with `--platform linux/arm64` per
 [[project_wrong-arch-container-case-is-silently-emulated]].

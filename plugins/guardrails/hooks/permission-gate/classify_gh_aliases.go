@@ -8,18 +8,18 @@ package main
 // dispatch, where every alias spelling renders the canonical command's own
 // USAGE line (`gh gist new --help` prints `gh gist create [<filename>… …]`).
 // Every tier in classifyGh dispatches by name alone, so an alias matched none of
-// them and fell through to the fail-closed "unrecognized command" ASK. That
-// turned a documented respelling into a click-through past a verdict the gate
-// had already reached: `gh gist create /etc/passwd` earns the #229 containment
-// DENY while `gh gist new /etc/passwd` earned an ask, and the ALIASES block that
+// them and fell through to the "unrecognized command" residual. That routed a
+// documented respelling past a verdict the gate had already reached:
+// `gh gist create /etc/passwd` earns the #229 containment
+// DENY while `gh gist new /etc/passwd` did not, and the ALIASES block that
 // names the respelling sits in the very help output ghFileSpecs was transcribed
 // from.
 //
 // Resolving the alias BEFORE any tier runs gives each alias the verdict its
-// canonical command already has — deny, ask or allow — rather than a verdict
-// computed from the spelling. The fail-closed floor is untouched: a token that
-// is in neither table is left exactly as written and still reaches the
-// unrecognized-command ASK.
+// canonical command already has — deny, ask, defer or allow — rather than a
+// verdict computed from the spelling. The residual floor is untouched: a token
+// that is in neither table is left exactly as written and still reaches the
+// unrecognized-command DEFER.
 //
 // PROVENANCE. The two tables below are the complete cobra-alias set of gh
 // 2.97.0, derived twice and reconciled:
@@ -47,7 +47,7 @@ package main
 // the alias names are `ls`, `new`, `co`, `remove` and the noun aliases, while
 // isGhReadOnly's read verbs are view/list/status/diff/checks/get and
 // ghRecoverableWriteVerbs holds create/comment/merge/close/edit/… — so before
-// this change every aliased spelling landed on the fail-closed ASK, and none
+// this change every aliased spelling landed on the residual, and none
 // rode an outright ALLOW. Resolution retires the question either way: an alias
 // is rewritten before any table is consulted, so a future gh release that names
 // an alias after an existing verb inherits that verb's canonical verdict rather
@@ -58,11 +58,12 @@ package main
 // ships one such alias by default (`co: pr checkout`, in cli/cli's
 // internal/config/config.go), and it expands before dispatch just as a cobra
 // alias does. The gate does not read the user's gh config, so those spellings
-// keep the fail-closed ASK — which is the correct floor rather than a hole,
+// keep the residual verdict — which is the correct floor rather than a hole,
 // because `gh alias set` refuses any name that is "already a gh command or
 // extension", so a config alias can never shadow a noun this gate models. The
 // shipped `co` diverges from nothing today: `gh co` and `gh pr checkout` both
-// ASK, the latter because `checkout` is in neither allow table.
+// land on the residual DEFER, the latter because `checkout` is in neither allow
+// table.
 
 // ghNounAliases maps an alias spelling of a gh top-level noun to its canonical
 // noun.
@@ -87,7 +88,7 @@ var ghNounAliases = map[string]string{
 // set rather than a filtered one: filtering would hold an invariant ("these are
 // the nouns the classifier touches") that goes stale the moment a noun joins
 // isGhReadOnly's known set, and the entries cost nothing — an unmodelled noun's
-// verdict is the fail-closed ASK whichever spelling it arrives in.
+// verdict is the residual DEFER whichever spelling it arrives in.
 var ghVerbAliases = map[string]map[string]string{
 	// Nouns classifyGh models.
 	"pr":       {"new": "create", "ls": "list", "co": "checkout"},
@@ -128,7 +129,7 @@ var ghVerbAliases = map[string]map[string]string{
 // gh's third-level aliases (`gh repo autolink new`, `gh repo deploy-key ls`, …)
 // therefore need no entry — their canonical spellings classify identically,
 // since cmd[1] is `autolink` / `deploy-key`, which is in neither allow table, so
-// both spellings reach the same fail-closed ASK.
+// both spellings reach the same residual DEFER.
 //
 // The result is a fresh slice whenever anything changed: cmd is a subslice of
 // the caller's args, which classifyGhAPI still reads, so rewriting in place

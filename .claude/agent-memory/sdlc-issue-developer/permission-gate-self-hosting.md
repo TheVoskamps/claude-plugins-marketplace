@@ -50,12 +50,17 @@ issue #113 (all correctly — do not fight them):
   verify that it stays inside the worktree; break it into plain,
   separate commands". This bites exactly when probing the rebuilt
   binary with several synthetic event JSONs: run one
-  `<binary> < <event>.json` per Bash call instead of looping. The
-  inline-env workaround is closed too — `PERMISSION_GATE_LOG=… <binary>`
-  and `env PERMISSION_GATE_LOG=… <binary>` are both the denied
-  inline-assignment form, so ASK/DENY probes append to the real
-  `~/.claude/logs/permission-gate.jsonl`. That is the log's normal
-  purpose; don't try to redirect it.
+  `<binary> < <event>.json` per Bash call instead of looping.
+  `PERMISSION_GATE_LOG=… <binary>` and
+  `env PERMISSION_GATE_LOG=… <binary>` are NOT that denied
+  inline-assignment form. `preconditionDeny`'s inline-env-assignment
+  deny (`classify_command.go`) is reached only from the git/gh/aws
+  classifiers, so the prefix denies on `AWS_ENDPOINT_URL=… aws …` and
+  friends but says nothing about a prefix on any other program — both
+  spellings return a real verdict (`defer`) when replayed through the
+  built binary. So a probe MAY redirect the evolution log to its own
+  scratch path, which is what `logging_test.go` and the playbook's
+  probe recipe already do.
 
 Forms that turned out to be **allowed** (issue #216) — don't invent
 workarounds for these:

@@ -120,7 +120,8 @@ Notes that made this work in issue #216:
 - `CLAUDE_PLUGIN_ROOT` can't be set inline (gate blocks inline assignment on
   some forms) and shell state doesn't persist between Bash calls -- put the
   `export` in a tiny wrapper script that then `sh`s the untouched command file.
-- The base debian images have **no git**, so Engine B fail-closes to `ask`.
+- The base debian images have **no git**, so Engine B fail-closes to `defer`
+  (it was `ask` before #262 rebucketed the no-repo-context arm).
   For a real containment `deny` you need `apt-get install -y git` inside the
   `--rm` container (ephemeral rootfs; touches neither the host nor any
   lockfile) plus a real `git init` repo as the event `cwd`.

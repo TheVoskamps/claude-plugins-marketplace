@@ -14,10 +14,11 @@ prediction is a claim about existing code and can be wrong.
 **Why:** on #193 / PR #208 round 4 the bullet read "`cat < <in-repo>`
 behaves exactly as `cat <in-repo>`" (a rule) alongside
 "`cat < ~/.claude/CLAUDE.md` defers" and "`cat < $UNRESOLVED` defers"
-(predictions). Measured: the operand forms ALLOW and ASK respectively,
-because the curated read-utility track's terminal for any
-contained-or-carved-out operand is an allow, and a path-bearing utility
-fail-closes to ASK on a dynamic path. Implementing the predictions would
+(predictions). Measured: the operand forms ALLOW and (as of #262) DEFER
+respectively — the second read ASK when measured, before #262 rebucketed
+the unresolvable-path arms — because the curated read-utility track's
+terminal for any contained-or-carved-out operand is an allow, and a
+path-bearing utility fail-closes on a dynamic path. Implementing the predictions would
 have required special-casing one carve-out for redirects only — the very
 "two spellings of one read carry two verdicts" inconsistency the same
 issue condemns elsewhere.

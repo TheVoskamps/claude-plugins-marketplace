@@ -53,8 +53,9 @@ func TestHomeVarResolvesLikeTilde_156(t *testing.T) {
 
 // TestHomeVarUnresolvableFailsClosed_156 pins the fail-closed branch: when
 // os.UserHomeDir() (via the injected resolver) errors or returns empty,
-// $HOME must NOT resolve — the word stays inexact and the command
-// escalates (ASK), it must never silently resolve to "" or guess ALLOW.
+// $HOME must NOT resolve — the word stays inexact and the command withholds
+// the allow (a dynamic-path DEFER), it must never silently resolve to "" or
+// guess ALLOW.
 func TestHomeVarUnresolvableFailsClosed_156(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -128,14 +129,14 @@ func TestPWDResolvesAgainstTrackedCwdNotEventCwd_156(t *testing.T) {
 
 // TestPWDInvalidAfterDynamicCdFailsClosed_156 pins the issue's other $PWD
 // acceptance criterion: when a dynamic `cd` invalidates the tracked cwd,
-// $PWD must fail closed (ASK), never resolve against a stale/guessed value.
+// $PWD must fail closed (DEFER), never resolve against a stale/guessed value.
 func TestPWDInvalidAfterDynamicCdFailsClosed_156(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cat "$PWD/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#156: $PWD must fail closed after a dynamic cd invalidates the tracked cwd")
+	wantBucket(t, d, BucketDefer, "#156: $PWD must fail closed after a dynamic cd invalidates the tracked cwd")
 }
 
 // TestOLDPWDResolvesToPriorTrackedCwd_156 pins the issue's $OLDPWD
@@ -178,14 +179,14 @@ func TestOLDPWDResolvesToPriorTrackedCwd_156(t *testing.T) {
 
 // TestOLDPWDBeforeAnyCdFailsClosed_156 pins the issue's fail-closed
 // requirement: $OLDPWD before any `cd` has happened in the program is not
-// tracked and must fail closed (ASK).
+// tracked and must fail closed (DEFER).
 func TestOLDPWDBeforeAnyCdFailsClosed_156(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cat "$OLDPWD/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#156: $OLDPWD with no preceding cd in the program must fail closed")
+	wantBucket(t, d, BucketDefer, "#156: $OLDPWD with no preceding cd in the program must fail closed")
 }
 
 // TestOLDPWDInvalidAfterDynamicCdFailsClosed_156 pins $OLDPWD's fail-closed
@@ -197,7 +198,7 @@ func TestOLDPWDInvalidAfterDynamicCdFailsClosed_156(t *testing.T) {
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cd ` + wt + ` && cat "$OLDPWD/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#156: $OLDPWD must fail closed when the prior tracked cwd was invalid")
+	wantBucket(t, d, BucketDefer, "#156: $OLDPWD must fail closed when the prior tracked cwd was invalid")
 }
 
 // TestUserAndTmpdirResolveFromProcessEnv_156 pins the issue's $USER/$TMPDIR
@@ -286,7 +287,7 @@ func TestInScriptAssignmentWinsOverEnv_156(t *testing.T) {
 
 // TestUnsupportedEnvVarStaysUnresolvable_156 pins the issue's closed-
 // allowlist requirement: an env var outside {HOME, USER, TMPDIR, PWD,
-// OLDPWD} — e.g. $FOO or $PATH — stays unresolvable (ASK) even when the
+// OLDPWD} — e.g. $FOO or $PATH — stays unresolvable (DEFER) even when the
 // process env has a value for it.
 func TestUnsupportedEnvVarStaysUnresolvable_156(t *testing.T) {
 	base := t.TempDir()
@@ -300,7 +301,7 @@ func TestUnsupportedEnvVarStaysUnresolvable_156(t *testing.T) {
 		`cat "$PATH/.ssh/id_rsa"`,
 	} {
 		d := classifyBash(cmd, ev)
-		wantBucket(t, d, BucketAsk, "#156: "+cmd+" must stay unresolvable — the allowlist is closed")
+		wantBucket(t, d, BucketDefer, "#156: "+cmd+" must stay unresolvable — the allowlist is closed")
 	}
 }
 

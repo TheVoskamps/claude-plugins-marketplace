@@ -59,8 +59,13 @@ func TestRemediationReasonsAreActionable_58(t *testing.T) {
 
 	for _, c := range cases {
 		d := c.got()
-		if d.Bucket != BucketDeny && d.Bucket != BucketAsk {
-			t.Fatalf("%s: expected a deny/ask decision to inspect; got %q (%s)", c.name, d.Bucket, d.Reason)
+		// Every reason-bearing bucket qualifies, DEFER included: a deferJudgment
+		// site's analysis is written into the §7 log and read by a human tuning
+		// the evaluator, so an issue-tracker pointer is exactly as useless there
+		// as in a prompt.
+		if d.Reason == "" {
+			t.Fatalf("%s: expected a reason-bearing decision to inspect; got %q with an empty reason",
+				c.name, d.Bucket)
 		}
 		if trackerRefInReason.MatchString(d.Reason) {
 			t.Errorf("%s: Reason carries a non-actionable issue-tracker pointer; got %q", c.name, d.Reason)

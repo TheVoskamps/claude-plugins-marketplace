@@ -24,7 +24,7 @@ import (
 //   - Path operands of a path-bearing utility must pass Engine B containment,
 //     so a `cat ../sibling-repo/node_modules/x` still denies; a target
 //     resolving into the primary clone / shared git dir is treated as
-//     contained rather than asking, except under `.git/`, which still
+//     contained rather than escalating, except under `.git/`, which still
 //     denies. Reused from classifyPathReader via containPathOperands.
 //
 // Every utility in the ALLOW set carries a defersForm predicate: it reports
@@ -389,8 +389,9 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 	// carve-out designates safe by construction and which `tee`/`cp` already
 	// write to under an ALLOW. redirectVetoesAllow owns that grading; see why
 	// the lift is exactly that narrow. (The unknown-expansion half of
-	// allowEligible is handled below: a path-bearing utility fails closed ASK on
-	// a dynamic path operand, a stronger posture than defer.)
+	// allowEligible is handled below: a path-bearing utility DEFERS WITH ITS
+	// ANALYSIS on a dynamic path operand — the same bucket as this bare defer,
+	// but the §7 log records why.)
 	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}
@@ -413,22 +414,23 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 
 	if spec.pathBearing || len(readPaths) > 0 {
 		// A command substitution / unresolved expansion in a path operand or a
-		// redirect source can't be statically contained → fail closed ASK (the
-		// same posture classifyPathReader holds), not a silent defer.
+		// redirect source can't be statically contained → DEFER WITH THE
+		// ANALYSIS (the same posture classifyPathReader holds), not a silent
+		// bare defer: the verdict is the same, but the log records why.
 		if sc.hasUnknownExpansion {
-			return ask("bash-read:dynamic-path", fmt.Sprintf(
-				"Blocked: '%s' has a path argument built from an expansion the gate cannot resolve statically; "+
-					"escalating to a human decision (fail-closed).", prog))
+			return deferJudgment("bash-read:dynamic-path", fmt.Sprintf(
+				"'%s' has a path argument built from an expansion the gate cannot resolve statically, so "+
+					"containment cannot be run on it.", prog))
 		}
 		// A preceding dynamic `cd` invalidated the running cwd: a
-		// relative operand cannot be safely resolved. Fail closed ASK, the same
-		// posture classifyPathReader holds via cdInvalidAsk.
-		if d, hit := cdInvalidAsk(prog, sc); hit {
+		// relative operand cannot be safely resolved. DEFER, the same posture
+		// classifyPathReader holds via cdInvalidDefer.
+		if d, hit := cdInvalidDefer(prog, sc); hit {
 			return d
 		}
 		// Engine B containment on every path it reads: a cross-repo read still
 		// denies; a primary-clone/worktree-escape read is treated as
-		// contained instead of asking, except a target under `.git/`,
+		// contained instead of escalating, except a target under `.git/`,
 		// which still denies. A non-contained path returns that
 		// deny verdict; otherwise ALLOW.
 		if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {

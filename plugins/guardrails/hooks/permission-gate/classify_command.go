@@ -10,15 +10,18 @@ import (
 //
 //  1. A synthetic redirect-only command (no program at all, just redirects the
 //     shell performs) → graded on the paths those redirects open.
-//  2. A command we cannot statically pin (no program token) → ASK.
+//  2. A command we cannot statically pin (no program token) → DEFER (with the
+//     analysis; it never reaches the allow track).
 //  3. A command with a redirect to a real file → DEFER (the normal pipeline's
 //     allow-list will not match it; we do not auto-allow exfiltration) — unless
 //     every destination is a session-shaped harness scratchpad, the one
 //     region designated safe by construction. See redirectVetoesAllow.
-//  4. Program-specific DENY/ASK rules (git, gh, aws identity, etc.).
+//  4. Program-specific DENY / hard-ASK / DEFER rules (git, gh, aws identity,
+//     etc.).
 //  5. Program-specific ALLOW rules (read-only git/gh/aws/acli).
 //  6. Path-bearing read/write programs → Engine B containment.
-//  7. Otherwise DEFER to the normal pipeline.
+//  7. Otherwise DEFER to the normal pipeline, labelled bash:no-specific-rule
+//     (deferResidualOp) so the §7 log records which program went unrecognized.
 func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	// Redirects the shell performs for a construct that runs no program
 	// (`[[ -f x ]] > f`, `(( i++ )) > f`, `export A=1 > f`, `case q in esac > f`).
@@ -29,7 +32,8 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	}
 
 	if len(sc.args) == 0 {
-		return ask("bash:no-program", "Blocked: could not determine the program for a command part; escalating to a human (fail-closed).")
+		return deferJudgment("bash:no-program",
+			"could not determine the program for a command part, so there is nothing to classify.")
 	}
 
 	prog := basename(sc.args[0])
@@ -55,7 +59,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	case "less", "more", "od", "xxd", "hexdump":
 		// Read-class pagers / binary dumpers whose path arguments must stay
 		// inside the repo (do not read a sibling repo's node_modules to
-		// verify APIs). Contained reads DEFER; only an escape denies/asks. These
+		// verify APIs). Contained reads DEFER; only an escape denies. These
 		// are deliberately NOT in the read-only-utility ALLOW set — they
 		// are interactive / binary-dump tools, out of that track's scope.
 		return classifyPathReader(prog, args, sc, ev)
@@ -84,9 +88,29 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 		return classifyReadOnlyUtility(prog, args, sc, ev)
 	}
 
-	// No specific rule. The gate has no opinion; hand back to the pipeline.
-	return deferToPipeline()
+	// No specific rule. The gate has no opinion on the program itself; hand the
+	// call back to the pipeline.
+	//
+	// It defers WITH an account rather than bare, even though the account is
+	// thin (#262 review). This is the residual an unrecognized program reaches —
+	// `npm test`, `python3 x.py`, `make`, every tool the gate has no table for —
+	// so it is by volume the largest single source of DEFER records, and a blank
+	// `{"operation":"","analysis":""}` row makes exactly that traffic invisible
+	// to the automode re-tune the §7 log feeds. The program name plus "no rule
+	// matched" is the whole of what the gate established, and it is enough to
+	// bucket the log by program.
+	return deferJudgment(deferResidualOp, fmt.Sprintf(
+		"no permission-gate rule matches the program '%s': it is on none of the classifier tables "+
+			"(git/gh/aws/acli), none of the in-repo-write or read-only-utility sets, and none of the "+
+			"path-reader set, so the gate established nothing about it either way.", prog))
 }
+
+// deferResidualOp is the §7 operation label for the no-specific-rule residual
+// above. It is named rather than inlined because the aggregator in
+// engine_a_bash.go ranks it BELOW every other defer analysis: for a line like
+// `npm test && git reset --hard`, the account worth logging is the one from the
+// arm that recognized something, not the residual that fired first.
+const deferResidualOp = "bash:no-specific-rule"
 
 // classifyRedirectOnly grades a synthetic redirect-only command: a statement
 // whose redirects the shell performs even though there is no program attached to
@@ -119,14 +143,14 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 
 	if len(sc.inputRedirectTargets) > 0 {
 		// A source built from an expansion the gate cannot resolve, or a relative
-		// one after a dynamic `cd`, cannot be contained — fail closed ASK, the
-		// same posture the read tracks hold for an unresolvable operand.
+		// one after a dynamic `cd`, cannot be contained — DEFER, the same posture
+		// the read tracks hold for an unresolvable operand.
 		if sc.hasUnknownExpansion {
-			return ask("bash-read:dynamic-path", fmt.Sprintf(
-				"Blocked: '%s' opens a path built from an expansion the gate cannot resolve "+
-					"statically; escalating to a human decision (fail-closed).", prog))
+			return deferJudgment("bash-read:dynamic-path", fmt.Sprintf(
+				"'%s' opens a path built from an expansion the gate cannot resolve statically, so containment "+
+					"cannot be run on it.", prog))
 		}
-		if d, hit := cdInvalidAsk(prog, sc); hit {
+		if d, hit := cdInvalidDefer(prog, sc); hit {
 			return d
 		}
 		// containPathOperands is called directly rather than through
@@ -155,9 +179,12 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 // subcommand), so a hit DENYs rather than allowing. Returns the deny Decision
 // and true on a hit; the zero Decision and false otherwise.
 //
-// Per the resolved design decisions, these classifiers never defer:
-// callers must convert this into a concrete DENY here rather than handing a
-// non-static command back to the pipeline.
+// This precondition is one of the arms that keeps every path through the
+// git/gh/aws classifiers ACCOUNTED FOR: callers convert a non-static command
+// into a concrete DENY here rather than handing it back to the pipeline
+// unlabelled. (Those classifiers no longer "never defer" — #262 moved their
+// residual and their context-dependent arms onto deferJudgment — but a defer
+// they return carries an operation label and an analysis, never silence.)
 //
 // The argv half used to fire on the whole-command hasUnknownExpansion bool, so
 // ANY dynamic token anywhere denied. Its rationale — a dynamic token can hide a
@@ -322,13 +349,16 @@ func fieldKeyPinned(staticPrefix string) bool {
 // subcommand. Positional guessing is obsolete — we consume globals
 // explicitly, then dispatch on the real subcommand.
 //
-// Per the resolved design decisions this classifier NEVER defers: the
-// catch-all for a recognized git subcommand is ALLOW. For git that ALLOW rests
+// This classifier's CATCH-ALL is ALLOW, not defer: a recognized git
+// subcommand with no dangerous shape falls through to ALLOW. Defer is reached
+// only from the individually-classified arms below — `git remote
+// add`/`set-url`/… (#163) and a main-session `git reset --hard` (#262) — plus
+// an unpinnable credentialed redirect. For git that catch-all ALLOW rests
 // on a boundary the egress proxy DOES own: guest-local git effects are
 // contained by the disposable microVM ("two boundaries, split by
 // visibility"), and git objects are content-addressed / recoverable
 // (principle 4). The remote-touching git shapes (push refspecs, remote re-aim)
-// are individually classified in the deny/ask tiers below — they do NOT rest on
+// are individually classified in the deny/ask/defer tiers below — they do NOT rest on
 // containment, because a credential-carrying push to an allowed host is exactly
 // the proxy's TLS-opaque blind spot.
 func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
@@ -377,16 +407,19 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// refspec without re-checking the remote's URL, so re-pointing `origin`
 	// (or adding a new remote) at an allowed-host foreign repo turns a benign
 	// push into an exfil-by-push the egress proxy — which sees only the allowed
-	// host, not the repo path inside the TLS — cannot distinguish. ASK so a
-	// human owns the remote change; a `git remote -v` / `get-url` read is not a
-	// mutation and is not caught here.
+	// host, not the repo path inside the TLS — cannot distinguish. Whether a
+	// given remote change is that channel or a routine one is exactly the
+	// context-dependent call the tuned evaluator reads the surrounding session
+	// for, so it DEFERS with that analysis rather than spending a hard prompt
+	// on it (#262). A `git remote -v` / `get-url` read is not a mutation and is
+	// not caught here.
 	if sub == "remote" && len(rest) >= 1 {
 		switch rest[0] {
 		case "add", "set-url", "set-url-add", "set-branches", "set-head":
-			return ask("git remote add/set-url (#163)",
+			return deferJudgment("git remote add/set-url (#163)",
 				"'git remote "+rest[0]+"' changes where a later 'git push' sends its refspec. Re-aiming a remote "+
 					"at a different repo turns an otherwise-allowed push into an exfil-by-push channel the egress proxy "+
-					"cannot see (it filters on host, not repo path). Confirm this remote change is intended.")
+					"cannot see (it filters on host, not repo path).")
 		}
 	}
 
@@ -399,12 +432,17 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 					"detached checkout of origin — e.g. 'git fetch origin <branch>' then 'git checkout --detach origin/<branch>' — "+
 					"or 'git switch -c <branch> origin/<branch>'.")
 		}
-		// Main session: still destructive — escalate to a human rather than
-		// auto-allow. (settings.json also lists this in its ask set.)
-		return ask("git reset --hard",
-			"'git reset --hard' discards committed and working-tree state. Confirm this is intended. "+
-				"A safer alternative is a detached checkout of the origin tip — e.g. 'git fetch origin <branch>' "+
-				"then 'git checkout --detach origin/<branch>'.")
+		// Main session: still destructive, but whether it is destructive HERE
+		// depends on what the working tree holds and what the session was doing
+		// — context the gate cannot read and the tuned evaluator can. DEFER with
+		// the analysis rather than auto-allowing. (settings.json also lists this
+		// in its ask set, which still applies downstream.) The subagent case
+		// above stays a DENY: there the redirect is prescriptive, which is what
+		// earns that tier.
+		return deferJudgment("git reset --hard",
+			"'git reset --hard' discards committed and working-tree state. A safer alternative is a detached "+
+				"checkout of the origin tip — e.g. 'git fetch origin <branch>' then "+
+				"'git checkout --detach origin/<branch>'.")
 	}
 
 	// --- ALLOW default: every recognized git subcommand that is not a
@@ -414,13 +452,14 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// microVM and recoverable from content-addressed git objects (the one
 	// premise the egress proxy genuinely backstops, for guest-local effects). The
 	// credential-carrying remote shapes (push, remote re-aim) do NOT reach here —
-	// they are classified in the deny/ask tiers above, because a push to an
+	// they are classified in the deny/ask/defer tiers above, because a push to an
 	// allowed host is the proxy's TLS-opaque blind spot, not a contained effect.
 	// A real-file redirect is GRADED, not vetoed: a destination inside this
 	// worktree (or in a scratchpad region designated safe by construction) is the
 	// same write `tee <path>` already performs under an ALLOW, while an escaping
-	// or unpinnable destination still ASKs. See credentialedRedirectAsk.
-	if d, hit := credentialedRedirectAsk("git", sc, ev); hit {
+	// destination DENIES and an unpinnable one DEFERS. See
+	// credentialedRedirectVerdict.
+	if d, hit := credentialedRedirectVerdict("git", sc, ev); hit {
 		return d
 	}
 	return allow(fmt.Sprintf("git %s is not a guarded dangerous operation", sub))
@@ -438,7 +477,9 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 // execute code is denied. We allow a conservative allowlist of inert display
 // knobs (color.*, core.pager=cat is still denied because pager values run a
 // shell) and deny the rest of `-c`, because the cost of a false deny is one
-// human click while a false allow is arbitrary code execution (principle 3).
+// blocked call the agent respells from the reason below — a deny teaches, it
+// does not prompt — while a false allow is arbitrary code execution
+// (principle 3).
 func gitGlobalRCEDeny(args []string) (Decision, bool) {
 	rceDeny := func() (Decision, bool) {
 		return deny("git -c config-injection RCE (#64)",
@@ -581,12 +622,17 @@ func classifyGitPush(rest []string) Decision {
 		// merits. Before, `+src:dst` reached the same ask only incidentally,
 		// because it also contained a colon — the '+' was never inspected.
 		if strings.HasPrefix(src, "+") {
+			// HARD ASK tier (#262): a history-destroying push is one of the
+			// enumerated calls fleet policy (core-principles §1) reserves for an
+			// explicit human decision, so it must not be waivable by a
+			// downstream judge however sensible the context looks.
 			return ask("git push forced-refspec (#64)",
 				"'git push' with a '+' prefix on the refspec (e.g. 'origin +HEAD:branch') forces the update: "+
 					"the '+' is git's per-ref equivalent of --force, so the remote accepts a non-fast-forward "+
-					"and the overwritten commits are lost unless someone captured the prior SHA. Confirm this is "+
-					"intended. Drop the '+' for a plain fast-forward push, or use --force-with-lease for race "+
-					"protection.")
+					"and the overwritten commits are lost unless someone captured the prior SHA. Fleet policy "+
+					"requires explicit human permission for a history-destroying push, so this is a human "+
+					"decision by policy rather than an unclassifiable command. Drop the '+' for a plain "+
+					"fast-forward push, or use --force-with-lease for race protection.")
 		}
 		// A plain 'src:dest' (`HEAD:branch`, `HEAD:refs/heads/branch`) is NOT an
 		// overwrite. receive-pack rejects a non-fast-forward ref update unless
@@ -606,9 +652,14 @@ func classifyGitPush(rest []string) Decision {
 	}
 
 	if hasForce && !hasForceWithLease {
+		// HARD ASK tier (#262): same policy basis as the forced-refspec arm
+		// above — fleet rules reserve a history-destroying push for an explicit
+		// human decision. --force-with-lease and --force-if-includes are exempt
+		// there and here (hasForceWithLease clears this arm).
 		return ask("git push --force (#64)",
 			"'git push --force' overwrites the remote ref and, if nobody captured the prior SHA, degrades to "+
-				"irreparable. Confirm this is intended. Prefer 'git push --force-with-lease' for race protection.")
+				"irreparable. Fleet policy requires explicit human permission for a history-destroying push. "+
+				"Prefer 'git push --force-with-lease' for race protection, which is allowed without a prompt.")
 	}
 
 	// --force-with-lease, --delete <branch>, tag deletion, and an ordinary

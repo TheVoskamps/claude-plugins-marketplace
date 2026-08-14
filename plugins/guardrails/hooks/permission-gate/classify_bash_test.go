@@ -15,6 +15,25 @@ func classifyCmd(t *testing.T, cmd string, subagent bool) Decision {
 	return classifyBash(cmd, ev)
 }
 
+// classifyCmdInRepo is classifyCmd with a REAL repository as the running cwd.
+// classifyCmd's `/tmp` cwd has no repo context, so every containment-bearing
+// arm there terminates in the "repository boundary could not be resolved"
+// residual instead of the rule under test — which silently passes any row
+// whose expected bucket happens to match that residual. Use this whenever the
+// row's verdict depends on where a path actually lands.
+func classifyCmdInRepo(t *testing.T, cmd string, subagent bool) Decision {
+	t.Helper()
+	repo := t.TempDir()
+	gitInit(t, repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo)}
+	if subagent {
+		ev.AgentType = "issue-developer"
+	} else {
+		ev.AgentType = "main"
+	}
+	return classifyBash(cmd, ev)
+}
+
 func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 	t.Helper()
 	if d.Bucket != want {
@@ -25,9 +44,12 @@ func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 // wantReason asserts the bucket AND a distinguishing fragment of the reason.
 // The gate stacks many rules that produce the SAME bucket for one event, so a
 // bucket-only assertion can pass without ever reaching the rule under test —
-// which is how a row asserting a publish ASK keeps passing after it starts
-// earning a no-repo-context ASK instead. Use this wherever the bucket alone
-// does not identify which rule fired.
+// which is how a row asserting one particular DEFER keeps passing after it
+// starts earning the no-repo-context DEFER instead. (That residual was an ASK
+// until #262 rebucketed it, so the same trap used to be aimed at rows
+// asserting a publish ASK; the collision moved tiers, it did not go away, and
+// the DEFER tier now holds far more arms for a row to land on by accident.)
+// Use this wherever the bucket alone does not identify which rule fired.
 func wantReason(t *testing.T, d Decision, want Bucket, reasonFragment, label string) {
 	t.Helper()
 	if d.Bucket != want {
@@ -116,9 +138,15 @@ func TestGitResetHard_120(t *testing.T) {
 	if !containsSubstr(dSub.Reason, "detached checkout") {
 		t.Errorf("#120 remediation must mention detached checkout; got %q", dSub.Reason)
 	}
-	// Main session: ask (still destructive) with the same remediation hint.
+	// Main session: DEFER (#262) — still destructive, but whether it is
+	// destructive HERE depends on the working tree and what the session was
+	// doing, which the evaluator reads and the gate cannot. The same
+	// remediation hint rides the analysis into the §7 log.
 	dMain := classifyCmd(t, "git reset --hard HEAD", false)
-	wantBucket(t, dMain, BucketAsk, "main git reset --hard")
+	wantBucket(t, dMain, BucketDefer, "main git reset --hard")
+	if !containsSubstr(dMain.Reason, "detached checkout") {
+		t.Errorf("#120 main-session defer analysis must keep the remediation; got %q", dMain.Reason)
+	}
 }
 
 // §10: git config user.* identity writes are denied, including the
@@ -252,9 +280,10 @@ func TestReducibleConstructs_35(t *testing.T) {
 	// normal pipeline.
 	notUnhandled(`export WORK_LOG="$(mktemp)" && bash harness.sh`)
 	// A destructive inner command in a substitution must be descended into and
-	// classified by the normal pipeline path — assert it is not a blanket ask
-	// (the rm itself defers/asks per the normal pipeline, not the
-	// unhandled-construct backstop).
+	// classified by the normal pipeline path — assert the verdict does not come
+	// from the unhandled-construct backstop. (Measured against the built
+	// binary: the rm lands on classifySimpleCommand's no-specific-rule
+	// residual, a DEFER carrying `bash:no-specific-rule` as its analysis.)
 	notUnhandled("local d=$(rm -rf /tmp/x)")
 }
 
@@ -277,8 +306,9 @@ func TestReadOnlyAllowed(t *testing.T) {
 	}
 }
 
-// The aws terminal fall-through changed from ALLOW to ASK: an aws op the
-// gate cannot prove read-only (e.g. s3api delete-object) now ASKs, because the
+// The aws terminal fall-through inverted from ALLOW to a withheld allow, and
+// #262 settled it in the DEFER middle: an aws op the gate cannot prove
+// read-only (e.g. s3api delete-object) defers, because the
 // call carries the guest's credentials to a control plane outside the
 // microVM and mutates real cloud state the VM cannot roll back — containment
 // does not live in the microVM for aws. The deny/ask tiers (--endpoint-url,
@@ -296,7 +326,7 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 	// A read-only op gets the read-only label (token-anchored list-/describe-/
 	// get- prefix) and ALLOWs. Check the ALLOW-branch's exact label ("is a
 	// read-only operation"), not the bare substring "read-only operation" —
-	// the ASK branch's message also contains that bare substring (as
+	// the DEFER branch's message also contains that bare substring (as
 	// "is not a provably read-only operation"), so the bare substring check
 	// would no longer distinguish the two branches.
 	_, d := mk("aws", "s3api", "list-buckets")
@@ -305,10 +335,10 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 		t.Errorf("list-buckets should be labeled read-only; got %q", d.Reason)
 	}
 	// Substring trap: `unlist-thing` merely CONTAINS "list" but is not a list-*
-	// prefix, so it must NOT be labeled a read-only op (it ASKs via the
+	// prefix, so it must NOT be labeled a read-only op (it DEFERS via the
 	// non-read-op default instead).
 	_, d2 := mk("aws", "foo", "unlist-thing")
-	wantBucket(t, d2, BucketAsk, "aws unlist-thing (not read-anchored)")
+	wantBucket(t, d2, BucketDefer, "aws unlist-thing (not read-anchored)")
 	if containsSubstr(d2.Reason, "is a read-only operation") {
 		t.Errorf("unlist-thing must not be labeled read-only (substring trap); got %q", d2.Reason)
 	}
@@ -324,7 +354,7 @@ func TestRedirectToFileNotAllowed(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git status 2>/dev/null", false), BucketAllow, "redirect /dev/null")
 }
 
-// §10: unparseable command fails closed (ASK, never allow).
+// §10: unparseable command fails closed (never allow, never defer).
 func TestUnparseableFailsClosed(t *testing.T) {
 	d := classifyCmd(t, "git status && (", false) // unbalanced paren
 	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
@@ -336,9 +366,16 @@ func TestUnparseableFailsClosed(t *testing.T) {
 // panicked with a nil-pointer dereference while classifying `<(...)` /
 // `>(...)` process substitution, because the expand.Config used by literalWord
 // set no ProcSubst handler and expand.Literal calls it unconditionally. The
-// gate must classify these constructs without crashing. Process substitution's
-// inner command is not statically resolvable, so the line must NOT ride the
-// allow track — it defers/asks — but it must never panic.
+// gate must classify these constructs without crashing.
+//
+// The not-ALLOW assertion below is satisfied by classifyCmd's `/tmp` cwd, not
+// by any procsubst rule: with no repo context every containment-bearing arm
+// terminates in the no-repo-context residual (a DEFER since #262, an ASK
+// before). The gate DOES descend into the inner command — replayed against the
+// built binary with a real repo cwd, `cat <(echo hi)`, `comm -12 <(sort a)
+// <(sort b)` and `wc -l < <(grep x file)` all ALLOW, while `cat <(ls /etc)`
+// denies on the inner operand — so "procsubst never allows" is not a property
+// this test pins, and the row that matters here is the panic, not the bucket.
 func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
 	cmds := []string{
 		"cat <(echo hi)",
@@ -356,8 +393,11 @@ func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
 				}
 			}()
 			d := classifyCmd(t, cmd, false)
-			// Inner command of a process substitution is not statically
-			// resolvable, so the line must not auto-allow.
+			// Every row here carries a path operand, so under this helper's
+			// repo-less cwd each one lands on the no-repo-context residual
+			// (measured: all six DEFER against the built binary with
+			// cwd=/tmp). The bucket check is a smoke test around the panic,
+			// not a procsubst policy claim.
 			if d.Bucket == BucketAllow {
 				t.Errorf("process substitution must not ALLOW (%q); got %q", cmd, d.Bucket)
 			}

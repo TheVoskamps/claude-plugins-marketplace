@@ -88,14 +88,14 @@ func TestCdTrackingMultipleDotDotLevels_129(t *testing.T) {
 
 // TestCdTrackingDynamicCdFailsClosed_129 covers `cd "$UNKNOWN" && cat ../x`:
 // a dynamic cd target invalidates the running cwd, so the later relative
-// operand must fail closed (ASK), not silently resolve against ev.CWD.
+// operand must fail closed (DEFER), not silently resolve against ev.CWD.
 func TestCdTrackingDynamicCdFailsClosed_129(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cat ../x`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketAsk, "#129 dynamic cd must invalidate running cwd and fail closed")
+	wantBucket(t, d, BucketDefer, "#129 dynamic cd must invalidate running cwd and withhold the allow")
 }
 
 // TestCdTrackingAbsoluteOperandUnaffected_129 covers `cd <worktree>/a &&

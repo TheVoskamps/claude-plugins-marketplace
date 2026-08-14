@@ -13,7 +13,8 @@ import (
 //
 // We shim `git` with a script that sleeps longer than gitRevParseTimeout, put
 // it first on PATH, and assert resolveRepoContext returns an error (which the
-// callers convert to ASK/DENY, never allow).
+// callers convert to a withheld allow — a `no-repo-context` DEFER carrying the
+// resolution failure as its analysis — never an ALLOW).
 //
 // To keep the test fast we cannot lower the production timeout, so instead we
 // exercise runGit's timeout path with a context we control via a slow shim and

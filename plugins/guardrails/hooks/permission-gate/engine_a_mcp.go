@@ -12,10 +12,12 @@ func isMCPTool(name string) bool {
 }
 
 // classifyMCP branches on the MCP tool name (§2). Read-only MCP tools ALLOW;
-// known write/mutation tools (GitHub MCP merges, release/branch-protection/
-// settings mutations, and the like) ASK — a human should confirm a remote
-// mutation. Anything we can't confidently call read-only ASKs rather than
-// allows (ask-default).
+// everything else DEFERS (#262). The mutation branch and the unknown-tool
+// branch are both judgment-middle calls: the classification here is a
+// SUBSTRING match on a tool NAME, which says nothing about what the call
+// actually targets, so a downstream judge reading the arguments and the
+// session context is strictly better placed than a prompt. Neither branch ever
+// reaches the allow track.
 func classifyMCP(ev *Event) Decision {
 	name := ev.ToolName
 	// The tool segment is everything after the second "__".
@@ -25,12 +27,11 @@ func classifyMCP(ev *Event) Decision {
 	}
 	lt := strings.ToLower(tool)
 
-	// Explicit high-risk mutation verbs / nouns on remote services → ASK.
+	// Explicit high-risk mutation verbs / nouns on remote services → DEFER.
 	for _, frag := range mcpMutationFragments {
 		if strings.Contains(lt, frag) {
-			return ask("mcp:mutation", fmt.Sprintf(
-				"MCP tool '%s' looks like a remote-state mutation (matched %q). "+
-					"Confirm this is intended before it runs.", name, frag))
+			return deferJudgment("mcp:mutation", fmt.Sprintf(
+				"MCP tool '%s' looks like a remote-state mutation (matched %q).", name, frag))
 		}
 	}
 
@@ -46,13 +47,14 @@ func classifyMCP(ev *Event) Decision {
 		}
 	}
 
-	// Unknown MCP tool: ask-default (fail toward human decision).
-	return ask("mcp:unknown", fmt.Sprintf(
-		"MCP tool '%s' is not on the gate's read-only allow set; escalating to a human decision (ask-default).", name))
+	// Unknown MCP tool: the gate has no read-only grounds, so it withholds the
+	// allow and hands the call on.
+	return deferJudgment("mcp:unknown", fmt.Sprintf(
+		"MCP tool '%s' is not on the gate's read-only allow set, so it has no positive grounds to bless it.", name))
 }
 
 // mcpMutationFragments are substrings that, when present in an MCP tool name,
-// indicate a remote-state mutation that must be confirmed by a human.
+// indicate a remote-state mutation, which the gate cannot bless on its own.
 var mcpMutationFragments = []string{
 	"merge", "create", "update", "delete", "remove", "add", "set",
 	"close", "reopen", "edit", "push", "write", "upload", "dispatch",

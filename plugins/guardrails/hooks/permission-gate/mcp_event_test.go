@@ -2,7 +2,8 @@ package main
 
 import "testing"
 
-// §10 / §2: read-only MCP tools allowed; write MCP tools ask; unknown asks.
+// §10 / §2: read-only MCP tools allowed; write MCP tools defer; unknown defers
+// (#262 — an MCP tool NAME substring is not grounds for a human click).
 func TestMCPClassification(t *testing.T) {
 	cases := []struct {
 		name string
@@ -15,10 +16,10 @@ func TestMCPClassification(t *testing.T) {
 		{"ide diagnostics read-only", "mcp__ide__getDiagnostics", BucketAllow},
 		{"list read-only", "mcp__github__list_pull_requests", BucketAllow},
 		{"get read-only", "mcp__github__get_issue", BucketAllow},
-		{"merge mutation", "mcp__github__merge_pull_request", BucketAsk},
-		{"create mutation", "mcp__github__create_release", BucketAsk},
-		{"branch protection mutation", "mcp__github__update_branch_protection", BucketAsk},
-		{"unknown tool asks", "mcp__weird__frobnicate", BucketAsk},
+		{"merge mutation", "mcp__github__merge_pull_request", BucketDefer},
+		{"create mutation", "mcp__github__create_release", BucketDefer},
+		{"branch protection mutation", "mcp__github__update_branch_protection", BucketDefer},
+		{"unknown tool defers", "mcp__weird__frobnicate", BucketDefer},
 	}
 	for _, c := range cases {
 		ev := &Event{ToolName: c.tool, ToolInput: []byte(`{}`)}
@@ -29,11 +30,19 @@ func TestMCPClassification(t *testing.T) {
 	}
 }
 
-// §10: every uncertain operation lands in ASK (ask-default posture).
-func TestAskDefaultForUnknownMCP(t *testing.T) {
+// §10 (#262): an uncertain operation lands in DEFER, and — the half that
+// matters — never in ALLOW. The bucket is asserted exactly so a future
+// widening of the read-only sets cannot quietly turn an unknown tool into an
+// allow while this test keeps passing on a "not ask" check.
+func TestUnknownMCPDefersAndCarriesAnalysis(t *testing.T) {
 	ev := &Event{ToolName: "mcp__svc__do_something_weird", ToolInput: []byte(`{}`)}
-	if classifyMCP(ev).Bucket != BucketAsk {
-		t.Errorf("unknown MCP must ASK")
+	d := classifyMCP(ev)
+	if d.Bucket != BucketDefer {
+		t.Errorf("unknown MCP must DEFER; got %q", d.Bucket)
+	}
+	if d.Operation == "" || d.Reason == "" {
+		t.Errorf("unknown-MCP defer must carry the gate's analysis for the §7 log; got op=%q reason=%q",
+			d.Operation, d.Reason)
 	}
 }
 
@@ -65,12 +74,17 @@ func TestMainSessionNotSubagent(t *testing.T) {
 	}
 }
 
-// A Bash event missing its command fails closed (ASK).
-func TestBashNoCommandFailsClosed(t *testing.T) {
+// A Bash event missing its command never ALLOWs. Post-#262 it defers with the
+// read error as its analysis, rather than spending a human click on an event
+// that carries no command for a human to adjudicate.
+func TestBashNoCommandNeverAllows(t *testing.T) {
 	ev := &Event{ToolName: "Bash", ToolInput: []byte(`{}`), CWD: "/tmp"}
 	d := classify(ev)
-	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
-		t.Errorf("bash with no command must fail closed; got %q", d.Bucket)
+	if d.Bucket != BucketDefer {
+		t.Errorf("bash with no command must defer; got %q", d.Bucket)
+	}
+	if d.Operation != "bash:unreadable" || d.Reason == "" {
+		t.Errorf("unreadable-bash defer must be loggable; got op=%q reason=%q", d.Operation, d.Reason)
 	}
 }
 

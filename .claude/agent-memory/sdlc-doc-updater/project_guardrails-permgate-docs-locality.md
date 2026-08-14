@@ -83,8 +83,14 @@ comments for it too, not just the Markdown.
 **Slash-joined classifier lists are a claim class of their own (#193,
 PR #208):** the fixer wrote "The `git`/`gh`/`aws`/`acli` classifiers
 keep their own unconditional redirect-to-file `ask`". Three of the four
-do; `classifyAcli` gates its read-only allow on `sc.allowEligible()`,
-so a redirect there **defers**. The lumping is seductive because those
+did; `classifyAcli` gates its read-only allow on `sc.allowEligible()`,
+so a redirect there **defers**. (The bucket word has since moved on:
+in #262 the credentialed redirect became
+`credentialedRedirectVerdict`, which denies a proven escape and returns
+no verdict at all for a contained destination, leaving the calling
+track's own terminal to govern — but the lumping lesson is the durable
+part.)
+The lumping is seductive because those
 four are always named together elsewhere in the file (the classifier
 dispatch, the bypass-gate paragraph), so the habit of writing them as
 one slash-joined group survives into a sentence where they diverge.
@@ -133,7 +139,8 @@ gate could not tell that arm from a title edit, and probing an
 `agentAssignment`-carrying document against the then-current binary
 confirmed **allow**. The owner's ruling on that finding was to drop
 `updateIssue` from the list entirely and keep only
-`updateIssueFieldValue`, so the verb ASKs again as it always did;
+`updateIssueFieldValue`, so the verb left the allow track again (it
+ASKed at the time; #262 rebucketed it to a teaching DENY);
 `updateIssueIssueType` covers the type-setting the widening was asked
 for. Generalize: when an allowlist gains a verb that takes a single
 generic input object, introspect the input type and grade the
@@ -368,7 +375,9 @@ comment, untouched since #64: it billed the function as covering
 "release/gist publish" (publish is an ASK in `classifyGh`, not in that
 function at all) and claimed "an unrecognized secret/variable/ruleset
 subcommand denies (fail closed)" when the `ruleset` arm denies `delete`
-alone — `gh ruleset bogus` asks. A summary sentence at the top of a
+alone — `gh ruleset bogus` escapes to the unrecognized-`gh` residual
+(an ASK when this was written; a DEFER since #262). A summary sentence
+at the top of a
 DENY-tier function is where a tier list rots, because nobody rereads it
 when the tier next to it changes. When a round moves rows into or out
 of a tier, read that tier's function comment end to end against its own
@@ -376,13 +385,22 @@ switch.
 
 **An alias-resolution round is a diagnostic-detail change too.** Every
 message downstream quotes the CANONICAL spelling, so `gh secret remove
-FOO` is refused as `'gh secret delete'`, `gh pr co 1` asks about
-`'gh pr checkout 1'`, and even the fail-closed ask echoes `'gh repo
-create foo'` for a typed `gh repo new foo`. Nothing said so on either
-doc surface; an agent grepping a deny reason for the words it typed
-finds nothing. Same class as
-[[feedback_diagnostic-detail-claims]] — check what the message STRING
-interpolates after any rewrite of the tokens it is built from.
+FOO` is refused as `'gh secret delete'`, `gh pr co 1` is analysed as
+`'gh pr checkout 1'`, and the unrecognized-`gh` residual echoes `'gh
+repo create foo'` for a typed `gh repo new foo`. Nothing said so on
+either doc surface; an agent grepping a deny reason for the words it
+typed finds nothing.
+
+Since #262 that residual DEFERS rather than asking (measured against
+the branch binary: `gh pr co 1`, `gh repo new foo` and `gh ruleset
+bogus` all return `defer` with operation `gh unrecognized command
+(#163)`), and `emitDecision` blanks a defer's reason — so the canonical
+spelling now reaches only the §7 log's `analysis` field, never the
+agent. The class is unchanged and the surface moved: after an alias
+round, check what the message STRING interpolates *and* which channel
+still carries it. The `gh secret` deny above does still show the agent
+its canonical spelling; a deny is where that check pays. Same class as
+[[feedback_diagnostic-detail-claims]].
 
 **Grade a verdict-move COUNT by its DERIVATION, never by adjudicating
 the total.** A gate PR that changes `classifyGh` states "N rows move"

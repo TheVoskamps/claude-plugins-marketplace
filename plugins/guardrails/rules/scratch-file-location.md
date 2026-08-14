@@ -130,8 +130,10 @@ The verdict inside that prefix is graded on where the path lands:
   but containment no longer hard-denies.
 - If the `claude-<uid>` root itself is not a plain directory owned by
   this user — a symlink, a non-directory, another user's — every path
-  under it **asks**, with a reason naming the defect. That is a broken
-  `/tmp`, not the carve-out failing.
+  under it **defers**, with an analysis naming the defect. That is a
+  broken `/tmp`, not the carve-out failing; the carve-out simply cannot
+  prove where a path under a defective root lands, so it withholds the
+  allow rather than escalating.
 - Outside the prefix, every other `/tmp` path — including another
   user's `/tmp/claude-<other-uid>/` — is still denied as a cross-repo
   escape.
@@ -158,7 +160,14 @@ location:
   worktree-escape (#127) escape. That holds for a credentialed tool's
   redirect too — `gh pr diff 224 > .claude/tmp/x.md` is graded on its
   destination like `tee .claude/tmp/x.md` and allows (#225), where it
-  used to ask purely for being a `gh`/`git`/`aws` redirect.
+  used to ask purely for being a `gh`/`git`/`aws` redirect. The other
+  side of that grading is now a deny: a credentialed redirect whose
+  destination the gate proves ESCAPES the worktree
+  (`git show HEAD:f > /tmp/x.md`) is denied with the same prescription
+  this document records, exactly as `Write` to that path is (#262). It
+  asked until then, which is why an agent could click through a
+  destination the `Write` spelling of the same write would have
+  redirected it away from.
 - **Gitignored** → scratch artifacts never get committed and never
   pollute a diff.
 - **Inspectable on failure** → because it lives under the repo, a
@@ -205,3 +214,13 @@ into the permission-gate binary (see
 `hooks/permission-gate/classify_inrepo_write.go` for the bash
 in-repo-write denies); this document records the convention the deny
 messages prescribe.
+
+Issue #262 extended the same reasoning to the credentialed-redirect
+track. `git show HEAD:f > /tmp/x.md` and a redirect into `.git/` used
+to ask where the `Write` tool denied the identical destination, so the
+one spelling that most needed the prescription — the one an agent
+reaches for when capturing command output — got a prompt instead of
+it. Both now deny and carry the prescription. The induced-bad-write
+argument above is why: a click-through leaves the agent to improvise a
+landing spot just as an open-ended denial does, and the prescription is
+what stops the improvisation.

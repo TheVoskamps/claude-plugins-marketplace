@@ -586,8 +586,8 @@ func TestInputRedirectContained_193(t *testing.T) {
 	// form's verdict. `~/.claude` and the unresolved expansion are listed for the
 	// same reason as the rest — whatever the operand form does, the redirect form
 	// does. (Measured today: the curated read-utility track ALLOWs a ~/.claude
-	// operand, and an unresolvable path ASKs rather than defers, because a
-	// path-bearing utility fails closed on a dynamic path.)
+	// operand, and an unresolvable path DEFERs, because a path-bearing utility
+	// fails closed on a dynamic path.)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -1130,11 +1130,12 @@ func TestHarnessScratchShapeMissDefers_193(t *testing.T) {
 	}
 }
 
-// Defective-root row (ASK): when the claude-<uid> root is not a plain directory
+// Defective-root row (DEFER, and DENY for the write tracks): when the
+// claude-<uid> root is not a plain directory
 // owned by this uid, the gate cannot prove where a path under it lands, so it
 // escalates — with a reason that NAMES the defect, so the failure is not
 // mistaken for the containment bug reappearing.
-func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
+func TestHarnessScratchDefectiveRootEscalates_193(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -1151,15 +1152,15 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 
 		for _, tool := range []string{"Read", "Write", "Edit"} {
 			d := fileToolBucket(t, tool, root, target)
-			wantBucket(t, d, BucketAsk, tc.defect+": "+tool+" through a defective scratchpad root")
+			wantBucket(t, d, BucketDefer, tc.defect+": "+tool+" through a defective scratchpad root")
 			if !containsSubstr(d.Reason, tc.wantIn) {
-				t.Errorf("%s: the ask reason must name the defect (%q); got %q", tc.defect, tc.wantIn, d.Reason)
+				t.Errorf("%s: the analysis must name the defect (%q); got %q", tc.defect, tc.wantIn, d.Reason)
 			}
 			if !containsSubstr(d.Reason, harnessScratchDisplay()) {
-				t.Errorf("%s: the ask reason must name the scratchpad root; got %q", tc.defect, d.Reason)
+				t.Errorf("%s: the analysis must name the scratchpad root; got %q", tc.defect, d.Reason)
 			}
 			if !containsSubstr(d.Reason, "NOT a containment escape") {
-				t.Errorf("%s: the ask reason must distinguish itself from a containment escape; got %q",
+				t.Errorf("%s: the analysis must distinguish itself from a containment escape; got %q",
 					tc.defect, d.Reason)
 			}
 		}
@@ -1167,14 +1168,14 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 		bev := bashEvIn(t, root, "issue-developer")
 		for _, cmd := range []string{"cat " + target, "less " + target, "tee " + target, "touch " + target} {
 			d := classifyBash(cmd, bev)
-			wantBucket(t, d, BucketAsk, tc.defect+": "+cmd)
+			wantBucket(t, d, BucketDefer, tc.defect+": "+cmd)
 			if !containsSubstr(d.Reason, tc.wantIn) {
-				t.Errorf("%s: %q ask reason must name the defect; got %q", tc.defect, cmd, d.Reason)
+				t.Errorf("%s: %q defer analysis must name the defect; got %q", tc.defect, cmd, d.Reason)
 			}
 		}
 	}
 
-	// A genuine escape in the same command still outranks the root ASK: the
+	// A genuine escape in the same command still outranks the root DEFER: the
 	// scratchpad-root finding is recorded, not returned inline.
 	withScratchRoot(t, harnessScratchRootState{root: fake, defect: "a symlink"})
 	sibling := filepath.Join(base, "sibling")
@@ -1182,7 +1183,7 @@ func TestHarnessScratchDefectiveRootAsks_193(t *testing.T) {
 	src := filepath.Join(fake, sessionSlug, sessionUUID, "scratchpad", "x.md")
 	cpBev := bashEvIn(t, root, "issue-developer")
 	wantBucket(t, classifyBash("cp "+src+" "+filepath.Join(canonicalize(sibling), "stolen.md"), cpBev),
-		BucketDeny, "a cross-repo destination outranks the defective-root ask")
+		BucketDeny, "a cross-repo destination outranks the defective-root defer")
 }
 
 // Outside-the-prefix row (DENY): everything else under /tmp still denies
@@ -1359,7 +1360,7 @@ func TestScratchRootCheck_193(t *testing.T) {
 	}
 
 	// The final component IS a symlink → defect, and the comparison root
-	// becomes the destination so the ASK can fire at all (a fully-canonicalized
+	// becomes the destination so the defective-root DEFER can fire at all (a fully-canonicalized
 	// target lands there, not on the un-followed root).
 	elsewhere := filepath.Join(base, "elsewhere")
 	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
@@ -2045,9 +2046,12 @@ func TestContainmentSymlinkPrimaryCloneRead_130(t *testing.T) {
 	}
 }
 
-// §10: fail-closed when git rev-parse cannot resolve the context.
-func TestContainmentFailClosed_NoRepo(t *testing.T) {
-	// A cwd that is not a git repo → resolveRepoContext errors → ASK, never allow.
+// §10: never ALLOW when git rev-parse cannot resolve the context. Post-#262
+// the residual is a DEFER carrying the resolution failure as its analysis —
+// the boundary is unknown, which is an absence of proof rather than a proven
+// escape, and a human clicking Yes learns nothing the evaluator would not.
+// What must never happen, then or now, is the ALLOW.
+func TestContainmentNoRepoNeverAllows(t *testing.T) {
 	nonRepo := t.TempDir()
 	ev := &Event{
 		ToolName:  "Write",
@@ -2056,17 +2060,23 @@ func TestContainmentFailClosed_NoRepo(t *testing.T) {
 		ToolInput: []byte(`{"file_path":"` + filepath.Join(nonRepo, "x") + `"}`),
 	}
 	d := classifyFileTool(ev)
-	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
-		t.Errorf("no-repo containment must fail closed (ask/deny); got %q", d.Bucket)
+	if d.Bucket != BucketDefer {
+		t.Errorf("no-repo containment must defer; got %q (%s)", d.Bucket, d.Reason)
+	}
+	if d.Operation != "file:no-repo-context" || d.Reason == "" {
+		t.Errorf("no-repo defer must be loggable; got op=%q reason=%q", d.Operation, d.Reason)
 	}
 }
 
-// §10: fail-closed when the event has no cwd.
-func TestContainmentFailClosed_NoCWD(t *testing.T) {
+// §10: the same when the event has no cwd at all.
+func TestContainmentNoCWDNeverAllows(t *testing.T) {
 	ev := &Event{ToolName: "Write", CWD: "", ToolInput: []byte(`{"file_path":"/etc/passwd"}`)}
 	d := classifyFileTool(ev)
-	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {
-		t.Errorf("empty cwd must fail closed; got %q", d.Bucket)
+	if d.Bucket != BucketDefer {
+		t.Errorf("empty cwd must defer; got %q (%s)", d.Bucket, d.Reason)
+	}
+	if d.Operation != "file:no-repo-context" || d.Reason == "" {
+		t.Errorf("no-cwd defer must be loggable; got op=%q reason=%q", d.Operation, d.Reason)
 	}
 }
 

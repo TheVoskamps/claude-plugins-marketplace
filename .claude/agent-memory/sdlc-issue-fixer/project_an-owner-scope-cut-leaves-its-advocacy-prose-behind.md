@@ -18,7 +18,10 @@ guardrails GraphQL mutation allowlist):**
   list's criterion;
 - the **README enumeration**, which restated that argument in the
   classifier prose;
-- the **tests**, whose ALLOW rows for Y flip to ASK pins — and the
+- the **tests**, whose ALLOW rows for Y flip to non-allow pins — on
+  #257 that was ASK; since #262 rebucketed the gate, `updateIssue` is a
+  teaching DENY, so read "the non-allow bucket the verdict now lands
+  in", not "ASK" — and the
   sibling test that bundled Y with an allow-listed field to pin
   all-fields-must-pass now needs a *still-allowed* member as its
   allow-listed half, or it stops testing that property at all;
@@ -42,7 +45,8 @@ flattening the two into one paragraph loses both.
 
 **How to apply:** run the both-directions negative control
 ([[negative-control-the-approved-snippet]]) — re-add the dropped entry
-and confirm the new ASK rows fail, remove the kept entry and confirm
+and confirm the new non-allow rows fail (DENY rows, post-#262), remove
+the kept entry and confirm
 its ALLOW rows fail — then replay one row list through the pre-fix and
 rebuilt binaries ([[a-parity-fix-moves-verdicts-in-every-direction]])
 to show exactly the dropped verb's rows moved and nothing else did.
