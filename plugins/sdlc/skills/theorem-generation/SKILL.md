@@ -159,8 +159,8 @@ A sweep section warrants a theorem only when the diff **changes the
 fact that section says is mirrored**. Touching a file the section
 names is not the trigger, and treating it as one is what turns a diff
 that merely grazes such a file into a theorem per mirrored surface —
-each of them true, none of them at stake. Work each section in two
-steps:
+each of them true, none of them at stake. Work each section in this
+order:
 
 1. Name the fact the section says is mirrored — a permission set, a
    packaging shape, a roster of agents, a validator's case list.

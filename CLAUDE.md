@@ -318,10 +318,10 @@ the same single owner: `theorem-generation` → "The emission bar:
 falsifiability, then stakes", which states the questions a candidate
 must clear to be emitted at all. Nowhere else — this file included —
 is that bar restated rather than reached by pointer, and each pointing
-site is deliberately bounded: the
-pipeline's "The theorem contract" says only what a theorem arriving at
-the pipeline therefore is, and orchestrate's teammate-effort paragraph
-only prices a surplus theorem against the diff's stakes. A change to
+site is deliberately bounded: the pipeline's "The theorem contract"
+says only what a theorem arriving at the pipeline therefore is, and
+orchestrate's teammate-effort paragraph only prices a surplus theorem
+against the diff's stakes. A change to
 either question edits the skill and then re-reads every such site,
 because a bar spelled out at one of them is the second source of truth
 that keeping generation guidance in one file removes. The bar is
