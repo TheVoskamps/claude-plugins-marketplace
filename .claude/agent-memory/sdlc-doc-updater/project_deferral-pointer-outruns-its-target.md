@@ -38,10 +38,25 @@ then stakes" and pointed at it from `orchestrate` and
 string finds the heading, so it looks resolved — but the string the
 pointer quotes is no heading in that file. Neither source states a
 general verbatim rule to lean on:
-`theorem-generation`'s cross-reference-pointer bullet asks only that a
-pointer "resolves to a real heading", and CLAUDE.md's `verbatim`
-wording is scoped to the one `### After each ...` title it names. So
-the check is the resolution itself, run strictly: on any round that
-renames or adds a heading, grep the new title's words and compare each
-pointer to the heading line character for character, not by whether
-the grep returned a hit.
+`theorem-generation`'s cross-reference-pointer bullet asks only that
+"every `→ "Section"` pointer at the touched files resolves to a real
+heading", and CLAUDE.md's `verbatim` wording covers the
+`### After each ...` headings generically — all of them, and
+`orchestrate/SKILL.md` carries more than one — rather than quoted
+pointers at large. So the check is the resolution itself, run
+strictly: on any round that renames or adds a heading, grep the new
+title's words and compare each pointer to the heading line character
+for character, not by whether the grep returned a hit.
+
+**A line wrap inside the quotes is not a mismatch.** These files wrap
+their prose, so a quoted title longer than the room left on the line
+has to break somewhere, and a rule forbidding that would be
+unsatisfiable for a title near the column limit. Join the pointer's
+quoted string back across its line breaks — collapsing each newline
+and the following line's leading whitespace to the single space the
+wrap replaced — and compare *that* against the heading text. What the
+comparison catches is a pointer whose words differ from the
+heading's: a truncation like "The emission bar", a reordering, a
+dropped subtitle. A wrapped pointer and an unwrapped one to the same
+heading both pass, so do not reflow surrounding prose just to unwrap
+one.
