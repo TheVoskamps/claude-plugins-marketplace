@@ -308,7 +308,10 @@ the skeletons carried had already fallen behind, naming some of
 `theorem-generation`'s H2 sections and silently omitting the rest. The
 repair that fails next time is widening such a list; a skeleton
 pointing at the whole file cannot go stale as the skill gains or
-renames a section.
+renames a section. The `diff` above is no protection here: that list
+was byte-identical in all three skeletons, so it passed the check while
+naming a section set the skill no longer had. Read a skeleton's pointer
+against `theorem-generation`'s own headings, not against its siblings.
 
 What a generator may emit at all is generation guidance too, so it has
 the same single owner: `theorem-generation` → "The emission bar:
