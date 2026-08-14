@@ -236,6 +236,24 @@ Cross-reference strings need the same sweep:
 quote a `### After each ...` heading verbatim, so renaming a heading in
 SKILL.md means grepping the quoted title across `plugins/sdlc/`.
 
+That verbatim bar governs every quoted heading, not only the
+`### After each ...` ones, and a returned grep is not the check. A
+`→ "Section"` pointer that quotes the readable half of a longer title
+— "The emission bar" for "The emission bar: falsifiability, then
+stakes" — greps to a hit while quoting a string that is no heading in
+that file, so a round that renames a heading and points at it in the
+same commit is where truncated pointers appear. Compare each pointer
+against the heading line itself. A line wrap inside the quotes is not
+a mismatch: these files wrap at a column limit, so a title near it has
+to break somewhere, and forbidding the break would be unsatisfiable.
+Join the quoted string back across its line breaks — each newline and
+the following line's leading whitespace collapsing to the single space
+the wrap replaced — and compare that. What the comparison catches is a
+pointer whose *words* differ from the heading's: a truncation, a
+reordering, a dropped subtitle. A wrapped pointer and an unwrapped one
+to the same heading both pass, so never reflow surrounding prose just
+to unwrap one.
+
 Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its

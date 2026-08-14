@@ -29,34 +29,8 @@ source of truth single. Same shape as
 [[no-blanket-predicate-over-a-list]]: a pointer is one claim per thing
 it promises. Related: [[fan-out-doc-surfaces]] on two-sided contracts.
 
-**Prefix-quoted headings are the cheap sibling of this.** A round that
-renames a heading and adds pointers to it in the same commit tends to
-quote the *readable half* of the new title, not the title — #265 gave
-`theorem-generation` the heading "The emission bar: falsifiability,
-then stakes" and pointed at it from `orchestrate` and
-`pr-review-pipeline` as → "The emission bar". A grep for the pointer
-string finds the heading, so it looks resolved — but the string the
-pointer quotes is no heading in that file. Neither source states a
-general verbatim rule to lean on:
-`theorem-generation`'s cross-reference-pointer bullet asks only that
-"every `→ "Section"` pointer at the touched files resolves to a real
-heading", and CLAUDE.md's `verbatim` wording covers the
-`### After each ...` headings generically — all of them, and
-`orchestrate/SKILL.md` carries more than one — rather than quoted
-pointers at large. So the check is the resolution itself, run
-strictly: on any round that renames or adds a heading, grep the new
-title's words and compare each pointer to the heading line character
-for character, not by whether the grep returned a hit.
-
-**A line wrap inside the quotes is not a mismatch.** These files wrap
-their prose, so a quoted title longer than the room left on the line
-has to break somewhere, and a rule forbidding that would be
-unsatisfiable for a title near the column limit. Join the pointer's
-quoted string back across its line breaks — collapsing each newline
-and the following line's leading whitespace to the single space the
-wrap replaced — and compare *that* against the heading text. What the
-comparison catches is a pointer whose words differ from the
-heading's: a truncation like "The emission bar", a reordering, a
-dropped subtitle. A wrapped pointer and an unwrapped one to the same
-heading both pass, so do not reflow surrounding prose just to unwrap
-one.
+**Prefix-quoted headings are the cheap sibling of this**, and the
+repo states that rule itself: CLAUDE.md's cross-reference-sweep
+paragraph carries how strictly a `→ "Section"` pointer must resolve —
+that a grep hit is not the check, and that a line wrap inside the
+quotes is joined back before comparing. Apply it from there.
