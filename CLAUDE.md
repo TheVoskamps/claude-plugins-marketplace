@@ -300,6 +300,23 @@ that section, the teammate roster above it, the pipeline skill's
 Inputs, and both `effort` statements the sdlc sweep section already
 names.
 
+What a generator may emit at all is generation guidance too, so it has
+the same single owner: `theorem-generation` → "The emission bar:
+falsifiability, then stakes", where a claim is admitted only if a
+counterexample refutes it **and** its falsity would change something
+observable. Elsewhere that rule is reached by pointer rather than
+restated, and each pointing site is deliberately bounded: the
+pipeline's "The theorem contract" says only what a theorem arriving at
+the pipeline therefore is, and orchestrate's teammate-effort paragraph
+only prices a surplus theorem against the diff's stakes. A change to
+either question edits the skill and then re-reads every such site,
+because a bar spelled out at one of them is the second source of truth
+that keeping generation guidance in one file removes. The bar is
+tier-blind, like the rest of that skill: a higher tier buys a deeper
+search for claims that clear it, never a lower one, which is why
+"Picking a generator tier" reads blast radius and not the effort the
+change took to write.
+
 `theorem-disprover` is deliberately **not** a skeleton set. It has one
 definition and no tiers, and its instructions live in the agent file
 because there is no sibling to drift from. What varies per spawn is

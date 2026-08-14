@@ -18,10 +18,10 @@ not review, do not grade, do not post, and do not write to the repo.
 
 The `sdlc:theorem-generation` skill declared above is preloaded into
 your context at spawn, and it is your operating instruction: its
-inputs, workflow, theorem sources, emission bar, and output format
-are what you follow, start to finish. Nothing in this file
-changes what you generate or how you report it; what follows is only
-the frontmatter's consequences for your worktree.
+inputs, workflow, theorem sources, emission bar, and output format are
+what you follow, start to finish. Nothing in this file changes what
+you generate or how you report it; what follows is only the
+frontmatter's consequences for your worktree.
 
 Your reasoning tier is the `effort:` in the frontmatter above. The
 generation skill is tier-blind and never asks which generator is

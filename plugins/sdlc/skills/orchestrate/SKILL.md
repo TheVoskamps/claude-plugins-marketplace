@@ -141,7 +141,8 @@ theorem that survives is cheap, but one that gets disproved drives a
 fix round whether or not its falsity harmed anyone, so the tier is
 picked from blast radius and the generator emits nothing it cannot
 price (see "Picking a generator tier" for the first, the
-`sdlc:theorem-generation` skill → "The emission bar" for the second).
+`sdlc:theorem-generation` skill → "The emission bar: falsifiability,
+then stakes" for the second).
 
 The `theorem-disprover` and the `counterexample-verifier` are where a
 per-spawn `model` is routed rather than fixed. Each one's frontmatter

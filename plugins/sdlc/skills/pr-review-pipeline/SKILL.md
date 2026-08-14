@@ -467,8 +467,8 @@ because there is no counterexample to it. "This comment's assertion
 about the code is true" passes both when a reader acts on the comment,
 and a comment that asserts something false disproves it. The bar is
 the generator's to apply — the `sdlc:theorem-generation` skill → "The
-emission bar" owns it, and this section says what a theorem reaching
-the pipeline therefore is.
+emission bar: falsifiability, then stakes" owns it, and this section
+says what a theorem reaching the pipeline therefore is.
 
 Each record the generator emits carries these fields, and the
 pipeline consumes all of them:
