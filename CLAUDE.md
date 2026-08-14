@@ -312,10 +312,10 @@ renames a section.
 
 What a generator may emit at all is generation guidance too, so it has
 the same single owner: `theorem-generation` → "The emission bar:
-falsifiability, then stakes", where a claim is admitted only if a
-counterexample refutes it **and** its falsity would change something
-observable. Elsewhere that rule is reached by pointer rather than
-restated, and each pointing site is deliberately bounded: the
+falsifiability, then stakes", which states the questions a candidate
+must clear to be emitted at all. Nowhere else — this file included —
+is that bar restated rather than reached by pointer, and each pointing
+site is deliberately bounded: the
 pipeline's "The theorem contract" says only what a theorem arriving at
 the pipeline therefore is, and orchestrate's teammate-effort paragraph
 only prices a surplus theorem against the diff's stakes. A change to

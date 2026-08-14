@@ -458,13 +458,13 @@ for `git worktree remove -f`.
 
 ## The theorem contract
 
-A theorem is a claim about this PR that a **counterexample refutes**
-and whose falsity would change something observable in the merged
-result. Those two questions are the emission bar, and applying them is
-the generator's job: the `sdlc:theorem-generation` skill → "The
-emission bar: falsifiability, then stakes" owns them, along with which
-candidates they exclude and why. This section states only what a
-theorem reaching the pipeline therefore is.
+A theorem is a claim about this PR that the generator has already put
+through the emission bar. Applying that bar is the generator's job:
+the `sdlc:theorem-generation` skill → "The emission bar:
+falsifiability, then stakes" owns the questions it asks, along with
+which candidates they exclude and why. This section states only what a
+theorem reaching the pipeline therefore is, and does not restate those
+questions.
 
 Each record the generator emits carries these fields, and the
 pipeline consumes all of them:
@@ -472,7 +472,7 @@ pipeline consumes all of them:
 | Field | What it is |
 | --- | --- |
 | `id` | `T1`, `T2`, … — the handle every later step uses |
-| `claim` | the claim, stated so a counterexample refutes it |
+| `claim` | the claim itself, in the wording the generator emitted |
 | `issues` | the member issue(s) the theorem is tagged to |
 | `class` | `mechanical` (grep-shaped) or `semantic` (needs reading behavior) |
 | `pointers` | files, regions, or symbols the disprover starts from |

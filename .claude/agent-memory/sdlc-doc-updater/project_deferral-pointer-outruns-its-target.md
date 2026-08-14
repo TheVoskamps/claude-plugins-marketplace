@@ -35,8 +35,13 @@ quote the *readable half* of the new title, not the title — #265 gave
 `theorem-generation` the heading "The emission bar: falsifiability,
 then stakes" and pointed at it from `orchestrate` and
 `pr-review-pipeline` as → "The emission bar". A grep for the pointer
-string finds the heading, so it looks resolved; the repo's rule (and
-`theorem-generation`'s own cross-reference-pointer bullet) is verbatim.
-On any round that renames or adds a heading, grep the new title's
-words and compare each pointer to the heading line character for
-character, not by whether the grep returned a hit.
+string finds the heading, so it looks resolved — but the string the
+pointer quotes is no heading in that file. Neither source states a
+general verbatim rule to lean on:
+`theorem-generation`'s cross-reference-pointer bullet asks only that a
+pointer "resolves to a real heading", and CLAUDE.md's `verbatim`
+wording is scoped to the one `### After each ...` title it names. So
+the check is the resolution itself, run strictly: on any round that
+renames or adds a heading, grep the new title's words and compare each
+pointer to the heading line character for character, not by whether
+the grep returned a hit.
