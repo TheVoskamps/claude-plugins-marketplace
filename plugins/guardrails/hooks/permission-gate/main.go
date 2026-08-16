@@ -109,15 +109,24 @@ func isFileTool(name string) bool {
 }
 
 // emitDecision writes the verdict on the JSON-stdout / exit-0 channel
-// (Resolved decision 1). A defer with no reason still emits a structured
-// "defer" so the rest of the pipeline proceeds explicitly.
+// (Resolved decision 1). A defer still writes non-empty JSON — the
+// hooks.json wrapper reads empty stdout + exit 0 as an unrunnable gate
+// binary and denies the call — but it carries NO permissionDecision
+// field: that is the documented "no opinion, fall through to the normal
+// permission flow" signal. The literal value "defer" must not go on the
+// wire; since Claude Code 2.1.232 the harness gives it pause-for-resume
+// semantics, and inside a subagent a paused tool call never resolves,
+// tearing the agent down.
 func emitDecision(d Decision) {
+	inner := map[string]any{
+		"hookEventName": "PreToolUse",
+	}
+	if d.Bucket != BucketDefer {
+		inner["permissionDecision"] = string(d.Bucket)
+		inner["permissionDecisionReason"] = d.Reason
+	}
 	out := map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       string(d.Bucket),
-			"permissionDecisionReason": d.Reason,
-		},
+		"hookSpecificOutput": inner,
 	}
 	b, err := json.Marshal(out)
 	if err != nil {

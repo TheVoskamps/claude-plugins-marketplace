@@ -2,14 +2,18 @@ package main
 
 // Bucket is the three-way (plus defer) verdict the gate emits.
 //
-// The native PreToolUse permission channel (Resolved decision 1) accepts
-// four permissionDecision values on stdout with exit 0:
+// The native PreToolUse permission channel (Resolved decision 1) carries
+// three permissionDecision values on stdout with exit 0, plus one
+// omission:
 //
 //	allow  - bypass remaining permission checks; the tool runs.
 //	deny   - block the tool call.
 //	ask    - escalate to a human permission prompt (the real ask channel).
-//	defer  - defer to the normal permission flow (the spec's "exit 0 /
-//	         allow-defer"): let the rest of the pipeline proceed.
+//	defer  - defer to the normal permission flow: emitted as JSON with NO
+//	         permissionDecision field (the documented no-opinion signal).
+//	         The literal "defer" never goes on the wire — since Claude
+//	         Code 2.1.232 the harness treats it as pause-for-resume, which
+//	         inside a subagent never resolves and tears the agent down.
 //
 // Exit 2 + stderr remains the FAIL-CLOSED backstop for crash / parse-error /
 // panic / malformed-event paths; it is NOT one of these buckets. See
@@ -41,7 +45,8 @@ const (
 	// BucketDefer hands the call back to the normal permission pipeline
 	// (settings.json allow/deny/ask lists, interactive prompt, etc.). Used
 	// when the gate has no opinion and does NOT want to short-circuit the
-	// rest of the pipeline.
+	// rest of the pipeline. On the wire it is encoded as an ABSENT
+	// permissionDecision field, never as this literal — see emitDecision.
 	BucketDefer Bucket = "defer"
 )
 

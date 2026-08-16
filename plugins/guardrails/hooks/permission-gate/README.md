@@ -1269,9 +1269,13 @@ fixable bug report instead of being absorbed into a habitual approval
 click.
 
 The decision is emitted as JSON on stdout with exit 0
-(`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the
-fail-closed backstop for crash / parse-error / panic / malformed-event
-paths.
+(`permissionDecision: allow|deny|ask`; a defer emits the same JSON
+envelope with the `permissionDecision` field **absent**, the documented
+"no opinion, fall through" signal — the literal value `defer` never
+goes on the wire, because Claude Code ≥ 2.1.232 treats it as
+pause-for-resume, which inside a subagent never resolves and tears the
+agent down). Exit 2 + stderr is the fail-closed backstop for crash /
+parse-error / panic / malformed-event paths.
 
 Every ASK and DENY is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
@@ -1430,8 +1434,9 @@ never captured, and a gate-authored exit 2 propagates as exit 2.
 
 The empty-stdout discriminator is only sound because the real binary can
 never produce that signature: every bucket — `allow`, `deny`, `ask`, and
-`defer`, including a `defer` with an empty reason — goes through
-`emitDecision`, which writes JSON before `os.Exit(0)`, and every other
+`defer` — goes through `emitDecision`, which writes non-empty JSON before
+`os.Exit(0)` (a defer writes the envelope with no `permissionDecision`
+field, so it stays non-empty), and every other
 exit runs through `failClosed` (exit 2 plus a stderr line).
 `decision_stdout_test.go` pins that invariant end-to-end and
 bucket-by-bucket, so a future refactor that introduces a silent exit-0

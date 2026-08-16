@@ -87,14 +87,27 @@ func TestEveryBucketWritesJSONToStdoutWithExitZero(t *testing.T) {
 			}
 			var got struct {
 				HookSpecificOutput struct {
-					PermissionDecision string `json:"permissionDecision"`
+					PermissionDecision *string `json:"permissionDecision"`
 				} `json:"hookSpecificOutput"`
 			}
 			if err := json.Unmarshal([]byte(out), &got); err != nil {
 				t.Fatalf("bucket %q: decode stdout %q: %v", tc.bucket, out, err)
 			}
-			if got := got.HookSpecificOutput.PermissionDecision; got != string(tc.bucket) {
-				t.Fatalf("event was meant to land in bucket %q but produced %q; pick a new event for this bucket", tc.bucket, got)
+			if tc.bucket == BucketDefer {
+				// A defer must NOT carry a permissionDecision field: the
+				// absent field is the documented fall-through, and the
+				// literal "defer" pauses the call under Claude Code
+				// >= 2.1.232, killing subagents.
+				if got.HookSpecificOutput.PermissionDecision != nil {
+					t.Fatalf("defer event emitted permissionDecision %q; a defer must omit the field entirely", *got.HookSpecificOutput.PermissionDecision)
+				}
+			} else {
+				if got.HookSpecificOutput.PermissionDecision == nil {
+					t.Fatalf("bucket %q emitted no permissionDecision field", tc.bucket)
+				}
+				if got := *got.HookSpecificOutput.PermissionDecision; got != string(tc.bucket) {
+					t.Fatalf("event was meant to land in bucket %q but produced %q; pick a new event for this bucket", tc.bucket, got)
+				}
 			}
 		})
 	}
