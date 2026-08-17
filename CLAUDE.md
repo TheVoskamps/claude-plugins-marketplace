@@ -27,7 +27,8 @@ run:
 - [`docs/verification-playbook.md`](docs/verification-playbook.md) —
   cross-domain: suite baselining and hybrid-tree negative controls,
   bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,
-  rebase verification, and lint baselining.
+  containerized bash 5 runs with a borrowed yq, rebase verification,
+  and lint baselining.
 
 They record technique, not policy: when a playbook step and a rule
 here disagree, the rule wins and the playbook is the thing to fix.

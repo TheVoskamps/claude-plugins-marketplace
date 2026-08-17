@@ -986,7 +986,7 @@ if [ -n "$seeded_entries" ]; then
   log "claude-vm: seeded host working rules into $CRED_DIR --$seeded_entries."
 else
   log "claude-vm: no host working rules to seed (mountTag=claudecreds, claude-home/);"
-  log "claude-vm: the guest runs with no global CLAUDE.md, rules, agents, or skills."
+  log "claude-vm: the guest runs with none of the operator's host working rules."
 fi
 
 # ---------------------------------------------------------------------

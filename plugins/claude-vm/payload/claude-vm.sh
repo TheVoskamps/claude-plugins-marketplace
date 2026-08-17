@@ -758,14 +758,17 @@ GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
 # into this SAME dir for the same reason -- it carries account identity and
 # must not ride in run.env either -- and so is the boot tier's guest
 # environment (issue #135, env: its env.copy/env.files values are third-party
-# API keys). The staged copy of the operator's host working rules
-# (issue #108, claude-home/: CLAUDE.md, rules/, agents/, skills/,
-# keybindings.json) rides it for a different reason -- none of that is secret,
-# but this dir is the one the guest boot launcher installs ~/.claude files
-# from, and cleanup() already shreds it, so the staging tree needs no cleanup
-# path of its own. Both dirs are created under the tightened
-# umask (077) so they are drwx------ from creation -- the secrets are not
-# world-traversable.
+# API keys). The rendered guest settings.json (issue #104, settings.json:
+# permissions + enabledPlugins) rides it for a different reason -- it is NOT a
+# secret, but the existing mount keeps every host-rendered guest ~/.claude file
+# arriving over one dir instead of adding another virtio-fs device. The staged
+# copy of the operator's host working rules (issue #108, claude-home/:
+# CLAUDE.md, rules/, agents/, skills/, keybindings.json) rides it on that same
+# non-secret footing, plus one of its own -- this dir is where the guest boot
+# launcher installs ~/.claude files from, and cleanup() already shreds it, so
+# the staging tree needs no cleanup path of its own. Both dirs are created
+# under the tightened umask (077) so they are drwx------ from creation -- the
+# secrets are not world-traversable.
 CREDS_DIR="$RUN/creds"
 mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 
