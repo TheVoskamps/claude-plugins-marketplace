@@ -65,7 +65,6 @@
 - [`entry #N` counts the merged doc](project_entry-index-is-against-the-structure-the-gate-walks.md) — a per-entry diagnostic numbers against the structure the validator walks, not one tier's own config
 - [Probe every tool your prose names](project_probe-every-tool-your-prose-names.md) — a finding's evidence covers only the tools the reviewer ran; probe every tool your own sentence names
 - [Pick the fix that spares the costly proof](project_pick-the-fix-that-spares-the-expensive-verification.md) — prefer the remedy leaving the already-real-boot-verified path byte-identical; branch on the RESOLVED share
-- [Run the guard on the oldest reachable shell](project_run-the-guard-on-the-oldest-reachable-interpreter.md) — no launcher-reachable bash-4 carve-out survives; a matching FAIL-label diff licenses investigation, never a baseline (that hid #108's blocker)
 - [The class is the set of USES, not values](project_the-class-is-the-set-of-uses-not-values.md) — one bad value of a validated field means grep the variable and grade each use position's grammar
 - [A finding's exclusivity premise is measurable](project_reviewer-exclusivity-premise-is-measurable.md) — "nothing else reaches $TMPDIR" was false (the gvproxy socket does, every launch); grep what the premise quantifies over
 - [Upstream guard picks your test rows](project_upstream-guard-decides-which-rows-can-reach-yours.md) — a row for a narrowed guard must survive the guard BEFORE it; only `ghShieldingFlags` values may be dynamic
@@ -96,6 +95,4 @@
 - [A thin account needs a rank, not a blank](project_a-thin-account-needs-a-rank-not-a-blank.md) — filling a blank residual record makes it WIN under a first-wins aggregator; rank it below the specific labels
 - [Soften the fact, keep the membership](project_unpinnable-guarantee-soften-the-fact-keep-the-membership.md) — grade every "must not waive" hit: normative intent survives, mechanism-fact claims get the caveat, and say what does NOT change
 - [Mirror the sibling only if its precondition holds](project_mirror-the-sibling-only-if-its-precondition-holds.md) — "do what the host side does" assumes sole ownership of the destination; an additive merge target makes its `rm -rf` a worse bug
-- [One filesystem cannot see a deref drop](project_one-filesystem-harness-cannot-see-a-deref-drop.md) — a dropped `cp -L` leaves every content assertion green; assert the SHAPE of the staged intermediate, and retarget the slice-sanity string off the flag
 - [Sibling clause edits falsify the sweep rule](project_adding-a-clause-to-siblings-falsifies-the-sweep-rule.md) — propagating a clause makes "only surface A carries it" false; repair with a quantifier plus the named exception, not an Nth list copy
-- [Grade a green marker-grep boot assertion](project_grade-a-green-marker-grep-boot-assertion.md) — measure the marker's sole emitter, the image version stamp and `$BASH_VERSION` before writing prose about what the boot proved

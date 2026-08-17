@@ -17,11 +17,11 @@ nobody but the doc-updater carries it into the playbook.
 **Why:** PR #273 round 3 replaced a string-match control
 (`assert_contains … 'cp -RL'`) with a behavioral one — a one-filesystem
 harness cannot see a dropped `-L` by content, only in the SHAPE of the
-staged artifact. That went into the test file's comments and into
-`project_one-filesystem-harness-cannot-see-a-deref-drop.md`, while
-`docs/claude-vm-verification-playbook.md` → "Slice the real launcher
-loop to read what it emits" — the section the same PR had already
-extended — still said nothing about it.
+staged artifact. That went into the test file's comments and into a
+fixer memory entry, while `docs/claude-vm-verification-playbook.md` →
+"Slice the real launcher loop to read what it emits" — the section the
+same PR had already extended — still said nothing about it. It reached
+the playbook only when the doc-updater carried it there.
 
 **How to apply:** `git show --stat` the round's memory commit, read the
 new fixer files, and ask of each whether it is a technique (playbook)

@@ -503,6 +503,30 @@ not the helper name — the Derived egress paragraph never names the
 helper. When the per-entry policy gains skip paths, count them in the
 code and check the prose enumerates the same set.
 
+## Narrow every claude-vm surface-only claim to the layer it measures
+
+Four `plugins/claude-vm` surfaces assert that the guest's Claude
+configuration comes from the claude-vm configs **only**, because the
+host's `~/.claude/settings.json` is never read:
+
+- `payload/config-boot.example.yml` (the `permission_mode` /
+  `permissions` block)
+- `payload/config-bake.example.yml` (the marketplaces/plugins block)
+- `payload/claude-vm.sh` (the settings-render call site)
+- `payload/lib/config.sh` (the rendered-document key list)
+
+Each sentence's evidence is about `settings.json` or about plugins, so
+each names the layer it actually measures — the PERMISSION surface, the
+PLUGIN surface — rather than "the Claude surface" as a whole. A change
+that seeds further host `~/.claude` content into the guest widens the
+host→guest seam and must re-narrow every one of them, because the false
+half of such a sentence is its noun, not its verb: the `settings.json`
+grep that finds these sites keeps returning true statements while the
+subject above them is wrong. Grep the surface wording across
+`plugins/claude-vm/` rather than checking only the files the diff
+touched — two of the four are example YAML files that no test and no
+doc pass naturally opens.
+
 ## Sweep every "no read-only mounts" surface when read-only lands
 
 `plugins/claude-vm` extra mounts are read-write only, and the config
