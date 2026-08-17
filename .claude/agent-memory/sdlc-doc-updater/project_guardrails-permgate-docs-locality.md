@@ -394,9 +394,9 @@ typed finds nothing.
 Since #262 that residual DEFERS rather than asking (measured against
 the branch binary: `gh pr co 1`, `gh repo new foo` and `gh ruleset
 bogus` all return `defer` with operation `gh unrecognized command
-(#163)`), and `emitDecision` blanks a defer's reason — so the canonical
-spelling now reaches only the §7 log's `analysis` field, never the
-agent. The class is unchanged and the surface moved: after an alias
+(#163)`), and `emitDecision` emits a defer with no reason key at all
+(#271) — so the canonical spelling now reaches only the §7 log's
+`analysis` field, never the agent. The class is unchanged and the surface moved: after an alias
 round, check what the message STRING interpolates *and* which channel
 still carries it. The `gh secret` deny above does still show the agent
 its canonical spelling; a deny is where that check pays. Same class as
@@ -531,3 +531,38 @@ section makes that a first-class doc surface, and a `/docs` edit needs
 no plugin version bump. Word any verdict you state there with the
 literal words `ask`/`allow`/`deny`/`defer` so CLAUDE.md's
 grep-the-playbook-on-a-verdict-change sweep can find it.
+
+**A WIRE-SPELLING round rots the verb the old spelling was described
+with, in files nowhere near the diff (#271, PR #272).** When the defer
+stopped carrying `permissionDecision` at all, the developer rewrote
+every paragraph *about* the emission — the README's stdout section, the
+empty-stdout discriminator, `emitDecision`'s and `BucketDefer`'s own
+comments, the playbook's probe section — and left three copies of the
+old verb "`emitDecision` blanks a defer's reason" standing:
+`deferJudgment`'s doc comment in the same file the round edited, plus
+`gh_api_gate_test.go` and `gh_publish_files_test.go`, whose comments
+justify a test's existence by naming which channel a reason travels on.
+Grep the VERB the old mechanism was described with (`blank`, `drops`,
+`empties`) package-wide, not the field name — the field name appears
+only where the round already looked. Test-file doc comments are the
+reliable survivors, same as in
+[[project_verdict-rebucketing-comment-vocabulary]].
+
+Second surface on the same round, and it is not a guardrails file:
+`docs/hook-event-notes.md` is the per-hook-EVENT lessons log, and a
+change forced by the harness's reading of a hook field is exactly its
+subject matter — the abstention envelope, the literal `defer` meaning
+"pause for later resumption", and the wrapper's empty-stdout
+fail-closed all landed there as a new `PreToolUse` section. That file's
+existing PreToolUse bullets say a display-only hook must omit
+`hookSpecificOutput` entirely, which reads as contradicting the
+field-absent envelope; it does not (one hook never decides, the other
+decides on some calls), but say so explicitly rather than editing an
+unmeasured claim.
+
+A comment-only round here still needs the three binaries rebuilt
+([[project_permgate-go-comment-edits-need-binary-rebuild]]), and the
+playbook's `go tool nm` pre/post comparison is the cheap proof that the
+policy did not move: extract the pre-edit binary with `git show
+HEAD:<path> > <scratch>`, dump both, `cmp`. Identical `nm` plus a
+changed file settles "comments only" without argument.

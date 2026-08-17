@@ -34,7 +34,9 @@
   N-before-list defects when sweeping that README. A TIER change
   falsifies worked examples in paragraphs about OTHER mechanisms that
   borrowed the verb; slurp comment BLOCKS, and replay every quoted
-  example through the binary.
+  example through the binary. A WIRE-SPELLING change rots the old
+  mechanism's VERB ("blanks a defer's reason") in test-file comments,
+  and belongs in docs/hook-event-notes.md too.
 - [gh pr diff and active gate](feedback_gh-pr-diff-and-active-gate.md)
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
