@@ -21,8 +21,9 @@ run:
   audits, and row-cross replays.
 - [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
   — non-booting vfkit probes, privileged-container mount semantics,
-  probe-container/guest package parity, mkosi source checks, and
-  launcher-loop slicing.
+  probe-container/guest package parity, mkosi source checks,
+  launcher-loop slicing, and grading a real boot's console-marker
+  assertions.
 - [`docs/verification-playbook.md`](docs/verification-playbook.md) —
   cross-domain: suite baselining and hybrid-tree negative controls,
   bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,

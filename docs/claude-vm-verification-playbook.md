@@ -3,7 +3,8 @@
 How to establish a fact about `plugins/claude-vm` without booting a
 guest: probe the real hypervisor, the real kernel, the real image
 build, and the real launcher, each in the cheapest harness that still
-exercises the thing the claim is about.
+exercises the thing the claim is about — and, when a real boot has
+been run, how to read what its green actually establishes.
 
 ## Probe vfkit directly — it is installed
 
@@ -260,6 +261,48 @@ Run the mutation against both `cp` implementations that matter, since
 only one of them is on the host you are typing on: macOS BSD `cp`
 under `/bin/bash` 3.2, and GNU coreutils in a `debian:trixie` aarch64
 container (`podman run --platform linux/arm64 --user 1000`).
+
+## A green boot marker is three claims, not one
+
+`payload/test/host-acceptance.sh` proves that a launcher step ran by
+grepping a fixed marker string out of the guest console capture —
+`(b4)` greps `seeded host working rules` for issue #108's
+`claude-home/` seed. Reporting that green is the cheap half; the
+structural claims a PR body then makes around it are separable, and
+each is one command.
+
+**Who else emits the marker, and from which branch?**
+`grep -rn "<marker>" plugins/claude-vm/`. For `(b4)` the hits are the
+launcher's own `log` line, the assertion, and the off-VM seed suite.
+Then read the emitting branch rather than stopping at the grep: that
+`log` line sits under `[ -n "$seeded_entries" ]`, so a green means an
+entry really installed, where the sibling branch logs a distinct
+"nothing to seed" line. A marker emitted unconditionally at the top of
+a step would prove only that the step was reached.
+
+**Was the image stale?** The launcher's source is not part of the
+image-identity hash — `compute_pinned_version` in
+`build-guest-image.sh` appends only
+`CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, and `LAUNCHER_LOGIC_REV` is the
+only constant that invalidates a cached image — so criterion (a)'s
+version-stamp assertion is the staleness control.
+`build-guest-image.sh --print-version` prints `<base>+launcher<N>`;
+compare that `<N>` against
+`git show origin/main:<path>/build-guest-image.sh | grep
+LAUNCHER_LOGIC_REV`. A higher `<N>` rules out a *pre-branch* launcher.
+It does not rule out an earlier commit on the same branch that already
+carried the same rev, so word the claim that way rather than as "built
+from the launcher this branch emits".
+
+**Which interpreter ran the harness?** `bash -c 'echo $BASH_VERSION'`.
+Do not infer it from the invocation spelling: `bash host-acceptance.sh`
+and `./host-acceptance.sh` are the same binary wherever the PATH `bash`
+*is* `/bin/bash`, which is the stock macOS layout and what this repo's
+host measures (3.2.57 either way). Running a suite "the runbook way"
+therefore buys no second interpreter on its own — and the cross-domain
+playbook's slice advice, to run a fragment under `/bin/bash` and under
+`bash`, assumes a newer `bash` earlier in PATH, which is the
+assumption to measure before claiming a two-interpreter run.
 
 ## The run dir sits inside the guest's repo share
 
