@@ -144,9 +144,10 @@ Telling them apart:
    product actually runs on, is a blocker wearing a baseline's clothes.
    That is exactly what "568 passed / 15 failed, all pre-existing"
    turned out to be on PR #273 — the `render:` and `enabled-validate:`
-   rows were `claude_vm_render_guest_settings` aborting every real
-   launch on bash 3.2, carried for several review rounds because the
-   count matched main's.
+   rows were `claude_vm_render_guest_settings` aborting, on bash 3.2,
+   every launch whose config carried a `claude.plugins.enabled`
+   override, carried for several review rounds because the count
+   matched main's.
 2. **Run the shipped code, not the assertion.** Slice the real loop out
    by line range and run the slice under `/bin/bash` and `bash`
    explicitly — a suite's own `bash "$SLICE"` resolves through PATH, so

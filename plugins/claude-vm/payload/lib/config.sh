@@ -2790,8 +2790,11 @@ claude_vm_render_guest_settings() {
   # ARITHMETICALLY, so a real ref like `block-background-agents@thevoskamps`
   # parses as an expression whose leading identifier `block` is unbound, and
   # `set -u` kills the launch after the image build. Every config carrying a
-  # claude.plugins.enabled override hit that; a config with none never entered
-  # this branch, which is why it survived to a real launch.
+  # claude.plugins.enabled override whose ref LEADS WITH AN IDENTIFIER hit
+  # that -- which is every real plugin ref; a digits-only ref is valid
+  # arithmetic and survives, writing the wrong slot instead (measured on
+  # 3.2.57). A config with no override never entered this branch at all, which
+  # is why the defect survived to a real launch.
   local ov_refs=() ov_vals=()
   local ov_tab ov_record ov_ref ov_val ov_idx=0
   ov_tab=$'\t'

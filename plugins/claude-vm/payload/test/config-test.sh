@@ -4529,9 +4529,10 @@ assert_eq "env-reserved-set: the boot launcher really exports CLAUDE_VM_LAST_CLA
   "1" "$(grep -c 'export CLAUDE_VM_LAST_CLAUDE_STATUS' "$BUILD_GUEST_IMAGE" || true)"
 
 # The whole env gate is a config-load guard, so it must give the SAME verdict on
-# the bash 3.2 macOS still ships -- long before the first bash-4 construct in
-# this library would fail loudly. Reuses $OLD_BASH resolved above; skipped
-# rather than faked when the host has no pre-4 bash.
+# the bash 3.2 macOS still ships. (Nothing in the library needs bash 4 any more,
+# so there is no later-and-louder failure to hide behind either -- see the
+# render battery at the end of this file.) Reuses $OLD_BASH resolved above;
+# skipped rather than faked when the host has no pre-4 bash.
 if [ -n "${OLD_BASH:-}" ]; then
   # Again by SOURCING rather than by text: the two shells' %q spellings differ
   # (see the .env case below), but the VALUES the guest ends up with must not.
@@ -4613,8 +4614,9 @@ if [ -n "${OLD_BASH:-}" ]; then
   # underneath is not a diagnostic at all: 3.2 evaluates an indexed subscript
   # ARITHMETICALLY, so an identifier-leading ref dies on `set -u` with the
   # launch already paid for. Every config with a claude.plugins.enabled override
-  # aborted; a config with none never entered the branch, which is why the
-  # override-free acceptance stub stayed green.
+  # over such a ref aborted -- the shape every real plugin ref has; a config
+  # with no override never entered the branch, which is why the override-free
+  # acceptance stub stayed green.
   #
   # Driven through the REAL claude_vm_merge_config in the launcher's own
   # argument shape, in the old shell, so the whole load sequence runs there.

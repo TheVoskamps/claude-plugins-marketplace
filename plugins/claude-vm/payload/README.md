@@ -953,7 +953,8 @@ order as plain `NAME=<%q-quoted value>` lines, and the boot launcher sources
 the baked file *then* the boot file, each under `set -a`. A later assignment
 simply overwrites an earlier one, so the whole chain falls out of ordering
 with no dedup logic, no associative array — and therefore nothing that needs
-bash 4, which matters because the gate beside it is a config-load guard (see
+bash 4, which nothing launcher-reachable may; the gate beside it is a
+config-load guard, where that rule bites hardest (see
 *A guard must survive the oldest bash that can reach it* below). Within a
 tier, merging is repo-over-global per key for `set` and a union for
 `copy`/`files`; within `env.files`, a later file wins over an earlier one, by
