@@ -22,6 +22,15 @@ import (
 // nothing" shortcut — fails here instead of silently reopening the fail-open
 // hole in the wrapper.
 //
+// The second invariant these tests pin is the DEFER WIRE SPELLING (#271). A
+// defer is the envelope with NO permissionDecision field — the documented
+// per-call abstention — and specifically not the literal "defer", which Claude
+// Code reads as "pause this tool call for later resumption"; inside a subagent
+// that pause never resolves and the harness tears the session down. allow /
+// deny / ask must still carry the field. The two invariants pull against each
+// other — abstention wants silence, the wrapper requires bytes — so both are
+// asserted on the same output.
+//
 // Exit 2 (failClosed) is deliberately NOT in scope: it is the blocking
 // backstop, always accompanied by a stderr line, and the wrapper propagates it
 // as-is.
@@ -34,6 +43,46 @@ var allBuckets = []Bucket{BucketAllow, BucketDeny, BucketAsk, BucketDefer}
 // emitBucketEnv makes TestEmitDecisionHelperProcess act as the child process
 // of TestEmitDecisionNeverExitsZeroWithEmptyStdout.
 const emitBucketEnv = "PERMISSION_GATE_TEST_EMIT_BUCKET"
+
+// permissionDecisionOf decodes one emitted envelope and reports the
+// permissionDecision value together with whether the KEY was present at all.
+// The presence bit is the point: a defer is spelled by the key's absence, and
+// unmarshalling into a plain string would render that indistinguishable from
+// an explicit empty value.
+func permissionDecisionOf(out string) (value string, present bool, err error) {
+	var env struct {
+		HookSpecificOutput map[string]json.RawMessage `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		return "", false, err
+	}
+	raw, ok := env.HookSpecificOutput["permissionDecision"]
+	if !ok {
+		return "", false, nil
+	}
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", true, err
+	}
+	return value, true, nil
+}
+
+// stdoutBucket reports which bucket an emitted envelope spells: the
+// permissionDecision value when the field is present, and BucketDefer when it
+// is absent, which is how a defer abstains (#271). Tests that only need "did
+// this event land in bucket X" use it; the two tests in this file deliberately
+// do NOT, asserting the presence bit directly instead, since they are what
+// pins the spelling this helper encodes.
+func stdoutBucket(t *testing.T, out string) Bucket {
+	t.Helper()
+	value, present, err := permissionDecisionOf(out)
+	if err != nil {
+		t.Fatalf("decode stdout %q: %v", out, err)
+	}
+	if !present {
+		return BucketDefer
+	}
+	return Bucket(value)
+}
 
 // TestEveryBucketWritesJSONToStdoutWithExitZero drives the built binary
 // end-to-end with one real event per bucket and asserts the exit-0 channel
@@ -89,16 +138,24 @@ func TestEveryBucketWritesJSONToStdoutWithExitZero(t *testing.T) {
 			if !json.Valid([]byte(out)) {
 				t.Fatalf("bucket %q wrote non-JSON to stdout: %q", tc.bucket, out)
 			}
-			var got struct {
-				HookSpecificOutput struct {
-					PermissionDecision string `json:"permissionDecision"`
-				} `json:"hookSpecificOutput"`
-			}
-			if err := json.Unmarshal([]byte(out), &got); err != nil {
+			decision, present, err := permissionDecisionOf(out)
+			if err != nil {
 				t.Fatalf("bucket %q: decode stdout %q: %v", tc.bucket, out, err)
 			}
-			if got := got.HookSpecificOutput.PermissionDecision; got != string(tc.bucket) {
-				t.Fatalf("event was meant to land in bucket %q but produced %q; pick a new event for this bucket", tc.bucket, got)
+			if tc.bucket == BucketDefer {
+				if present {
+					t.Fatalf("a defer must abstain by OMITTING permissionDecision, but stdout carried %q "+
+						"(%q). The literal \"defer\" makes Claude Code PAUSE the tool call for later "+
+						"resumption; inside a subagent it never resolves and the session is torn down "+
+						"(#271).", decision, out)
+				}
+				return
+			}
+			if !present {
+				t.Fatalf("bucket %q emitted no permissionDecision field (%q); only a defer abstains", tc.bucket, out)
+			}
+			if decision != string(tc.bucket) {
+				t.Fatalf("event was meant to land in bucket %q but produced %q; pick a new event for this bucket", tc.bucket, decision)
 			}
 		})
 	}
@@ -131,6 +188,22 @@ func TestEmitDecisionNeverExitsZeroWithEmptyStdout(t *testing.T) {
 			}
 			if !json.Valid(out) {
 				t.Fatalf("emitDecision(%q) wrote non-JSON to stdout: %q", b, out)
+			}
+			decision, present, err := permissionDecisionOf(string(out))
+			if err != nil {
+				t.Fatalf("emitDecision(%q): decode stdout %q: %v", b, out, err)
+			}
+			if b == BucketDefer {
+				if present {
+					t.Fatalf("emitDecision(%q) wrote permissionDecision=%q; a defer abstains by omitting "+
+						"the field, because the literal \"defer\" pauses the tool call for later "+
+						"resumption and never resolves inside a subagent (#271)", b, decision)
+				}
+				return
+			}
+			if !present || decision != string(b) {
+				t.Fatalf("emitDecision(%q) must write permissionDecision=%q; got present=%v value=%q",
+					b, b, present, decision)
 			}
 		})
 	}

@@ -106,7 +106,7 @@ checks the code against:
   brings up a real harness with a hook and a competing `settings.json`
   allow and observes which wins. So read every "not waivable
   downstream" statement here and in the code as the tier's *design
-  intent*, pending a live-harness pin. Two things follow. The tier's
+  intent*, pending a live-harness pin. That cuts both ways. The tier's
   membership rule is unaffected — an enumerated policy call belongs in
   ASK whether or not the precedence holds, because the alternative
   (DEFER) is unambiguously waivable. But a reader must not cite the
@@ -1502,9 +1502,50 @@ fixable bug report instead of being absorbed into a habitual approval
 click.
 
 The decision is emitted as JSON on stdout with exit 0
-(`permissionDecision: allow|deny|ask|defer`). Exit 2 + stderr is the
+(`permissionDecision: allow|deny|ask`). Exit 2 + stderr is the
 fail-closed backstop for crash / parse-error / panic / malformed-event
 paths.
+
+A **defer has no `permissionDecision` field at all** — it is the same
+envelope with the decision and reason keys omitted:
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}
+```
+
+That is the documented per-call abstention: the hook states no
+position and the normal permission pipeline resolves the call, which
+is exactly what `BucketDefer` means. The gate must NOT emit the
+literal `"defer"` on the wire. Claude Code gave that value different
+semantics — it **pauses** the tool call for later resumption, a
+headless-resume affordance: the tool does not execute, the process
+exits with `stop_reason: "tool_deferred"`, and only a
+`claude -p --resume` from the integration that spawned it makes the
+call run. Nothing resumes a subagent, so the tool use ends with no
+result and the harness tears the agent session down. That is
+issue #271: from Claude Code 2.1.232, whose background-by-default
+change for non-teammate agent spawns made the path load-bearing,
+every `sdlc` agent run died within a few requests, because the defer
+middle is hit almost immediately.
+
+The documented conditions on that value are why the gate shipped it
+for so long without anyone noticing: Claude Code honors it only in
+non-interactive (`-p`) mode, and only on a turn that makes a single
+tool call. An interactive session logs a warning and ignores the hook
+result, and so does a turn issuing several tool calls at once — so the
+same binary was inert in the session a human types into and fatal in
+every headless agent spawned from it. The vendor-side detail lives in
+[`docs/hook-event-notes.md`](../../../../docs/hook-event-notes.md) →
+`PreToolUse` (the decision channel, any matcher); what follows here is
+this gate's own handling.
+
+The other spelling of abstention — writing nothing at all — is
+unavailable here, and deliberately so: the `hooks.json` wrapper reads
+"exit 0 with empty stdout" as an unrunnable gate binary and fails
+closed (see "A gate binary that does not adjudicate hard-blocks"
+below). The empty envelope satisfies both constraints at once, and
+`decision_stdout_test.go` pins both halves — non-empty JSON for every
+bucket, the field absent for a defer and present for the other three.
 
 Every ASK, DENY and DEFER is appended to an evolution log
 (`~/.claude/logs/permission-gate.jsonl`, overridable via
@@ -1536,9 +1577,9 @@ The DEFER rows are what make the log a tuning input rather than a
 tally. A deferred call lands in the automode evaluator, and the record
 tells whoever is tuning that evaluator what the gate could and could
 not establish about the same call. A defer's analysis travels **only**
-here: `emitDecision` blanks the reason for a defer, so the call reaches
-the evaluator exactly as a bare defer does and the gate puts no words
-in the judge's mouth.
+here: `emitDecision` omits the reason key along with the decision key
+for a defer, so the call reaches the evaluator exactly as a bare defer
+does and the gate puts no words in the judge's mouth.
 
 Logging swallows every failure — an unwritable path, a marshal error, a
 panic — because it must never change a verdict. A logging failure that
@@ -1698,12 +1739,20 @@ never captured, and a gate-authored exit 2 propagates as exit 2.
 
 The empty-stdout discriminator is only sound because the real binary can
 never produce that signature: every bucket — `allow`, `deny`, `ask`, and
-`defer`, including a `defer` with an empty reason — goes through
-`emitDecision`, which writes JSON before `os.Exit(0)`, and every other
-exit runs through `failClosed` (exit 2 plus a stderr line).
-`decision_stdout_test.go` pins that invariant end-to-end and
+`defer`, whose envelope carries neither a decision nor a reason — goes
+through `emitDecision`, which writes JSON before `os.Exit(0)`, and
+every other exit runs through `failClosed` (exit 2 plus a stderr
+line). `decision_stdout_test.go` pins that invariant end-to-end and
 bucket-by-bucket, so a future refactor that introduces a silent exit-0
 path fails CI rather than quietly reopening the hole.
+
+The defer bucket is where the two constraints meet, and they pull in
+opposite directions: abstention wants the gate to say nothing, this
+discriminator requires it to say something. The field-absent envelope
+is what satisfies both, so "a defer means no opinion, so write no
+bytes" is precisely the refactor this discriminator exists to catch —
+and the same test file pins the field's absence, so neither half can
+be repaired by breaking the other.
 
 Without these guards the hook fails **open**: the hook exits with a
 status the harness treats as a non-blocking error, and every gated tool

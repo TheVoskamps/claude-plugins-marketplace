@@ -109,8 +109,8 @@ func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("expected the exit-0 decision channel; got %d (stdout=%s)", code, out)
 			}
-			if !strings.Contains(out, `"permissionDecision":"`+tc.wantBucket+`"`) {
-				t.Fatalf("event was meant to land in %q; stdout=%s", tc.wantBucket, out)
+			if got := stdoutBucket(t, out); got != Bucket(tc.wantBucket) {
+				t.Fatalf("event was meant to land in %q; got %q (stdout=%s)", tc.wantBucket, got, out)
 			}
 			if len(recs) != 1 {
 				t.Fatalf("expected exactly one log record for a %s; got %d", tc.wantBucket, len(recs))
@@ -156,8 +156,8 @@ func TestResidualDeferRanksBelowAnInformativeDefer_262(t *testing.T) {
 			event := `{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"` +
 				tc.command + `"}}`
 			out, _, recs := runBinaryWithLog(t, bin, logPath, event)
-			if !strings.Contains(out, `"permissionDecision":"defer"`) {
-				t.Fatalf("this line must defer for the test to mean anything; stdout=%s", out)
+			if got := stdoutBucket(t, out); got != BucketDefer {
+				t.Fatalf("this line must defer for the test to mean anything; got %q (stdout=%s)", got, out)
 			}
 			if len(recs) != 1 {
 				t.Fatalf("expected exactly one log record; got %d", len(recs))
@@ -204,21 +204,19 @@ func TestDeferAnalysisStaysOutOfTheStdoutVerdict_262(t *testing.T) {
 		`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"cat \"$D/x\""}}`)
 
 	var got struct {
-		HookSpecificOutput struct {
-			PermissionDecision       string `json:"permissionDecision"`
-			PermissionDecisionReason string `json:"permissionDecisionReason"`
-		} `json:"hookSpecificOutput"`
+		HookSpecificOutput map[string]json.RawMessage `json:"hookSpecificOutput"`
 	}
 	if err := json.Unmarshal([]byte(out), &got); err != nil {
 		t.Fatalf("decode stdout %q: %v", out, err)
 	}
-	if got.HookSpecificOutput.PermissionDecision != "defer" {
-		t.Fatalf("this event must defer for the test to mean anything; got %q",
-			got.HookSpecificOutput.PermissionDecision)
+	if b := stdoutBucket(t, out); b != BucketDefer {
+		t.Fatalf("this event must defer for the test to mean anything; got %q", b)
 	}
-	if got.HookSpecificOutput.PermissionDecisionReason != "" {
-		t.Errorf("a defer must emit an EMPTY reason on stdout; got %q",
-			got.HookSpecificOutput.PermissionDecisionReason)
+	// Since #271 a defer abstains by omitting permissionDecision, and the
+	// reason key goes with it — there is no field left to leak the analysis on,
+	// which is a stronger form of the same guarantee than the empty string was.
+	if raw, ok := got.HookSpecificOutput["permissionDecisionReason"]; ok {
+		t.Errorf("a defer must emit NO reason key on stdout; got %s", raw)
 	}
 	// The negative control: the analysis exists, it just does not travel on the
 	// verdict. Without this, an emitDecision that dropped the reason everywhere
@@ -280,8 +278,8 @@ func TestLoggingFailureChangesNoVerdict_262(t *testing.T) {
 				t.Fatalf("a logging failure must not turn %s into a fail-closed block; got exit %d (out=%s)",
 					tc.want, code, out)
 			}
-			if !strings.Contains(string(out), `"permissionDecision":"`+tc.want+`"`) {
-				t.Errorf("a logging failure changed the verdict: wanted %q, got %s", tc.want, out)
+			if got := stdoutBucket(t, string(out)); got != Bucket(tc.want) {
+				t.Errorf("a logging failure changed the verdict: wanted %q, got %q (%s)", tc.want, got, out)
 			}
 		})
 	}

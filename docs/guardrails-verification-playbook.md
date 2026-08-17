@@ -13,11 +13,26 @@ command to run.
 ## Exercise the committed binary
 
 Feed the binary a synthetic `PreToolUse` event on stdin and read the
-JSON `permissionDecision` (`deny` / `ask` / `allow` / `defer`):
+JSON `permissionDecision` (`deny` / `ask` / `allow`):
 
 ```bash
 printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"<repo>","tool_input":{"command":"cat \\"$HOME/.ssh/id_rsa\\""}}' | <bin>
 ```
+
+**A defer has no `permissionDecision` at all.** Since #271 the gate
+spells its abstention as the envelope with the field omitted —
+
+```json
+{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}
+```
+
+— because the literal `"defer"` makes Claude Code pause the tool call
+for later resumption, which never resolves inside a subagent. So a
+probe reads a defer as *the field's absence*, and any jq expression
+that pulls `.hookSpecificOutput.permissionDecision` yields `null` for
+a deferred row rather than the string `defer`. A probe table that
+buckets rows by that string therefore shows `null`, not a failure;
+what WOULD be a failure is a row emitting the literal.
 
 Pick commands that map to the PR's acceptance criteria and confirm the
 committed binary returns the new verdicts. Only the host-arch binary is
@@ -541,10 +556,10 @@ The synthetic replay also reads the evolution log, which is the second
 half of the evidence since #262: `PERMISSION_GATE_LOG=<path>` puts the
 record where the probe can read it, and `ask`, `deny` and `defer` each
 append one. That is how a probe distinguishes *which* arm produced a
-`defer` — two arms returning the same bucket are indistinguishable on
-stdout, because `emitDecision` blanks a defer's reason. Assert the
-`operation` label, not just the bucket, whenever more than one arm can
-produce the verdict under test.
+`defer` — every defer is byte-identical on stdout, because
+`emitDecision` omits both the decision and the reason for one. Assert
+the `operation` label, not just the bucket, whenever more than one arm
+can produce the verdict under test.
 
 `operation` and `analysis` are populated only where the arm had an
 account to give: a `deferJudgment` site fills both, while a bare

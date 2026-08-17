@@ -83,8 +83,9 @@ does still ask. Everything else — file-level suite headers most of all
 — is false. Two claims in that harvest were not bucket words at all and
 matter more: a blanket "every log record carries the analysis" (false
 for a bare `deferToPipeline`) and "the reason names the fields so the
-HUMAN sees them" (`emitDecision` blanks a defer's reason on the wire —
-the reason reaches the evolution log only).
+HUMAN sees them" (`emitDecision` omits both the `permissionDecision`
+and `permissionDecisionReason` keys for a defer, per #271 — the reason
+reaches the evolution log only).
 
 A THIRD pass finds a shape both earlier ones filter out: the
 illustrative example inside a **test HELPER's** doc comment. `wantReason`

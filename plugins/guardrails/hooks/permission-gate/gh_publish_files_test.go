@@ -369,9 +369,9 @@ func TestGhPublishUnmodelledFlagDefers_262(t *testing.T) {
 // verb with a body-file flag or a file positional is described as reading a
 // local file; a verb with neither — roughly half the table — must not be, or the
 // analysis reports a risk that command does not have. Since #262 that sentence
-// is the gate's ANALYSIS rather than a prompt: emitDecision blanks a defer's
-// reason on the wire, so it reaches the §7 evolution log and the re-tune that
-// reads it, never a human prompt.
+// is the gate's ANALYSIS rather than a prompt: emitDecision emits a defer with
+// no reason key on the wire, so the sentence reaches the §7 evolution log
+// and the re-tune that reads it, never a human prompt.
 func TestGhPublishUnmodelledFlagMessageMatchesSurface_229(t *testing.T) {
 	repo := ghPublishRepo(t)
 	const fileRisk = "can read a local file"
