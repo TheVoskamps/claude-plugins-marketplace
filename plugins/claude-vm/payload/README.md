@@ -2079,3 +2079,55 @@ stop`/`rm` the test attempted does not succeed, it prints a
 `WARNING (teardown)` to stderr and the log rather than swallowing the
 failure, so a machine left dirty on the host is signalled instead of
 hidden.
+
+## Testing a PR branch interactively
+
+None of the suites above exercises a change's acceptance criteria at a
+real interactive session under the operator's own config: most run
+off-VM, and `host-acceptance.sh` boots a stub config that reaches only
+the paths its own keys touch. That last step is a human one, and it has
+a shape worth following exactly.
+
+1. **A plain worktree on the PR branch**, made from the primary clone —
+   `git worktree add .claude/worktrees/pr-<N>-test <branch>`. The
+   primary clone stays on its default branch rather than being switched
+   under the test, and the worktree is also what makes the launch run
+   the branch's code: `bin/claude-vm` resolves the plugin root relative
+   to `${BASH_SOURCE[0]}`, so invoking the worktree's own
+   `plugins/claude-vm/bin/claude-vm` runs the branch's `payload/`, not
+   the installed plugin cache's.
+2. **The repo's `.claude-vm/` pair, copied into the worktree.** That
+   directory is git-ignored, so a fresh worktree has none, and the
+   launcher resolves the per-repo pair as
+   `$REPO_SRC/.claude-vm/config-{bake,boot}.yml` against the repo root
+   it was handed — here the worktree, since that is what its own
+   `git rev-parse --show-toplevel` returns. The global pair under
+   `~/.config/claude-vm/` is read in place and needs no copy. What each
+   key means is the "Launcher (`claude-vm.sh`)" section above and the
+   `claude-vm` skill, not this procedure.
+3. **The launch, from a real terminal** (not a pipe — see the
+   two-console note above), working a test plan aimed at the PR's own
+   acceptance criteria. Expect the first launch to build an image: the
+   identity is `BASE_OS_REV+launcherN+global<hash>` plus, when a repo
+   bake file exists, `+<reponame>-<repohash>`, and a PR branch can move
+   both halves — `<reponame>` is the `basename` of the repo root, so
+   `pr-<N>-test` rather than the primary clone's directory name, and a
+   launcher-logic change on the branch bumps `LAUNCHER_LOGIC_REV`. The
+   build is the point rather than an obstacle: it is the branch's own
+   image, under its own filename, so the cached image everyday launches
+   from the primary clone use is neither reused nor replaced.
+4. **Boot-phase assertions checked by grepping `$RUN/guest-console.log`
+   after the run**, not by watching the terminal. The boot launcher
+   writes its `claude-vm:` markers — the `claude-home/` seed line, the
+   apt and plugin install warnings — to `/dev/console`, which is `hvc0`
+   and lands in that capture; the terminal is `hvc1`, carrying the
+   interactive session alone. A criterion about what the guest did
+   during boot is therefore settled after the fact, from the log.
+5. **The run dir, inspected after exit.** `$RUN` is
+   `<repo>/.claude/tmp/<run-id>/` — under the worktree — and is
+   retained: `guest-console.log`, the egress capture and the
+   proxy/gvproxy logs stay there, and `cleanup()` prints each path on
+   the way out. `creds/` is the exception and must be **gone**: it is
+   the transient `claudecreds` share, and `cleanup()` shreds it on every
+   exit, a Ctrl-C included. A surviving `creds/` is a defect, not a
+   leftover.
