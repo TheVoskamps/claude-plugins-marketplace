@@ -659,16 +659,26 @@ rendered assignments for the same trailing-newline literal and compare
 bytes, plus a negative control on the raw-capture shape) are in
 `plugins/claude-vm/payload/README.md` → *Guest environment variables*.
 
-## Write claude-vm's config-load guards for bash 3.2, not for bash 5
+## Write claude-vm for bash 3.2, not for bash 5
 
 Every `plugins/claude-vm` script is `#!/usr/bin/env bash`, so on a stock
-macOS the interpreter is `/bin/bash` **3.2**. Parts of `lib/config.sh`
-need bash 4, but they run late and fail loudly; the config-load guards
-run first and decide whether a mount is safe, so a construct that
-behaves differently on 3.2 silently changes a guard's verdict instead of
-stopping the launch. "The file needs bash 4 anyway" never justifies a
-version-dependent construct inside a guard. Specifically: never write a
-backslash-escaped delimiter in the **replacement** half of
+macOS the interpreter is `/bin/bash` **3.2**, and no launcher-reachable
+code may need bash 4 — `lib/config.sh` today contains no bash-4
+construct at all. The old carve-out ("parts run late and fail loudly")
+is retired: it excused a `local -A` in
+`claude_vm_render_guest_settings`, which #108's real launch killed after
+the image build, and whose `map["$ref"]=` assignment 3.2 mis-parsed
+*silently* — an indexed subscript is evaluated arithmetically, so a
+plugin ref died on `set -u` rather than announcing anything. A late
+failure is neither harmless nor reliably loud.
+
+The config-load guards keep the sharper form, because their failure is
+quieter still: they run first and decide whether a mount is safe, so a
+construct that behaves differently on 3.2 silently changes a guard's
+verdict instead of stopping the launch. Specifically: never declare an
+associative array (`local -A` / `declare -A`) — use two parallel indexed
+arrays and a last-wins linear lookup; never write a backslash-escaped
+delimiter in the **replacement** half of
 `${var//pattern/replacement}` (bash ≥ 4.3 unescapes `\/`, 3.2 does not —
 hold the literal in a variable), and never expand `"${arr[@]}"` on a
 possibly-empty array under `set -u` (write `${arr[@]+"${arr[@]}"}`). Pin
@@ -686,6 +696,15 @@ with a false FAIL, where the same construct in a guard ships a hole. The
 reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
+
+`payload/test/config-test.sh` must be **fully green** under `/bin/bash`,
+and a "these N always fail on 3.2" baseline is never an acceptable
+answer — that baseline is precisely what hid the `local -A` render
+defect through several review rounds while a real launch could not get
+past it. A red assertion under 3.2 is a defect to fix, in the code or in
+the assertion, never a number to carry in a PR body. An acceptance run
+proves nothing about this either way: the stub config it launches with
+exercises only the paths its own keys reach.
 
 ## Sweep the ordering notes and share lists on a boot-launcher insertion
 

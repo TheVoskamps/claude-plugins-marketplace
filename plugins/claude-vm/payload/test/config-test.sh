@@ -3599,9 +3599,12 @@ assert_eq "guest-path: a '..' segment is left INTACT for the validator to reject
   "/mnt/x/../repo" "$(claude_vm_mount_guest_path data /mnt/x/../repo)"
 
 # The normalizer must give the SAME answer on an old bash, because it is a
-# security boundary that runs at config load -- long before the first bash-4
-# construct in this file (`local -A` in claude_vm_render_guest_settings) would
-# fail loudly. A backslash-escaped slash in the REPLACEMENT half of
+# security boundary that runs at config load. (lib/config.sh no longer contains
+# any bash-4 construct at all: the `local -A` in claude_vm_render_guest_settings
+# was the last one, and issue #108's real launch showed its "fails loudly, and
+# only late" excuse to be false in both halves. The whole of this suite now
+# passes under /bin/bash, with no baselined failing set.)
+# A backslash-escaped slash in the REPLACEMENT half of
 # `${var//pattern/replacement}` is version-dependent: bash >= 4.3 unescapes
 # `\/` to `/`, bash 3.2 does not, so the inline spelling `${path//\/\//\/}`
 # turns `/mnt/repo/` into `/mnt/repo\` there and silently defeats every guard
@@ -4601,6 +4604,70 @@ if [ -n "${OLD_BASH:-}" ]; then
         claude_vm_check_plugin_key_placement "" "$2" "" "$3" >/dev/null 2>&1 && echo pass || echo abort' \
         _ "$LIB" "$MP_BAKE" "$MP_BOOT" \
         "$WORK/ob-place-bake3.merged.yml" "$WORK/ob-place-boot3.merged.yml" 2>/dev/null)"
+
+  # claude_vm_render_guest_settings is NOT a config-load guard -- it runs after
+  # the image build -- and that is exactly why it needs this battery. It shipped
+  # a `local -A` on the reasoning that a late bash-4 construct fails loudly;
+  # issue #108's real launch on a stock macOS says otherwise. 3.2 answers
+  # `local -A` with a diagnostic and CARRIES ON, and the `map["$ref"]=`
+  # underneath is not a diagnostic at all: 3.2 evaluates an indexed subscript
+  # ARITHMETICALLY, so an identifier-leading ref dies on `set -u` with the
+  # launch already paid for. Every config with a claude.plugins.enabled override
+  # aborted; a config with none never entered the branch, which is why the
+  # override-free acceptance stub stayed green.
+  #
+  # Driven through the REAL claude_vm_merge_config in the launcher's own
+  # argument shape, in the old shell, so the whole load sequence runs there.
+  OB_ENA_BAKE="$WORK/ob-ena-bake.yml"
+  OB_ENA_BOOT="$WORK/ob-ena-boot.yml"
+  # The ref deliberately LEADS WITH AN IDENTIFIER (`block`), the shape that
+  # arithmetic subscript evaluation kills. A digits-only ref would be a valid
+  # arithmetic expression and would silently write the wrong slot instead.
+  printf 'claude:\n  marketplaces:\n    - name: thevoskamps\n      url: https://github.com/TheVoskamps/claude-plugins-marketplace.git\n  plugins:\n    bake:\n      - block-background-agents@thevoskamps\n      - guardrails@thevoskamps\n' > "$OB_ENA_BAKE"
+  printf 'claude:\n  plugins:\n    update_at_boot: false\n    enabled:\n      block-background-agents@thevoskamps: false\n' > "$OB_ENA_BOOT"
+  OB_RENDER='set -u; . "$1"
+      claude_vm_merge_config "" "$2" > "$4"
+      claude_vm_merge_config "" "$3" > "$5"
+      claude_vm_render_guest_settings "$5" "$4"'
+  OB_ENA_JSON="$("$OLD_BASH" -c "$OB_RENDER" \
+    _ "$LIB" "$OB_ENA_BAKE" "$OB_ENA_BOOT" \
+    "$WORK/ob-ena-bake.merged.yml" "$WORK/ob-ena-boot.merged.yml" 2>/dev/null)"
+  assert_eq "render: an OLD bash ($OLD_BASH) renders a config carrying a plugins.enabled override" \
+    "true" "$([ -n "$OB_ENA_JSON" ] && echo true || echo false)"
+  assert_eq "render: an OLD bash applies the false override to the named ref" \
+    "false" "$(get_json "$OB_ENA_JSON" '.enabledPlugins["block-background-agents@thevoskamps"]')"
+  assert_eq "render: an OLD bash leaves the un-overridden ref enabled" \
+    "true" "$(get_json "$OB_ENA_JSON" '.enabledPlugins["guardrails@thevoskamps"]')"
+  # ...and the validation the override map guards is still reachable there: an
+  # unknown ref must ABORT, not render. Assert the DIAGNOSTIC rather than the
+  # bare non-zero exit, because on this shell a bash-4 construct anywhere in the
+  # function also exits non-zero and an abort/no-abort row cannot tell the two
+  # apart. Measured against the pre-fix library, this row stays GREEN: the
+  # unknown-ref arm sits ABOVE the override-map assignment and fires first, so
+  # it is a semantics guard for the fix, not a second detector of it -- the
+  # three rows above are what go red under that mutation.
+  OB_ENA_BADKEY="$WORK/ob-ena-badkey.yml"
+  printf 'claude:\n  plugins:\n    enabled:\n      typo@thevoskamps: false\n' > "$OB_ENA_BADKEY"
+  OB_ENA_ERR="$("$OLD_BASH" -c "$OB_RENDER" \
+    _ "$LIB" "$OB_ENA_BAKE" "$OB_ENA_BADKEY" \
+    "$WORK/ob-ena-bake2.merged.yml" "$WORK/ob-ena-boot2.merged.yml" 2>&1 >/dev/null)"
+  case "$OB_ENA_ERR" in
+    *"claude.plugins.enabled['typo@thevoskamps'] names a plugin not in"*) OB_ENA_V=named ;;
+    *) OB_ENA_V="$OB_ENA_ERR" ;;
+  esac
+  assert_eq "render: an OLD bash still aborts on an override naming an uninstalled ref, and says why" \
+    "named" "$OB_ENA_V"
+  # NEGATIVE CONTROL: the associative-array spelling this function deliberately
+  # avoids really does die on this shell, for this ref. If it ever stops dying,
+  # the parallel-array map is no longer earning its comment. The verdict is the
+  # CHILD shell's exit status, read in this shell: `set -u` on an unbound name
+  # exits the whole non-interactive shell outright, so an `|| echo died` written
+  # INSIDE the -c script never runs and would measure nothing.
+  if "$OLD_BASH" -c 'set -u
+      f() { local -A m=(); m["block-background-agents@thevoskamps"]=false; echo lived; }
+      f' >/dev/null 2>&1; then OB_NC=lived; else OB_NC=died; fi
+  assert_eq "render: NEGATIVE CONTROL -- the 'local -A' spelling really does die on an old bash" \
+    "died" "$OB_NC"
 fi
 
 # ---------------------------------------------------------------------

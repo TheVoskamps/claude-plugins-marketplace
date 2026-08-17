@@ -65,7 +65,7 @@
 - [`entry #N` counts the merged doc](project_entry-index-is-against-the-structure-the-gate-walks.md) — a per-entry diagnostic numbers against the structure the validator walks, not one tier's own config
 - [Probe every tool your prose names](project_probe-every-tool-your-prose-names.md) — a finding's evidence covers only the tools the reviewer ran; probe every tool your own sentence names
 - [Pick the fix that spares the costly proof](project_pick-the-fix-that-spares-the-expensive-verification.md) — prefer the remedy leaving the already-real-boot-verified path byte-identical; branch on the RESOLVED share
-- [Run the guard on the oldest reachable shell](project_run-the-guard-on-the-oldest-reachable-interpreter.md) — an early guard fails OPEN on bash 3.2 while the file's later `local -A` fails loudly; grade FAILs by label, not count
+- [Run the guard on the oldest reachable shell](project_run-the-guard-on-the-oldest-reachable-interpreter.md) — no launcher-reachable bash-4 carve-out survives; a matching FAIL-label diff licenses investigation, never a baseline (that hid #108's blocker)
 - [The class is the set of USES, not values](project_the-class-is-the-set-of-uses-not-values.md) — one bad value of a validated field means grep the variable and grade each use position's grammar
 - [A finding's exclusivity premise is measurable](project_reviewer-exclusivity-premise-is-measurable.md) — "nothing else reaches $TMPDIR" was false (the gvproxy socket does, every launch); grep what the premise quantifies over
 - [Upstream guard picks your test rows](project_upstream-guard-decides-which-rows-can-reach-yours.md) — a row for a narrowed guard must survive the guard BEFORE it; only `ghShieldingFlags` values may be dynamic

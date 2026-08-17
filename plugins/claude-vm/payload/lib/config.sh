@@ -886,11 +886,13 @@ claude_vm_mount_guest_path() {
   # where bash 5.3 returns `/mnt/repo`, `/mnt/repo` and `/etc`. That silently
   # defeats the whole normalization and with it every guard downstream, and it
   # is pinned by the old-bash block in test/config-test.sh. A variable expands
-  # to a plain `/` with no escape to interpret, so both shells agree. (The rest
-  # of this file needs bash 4 anyway -- `local -A` in
-  # claude_vm_render_guest_settings -- but that fails LOUDLY and much later in
-  # the launch, long after this function has already decided whether a mount is
-  # safe. A guard must not fail open on the way to someone else's error.)
+  # to a plain `/` with no escape to interpret, so both shells agree. (Nothing
+  # in this file needs bash 4 any more. It once did -- `local -A` in
+  # claude_vm_render_guest_settings -- excused as failing LOUDLY and much later
+  # in the launch; issue #108's real launch showed the excuse was wrong on both
+  # counts, so the render was rewritten for 3.2 too. A guard would still have to
+  # survive 3.2 either way: it must not fail open on the way to someone else's
+  # error.)
   local sl=/ dbl=// dotseg=/./
   [ -n "$path" ] || path="$CLAUDE_VM_GUEST_MOUNT_ROOT/$tag"
   # Append one trailing slash so a FINAL `.` segment is spelled `/./` like an
@@ -2769,8 +2771,7 @@ claude_vm_render_guest_settings() {
   # Read the claude.plugins.enabled override map as tab-separated
   # "ref<TAB>value" lines. yq emits nothing when the key is absent.
   # Validate each entry HERE, once: key must be non-empty and must name an
-  # installed ref, value must be a boolean. Build an associative override map
-  # keyed by ref.
+  # installed ref, value must be a boolean. Build an override map keyed by ref.
   #
   # Records are split by hand, per the TSV RECORDS note near the top of this
   # file. An empty KEY (`enabled: { "": true }`) leads the record with an empty
@@ -2779,7 +2780,19 @@ claude_vm_render_guest_settings() {
   # sees the empty ref and says so. That entry ABORTS rather than being skipped
   # -- an override no plugin can ever match is a typo, and this render is the
   # single place claude.plugins.enabled is validated.
-  local -A enabled_override=()
+  #
+  # The map is TWO PARALLEL INDEXED ARRAYS, not an associative array, because
+  # this render is launcher-reachable and stock macOS /bin/bash is 3.2, which
+  # has no associative arrays -- see payload/README.md -> *A guard must survive
+  # the oldest bash that can reach it*. `local -A` there is a hard
+  # `local: -A: invalid option`, and the `map["$ov_ref"]=` assignment that
+  # followed it is worse: 3.2 evaluates an indexed array's subscript
+  # ARITHMETICALLY, so a real ref like `block-background-agents@thevoskamps`
+  # parses as an expression whose leading identifier `block` is unbound, and
+  # `set -u` kills the launch after the image build. Every config carrying a
+  # claude.plugins.enabled override hit that; a config with none never entered
+  # this branch, which is why it survived to a real launch.
+  local ov_refs=() ov_vals=()
   local ov_tab ov_record ov_ref ov_val ov_idx=0
   ov_tab=$'\t'
   while IFS= read -r ov_record; do
@@ -2807,7 +2820,11 @@ claude_vm_render_guest_settings() {
         echo "claude-vm: claude.plugins.enabled['$ov_ref'] names a plugin not in claude.plugins.bake or install_at_boot" >&2
         return 1 ;;
     esac
-    enabled_override["$ov_ref"]="$ov_val"
+    # Append rather than assign-by-key. A repeated ref therefore appears
+    # twice; the lookup below scans to the END and keeps the LAST match, which
+    # is the same value an associative-array assignment would have left.
+    ov_refs+=("$ov_ref")
+    ov_vals+=("$ov_val")
   done < <(
     yq eval '
       .claude.plugins.enabled // {}
@@ -2817,12 +2834,20 @@ claude_vm_render_guest_settings() {
 
   # Build the enabledPlugins object as a YAML fragment: every installed ref
   # -> true, then apply the validated overrides.
-  local plugins_yaml="" value
+  local plugins_yaml="" value ov_i ov_n
+  ov_n=${#ov_refs[@]}
   for ref in ${installed[@]+"${installed[@]}"}; do
     value="true"
-    if [ -n "${enabled_override[$ref]+x}" ]; then
-      value="${enabled_override[$ref]}"
-    fi
+    # Linear last-wins lookup over the parallel override arrays (see the
+    # bash-3.2 note above). The scan does not break at the first hit, so a ref
+    # recorded twice resolves to its last recorded value.
+    ov_i=0
+    while [ "$ov_i" -lt "$ov_n" ]; do
+      if [ "${ov_refs[$ov_i]}" = "$ref" ]; then
+        value="${ov_vals[$ov_i]}"
+      fi
+      ov_i=$((ov_i + 1))
+    done
     # Quote the key so a ref containing YAML-significant characters is a
     # valid single mapping key; the value is a bare boolean literal.
     plugins_yaml="${plugins_yaml}$(printf '%s' "$ref" | yq -o=json eval '.' - 2>/dev/null): ${value}"$'\n'

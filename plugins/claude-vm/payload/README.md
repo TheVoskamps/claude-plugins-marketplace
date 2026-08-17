@@ -1017,13 +1017,28 @@ cover, so `LAUNCHER_LOGIC_REV` carries it (24 → 25).
 
 Every script here is `#!/usr/bin/env bash`, so the interpreter is whatever
 `bash` PATH resolves to — on a stock macOS with no Homebrew bash, `/bin/bash`,
-still **3.2**. Parts of `lib/config.sh` need bash 4 (`local -A` in
-`claude_vm_render_guest_settings`), but those run *late*, and they fail
-**loudly**. The config-load guards run *early* and decide whether a mount is
-safe, so a construct that behaves differently on 3.2 does not stop the
-launch — it silently changes the answer a guard gives. A guard must not fail
-open on the way to someone else's error, which makes "the whole file needs
-bash 4 anyway" an unsafe justification for anything the guards depend on.
+still **3.2**. **No part of `lib/config.sh` needs bash 4**, guard or not, and
+the file is run end to end under `/bin/bash` to keep it that way.
+
+It used to. `claude_vm_render_guest_settings` held a `local -A` behind the
+reasoning that it runs *late* and would fail *loudly* — and issue #108's real
+launch on a stock macOS is the counterexample to both halves. *Late* meant
+after the image build, so the launch died having already paid for a rebuild
+and never reached the guest. *Loud* covered only the first line: 3.2 answers
+`local -A` with `local: -A: invalid option` and then carries on, and the
+`enabled_override["$ov_ref"]=` assignment underneath it is not a diagnostic at
+all — 3.2 evaluates an indexed array's subscript ARITHMETICALLY, so a real ref
+like `block-background-agents@thevoskamps` parses as an expression whose
+leading identifier `block` is unbound and `set -u` kills the shell. Only a
+config carrying a `claude.plugins.enabled` override entered that branch, so
+the acceptance run's override-free stub config never reached it.
+
+The config-load guards keep the sharper form of the rule, because their
+failure is quieter still: they run *early* and decide whether a mount is safe,
+so a construct that behaves differently on 3.2 does not stop the launch — it
+silently changes the answer a guard gives. A guard must not fail open on the
+way to someone else's error, and "the whole file needs bash 4 anyway" is no
+longer even available as a justification, since the file does not.
 
 `test/config-test.sh` carries the same shebang and its header says to run it
 directly, so the suite that checks the guards is under the same rule — at a
@@ -1053,17 +1068,36 @@ The shapes this has actually bitten, with where each one bit:
   classified correctly on 5.3 and returned that fragment on 3.2, so a harness
   artifact read as a broken wrap-dir siting. Lift the `case` into a function
   defined outside, so the substitution holds only the call.
+- **An associative array (`local -A` / `declare -A`).** Bash 3.2 has none, and
+  the failure is two-part: the declaration is a plain diagnostic the shell
+  survives, while every `map["$key"]=` under it becomes an ORDINARY indexed
+  assignment whose subscript is evaluated as an arithmetic expression. A key
+  that is a bare number silently writes the wrong slot; a key holding an
+  identifier — every plugin ref does — is an unbound-variable death under
+  `set -u`. Write two parallel indexed arrays and a linear lookup that scans to
+  the end (last match wins, which is what assign-by-key would have left), as
+  `claude_vm_render_guest_settings` now does.
 
 `test/config-test.sh` pins the escaped-delimiter shape by *running* the real
 normalizer under whatever pre-4 bash the host has, alongside a negative control
 that runs the inline escaped spelling the function avoids — so if the hazard
-ever disappears, the control stops differing and says so. On a host with no old
-bash there is nothing to measure, and the block is skipped rather than faked
-with a fixture. The `case`-in-`$( )` shape needs no assertion of its own — it
+ever disappears, the control stops differing and says so. The associative-array
+shape is pinned the same way and one level up: the render is driven through the
+real `claude_vm_merge_config` in the launcher's own argument shape, over a
+config carrying a `claude.plugins.enabled` override whose ref *leads with an
+identifier* (a digits-only ref would be valid arithmetic and would fail
+differently), with its own negative control on the `local -A` spelling. The
+unknown-ref abort is asserted by its **diagnostic**, not by a non-zero exit,
+since on this shell a bash-4 construct anywhere in the function also exits
+non-zero. On a host with no old bash there is nothing to measure, and the block
+is skipped rather than faked with a fixture. The `case`-in-`$( )` shape needs
+no assertion of its own — it
 is a parse-time property of the file, so *running* the suite under `/bin/bash`
-is the check: everything but the cases that need bash 4's `local -A` has to
-pass there, and that failing set has to stay the one `main`'s own suite already
-fails.
+is the check — and the bar is now the whole suite, with no baselined failing
+set: `/bin/bash test/config-test.sh` is green. A carried-over "these N always
+fail on 3.2" baseline is what hid the `local -A` render defect through several
+review rounds, so a failure there is a defect to fix rather than a number to
+record.
 
 ### Remote Control opt-in (`claude.remote_control`)
 

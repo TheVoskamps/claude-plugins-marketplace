@@ -5,8 +5,9 @@ metadata:
   type: project
 ---
 
-The "write claude-vm's config-load guards for bash 3.2" rule has two
-homes and no others: the root `CLAUDE.md` section of that name, and
+The "write claude-vm for bash 3.2" rule has two homes and no others:
+the root `CLAUDE.md` section of that name (titled "…config-load guards
+for bash 3.2…" before #108 widened it to the whole file), and
 `plugins/claude-vm/payload/README.md` → *A guard must survive the
 oldest bash that can reach it*. `skills/**/SKILL.md` and the example
 YAMLs never mention it, so a sweep is two files, not a plugin-wide
@@ -26,9 +27,14 @@ name the shape, never its list position ("the third"), or inserting a
 bullet silently rewires the sentence.
 
 Claims in this section are cheap to settle by running the suite under
-both interpreters (`/bin/bash` 3.2 vs `/opt/homebrew/bin/bash`) and
-against `origin/main` via `git archive` — the counts in the PR body
-and in the README ("everything but the `local -A` render cases passes
-on 3.2") are exactly that measurement. Note 3.2's total is one
-assertion *lower*, not just 15 failures: `enabled-validate` emits two
-assertions on the success path and one on the failure path.
+both interpreters and against `origin/main` via `git archive`. The
+bash ≥ 4 side may need a container: this host has no Homebrew bash, so
+`/bin/bash` is the only local shell. Note 3.2's total used to be one
+assertion *lower* as well as 15 red, because `enabled-validate` emits
+two assertions on the success path and one on the failure path.
+
+**Superseded by #108:** the README no longer says "everything but the
+`local -A` render cases passes on 3.2". That `local -A` is gone — the
+render uses parallel indexed arrays — and the suite is fully green on
+3.2 (584/0) with no baselined failing set. A PR body carrying a 3.2
+failure count is now itself the defect.

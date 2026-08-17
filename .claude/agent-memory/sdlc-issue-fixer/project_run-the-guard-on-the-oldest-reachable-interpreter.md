@@ -1,6 +1,6 @@
 ---
 name: run-the-guard-on-the-oldest-reachable-interpreter
-description: A guard that runs EARLY can fail open on an old interpreter while the file's later bash-4 constructs fail loudly — measure the guard itself under the oldest shell that can reach it, and grade the failures it then shows by diffing FAIL labels across extracted trees, not by counts
+description: Measure the real function under the oldest shell that can reach it — a guard can fail open there, and a "it already needs bash 4 anyway" carve-out is never safe; grade the resulting FAILs by reading what each label names, since a matching label diff licenses investigation, not a baseline
 metadata:
   type: project
 ---
@@ -23,13 +23,20 @@ defect. Holding the `/`, `//` and `/./` literals in **variables** makes
 both shells agree, because a variable expands to a plain `/` with no
 escape to interpret.
 
-The trap is the "it already needs bash 4" reflex. `lib/config.sh` does
-— `local -A` in `claude_vm_render_guest_settings` — so it is tempting
-to call 3.2 unreachable. But that construct fails **loudly and much
-later** in the launch, long after `claude_vm_check_mounts` has already
-decided whether a mount is safe. Ordering decides reachability: a
-guard on the early path can fail *open* on the way to somebody else's
-error. The same run found the sibling gotcha — bash 3.2 under `set -u`
+The trap is the "it already needs bash 4" reflex. `lib/config.sh` did
+— `local -A` in `claude_vm_render_guest_settings` — which made 3.2 look
+unreachable for the file as a whole. **That reflex was wrong twice, as
+issue #108 proved: the construct is gone and nothing in the file
+needs bash 4 now.** It never failed "loudly and only late": 3.2 prints
+`local: -A: invalid option` and keeps going, and the
+`map["$ref"]=` assignment under it is mis-parsed *silently* — an
+indexed subscript is evaluated arithmetically, so a plugin ref like
+`block-background-agents@thevoskamps` dies on `set -u`. "Late" meant
+after the image build, i.e. the launch was already paid for. Ordering
+still decides reachability — a guard on the early path can fail *open*
+on the way to somebody else's error — but never accept a bash-4
+construct anywhere the launcher reaches. The same run found the sibling
+gotcha — bash 3.2 under `set -u`
 treats a bare `"${arr[@]}"` on an **empty** array as an unbound
 variable and kills the script, so a new array needs
 `${arr[@]+"${arr[@]}"}`.
@@ -63,6 +70,19 @@ label diff shows it rather than leaving an unexplained off-by-one.
 Sweeping such a class also wants a parser, not a grep: the shape is
 "a `)` inside a `$( )` body that closes nothing", and its two ends are
 often on different lines.
+
+**But a matching label diff is a licence to investigate, not to keep
+the failures.** That is exactly how #108's blocker survived: PR #231
+established the surviving 15 as "identical to main's" and every later
+round carried "568 passed / 15 failed" as a baseline, when those 15
+*were* the render dying on 3.2 — a hard launch abort for any config
+with a `claude.plugins.enabled` override. Read what a persistent FAIL
+label names before baselining it; a whole named function failing on the
+interpreter the product actually ships on is a blocker wearing a
+baseline's clothes. The suite is now 584/0 on `/bin/bash` (the 584th
+assertion is the one that never ran), and 570/0 in a `debian:trixie`
+container under bash 5.2 both before and after the fix — the old-bash
+batteries skip there, which is the whole 14-assertion difference.
 
 Related: [[pin-a-specs-empirical-premise-with-a-live-test]],
 [[negative-control-the-approved-snippet]],
