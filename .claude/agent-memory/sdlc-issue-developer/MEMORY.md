@@ -26,5 +26,5 @@
 - [Gate blocks `sed -i ''`](gate-blocks-sed-i-empty-suffix.md) — the empty suffix reads as an out-of-repo write target, so no in-place sed works on macOS; use Edit, or cp-then-Edit for skeleton variants
 - [Issue spec vs. repo statement conflict](issue-spec-vs-repo-statement-conflict.md) — grade the contradicted statement first: delete a false capability claim, carve an exception only out of real policy; sweep its restatements
 - [claude-vm env boot-probe recipe](claude-vm-env-probe-recipe.md) — stub-claude as an env dumper: one build + two boots prove a precedence chain, second-run persistence, and no-secret-in-the-.raw
-- [npx needs an inline ASDF_NODEJS_VERSION](npx-needs-inline-asdf-nodejs-version.md) — "No version is set for command npx" in a worktree; prefix the call, don't `asdf set` and don't write .tool-versions
+- [npx needs an inline ASDF_NODEJS_VERSION](npx-needs-inline-asdf-nodejs-version.md) — and sometimes an inline `~/.asdf/bin` on PATH too; prefix the call, don't `asdf set` and don't write .tool-versions
 - [set -e does not abort an AND-OR list's non-final failure](bash-set-e-and-and-or-lists.md) — `[ -f x ] && . x` keeps going; mutate the code into the "unsafe" spelling before writing why it is unsafe

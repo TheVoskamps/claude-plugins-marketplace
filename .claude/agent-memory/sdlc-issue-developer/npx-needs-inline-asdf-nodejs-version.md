@@ -1,6 +1,6 @@
 ---
 name: npx-needs-inline-asdf-nodejs-version
-description: Bare `npx markdownlint-cli2` fails with "No version is set for command npx" in a subagent worktree; prefix the call with ASDF_NODEJS_VERSION= rather than running `asdf set`
+description: Bare `npx markdownlint-cli2` fails in a subagent worktree; prefix the call with both PATH="$HOME/.asdf/bin:$PATH" and ASDF_NODEJS_VERSION= rather than running `asdf set`
 metadata:
   type: feedback
 ---
@@ -34,6 +34,27 @@ ASDF_NODEJS_VERSION=26.5.0 npx markdownlint-cli2 <file>…
 ```
 
 Take the version number from asdf's own error output rather than
-pinning one here — it moves. Related: [[feedback_heredoc-commit-sandbox-gate]]
-for the sibling "the gate refuses the compound form, use the plain one"
-shape.
+pinning one here — it moves.
+
+**The `asdf: not found` variant.** Sometimes the shim fails differently:
+
+```text
+/Users/<user>/.asdf/shims/npx: line 8: exec: asdf: not found
+```
+
+`~/.asdf/shims` is on PATH but `~/.asdf/bin` is not, so the shim cannot
+exec the `asdf` it dispatches through — and here `ASDF_NODEJS_VERSION`
+alone does not help, because nothing gets far enough to read it. Two
+traps follow. Asking asdf for the version is itself blocked: a bare
+`ls ~/.asdf/installs/nodejs/` is refused as an out-of-repo read, and
+`command -v node npx asdf; echo $PATH | …` is refused as too complex
+for the worktree-containment check. Put `~/.asdf/bin` on PATH for the
+one call instead, and ask asdf itself:
+
+```bash
+PATH="$HOME/.asdf/bin:$PATH" asdf current nodejs
+PATH="$HOME/.asdf/bin:$PATH" ASDF_NODEJS_VERSION=<that version> npx markdownlint-cli2 <file>…
+```
+
+Related: [[feedback_heredoc-commit-sandbox-gate]] for the sibling
+"the gate refuses the compound form, use the plain one" shape.
