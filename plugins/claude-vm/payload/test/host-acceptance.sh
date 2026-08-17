@@ -440,7 +440,18 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     the boot launcher HARD-ABORTS when this is absent (it is the
   #     security-posture deny-list backstop), so this test renders one via
   #     the real claude_vm_render_guest_settings over a minimal merged-config
-  #     stub -- see below.
+  #     stub -- see below. Last, it carries a claude-home/ SUBDIRECTORY
+  #     (issue #108): the host stages copies of its own
+  #     ~/.claude/{CLAUDE.md, rules/, agents/, skills/, keybindings.json}
+  #     there, and the boot launcher copies them ADDITIVELY into
+  #     $HOME/.claude/ -- a merge into the image's baked ~/.claude, where the
+  #     single files above are plain overwrites. We stand up a stub CLAUDE.md
+  #     and rules/ so that install runs against a real RO virtio-fs mount
+  #     (assertion (b4) below); like the identity seed and unlike
+  #     settings.json, an absent or unreadable entry here is fail-soft.
+  #     (The boot tier's guest `env` file, issue #135, is the one claudecreds
+  #     member this boot test does NOT stage: the launcher sources it only
+  #     when present, so its absence is exactly the no-env-configured case.)
   RUNCONFIG_SHARE="$WORK/runconfig"
   REPO_SHARE="$WORK/repo"
   CLAUDEBIN_SHARE="$WORK/claudebin"
@@ -508,6 +519,14 @@ STUBCLAUDE
     || { echo "FAIL: failed to render the stub guest settings.json" >&2; exit 1; }
   rm -f "$STUB_MERGED"
   chmod 0600 "$CLAUDECREDS_SHARE/settings.json"
+  # Stub host working rules (issue #108): the real launcher stages copies of the
+  # host's own ~/.claude subset into claude-home/ on this same share. A file and
+  # a directory are both stood up, because the guest install has a branch for
+  # each (a plain overwrite vs. an additive `cp -R <src>/.` merge). Assertion
+  # (b4) reads the launcher's own log line back out of the console capture.
+  mkdir -p "$CLAUDECREDS_SHARE/claude-home/rules"
+  printf 'stub host CLAUDE.md\n' > "$CLAUDECREDS_SHARE/claude-home/CLAUDE.md"
+  printf 'stub host rule\n'      > "$CLAUDECREDS_SHARE/claude-home/rules/core.md"
 
   # Boot the guest, capturing serial console. vfkit runs in the
   # background; we poll the console for the seam marker, then stop it.
@@ -590,6 +609,23 @@ STUBCLAUDE
     pass "(b) guest reconstructed spaced/#-bearing CLAUDE_ARGS argv intact"
   else
     fail "(b) guest did not round-trip the spaced CLAUDE_ARGS argv" "see $BOOT_LOG and $HVC1_LOG"
+  fi
+
+  # (b4) Host working rules installed (issue #108): the claudecreds share
+  # carried a claude-home/ with a CLAUDE.md and a rules/ tree, and the boot
+  # launcher's seed step logs which entries it installed. The seed-test suite
+  # drives both loops off-VM; what only a real boot can show is that the step
+  # runs at all in the emitted launcher, against a real RO virtio-fs mount,
+  # in its real position after the settings.json install. The launcher's own
+  # diagnostics go to /dev/console (hvc0/BOOT_LOG); search both captures for the
+  # same reason (b2) does.
+  SEED_MARKER="seeded host working rules"
+  if grep -qF "$SEED_MARKER" "$BOOT_LOG" 2>/dev/null \
+     || grep -qF "$SEED_MARKER" "$HVC1_LOG" 2>/dev/null; then
+    pass "(b) guest installed the host working rules off the claudecreds mount"
+  else
+    fail "(b) guest did not install the host working rules (claude-home/)" \
+      "see $BOOT_LOG and $HVC1_LOG"
   fi
 else
   fail "(b) skipped: no bootable image from criterion (a)"

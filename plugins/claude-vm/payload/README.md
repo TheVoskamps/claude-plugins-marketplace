@@ -204,11 +204,14 @@ right vehicle.
 renders the guest's `/root/.claude/settings.json` **host-side** from the
 merged claude-vm config and shares it into the guest over the same transient
 `claudecreds` mount as the credential and seed; the boot launcher installs it
-at `$HOME/.claude/settings.json`. The rendered file is derived from the
-claude-vm configs **only** — the host's `~/.claude/settings.json` is never
-read, so the guest deliberately runs its own posture (the host lists govern
-Claude *outside* the VM; inside, one may run a different, riskier posture).
-Its keys are: `permissions` (`allow`/`ask`/`deny` verbatim from
+at `$HOME/.claude/settings.json`. The guest's **permission** and **plugin**
+surface — everything the rendered file carries — is derived from the claude-vm
+configs **only**: the host's `~/.claude/settings.json` is never read, so the
+guest deliberately runs its own posture (the host lists govern Claude
+*outside* the VM; inside, one may run a different, riskier posture). The
+non-policy layer that *does* cross the seam is the host's working rules —
+see *Host working rules seeded into the guest* below.
+The rendered file's keys are: `permissions` (`allow`/`ask`/`deny` verbatim from
 `claude.permissions.*`, plus `defaultMode` from `claude.permission_mode`,
 default `bypassPermissions`; only `bypassPermissions`/`default` are accepted,
 anything else aborts the launch), `enabledPlugins` (every ref in
@@ -265,9 +268,19 @@ sides and its absence is silent (most hosts have no `keybindings.json`); a
 copy that *fails* is warned about loudly by the side that attempted it —
 the host on its own stderr when staging fails (and the entry is dropped, so
 the guest never sees it), the guest in the hvc0 log when the install off the
-mount fails — and the launch continues. No copy failure here aborts a boot —
+mount fails — and the launch continues. No failure here aborts a boot —
 unlike the credential and `settings.json`, this layer is a convenience, not
-a security control.
+a security control — which is why the guest half guards **every** command it
+runs on an entry, its `mkdir -p` as much as its copies: it runs under
+`set -euo pipefail`, where an unguarded failure would end the boot instead of
+the entry.
+
+Dropping a failed entry means removing what was already copied, since `cp -R`
+keeps going past a per-file error and a half-copied `rules/` tree is worse
+than an absent one. The guest can do that only for a destination **this seed
+created**: a path that already existed is baked image content the seed merely
+merged into, so it is left alone, with a warning saying it may now hold a
+partial copy, rather than deleting bytes this layer never owned.
 
 **Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
 structurally-complete `claudeAiOauth` object whose `accessToken` and
@@ -1870,18 +1883,42 @@ emitted boot launcher, run back to back over a fake host home and a fake
 guest home. Grepping either loop would prove nothing — the properties are all
 about what the pair produces. It asserts that every include-list entry
 arrives; that a host `settings.json`, `projects/`, `history.jsonl`, `todos/`
-and `statsig/` are staged nowhere and reach the guest never (the include list
-being an include list); that a **symlinked** `rules/` and `skills/` — the
+and `statsig/` are staged nowhere and reach the guest never (both ends
+asserted per entry, since a guest-side assertion alone would still pass on a
+host that staged the entry and a guest that merely failed to install it); that
+a **symlinked** `rules/` and `skills/` — the
 `~/.claude`-is-a-checkout host — arrive dereferenced as real content rather
 than as dangling links; that the install is additive and does **not** nest
 (the image's baked `plugins/` survives, a pre-existing file inside a seeded
 directory survives, and nothing lands at `.claude/rules/rules`); and that a
 sparse host, a missing `keybindings.json`, and a host with no `~/.claude` at
-all each produce a clean run with no error output on either side. The two
-copy spellings that carry the whole feature — `cp -RL` host-side and
+all each produce a clean run with no error output on either side.
+
+The guest half's *failure* arms are pinned by injection, because the emitted
+launcher runs under `set -euo pipefail` and the cost of an unguarded command
+there is the whole boot, not one entry. Each fragment's exit status is
+recorded, so an abort is visible as a status rather than as a missing file: a
+destination that already exists as a **non-directory** (the `mkdir -p` fails)
+must still leave the later include-list entries installed and the run at
+status 0, and an unreadable subtree on the mount (`cp -R` continues past the
+error, leaving a half-populated tree) must leave the destination **removed**
+when this seed created it and **untouched**, with a warning saying so, when it
+is baked image content the seed only merged into. The injection is planted on
+the mount and drives the guest loop alone — a host `~/.claude` entry the host
+itself cannot read is dropped host-side and never reaches the guest — and it
+is skipped under `root`, which reads a mode-`000` directory anyway.
+
+The two copy spellings that carry the whole feature — `cp -RL` host-side and
 `cp -R <src>/.` guest-side — were negative-controlled by mutating each to its
-unsafe form and confirming the suite goes red. No VM, no network, no root;
-`bash` + `awk`.
+unsafe form and confirming the suite goes red; the failure-arm assertions were
+negative-controlled the same way, against the pre-fix loop. No VM, no network,
+no root; `bash` + `awk`.
+
+The one property this suite cannot reach is that the step runs at all in the
+real emitted launcher, off a real RO virtio-fs mount, in its real position —
+`host-acceptance.sh` criterion (b4) stages a stub `claude-home/` on the
+`claudecreds` share and asserts the launcher's own seed log line comes back
+out of the guest console capture.
 
 `launch-shape-test.sh` is the regression test for issue #179's vfkit launch
 shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its

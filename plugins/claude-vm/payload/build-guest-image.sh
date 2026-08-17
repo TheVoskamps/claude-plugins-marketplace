@@ -331,7 +331,17 @@ BASE_OS_REV="debian-12-20250601"
 # 24 -> 25 env bump. Same reasoning as every rev above: the launcher's SOURCE
 # is not part of the image-identity hash, so this constant is the only thing
 # that invalidates a cached image.
-LAUNCHER_LOGIC_REV="26"
+# Bumped 26 -> 27: the seed step's own failure handling (issue #108 review). A
+# launcher26 image runs the FIRST shape of that step, whose `mkdir -p` was not
+# guarded -- so an entry whose destination could not be created aborted the
+# whole boot under `set -euo pipefail` instead of being skipped -- and whose
+# failure arm left a half-copied tree in $HOME/.claude with only a warning. Both
+# are boot-visible behavior changes in a step launcher26 already carries, so the
+# entry-count reasoning of the 25 -> 26 bump does not cover them: the step is
+# present either way and only its failure behavior differs. Same reasoning as
+# every rev above: the launcher's SOURCE is not part of the image-identity hash,
+# so this constant is the only thing that invalidates a cached image.
+LAUNCHER_LOGIC_REV="27"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -919,10 +929,22 @@ log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.jso
 # FAIL-SOFT, like the identity seed and unlike the credential/settings: a
 # missing or unreadable working-rules entry gives a guest that runs without
 # the operator's global rules, which is a degraded session, not an unsafe or
-# unauthenticated one. Every copy below is guarded with `||`, so no copy failure
-# aborts a bootable guest -- it warns and drops that one entry. The warning is
-# this side's own: an entry the HOST failed to stage never arrives here, so it
-# is reported once, on the launcher's stderr, and is simply absent below.
+# unauthenticated one. EVERY command that touches an entry is guarded -- the
+# `mkdir -p` as much as the copies, since this launcher runs under
+# `set -euo pipefail` and an unguarded failure there would abort the whole boot
+# rather than skip one entry. The warning is this side's own: an entry the HOST
+# failed to stage never arrives here, so it is reported once, on the launcher's
+# stderr, and is simply absent below.
+#
+# A FAILED copy leaves a half-populated tree behind (`cp -R` keeps going past a
+# per-file error), and a half-copied rules/ tree is worse than an absent one --
+# so the failure arm REMOVES it, the same as the host staging loop does. It can
+# only do that when this seed CREATED the destination: a directory that already
+# existed is baked image content the seed merely merged into (the image's
+# /root/.claude ships plugins/, and rules/ or skills/ could gain baked content
+# later), and removing it would delete bytes this layer never owned. That case
+# is warned about in its own words rather than silently cleaned, because there
+# is nothing safe to clean.
 #
 # $CRED_DIR ($CLAUDE_HOME/.claude) already exists from the credential install.
 MOUNTED_CLAUDE_HOME_SEED="$CLAUDECREDS_MNT/claude-home"
@@ -931,19 +953,32 @@ seeded_entries=""
 for seed_entry in $CLAUDE_HOME_SEED_ENTRIES; do
   seed_src="$MOUNTED_CLAUDE_HOME_SEED/$seed_entry"
   [ -e "$seed_src" ] || continue
-  if [ -d "$seed_src" ]; then
-    mkdir -p "$CRED_DIR/$seed_entry"
-    seed_ok=0
-    cp -R "$seed_src/." "$CRED_DIR/$seed_entry/" || seed_ok=1
+  seed_dst="$CRED_DIR/$seed_entry"
+  if [ -e "$seed_dst" ]; then
+    seed_dst_preexisting=1
   else
-    seed_ok=0
-    cp "$seed_src" "$CRED_DIR/$seed_entry" || seed_ok=1
+    seed_dst_preexisting=0
+  fi
+  seed_ok=0
+  if [ -d "$seed_src" ]; then
+    if mkdir -p "$seed_dst"; then
+      cp -R "$seed_src/." "$seed_dst/" || seed_ok=1
+    else
+      seed_ok=1
+    fi
+  else
+    cp "$seed_src" "$seed_dst" || seed_ok=1
   fi
   if [ "$seed_ok" -eq 0 ]; then
     seeded_entries="$seeded_entries $seed_entry"
+  elif [ "$seed_dst_preexisting" -eq 0 ]; then
+    rm -rf "$seed_dst" || true
+    log "claude-vm: WARNING -- could not install the host working-rules entry '$seed_entry'"
+    log "claude-vm: into $CRED_DIR; dropped the partial copy and continuing without it."
   else
     log "claude-vm: WARNING -- could not install the host working-rules entry '$seed_entry'"
-    log "claude-vm: into $CRED_DIR; continuing without it."
+    log "claude-vm: into $CRED_DIR, where it already existed in the image; that path may now"
+    log "claude-vm: hold a PARTIAL copy, and is left alone rather than deleting baked content."
   fi
 done
 if [ -n "$seeded_entries" ]; then

@@ -164,14 +164,34 @@ assert_contains "guest fragment is the real install loop" \
 #    this runs HOST staging into <case>/creds/claude-home and GUEST install
 #    out of it. Guest output (the `log` lines) lands on stdout.
 # ---------------------------------------------------------------------
+#    Each half's exit STATUS is recorded in <case>/host.status and
+#    <case>/guest.status rather than being allowed to escape: both fragments
+#    run under `set -euo pipefail`, which is what the emitted launcher runs
+#    under, so an unguarded failure inside one shows up here as a nonzero
+#    status -- in the real guest it would be the whole boot aborting.
 run_seed() {
   local case_dir="$1"
   mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
+  local st=0
   HOME="$case_dir/home" CREDS_DIR="$case_dir/creds" \
-    "$SHELL_UNDER_TEST" -c 'set -euo pipefail; . "$1"' _ "$HOST_FRAGMENT" 2>"$case_dir/host.err"
+    "$SHELL_UNDER_TEST" -c 'set -euo pipefail; . "$1"' _ "$HOST_FRAGMENT" \
+      2>"$case_dir/host.err" || st=$?
+  printf '%s\n' "$st" > "$case_dir/host.status"
+  run_guest_only "$case_dir"
+}
+
+# Drive the GUEST half alone, over a claude-home/ tree the caller built by
+# hand. Used for the failure injections: a source the guest cannot read has to
+# be planted on the MOUNT, since a host ~/.claude the host itself cannot copy
+# is dropped host-side and never reaches the guest at all.
+run_guest_only() {
+  local case_dir="$1"
+  mkdir -p "$case_dir/creds" "$case_dir/guest/.claude"
+  local st=0
   CLAUDECREDS_MNT="$case_dir/creds" CRED_DIR="$case_dir/guest/.claude" \
     "$SHELL_UNDER_TEST" -c 'set -euo pipefail; log() { printf "%s\n" "$*"; }; . "$1"' \
-      _ "$GUEST_FRAGMENT" 2>"$case_dir/guest.err"
+      _ "$GUEST_FRAGMENT" 2>"$case_dir/guest.err" || st=$?
+  printf '%s\n' "$st" > "$case_dir/guest.status"
 }
 
 # --- Case A: a full host ~/.claude, with excluded neighbours ----------
@@ -212,7 +232,15 @@ assert_file_is "host keybindings.json reaches the guest" \
 # at either end. settings.json is the load-bearing one -- the guest's is
 # RENDERED from config, so a host copy landing here would silently replace the
 # operator's configured VM posture with their host posture.
+# Both ends are asserted for every excluded entry: "staged nowhere" is the
+# host loop's property and "reaches the guest never" is the guest loop's, and a
+# guest-side assertion alone would still pass if the host staged the entry and
+# the guest merely failed to install it.
 assert_absent "host settings.json is not staged"      "$A/creds/claude-home/settings.json"
+assert_absent "host projects/ is not staged"          "$A/creds/claude-home/projects"
+assert_absent "host history.jsonl is not staged"      "$A/creds/claude-home/history.jsonl"
+assert_absent "host todos/ is not staged"             "$A/creds/claude-home/todos"
+assert_absent "host statsig/ is not staged"           "$A/creds/claude-home/statsig"
 assert_absent "host settings.json never reaches the guest" \
   "$A/guest/.claude/settings.json"
 assert_absent "host projects/ never reaches the guest"     "$A/guest/.claude/projects"
@@ -279,6 +307,93 @@ assert_contains "an empty seed logs that the guest has no working rules" \
   "$D_LOG" "no host working rules to seed"
 assert_eq "an empty seed leaves no host-side error output" "" "$(cat "$D/host.err")"
 assert_eq "an empty seed leaves no guest-side error output" "" "$(cat "$D/guest.err")"
+
+# --- Case E: the guest destination exists as a NON-directory --------------
+# The guest half runs under `set -euo pipefail`, so every command it runs on an
+# entry has to be guarded -- not only the copies. Here the image's ~/.claude
+# already holds a FILE named `rules`, so `mkdir -p $CRED_DIR/rules` fails. An
+# unguarded mkdir aborts the ENTIRE boot at that point: no later entry is
+# installed and nothing after this phase (packages, plugins, claude itself)
+# runs. Guarded, it is one warned-about entry and the boot continues.
+#
+# `rules` is deliberately not the last entry in the include list, so the later
+# ones double as the evidence that the loop survived.
+E="$WORK/case-e"
+mkdir -p "$E/home/.claude/rules" "$E/home/.claude/skills"
+printf 'global rules\n' > "$E/home/.claude/CLAUDE.md"
+printf 'core\n'         > "$E/home/.claude/rules/core.md"
+printf 'a skill\n'      > "$E/home/.claude/skills/s.md"
+printf 'keys\n'         > "$E/home/.claude/keybindings.json"
+mkdir -p "$E/guest/.claude"
+printf 'not a directory\n' > "$E/guest/.claude/rules"
+E_LOG="$(run_seed "$E")"
+
+assert_eq "a failed mkdir does not abort the guest install" \
+  "0" "$(cat "$E/guest.status")"
+assert_contains "the blocked entry is warned about" \
+  "$E_LOG" "could not install the host working-rules entry 'rules'"
+assert_file_is "an entry AFTER the blocked one still reaches the guest" \
+  "$E/guest/.claude/skills/s.md" "a skill"
+assert_file_is "the last entry still reaches the guest" \
+  "$E/guest/.claude/keybindings.json" "keys"
+assert_file_is "the pre-existing non-directory is left as it was" \
+  "$E/guest/.claude/rules" "not a directory"
+
+# --- Case F: a copy that fails PART WAY through ---------------------------
+# `cp -R` continues past a per-file error, so a failed directory copy leaves a
+# half-populated tree -- the state this feature's own design calls worse than
+# an absent one. The failure arm must therefore remove what it copied, which
+# it can do only for a destination this seed created.
+#
+# The unreadable source is planted on the MOUNT (guest half only): a host
+# ~/.claude entry the HOST cannot read is dropped host-side and never arrives
+# here, so it could not produce a guest-side partial. Skipped as root, which
+# reads a mode-000 directory regardless.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "skip - partial-tree cleanup (running as root; mode 000 is not a barrier)"
+else
+  F="$WORK/case-f"
+  mkdir -p "$F/creds/claude-home/rules/locked" "$F/creds/claude-home/skills"
+  printf 'readable\n' > "$F/creds/claude-home/rules/readable.md"
+  printf 'locked\n'   > "$F/creds/claude-home/rules/locked/x.md"
+  printf 'a skill\n'  > "$F/creds/claude-home/skills/s.md"
+  chmod 000 "$F/creds/claude-home/rules/locked"
+  F_LOG="$(run_guest_only "$F")"
+  chmod 700 "$F/creds/claude-home/rules/locked"
+
+  assert_eq "a failed copy does not abort the guest install" \
+    "0" "$(cat "$F/guest.status")"
+  assert_contains "the failed entry says its partial copy was dropped" \
+    "$F_LOG" "dropped the partial copy"
+  assert_absent "the half-copied tree is removed, not left behind" \
+    "$F/guest/.claude/rules"
+  assert_file_is "a later entry still reaches the guest" \
+    "$F/guest/.claude/skills/s.md" "a skill"
+fi
+
+# --- Case G: a copy that fails into a destination the IMAGE owns ----------
+# Same failure, but the destination pre-exists (baked image content the seed
+# merely merges into). Removing it would delete bytes this layer never owned,
+# so the arm leaves it alone and says so instead.
+if [ "$(id -u)" -eq 0 ]; then
+  echo "skip - baked-destination warning (running as root; mode 000 is not a barrier)"
+else
+  G="$WORK/case-g"
+  mkdir -p "$G/creds/claude-home/rules/locked" "$G/guest/.claude/rules"
+  printf 'readable\n'  > "$G/creds/claude-home/rules/readable.md"
+  printf 'locked\n'    > "$G/creds/claude-home/rules/locked/x.md"
+  printf 'baked rule\n' > "$G/guest/.claude/rules/baked.md"
+  chmod 000 "$G/creds/claude-home/rules/locked"
+  G_LOG="$(run_guest_only "$G")"
+  chmod 700 "$G/creds/claude-home/rules/locked"
+
+  assert_eq "a failed copy into a baked path does not abort either" \
+    "0" "$(cat "$G/guest.status")"
+  assert_contains "the warning says the path may hold a partial copy" \
+    "$G_LOG" "PARTIAL copy"
+  assert_file_is "baked content under the failed path is NOT deleted" \
+    "$G/guest/.claude/rules/baked.md" "baked rule"
+fi
 
 echo ""
 echo "claude-home-seed-test: $PASS passed, $FAIL failed"

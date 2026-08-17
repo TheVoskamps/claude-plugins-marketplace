@@ -676,10 +676,14 @@ The launcher renders the guest's `/root/.claude/settings.json`
 host-side from the merged config and shares it into the guest over the
 existing transient `claudecreds` mount (the same one the OAuth
 credential and identity seed ride). The guest boot launcher installs it
-at `$HOME/.claude/settings.json`. The rendered file is derived from the
-claude-vm configs **only** — the host's `~/.claude/settings.json` is
-never read, so the guest deliberately runs its own (possibly riskier)
-posture:
+at `$HOME/.claude/settings.json`. The guest's **permission** and **plugin**
+surface — everything the rendered file carries — is derived from the claude-vm
+configs **only**: the host's `~/.claude/settings.json` and the host's own
+installed plugins are never read, so the guest deliberately runs its own
+(possibly riskier) posture. (The host's `~/.claude` *working rules* — the
+non-policy layer of `CLAUDE.md`, `rules/`, `agents/`, `skills/` and
+`keybindings.json` — **are** seeded in; see *Host working rules seeded into
+the guest* below.) The rendered keys:
 
 - `permissions.allow` / `.ask` / `.deny` come verbatim from
   `claude.permissions.*` (each a unioned list).
@@ -753,7 +757,13 @@ and no global `CLAUDE.md` launches normally and silently. A copy that
 stderr when the host cannot stage the entry (which then never reaches the
 guest at all), in the guest's `hvc0` diagnostic log when the guest cannot
 install it — and the launch continues: unlike the credential and
-`settings.json`, no copy failure in this layer aborts a boot.
+`settings.json`, nothing in this layer aborts a boot.
+
+A failed entry is also **dropped**, not left half-copied: `cp -R` keeps going
+past a per-file error, and a partial `rules/` tree is worse than an absent
+one. The guest can only drop what this seed created, so a destination that
+already existed in the image is left alone — with a warning that it may now
+hold a partial copy — rather than having baked content deleted under it.
 
 ## Interactive session (the launching terminal IS the in-VM claude)
 
