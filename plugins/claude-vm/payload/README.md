@@ -249,13 +249,17 @@ references dangling in the guest.
 That list is an **include list, not an exclude list** — a host `~/.claude`
 accumulates directories this code has never heard of, and an exclude list
 would leak every future one by default. Deliberately off it is the **policy
-layer**: `settings.json` (rendered, above) and plugin state
-(config-driven, see *Marketplaces and plugins*), because the guest is
-supposed to run the posture the claude-vm config describes, not the host's.
-Off it too is **host-scoped session state**: `projects/` (keyed by host
-paths that do
-not exist in the guest), `history.jsonl`, `todos/`, `sessions/`, `logs/`,
-`statsig/`, `shell-snapshots/`, `ide/`, `teams/`, `usage-data/`.
+layer**: `settings.json` (rendered, above) and plugin state (config-driven,
+see *Marketplaces and plugins*), because the guest is supposed to run the
+posture the claude-vm config describes, not the host's. Off it too is
+**host-scoped session state**: `projects/` (keyed by host paths that do not
+exist in the guest), `history.jsonl`, `todos/`, `sessions/`, `logs/`,
+`statsig/`, `shell-snapshots/`, `ide/`, `teams/`, `usage-data/`. There is no
+config key for any of this, and the list is spelled on **both** sides of the
+seam — `CLAUDE_VM_HOME_SEED_ENTRIES` in `claude-vm.sh`,
+`CLAUDE_HOME_SEED_ENTRIES` in the emitted launcher, which re-walks the same
+names rather than globbing what it finds on the mount — so adding an entry is
+a deliberate edit in two files, not one.
 
 The host files are never touched: what is shared is a **copy**, staged under
 `umask 077` inside the run's credential dir, so `cleanup()`'s existing
@@ -268,12 +272,15 @@ sides and its absence is silent (most hosts have no `keybindings.json`); a
 copy that *fails* is warned about loudly by the side that attempted it —
 the host on its own stderr when staging fails (and the entry is dropped, so
 the guest never sees it), the guest in the hvc0 log when the install off the
-mount fails — and the launch continues. No failure here aborts a boot —
+mount fails — and the launch continues. No copy failure here aborts a boot —
 unlike the credential and `settings.json`, this layer is a convenience, not
 a security control — which is why the guest half guards **every** command it
 runs on an entry, its `mkdir -p` as much as its copies: it runs under
 `set -euo pipefail`, where an unguarded failure would end the boot instead of
-the entry.
+the entry. The host half runs under the same option but is **not** guarded to
+that standard: its staging-dir `mkdir -p` and the `rm -rf` in its failure arm
+are both unguarded, so a failure in either aborts the launch outright —
+before any boot, rather than dropping the entry.
 
 Dropping a failed entry means removing what was already copied, since `cp -R`
 keeps going past a per-file error and a half-copied `rules/` tree is worse
@@ -1306,9 +1313,11 @@ accidental write, not a determined one, because the guest session is root and
 can remount. Nothing in the boot rests on it, because nothing in the boot writes
 to any of the three: the launcher **copies** each file it needs out of
 `claudecreds` before use (`.credentials.json` and `settings.json` into
-`$HOME/.claude/`, the identity seed to `$HOME/.claude.json`, each `chmod 600`
-after the copy, and the `claude-home/` working-rules subset additively into
-`$HOME/.claude/`), **sources** the boot-tier `env` file in place (see *Guest
+`$HOME/.claude/` and the identity seed to `$HOME/.claude.json`, each
+`chmod 600` after the copy; the `claude-home/` working-rules subset
+additively into `$HOME/.claude/`, with **no** `chmod` — those are the
+operator's rules, not secrets, and they keep whatever modes `cp` gives
+them), **sources** the boot-tier `env` file in place (see *Guest
 environment variables* above — it is deliberately never copied, so a forwarded
 API key does not outlive the shredded mount), reads the `runconfig` manifests
 in place, and execs the `claudebin` binary off the share. Say "shared into

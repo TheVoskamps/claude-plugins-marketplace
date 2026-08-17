@@ -337,7 +337,7 @@ BASE_OS_REV="debian-12-20250601"
 # whole boot under `set -euo pipefail` instead of being skipped -- and whose
 # failure arm left a half-copied tree in $HOME/.claude with only a warning. Both
 # are boot-visible behavior changes in a step launcher26 already carries, so the
-# entry-count reasoning of the 25 -> 26 bump does not cover them: the step is
+# step-is-absent reasoning of the 25 -> 26 bump does not cover them: the step is
 # present either way and only its failure behavior differs. Same reasoning as
 # every rev above: the launcher's SOURCE is not part of the image-identity hash,
 # so this constant is the only thing that invalidates a cached image.

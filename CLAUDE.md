@@ -708,7 +708,12 @@ described from a different file entirely.
   adds an entry. The latter two also assert what the launcher *does*
   with each entry — installs it into `$HOME/.claude/` — so an entry the
   guest merely sources needs that sentence widened rather than a list
-  item appended under it.
+  item appended under it. The run.env one asserts the *mode* each lands
+  with (`0600`) in the same breath, and that clause covers only the
+  single files the launcher `chmod`s. An entry the guest copies with no
+  `chmod` — the issue #108 `claude-home/` working-rules subset — makes
+  the clause false the moment it joins the enumeration above it, so
+  narrow the clause rather than only appending to the list.
 
 Re-run `payload/test/boot-launcher-test.sh` on any launcher edit,
 including a comment-only one: it parses the emitted script.

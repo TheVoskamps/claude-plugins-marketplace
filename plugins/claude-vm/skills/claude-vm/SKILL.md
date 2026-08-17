@@ -738,10 +738,12 @@ that path (the image's baked `plugins/` is untouched) and a same-named file
 is overwritten. `CLAUDE.md` and `rules/` travel together because the former
 references the latter as `@~/.claude/rules/*.md`.
 
-There is **no config key** for this — the list is fixed in the launcher, and
-it is an **include list**: a host `~/.claude` accumulates directories
-claude-vm has never heard of, and an exclude list would leak every future
-one by default. Nothing else is copied. Not the policy layer
+There is **no config key** for this — the list is fixed in the launcher and
+spelled again in the boot launcher it emits, so adding an entry is a
+deliberate edit on both sides of the seam. And it is an **include list**: a
+host `~/.claude` accumulates directories claude-vm has never heard of, and
+an exclude list would leak every future one by default. Nothing else is
+copied. Not the policy layer
 (`settings.json` is rendered, plugin state is config-driven), and not
 host-scoped session state — `projects/` (keyed by host paths the guest does
 not have), `history.jsonl`, `todos/`, `sessions/`, `logs/`, `statsig/`,
@@ -757,7 +759,9 @@ and no global `CLAUDE.md` launches normally and silently. A copy that
 stderr when the host cannot stage the entry (which then never reaches the
 guest at all), in the guest's `hvc0` diagnostic log when the guest cannot
 install it — and the launch continues: unlike the credential and
-`settings.json`, nothing in this layer aborts a boot.
+`settings.json`, no copy failure in this layer aborts a boot. The guest half
+therefore guards **every** command it runs on an entry, its `mkdir -p` as
+much as its copies, since the boot launcher runs under `set -euo pipefail`.
 
 A failed entry is also **dropped**, not left half-copied: `cp -R` keeps going
 past a per-file error, and a partial `rules/` tree is worse than an absent

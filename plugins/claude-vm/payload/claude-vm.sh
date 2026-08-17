@@ -780,11 +780,12 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # documents are passed since issue #107 (bake refs live in the BAKE file, every
 # other key it reads is a BOOT key). The permissions
 # come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
-# NEVER read, so the guest's PERMISSION surface is defined entirely by claude-vm,
-# per the issue's product intent. (The host's ~/.claude working rules are a
-# separate, non-policy layer that IS copied in -- issue #108, below.) The render also VALIDATES claude.plugins.enabled
-# (boolean values, keys must name installed plugins) and returns non-zero on a
-# typo, so a bad enabled map aborts the launch here.
+# NEVER read, so the guest's PERMISSION surface is defined entirely by
+# claude-vm, per the issue's product intent. (The host's ~/.claude working
+# rules are a separate, non-policy layer that IS copied in -- issue #108,
+# below.) The render also VALIDATES claude.plugins.enabled (boolean values,
+# keys must name installed plugins) and returns non-zero on a typo, so a bad
+# enabled map aborts the launch here.
 #
 # It rides the SAME transient claudecreds mount ($CREDS_DIR, mountTag=claudecreds)
 # as the credential and identity seed, and the guest boot launcher installs it at
@@ -1280,12 +1281,13 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # (claude-home/, issue #108 -- CLAUDE.md, rules/, agents/, skills/,
     # keybindings.json; not secret, but it is a ~/.claude payload and the dir
     # is already shredded on exit). Its containing dir is shared under this
-    # virtio-fs tag
-    # (mounted RO at /mnt/claudecreds by the guest fstab); the boot launcher
-    # installs the ~/.claude files into $HOME/.claude/ (mode 0600) so the guest
-    # comes up authenticated, onboarded, under the claude-vm permission
-    # posture, and carrying the operator's own working rules, and SOURCES `env`
-    # straight off the mount without copying it
+    # virtio-fs tag (mounted RO at /mnt/claudecreds by the guest fstab); the
+    # boot launcher installs the single files above into $HOME/.claude/ and
+    # $HOME/.claude.json (mode 0600, chmod'd after each copy) so the guest comes
+    # up authenticated, onboarded and under the claude-vm permission posture,
+    # copies claude-home/'s entries in ADDITIVELY -- and with NO chmod, since
+    # working rules are not secrets -- so it also carries the operator's own
+    # global rules, and SOURCES `env` straight off the mount without copying it
     # anywhere. One tag for all of them avoids adding extra virtio-fs devices;
     # the whole dir is shredded on exit regardless of which files are secret.
     printf 'CLAUDECREDS_TAG=claudecreds\n'
