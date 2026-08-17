@@ -27,4 +27,6 @@
 - [Issue spec vs. repo statement conflict](issue-spec-vs-repo-statement-conflict.md) — grade the contradicted statement first: delete a false capability claim, carve an exception only out of real policy; sweep its restatements
 - [claude-vm env boot-probe recipe](claude-vm-env-probe-recipe.md) — stub-claude as an env dumper: one build + two boots prove a precedence chain, second-run persistence, and no-secret-in-the-.raw
 - [npx needs an inline ASDF_NODEJS_VERSION](npx-needs-inline-asdf-nodejs-version.md) — and sometimes an inline `~/.asdf/bin` on PATH too; prefix the call, don't `asdf set` and don't write .tool-versions
+- [podman egress probe passes vacuously](podman-egress-probe-passes-vacuously.md) — `apt-get update` exits 0 on W: fetch failures; probe /dev/tcp with bash, and a live gvproxy is no evidence of egress
+- [gh pr create 503s? use REST](gh-pr-create-503-fall-back-to-rest.md) — `pr create`/`pr list` are GraphQL; check and create via `gh api .../pulls -F draft=true -F body=@file`
 - [set -e does not abort an AND-OR list's non-final failure](bash-set-e-and-and-or-lists.md) — `[ -f x ] && . x` keeps going; mutate the code into the "unsafe" spelling before writing why it is unsafe
