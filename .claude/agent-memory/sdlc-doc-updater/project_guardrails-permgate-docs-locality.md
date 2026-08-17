@@ -547,22 +547,3 @@ Grep the VERB the old mechanism was described with (`blank`, `drops`,
 only where the round already looked. Test-file doc comments are the
 reliable survivors, same as in
 [[project_verdict-rebucketing-comment-vocabulary]].
-
-Second surface on the same round, and it is not a guardrails file:
-`docs/hook-event-notes.md` is the per-hook-EVENT lessons log, and a
-change forced by the harness's reading of a hook field is exactly its
-subject matter — the abstention envelope, the literal `defer` meaning
-"pause for later resumption", and the wrapper's empty-stdout
-fail-closed all landed there as a new `PreToolUse` section. That file's
-existing PreToolUse bullets say a display-only hook must omit
-`hookSpecificOutput` entirely, which reads as contradicting the
-field-absent envelope; it does not (one hook never decides, the other
-decides on some calls), but say so explicitly rather than editing an
-unmeasured claim.
-
-A comment-only round here still needs the three binaries rebuilt
-([[project_permgate-go-comment-edits-need-binary-rebuild]]), and the
-playbook's `go tool nm` pre/post comparison is the cheap proof that the
-policy did not move: extract the pre-edit binary with `git show
-HEAD:<path> > <scratch>`, dump both, `cmp`. Identical `nm` plus a
-changed file settles "comments only" without argument.

@@ -14,6 +14,14 @@ scratchpad and grep the file: reading one back from bare `/tmp` is
 refused by the permission gate, and the page is large enough that
 dumping it into the transcript wastes the read.
 
+That fetch is also how a claim about harness behavior gets settled in
+the first place. Prose anywhere in this repo saying "Claude Code does
+X" with a hook field — which `permissionDecision` values it accepts,
+which events honor which field — is checked against the fetched page
+before it stands. Softening such a sentence into a hedge is not the
+alternative to checking it; the check is one command, and what comes
+back belongs in this file.
+
 This is a lessons-learned log, organized **per hook event**, distinct
 from [`plugin-authoring-constraints.md`](./plugin-authoring-constraints.md),
 which documents the plugin *packaging* system (sandboxing, namespacing,

@@ -35,8 +35,7 @@
   falsifies worked examples in paragraphs about OTHER mechanisms that
   borrowed the verb; slurp comment BLOCKS, and replay every quoted
   example through the binary. A WIRE-SPELLING change rots the old
-  mechanism's VERB ("blanks a defer's reason") in test-file comments,
-  and belongs in docs/hook-event-notes.md too.
+  mechanism's VERB ("blanks a defer's reason") in test-file comments.
 - [gh pr diff and active gate](feedback_gh-pr-diff-and-active-gate.md)
   — `gh pr diff` can silently drop text files from a PR with binary
   commits (cross-check with `git diff --stat`); the active
@@ -149,6 +148,3 @@
 - [Shared-copy claims need a diff](feedback_shared-copy-claims-need-a-diff.md)
   — "only the bullets are shared copy" is a diff result; a per-agent
   paragraph can still end in a byte-identical sentence. Drop the tally.
-- [Vendor hook claims are fetchable](feedback_vendor-hook-claims-are-fetchable.md)
-  — `curl -sL .../hooks.md` into the scratchpad settles "Claude Code does
-  X"; #271's defer had two undocumented-in-repo scoping conditions.

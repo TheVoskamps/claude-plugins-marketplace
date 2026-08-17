@@ -84,9 +84,6 @@ PreToolUse event JSON (`{"hook_event_name":"PreToolUse",
 "tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"..."}}`) into
 the locally rebuilt binary and reading
 `.hookSpecificOutput.permissionDecision` — no live GitHub calls needed.
-Since #271 a DEFER is the envelope with that key absent, so the `jq`
-pull yields `null` rather than a bucket name; that is the pass, not a
-broken binary.
 Build all three committed binaries with the README's exact commands
 (CGO_ENABLED=0, -trimpath, into `../bin/<goos>-<goarch>/`):
 `darwin-arm64`, `linux-amd64`, `linux-arm64`.
