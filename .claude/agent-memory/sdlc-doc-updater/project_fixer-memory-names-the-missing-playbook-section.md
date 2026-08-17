@@ -30,6 +30,17 @@ not edit or stage the fixer's memory file itself — only your own — see
 [[read-the-worktree-not-the-primary-clone]] for the path trap and the
 agent definition for whose memory is whose.
 
+**A round whose only new commit is agent memory is not a no-op pass.**
+PR #273 round 4 landed one commit — `Add agent memory from
+issue-fixer` — after a round spent *verifying* a green real-boot run
+rather than changing code. `git diff --stat` shows nothing but
+`.claude/agent-memory/`, which reads as "nothing to document", and the
+technique the round bought (grade a console-marker green by its sole
+emitter's branch, by the image's `launcher<N>` stamp, and by which
+bash actually ran the harness) existed only in that memory file until
+it reached the playbook. Read the memory commit before concluding a
+round had no doc impact.
+
 The same rounds leave ragged line wraps wherever a clause was spliced
 into an existing paragraph or comment: grep the diff for lines far
 short of the file's column limit and reflow, per
