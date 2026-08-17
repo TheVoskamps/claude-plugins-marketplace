@@ -707,13 +707,13 @@ described from a different file entirely.
   `CLAUDECREDS_MNT=` header, and `payload/test/host-acceptance.sh`'s
   share-topology block, which enumerates the same members while
   describing the stub shares its boot test stands up — a fourth surface
-  with the same shape, in a file a code-only sweep does not reach.
-  Only the first sits next to a change that
-  adds an entry. The other three also assert what the launcher *does*
-  with each entry — installs it into `$HOME/.claude/` — so an entry the
-  guest merely sources needs that sentence widened rather than a list
-  item appended under it. Every one of them that also asserts the
-  *mode* each lands with (`0600`, `chmod`'d after each copy) — today
+  with the same shape, in a file a code-only sweep does not reach. Only
+  the first sits next to a change that adds an entry. The other three
+  also assert what the launcher *does* with each entry — installs it
+  into `$HOME/.claude/` — so an entry the guest merely sources needs
+  that sentence widened rather than a list item appended under it.
+  Every one of them that also asserts the *mode* each lands with
+  (`0600`, `chmod`'d after each copy) — today
   all but the `CREDS_DIR=` header — states a clause covering only the
   single files the launcher `chmod`s. An entry the guest copies with no
   `chmod` — `claude-home/` (issue #108), whose contents the launcher

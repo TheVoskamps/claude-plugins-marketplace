@@ -230,9 +230,36 @@ A failure injection also has to be planted on the right side of the
 seam. Put it on the **mount** when the guest half is what you mean to
 exercise: an entry the host itself cannot read is dropped host-side and
 never reaches the guest, so injecting it into the fake host home
-measures the other loop.
-And skip a mode-`000` injection under `root`, which reads such a
-directory anyway — skip the block rather than faking the permission.
+measures the other loop. And skip a mode-`000` injection under `root`,
+which reads such a directory anyway — skip the block rather than faking
+the permission.
+
+### A one-filesystem harness cannot see a dropped `-L`
+
+Running both halves of the seam over one local filesystem makes a
+dereferencing copy (`cp -RL`) indistinguishable from a plain `cp -R`
+by *content*: the copied symlink still resolves, so every assertion on
+the consumer tree stays green while the producer ships a link. What
+moves is the **shape of the intermediate artifact** the producer
+writes — the staged entry is a symlink where it should be a real
+directory — so assert that, testing `[ -L ]` before `[ -d ]`, since
+`-d` follows symlinks and alone proves nothing. Say in the prose why
+content cannot see it: in the real VM the drop is fatal, the link's
+target sitting outside the shared dir, which is exactly what an off-VM
+harness cannot reproduce.
+
+A slice sanity-check that greps the fragment for the flag under test
+(`assert_contains "$(cat "$HOST_FRAGMENT")" 'cp -RL'`) is not that
+assertion. It pins a spelling rather than a property — any respelling
+that keeps the string passes — and in a mutation run it goes red
+alongside the behavioral assertions, leaving a reader to judge which
+failure carried the proof. Point the sanity-check at a name that
+merely identifies the fragment (`CLAUDE_HOME_SEED_DIR`) instead.
+
+Run the mutation against both `cp` implementations that matter, since
+only one of them is on the host you are typing on: macOS BSD `cp`
+under `/bin/bash` 3.2, and GNU coreutils in a `debian:trixie` aarch64
+container (`podman run --platform linux/arm64 --user 1000`).
 
 ## The run dir sits inside the guest's repo share
 

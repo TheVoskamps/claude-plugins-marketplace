@@ -447,10 +447,10 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     $HOME/.claude/ -- a merge into the image's baked ~/.claude, and with NO
   #     chmod, since working rules are not secrets, where the single files
   #     above are plain overwrites chmod'd to 0600. We stand up a stub CLAUDE.md
-  #     and rules/ so that install runs against the real virtio-fs share this
-  #     block's own fstab `ro` applies to
-  #     (assertion (b4) below); like the identity seed and unlike
-  #     settings.json, an absent or unreadable entry here is fail-soft.
+  #     and rules/ so that install runs against the same real virtio-fs share
+  #     this bullet's own guest-side fstab `ro` applies to (assertion (b4)
+  #     below); like the identity seed and unlike settings.json, an absent or
+  #     unreadable entry here is fail-soft.
   #     (The boot tier's guest `env` file, issue #135, is the one claudecreds
   #     member this boot test does NOT stage: the launcher sources it only
   #     when present, so its absence is exactly the no-env-configured case.)
@@ -618,10 +618,9 @@ STUBCLAUDE
   # launcher's seed step logs which entries it installed. The seed-test suite
   # drives both loops off-VM; what only a real boot can show is that the step
   # runs at all in the emitted launcher, against a real virtio-fs share the
-  # guest fstab mounts `ro`,
-  # in its real position after the settings.json install. The launcher's own
-  # diagnostics go to /dev/console (hvc0/BOOT_LOG); search both captures for the
-  # same reason (b2) does.
+  # guest fstab mounts `ro`, in its real position after the settings.json
+  # install. The launcher's own diagnostics go to /dev/console
+  # (hvc0/BOOT_LOG); search both captures for the same reason (b2) does.
   SEED_MARKER="seeded host working rules"
   if grep -qF "$SEED_MARKER" "$BOOT_LOG" 2>/dev/null \
      || grep -qF "$SEED_MARKER" "$HVC1_LOG" 2>/dev/null; then

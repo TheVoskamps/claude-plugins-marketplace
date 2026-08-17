@@ -1933,10 +1933,9 @@ reading content. No VM, no network, no root; `bash` + `awk`.
 
 The one property this suite cannot reach is that the step runs at all in the
 real emitted launcher, off a real virtio-fs share the guest fstab mounts `ro`,
-in its real position —
-`host-acceptance.sh` criterion (b4) stages a stub `claude-home/` on the
-`claudecreds` share and asserts the launcher's own seed log line comes back
-out of the guest console capture.
+in its real position — `host-acceptance.sh` criterion (b4) stages a stub
+`claude-home/` on the `claudecreds` share and asserts the launcher's own seed
+log line comes back out of the guest console capture.
 
 `launch-shape-test.sh` is the regression test for issue #179's vfkit launch
 shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its
