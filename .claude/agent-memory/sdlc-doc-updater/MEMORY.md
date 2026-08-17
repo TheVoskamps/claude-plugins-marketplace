@@ -85,6 +85,9 @@
   — retiring an agent leaves issues/lib repo-config's per-field consumer
   claims and "previously performed / mirrors what" history sentences false;
   no sdlc file pins schema-version, whatever that lib says.
+- [Fixer memory names the missing playbook section](project_fixer-memory-names-the-missing-playbook-section.md)
+  — a round that changed HOW a claim is pinned leaves the technique in the
+  fixer's new memory file and the code comment, never in /docs' playbook.
 - [de-specify round leftovers](project_de-specify-round-leftovers.md)
   — moving a value into one file leaves ragged paragraph wrapping,
   an unmeasured "no other file spells it" claim, and cross-plugin
