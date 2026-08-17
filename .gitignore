@@ -79,3 +79,19 @@ Icon
 #VSCode swapfile
 *.swp
 
+# --- mise (managed by macos-setup `make asdf-to-mise`) ---
+# mise.toml is the ONE tracked config form; it is deliberately NOT
+# ignored. Everything below is either machine-local or a
+# non-canonical location we do not use.
+/mise.local.toml
+/mise/config.toml
+/.mise/config.toml
+/.config/mise.toml
+/.config/mise/config.toml
+/.config/mise/conf.d/
+# --- end mise ---
+
+# --- direnv/asdf ---
+.envrc
+.tool-versions
+# --- end direnv/asdf ---
