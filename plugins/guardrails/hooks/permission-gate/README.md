@@ -106,7 +106,7 @@ checks the code against:
   brings up a real harness with a hook and a competing `settings.json`
   allow and observes which wins. So read every "not waivable
   downstream" statement here and in the code as the tier's *design
-  intent*, pending a live-harness pin. Two things follow. The tier's
+  intent*, pending a live-harness pin. That cuts both ways. The tier's
   membership rule is unaffected — an enumerated policy call belongs in
   ASK whether or not the precedence holds, because the alternative
   (DEFER) is unambiguously waivable. But a reader must not cite the
@@ -1518,12 +1518,26 @@ position and the normal permission pipeline resolves the call, which
 is exactly what `BucketDefer` means. The gate must NOT emit the
 literal `"defer"` on the wire. Claude Code gave that value different
 semantics — it **pauses** the tool call for later resumption, a
-headless-resume affordance — and inside a subagent a paused tool call
-never resolves, so the tool use ends with no result and the harness
-tears the agent session down. That is issue #271: from Claude Code
-2.1.232, whose background-by-default change for non-teammate agent
-spawns made the path load-bearing, every `sdlc` agent run died within
-a few requests, because the defer middle is hit almost immediately.
+headless-resume affordance: the tool does not execute, the process
+exits with `stop_reason: "tool_deferred"`, and only a
+`claude -p --resume` from the integration that spawned it makes the
+call run. Nothing resumes a subagent, so the tool use ends with no
+result and the harness tears the agent session down. That is
+issue #271: from Claude Code 2.1.232, whose background-by-default
+change for non-teammate agent spawns made the path load-bearing,
+every `sdlc` agent run died within a few requests, because the defer
+middle is hit almost immediately.
+
+The documented conditions on that value are why the gate shipped it
+for so long without anyone noticing: Claude Code honors it only in
+non-interactive (`-p`) mode, and only on a turn that makes a single
+tool call. An interactive session logs a warning and ignores the hook
+result, and so does a turn issuing several tool calls at once — so the
+same binary was inert in the session a human types into and fatal in
+every headless agent spawned from it. The vendor-side detail lives in
+[`docs/hook-event-notes.md`](../../../../docs/hook-event-notes.md) →
+`PreToolUse` (the decision channel, any matcher); what follows here is
+this gate's own handling.
 
 The other spelling of abstention — writing nothing at all — is
 unavailable here, and deliberately so: the `hooks.json` wrapper reads

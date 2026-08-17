@@ -446,6 +446,20 @@ subdirectories, not one — for the gate's own message fragments ("not all
 static literals", "resolves outside the current repository", "cannot
 resolve statically") whenever a verdict changes.
 
+What a verdict looks like **on the wire** is a different axis, owned by
+`docs/hook-event-notes.md` → `PreToolUse` (the decision channel, any
+matcher): which `permissionDecision` values the harness accepts, what
+it does with each, and that a hook abstains by emitting the envelope
+with the field omitted rather than the literal `"defer"`, which Claude
+Code reads as "pause this tool call for later resumption" and which
+therefore ends a headless subagent's run (#271). That axis binds every
+PreToolUse hook in the marketplace, not just the gate, so it lives in
+`/docs`; the gate README carries the consequence for this gate and
+points there for the harness-side rules around it. A
+rebucketing PR touches none of it; a PR that changes how a bucket is
+spelled on stdout touches it, the gate README, and the playbook's
+probe-reading note together.
+
 ## Keep claude-vm's declaration prose and image-state prose apart
 
 `plugins/claude-vm` uses the word "baked" for two different things, and
@@ -686,8 +700,8 @@ described from a different file entirely.
   inserted between two phases silently falsifies the note on the one
   that follows it. Grep `ORDERING:` in `build-guest-image.sh` after any
   insertion, not only the block the insertion lands in.
-- **The `claudecreds` content enumerations.** Three headers list what
-  the transient credential share carries: `claude-vm.sh`'s run.env
+- **The `claudecreds` content enumerations.** The headers that list
+  what the transient credential share carries: `claude-vm.sh`'s run.env
   `CLAUDECREDS_TAG` comment, `claude-vm.sh`'s `CREDS_DIR=` header
   several hundred lines earlier, and `build-guest-image.sh`'s
   `CLAUDECREDS_MNT=` header. Only the first sits next to a change that
@@ -810,7 +824,8 @@ Grep the wizards for `sibling slice` and `schema + merge only` on the
 same trigger: a key described there as having no consumer yet keeps that
 description after it gains one.
 
-Two neighbours go stale on the same trigger and are missed the same way.
+Neighbouring surfaces go stale on the same trigger and are missed the
+same way.
 `payload/README.md`'s helper-function list carries new `lib/config.sh`
 helpers and changed signatures. And the summary comments that enumerate a
 validator's cases or the launcher's phases from *elsewhere in the same

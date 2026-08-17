@@ -7,6 +7,13 @@ plugins. Confirmed against the official hooks docs
 pointers to the version read while building this marketplace; treat
 them as pointers, re-verify if a doc revision moves them.
 
+To re-verify, fetch the page's Markdown source rather than scraping
+the rendered HTML: `curl -sL https://code.claude.com/docs/en/hooks.md`
+returns the whole page as greppable text. Save it under the harness
+scratchpad and grep the file: reading one back from bare `/tmp` is
+refused by the permission gate, and the page is large enough that
+dumping it into the transcript wastes the read.
+
 This is a lessons-learned log, organized **per hook event**, distinct
 from [`plugin-authoring-constraints.md`](./plugin-authoring-constraints.md),
 which documents the plugin *packaging* system (sandboxing, namespacing,
@@ -133,15 +140,28 @@ First demonstrated by the `show-agent-calls` plugin (see
   and must stay out of the way on the rest, where the display-only
   advice above (omit `hookSpecificOutput` entirely) does not fit
   because the hook still emits an envelope on its deciding calls.
-- **`permissionDecision: "defer"` is not that abstention.** Claude
-  Code reads the literal `defer` as "pause this tool call for later
-  resumption", an affordance for headless-resume workflows. Inside a
-  subagent a paused tool call never resolves: the tool use ends with
-  no result and the harness tears the agent session down. From Claude
-  Code 2.1.232 — whose background-by-default change for non-teammate
-  agent spawns put every subagent on that path — a hook emitting the
-  literal kills agent runs within a few requests. Never emit it as a
-  synonym for "no opinion".
+- **`permissionDecision: "defer"` is not that abstention.** The hooks
+  docs give the literal `defer` semantics of its own, under *Defer a
+  tool call for later*: it pauses the tool call for an integration
+  that runs `claude -p` as a subprocess and reads its JSON output. The
+  tool does not execute, the process exits with
+  `stop_reason: "tool_deferred"` and the pending call preserved in the
+  transcript, and only a `claude -p --resume <session-id>` from that
+  calling process makes it run. Nothing resumes a subagent, so the
+  tool use ends with no result and the harness tears the agent session
+  down. From Claude Code 2.1.232 — whose background-by-default change
+  for non-teammate agent spawns put every subagent on that path — a
+  hook emitting the literal kills agent runs within a few requests.
+  Never emit it as a synonym for "no opinion".
+- **The documented conditions scoping when `defer` bites** are why a
+  hook can emit the literal for a long time before anything dies.
+  Claude Code honors the value only in non-interactive mode (`-p`); an
+  interactive session logs a warning and ignores the hook result. And
+  it applies only when the turn makes a single tool call — a turn
+  issuing several at once ignores the `defer` with a warning and runs
+  them through the normal permission flow. So the same hook binary can
+  be harmless in the session a human is typing into and fatal in every
+  headless agent it spawns.
 - **Exit 0 with empty stdout is neither of those**, and a wrapper
   script may not be able to tell it from a broken hook binary:
   `guardrails`' `hooks.json` treats it as an unrunnable gate and fails
