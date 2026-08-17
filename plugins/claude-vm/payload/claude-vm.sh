@@ -780,8 +780,9 @@ mkdir -p "$CONFIG_DIR" "$CREDS_DIR"
 # documents are passed since issue #107 (bake refs live in the BAKE file, every
 # other key it reads is a BOOT key). The permissions
 # come from the claude-vm configs ONLY -- the host's ~/.claude/settings.json is
-# NEVER read, so the guest's Claude surface is defined entirely by claude-vm, per
-# the issue's product intent. The render also VALIDATES claude.plugins.enabled
+# NEVER read, so the guest's PERMISSION surface is defined entirely by claude-vm,
+# per the issue's product intent. (The host's ~/.claude working rules are a
+# separate, non-policy layer that IS copied in -- issue #108, below.) The render also VALIDATES claude.plugins.enabled
 # (boolean values, keys must name installed plugins) and returns non-zero on a
 # typo, so a bad enabled map aborts the launch here.
 #

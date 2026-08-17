@@ -245,11 +245,12 @@ references dangling in the guest.
 
 That list is an **include list, not an exclude list** — a host `~/.claude`
 accumulates directories this code has never heard of, and an exclude list
-would leak every future one by default. Two categories are deliberately off
-it. The **policy layer**: `settings.json` (rendered, above) and plugin state
+would leak every future one by default. Deliberately off it is the **policy
+layer**: `settings.json` (rendered, above) and plugin state
 (config-driven, see *Marketplaces and plugins*), because the guest is
 supposed to run the posture the claude-vm config describes, not the host's.
-And **host-scoped session state**: `projects/` (keyed by host paths that do
+Off it too is **host-scoped session state**: `projects/` (keyed by host
+paths that do
 not exist in the guest), `history.jsonl`, `todos/`, `sessions/`, `logs/`,
 `statsig/`, `shell-snapshots/`, `ide/`, `teams/`, `usage-data/`.
 
@@ -261,10 +262,12 @@ symlinks** (`cp -RL`), because a host `~/.claude` is often a checkout whose
 `rules/` or `skills/` is a symlink pointing outside it; copying the link
 would put a dangling path in the guest. Every entry is **optional** on both
 sides and its absence is silent (most hosts have no `keybindings.json`); a
-copy that *fails* is warned about loudly, on the host and again in the guest
-hvc0 log, and the launch continues. Nothing here can abort a boot — unlike
-the credential and `settings.json`, this layer is a convenience, not a
-security control.
+copy that *fails* is warned about loudly by the side that attempted it —
+the host on its own stderr when staging fails (and the entry is dropped, so
+the guest never sees it), the guest in the hvc0 log when the install off the
+mount fails — and the launch continues. No copy failure here aborts a boot —
+unlike the credential and `settings.json`, this layer is a convenience, not
+a security control.
 
 **Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
 structurally-complete `claudeAiOauth` object whose `accessToken` and

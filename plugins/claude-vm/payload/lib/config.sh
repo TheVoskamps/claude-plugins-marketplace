@@ -2674,9 +2674,11 @@ $name
 #     allow | ask | deny  -- verbatim from merged claude.permissions.*
 #                            (claude-vm configs ONLY; the host's
 #                            ~/.claude/settings.json is NEVER consulted --
-#                            the guest's Claude surface is defined by the
+#                            the guest's PERMISSION surface is defined by the
 #                            claude-vm configs, per the issue's product
-#                            intent). An empty/unset list renders as [].
+#                            intent; the host's working-rules layer, issue
+#                            #108, is separate and is copied in). An
+#                            empty/unset list renders as [].
 #     defaultMode         -- from claude.permission_mode (default
 #                            bypassPermissions). Read here from the merged
 #                            file with the same default so the render is

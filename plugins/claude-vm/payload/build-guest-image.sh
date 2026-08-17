@@ -919,7 +919,10 @@ log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.jso
 # FAIL-SOFT, like the identity seed and unlike the credential/settings: a
 # missing or unreadable working-rules entry gives a guest that runs without
 # the operator's global rules, which is a degraded session, not an unsafe or
-# unauthenticated one. Nothing here can abort a bootable guest.
+# unauthenticated one. Every copy below is guarded with `||`, so no copy failure
+# aborts a bootable guest -- it warns and drops that one entry. The warning is
+# this side's own: an entry the HOST failed to stage never arrives here, so it
+# is reported once, on the launcher's stderr, and is simply absent below.
 #
 # $CRED_DIR ($CLAUDE_HOME/.claude) already exists from the credential install.
 MOUNTED_CLAUDE_HOME_SEED="$CLAUDECREDS_MNT/claude-home"

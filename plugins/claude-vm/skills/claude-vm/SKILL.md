@@ -749,9 +749,11 @@ under `umask 077` in the run's shred-on-exit credential dir. Symlinks are
 `skills/` symlinked out of it still seeds real content rather than a
 dangling link. Every entry is optional — a host with no `keybindings.json`
 and no global `CLAUDE.md` launches normally and silently. A copy that
-*fails* prints a warning (host-side, and again in the guest's `hvc0`
-diagnostic log) and the launch continues: unlike the credential and
-`settings.json`, this layer never aborts a boot.
+*fails* prints a warning from the side that attempted it — on the launcher's
+stderr when the host cannot stage the entry (which then never reaches the
+guest at all), in the guest's `hvc0` diagnostic log when the guest cannot
+install it — and the launch continues: unlike the credential and
+`settings.json`, no copy failure in this layer aborts a boot.
 
 ## Interactive session (the launching terminal IS the in-VM claude)
 
