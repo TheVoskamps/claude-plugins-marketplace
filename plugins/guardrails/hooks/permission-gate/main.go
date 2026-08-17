@@ -5,7 +5,8 @@
 // It reads a single PreToolUse event as JSON on stdin and emits a verdict:
 //
 //   - Normal path: a structured decision as JSON on stdout, exit 0
-//     (allow / deny / ask / defer). See decision.go and emitDecision.
+//     (allow / deny / ask, or a defer spelled as the envelope with no
+//     permissionDecision field). See decision.go and emitDecision.
 //   - Fail-closed backstop: any crash / parse error / panic / malformed event
 //     blocks via exit 2 with a teaching message on stderr (stderr is fed back
 //     to the model). See failClosed.
@@ -132,25 +133,37 @@ func isFileTool(name string) bool {
 }
 
 // emitDecision writes the verdict on the JSON-stdout / exit-0 channel
-// (Resolved decision 1). A defer emits a structured "defer" so the rest of the
-// pipeline proceeds explicitly.
+// (Resolved decision 1).
 //
-// A defer's reason is DROPPED here. deferJudgment sites carry the gate's
-// analysis for the §7 log, but a deferred call must reach the downstream
-// evaluator exactly as a bare defer does: the gate did not decide, so it puts
-// no words in the judge's mouth, and every defer emits the identical payload
-// whatever its analysis says.
+// A defer emits the envelope with NO permissionDecision field, which is the
+// documented per-call abstention: the hook takes no position and the normal
+// permission pipeline resolves the call. It must NOT emit the literal
+// "defer" — Claude Code gave that wire value different semantics (it PAUSES
+// the tool call for later resumption, added for headless-resume workflows).
+// Inside a subagent a paused tool call never resolves, the tool use ends with
+// no result, and the harness tears the agent session down (#271).
+//
+// The empty envelope is still non-empty JSON, which the hooks.json wrapper
+// requires: it reads "exit 0 with empty stdout" as an unrunnable gate binary
+// and fails closed (#216 round 2), so the no-output spelling of abstention is
+// unavailable to this gate. decision_stdout_test.go pins both halves.
+//
+// A defer's reason is DROPPED here — with the decision field gone there is no
+// field to carry it, and there never was one to fill. deferJudgment sites
+// carry the gate's analysis for the §7 log, but a deferred call must reach the
+// downstream evaluator exactly as a bare defer does: the gate did not decide,
+// so it puts no words in the judge's mouth, and every defer emits the
+// identical payload whatever its analysis says.
 func emitDecision(d Decision) {
-	reason := d.Reason
-	if d.Bucket == BucketDefer {
-		reason = ""
+	hookOut := map[string]any{
+		"hookEventName": "PreToolUse",
+	}
+	if d.Bucket != BucketDefer {
+		hookOut["permissionDecision"] = string(d.Bucket)
+		hookOut["permissionDecisionReason"] = d.Reason
 	}
 	out := map[string]any{
-		"hookSpecificOutput": map[string]any{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       string(d.Bucket),
-			"permissionDecisionReason": reason,
-		},
+		"hookSpecificOutput": hookOut,
 	}
 	b, err := json.Marshal(out)
 	if err != nil {

@@ -3,13 +3,19 @@ package main
 // Bucket is the three-way (plus defer) verdict the gate emits.
 //
 // The native PreToolUse permission channel (Resolved decision 1) accepts
-// four permissionDecision values on stdout with exit 0:
+// three permissionDecision values on stdout with exit 0, and the gate's
+// fourth bucket is spelled by the ABSENCE of that field:
 //
 //	allow  - bypass remaining permission checks; the tool runs.
 //	deny   - block the tool call.
 //	ask    - escalate to a human permission prompt (the real ask channel).
 //	defer  - defer to the normal permission flow (the spec's "exit 0 /
-//	         allow-defer"): let the rest of the pipeline proceed.
+//	         allow-defer"): let the rest of the pipeline proceed. Emitted
+//	         as the envelope with NO permissionDecision field, which is the
+//	         documented per-call abstention. The literal "defer" is NOT
+//	         that: Claude Code reads it as "pause this tool call for later
+//	         resumption", which never resolves inside a subagent and kills
+//	         the session (#271). See emitDecision.
 //
 // Exit 2 + stderr remains the FAIL-CLOSED backstop for crash / parse-error /
 // panic / malformed-event paths; it is NOT one of these buckets. See
@@ -73,6 +79,12 @@ const (
 	// context-reading judge outperforms both the gate and a prompt-fatigued
 	// human, so those sites defer WITH the gate's analysis (deferJudgment)
 	// rather than asking.
+	//
+	// The constant's value is an INTERNAL label only — it names the bucket in
+	// the §7 log and in this package's own switches. It is never written to
+	// the wire; emitDecision spells a defer as the envelope with no
+	// permissionDecision field. See emitDecision for why the literal must not
+	// reach stdout.
 	BucketDefer Bucket = "defer"
 )
 
@@ -86,8 +98,9 @@ type Decision struct {
 	//
 	// A Defer may also carry one — the gate's ANALYSIS of what it could and
 	// could not establish — but it is never emitted on the stdout verdict
-	// (emitDecision blanks it for a defer, so a deferred call reaches the
-	// downstream judge exactly as it did before). It exists for the §7
+	// (emitDecision omits the reason key along with the decision key for a
+	// defer, so a deferred call reaches the downstream judge exactly as it
+	// did before). It exists for the §7
 	// evolution log, which is the feed for automode re-tuning.
 	Reason string
 	// Operation is a short classified-operation label used for evolution
