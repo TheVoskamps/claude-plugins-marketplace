@@ -444,9 +444,11 @@ if [ -n "$IMG" ] && [ -s "$IMG" ]; then
   #     (issue #108): the host stages copies of its own
   #     ~/.claude/{CLAUDE.md, rules/, agents/, skills/, keybindings.json}
   #     there, and the boot launcher copies them ADDITIVELY into
-  #     $HOME/.claude/ -- a merge into the image's baked ~/.claude, where the
-  #     single files above are plain overwrites. We stand up a stub CLAUDE.md
-  #     and rules/ so that install runs against a real RO virtio-fs mount
+  #     $HOME/.claude/ -- a merge into the image's baked ~/.claude, and with NO
+  #     chmod, since working rules are not secrets, where the single files
+  #     above are plain overwrites chmod'd to 0600. We stand up a stub CLAUDE.md
+  #     and rules/ so that install runs against the real virtio-fs share this
+  #     block's own fstab `ro` applies to
   #     (assertion (b4) below); like the identity seed and unlike
   #     settings.json, an absent or unreadable entry here is fail-soft.
   #     (The boot tier's guest `env` file, issue #135, is the one claudecreds
@@ -615,7 +617,8 @@ STUBCLAUDE
   # carried a claude-home/ with a CLAUDE.md and a rules/ tree, and the boot
   # launcher's seed step logs which entries it installed. The seed-test suite
   # drives both loops off-VM; what only a real boot can show is that the step
-  # runs at all in the emitted launcher, against a real RO virtio-fs mount,
+  # runs at all in the emitted launcher, against a real virtio-fs share the
+  # guest fstab mounts `ro`,
   # in its real position after the settings.json install. The launcher's own
   # diagnostics go to /dev/console (hvc0/BOOT_LOG); search both captures for the
   # same reason (b2) does.

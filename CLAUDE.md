@@ -703,17 +703,23 @@ described from a different file entirely.
 - **The `claudecreds` content enumerations.** The headers that list
   what the transient credential share carries: `claude-vm.sh`'s run.env
   `CLAUDECREDS_TAG` comment, `claude-vm.sh`'s `CREDS_DIR=` header
-  several hundred lines earlier, and `build-guest-image.sh`'s
-  `CLAUDECREDS_MNT=` header. Only the first sits next to a change that
-  adds an entry. The latter two also assert what the launcher *does*
+  several hundred lines earlier, `build-guest-image.sh`'s
+  `CLAUDECREDS_MNT=` header, and `payload/test/host-acceptance.sh`'s
+  share-topology block, which enumerates the same members while
+  describing the stub shares its boot test stands up — a fourth surface
+  with the same shape, in a file a code-only sweep does not reach.
+  Only the first sits next to a change that
+  adds an entry. The other three also assert what the launcher *does*
   with each entry — installs it into `$HOME/.claude/` — so an entry the
   guest merely sources needs that sentence widened rather than a list
-  item appended under it. The run.env one asserts the *mode* each lands
-  with (`0600`) in the same breath, and that clause covers only the
+  item appended under it. Every one of them that also asserts the
+  *mode* each lands with (`0600`, `chmod`'d after each copy) — today
+  all but the `CREDS_DIR=` header — states a clause covering only the
   single files the launcher `chmod`s. An entry the guest copies with no
-  `chmod` — the issue #108 `claude-home/` working-rules subset — makes
-  the clause false the moment it joins the enumeration above it, so
-  narrow the clause rather than only appending to the list.
+  `chmod` — `claude-home/` (issue #108), whose contents the launcher
+  merges in without one — makes the clause false the moment it joins
+  the enumeration above it, so narrow the clause on every surface that
+  carries it rather than only appending to the list.
 
 Re-run `payload/test/boot-launcher-test.sh` on any launcher edit,
 including a comment-only one: it parses the emitted script.

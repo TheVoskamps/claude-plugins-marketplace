@@ -513,7 +513,8 @@ CLAUDEBIN_MNT=/mnt/claudebin
 # CLAUDE.md, rules/, agents/, skills/, keybindings.json; also not a secret)
 # -- not credentials alone. The boot launcher installs the ~/.claude files
 # into $HOME/.claude/ below -- copying claude-home/'s entries in ADDITIVELY,
-# where the single files above are plain overwrites -- and SOURCES `env` in
+# and with NO chmod, since working rules are not secrets, where the single
+# files above are plain overwrites chmod'd to 0600 -- and SOURCES `env` in
 # place without copying it.
 CLAUDECREDS_MNT=/mnt/claudecreds
 

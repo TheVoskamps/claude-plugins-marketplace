@@ -107,6 +107,22 @@ assert_contains() {
   esac
 }
 
+# A real directory: present, a directory, and NOT a symlink to one. `-d`
+# follows symlinks, so it alone cannot tell a dereferenced copy from a copied
+# link -- which is the whole property the `-L` on either copy buys.
+assert_real_dir() {
+  local label="$1" path="$2"
+  if [ -L "$path" ]; then
+    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    echo "        is a symlink, not a real directory: $path"
+  elif [ ! -d "$path" ]; then
+    FAIL=$((FAIL + 1)); echo "FAIL - $label"
+    echo "        not a directory: $path"
+  else
+    PASS=$((PASS + 1)); echo "ok   - $label"
+  fi
+}
+
 # ---------------------------------------------------------------------
 # 1. Slice the two REAL fragments.
 #
@@ -151,7 +167,7 @@ for pair in "host staging:$HOST_FRAGMENT" "guest install:$GUEST_FRAGMENT"; do
 done
 
 assert_contains "host fragment is the real staging loop" \
-  "$(cat "$HOST_FRAGMENT")" 'cp -RL'
+  "$(cat "$HOST_FRAGMENT")" 'CLAUDE_HOME_SEED_DIR'
 assert_contains "guest fragment is the real install loop" \
   "$(cat "$GUEST_FRAGMENT")" 'MOUNTED_CLAUDE_HOME_SEED'
 
@@ -265,6 +281,18 @@ assert_contains "guest logs which entries it seeded" "$A_LOG" "seeded host worki
 # --- Case B: symlinked rules/ and skills/ (the ~/.claude-is-a-checkout host)
 # `cp -R` without -L would copy the LINKS, and their targets sit outside the
 # staged tree, so the guest would get two dangling paths and no rules at all.
+#
+# The `-L` is asserted at the HOST half's own output -- the STAGED tree --
+# and not only through the guest's content, because the guest's content cannot
+# see the difference. This harness runs both halves on one filesystem, where a
+# copied LINK still resolves, so `guest/.claude/rules/core.md` reads "linked
+# rule" even with the host's `-L` dropped, and every content assertion below
+# stays green. Only the SHAPE of the staged entry moves:
+# `creds/claude-home/rules` becomes a symlink the moment `cp -RL` loses its
+# `-L`. In the real VM that drop is fatal rather than invisible -- the link's
+# target sits outside $CREDS_DIR, so outside the share the guest mounts --
+# which is exactly why the harness cannot reproduce it by reading content and
+# has to check the staged shape instead.
 B="$WORK/case-b"
 mkdir -p "$B/home/.claude" "$B/elsewhere/rules" "$B/elsewhere/skills"
 printf 'linked rule\n'  > "$B/elsewhere/rules/core.md"
@@ -278,11 +306,12 @@ assert_file_is "a symlinked rules/ is dereferenced into real content" \
   "$B/guest/.claude/rules/core.md" "linked rule"
 assert_file_is "a symlinked skills/ is dereferenced into real content" \
   "$B/guest/.claude/skills/s.md" "linked skill"
-if [ -L "$B/guest/.claude/rules" ]; then
-  FAIL=$((FAIL + 1)); echo "FAIL - the guest's rules/ is a symlink, not a real directory"
-else
-  PASS=$((PASS + 1)); echo "ok   - the guest's rules/ is a real directory"
-fi
+assert_real_dir "the staged rules/ is a real directory, not the host's link" \
+  "$B/creds/claude-home/rules"
+assert_real_dir "the staged skills/ is a real directory, not the host's link" \
+  "$B/creds/claude-home/skills"
+assert_real_dir "the guest's rules/ is a real directory" \
+  "$B/guest/.claude/rules"
 
 # --- Case C: a sparse host (no keybindings.json, no agents/) ----------
 # Absence is silent and must not fail either side.

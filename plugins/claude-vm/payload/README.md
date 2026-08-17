@@ -1919,12 +1919,21 @@ is skipped under `root`, which reads a mode-`000` directory anyway.
 
 The two copy spellings that carry the whole feature — `cp -RL` host-side and
 `cp -R <src>/.` guest-side — were negative-controlled by mutating each to its
-unsafe form and confirming the suite goes red; the failure-arm assertions were
-negative-controlled the same way, against the pre-fix loop. No VM, no network,
-no root; `bash` + `awk`.
+unsafe form and confirming the suite goes red on a **behavioral** assertion;
+the failure-arm assertions were negative-controlled the same way, against the
+pre-fix loop. The host-side `-L` needed its own assertion to get there. The
+suite runs both halves on one filesystem, where a copied LINK still resolves,
+so every content assertion stays green when `cp -RL` loses its `-L`; what
+moves is the **shape** of the staged entry, and the suite therefore asserts
+that `claude-home/rules` and `claude-home/skills` are real directories rather
+than the host's symlinks. In the real VM that drop is fatal rather than
+invisible — the link's target sits outside the staging dir, so outside the
+share the guest mounts — which is why an off-VM harness cannot reproduce it by
+reading content. No VM, no network, no root; `bash` + `awk`.
 
 The one property this suite cannot reach is that the step runs at all in the
-real emitted launcher, off a real RO virtio-fs mount, in its real position —
+real emitted launcher, off a real virtio-fs share the guest fstab mounts `ro`,
+in its real position —
 `host-acceptance.sh` criterion (b4) stages a stub `claude-home/` on the
 `claudecreds` share and asserts the launcher's own seed log line comes back
 out of the guest console capture.
