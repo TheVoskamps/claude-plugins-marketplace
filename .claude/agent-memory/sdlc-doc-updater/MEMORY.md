@@ -148,3 +148,11 @@
 - [Shared-copy claims need a diff](feedback_shared-copy-claims-need-a-diff.md)
   — "only the bullets are shared copy" is a diff result; a per-agent
   paragraph can still end in a byte-identical sentence. Drop the tally.
+- [claude-vm "surface ... ONLY" claims](project_claude-vm-guest-surface-only-claims.md)
+  — seeding more host state into the guest falsifies four "the guest's
+  Claude surface is defined by THESE configs ONLY" sites (both example
+  ymls incl.); grep `Claude surface`, not `settings.json`.
+- ["warned on both sides" is one failure path](feedback_warned-on-both-sides-is-one-failure-path.md)
+  — each half of a host/guest seam warns only about its own failure;
+  trace what the failing side does with the entry, and check every copy
+  is `||`-guarded before "nothing here can abort" stands.
