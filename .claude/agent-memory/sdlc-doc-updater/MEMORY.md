@@ -104,6 +104,10 @@
   — after equality is widened to a relation (overlap/ancestor/range),
   the rationale comment on each protected VALUE still spells the narrow
   case; grep the old vocabulary, not the guard.
+- [The corner the PR itself names](feedback_the-corner-the-pr-itself-names.md)
+  — one surface names the case where the defect does NOT bite; the code
+  comment, test comment and playbook state it as "every/always". Grep
+  the absolutes and import the careful sibling's qualifier.
 - [Probe the gate binary, not the walk](feedback_probe-the-gate-binary-not-the-walk.md)
   — settle a gate reach-claim ("descends into every X") with a throwaway
   _test.go calling classifyBash; the helper is right, its call sites are

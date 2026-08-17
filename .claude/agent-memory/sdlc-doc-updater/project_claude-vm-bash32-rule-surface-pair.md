@@ -36,5 +36,14 @@ two assertions on the success path and one on the failure path.
 **Superseded by #108:** the README no longer says "everything but the
 `local -A` render cases passes on 3.2". That `local -A` is gone — the
 render uses parallel indexed arrays — and the suite is fully green on
-3.2 (584/0) with no baselined failing set. A PR body carrying a 3.2
-failure count is now itself the defect.
+3.2 (589/0, measured; `claude-home-seed-test.sh` 46/0 and
+`boot-launcher-test.sh` 33/0 too) with no baselined failing set. A PR
+body carrying a 3.2 failure count is now itself the defect.
+
+The #108 widening (rule scoped to guards → scoped to the whole file)
+left a third kind of stale prose the two-surface diff does not reach:
+a *justification* clause elsewhere in README that explains why some
+unrelated code avoids bash 4 "because the gate beside it is a
+config-load guard" (the `env.set` precedence paragraph). After a
+widening, grep README for `bash 4` as well as diffing the two rule
+homes — see [[widened-guard-narrow-prose]].
