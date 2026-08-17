@@ -29,3 +29,14 @@ empty") is a claim about a *recursive* operator's reach — go read the operator
 actual expression, since `..` / `walk` / `select(..)` all cross the boundary the
 exemption assumes. Related: [[no-blanket-predicate-over-a-list]],
 [[probe-the-gate-binary-not-the-walk]].
+
+The **other half of a seam** is the same shape. PR #273 (claude-vm,
+issue #108) fixed the GUEST loop so every command touching an entry is
+`||`-guarded under `set -euo pipefail`, and wrote that fix up on four
+surfaces — while the
+HOST staging loop, running under the same option in `claude-vm.sh`, still had
+an unguarded staging-dir `mkdir -p` and an unguarded `rm -rf` in its failure
+arm. The blanket sentence the round left standing ("No failure here aborts a
+boot") was false on exactly the half the round did not touch. When a fix
+hardens one side of a host/guest producer/consumer pair, read the other side's
+commands before letting an unqualified "nothing here aborts" survive.

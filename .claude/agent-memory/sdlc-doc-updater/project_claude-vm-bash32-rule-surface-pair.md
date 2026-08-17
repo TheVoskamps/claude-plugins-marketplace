@@ -5,8 +5,8 @@ metadata:
   type: project
 ---
 
-The "write claude-vm's config-load guards for bash 3.2" rule has two
-homes and no others: the root `CLAUDE.md` section of that name, and
+The "write claude-vm for bash 3.2" rule has two homes and no others:
+the root `CLAUDE.md` section of that name, and
 `plugins/claude-vm/payload/README.md` → *A guard must survive the
 oldest bash that can reach it*. `skills/**/SKILL.md` and the example
 YAMLs never mention it, so a sweep is two files, not a plugin-wide
@@ -26,9 +26,19 @@ name the shape, never its list position ("the third"), or inserting a
 bullet silently rewires the sentence.
 
 Claims in this section are cheap to settle by running the suite under
-both interpreters (`/bin/bash` 3.2 vs `/opt/homebrew/bin/bash`) and
-against `origin/main` via `git archive` — the counts in the PR body
-and in the README ("everything but the `local -A` render cases passes
-on 3.2") are exactly that measurement. Note 3.2's total is one
-assertion *lower*, not just 15 failures: `enabled-validate` emits two
-assertions on the success path and one on the failure path.
+both interpreters and against `origin/main` via `git archive`. The
+bash ≥ 4 side needs a container: this host has no Homebrew bash, so
+`/bin/bash` is the only local shell.
+
+The rule is scoped to the whole file, not to the guards alone, and the
+suite is fully green on 3.2 with no baselined failing set — so a PR
+body carrying a 3.2 failure count is itself the defect. Never restore
+a "these N always fail on 3.2" sentence to either surface.
+
+Widening the rule's scope leaves a third kind of stale prose the
+two-surface diff does not reach:
+a *justification* clause elsewhere in README that explains why some
+unrelated code avoids bash 4 "because the gate beside it is a
+config-load guard" (the `env.set` precedence paragraph). After a
+widening, grep README for `bash 4` as well as diffing the two rule
+homes — see [[widened-guard-narrow-prose]].

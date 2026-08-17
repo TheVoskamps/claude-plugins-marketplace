@@ -3,7 +3,8 @@
 How to establish a fact about `plugins/claude-vm` without booting a
 guest: probe the real hypervisor, the real kernel, the real image
 build, and the real launcher, each in the cheapest harness that still
-exercises the thing the claim is about.
+exercises the thing the claim is about — and, when a real boot has
+been run, how to read what its green actually establishes.
 
 ## Probe vfkit directly — it is installed
 
@@ -210,6 +211,98 @@ Before filing such a finding, enumerate the emitted strings with
 variable. A guard on one of them usually buys an earlier, cause-naming
 abort rather than a rescue, because the sibling arguments break the
 same launch.
+
+### Record the fragment's exit status, not just the tree it leaves
+
+A sliced fragment must run under the `set -euo pipefail` its real
+caller sets, and the harness has to capture its **exit status**
+separately from its filesystem output. Otherwise the two outcomes that
+matter most are indistinguishable: a fragment that skipped one entry
+and a fragment that aborted the whole boot at that entry leave the same
+partial tree, and a file-only assertion passes on both.
+`payload/test/claude-home-seed-test.sh` (issue #108) drives both halves
+of a host→guest seam this way — the staging loop sliced out of
+`claude-vm.sh` and the install loop sliced out of the emitted launcher,
+back to back over a fake host home and a fake guest home — and writes
+each half's status to `<case>/host.status` / `<case>/guest.status`. The
+unguarded-`mkdir -p` abort it pins is invisible in the tree alone.
+
+A failure injection also has to be planted on the right side of the
+seam. Put it on the **mount** when the guest half is what you mean to
+exercise: an entry the host itself cannot read is dropped host-side and
+never reaches the guest, so injecting it into the fake host home
+measures the other loop. And skip a mode-`000` injection under `root`,
+which reads such a directory anyway — skip the block rather than faking
+the permission.
+
+### A one-filesystem harness cannot see a dropped `-L`
+
+Running both halves of the seam over one local filesystem makes a
+dereferencing copy (`cp -RL`) indistinguishable from a plain `cp -R`
+by *content*: the copied symlink still resolves, so every assertion on
+the consumer tree stays green while the producer ships a link. What
+moves is the **shape of the intermediate artifact** the producer
+writes — the staged entry is a symlink where it should be a real
+directory — so assert that, testing `[ -L ]` before `[ -d ]`, since
+`-d` follows symlinks and alone proves nothing. Say in the prose why
+content cannot see it: in the real VM the drop is fatal, the link's
+target sitting outside the shared dir, which is exactly what an off-VM
+harness cannot reproduce.
+
+A slice sanity-check that greps the fragment for the flag under test
+(`assert_contains "$(cat "$HOST_FRAGMENT")" 'cp -RL'`) is not that
+assertion. It pins a spelling rather than a property — any respelling
+that keeps the string passes — and in a mutation run it goes red
+alongside the behavioral assertions, leaving a reader to judge which
+failure carried the proof. Point the sanity-check at a name that
+merely identifies the fragment (`CLAUDE_HOME_SEED_DIR`) instead.
+
+Run the mutation against both `cp` implementations that matter, since
+only one of them is on the host you are typing on: macOS BSD `cp`
+under `/bin/bash` 3.2, and GNU coreutils in a `debian:trixie` aarch64
+container (`podman run --platform linux/arm64 --user 1000`).
+
+## A green boot marker is three claims, not one
+
+`payload/test/host-acceptance.sh` proves that a launcher step ran by
+grepping a fixed marker string out of the guest console capture —
+`(b4)` greps `seeded host working rules` for issue #108's
+`claude-home/` seed. Reporting that green is the cheap half; the
+structural claims a PR body then makes around it are separable, and
+each is one command.
+
+**Who else emits the marker, and from which branch?**
+`grep -rn "<marker>" plugins/claude-vm/`. For `(b4)` the hits are the
+launcher's own `log` line, the assertion, and the off-VM seed suite.
+Then read the emitting branch rather than stopping at the grep: that
+`log` line sits under `[ -n "$seeded_entries" ]`, so a green means an
+entry really installed, where the sibling branch logs a distinct
+"nothing to seed" line. A marker emitted unconditionally at the top of
+a step would prove only that the step was reached.
+
+**Was the image stale?** The launcher's source is not part of the
+image-identity hash — `compute_pinned_version` in
+`build-guest-image.sh` appends only
+`CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`, and `LAUNCHER_LOGIC_REV` is the
+only constant that invalidates a cached image — so criterion (a)'s
+version-stamp assertion is the staleness control.
+`build-guest-image.sh --print-version` prints `<base>+launcher<N>`;
+compare that `<N>` against
+`git show origin/main:<path>/build-guest-image.sh | grep
+LAUNCHER_LOGIC_REV`. A higher `<N>` rules out a *pre-branch* launcher.
+It does not rule out an earlier commit on the same branch that already
+carried the same rev, so word the claim that way rather than as "built
+from the launcher this branch emits".
+
+**Which interpreter ran the harness?** `bash -c 'echo $BASH_VERSION'`.
+Do not infer it from the invocation spelling: `bash host-acceptance.sh`
+and `./host-acceptance.sh` are the same binary wherever the PATH `bash`
+*is* `/bin/bash`, which is the stock macOS layout and what this repo's
+host measures (3.2.57 either way). Running a suite "the runbook way"
+therefore buys no second interpreter on its own — and the cross-domain
+playbook's slice advice, to run a fragment under `/bin/bash` and under
+`bash`, assumes a newer `bash` earlier in PATH, which is the
+assumption to measure before claiming a two-interpreter run.
 
 ## The run dir sits inside the guest's repo share
 

@@ -204,11 +204,14 @@ right vehicle.
 renders the guest's `/root/.claude/settings.json` **host-side** from the
 merged claude-vm config and shares it into the guest over the same transient
 `claudecreds` mount as the credential and seed; the boot launcher installs it
-at `$HOME/.claude/settings.json`. The rendered file is derived from the
-claude-vm configs **only** — the host's `~/.claude/settings.json` is never
-read, so the guest deliberately runs its own posture (the host lists govern
-Claude *outside* the VM; inside, one may run a different, riskier posture).
-Its keys are: `permissions` (`allow`/`ask`/`deny` verbatim from
+at `$HOME/.claude/settings.json`. The guest's **permission** and **plugin**
+surface — everything the rendered file carries — is derived from the claude-vm
+configs **only**: the host's `~/.claude/settings.json` is never read, so the
+guest deliberately runs its own posture (the host lists govern Claude
+*outside* the VM; inside, one may run a different, riskier posture). The
+non-policy layer that *does* cross the seam is the host's working rules —
+see *Host working rules seeded into the guest* below.
+The rendered file's keys are: `permissions` (`allow`/`ask`/`deny` verbatim from
 `claude.permissions.*`, plus `defaultMode` from `claude.permission_mode`,
 default `bypassPermissions`; only `bypassPermissions`/`default` are accepted,
 anything else aborts the launch), `enabledPlugins` (every ref in
@@ -230,6 +233,61 @@ isolation boundary, with the deny list as backstop. Because the guest runs
 `settings.json` is not a secret,
 but it rides the `claudecreds` mount so every host-rendered guest `~/.claude`
 file arrives over one dir rather than adding another virtio-fs device.
+
+**Host working rules seeded into the guest (issue #108).** The *policy* layer
+above is rendered from config, but the operator's **"who I am / how I work"**
+layer follows them into the VM: the launcher stages copies of the host's
+`~/.claude/CLAUDE.md`, `rules/`, `agents/`, `skills/` and `keybindings.json`
+into `claude-home/` on the same transient `claudecreds` mount, and the boot
+launcher copies them **additively** into `$HOME/.claude/` — merging a
+directory into whatever already lives at that path (the image's baked
+`plugins/` is untouched) and overwriting a same-named file. `CLAUDE.md` and
+`rules/` are seeded together because the former references the latter as
+`@~/.claude/rules/*.md`, so seeding one without the other would leave those
+references dangling in the guest.
+
+That list is an **include list, not an exclude list** — a host `~/.claude`
+accumulates directories this code has never heard of, and an exclude list
+would leak every future one by default. Deliberately off it is the **policy
+layer**: `settings.json` (rendered, above) and plugin state (config-driven,
+see *Marketplaces and plugins*), because the guest is supposed to run the
+posture the claude-vm config describes, not the host's. Off it too is
+**host-scoped session state**: `projects/` (keyed by host paths that do not
+exist in the guest), `history.jsonl`, `todos/`, `sessions/`, `logs/`,
+`statsig/`, `shell-snapshots/`, `ide/`, `teams/`, `usage-data/`. There is no
+config key for any of this, and the list is spelled on **both** sides of the
+seam — `CLAUDE_VM_HOME_SEED_ENTRIES` in `claude-vm.sh`,
+`CLAUDE_HOME_SEED_ENTRIES` in the emitted launcher, which re-walks the same
+names rather than globbing what it finds on the mount — so adding an entry is
+a deliberate edit in two files, not one.
+
+The host files are never touched: what is shared is a **copy**, staged under
+`umask 077` inside the run's credential dir, so `cleanup()`'s existing
+`rm -rf` shreds it on every exit and the guest — root, on a remountable share
+— never has a path to the real `~/.claude`. The copy **dereferences
+symlinks** (`cp -RL`), because a host `~/.claude` is often a checkout whose
+`rules/` or `skills/` is a symlink pointing outside it; copying the link
+would put a dangling path in the guest. Every entry is **optional** on both
+sides and its absence is silent (most hosts have no `keybindings.json`); a
+copy that *fails* is warned about loudly by the side that attempted it —
+the host on its own stderr when staging fails (and the entry is dropped, so
+the guest never sees it), the guest in the hvc0 log when the install off the
+mount fails — and the launch continues. No copy failure here aborts a boot —
+unlike the credential and `settings.json`, this layer is a convenience, not
+a security control — which is why the guest half guards **every** command it
+runs on an entry, its `mkdir -p` as much as its copies: it runs under
+`set -euo pipefail`, where an unguarded failure would end the boot instead of
+the entry. The host half runs under the same option but is **not** guarded to
+that standard: its staging-dir `mkdir -p` and the `rm -rf` in its failure arm
+are both unguarded, so a failure in either aborts the launch outright —
+before any boot, rather than dropping the entry.
+
+Dropping a failed entry means removing what was already copied, since `cp -R`
+keeps going past a per-file error and a half-copied `rules/` tree is worse
+than an absent one. The guest can do that only for a destination **this seed
+created**: a path that already existed is baked image content the seed merely
+merged into, so it is left alone, with a warning saying it may now hold a
+partial copy, rather than deleting bytes this layer never owned.
 
 **Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
 structurally-complete `claudeAiOauth` object whose `accessToken` and
@@ -895,7 +953,8 @@ order as plain `NAME=<%q-quoted value>` lines, and the boot launcher sources
 the baked file *then* the boot file, each under `set -a`. A later assignment
 simply overwrites an earlier one, so the whole chain falls out of ordering
 with no dedup logic, no associative array — and therefore nothing that needs
-bash 4, which matters because the gate beside it is a config-load guard (see
+bash 4, which nothing launcher-reachable may; the gate beside it is a
+config-load guard, where that rule bites hardest (see
 *A guard must survive the oldest bash that can reach it* below). Within a
 tier, merging is repo-over-global per key for `set` and a union for
 `copy`/`files`; within `env.files`, a later file wins over an earlier one, by
@@ -959,13 +1018,28 @@ cover, so `LAUNCHER_LOGIC_REV` carries it (24 → 25).
 
 Every script here is `#!/usr/bin/env bash`, so the interpreter is whatever
 `bash` PATH resolves to — on a stock macOS with no Homebrew bash, `/bin/bash`,
-still **3.2**. Parts of `lib/config.sh` need bash 4 (`local -A` in
-`claude_vm_render_guest_settings`), but those run *late*, and they fail
-**loudly**. The config-load guards run *early* and decide whether a mount is
-safe, so a construct that behaves differently on 3.2 does not stop the
-launch — it silently changes the answer a guard gives. A guard must not fail
-open on the way to someone else's error, which makes "the whole file needs
-bash 4 anyway" an unsafe justification for anything the guards depend on.
+still **3.2**. **No part of `lib/config.sh` needs bash 4**, guard or not, and
+the file is run end to end under `/bin/bash` to keep it that way.
+
+It used to. `claude_vm_render_guest_settings` held a `local -A` behind the
+reasoning that it runs *late* and would fail *loudly* — and issue #108's real
+launch on a stock macOS is the counterexample to both halves. *Late* meant
+after the image build, so the launch died having already paid for a rebuild
+and never reached the guest. *Loud* covered only the first line: 3.2 answers
+`local -A` with `local: -A: invalid option` and then carries on, and the
+`enabled_override["$ov_ref"]=` assignment underneath it is not a diagnostic at
+all — 3.2 evaluates an indexed array's subscript ARITHMETICALLY, so a real ref
+like `block-background-agents@thevoskamps` parses as an expression whose
+leading identifier `block` is unbound and `set -u` kills the shell. Only a
+config carrying a `claude.plugins.enabled` override entered that branch, so
+the acceptance run's override-free stub config never reached it.
+
+The config-load guards keep the sharper form of the rule, because their
+failure is quieter still: they run *early* and decide whether a mount is safe,
+so a construct that behaves differently on 3.2 does not stop the launch — it
+silently changes the answer a guard gives. A guard must not fail open on the
+way to someone else's error, and "the whole file needs bash 4 anyway" is no
+longer even available as a justification, since the file does not.
 
 `test/config-test.sh` carries the same shebang and its header says to run it
 directly, so the suite that checks the guards is under the same rule — at a
@@ -995,17 +1069,36 @@ The shapes this has actually bitten, with where each one bit:
   classified correctly on 5.3 and returned that fragment on 3.2, so a harness
   artifact read as a broken wrap-dir siting. Lift the `case` into a function
   defined outside, so the substitution holds only the call.
+- **An associative array (`local -A` / `declare -A`).** Bash 3.2 has none, and
+  the failure is two-part: the declaration is a plain diagnostic the shell
+  survives, while every `map["$key"]=` under it becomes an ORDINARY indexed
+  assignment whose subscript is evaluated as an arithmetic expression. A key
+  that is a bare number silently writes the wrong slot; a key holding an
+  identifier — every plugin ref does — is an unbound-variable death under
+  `set -u`. Write two parallel indexed arrays and a linear lookup that scans to
+  the end (last match wins, which is what assign-by-key would have left), as
+  `claude_vm_render_guest_settings` now does.
 
 `test/config-test.sh` pins the escaped-delimiter shape by *running* the real
 normalizer under whatever pre-4 bash the host has, alongside a negative control
 that runs the inline escaped spelling the function avoids — so if the hazard
-ever disappears, the control stops differing and says so. On a host with no old
-bash there is nothing to measure, and the block is skipped rather than faked
-with a fixture. The `case`-in-`$( )` shape needs no assertion of its own — it
+ever disappears, the control stops differing and says so. The associative-array
+shape is pinned the same way and one level up: the render is driven through the
+real `claude_vm_merge_config` in the launcher's own argument shape, over a
+config carrying a `claude.plugins.enabled` override whose ref *leads with an
+identifier* (a digits-only ref would be valid arithmetic and would fail
+differently), with its own negative control on the `local -A` spelling. The
+unknown-ref abort is asserted by its **diagnostic**, not by a non-zero exit,
+since on this shell a bash-4 construct anywhere in the function also exits
+non-zero. On a host with no old bash there is nothing to measure, and the block
+is skipped rather than faked with a fixture. The `case`-in-`$( )` shape needs
+no assertion of its own — it
 is a parse-time property of the file, so *running* the suite under `/bin/bash`
-is the check: everything but the cases that need bash 4's `local -A` has to
-pass there, and that failing set has to stay the one `main`'s own suite already
-fails.
+is the check — and the bar is now the whole suite, with no baselined failing
+set: `/bin/bash test/config-test.sh` is green. A carried-over "these N always
+fail on 3.2" baseline is what hid the `local -A` render defect through several
+review rounds, so a failure there is a defect to fix rather than a number to
+record.
 
 ### Remote Control opt-in (`claude.remote_control`)
 
@@ -1255,8 +1348,11 @@ accidental write, not a determined one, because the guest session is root and
 can remount. Nothing in the boot rests on it, because nothing in the boot writes
 to any of the three: the launcher **copies** each file it needs out of
 `claudecreds` before use (`.credentials.json` and `settings.json` into
-`$HOME/.claude/`, the identity seed to `$HOME/.claude.json`, each `chmod 600`
-after the copy), **sources** the boot-tier `env` file in place (see *Guest
+`$HOME/.claude/` and the identity seed to `$HOME/.claude.json`, each
+`chmod 600` after the copy; the `claude-home/` working-rules subset
+additively into `$HOME/.claude/`, with **no** `chmod` — those are the
+operator's rules, not secrets, and they keep whatever modes `cp` gives
+them), **sources** the boot-tier `env` file in place (see *Guest
 environment variables* above — it is deliberately never copied, so a forwarded
 API key does not outlive the shredded mount), reads the `runconfig` manifests
 in place, and execs the `claudebin` binary off the share. Say "shared into
@@ -1702,6 +1798,7 @@ replacement.
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/endpoint-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/boot-launcher-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/claude-home-seed-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
@@ -1823,6 +1920,58 @@ repo name — never the launcher source — so that constant is the only thing t
 invalidates a cached image when launcher logic changes. No VM, no network, no
 root; needs only `bash` + `awk`.
 
+`claude-home-seed-test.sh` is the regression test for issue #108's curated
+host `~/.claude` seed, and it drives **both** halves of the seam: the staging
+loop sliced out of `claude-vm.sh` and the install step sliced out of the
+emitted boot launcher, run back to back over a fake host home and a fake
+guest home. Grepping either loop would prove nothing — the properties are all
+about what the pair produces. It asserts that every include-list entry
+arrives; that a host `settings.json`, `projects/`, `history.jsonl`, `todos/`
+and `statsig/` are staged nowhere and reach the guest never (both ends
+asserted per entry, since a guest-side assertion alone would still pass on a
+host that staged the entry and a guest that merely failed to install it); that
+a **symlinked** `rules/` and `skills/` — the
+`~/.claude`-is-a-checkout host — arrive dereferenced as real content rather
+than as dangling links; that the install is additive and does **not** nest
+(the image's baked `plugins/` survives, a pre-existing file inside a seeded
+directory survives, and nothing lands at `.claude/rules/rules`); and that a
+sparse host, a missing `keybindings.json`, and a host with no `~/.claude` at
+all each produce a clean run with no error output on either side.
+
+The guest half's *failure* arms are pinned by injection, because the emitted
+launcher runs under `set -euo pipefail` and the cost of an unguarded command
+there is the whole boot, not one entry. Each fragment's exit status is
+recorded, so an abort is visible as a status rather than as a missing file: a
+destination that already exists as a **non-directory** (the `mkdir -p` fails)
+must still leave the later include-list entries installed and the run at
+status 0, and an unreadable subtree on the mount (`cp -R` continues past the
+error, leaving a half-populated tree) must leave the destination **removed**
+when this seed created it and **untouched**, with a warning saying so, when it
+is baked image content the seed only merged into. The injection is planted on
+the mount and drives the guest loop alone — a host `~/.claude` entry the host
+itself cannot read is dropped host-side and never reaches the guest — and it
+is skipped under `root`, which reads a mode-`000` directory anyway.
+
+The two copy spellings that carry the whole feature — `cp -RL` host-side and
+`cp -R <src>/.` guest-side — were negative-controlled by mutating each to its
+unsafe form and confirming the suite goes red on a **behavioral** assertion;
+the failure-arm assertions were negative-controlled the same way, against the
+pre-fix loop. The host-side `-L` needed its own assertion to get there. The
+suite runs both halves on one filesystem, where a copied LINK still resolves,
+so every content assertion stays green when `cp -RL` loses its `-L`; what
+moves is the **shape** of the staged entry, and the suite therefore asserts
+that `claude-home/rules` and `claude-home/skills` are real directories rather
+than the host's symlinks. In the real VM that drop is fatal rather than
+invisible — the link's target sits outside the staging dir, so outside the
+share the guest mounts — which is why an off-VM harness cannot reproduce it by
+reading content. No VM, no network, no root; `bash` + `awk`.
+
+The one property this suite cannot reach is that the step runs at all in the
+real emitted launcher, off a real virtio-fs share the guest fstab mounts `ro`,
+in its real position — `host-acceptance.sh` criterion (b4) stages a stub
+`claude-home/` on the `claudecreds` share and asserts the launcher's own seed
+log line comes back out of the guest console capture.
+
 `launch-shape-test.sh` is the regression test for issue #179's vfkit launch
 shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its
 `virtio-serial,stdio` console to the terminal — a real boot fails with
@@ -1930,3 +2079,55 @@ stop`/`rm` the test attempted does not succeed, it prints a
 `WARNING (teardown)` to stderr and the log rather than swallowing the
 failure, so a machine left dirty on the host is signalled instead of
 hidden.
+
+## Testing a PR branch interactively
+
+None of the suites above exercises a change's acceptance criteria at a
+real interactive session under the operator's own config: most run
+off-VM, and `host-acceptance.sh` boots a stub config that reaches only
+the paths its own keys touch. That last step is a human one, and it has
+a shape worth following exactly.
+
+1. **A plain worktree on the PR branch**, made from the primary clone —
+   `git worktree add .claude/worktrees/pr-<N>-test <branch>`. The
+   primary clone stays on its default branch rather than being switched
+   under the test, and the worktree is also what makes the launch run
+   the branch's code: `bin/claude-vm` resolves the plugin root relative
+   to `${BASH_SOURCE[0]}`, so invoking the worktree's own
+   `plugins/claude-vm/bin/claude-vm` runs the branch's `payload/`, not
+   the installed plugin cache's.
+2. **The repo's `.claude-vm/` pair, copied into the worktree.** That
+   directory is git-ignored, so a fresh worktree has none, and the
+   launcher resolves the per-repo pair as
+   `$REPO_SRC/.claude-vm/config-{bake,boot}.yml` against the repo root
+   it was handed — here the worktree, since that is what its own
+   `git rev-parse --show-toplevel` returns. The global pair under
+   `~/.config/claude-vm/` is read in place and needs no copy. What each
+   key means is the "Launcher (`claude-vm.sh`)" section above and the
+   `claude-vm` skill, not this procedure.
+3. **The launch, from a real terminal** (not a pipe — see the
+   two-console note above), working a test plan aimed at the PR's own
+   acceptance criteria. Expect the first launch to build an image: the
+   identity is `BASE_OS_REV+launcherN+global<hash>` plus, when a repo
+   bake file exists, `+<reponame>-<repohash>`, and a PR branch can move
+   both halves — `<reponame>` is the `basename` of the repo root, so
+   `pr-<N>-test` rather than the primary clone's directory name, and a
+   launcher-logic change on the branch bumps `LAUNCHER_LOGIC_REV`. The
+   build is the point rather than an obstacle: it is the branch's own
+   image, under its own filename, so the cached image everyday launches
+   from the primary clone use is neither reused nor replaced.
+4. **Boot-phase assertions checked by grepping `$RUN/guest-console.log`
+   after the run**, not by watching the terminal. The boot launcher
+   writes its `claude-vm:` markers — the `claude-home/` seed line, the
+   apt and plugin install warnings — to `/dev/console`, which is `hvc0`
+   and lands in that capture; the terminal is `hvc1`, carrying the
+   interactive session alone. A criterion about what the guest did
+   during boot is therefore settled after the fact, from the log.
+5. **The run dir, inspected after exit.** `$RUN` is
+   `<repo>/.claude/tmp/<run-id>/` — under the worktree — and is
+   retained: `guest-console.log`, the egress capture and the
+   proxy/gvproxy logs stay there, and `cleanup()` prints each path on
+   the way out. `creds/` is the exception and must be **gone**: it is
+   the transient `claudecreds` share, and `cleanup()` shreds it on every
+   exit, a Ctrl-C included. A surviving `creds/` is a defect, not a
+   leftover.

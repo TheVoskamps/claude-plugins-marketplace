@@ -65,7 +65,6 @@
 - [`entry #N` counts the merged doc](project_entry-index-is-against-the-structure-the-gate-walks.md) — a per-entry diagnostic numbers against the structure the validator walks, not one tier's own config
 - [Probe every tool your prose names](project_probe-every-tool-your-prose-names.md) — a finding's evidence covers only the tools the reviewer ran; probe every tool your own sentence names
 - [Pick the fix that spares the costly proof](project_pick-the-fix-that-spares-the-expensive-verification.md) — prefer the remedy leaving the already-real-boot-verified path byte-identical; branch on the RESOLVED share
-- [Run the guard on the oldest reachable shell](project_run-the-guard-on-the-oldest-reachable-interpreter.md) — an early guard fails OPEN on bash 3.2 while the file's later `local -A` fails loudly; grade FAILs by label, not count
 - [The class is the set of USES, not values](project_the-class-is-the-set-of-uses-not-values.md) — one bad value of a validated field means grep the variable and grade each use position's grammar
 - [A finding's exclusivity premise is measurable](project_reviewer-exclusivity-premise-is-measurable.md) — "nothing else reaches $TMPDIR" was false (the gvproxy socket does, every launch); grep what the premise quantifies over
 - [Upstream guard picks your test rows](project_upstream-guard-decides-which-rows-can-reach-yours.md) — a row for a narrowed guard must survive the guard BEFORE it; only `ghShieldingFlags` values may be dynamic
@@ -95,3 +94,5 @@
 - [A teaching deny is graded per document](project_a-teaching-deny-is-graded-per-document.md) — the per-VERB redirect rule is half of it; a bundle with an uncovered field is the dead end the tier forbids
 - [A thin account needs a rank, not a blank](project_a-thin-account-needs-a-rank-not-a-blank.md) — filling a blank residual record makes it WIN under a first-wins aggregator; rank it below the specific labels
 - [Soften the fact, keep the membership](project_unpinnable-guarantee-soften-the-fact-keep-the-membership.md) — grade every "must not waive" hit: normative intent survives, mechanism-fact claims get the caveat, and say what does NOT change
+- [Mirror the sibling only if its precondition holds](project_mirror-the-sibling-only-if-its-precondition-holds.md) — "do what the host side does" assumes sole ownership of the destination; an additive merge target makes its `rm -rf` a worse bug
+- [Sibling clause edits falsify the sweep rule](project_adding-a-clause-to-siblings-falsifies-the-sweep-rule.md) — propagating a clause makes "only surface A carries it" false; repair with a quantifier plus the named exception, not an Nth list copy

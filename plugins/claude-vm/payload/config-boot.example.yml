@@ -113,8 +113,11 @@ claude:
   # remote_control: false
 
   # Guest Claude permission mode + rules, rendered into the guest
-  # /root/.claude/settings.json. The guest's Claude surface is defined by THESE
-  # configs ONLY -- the host's ~/.claude/settings.json is never copied in.
+  # /root/.claude/settings.json. The guest's PERMISSION surface is defined by
+  # THESE configs ONLY -- the host's ~/.claude/settings.json is never copied in.
+  # (The host's ~/.claude working rules -- CLAUDE.md, rules/, agents/, skills/,
+  # keybindings.json -- ARE seeded into the guest; see issue #108. That layer is
+  # not policy and has no config key.)
   # YOLO-by-default: the VM is the isolation boundary. Only bypassPermissions |
   # default are accepted; any other value aborts the launch.
   permission_mode: bypassPermissions   # bypassPermissions (default) | default

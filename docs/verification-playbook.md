@@ -137,7 +137,17 @@ Telling them apart:
 
 1. **Baseline the suite at the base revision** and run it there under
    *both* interpreters. That separates pre-existing failures from the
-   branch's own.
+   branch's own — and separating them is where the work starts, not
+   where it ends. "Identical to main's" licenses an investigation, not
+   a carried number: read what each surviving FAIL label *names*. A
+   label naming a whole shipped function, red on the interpreter the
+   product actually runs on, is a blocker wearing a baseline's clothes.
+   That is exactly what "568 passed / 15 failed, all pre-existing"
+   turned out to be on PR #273 — the `render:` and `enabled-validate:`
+   rows were `claude_vm_render_guest_settings` aborting, on bash 3.2,
+   every launch whose config carried a `claude.plugins.enabled`
+   override, carried for several review rounds because the count
+   matched main's.
 2. **Run the shipped code, not the assertion.** Slice the real loop out
    by line range and run the slice under `/bin/bash` and `bash`
    explicitly — a suite's own `bash "$SLICE"` resolves through PATH, so
@@ -158,6 +168,40 @@ A quote-aware paren walker over every tracked shell file that flags a
 `$( )` body containing `case` runs in seconds; negative-control it
 against the pre-fix commit's own file, which must report the known
 instances.
+
+## Running a claude-vm suite under bash 5 needs a borrowed yq
+
+The bash ≥ 4 half of a two-interpreter run has no local shell on a
+stock macOS box — `/bin/bash` is the only one, and `command -v bash`
+resolves to it. The container is the only route, and the obstacle is
+not bash but yq: `plugins/claude-vm/payload` needs **mikefarah** yq v4
+(`yq eval`), while Debian's `yq` package is the unrelated Python
+wrapper (3.4.3), which makes every yq-touching assertion fail for a
+reason that has nothing to do with the change.
+
+Borrow the binary from its own published image rather than downloading
+one — same platform as the test container, and no host install:
+
+```bash
+podman run --rm -v "$PWD/.claude/tmp/<slug>:/out" \
+  --entrypoint sh docker.io/mikefarah/yq:4 -c 'cp /usr/bin/yq /out/yq-linux'
+podman run --rm --platform linux/arm64 -v "$PWD:/w:ro" \
+  -w /w/plugins/claude-vm/payload docker.io/library/debian:trixie bash -c \
+  'install -m755 /w/.claude/tmp/<slug>/yq-linux /usr/local/bin/yq
+   export TMPDIR=/tmp; bash test/config-test.sh | tail -2'
+```
+
+Expect a **lower** total than the 3.2 run, not a matching one: the
+old-bash batteries resolve no pre-4 shell in the container and skip
+themselves, which is the whole difference. Baseline the pre-fix tree
+there too (copy the payload to a writable path inside the container and
+swap the one file) — a bash-4-only defect shows as *no* delta on that
+side, which is itself the measurement.
+
+One host-side trap has nothing to do with bash: a scratch `TMPDIR` deep
+under `.claude/tmp/` can exceed the 104-byte `sun_path` limit, and
+`endpoint-test.sh` then fails three live-listener rows. Re-run it with
+the default `TMPDIR` before blaming a change for those.
 
 ## Verify a rebase with a local patch-id walk
 

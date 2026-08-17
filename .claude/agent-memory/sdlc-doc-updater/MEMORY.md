@@ -85,6 +85,9 @@
   — retiring an agent leaves issues/lib repo-config's per-field consumer
   claims and "previously performed / mirrors what" history sentences false;
   no sdlc file pins schema-version, whatever that lib says.
+- [Fixer memory names the missing playbook section](project_fixer-memory-names-the-missing-playbook-section.md)
+  — a round that changed HOW a claim is pinned leaves the technique in the
+  fixer's new memory file and the code comment, never in /docs' playbook.
 - [de-specify round leftovers](project_de-specify-round-leftovers.md)
   — moving a value into one file leaves ragged paragraph wrapping,
   an unmeasured "no other file spells it" claim, and cross-plugin
@@ -101,6 +104,10 @@
   — after equality is widened to a relation (overlap/ancestor/range),
   the rationale comment on each protected VALUE still spells the narrow
   case; grep the old vocabulary, not the guard.
+- [The corner the PR itself names](feedback_the-corner-the-pr-itself-names.md)
+  — one surface names the case where the defect does NOT bite; the code
+  comment, test comment and playbook state it as "every/always". Grep
+  the absolutes and import the careful sibling's qualifier.
 - [Probe the gate binary, not the walk](feedback_probe-the-gate-binary-not-the-walk.md)
   — settle a gate reach-claim ("descends into every X") with a throwaway
   _test.go calling classifyBash; the helper is right, its call sites are
@@ -148,3 +155,7 @@
 - [Shared-copy claims need a diff](feedback_shared-copy-claims-need-a-diff.md)
   — "only the bullets are shared copy" is a diff result; a per-agent
   paragraph can still end in a byte-identical sentence. Drop the tally.
+- ["warned on both sides" is one failure path](feedback_warned-on-both-sides-is-one-failure-path.md)
+  — each half of a host/guest seam warns only about its own failure;
+  trace what the failing side does with the entry, and check every copy
+  is `||`-guarded before "nothing here can abort" stands.

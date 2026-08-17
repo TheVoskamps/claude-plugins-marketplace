@@ -94,10 +94,12 @@ image:
 # that is an optimization and a failure there only warns -- see the boot
 # file's `marketplaces` comment.
 #
-# The guest's Claude surface comes from THESE configs only -- the host's
-# ~/.claude/settings.json and the host's own installed plugins are never copied
-# in. That is deliberate: inside the VM you may want to run a plugin or hook you
-# would not enable on the host.
+# The guest's PERMISSION and PLUGIN surface comes from THESE configs only -- the
+# host's ~/.claude/settings.json and the host's own installed plugins are never
+# copied in. That is deliberate: inside the VM you may want to run a plugin or
+# hook you would not enable on the host. (The host's ~/.claude working rules --
+# CLAUDE.md, rules/, agents/, skills/, keybindings.json -- ARE seeded in; see
+# issue #108. That layer is not policy and has no config key.)
 #
 # WHY HERE AND NOT IN THE BOOT FILE: baked plugins change the guest image's
 # BYTES, so placement in a bake file is what puts them under the whole-file

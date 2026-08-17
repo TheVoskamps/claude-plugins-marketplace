@@ -21,12 +21,14 @@ run:
   audits, and row-cross replays.
 - [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
   — non-booting vfkit probes, privileged-container mount semantics,
-  probe-container/guest package parity, mkosi source checks, and
-  launcher-loop slicing.
+  probe-container/guest package parity, mkosi source checks,
+  launcher-loop slicing, and grading a real boot's console-marker
+  assertions.
 - [`docs/verification-playbook.md`](docs/verification-playbook.md) —
   cross-domain: suite baselining and hybrid-tree negative controls,
   bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,
-  rebase verification, and lint baselining.
+  containerized bash 5 runs with a borrowed yq, rebase verification,
+  and lint baselining.
 
 They record technique, not policy: when a playbook step and a rule
 here disagree, the rule wins and the playbook is the thing to fix.
@@ -501,6 +503,30 @@ not the helper name — the Derived egress paragraph never names the
 helper. When the per-entry policy gains skip paths, count them in the
 code and check the prose enumerates the same set.
 
+## Narrow every claude-vm surface-only claim to the layer it measures
+
+Four `plugins/claude-vm` surfaces assert that the guest's Claude
+configuration comes from the claude-vm configs **only**, because the
+host's `~/.claude/settings.json` is never read:
+
+- `payload/config-boot.example.yml` (the `permission_mode` /
+  `permissions` block)
+- `payload/config-bake.example.yml` (the marketplaces/plugins block)
+- `payload/claude-vm.sh` (the settings-render call site)
+- `payload/lib/config.sh` (the rendered-document key list)
+
+Each sentence's evidence is about `settings.json` or about plugins, so
+each names the layer it actually measures — the PERMISSION surface, the
+PLUGIN surface — rather than "the Claude surface" as a whole. A change
+that seeds further host `~/.claude` content into the guest widens the
+host→guest seam and must re-narrow every one of them, because the false
+half of such a sentence is its noun, not its verb: the `settings.json`
+grep that finds these sites keeps returning true statements while the
+subject above them is wrong. Grep the surface wording across
+`plugins/claude-vm/` rather than checking only the files the diff
+touched — two of the four are example YAML files that no test and no
+doc pass naturally opens.
+
 ## Sweep every "no read-only mounts" surface when read-only lands
 
 `plugins/claude-vm` extra mounts are read-write only, and the config
@@ -658,16 +684,26 @@ rendered assignments for the same trailing-newline literal and compare
 bytes, plus a negative control on the raw-capture shape) are in
 `plugins/claude-vm/payload/README.md` → *Guest environment variables*.
 
-## Write claude-vm's config-load guards for bash 3.2, not for bash 5
+## Write claude-vm for bash 3.2, not for bash 5
 
 Every `plugins/claude-vm` script is `#!/usr/bin/env bash`, so on a stock
-macOS the interpreter is `/bin/bash` **3.2**. Parts of `lib/config.sh`
-need bash 4, but they run late and fail loudly; the config-load guards
-run first and decide whether a mount is safe, so a construct that
-behaves differently on 3.2 silently changes a guard's verdict instead of
-stopping the launch. "The file needs bash 4 anyway" never justifies a
-version-dependent construct inside a guard. Specifically: never write a
-backslash-escaped delimiter in the **replacement** half of
+macOS the interpreter is `/bin/bash` **3.2**, and no launcher-reachable
+code may need bash 4 — `lib/config.sh` today contains no bash-4
+construct at all. The old carve-out ("parts run late and fail loudly")
+is retired: it excused a `local -A` in
+`claude_vm_render_guest_settings`, which #108's real launch killed after
+the image build, and whose `map["$ref"]=` assignment 3.2 mis-parsed
+*silently* — an indexed subscript is evaluated arithmetically, so a
+plugin ref died on `set -u` rather than announcing anything. A late
+failure is neither harmless nor reliably loud.
+
+The config-load guards keep the sharper form, because their failure is
+quieter still: they run first and decide whether a mount is safe, so a
+construct that behaves differently on 3.2 silently changes a guard's
+verdict instead of stopping the launch. Specifically: never declare an
+associative array (`local -A` / `declare -A`) — use two parallel indexed
+arrays and a last-wins linear lookup; never write a backslash-escaped
+delimiter in the **replacement** half of
 `${var//pattern/replacement}` (bash ≥ 4.3 unescapes `\/`, 3.2 does not —
 hold the literal in a variable), and never expand `"${arr[@]}"` on a
 possibly-empty array under `set -u` (write `${arr[@]+"${arr[@]}"}`). Pin
@@ -686,6 +722,15 @@ reasoning, the measured outputs and the test shape are in
 `plugins/claude-vm/payload/README.md` → *A guard must survive the oldest
 bash that can reach it*.
 
+`payload/test/config-test.sh` must be **fully green** under `/bin/bash`,
+and a "these N always fail on 3.2" baseline is never an acceptable
+answer — that baseline is precisely what hid the `local -A` render
+defect through several review rounds while a real launch could not get
+past it. A red assertion under 3.2 is a defect to fix, in the code or in
+the assertion, never a number to carry in a PR body. An acceptance run
+proves nothing about this either way: the stub config it launches with
+exercises only the paths its own keys reach.
+
 ## Sweep the ordering notes and share lists on a boot-launcher insertion
 
 Inserting a step into the boot launcher that
@@ -703,12 +748,23 @@ described from a different file entirely.
 - **The `claudecreds` content enumerations.** The headers that list
   what the transient credential share carries: `claude-vm.sh`'s run.env
   `CLAUDECREDS_TAG` comment, `claude-vm.sh`'s `CREDS_DIR=` header
-  several hundred lines earlier, and `build-guest-image.sh`'s
-  `CLAUDECREDS_MNT=` header. Only the first sits next to a change that
-  adds an entry. The latter two also assert what the launcher *does*
-  with each entry — installs it into `$HOME/.claude/` — so an entry the
-  guest merely sources needs that sentence widened rather than a list
-  item appended under it.
+  several hundred lines earlier, `build-guest-image.sh`'s
+  `CLAUDECREDS_MNT=` header, and `payload/test/host-acceptance.sh`'s
+  share-topology block, which enumerates the same members while
+  describing the stub shares its boot test stands up — a fourth surface
+  with the same shape, in a file a code-only sweep does not reach. Only
+  the first sits next to a change that adds an entry. The other three
+  also assert what the launcher *does* with each entry — installs it
+  into `$HOME/.claude/` — so an entry the guest merely sources needs
+  that sentence widened rather than a list item appended under it.
+  Every one of them that also asserts the *mode* each lands with
+  (`0600`, `chmod`'d after each copy) — today
+  all but the `CREDS_DIR=` header — states a clause covering only the
+  single files the launcher `chmod`s. An entry the guest copies with no
+  `chmod` — `claude-home/` (issue #108), whose contents the launcher
+  merges in without one — makes the clause false the moment it joins
+  the enumeration above it, so narrow the clause on every surface that
+  carries it rather than only appending to the list.
 
 Re-run `payload/test/boot-launcher-test.sh` on any launcher edit,
 including a comment-only one: it parses the emitted script.
