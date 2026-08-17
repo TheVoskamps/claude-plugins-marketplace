@@ -149,3 +149,6 @@
 - [Shared-copy claims need a diff](feedback_shared-copy-claims-need-a-diff.md)
   — "only the bullets are shared copy" is a diff result; a per-agent
   paragraph can still end in a byte-identical sentence. Drop the tally.
+- [Vendor hook claims are fetchable](feedback_vendor-hook-claims-are-fetchable.md)
+  — `curl -sL .../hooks.md` into the scratchpad settles "Claude Code does
+  X"; #271's defer had two undocumented-in-repo scoping conditions.
