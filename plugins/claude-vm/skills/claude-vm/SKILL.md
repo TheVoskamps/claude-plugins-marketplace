@@ -720,6 +720,39 @@ claude-vm has **no** own CLI flags: every post-repo argument is forwarded
 to the guest `claude` verbatim. Plugin enable/disable state is set through
 `claude.plugins.enabled` in the config files, not on the command line.
 
+### Host working rules seeded into the guest (issue #108)
+
+The section above is the **policy** layer, which the guest gets from the
+claude-vm config rather than from the host. The operator's **"who I am /
+how I work"** layer goes the other way — it follows them into the VM. The
+launcher stages copies of the host's `~/.claude/CLAUDE.md`, `rules/`,
+`agents/`, `skills/` and `keybindings.json` onto the same transient
+`claudecreds` mount the credential, identity seed and rendered
+`settings.json` ride, and the boot launcher copies them **additively** into
+the guest's `~/.claude/`: a directory is merged into whatever is already at
+that path (the image's baked `plugins/` is untouched) and a same-named file
+is overwritten. `CLAUDE.md` and `rules/` travel together because the former
+references the latter as `@~/.claude/rules/*.md`.
+
+There is **no config key** for this — the list is fixed in the launcher, and
+it is an **include list**: a host `~/.claude` accumulates directories
+claude-vm has never heard of, and an exclude list would leak every future
+one by default. Nothing else is copied. Not the policy layer
+(`settings.json` is rendered, plugin state is config-driven), and not
+host-scoped session state — `projects/` (keyed by host paths the guest does
+not have), `history.jsonl`, `todos/`, `sessions/`, `logs/`, `statsig/`,
+`shell-snapshots/`, `ide/`, `teams/`, `usage-data/`.
+
+Your host files are never touched: what the guest sees is a copy, staged
+under `umask 077` in the run's shred-on-exit credential dir. Symlinks are
+**dereferenced**, so a `~/.claude` that is a checkout with `rules/` or
+`skills/` symlinked out of it still seeds real content rather than a
+dangling link. Every entry is optional — a host with no `keybindings.json`
+and no global `CLAUDE.md` launches normally and silently. A copy that
+*fails* prints a warning (host-side, and again in the guest's `hvc0`
+diagnostic log) and the launch continues: unlike the credential and
+`settings.json`, this layer never aborts a boot.
+
 ## Interactive session (the launching terminal IS the in-VM claude)
 
 `claude-vm <repo>` opens an **interactive** Claude Code session on the

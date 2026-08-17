@@ -321,7 +321,17 @@ BASE_OS_REV="debian-12-20250601"
 # exists to prevent. Same reasoning as every rev above: the launcher's SOURCE is
 # not part of the image-identity hash, so this constant is the only thing that
 # invalidates a cached image.
-LAUNCHER_LOGIC_REV="25"
+# Bumped 25 -> 26: host working rules seeded into the guest (issue #108). The
+# boot launcher gains a step right after the settings.json install that copies
+# the host's curated ~/.claude subset -- CLAUDE.md, rules/, agents/, skills/,
+# keybindings.json, staged by the host into claude-home/ on the claudecreds
+# mount -- additively into $HOME/.claude/. An image stamped 'launcher25' has no
+# such step, so the host would stage the operator's rules on every launch and
+# the guest would never install them: the exact silent no-op shape of the
+# 24 -> 25 env bump. Same reasoning as every rev above: the launcher's SOURCE
+# is not part of the image-identity hash, so this constant is the only thing
+# that invalidates a cached image.
+LAUNCHER_LOGIC_REV="26"
 BASE_PINNED_VERSION="${BASE_OS_REV}+launcher${LAUNCHER_LOGIC_REV}"
 
 # ---------------------------------------------------------------------
@@ -439,7 +449,10 @@ emit_boot_launcher() {
 # /mnt/repo projects entry that skips the trust dialog) into $HOME/.claude.json
 # so the interactive TUI comes up already onboarded + logged in (issue #88) AND
 # the host-rendered settings.json (permissions allow/ask/deny + defaultMode +
-# enabledPlugins) into $HOME/.claude/settings.json (issue #104), ensures/updates/
+# enabledPlugins) into $HOME/.claude/settings.json (issue #104) AND the host's
+# curated ~/.claude working-rules subset (CLAUDE.md, rules/, agents/, skills/,
+# keybindings.json) additively into $HOME/.claude/ so the guest session runs
+# under the operator's own global rules (issue #108), ensures/updates/
 # installs the configured marketplaces + plugins against the image's baked
 # /root/.claude/plugins (issue #107), seeds
 # the tty geometry from the host (issue #88), then
@@ -484,10 +497,14 @@ CLAUDEBIN_MNT=/mnt/claudebin
 # tag 'claudecreds' and mounted here `ro` by the guest fstab. It carries the
 # OAuth credential (.credentials.json, a SECRET), the identity seed
 # (claude-json-seed.json, account identity), the rendered settings.json
-# (permissions + enabledPlugins, NOT a secret) and the boot tier's guest
+# (permissions + enabledPlugins, NOT a secret), the boot tier's guest
 # environment (env, issue #135 -- env.copy/env.files values are third-party API
-# keys) -- not credentials alone. The boot launcher installs the ~/.claude files
-# into $HOME/.claude/ below, and SOURCES `env` in place without copying it.
+# keys) and the host's staged working rules (claude-home/, issue #108 --
+# CLAUDE.md, rules/, agents/, skills/, keybindings.json; also not a secret)
+# -- not credentials alone. The boot launcher installs the ~/.claude files
+# into $HOME/.claude/ below -- copying claude-home/'s entries in ADDITIVELY,
+# where the single files above are plain overwrites -- and SOURCES `env` in
+# place without copying it.
 CLAUDECREDS_MNT=/mnt/claudecreds
 
 # Load run environment (proxy, mount tags, geometry, renderer, CLAUDE_ARGS)
@@ -586,7 +603,8 @@ set +a
 #
 # ORDERING: first thing after run.env and the guest environment files (issue
 # #135 -- both are plain assignments with no filesystem dependency), before the
-# credential/seed/settings install and before the apt and plugin phases. An
+# credential/seed/settings/working-rules installs into $HOME/.claude (the last
+# of those is issue #108) and before the apt and plugin phases. An
 # extra mount is plain data
 # with no dependency on any of them, and running first means every later phase
 # -- and claude itself -- sees a fully-assembled filesystem.
@@ -877,6 +895,60 @@ fi
 cp "$MOUNTED_GUEST_SETTINGS" "$CRED_DIR/settings.json"
 chmod 600 "$CRED_DIR/settings.json"
 log "claude-vm: installed host-rendered guest settings at $CRED_DIR/settings.json (permissions + enabledPlugins)."
+
+# ---------------------------------------------------------------------
+# Working rules: install the host's curated ~/.claude subset (issue #108).
+#
+# The host staged COPIES of its own ~/.claude/{CLAUDE.md, rules/, agents/,
+# skills/, keybindings.json} into claude-home/ on the same claudecreds mount
+# (see claude-vm.sh for the include list and why it is an include list). This
+# is the operator's "who I am / how I work" layer; the POLICY layer is
+# deliberately not here -- settings.json is rendered (issue #104) and
+# installed just above, and plugin state is config-driven (issue #107).
+# Whatever the host chose to stage is what gets installed: this side re-walks
+# the same names rather than globbing the directory, so a future host-side
+# addition still has to be a deliberate edit on both sides.
+#
+# ADDITIVE, per entry. A directory is merged into whatever is already at that
+# path (the image's baked /root/.claude already holds plugins/, and a rules/
+# or skills/ dir could gain baked content later) -- hence `cp -R <src>/.`
+# rather than `cp -R <src>`, which would nest the tree one level deeper on the
+# second boot of a path that already exists. Same-named files are overwritten:
+# the host's copy is the authority for a name the host staged.
+#
+# FAIL-SOFT, like the identity seed and unlike the credential/settings: a
+# missing or unreadable working-rules entry gives a guest that runs without
+# the operator's global rules, which is a degraded session, not an unsafe or
+# unauthenticated one. Nothing here can abort a bootable guest.
+#
+# $CRED_DIR ($CLAUDE_HOME/.claude) already exists from the credential install.
+MOUNTED_CLAUDE_HOME_SEED="$CLAUDECREDS_MNT/claude-home"
+CLAUDE_HOME_SEED_ENTRIES="CLAUDE.md rules agents skills keybindings.json"
+seeded_entries=""
+for seed_entry in $CLAUDE_HOME_SEED_ENTRIES; do
+  seed_src="$MOUNTED_CLAUDE_HOME_SEED/$seed_entry"
+  [ -e "$seed_src" ] || continue
+  if [ -d "$seed_src" ]; then
+    mkdir -p "$CRED_DIR/$seed_entry"
+    seed_ok=0
+    cp -R "$seed_src/." "$CRED_DIR/$seed_entry/" || seed_ok=1
+  else
+    seed_ok=0
+    cp "$seed_src" "$CRED_DIR/$seed_entry" || seed_ok=1
+  fi
+  if [ "$seed_ok" -eq 0 ]; then
+    seeded_entries="$seeded_entries $seed_entry"
+  else
+    log "claude-vm: WARNING -- could not install the host working-rules entry '$seed_entry'"
+    log "claude-vm: into $CRED_DIR; continuing without it."
+  fi
+done
+if [ -n "$seeded_entries" ]; then
+  log "claude-vm: seeded host working rules into $CRED_DIR --$seeded_entries."
+else
+  log "claude-vm: no host working rules to seed (mountTag=claudecreds, claude-home/);"
+  log "claude-vm: the guest runs with no global CLAUDE.md, rules, agents, or skills."
+fi
 
 # ---------------------------------------------------------------------
 # Boot-time package install/update through the proxy (issue #106).

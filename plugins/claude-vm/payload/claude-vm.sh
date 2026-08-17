@@ -758,7 +758,12 @@ GUEST_IMAGE_CLONE="$RUN/guest-clone.raw"
 # into this SAME dir for the same reason -- it carries account identity and
 # must not ride in run.env either -- and so is the boot tier's guest
 # environment (issue #135, env: its env.copy/env.files values are third-party
-# API keys). Both dirs are created under the tightened
+# API keys). The staged copy of the operator's host working rules
+# (issue #108, claude-home/: CLAUDE.md, rules/, agents/, skills/,
+# keybindings.json) rides it for a different reason -- none of that is secret,
+# but this dir is the one the guest boot launcher installs ~/.claude files
+# from, and cleanup() already shreds it, so the staging tree needs no cleanup
+# path of its own. Both dirs are created under the tightened
 # umask (077) so they are drwx------ from creation -- the secrets are not
 # world-traversable.
 CREDS_DIR="$RUN/creds"
@@ -1058,6 +1063,71 @@ if ! claude_vm_select_claude_json_seed "$CLAUDE_VERSION_RESOLVED" "$REPO_SRC" "$
 fi
 chmod 600 "$HOST_CLAUDE_JSON_SEED"
 
+# ---------------------------------------------------------------------
+# Host working rules -> the SAME shred-on-exit claudecreds mount (issue #108).
+#
+# The "who I am / how I work" layer follows the operator into the guest: the
+# host's ~/.claude/CLAUDE.md, rules/, agents/, skills/ and keybindings.json.
+# Without it the in-guest claude runs with none of the operator's global
+# working rules, which is a different assistant from the one they configured.
+#
+# INCLUDE LIST, never an exclude list (CLAUDE_VM_HOME_SEED_ENTRIES below). The
+# host ~/.claude/ accumulates directories nobody here has heard of, so an
+# exclude list leaks every future one by default; an include list leaks
+# nothing it does not name. Two categories are deliberately NOT on it:
+#
+#   - The POLICY layer. settings.json is RENDERED from the claude-vm config
+#     (issue #104) and plugin state is config-driven (issue #107). Copying the
+#     host's would silently replace the posture the operator configured for
+#     the VM with the one they configured for the host.
+#   - HOST-SCOPED SESSION STATE. projects/ (keyed by host paths that do not
+#     exist in the guest), history.jsonl, todos/, sessions/, logs/, statsig/,
+#     shell-snapshots/, ide/, teams/, usage-data/ -- none of it describes how
+#     the operator works, and all of it is either meaningless or misleading
+#     inside a throwaway guest.
+#
+# CLAUDE.md and rules/ travel TOGETHER because the former references the
+# latter as `@~/.claude/rules/*.md`; seeding one without the other would leave
+# those references dangling in the guest.
+#
+# COPIES, never the host directory itself: the staging dir is what gets
+# shared, so the guest -- root, with a remountable share -- never has a path
+# to the operator's real ~/.claude. It is staged under $CREDS_DIR, so it rides
+# the claudecreds mount the credential/seed/settings already ride (no extra
+# virtio-fs device) and cleanup()'s existing rm -rf shreds it on every exit
+# with no second cleanup path to keep in step. Written inside the umask-077
+# window, so the staged tree is owner-only from creation.
+#
+# `cp -RL` DEREFERENCES symlinks. A host ~/.claude is often a checkout (this
+# repo's own mirror clone is one), so rules/ and skills/ are frequently
+# symlinks pointing outside ~/.claude; copying the LINK would put a dangling
+# path in the guest, which is the silent-empty-rules failure this feature
+# exists to prevent.
+#
+# EVERY entry is OPTIONAL and its absence is silent -- most hosts have no
+# keybindings.json, and a host with no global CLAUDE.md is a perfectly good
+# host. A copy that FAILS (an unreadable file, a symlink loop) is different:
+# it is warned about loudly and the partial entry is dropped, because a
+# half-copied rules/ tree is worse than an absent one. Neither aborts the
+# launch -- this layer is a convenience, not a security control, and the
+# credential/seed/settings installs above are the steps that get to refuse.
+# ---------------------------------------------------------------------
+CLAUDE_VM_HOME_SEED_ENTRIES="CLAUDE.md rules agents skills keybindings.json"
+HOST_CLAUDE_DIR="${HOME:-}/.claude"
+CLAUDE_HOME_SEED_DIR="$CREDS_DIR/claude-home"
+mkdir -p "$CLAUDE_HOME_SEED_DIR"
+for seed_entry in $CLAUDE_VM_HOME_SEED_ENTRIES; do
+  seed_src="$HOST_CLAUDE_DIR/$seed_entry"
+  # -e follows symlinks, so a symlinked rules/ pointing at a live target is
+  # present here and a dangling one is (correctly) treated as absent.
+  [ -e "$seed_src" ] || continue
+  if ! cp -RL "$seed_src" "$CLAUDE_HOME_SEED_DIR/$seed_entry" 2>/dev/null; then
+    rm -rf "$CLAUDE_HOME_SEED_DIR/$seed_entry"
+    echo "claude-vm: WARNING -- could not copy '$seed_src' into the guest ~/.claude seed;" >&2
+    echo "claude-vm: the guest will boot WITHOUT it. Everything else is seeded normally." >&2
+  fi
+done
+
 # Restore the caller's umask before the clone so cloned worktree files
 # keep normal perms (see the umask note above).
 umask "$OLD_UMASK"
@@ -1205,11 +1275,16 @@ RUN_ENV="$CONFIG_DIR/run.env"
     # enabledPlugins, NOT a secret), and the boot-tier guest environment (env,
     # issue #135 -- env.copy/env.files values are third-party API keys, and the
     # non-secret env.set literals ride the same file so the two boot paths
-    # cannot diverge). Its containing dir is shared under this virtio-fs tag
+    # cannot diverge), and the staged copy of the operator's host working rules
+    # (claude-home/, issue #108 -- CLAUDE.md, rules/, agents/, skills/,
+    # keybindings.json; not secret, but it is a ~/.claude payload and the dir
+    # is already shredded on exit). Its containing dir is shared under this
+    # virtio-fs tag
     # (mounted RO at /mnt/claudecreds by the guest fstab); the boot launcher
     # installs the ~/.claude files into $HOME/.claude/ (mode 0600) so the guest
-    # comes up authenticated, onboarded, and under the claude-vm permission
-    # posture, and SOURCES `env` straight off the mount without copying it
+    # comes up authenticated, onboarded, under the claude-vm permission
+    # posture, and carrying the operator's own working rules, and SOURCES `env`
+    # straight off the mount without copying it
     # anywhere. One tag for all of them avoids adding extra virtio-fs devices;
     # the whole dir is shredded on exit regardless of which files are secret.
     printf 'CLAUDECREDS_TAG=claudecreds\n'

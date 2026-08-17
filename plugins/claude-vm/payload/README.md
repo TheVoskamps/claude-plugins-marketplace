@@ -231,6 +231,41 @@ isolation boundary, with the deny list as backstop. Because the guest runs
 but it rides the `claudecreds` mount so every host-rendered guest `~/.claude`
 file arrives over one dir rather than adding another virtio-fs device.
 
+**Host working rules seeded into the guest (issue #108).** The *policy* layer
+above is rendered from config, but the operator's **"who I am / how I work"**
+layer follows them into the VM: the launcher stages copies of the host's
+`~/.claude/CLAUDE.md`, `rules/`, `agents/`, `skills/` and `keybindings.json`
+into `claude-home/` on the same transient `claudecreds` mount, and the boot
+launcher copies them **additively** into `$HOME/.claude/` — merging a
+directory into whatever already lives at that path (the image's baked
+`plugins/` is untouched) and overwriting a same-named file. `CLAUDE.md` and
+`rules/` are seeded together because the former references the latter as
+`@~/.claude/rules/*.md`, so seeding one without the other would leave those
+references dangling in the guest.
+
+That list is an **include list, not an exclude list** — a host `~/.claude`
+accumulates directories this code has never heard of, and an exclude list
+would leak every future one by default. Two categories are deliberately off
+it. The **policy layer**: `settings.json` (rendered, above) and plugin state
+(config-driven, see *Marketplaces and plugins*), because the guest is
+supposed to run the posture the claude-vm config describes, not the host's.
+And **host-scoped session state**: `projects/` (keyed by host paths that do
+not exist in the guest), `history.jsonl`, `todos/`, `sessions/`, `logs/`,
+`statsig/`, `shell-snapshots/`, `ide/`, `teams/`, `usage-data/`.
+
+The host files are never touched: what is shared is a **copy**, staged under
+`umask 077` inside the run's credential dir, so `cleanup()`'s existing
+`rm -rf` shreds it on every exit and the guest — root, on a remountable share
+— never has a path to the real `~/.claude`. The copy **dereferences
+symlinks** (`cp -RL`), because a host `~/.claude` is often a checkout whose
+`rules/` or `skills/` is a symlink pointing outside it; copying the link
+would put a dangling path in the guest. Every entry is **optional** on both
+sides and its absence is silent (most hosts have no `keybindings.json`); a
+copy that *fails* is warned about loudly, on the host and again in the guest
+hvc0 log, and the launch continues. Nothing here can abort a boot — unlike
+the credential and `settings.json`, this layer is a convenience, not a
+security control.
+
 **Degraded-Keychain preflight (issue #88).** The Keychain item can hold a
 structurally-complete `claudeAiOauth` object whose `accessToken` and
 `refreshToken` are **empty strings** (with `expiresAt: 0`) — a degraded
@@ -1256,7 +1291,8 @@ can remount. Nothing in the boot rests on it, because nothing in the boot writes
 to any of the three: the launcher **copies** each file it needs out of
 `claudecreds` before use (`.credentials.json` and `settings.json` into
 `$HOME/.claude/`, the identity seed to `$HOME/.claude.json`, each `chmod 600`
-after the copy), **sources** the boot-tier `env` file in place (see *Guest
+after the copy, and the `claude-home/` working-rules subset additively into
+`$HOME/.claude/`), **sources** the boot-tier `env` file in place (see *Guest
 environment variables* above — it is deliberately never copied, so a forwarded
 API key does not outlive the shredded mount), reads the `runconfig` manifests
 in place, and execs the `claudebin` binary off the share. Say "shared into
@@ -1702,6 +1738,7 @@ replacement.
 "${CLAUDE_PLUGIN_ROOT}/payload/test/config-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/endpoint-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/boot-launcher-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/claude-home-seed-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
@@ -1822,6 +1859,26 @@ sets `OnFailure=`/`FailureAction=`). Finally it pins `LAUNCHER_LOGIC_REV` past
 repo name — never the launcher source — so that constant is the only thing that
 invalidates a cached image when launcher logic changes. No VM, no network, no
 root; needs only `bash` + `awk`.
+
+`claude-home-seed-test.sh` is the regression test for issue #108's curated
+host `~/.claude` seed, and it drives **both** halves of the seam: the staging
+loop sliced out of `claude-vm.sh` and the install step sliced out of the
+emitted boot launcher, run back to back over a fake host home and a fake
+guest home. Grepping either loop would prove nothing — the properties are all
+about what the pair produces. It asserts that every include-list entry
+arrives; that a host `settings.json`, `projects/`, `history.jsonl`, `todos/`
+and `statsig/` are staged nowhere and reach the guest never (the include list
+being an include list); that a **symlinked** `rules/` and `skills/` — the
+`~/.claude`-is-a-checkout host — arrive dereferenced as real content rather
+than as dangling links; that the install is additive and does **not** nest
+(the image's baked `plugins/` survives, a pre-existing file inside a seeded
+directory survives, and nothing lands at `.claude/rules/rules`); and that a
+sparse host, a missing `keybindings.json`, and a host with no `~/.claude` at
+all each produce a clean run with no error output on either side. The two
+copy spellings that carry the whole feature — `cp -RL` host-side and
+`cp -R <src>/.` guest-side — were negative-controlled by mutating each to its
+unsafe form and confirming the suite goes red. No VM, no network, no root;
+`bash` + `awk`.
 
 `launch-shape-test.sh` is the regression test for issue #179's vfkit launch
 shape. A backgrounded vfkit (`vfkit … &` + `wait $!`) cannot attach its
