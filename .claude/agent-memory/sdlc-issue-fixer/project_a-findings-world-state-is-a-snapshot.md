@@ -28,3 +28,15 @@ calls settle it: the tracker/PR state, and a grep of the deployed file
 for the wording the diff cites. Quote what you actually observed. See
 also [[staleness-check-both-ends-same-source]] and
 [[pr-body-is-a-swept-surface]].
+
+The same snapshot rule covers **the branch's own later commits**, and
+there the tell is a stale `file.md:NNN-NNN` line range. On PR #273 a
+Medium finding named two stale enumerations; a `doc-updater` commit
+already on the branch had fixed one of them, and the cited line range
+pointed at unrelated code in *both* the current and the pre-doc-updater
+revision. Grade a finding by grepping the content it quotes, never by
+reading the lines its range names — a range that resolves to unrelated
+code means the finding was written against a revision you are not on,
+so at least one of its halves may already be closed. Report such a half
+as already-satisfied with the evidence, rather than silently skipping
+it or "fixing" what is already correct.

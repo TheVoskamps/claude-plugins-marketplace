@@ -95,3 +95,4 @@
 - [A teaching deny is graded per document](project_a-teaching-deny-is-graded-per-document.md) — the per-VERB redirect rule is half of it; a bundle with an uncovered field is the dead end the tier forbids
 - [A thin account needs a rank, not a blank](project_a-thin-account-needs-a-rank-not-a-blank.md) — filling a blank residual record makes it WIN under a first-wins aggregator; rank it below the specific labels
 - [Soften the fact, keep the membership](project_unpinnable-guarantee-soften-the-fact-keep-the-membership.md) — grade every "must not waive" hit: normative intent survives, mechanism-fact claims get the caveat, and say what does NOT change
+- [Mirror the sibling only if its precondition holds](project_mirror-the-sibling-only-if-its-precondition-holds.md) — "do what the host side does" assumes sole ownership of the destination; an additive merge target makes its `rm -rf` a worse bug
