@@ -98,3 +98,4 @@
 - [Mirror the sibling only if its precondition holds](project_mirror-the-sibling-only-if-its-precondition-holds.md) — "do what the host side does" assumes sole ownership of the destination; an additive merge target makes its `rm -rf` a worse bug
 - [One filesystem cannot see a deref drop](project_one-filesystem-harness-cannot-see-a-deref-drop.md) — a dropped `cp -L` leaves every content assertion green; assert the SHAPE of the staged intermediate, and retarget the slice-sanity string off the flag
 - [Sibling clause edits falsify the sweep rule](project_adding-a-clause-to-siblings-falsifies-the-sweep-rule.md) — propagating a clause makes "only surface A carries it" false; repair with a quantifier plus the named exception, not an Nth list copy
+- [Grade a green marker-grep boot assertion](project_grade-a-green-marker-grep-boot-assertion.md) — measure the marker's sole emitter, the image version stamp and `$BASH_VERSION` before writing prose about what the boot proved
