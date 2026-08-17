@@ -122,3 +122,32 @@ First demonstrated by the `show-loaded-skills` plugin (see
 
 First demonstrated by the `show-agent-calls` plugin (see
 [`plugins/show-agent-calls/README.md`](../plugins/show-agent-calls/README.md)).
+
+## `PreToolUse` (the decision channel, any matcher)
+
+- **A hook abstains on one call by emitting the envelope with no
+  `permissionDecision` field** —
+  `{"hookSpecificOutput":{"hookEventName":"PreToolUse"}}`. The hook
+  states no position and the normal permission pipeline resolves the
+  call. This is the spelling for a hook that adjudicates *some* calls
+  and must stay out of the way on the rest, where the display-only
+  advice above (omit `hookSpecificOutput` entirely) does not fit
+  because the hook still emits an envelope on its deciding calls.
+- **`permissionDecision: "defer"` is not that abstention.** Claude
+  Code reads the literal `defer` as "pause this tool call for later
+  resumption", an affordance for headless-resume workflows. Inside a
+  subagent a paused tool call never resolves: the tool use ends with
+  no result and the harness tears the agent session down. From Claude
+  Code 2.1.232 — whose background-by-default change for non-teammate
+  agent spawns put every subagent on that path — a hook emitting the
+  literal kills agent runs within a few requests. Never emit it as a
+  synonym for "no opinion".
+- **Exit 0 with empty stdout is neither of those**, and a wrapper
+  script may not be able to tell it from a broken hook binary:
+  `guardrails`' `hooks.json` treats it as an unrunnable gate and fails
+  closed. A hook fronted by such a wrapper must abstain with the
+  field-absent envelope rather than by writing nothing.
+
+Discovered by the `guardrails` permission-gate (issue #271); the
+reasoning and the tests that pin it are in
+[`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md).

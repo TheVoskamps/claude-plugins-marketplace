@@ -148,9 +148,9 @@ func TestGhAPIGraphQLAliasedAllowlistedMutationAllows_195(t *testing.T) {
 
 // All fields must pass: a document bundling an allow-listed field with a
 // non-allow-listed one still DEFERs, and the reason names the fields so the
-// evolution log records what is being written (a defer's reason is blanked on
-// the wire, so the log is where it lands). A multi-operation document is judged
-// by its broadest operation.
+// evolution log records what is being written (a defer carries no reason key on
+// the wire at all, so the log is where it lands). A multi-operation document is
+// judged by its broadest operation.
 func TestGhAPIGraphQLMixedMutationDefers_195(t *testing.T) {
 	for _, tc := range []struct {
 		cmd  string

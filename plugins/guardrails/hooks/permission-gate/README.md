@@ -1529,8 +1529,7 @@ The other spelling of abstention — writing nothing at all — is
 unavailable here, and deliberately so: the `hooks.json` wrapper reads
 "exit 0 with empty stdout" as an unrunnable gate binary and fails
 closed (see "A gate binary that does not adjudicate hard-blocks"
-below). The empty
-envelope satisfies both constraints at once, and
+below). The empty envelope satisfies both constraints at once, and
 `decision_stdout_test.go` pins both halves — non-empty JSON for every
 bucket, the field absent for a defer and present for the other three.
 

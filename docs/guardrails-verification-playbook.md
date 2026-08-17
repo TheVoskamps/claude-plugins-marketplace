@@ -557,9 +557,9 @@ half of the evidence since #262: `PERMISSION_GATE_LOG=<path>` puts the
 record where the probe can read it, and `ask`, `deny` and `defer` each
 append one. That is how a probe distinguishes *which* arm produced a
 `defer` — every defer is byte-identical on stdout, because
-`emitDecision` omits both the decision and the reason for one. Assert the
-`operation` label, not just the bucket, whenever more than one arm can
-produce the verdict under test.
+`emitDecision` omits both the decision and the reason for one. Assert
+the `operation` label, not just the bucket, whenever more than one arm
+can produce the verdict under test.
 
 `operation` and `analysis` are populated only where the arm had an
 account to give: a `deferJudgment` site fills both, while a bare

@@ -99,9 +99,9 @@ type Decision struct {
 	// A Defer may also carry one — the gate's ANALYSIS of what it could and
 	// could not establish — but it is never emitted on the stdout verdict
 	// (emitDecision omits the reason key along with the decision key for a
-	// defer, so a deferred call reaches the downstream judge exactly as it
-	// did before). It exists for the §7
-	// evolution log, which is the feed for automode re-tuning.
+	// defer, so a deferred call reaches the downstream judge exactly as it did
+	// before). It exists for the §7 evolution log, which is the feed for
+	// automode re-tuning.
 	Reason string
 	// Operation is a short classified-operation label used for evolution
 	// logging (§7), e.g. "git reset --hard" or "containment:worktree-escape".
@@ -120,9 +120,10 @@ func deferToPipeline() Decision { return Decision{Bucket: BucketDefer} }
 // deferJudgment is deferToPipeline for a site that HAS an account of why it
 // could not decide — an unpinnable path, an unmodelled flag, a remote mutation
 // whose target the gate cannot see. The verdict is identical to a bare defer
-// (the reason is blanked before it reaches stdout); what it adds is the §7 log
-// record, which carries the operation label AND the analysis text so the
-// automode re-tune has the gate's own account of each deferred call.
+// (emitDecision omits the reason key along with the decision key, so it never
+// reaches stdout); what it adds is the §7 log record, which carries the
+// operation label AND the analysis text so the automode re-tune has the gate's
+// own account of each deferred call.
 func deferJudgment(op, reason string) Decision {
 	return Decision{Bucket: BucketDefer, Reason: reason, Operation: op}
 }
