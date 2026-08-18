@@ -40,3 +40,14 @@ code means the finding was written against a revision you are not on,
 so at least one of its halves may already be closed. Report such a half
 as already-satisfied with the evidence, rather than silently skipping
 it or "fixing" what is already correct.
+
+The mirror image is a finding *about* a memory file the same branch
+just committed: an agent writing memory mid-round describes the
+surfaces it found stale, and by the time the branch's next commit lands
+they are repaired, so the entry ships asserting an open defect that
+head disproves. On PR #283 the `doc-updater`'s new entry named two
+surfaces as left stale that the same commit range had already fixed.
+The remedy is neither to re-fix the surfaces nor to delete the entry:
+rewrite it as a **map of where those edits land**, which is the durable
+half and survives every later round. Check the surfaces at head first —
+the entry's own claim is the thing being graded, not the code.
