@@ -1,7 +1,6 @@
 ---
 name: agent-memory-cleanup
-description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or CLAUDE.md already says, moves durable lore into CLAUDE.md or docs as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
-argument-hint: [PR-number]
+description: "Curate a repo's local .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or CLAUDE.md already says, moves durable lore into CLAUDE.md or docs as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes no arguments — the memory tree is gitignored and local to the clone that wrote it, so curation stays in the working tree and the whole tree is copied to a backup first so every deletion is recoverable."
 ---
 
 # Agent Memory Cleanup
@@ -23,60 +22,99 @@ someone else to apply.
 ## Invocation
 
 ```text
-/cc-tools:agent-memory-cleanup [PR-number]
+/cc-tools:agent-memory-cleanup
 ```
 
-- `[PR-number]` (optional) — curate the memory on that PR's branch.
-  The skill checks the branch out, curates, commits, and pushes, so
-  the cleanup lands on the same PR.
-- **No argument** — curate the current repo's working tree in place.
-  The skill leaves its edits uncommitted for you to review before you
-  commit them.
+No arguments. The skill curates `.claude/agent-memory/` in the current
+checkout and leaves its edits in the working tree for you to review.
+Transfers are confirmed with you one at a time; deletions are not
+confirmed, and the backup described below is their undo.
 
-The argument also selects the mode:
+### The tree is local, so nothing here touches git history
 
-| Argument | Mode | Transfers | Result |
-| --- | --- | --- | --- |
-| PR number | autonomous | applied without asking | committed and pushed onto the PR branch, or left untouched with "no changes to curate" when every verdict was persist |
-| none | interactive | confirmed with you one at a time | left uncommitted in the working tree |
+`.claude/agent-memory/` is gitignored and never committed. The tree
+belongs to the clone — or the throwaway worktree — that wrote it, so
+there is no branch carrying it, nothing to commit, and no PR for a
+curation to land on. This skill therefore never checks out a branch,
+never stages, never commits, and never pushes.
 
-Deletions are not confirmed in either mode. In autonomous mode the
-commit is the undo for its current caller, `agent-memory-scrubber`,
-which always runs in a fresh worktree and checks out the branch fresh
-before invoking this skill — every entry it scrubs was already
-committed on the branch before the run started, so a commit is always
-available to revert to. This skill does not itself guarantee that; a
-different autonomous-mode caller invoking this skill over a working
-tree that already holds untracked, never-committed memory entries
-would not have a commit to fall back on for those entries. In
-interactive mode the uncommitted working tree is the undo **only for
-entries git already tracks** — for an entry that is still untracked (a
-fresh capture never committed), deleting the file is permanent,
-because there is nothing in git to restore it from. No-argument mode
-routinely encounters untracked entries: a writer agent's memory
-capture that was never committed lands exactly in that state. See
-"Apply the verdicts" for how this skill stages untracked entries
-before touching them so the working-tree undo claim holds for every
-entry, not just tracked ones.
+Git offers no undo for the tree either, which is why the backup below
+is not optional. Against an ignored path:
+
+- `git add <path>` exits 1 with "The following paths are ignored by one
+  of your .gitignore files", for a file and for the directory alike, so
+  staging cannot preserve an entry's content.
+- `git status --porcelain -- <path>` prints **nothing**, even for a file
+  that exists and has never been committed — only `--ignored` reports
+  it, as `!!`. So a `??`-detection branch never fires here, and a
+  safeguard conditional on one is silently skipped.
+- `git checkout -- <path>` fails with "did not match any file(s) known
+  to git", because the file is in no index and no commit.
+
+Deleting an entry is therefore permanent unless a copy of it exists
+outside git. Making that copy is a step of this skill, not a caller's
+responsibility.
+
+### If an argument is passed
+
+Curate nothing. Report:
+
+```text
+This skill takes no arguments. Agent memory is local to the clone that
+wrote it and is never committed, so there is no PR branch to curate and
+nothing to push. Re-run with no argument to curate this checkout's tree.
+```
+
+and stop. That abort is deliberate: the `sdlc` plugin's
+`agent-memory-scrubber` still passes a PR number, from when the tree was
+committed, and a caller that expects a commit pushed onto a PR branch
+should get a loud failure rather than a curation it cannot land.
 
 ## Execution
 
 ### Resolve the scope
 
-With a PR number, check out its head branch:
+Work on the current checkout as it stands. Do not switch branches, do
+not fetch, and do not stash.
+
+The target is `.claude/agent-memory/` at the repo root. If it is absent
+or empty, report "no agent memory to curate" and stop — that is a valid
+outcome, not a failure.
+
+### Back up the tree before anything else
+
+Copy the whole tree, before reading a single entry and long before
+deleting one:
 
 ```bash
-gh pr view <PR-number> --json headRefName
-git fetch origin
-git checkout <headRefName>
+BACKUP=".claude/tmp/agent-memory-cleanup/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$BACKUP"
+cp -R .claude/agent-memory/. "$BACKUP"/
+find .claude/agent-memory -type f | wc -l
+find "$BACKUP" -type f | wc -l
 ```
 
-With no argument, work on the current checkout as it stands. Do not
-switch branches and do not fetch.
+The two counts must be equal and non-zero. If they differ, or the copy
+failed, **stop** — report the failure and curate nothing. An
+unrecoverable curation is worse than an uncurated tree.
 
-Either way the target is `.claude/agent-memory/` at the repo root. If
-it is absent or empty, report "no agent memory to curate" and stop —
-that is a valid outcome, not a failure.
+The undo for any deletion this run makes is then:
+
+```bash
+cp -R "$BACKUP"/. .claude/agent-memory/
+```
+
+`.claude/tmp/` is the conventional scratch surface and repos ignore it,
+which is what keeps the backup out of a commit. Confirm it in this repo
+rather than assuming:
+
+```bash
+git check-ignore -q "$BACKUP" || echo "NOT ignored: $BACKUP"
+```
+
+If that prints the warning, say so in the report so nobody commits the
+backup by accident. Either way the backup path goes in the report — see
+"Output".
 
 ### Read the entries, and the surfaces that grade them
 
@@ -179,39 +217,21 @@ consistent:
 1. Write every transfer into its destination file first. A transfer
    that deletes the memory before the constraint lands somewhere is a
    data loss.
-2. In interactive mode, confirm each transfer with the human before
-   writing it: show the destination file and the exact text you would
-   add. In autonomous mode, write it.
-3. **In interactive mode only**, before deleting anything, check
-   whether each entry file about to be scrubbed or transferred is
-   already tracked:
+2. Confirm each transfer with the human before writing it: show the
+   destination file and the exact text you would add.
+3. Before deleting anything, confirm the backup from "Back up the tree
+   before anything else" is in place and holds the entries you are
+   about to remove:
 
    ```bash
-   git status --porcelain -- <entry-file>
+   ls "$BACKUP/<agent>/<entry-file>"
    ```
 
-   An untracked entry reports `??`. For any `??` entry, run
-   `git add <entry-file>` (a full add, staging the actual content —
-   **not** `git add -N`/intent-to-add, which records only the path and
-   leaves `git checkout -- <entry-file>` restoring an empty file
-   instead of the original content) before deleting it. Staging the
-   real content makes the deletion recoverable via
-   `git checkout -- <entry-file>` (or `git restore --staged --worktree
-   <entry-file>`) the same way a tracked file's deletion is, so the
-   "uncommitted working tree is the undo" claim actually holds. The
-   file now shows staged (`git status` reports `A` then `AD` after the
-   delete) rather than fully uncommitted, but the content is fully
-   recoverable, which is what the undo claim depends on. Skip this
-   check for autonomous mode — there the commit is the undo regardless
-   of tracked state. This skill does not itself guarantee a fresh
-   checkout in autonomous mode; the guarantee comes from its current
-   caller, `agent-memory-scrubber`, which always runs in a fresh
-   worktree and checks out the branch fresh before invoking this skill,
-   so every entry it scrubs was already committed on the branch before
-   the run started — there is no untracked, never-committed case for
-   `git add <path>` to fail to preserve. A different autonomous-mode
-   caller invoking this skill over a working tree that already holds
-   untracked memory entries would not have that guarantee.
+   That copy is the undo, for every entry alike. Do not reach for a git
+   safeguard instead — `git add` refuses an ignored path, and the
+   `git status --porcelain` check that would tell you an entry is
+   untracked prints nothing for one, so a git-based safeguard here does
+   not fail loudly, it silently does not run.
 4. Delete the entry files for every scrub and every completed
    transfer.
 5. Rewrite the entries you persisted that needed a present-tense
@@ -266,82 +286,27 @@ defect to chase.
 
 ### Land the result
 
-**Autonomous mode** (a PR number was passed) — stage by explicit path:
-every memory path you deleted or edited, plus `CLAUDE.md` and each
-`docs/*.md` you wrote a transfer into. Never `git add -A`, and never a
-directory-wide add.
+Stage nothing, commit nothing, push nothing. The curated tree in the
+working directory **is** the deliverable, and the backup is what makes
+it reversible.
+
+The memory tree itself cannot be shown with a plain `git diff`: it is
+ignored, so git reports no change in it at all. Show the two halves
+separately.
 
 ```bash
-git add <each path you changed>
-git diff --cached --name-only
+diff -rq "$BACKUP" .claude/agent-memory
+git diff --stat
 ```
 
-If that output is empty — every verdict this run was persist, so
-nothing was staged — there is nothing to commit. Report "no changes to
-curate" and stop here; do not run `git commit`, and do not report a
-commit SHA. The previous tip of the branch is not your commit, and
-claiming it would misattribute someone else's work as this run's
-output. This is a valid outcome, not a failure — distinct from the "no
-agent memory to curate" case above (an absent or empty directory):
-here entries existed and were graded, they just all happened to be
-persist.
+The `diff -rq` is the record of what happened inside the memory tree —
+files only in `$BACKUP` are the entries this run deleted. The
+`git diff --stat` covers the transfer destinations (`CLAUDE.md`, the
+`docs/*.md` files), which are tracked and do show up.
 
-Use `git diff --cached --name-only` here, not `git status --porcelain`
-— the latter also reports untracked or unstaged changes elsewhere in
-the worktree, so an unrelated stray file would make its output
-non-empty even when nothing was actually staged, falsely skipping this
-no-op path and falling through to `git commit` with an empty index.
-`git diff --cached --name-only` reports only what is staged, which is
-the exact question this check is asking.
-
-Otherwise, commit and push:
-
-```bash
-git commit -m "Curate agent memory"
-git push
-```
-
-The commit message must never place a closing keyword (`close`,
-`closes`, `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves`,
-`resolved`, case-insensitive) immediately before an issue reference
-(`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that pattern
-auto-closes the referenced issue.
-
-A commit or push failure here is a genuine failure, not the no-op case
-above — the gate below still applies in full: do not report success,
-and do not report a SHA that was never verified on the remote.
-
-After the push, verify it actually landed on the remote rather than
-trusting `git push`'s exit code alone:
-
-```bash
-git fetch origin
-git rev-parse HEAD
-git rev-parse origin/<headRefName>
-git status --porcelain
-```
-
-Report success only when **both** hold: the two SHAs match, **and**
-`git status --porcelain` is empty. `git log --oneline -1` alone is
-**not** sufficient evidence here — it reads clean for a commit that
-was made locally but never reached the remote, since it never inspects
-the remote-tracking ref, which is why the SHA comparison above is
-required too. The SHA comparison alone is also not sufficient: if the
-curation edits were applied to the working tree but the commit itself
-never happened (e.g. a failed commit-signing prompt), HEAD still
-equals `origin/<headRefName>` — the mismatch never occurs — while the
-working tree sits dirty with uncurated edits. `git status --porcelain`
-catches exactly that case. A caller that treats either check alone as
-landed, then discards the branch, destroys the only copy of the
-curation.
-
-**Interactive mode** (no argument) — stage nothing new and commit
-nothing. Leave in place whatever "Apply the verdicts" step 3 already
-staged for formerly-untracked entries — that staging **is** their
-undo; do not `git reset` it to make the tree match "nothing staged"
-literally. Show `git diff --stat` and stop. The working tree (staged
-plus unstaged) is the deliverable, and the human decides what to
-commit.
+Transfers are the one part of a run that lands in tracked files, so
+they are the part the human may want to commit. Say so, name those
+files, and leave the decision to them.
 
 ## Output
 
@@ -361,16 +326,16 @@ Persisted (N):
 
 Indexes fixed: <agent>/MEMORY.md, ...
 Wikilinks repaired: <count>
+Backup: <$BACKUP>
 ```
 
-Then the tail for the mode you ran in: in autonomous mode, either "no
-changes to curate" when every verdict was persist and nothing was
-staged, or the commit SHA once the post-push check above has confirmed
-both that it matches `origin/<headRefName>` and that `git status
---porcelain` is empty — never report a SHA you have not verified
-landed on the remote with a clean tree, and never report the no-op
-line when a commit was in fact made; in interactive mode,
-`git diff --stat` plus "review and commit when you're happy".
+Then the tail: `diff -rq "$BACKUP" .claude/agent-memory` for what left
+the memory tree, `git diff --stat` for the transfer destinations, the
+backup path with the one-line restore command, and "review, commit the
+transfers if you want them, and delete the backup when you're happy".
+Report the backup path even when nothing was deleted — a run whose
+verdicts were all persist still leaves one, and a reader should not
+have to work out whether there is anything to clean up.
 
 The per-entry lines are the record of a destructive operation. Report
 all of them, including the entries you persisted only because you

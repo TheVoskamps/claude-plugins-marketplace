@@ -428,6 +428,16 @@ Those steps and `agent-memory-scrubber`'s whole job still describe a
 committed tree; retiring that machinery is issue #261, so read them as
 stale rather than as evidence the tree is committed.
 
+The skill the scrubber drives, `/cc-tools:agent-memory-cleanup`, is
+already on the local-only model: it takes no argument, never checks out
+a branch, never stages or commits or pushes, and copies the tree to a
+backup under `.claude/tmp/` before deleting anything, because git can
+neither stage nor restore an ignored path. Passed an argument it aborts
+without curating, so the scrubber's `<PR-number>` invocation is a loud
+failure rather than a curation that silently cannot land. That abort is
+the one place the skill still names the scrubber; do not "fix" it by
+re-adding a PR mode.
+
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
 How the `guardrails` permission-gate is *shipped* — prebuilt, committed

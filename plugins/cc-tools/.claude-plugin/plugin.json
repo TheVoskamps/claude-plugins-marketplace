@@ -1,6 +1,6 @@
 {
   "name": "cc-tools",
   "description": "Claude Code meta-skills: load all global rules, track Claude Code feature/bug watchlist status, and curate a repo's .claude/agent-memory/ in one acting pass.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }
