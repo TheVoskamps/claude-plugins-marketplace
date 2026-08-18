@@ -124,10 +124,10 @@ deliberate per-caller difference the extraction must not flatten.
 A new skill's registration surfaces are the owning plugin's
 `plugin.json` `description`, the root `README.md` roster bullet for
 that plugin, and — where the plugin ships a `README.md` of its own that
-rosters what it contains, as `sdlc` and `github-prs` do — that roster
-as well. `.claude-plugin/marketplace.json` is per-plugin, not
-per-skill, so a new skill in an already-published plugin needs no entry
-there.
+rosters what it contains, which several do, `sdlc` and `github-prs`
+among them — that roster as well. `.claude-plugin/marketplace.json` is
+per-plugin, not per-skill, so a new skill in an already-published
+plugin needs no entry there.
 
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's

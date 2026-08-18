@@ -1,6 +1,6 @@
 ---
 name: orchestrate-ready
-description: Assess whether an issue is specified well enough for /sdlc:orchestrate to run without mid-run escalation, resolve the gaps interactively, rewrite the body in place, and set its status to the repo's orchestrate-ready status.
+description: Assess whether an issue is specified well enough for /sdlc:orchestrate to run without mid-run escalation, resolve gaps interactively, rewrite the body in place, and set its status to the repo's orchestrate-ready status.
 ---
 
 # Orchestrate-Ready Grooming

@@ -76,7 +76,8 @@ here.
 | `doc-updater` | Updates the docs a PR's changes falsify |
 | `agent-memory-scrubber` | Curates the PR's `.claude/agent-memory/` |
 | `theorem-generator` | Reads a PR and returns disprovable theorems |
-| `theorem-generator-high`, `theorem-generator-xhigh` | The same generator at higher reasoning tiers |
+| `theorem-generator-high` | The same generator at a higher reasoning tier |
+| `theorem-generator-xhigh` | The same generator at a higher reasoning tier still |
 | `theorem-disprover` | Tries to break exactly one theorem |
 | `counterexample-verifier` | Tries to reject exactly one disprover's counterexample |
 
@@ -88,10 +89,9 @@ repo's `CLAUDE.md` → "The generator skeletons are copies of one file"
 carries the invariant and the `diff` check that enforces it.
 
 Which agents persist memory, and which write nothing at all on the PR
-branch, is stated in `skills/orchestrate/SKILL.md` and enforced by the
-absence of a `memory:` key and of writing tools on the review agents.
-The repo's `CLAUDE.md` → "Review writes nothing, so review lore is a
-PR" says where a review lesson lands instead.
+branch, is stated in `skills/orchestrate/SKILL.md`. The repo's
+`CLAUDE.md` → "Review writes nothing, so review lore is a PR" says how
+that is enforced and where a review lesson lands instead.
 
 ## Dependencies
 
@@ -99,8 +99,12 @@ PR" says where a review lesson lands instead.
 `github-prs`, and `cc-tools`. Those edges are what guarantee the
 cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
-`git-issues-from-branch` and `git-cleanup-branches-and-worktrees`, the
-PR verbs, and `agent-memory-cleanup`.
+`git-issues-from-branch`, the PR verbs, and `agent-memory-cleanup`.
+The same `git-tools` edge also covers
+`git-cleanup-branches-and-worktrees`, which nothing here invokes:
+`skills/orchestrate/SKILL.md` names it as the whole-repo sweep of the
+same shape as the per-worktree cleanup the orchestrator performs
+inline.
 The edge coordinates install and enablement, not file access: plugins
 are file-sandboxed, so nothing here reads another plugin's files (see
 `docs/plugin-authoring-constraints.md`).

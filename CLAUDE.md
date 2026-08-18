@@ -276,8 +276,12 @@ who consumes it (no `sdlc` reader dispatches on `source-control` any
 more, and of the `sdlc` readers only the orchestrator and the review
 pipeline parse `issue-link-prefix`), and its "Migration policy"
 section records that the `sdlc` readers left the reader contract
-entirely in #143. The root `README.md`'s `sdlc` bullet names them by
-shorthand only, with no behavior to falsify.
+entirely in #143. The root `README.md`'s `sdlc` bullet names the
+agents by shorthand only, with no contract to falsify. What that
+bullet does carry, and what can therefore go stale in it, is any skill
+name it spells: `docs/plugin-authoring-constraints.md` makes it one of
+a new skill's registration surfaces, so a skill added, removed or
+renamed edits it while an agent's contract changing does not.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
 
