@@ -401,6 +401,33 @@ of them plus the scrubber's own "You persist no memory" section.
 restatements name the agents without the key, so grep the agent names
 too.
 
+## Agent memory is local-only and never committed
+
+`.claude/agent-memory/` is gitignored (issue #260). Agents that declare
+`memory: project` keep writing there as they work, but the tree belongs
+to the clone — or the throwaway worktree — that wrote it, and reaches
+no branch, no PR, and no other machine.
+
+Nothing in it is repo content, so it is not reviewed, not swept as a
+doc surface, and not evidence for a claim about this repo. A note there
+that a code change falsifies is corrected by the agent that next reads
+it, not by that change's PR. A lesson worth keeping past the run that
+learned it lands as an edit to this file, to `/docs`, or to the plugin
+it is about — the same routing that "Review writes nothing, so review
+lore is a PR" above already requires of the review agents, now binding
+every agent.
+
+Never `git add -f` the tree, and never un-ignore it again. The ignore
+also makes the current state easy to misread:
+`git add .claude/agent-memory/` exits 1 with "The following paths are
+ignored by one of your .gitignore files", while
+`git status --porcelain .claude/agent-memory/` prints nothing even when
+the tree has new files — so the `sdlc` agents' capture steps, which are
+conditional on that `git status`, skip silently rather than failing.
+Those steps and `agent-memory-scrubber`'s whole job still describe a
+committed tree; retiring that machinery is issue #261, so read them as
+stale rather than as evidence the tree is committed.
+
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
 How the `guardrails` permission-gate is *shipped* — prebuilt, committed
