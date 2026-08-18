@@ -48,3 +48,7 @@ github-project:
     Bug:       IT_kwDODgIBic4BvGYz
     Feature:   IT_kwDODgIBic4BvGY0
     Tech Debt: IT_kwDODgIBic4CA7tN
+
+# Repo Config
+
+Never hand-edit this file — re-run `/repo-config`.
