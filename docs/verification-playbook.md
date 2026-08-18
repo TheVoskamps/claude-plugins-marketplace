@@ -512,8 +512,8 @@ the rule's own `doc/mdNNN.md` at the resolved version's tag for its
 real name and option vocabulary before trusting it as a tracer. A
 silent tracer must be swapped, not interpreted.
 
-These probes settle a nested-config question conclusively, and neither
-needs the happy path:
+These probes settle a nested-config question conclusively, and none of
+them needs the happy path:
 
 1. **Chain live:** flip a distinctive setting in the **parent** (e.g.
    `"MD040": false` at root) and watch the child-scope probe's hit

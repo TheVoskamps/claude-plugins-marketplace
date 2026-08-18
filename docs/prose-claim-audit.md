@@ -107,10 +107,10 @@ A count stating a measured fact about the world — the routes an AST
 parks redirects on, which a walker must cover to be complete — is
 falsifiable on its own evidence, and the members under it enumerate
 that claim rather than tally the prose. It stays, because softening it
-drops the completeness the surrounding prose exists to demand. A
-count tallying the
-document's own structure — how many blocks a section chose to carry —
-is an editorial choice, so an author adding a member falsifies it. It
+drops the completeness the surrounding prose exists to demand. A count
+tallying the document's own structure — how many blocks a section chose
+to carry — is an editorial choice, so an author adding a member
+falsifies it. It
 goes, and the repair keeps whatever contrast the sentence was built
 around: "several claims, not one" still says the thing that mattered.
 
