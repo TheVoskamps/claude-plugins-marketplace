@@ -48,17 +48,3 @@ github-project:
     Bug:       IT_kwDODgIBic4BvGYz
     Feature:   IT_kwDODgIBic4BvGY0
     Tech Debt: IT_kwDODgIBic4CA7tN
-
-# Repo Config
-
-Read by the multi-issue orchestrator and its subagents at the start
-of every run. Full field reference, schema, and read contract:
-`skills/lib/repo-config.md` (front-matter fields) and
-`skills/lib/issue.md` (`github-project:` block) /
-the `/issues-jira:jira-lib` skill (`jira:` block).
-
-Hand-editing is fine for small tweaks, but `/repo-config` is a
-full-rewrite tool — re-running it replaces this entire file, carrying
-current values forward as recommended defaults.
-
-If this file is missing, the orchestrator aborts and points here.
