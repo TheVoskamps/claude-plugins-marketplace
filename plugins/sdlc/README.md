@@ -33,6 +33,14 @@ renames a skill or an agent updates the matching table below; a PR
 that changes which cross-plugin skill this plugin invokes updates
 "Dependencies" at the end.
 
+Not everything below is a roster entry, and what is not has a trigger
+of its own. The frontmatter keys spelled here hold for a whole class —
+`isolation: worktree` on every agent, `user-invocable: false` on the
+skills that are not user verbs — so a PR changing either key edits
+this file. And the sequencing of `/sdlc:orchestrate-ready` in front of
+`/sdlc:orchestrate` is stated here and in no other file, so a PR that
+changes how the two relate edits it here.
+
 ## Skills
 
 | Skill | Purpose | Where it runs |
@@ -104,7 +112,6 @@ The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which nothing here invokes:
 `skills/orchestrate/SKILL.md` names it as the whole-repo sweep of the
 same shape as the per-worktree cleanup the orchestrator performs
-inline.
-The edge coordinates install and enablement, not file access: plugins
-are file-sandboxed, so nothing here reads another plugin's files (see
-`docs/plugin-authoring-constraints.md`).
+inline. The edge coordinates install and enablement, not file access:
+plugins are file-sandboxed, so nothing here reads another plugin's
+files (see `docs/plugin-authoring-constraints.md`).

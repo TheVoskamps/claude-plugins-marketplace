@@ -98,11 +98,18 @@ error first.
 `plugins/sdlc/README.md` exists, but it is a **pointer** document: it
 owns the roster of skills and agents the plugin ships, plus the
 `dependencies` edges and the cross-plugin skills those edges cover,
-and nothing else — restating no agent's contract, no model, and no
-effort. So it is not where a contract change lands: it takes an edit
-when a PR adds, removes, or renames a skill or an agent, or changes
-which cross-plugin skill this plugin invokes, and the sweep target for
-a contract change is unchanged. An agent's
+restating no agent's contract, no model, and no effort. So it is not
+where a contract change lands: it takes an edit when a PR adds,
+removes, or renames a skill or an agent, or changes which cross-plugin
+skill this plugin invokes, and the sweep target for a contract change
+is unchanged. What it carries beyond the rosters is not a restatement
+of any of that, but each part has a trigger of its own: it spells the
+frontmatter keys that hold for a whole class — `isolation: worktree`
+on every agent, `user-invocable: false` on the skills that are not
+user verbs — so a PR changing either key edits it; and it is the only
+file that states `/sdlc:orchestrate` does not invoke
+`/sdlc:orchestrate-ready`, since `skills/orchestrate/SKILL.md` names
+the grooming skill nowhere. An agent's
 contract — what it commits, when it runs, what it returns — is
 restated outside that agent's own file in
 `plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
