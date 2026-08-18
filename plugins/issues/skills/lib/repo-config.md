@@ -472,17 +472,16 @@ the `git-tools:*` and `github-prs:*` skills they invoke, while the
 multi-issue orchestrator's SKILL.md and the `sdlc:pr-review-pipeline`
 skill each parse `issue-link-prefix` (plus, in the orchestrator, the
 optional status slot) inline and reuse only this library's "File
-missing" abort wording. `sdlc:orchestrate-ready` is the third such
-reader: it parses the `github-project` status slot's option names
-inline, reads no other field, and carries its own wording for the
+missing" abort wording. `sdlc:orchestrate-ready` is another such
+inline reader: it parses the `github-project` status slot's option
+names, reads no other field, and carries its own wording for the
 no-status-slot case rather than aborting. None of them checks
 `schema-version` or consumes any other part of the read sequence. The
-user-facing
-`/issue-*`
-namespace follows it too: its shared `skills/lib/issue.md`
-"Repo-config parsing" section and each `/issue-*` SKILL.md pin
-schema-version 6 and defer here (migrated in #114). Remaining reader
-migrations land in their own follow-up issues.
+user-facing `/issue-*` namespace follows it too: its shared
+`skills/lib/issue.md` "Repo-config parsing" section and each
+`/issue-*` SKILL.md pin schema-version 6 and defer here (migrated
+in #114). Remaining reader migrations land in their own follow-up
+issues.
 
 When migrating a reader:
 

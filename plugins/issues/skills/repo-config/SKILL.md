@@ -12,12 +12,13 @@ This file is read by the multi-issue orchestrator, by its
 orchestrator (it reads the `github-project` status slot's option names
 to decide which status means orchestrate-ready), and by every
 `/issue-*` skill, so it must be present and well formed before any of
-those flows will work. The orchestrator's `issue-developer`, `issue-fixer`, and
-`doc-updater` subagents read no repo-config themselves — they delegate
-every value they once needed to the `git-tools:*` and `github-prs:*`
-skills they invoke (see `skills/lib/repo-config.md` → "Migration
-policy") — but they run under an orchestrator that does, so the file
-is still a precondition for their flows.
+those flows will work. The orchestrator's `issue-developer`,
+`issue-fixer`, and `doc-updater` subagents read no repo-config
+themselves — they delegate every value they once needed to the
+`git-tools:*` and `github-prs:*` skills they invoke (see
+`skills/lib/repo-config.md` → "Migration policy") — but they run under
+an orchestrator that does, so the file is still a precondition for
+their flows.
 
 `/repo-config` does **not** merge with the existing file or rewrite
 parts of it in place. When the file already exists, the user confirms
