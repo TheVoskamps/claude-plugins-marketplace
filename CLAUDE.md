@@ -512,7 +512,7 @@ control rows updates it; grep it for `deny`, `allow`, `defer` and
 `ask` alongside the README. `docs/agent-environment-notes.md` names a
 refusal only where an agent must reach for a different command form to
 get its own work done. The gate is only one of the refusers it covers —
-the harness's own form checks and the auto-mode classifier are in there
+the worktree-isolation check and the auto-mode classifier are in there
 too, some refusals attributed and some left unattributed — so read the
 file rather than an enumeration here, which goes stale silently at this
 distance. It states no tier and no verdict vocabulary, so a

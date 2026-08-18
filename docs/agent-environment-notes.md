@@ -19,12 +19,21 @@ hunting a workaround for the wrong gate:
 
 - **The guardrails permission gate** names its own rule and offers a
   remediation ("resolves outside the current repository", "cannot be
-  statically classified", "sets HOME").
-- **The harness's own worktree-isolation and CVE-2025-59536 checks**
-  refuse by *form*: "Forbidden form `cd <path> && git ...`", "this
-  agent is isolated in the worktree", "too complex to verify that it
-  stays inside the worktree". These fire regardless of context, so no
-  argument about the command's safety changes the verdict.
+  statically classified"). It also refuses some shapes by *form*:
+  "Forbidden form `cd <path> && git ...`". Read that one's wording
+  carefully — the message names the harness's CVE-2025-59536 gate as
+  the reason the form is forbidden, but the refusal is the guardrails
+  gate's own, and the string lives in
+  `plugins/guardrails/hooks/permission-gate/forbidden_forms.go`.
+- **The worktree-isolation check**, which opens "This agent is
+  isolated in the worktree `<path>`" and closes with "a
+  worktree-isolated agent's git operations must target its own
+  worktree". Its middle clause names the shape it could not verify —
+  "this command sets HOME", "this command is too complex to verify
+  that it stays inside the worktree". No string of it appears anywhere
+  in this repo, so it is not the guardrails gate talking, and no
+  argument about the command's safety changes the verdict; split the
+  command up or drop the redirection instead.
 - **Claude Code's auto-mode classifier** says only "Blocked by
   classifier" with no reason. Why it fired is a guess; treat the
   outcome as the only measured thing.
@@ -43,9 +52,14 @@ hunting a workaround for the wrong gate:
   anchor only when the path must be absolute.
 - `cd <path> && git …`, `git -C <path> …` and
   `git --git-dir=<path>/.git --work-tree=<path> …` are all refused, so
-  there is no way to run git against another worktree. Within your own
-  worktree, a bare `cd <path>` in one Bash call followed by a bare
-  `git <subcommand>` in a separate call is the accepted pattern.
+  there is no way to run git against another worktree. Only the first
+  two are named forbidden forms by the guardrails gate, and its `-C`
+  arm fires on an **absolute** path only — a relative `-C` falls
+  through to the ordinary classifiers, and a git operation aimed
+  outside your own worktree still does not survive the
+  worktree-isolation check. Within your own worktree, a bare
+  `cd <path>` in one Bash call followed by a bare `git <subcommand>`
+  in a separate call is the accepted pattern.
 - A git command whose arguments name a path with a `git`-prefixed
   component (`plugins/git-tools`) can be refused for naming git more
   than once. A deeper path component, or the parent directory, passes.
@@ -54,8 +68,11 @@ hunting a workaround for the wrong gate:
 - Both ways of suppressing git's editor are refused —
   `GIT_EDITOR=true git …` as an inline environment prefix, and
   `git -c core.editor=… …` as a global option that could execute
-  arbitrary commands. The gate refuses the *forms*, so no
-  editor-related key gets through either.
+  arbitrary commands. The inline prefix is refused by its *form*,
+  whatever the variable; the `-c` global is refused by its *key*,
+  against a list of code-executing knobs that carries every editor key
+  git honors — `core.editor` and `sequence.editor` alike — so there is
+  no editor spelling to find here.
 
 ### Finishing a conflicted rebase without an editor
 
@@ -113,6 +130,12 @@ is a single event.
   which is why BSD `sed -i ''` has no working spelling on macOS — use
   `Edit`, or a small `python3` helper under `.claude/tmp/<slug>/` for
   mechanical line surgery.
+- A path is graded after symlink resolution, and the refusal names the
+  resolved target. A user-global config that links into another
+  checkout — `~/.config/<tool>/config.toml` under a dotfiles repo — is
+  refused as a cross-repo read, so establish such a value through the
+  tool that owns it (`mise current node`, `git config --get`) instead
+  of reading its file.
 - Redirect scratch *before* it is created rather than reading it
   afterward: set `TMPDIR=<repo>/.claude/tmp/<slug>` on the command that
   creates the temp dir, so every downstream `mktemp` lands in bounds.
@@ -121,9 +144,12 @@ is a single event.
   inside a container.
 - The harness scratchpad under `/tmp/claude-<uid>/` is carved out and
   reads fine.
-- `HOME=<dir> <cmd>` is refused, because a redirected HOME changes
-  where git reads config from. Run HOME-redirected experiments inside a
-  container, where the redirection is the container's business.
+- `HOME=<dir> <cmd>` is refused by the worktree-isolation check, whose
+  message is about git: a redirected HOME injects git configuration
+  whose effect on where git writes cannot be verified. The command
+  need not be git — a bare `pwd` under a HOME prefix is refused too.
+  Run HOME-redirected experiments inside a container, where the
+  redirection is the container's business.
 - A compound one-liner — an `&&` chain, a `for` loop, a `$VAR` path, a
   `"$PWD"` argument — is refused as unverifiable even when it stays in
   bounds. Write it to a script under `.claude/tmp/<slug>/` and run
@@ -148,12 +174,16 @@ is a single event.
   ```
 
   Do not write a pin file into the worktree to "fix" a version
-  problem, and do not run `mise use`, which writes one. `.tool-versions`
-  is gitignored, so it would sit there invisibly and outlive the run;
-  `mise.toml` is this repo's one tracked config form, so a stray one
-  lands in the diff. When a specific version genuinely has to be named,
-  pass it per-command instead — `mise exec node@<version> -- npx …`,
-  with the version read from `mise current node`.
+  problem, and do not run `mise use`, which writes one. At the repo
+  root every spelling of one is gitignored — `.tool-versions` by its
+  own rule, `mise.toml` and `.mise.toml` by the top-level `/*` — so a
+  stray pin sits there invisibly and outlives the run rather than
+  showing up in a diff for you to notice. Written into a whitelisted
+  subtree (`docs/`, `plugins/`) it does land in the diff, which is the
+  other half of the same problem. When a specific version genuinely
+  has to be named, pass it per-command instead —
+  `mise exec node@<version> -- npx …`, with the version read from
+  `mise current node`.
 - A bare `curl` to `github.com`, `raw.githubusercontent.com` or
   `api.github.com` returns nothing from a Bash call — there is no
   direct network egress. `gh api` and `WebFetch` both work, because
