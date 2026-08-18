@@ -47,8 +47,21 @@ on its own trigger:
   worktree path discipline, and the tooling and `gh` quirks that
   otherwise read as a bug in your own change. Read it when a command
   is refused, rather than inventing a workaround.
+- [`docs/hook-event-notes.md`](docs/hook-event-notes.md) — how each
+  Claude Code hook *event* behaves: which fields it honors, what the
+  harness does with each value, and how to re-verify against the
+  official docs. Read it before asserting that Claude Code does
+  anything in particular with a hook's output.
+- [`docs/plugin-authoring-constraints.md`](docs/plugin-authoring-constraints.md)
+  — verified constraints of the plugin system itself (file sandboxing,
+  skill namespacing, what a `lib/` file can be read by) and the
+  patterns this marketplace uses within them. Read it before adding a
+  plugin or moving anything between two of them.
+- [`docs/plugin-migration-plan.md`](docs/plugin-migration-plan.md) —
+  the frozen plan for repackaging `~/.claude` as plugins, kept for
+  provenance. Read it for history; never edit it.
 
-Nothing indexes `/docs`, so this section is where a new file there
+Nothing else indexes `/docs`, so this section is where a file there
 becomes discoverable — add a bullet when you add one.
 
 ## MD041 on a SKILL.md is convention, not debt
@@ -574,7 +587,7 @@ code and check the prose enumerates the same set.
 
 ## Narrow every claude-vm surface-only claim to the layer it measures
 
-Four `plugins/claude-vm` surfaces assert that the guest's Claude
+These `plugins/claude-vm` surfaces assert that the guest's Claude
 configuration comes from the claude-vm configs **only**, because the
 host's `~/.claude/settings.json` is never read:
 
@@ -593,7 +606,7 @@ half of such a sentence is its noun, not its verb: the `settings.json`
 grep that finds these sites keeps returning true statements while the
 subject above them is wrong. Grep the surface wording across
 `plugins/claude-vm/` rather than checking only the files the diff
-touched — two of the four are example YAML files that no test and no
+touched — the two example YAML files above are ones that no test and no
 doc pass naturally opens.
 
 ## Sweep every "no read-only mounts" surface when read-only lands
@@ -803,8 +816,8 @@ exercises only the paths its own keys reach.
 ## Sweep the ordering notes and share lists on a boot-launcher insertion
 
 Inserting a step into the boot launcher that
-`plugins/claude-vm/payload/build-guest-image.sh` emits leaves two
-surfaces stale, both far from the diff: the launcher is one long
+`plugins/claude-vm/payload/build-guest-image.sh` emits leaves the
+surfaces below stale, each far from the diff: the launcher is one long
 heredoc, so phase-ordering prose sits hundreds of lines from any
 insertion point, and the credential share a new step may read is
 described from a different file entirely.
@@ -919,8 +932,9 @@ measured per-key table are in
 config key tables and the YAML templates rather than referencing
 `payload/README.md`, `skills/claude-vm/SKILL.md` and the
 `config-*.example.yml` files, so nothing forces them to move when those
-do. A claude-vm doc pass covers the latter three naturally and misses the
-wizards, and the miss is a live defect rather than a cosmetic one: the
+do. A claude-vm doc pass covers those referenced files naturally and
+misses the wizards, and the miss is a live defect rather than a
+cosmetic one: the
 wizards instruct the model to write a config verbatim, so a key sitting
 in the boot template when it belongs in the bake one — or an entry shape
 the launcher now rejects — makes the wizard produce a config that aborts

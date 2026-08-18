@@ -138,20 +138,22 @@ is a single event.
   run the real test file with `bash <file>`.
 - `rm` and `cp` are aliased interactive here; use `rm -f` and
   `/bin/cp -f`.
-- `npx` needs the node version supplied inline, because the worktree
-  has no `.tool-versions` — it is gitignored and stays in the primary
-  clone:
+- Node is managed by **mise**, and the version comes from the
+  user-global `~/.config/mise/config.toml`, which applies in every
+  directory. A worktree carries no version-pin file of its own and
+  needs none, so a bare invocation resolves:
 
   ```bash
-  PATH="$HOME/.asdf/bin:$PATH" ASDF_NODEJS_VERSION=<version> \
-    npx markdownlint-cli2 <file>…
+  npx markdownlint-cli2 <file>…
   ```
 
-  Take the version from asdf's own error output or from
-  `asdf current nodejs`, rather than pinning one. Do not run
-  `asdf set` and do not write a `.tool-versions` into the worktree —
-  the first is refused when combined with anything else on the line,
-  the second is a stray file in the diff.
+  Do not write a pin file into the worktree to "fix" a version
+  problem, and do not run `mise use`, which writes one. `.tool-versions`
+  is gitignored, so it would sit there invisibly and outlive the run;
+  `mise.toml` is this repo's one tracked config form, so a stray one
+  lands in the diff. When a specific version genuinely has to be named,
+  pass it per-command instead — `mise exec node@<version> -- npx …`,
+  with the version read from `mise current node`.
 - A bare `curl` to `github.com`, `raw.githubusercontent.com` or
   `api.github.com` returns nothing from a Bash call — there is no
   direct network egress. `gh api` and `WebFetch` both work, because
