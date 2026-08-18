@@ -83,7 +83,7 @@ here.
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
 | `agent-memory-scrubber` | Curates the PR's `.claude/agent-memory/` |
-| `theorem-generator` | Reads a PR and returns disprovable theorems |
+| `theorem-generator` | Searches one PR for claims worth trying to disprove |
 | `theorem-generator-high` | The same generator at a higher reasoning tier |
 | `theorem-generator-xhigh` | The same generator at a higher reasoning tier still |
 | `theorem-disprover` | Tries to break exactly one theorem |

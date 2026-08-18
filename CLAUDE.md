@@ -108,8 +108,9 @@ frontmatter keys that hold for a whole class — `isolation: worktree`
 on every agent, `user-invocable: false` on the skills that are not
 user verbs — so a PR changing either key edits it; and it is the only
 file that states `/sdlc:orchestrate` does not invoke
-`/sdlc:orchestrate-ready`, since `skills/orchestrate/SKILL.md` names
-the grooming skill nowhere. An agent's
+`/sdlc:orchestrate-ready` — `skills/orchestrate/SKILL.md` names the
+grooming skill nowhere — so a PR that changes how the two relate edits
+it there. An agent's
 contract — what it commits, when it runs, what it returns — is
 restated outside that agent's own file in
 `plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
