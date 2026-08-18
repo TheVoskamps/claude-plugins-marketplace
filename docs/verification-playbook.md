@@ -169,6 +169,45 @@ A quote-aware paren walker over every tracked shell file that flags a
 against the pre-fix commit's own file, which must report the known
 instances.
 
+## A process substitution's child outlives the shell that spawned it
+
+A claim about *what bash itself runs* — does `: ${Q:-<(cmd)}` execute
+`cmd`, does `'$(cmd)'`, does an unquoted here-document body expand — is
+settled by running the shape in real bash with a marker side effect
+(`touch M` inside a scratch directory), never by reasoning from the
+parser.
+
+The trap is the **check**, not the probe. A process substitution's
+command runs in an asynchronous child, so the marker is routinely not
+there yet when `bash -c` exits, and a check made immediately afterwards
+reports the opposite of the truth — which is how an accurate README
+sentence gets "corrected" into a false one. Measured on `/bin/bash`
+3.2.57, one row per shape, checking with no delay and then again after
+`sleep 0.5`:
+
+```text
+: <(touch M)          nap=0    did-not-run     nap=0.5  RAN
+: ${Q:-<(touch M)}    nap=0    did-not-run     nap=0.5  RAN
+: ${Q:-$(touch M)}    nap=0    RAN             nap=0.5  RAN
+: '$(touch M)'                                 nap=0.5  did-not-run
+```
+
+Command substitutions are synchronous, so they never show the race: a
+probe that exercises only those looks sound while every
+process-substitution row it also carries is wrong.
+
+So: put a `sleep` between every run and its marker check, and carry both
+controls in the same run — a known-RAN one (`: <(touch M)`) and a
+known-did-not-run one (`: '$(touch M)'`) — so a probe that measures
+nothing announces itself. Run the whole battery once per interpreter the
+claim covers, since such a claim usually asserts identical behavior on
+each.
+
+Drive it from a script file under `.claude/tmp/<slug>/` invoked as
+`bash <script>`; the equivalent inline one-liner is refused, per
+[`agent-environment-notes.md`](./agent-environment-notes.md) →
+"Paths".
+
 ## Running a claude-vm suite under bash 5 needs a borrowed yq
 
 The bash ≥ 4 half of a two-interpreter run has no local shell on a

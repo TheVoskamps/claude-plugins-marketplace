@@ -27,6 +27,7 @@ run:
 - [`docs/verification-playbook.md`](docs/verification-playbook.md) —
   cross-domain: suite baselining and hybrid-tree negative controls,
   bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,
+  async process-substitution probes,
   containerized bash 5 runs with a borrowed yq, rebase verification,
   and lint baselining.
 
@@ -44,9 +45,9 @@ on its own trigger:
 - [`docs/agent-environment-notes.md`](docs/agent-environment-notes.md)
   — the harness and gate constraints on *how you invoke* something in
   this repo: which refuser is talking, the accepted git command forms,
-  worktree path discipline, and the tooling and `gh` quirks that
-  otherwise read as a bug in your own change. Read it when a command
-  is refused, rather than inventing a workaround.
+  worktree path and branch-state discipline, and the tooling and `gh`
+  quirks that otherwise read as a bug in your own change. Read it when
+  a command is refused, rather than inventing a workaround.
 - [`docs/hook-event-notes.md`](docs/hook-event-notes.md) — how each
   Claude Code hook *event* behaves: which fields it honors, what the
   harness does with each value, and how to re-verify against the
@@ -510,9 +511,11 @@ already allowed on the base. A verdict change that moves any of those
 control rows updates it; grep it for `deny`, `allow`, `defer` and
 `ask` alongside the README. `docs/agent-environment-notes.md` names a
 refusal only where an agent must reach for a different command form to
-get its own work done — the git static-argv and forbidden-form denies,
-the out-of-repo path denies including the empty-string operand, the
-`HOME=` deny. It states no tier and no verdict vocabulary, so a
+get its own work done. The gate is only one of the refusers it covers —
+the harness's own form checks and the auto-mode classifier are in there
+too, some refusals attributed and some left unattributed — so read the
+file rather than an enumeration here, which goes stale silently at this
+distance. It states no tier and no verdict vocabulary, so a
 rebucketing leaves it alone; a change that makes a currently-refused
 form work, or refuses one it prescribes, edits it. The gate README's
 one in-plugin sibling is
