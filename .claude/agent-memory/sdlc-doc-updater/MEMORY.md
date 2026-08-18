@@ -82,9 +82,9 @@
   docs/plugin-authoring-constraints.md's pattern list and fresh count
   words unswept.
 - [agent-retirement doc surfaces](project_agent-retirement-doc-surfaces.md)
-  — retiring an agent leaves issues/lib repo-config's per-field consumer
-  claims and "previously performed / mirrors what" history sentences false;
-  no sdlc file pins schema-version, whatever that lib says.
+  — retiring an agent leaves "previously performed / mirrors what" history
+  sentences in consumer docs false; the rename sweep never touches the
+  predicate.
 - [Fixer memory names the missing playbook section](project_fixer-memory-names-the-missing-playbook-section.md)
   — a round that changed HOW a claim is pinned leaves the technique in the
   fixer's new memory file and the code comment, never in /docs' playbook.

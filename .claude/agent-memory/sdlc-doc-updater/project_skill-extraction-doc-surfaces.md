@@ -7,9 +7,9 @@ metadata:
 
 A fix round that removes cross-plugin duplication by extracting a new
 skill updates the obvious surfaces itself — the owning plugin's
-`plugin.json` `description`, the root `README.md` roster bullet, every
-consumer SKILL.md/agent that used to restate the rule, and the
-consumer plugin's README narrative. What it leaves behind:
+`plugin.json` `description`, every consumer SKILL.md/agent that used
+to restate the rule, and the consumer plugin's README narrative. What
+it leaves behind:
 
 - `docs/plugin-authoring-constraints.md` — the "Patterns this
   marketplace uses" section is where the *generalization* of the
