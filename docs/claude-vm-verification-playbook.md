@@ -18,7 +18,7 @@ vfkit --bootloader "linux,kernel=/nonexistent/vmlinuz,initrd=/nonexistent/initrd
       --device "virtio-fs,sharedDir=/tmp/nx,mountTag=probe,readOnly=true" 2>&1 | tail -1
 ```
 
-Three traps:
+The traps:
 
 - **`--bootloader` is validated before `--device`.** Without one, every
   probe dies on `empty option list in --bootloader command line
@@ -520,8 +520,8 @@ strip-all. The same blind spot appears in name validation: Python
 `re.match(r"^…$")` accepts a trailing newline, so demand `re.fullmatch`
 or `\Z`.
 
-Two mikefarah-yq behaviors bite the emitters themselves rather than
-their consumers, and both are silent:
+Some mikefarah-yq behaviors bite the emitters themselves rather than
+their consumers, and these are silent:
 
 - **A comma expression can drop a branch.** Over
   `items: [{a: 1, b: 2}, {a: 3}]`, yq v4.53.3 answers

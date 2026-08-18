@@ -168,7 +168,7 @@ usually does what its doc comment says; the falsehood is in the call
 sites, so grep the callers first — a single call site is the tell that
 a "for every X" claim is scoped — and then run it.
 
-Two more members of the family, each settled by opening one file:
+Further members of the family, each settled by opening one file:
 
 - **"X's value always wins."** That is a claim about sourcing and
   assignment *order*, not about who owns the name. Open the consumer

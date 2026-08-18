@@ -72,9 +72,14 @@ must not be handed a curation it cannot land.
 
 Do not read the abort as something the scrubber will notice. Its own
 verification gate is a git-state check — `HEAD` against
-`origin/<branch-name>`, plus an empty `git status --porcelain` — and a
-run that curated nothing passes both, because that gate deliberately
-treats a no-op curation as valid. Making the abort visible to that
+`origin/<branch-name>`, plus an empty `git status --porcelain` — and an
+abort satisfies both trivially: no commit was made, so `HEAD` still
+equals the ref the scrubber checked the branch out from, and nothing
+was written, so the tree is clean. The gate's own no-op carve-out does
+not even name this shape; it names "no agent memory to curate" and "no
+changes to curate", of which this skill still reports only the first.
+So the abort reads to the scrubber as an ordinary success rather than
+as a recognized no-op. Making the abort visible to that
 caller is the `sdlc` side's job, not this skill's; it goes away with
 the scrubber itself.
 

@@ -1629,7 +1629,7 @@ circulating URL is what can make `edit` the worse of the two verbs
 already escalates was never the argument, so it stays out of the
 message entirely rather than being hedged.
 
-Two consequences, each of which the gist arms above are worked
+The consequences, each of which the gist arms above are worked
 instances of rather than the source of:
 
 - **Scope the escalation to the whole verb, not to the flag spellings

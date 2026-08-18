@@ -165,7 +165,8 @@ returns immediately.
 start_listener() { real_listener … >/dev/null 2>&1 </dev/null & echo $!; }
 ```
 
-Two faces, and the second is the dangerous one:
+The faces it shows, of which the silent mismeasurement is the
+dangerous one:
 
 - **The hang.** A helper that stands up a real listener (perl
   `IO::Socket::UNIX`/`INET`, `nc`, `socat`) and echoes its pid appears
@@ -468,7 +469,7 @@ config is discovered upward from each file's directory, linting the
 primary clone's copy of the same file is a quick base-config baseline.
 Only errors that survive under the base's config are findings.
 
-### Grading a lint *fix* needs two controls
+### Grading a lint *fix* needs its controls
 
 A clean sweep proves nothing until the same command has been shown to
 fail on the pre-fix bytes, and a clean sweep under a broken `extends`
@@ -511,7 +512,7 @@ the rule's own `doc/mdNNN.md` at the resolved version's tag for its
 real name and option vocabulary before trusting it as a tracer. A
 silent tracer must be swapped, not interpreted.
 
-Two probes settle a nested-config question conclusively, and neither
+These probes settle a nested-config question conclusively, and neither
 needs the happy path:
 
 1. **Chain live:** flip a distinctive setting in the **parent** (e.g.

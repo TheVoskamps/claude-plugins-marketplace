@@ -508,12 +508,17 @@ scrubber; do not "fix" it by re-adding a PR mode.
 
 That abort does not reach the scrubber as a failure. Its step-3 gate
 asks whether `HEAD` matches `origin/<branch-name>` and whether
-`git status --porcelain` is empty, and an abort that curated nothing
-satisfies both — the gate carves out exactly that shape as a valid
-no-op. So the scrubber reports success over a curation that never ran,
-which is one more reason its machinery is stale rather than load-bearing
-here. Retiring it is #261's job, not something to patch around from the
-`cc-tools` side.
+`git status --porcelain` is empty, and an abort satisfies both
+trivially: no commit was made, so `HEAD` still equals the ref the
+branch was checked out from, and nothing was written, so the tree is
+clean. The gate's own no-op carve-out does not name this shape at all —
+it names the skill's "no agent memory to curate" report and a "no
+changes to curate" outcome the skill no longer produces — so the
+abort passes the gate as an ordinary success rather than as a
+recognized no-op. So the scrubber reports success over a curation that
+never ran, which is one more reason its machinery is stale rather than
+load-bearing here. Retiring it is #261's job, not something to patch
+around from the `cc-tools` side.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
