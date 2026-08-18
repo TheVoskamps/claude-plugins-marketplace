@@ -7,9 +7,12 @@ You are running the `/repo-config` skill. Your job is to create the
 **target repo's** `.claude/rules/repo-config.md` from scratch, or to
 fully rewrite it when it already exists, by interviewing the user.
 This file is read by the multi-issue orchestrator, by its
-`sdlc:pr-review-pipeline` review skill, and by every `/issue-*` skill,
-so it must be present and well formed before any of those flows will
-work. The orchestrator's `issue-developer`, `issue-fixer`, and
+`sdlc:pr-review-pipeline` review skill, by the
+`/sdlc:orchestrate-ready` grooming skill that runs in front of the
+orchestrator (it reads the `github-project` status slot's option names
+to decide which status means orchestrate-ready), and by every
+`/issue-*` skill, so it must be present and well formed before any of
+those flows will work. The orchestrator's `issue-developer`, `issue-fixer`, and
 `doc-updater` subagents read no repo-config themselves — they delegate
 every value they once needed to the `git-tools:*` and `github-prs:*`
 skills they invoke (see `skills/lib/repo-config.md` → "Migration
