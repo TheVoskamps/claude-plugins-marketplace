@@ -100,6 +100,19 @@ Assess the fetched issue against each of these:
    own words, and move to the next topic once it is settled. Your
    proposed defaults are proposals; the user decides.
 
+   **If any gap from step 2 is still unresolved when the conversation
+   ends** — the user deferred it, answered around it, or stopped
+   replying — the issue is **not** orchestrate-ready, and inventing
+   the answer yourself is the failure this skill exists to prevent.
+   Do not flip the status: skip step 6 entirely, leave the status
+   where it is, and skip any other step the conversation did not
+   authorize (step 5's side-effect issues have no yes, and step 4's
+   rewrite happens only if the user wants the settled decisions
+   captured — a body rewritten around an open gap must not read as if
+   the gap were closed). Go to step 7 and report which gaps remain
+   open, that the issue is not ready, and that the status is
+   unchanged.
+
 4. **Rewrite the body in full.** Write the whole new body to a file
    under `.claude/tmp/orchestrate-ready-<N>/` and full-replace with
    it:
@@ -143,8 +156,11 @@ Assess the fetched issue against each of these:
    issue outside a branch's own set is precisely what
    `~/.claude/rules/git-workflow.md` → "Issue references" forbids.
 
-6. **Set the status, then verify the write landed.** Resolve the
-   orchestrate-ready status name per "Status resolution" below, then:
+6. **Set the status, then verify the write landed.** Skip this step
+   whenever a gap from step 2 went unresolved (see step 3) — the issue
+   is not ready and the status stays where it is. Otherwise resolve
+   the orchestrate-ready status name per "Status resolution" below,
+   then:
 
    ```text
    /issue-set-status <N> <status-name>
@@ -158,7 +174,9 @@ Assess the fetched issue against each of these:
 7. **Final report.** State: what changed in the body (the substantive
    changes, not a diff), which side-effect issues you created and
    where, the status you set and that you confirmed it by re-reading,
-   and the issue URL.
+   and the issue URL. When step 6 was skipped, say instead that the
+   issue is not ready, name the gaps still open, and say the status is
+   unchanged — never report an unflipped status as a success.
 
 ## Status resolution
 

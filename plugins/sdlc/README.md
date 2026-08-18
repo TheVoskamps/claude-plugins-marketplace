@@ -71,10 +71,10 @@ here.
 
 | Agent | Purpose |
 | ------- | --------- |
-| `issue-developer` | Implements one batch of issues on one branch and opens the PR |
+| `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
-| `agent-memory-scrubber` | Curates the PR's `.claude/agent-memory/` as the last agent to touch the branch |
+| `agent-memory-scrubber` | Curates the PR's `.claude/agent-memory/` |
 | `theorem-generator` | Reads a PR and returns disprovable theorems |
 | `theorem-generator-high`, `theorem-generator-xhigh` | The same generator at higher reasoning tiers |
 | `theorem-disprover` | Tries to break exactly one theorem |

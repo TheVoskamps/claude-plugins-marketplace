@@ -11,12 +11,12 @@ naturally hits the loud surfaces — `plugin.json` `description`, the root
 `README.md` roster bullet, the repo `CLAUDE.md` sweep section. The map of
 where the rest of the edits land, none of them next to the diff:
 
-- `docs/plugin-authoring-constraints.md` → "Sharing behavior…" names the
-  **registration surfaces** of a new skill. A plugin README that rosters
-  its own skills is one of them, so that sentence has to name the plugin
-  roster alongside `plugin.json` and the root README bullet — the round
-  that creates such a roster is exactly the round that would otherwise
-  falsify it.
+- `docs/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
+  lookup, a derivation)" names the **registration surfaces** of a new
+  skill. A plugin README that rosters its own skills is one of them, so
+  that sentence has to name the plugin roster alongside `plugin.json`
+  and the root README bullet — the round that creates such a roster is
+  exactly the round that would otherwise falsify it.
 - The new README's `dependencies` paragraph enumerates the cross-plugin
   skills the edges cover. Settle it by grepping the plugin tree for each
   dependency's skill names rather than writing the list from memory —
@@ -33,9 +33,10 @@ where the rest of the edits land, none of them next to the diff:
   orchestrator, by its `sdlc:pr-review-pipeline` review skill, and by
   every `/issue-*` skill"), and the `lib/repo-config.md` grep that finds
   the Migration-policy one does not reach it — its wording names no
-  field. A round that repaired Migration policy still shipped this one
-  stale (PR #283). Grep `plugins/issues/` for `multi-issue orchestrator`,
-  not for the field name.
+  field. The two rosters are separate edits: PR #283 needed both, and
+  repairing Migration policy leaves this one untouched. Grep
+  `plugins/issues/` for `multi-issue orchestrator`, not for the field
+  name.
 
 **Why:** each is a list presented as complete, and each is written by an
 agent grading its own change in the same commit.
