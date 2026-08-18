@@ -122,10 +122,16 @@ keeps is its own **action** per reported outcome, which is exactly the
 deliberate per-caller difference the extraction must not flatten.
 
 A new skill's registration surfaces are the owning plugin's
-`plugin.json` `description` and the root `README.md` roster bullet for
-that plugin. `.claude-plugin/marketplace.json` is per-plugin, not
-per-skill, so a new skill in an already-published plugin needs no entry
-there.
+`plugin.json` `description` and — where the plugin ships a `README.md`
+of its own that rosters what it contains — that roster as well. The
+root `README.md` roster registers the *plugin*, not each skill by
+name: its bullet exists and describes the plugin, so a skill added to
+an already-rostered plugin needs no edit there.
+`.claude-plugin/marketplace.json` is per-plugin, not per-skill, so a
+new skill in an already-published plugin needs no entry there either.
+A new `dependencies` edge's surface is the depending plugin's own
+`README.md`, where it ships one: the edge is a fact about that plugin,
+so its README names it.
 
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's

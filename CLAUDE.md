@@ -95,9 +95,39 @@ error first.
 
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
-The `sdlc` plugin ships no `plugins/sdlc/README.md`. An agent's
-contract — what it commits, when it runs, what it returns — is
-restated outside that agent's own file in
+`plugins/sdlc/README.md` exists, but it is a **pointer** document: it
+owns the roster of skills and agents the plugin ships, plus the
+`dependencies` edges and the cross-plugin skills those edges cover,
+restating no agent's contract, no model, and no effort. So it is not
+where a contract change lands: it takes an edit when a PR adds,
+removes, or renames a skill or an agent, or changes which cross-plugin
+skill this plugin invokes, and the sweep target for a contract change
+is unchanged. The cross-plugin skills a `dependencies` edge covers are
+not the same set as the skills this plugin invokes, so settle that list
+by grepping the plugin tree for each dependency's skill names and
+grading every hit rather than writing it from memory: a mention is not
+a call site, and `skills/orchestrate/SKILL.md` names
+`git-cleanup-branches-and-worktrees` — covered by the same `git-tools`
+edge as skills `sdlc` genuinely invokes — only as the whole-repo sweep
+of the same shape as the per-worktree cleanup the orchestrator does
+inline. What it carries beyond the rosters is not a restatement
+of any of that, but each part has a trigger of its own: it spells the
+frontmatter keys that hold for a whole class — `isolation: worktree`
+on every agent, `user-invocable: false` on the skills that are not
+user verbs — so a PR changing either key edits it; and it is the only
+file in the plugin that states `/sdlc:orchestrate` does not invoke
+`/sdlc:orchestrate-ready` — `skills/orchestrate/SKILL.md` names the
+grooming skill nowhere — so a PR that changes how the two relate edits
+it there and this paragraph, which states the same thing in the course
+of naming its owner, with it. Grade a uniqueness claim on either side
+of that pair — "stated here and in no other file" — with a grep that
+leaves the plugin, never one confined to `plugins/sdlc/`: the confined
+grep returns the answer the claim wants, and naming an owner is itself
+a second statement of the fact, so each side has to scope itself and
+name the other as the second edit point. An agent's contract — what it
+commits,
+when it runs, what it returns — is restated outside that agent's own
+file in
 `plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
 the teammate-agent roster near the top (one bullet per agent, each
 closing with what that agent leaves behind — a push, a PR, or a posted
@@ -263,14 +293,23 @@ opening paragraph and repeats the diff-consumer list in its `/pr-diff`
 section, and `plugins/github-prs/skills/pr-diff/SKILL.md` spells that
 same consumer list once more — a surface a `sdlc`-only PR reaches only
 by remembering that adding a diff-reading agent bumps `github-prs`
-too. `plugins/issues/skills/**` names the `sdlc` readers and
-what each of them still reads — `lib/repo-config.md` says per field
-who consumes it (no `sdlc` reader dispatches on `source-control` any
-more, and of the `sdlc` readers only the orchestrator and the review
-pipeline parse `issue-link-prefix`), and its "Migration policy"
-section records that the `sdlc` readers left the reader contract
-entirely in #143. The root `README.md`'s `sdlc` bullet names them by
-shorthand only, with no behavior to falsify.
+too. `plugins/issues/` names no `sdlc` reader of repo-config, and that
+is deliberate: a reader contract states what the file provides, never
+who consumes it, so `skills/lib/repo-config.md` describes each field
+and the read sequence while `skills/repo-config/SKILL.md` describes
+the file it writes, neither naming a consumer. A new `sdlc` reader of
+repo-config is therefore no edit in that plugin, and re-adding a
+reader roster to either file — however helpful the pointer reads — is
+the defect this shape removes. What `plugins/issues/` does still name
+the orchestrator for is unrelated to repo-config and stays:
+`skills/lib/issue.md` says it is not part of the `/issue-*` namespace
+and does not read that library, and `skills/issue-create/SKILL.md`
+sizes an issue off the "Files affected" section the orchestrator's
+analysis produces. The root `README.md`'s `sdlc` bullet names the
+agents by shorthand only and spells no skill name, so it has nothing
+to falsify: per `docs/plugin-authoring-constraints.md`, the root
+roster registers the *plugin*, so a skill added, removed or renamed
+leaves that bullet alone, and so does an agent's contract changing.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
 

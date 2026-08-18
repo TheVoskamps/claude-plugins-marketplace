@@ -10,7 +10,7 @@ The marketplace currently ships these plugins (one entry each in
 
 - **`issues`** — GitHub issue tracking verbs and repo/user config.
 - **`issues-jira`** — optional Jira backend for the issue verbs.
-- **`sdlc`** — issue orchestration, the
+- **`sdlc`** — issue grooming and orchestration, the
   developer/fixer/doc/memory-scrubber agents, and a theorem-based PR
   review pipeline.
 - **`github-prs`** — GitHub PR-operations skills: create, diff, and
@@ -27,11 +27,10 @@ The marketplace currently ships these plugins (one entry each in
   tests.
 - **`cc-tools`** — Claude Code meta-skills: load all global rules,
   track Claude Code feature/bug watchlist status, and curate a repo's
-  `.claude/agent-memory/` in one acting pass (`agent-memory-cleanup`).
+  `.claude/agent-memory/` in one acting pass.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
-  user's personal identity. Bundles `gh_wrapper`, `git_wrapper`, and the
-  `gh-create-identity-app` provisioning skill.
+  user's personal identity.
 - **`guardrails`** — compiled PreToolUse permission-gate hook: command
   classification and worktree/cross-repo path containment, three-tiered
   (deny-with-teaching, positive-grounds allow, enumerated hard asks)
@@ -42,10 +41,6 @@ The marketplace currently ships these plugins (one entry each in
 - **`claude-vm`** — run Claude Code inside an isolated Linux micro-VM
   on macOS with config-driven egress, mounts, guest environment
   variables, and repo isolation.
-  Ships the `bin/claude-vm` preflight launcher, the `claude-vm` skill,
-  the `claude-vm-config-global` and `claude-vm-config-repo` config
-  writers, plus the `claude-vm-diff`, `claude-vm-apply-local`, and
-  `claude-vm-apply-remote` companion skills.
 - **`show-loaded-rules`** — `InstructionsLoaded` hook that surfaces a
   one-line message for every CLAUDE.md / `.claude/rules/*.md` file
   loaded into context, so you can see which rules files are in play
@@ -56,10 +51,9 @@ The marketplace currently ships these plugins (one entry each in
 - **`show-agent-calls`** — `PreToolUse` (matcher `Agent|Task`) hook
   that surfaces the agent type, parameters, and full prompt for every
   subagent spawn, without `--verbose`.
-- **`writing-tools`** — writing and text-editing helpers. Currently
-  ships `mask-inappropriate-language`, which replaces inappropriate
-  language (profanity, slurs, strong insults) in provided text or a
-  file with asterisks, character-for-character.
+- **`writing-tools`** — writing and text-editing helpers: mask
+  inappropriate language (profanity, slurs, strong insults) in
+  provided text or a file with asterisks, character-for-character.
 
 ## Add this marketplace
 

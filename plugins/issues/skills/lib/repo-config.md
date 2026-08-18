@@ -2,10 +2,10 @@
 
 This file is the single source of truth for how readers should
 consume `.claude/rules/repo-config.md`. It is **reference prose**,
-not an executable script: a reader (orchestrator, subagent, or
-skill) follows the patterns documented here when it loads the
-target repo's config. Individual readers reference this doc rather
-than re-deriving the parse rules or abort wording.
+not an executable script: a reader follows the patterns documented
+here when it loads the target repo's config. Individual readers
+reference this doc rather than re-deriving the parse rules or abort
+wording.
 
 The analogous libraries are `skills/lib/user-config.md` (the
 per-user counterpart — private, never-committed settings),
@@ -190,11 +190,10 @@ Variable parts are wrapped in backticks.
   > This repo has no `.claude/rules/repo-config.md`. Run
   > `/repo-config` to create one.
 
-  Some existing readers prefix this with a reader-specific clause
-  ("issue-developer requires it", "/issue-* commands require it",
-  etc.). The clause is permitted but not required; the
-  `Run /repo-config to create one` tail is the canonical fix
-  hint.
+  Some readers prefix this with a reader-specific clause
+  ("/issue-* commands require it", etc.). The clause is permitted
+  but not required; the `Run /repo-config to create one` tail is
+  the canonical fix hint.
 
 - **Schema-version absent**
 
@@ -253,37 +252,31 @@ file. Order is fixed; `schema-version` is always first.
   abort messages above.
 
 - **`source-control`** — `GitHub` or `CodeCommit`. Selects between
-  `gh` and `aws codecommit` for VCS operations. No `sdlc` reader
-  dispatches on it any more: `issue-developer`, `issue-fixer` and
-  `doc-updater` delegate their PR mechanics to the `github-prs:*`
-  skills, `sdlc:pr-review-pipeline` reads `issue-link-prefix` only,
-  and every one of those skills is GitHub-only by design. No skill in
-  this marketplace branches on the value today; it stays a required
-  front-matter field so a future non-GitHub reader has one place to
-  read it from.
+  `gh` and `aws codecommit` for VCS operations. No skill in this
+  marketplace branches on the value today — the PR mechanics live in
+  the `github-prs:*` skills, which are GitHub-only by design. It
+  stays a required front-matter field so a future non-GitHub reader
+  has one place to read it from.
 
 - **`issues`** — `GitHub` or `Jira`. Selects between `gh issue`
   and the Atlassian CLI (`acli`) for issue operations. Both backends
-  are implemented across `/issue-*` and the multi-issue orchestrator:
-  the GitHub path uses `gh`/GraphQL, the Jira path uses `acli` (see
-  the "Jira backend" section of `skills/lib/issue.md` and the `acli`
-  access library the `/issues-jira:jira-lib` skill).
+  are implemented across `/issue-*`: the GitHub path uses
+  `gh`/GraphQL, the Jira path uses `acli` (see the "Jira backend"
+  section of `skills/lib/issue.md` and the `acli` access library the
+  `/issues-jira:jira-lib` skill).
 
 - **`issue-link-prefix`** — string. The literal string
   concatenated with an issue number in commit messages and PR
-  bodies. The multi-issue orchestrator and the
-  `sdlc:pr-review-pipeline` skill substitute it as
-  `<issue-link-prefix><N>`. For GitHub repos, `#` so references
-  render as `#123`; for Jira, the project key plus dash
-  (e.g. `SET-` for `SET-123`). Quote the value in YAML if it
-  starts with `#` (otherwise YAML parses it as a comment) —
-  `/repo-config` does this automatically.
+  bodies. A reader substitutes it as `<issue-link-prefix><N>`. For
+  GitHub repos, `#` so references render as `#123`; for Jira, the
+  project key plus dash (e.g. `SET-` for `SET-123`). Quote the value
+  in YAML if it starts with `#` (otherwise YAML parses it as a
+  comment) — `/repo-config` does this automatically.
 
 - **`default-issue-source-branch`** — string. Branch that new
-  issue work branches FROM. The orchestrator pins this when
-  creating the feature branch (e.g.
-  `git switch -c <name> origin/<source-branch>`) so the branch
-  is rooted at the right commit, not at whatever HEAD the
+  issue work branches FROM. A reader creating a feature branch pins
+  it (e.g. `git switch -c <name> origin/<source-branch>`) so the
+  branch is rooted at the right commit, not at whatever HEAD the
   worktree happened to start on.
 
 - **`default-pr-target-branch`** — string. Branch that issue PRs
@@ -464,21 +457,15 @@ This library introduces `schema-version: 7` (the `jira:` block) on
 top of the `schema-version: 6` baseline, but does **not** migrate
 every reader at once. The bump is additive: the `jira:` block lives
 in the body, so an un-migrated reader ignores it and a
-schema-version-6 reader still reads a schema-version-7 file. The
-`sdlc` readers went further and dropped out of this contract
-altogether (#143): `issue-developer`, `issue-fixer` and `doc-updater`
-read no repo-config at all, delegating every value they once needed to
-the `git-tools:*` and `github-prs:*` skills they invoke, while the
-multi-issue orchestrator's SKILL.md and the `sdlc:pr-review-pipeline`
-skill each parse `issue-link-prefix` (plus, in the orchestrator, the
-optional status slot) inline and reuse only this library's "File
-missing" abort wording — they check no `schema-version` and consume no
-other part of the read sequence. The user-facing
-`/issue-*`
-namespace follows it too: its shared `skills/lib/issue.md`
-"Repo-config parsing" section and each `/issue-*` SKILL.md pin
-schema-version 6 and defer here (migrated in #114). Remaining reader
-migrations land in their own follow-up issues.
+schema-version-6 reader still reads a schema-version-7 file. Some
+readers sit outside this contract altogether: they parse the one or
+two fields they need inline, reuse at most this library's "File
+missing" abort wording, and check neither `schema-version` nor any
+other part of the read sequence. The user-facing `/issue-*` namespace
+is migrated: its shared `skills/lib/issue.md` "Repo-config parsing"
+section and each `/issue-*` SKILL.md pin schema-version 6 and defer
+here (migrated in #114). Remaining reader migrations land in their
+own follow-up issues.
 
 When migrating a reader:
 
@@ -509,7 +496,7 @@ When writing or updating a reader of `.claude/rules/repo-config.md`:
   read contract and abort messages."
 - Do **not** restate the canonical abort wording inline — quote it
   from this file by exact wording. If the reader needs a
-  reader-specific prefix (e.g. "issue-developer requires it"),
+  reader-specific prefix (e.g. "/issue-* commands require it"),
   prepend it but leave the canonical tail intact.
 - Do **not** invent a new schema-version mismatch wording.
 - Re-read the file every run. Do not cache parsed values across
