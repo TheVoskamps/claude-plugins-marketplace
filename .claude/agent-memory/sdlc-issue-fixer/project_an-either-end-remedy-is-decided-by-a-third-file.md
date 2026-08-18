@@ -16,9 +16,12 @@ check.
 says the bullet has no behavior to falsify; one of the two, not both
 left disagreeing." Trimming looked like the smaller edit and the one
 that restored the invariant. It was illegal:
-`docs/plugin-authoring-constraints.md` → "A new skill's registration
-surfaces are…" names the root `README.md` roster bullet for a plugin
-as one of the surfaces a **new skill** must reach, and the PR's whole
+`docs/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
+lookup, a derivation)" says in its body prose that a new skill's
+registration surfaces are the owning plugin's `plugin.json`
+`description`, the root `README.md` roster bullet for that plugin, and
+that plugin's own README roster where it ships one — so the root
+bullet is a surface a **new skill** must reach, and the PR's whole
 subject was a new skill. Trimming would have satisfied the finding and
 broken a rule no one had cited. Only the CLAUDE.md arm was available,
 and the repair worth writing was not "delete the false clause" but

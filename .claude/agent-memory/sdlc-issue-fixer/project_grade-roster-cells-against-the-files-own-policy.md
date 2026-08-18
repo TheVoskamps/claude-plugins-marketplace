@@ -18,6 +18,13 @@ exactly the clause `skills/orchestrate/SKILL.md`'s roster bullets close
 with). Fixing only the named row leaves the file's own opening
 paragraph false.
 
+The round that fixed those two still shipped a third: `theorem-generator`'s
+"Reads a PR and returns disprovable theorems", which a later review round
+caught. It survived because the cell OPENS in scope ("Reads a PR") and the
+return clause rides on an `and` — so a reader grading the cell as a whole
+scores it by its first verb. Grade each conjunct of a cell separately, not
+the cell.
+
 **Why:** the finding cites one instance because a reviewer graded the
 row it was reading; the file's policy paragraph quantifies over the
 whole table, so it is the half that stays falsified.

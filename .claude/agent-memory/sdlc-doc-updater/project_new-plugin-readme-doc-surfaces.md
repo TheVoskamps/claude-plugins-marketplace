@@ -18,10 +18,15 @@ where the rest of the edits land, none of them next to the diff:
   and the root README bullet — the round that creates such a roster is
   exactly the round that would otherwise falsify it.
 - The new README's `dependencies` paragraph enumerates the cross-plugin
-  skills the edges cover. Settle it by grepping the plugin tree for each
-  dependency's skill names rather than writing the list from memory —
-  `sdlc` invokes `git-cleanup-branches-and-worktrees` as well as
-  `git-branch-create` / `git-issues-from-branch`.
+  skills the edges cover, which is not the same set as the skills the
+  plugin invokes. Settle it by grepping the plugin tree for each
+  dependency's skill names rather than writing the list from memory, and
+  grade each hit: `sdlc` genuinely invokes `git-branch-create` and
+  `git-issues-from-branch`, while `git-cleanup-branches-and-worktrees` —
+  covered by the same `git-tools` edge — is only *named*, by
+  `skills/orchestrate/SKILL.md`, as the whole-repo sweep of the same
+  shape as the per-worktree cleanup the orchestrator performs inline.
+  A grep hit is a mention, not a call site.
 - `plugins/issues/skills/lib/repo-config.md` → "Migration policy" names
   the `sdlc` readers and *which field each still parses*. A new skill
   that reads `github-project.fields.status.options` joins that roster;
