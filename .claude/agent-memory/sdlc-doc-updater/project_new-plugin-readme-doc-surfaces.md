@@ -64,6 +64,16 @@ trigger lists. Settle the last one by grepping the skill name across
 `plugins/`: the orchestrator's own SKILL.md naming it nowhere is what
 makes the README load-bearing rather than a restatement.
 
+Once both trigger lists exist, they falsify each other. The README's
+"stated here and in no other file" and the CLAUDE.md clause naming the
+README as that statement's sole owner cannot both stand: naming an owner
+requires stating the fact, so the sweep paragraph *is* a second file that
+states it. The repair is to scope each side — "nowhere else in the
+plugin" in the README, "the only file in the plugin" in CLAUDE.md — and
+have each name the other as the second edit point, rather than deleting
+one. Grade a uniqueness claim by grepping outside the plugin too; a
+grep confined to `plugins/<p>/` returns the answer the claim wants.
+
 **Why:** each is a list presented as complete, and each is written by an
 agent grading its own change in the same commit.
 
