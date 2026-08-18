@@ -93,13 +93,26 @@ finding next round: swap the over-broad verb for the one the argument
 needs, name the counterexample inline, and say why it is not a
 counterexample to the *narrowed* claim.
 
-## A count rots; the list does not
+## A count of the list rots; the list does not
 
 The global no-count-before-a-self-counting-list rule is the headline,
 but a tally's back-references are part of the same claim: prose
 downstream of the list ("those three lines", "the fourth"), YAML
 `description:` frontmatter, and comments in non-Markdown files, none
 of which a Markdown-only sweep reaches.
+
+Not every count in front of a self-counting list is that defect, so
+grade each one before touching it: ask what would falsify the number.
+A count stating a measured fact about the world — the routes an AST
+parks redirects on, which a walker must cover to be complete — is
+falsifiable on its own evidence, and the members under it enumerate
+that claim rather than tally the prose. It stays, because softening it
+drops the completeness the surrounding prose exists to demand. A
+count tallying the
+document's own structure — how many blocks a section chose to carry —
+is an editorial choice, so an author adding a member falsifies it. It
+goes, and the repair keeps whatever contrast the sentence was built
+around: "several claims, not one" still says the thing that mattered.
 
 A count over a set some other process keeps growing is worse than
 stale — it is re-falsified every round. A Testing bullet counting the
