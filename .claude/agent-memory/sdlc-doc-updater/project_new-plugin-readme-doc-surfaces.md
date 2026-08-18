@@ -46,6 +46,19 @@ counting it. A later fixer round that only tightens the new skill's
 own procedure has no other doc impact, so those leftovers are the
 whole pass.
 
+The CLAUDE.md sweep paragraph's "the README owns X and nothing else, so
+it takes an edit when …" clause is the leftover that survives a review
+round: on PR #283 a fixer reconciled exactly one instance of it (the
+root README bullet now spells a skill name, so "no behavior to falsify"
+became "no *contract* to falsify") and left the plugin README's own
+non-roster claims — the frontmatter keys it spells for a whole class
+(`isolation: worktree` on every agent, `user-invocable: false` on the
+non-verb skills) and the one sequencing fact no other file states
+(`/sdlc:orchestrate` does not invoke the grooming skill) — outside both
+trigger lists. Settle the last one by grepping the skill name across
+`plugins/`: the orchestrator's own SKILL.md naming it nowhere is what
+makes the README load-bearing rather than a restatement.
+
 **Why:** each is a list presented as complete, and each is written by an
 agent grading its own change in the same commit.
 
