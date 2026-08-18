@@ -12,8 +12,8 @@ This file is read by the multi-issue orchestrator, by its
 `github-project` status slot's option names to decide which status
 means orchestrate-ready), and by every `/issue-*` skill, so it must be
 present and well formed before any of those flows will work. The
-orchestrator's `issue-developer`,
-`issue-fixer`, and `doc-updater` subagents read no repo-config
+orchestrator's `issue-developer`, `issue-fixer`, and `doc-updater`
+subagents read no repo-config
 themselves — they delegate every value they once needed to the
 `git-tools:*` and `github-prs:*` skills they invoke (see
 `skills/lib/repo-config.md` → "Migration policy") — but they run under

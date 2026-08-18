@@ -107,12 +107,13 @@ of any of that, but each part has a trigger of its own: it spells the
 frontmatter keys that hold for a whole class — `isolation: worktree`
 on every agent, `user-invocable: false` on the skills that are not
 user verbs — so a PR changing either key edits it; and it is the only
-file that states `/sdlc:orchestrate` does not invoke
+file in the plugin that states `/sdlc:orchestrate` does not invoke
 `/sdlc:orchestrate-ready` — `skills/orchestrate/SKILL.md` names the
 grooming skill nowhere — so a PR that changes how the two relate edits
-it there. An agent's
-contract — what it commits, when it runs, what it returns — is
-restated outside that agent's own file in
+it there and this paragraph, which states the same thing in the course
+of naming its owner, with it. An agent's contract — what it commits,
+when it runs, what it returns — is restated outside that agent's own
+file in
 `plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
 the teammate-agent roster near the top (one bullet per agent, each
 closing with what that agent leaves behind — a push, a PR, or a posted

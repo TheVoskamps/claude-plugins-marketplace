@@ -38,8 +38,10 @@ of its own. The frontmatter keys spelled here hold for a whole class —
 `isolation: worktree` on every agent, `user-invocable: false` on the
 skills that are not user verbs — so a PR changing either key edits
 this file. And the sequencing of `/sdlc:orchestrate-ready` in front of
-`/sdlc:orchestrate` is stated here and in no other file, so a PR that
-changes how the two relate edits it here.
+`/sdlc:orchestrate` is stated here and nowhere else in the plugin, so
+a PR that changes how the two relate edits it here — and the repo's
+`CLAUDE.md`, which records that this file owns the statement and
+therefore states it too, with it.
 
 ## Skills
 
