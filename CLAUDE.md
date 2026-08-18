@@ -293,28 +293,23 @@ opening paragraph and repeats the diff-consumer list in its `/pr-diff`
 section, and `plugins/github-prs/skills/pr-diff/SKILL.md` spells that
 same consumer list once more — a surface a `sdlc`-only PR reaches only
 by remembering that adding a diff-reading agent bumps `github-prs`
-too. `plugins/issues/skills/**` names the `sdlc` readers and
-what each of them still reads — `lib/repo-config.md` says per field
-who consumes it (no `sdlc` reader dispatches on `source-control` any
-more, and of the `sdlc` readers only the orchestrator and the review
-pipeline parse `issue-link-prefix`), and its "Migration policy"
-section records that the `sdlc` readers left the reader contract
-entirely in #143. That plugin carries a **second** reader roster the
-`lib/repo-config.md` grep never reaches:
-`plugins/issues/skills/repo-config/SKILL.md`'s opening paragraph names
-the same readers while naming no field, so a new `sdlc` reader of
-repo-config is two separate edits and repairing "Migration policy"
-leaves the other one stale. Grep `plugins/issues/` for
-`multi-issue orchestrator`, not for the field name. Both are
-insertions into an already-wrapped paragraph: reflow the whole
-paragraph and write the new reader in without an ordinal, which rots
-the next time a reader joins. The root `README.md`'s `sdlc` bullet
-names the
-agents by shorthand only, with no contract to falsify. What that
-bullet does carry, and what can therefore go stale in it, is any skill
-name it spells: `docs/plugin-authoring-constraints.md` makes it one of
-a new skill's registration surfaces, so a skill added, removed or
-renamed edits it while an agent's contract changing does not.
+too. `plugins/issues/` names no `sdlc` reader of repo-config, and that
+is deliberate: a reader contract states what the file provides, never
+who consumes it, so `skills/lib/repo-config.md` describes each field
+and the read sequence while `skills/repo-config/SKILL.md` describes
+the file it writes, neither naming a consumer. A new `sdlc` reader of
+repo-config is therefore no edit in that plugin, and re-adding a
+reader roster to either file — however helpful the pointer reads — is
+the defect this shape removes. What `plugins/issues/` does still name
+the orchestrator for is unrelated to repo-config and stays:
+`skills/lib/issue.md` says it is not part of the `/issue-*` namespace
+and does not read that library, and `skills/issue-create/SKILL.md`
+sizes an issue off the "Files affected" section the orchestrator's
+analysis produces. The root `README.md`'s `sdlc` bullet names the
+agents by shorthand only and spells no skill name, so it has nothing
+to falsify: per `docs/plugin-authoring-constraints.md`, the root
+roster registers the *plugin*, so a skill added, removed or renamed
+leaves that bullet alone, and so does an agent's contract changing.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
 
