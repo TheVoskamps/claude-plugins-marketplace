@@ -68,7 +68,15 @@ nothing to push. Re-run with no argument to curate this checkout's tree.
 and stop. That abort is deliberate: the `sdlc` plugin's
 `agent-memory-scrubber` still passes a PR number, from when the tree was
 committed, and a caller that expects a commit pushed onto a PR branch
-should get a loud failure rather than a curation it cannot land.
+must not be handed a curation it cannot land.
+
+Do not read the abort as something the scrubber will notice. Its own
+verification gate is a git-state check — `HEAD` against
+`origin/<branch-name>`, plus an empty `git status --porcelain` — and a
+run that curated nothing passes both, because that gate deliberately
+treats a no-op curation as valid. Making the abort visible to that
+caller is the `sdlc` side's job, not this skill's; it goes away with
+the scrubber itself.
 
 ## Execution
 

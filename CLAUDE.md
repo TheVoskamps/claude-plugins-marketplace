@@ -33,6 +33,24 @@ run:
 They record technique, not policy: when a playbook step and a rule
 here disagree, the rule wins and the playbook is the thing to fix.
 
+Their `/docs` siblings answer different questions, so reach for each
+on its own trigger:
+
+- [`docs/prose-claim-audit.md`](docs/prose-claim-audit.md) — a section
+  per shape of sentence that goes false while every test stays green,
+  and what settles each. Read it before writing or grading prose about
+  how the code works: the playbooks say how to establish a fact, this
+  says which sentences owe you one.
+- [`docs/agent-environment-notes.md`](docs/agent-environment-notes.md)
+  — the harness and gate constraints on *how you invoke* something in
+  this repo: which refuser is talking, the accepted git command forms,
+  worktree path discipline, and the tooling and `gh` quirks that
+  otherwise read as a bug in your own change. Read it when a command
+  is refused, rather than inventing a workaround.
+
+Nothing indexes `/docs`, so this section is where a new file there
+becomes discoverable — add a bullet when you add one.
+
 ## MD041 on a SKILL.md is convention, not debt
 
 `npx markdownlint-cli2` reports
@@ -433,10 +451,17 @@ already on the local-only model: it takes no argument, never checks out
 a branch, never stages or commits or pushes, and copies the tree to a
 backup under `.claude/tmp/` before deleting anything, because git can
 neither stage nor restore an ignored path. Passed an argument it aborts
-without curating, so the scrubber's `<PR-number>` invocation is a loud
-failure rather than a curation that silently cannot land. That abort is
-the one place the skill still names the scrubber; do not "fix" it by
-re-adding a PR mode.
+without curating, which is the one place the skill still names the
+scrubber; do not "fix" it by re-adding a PR mode.
+
+That abort does not reach the scrubber as a failure. Its step-3 gate
+asks whether `HEAD` matches `origin/<branch-name>` and whether
+`git status --porcelain` is empty, and an abort that curated nothing
+satisfies both — the gate carves out exactly that shape as a valid
+no-op. So the scrubber reports success over a curation that never ran,
+which is one more reason its machinery is stale rather than load-bearing
+here. Retiring it is #261's job, not something to patch around from the
+`cc-tools` side.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
@@ -463,13 +488,21 @@ itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin describes it. `docs/guardrails-verification-playbook.md` is the
-one `/docs` surface that does, and it names verdicts only as the
+plugin describes it. The `/docs` surfaces that do are bounded, each in
+its own way.
+`docs/guardrails-verification-playbook.md` names verdicts only as the
 *controls a probe needs* — which track terminates in allow and which in
 defer, which probe rows must still deny, which spellings a widening
 already allowed on the base. A verdict change that moves any of those
 control rows updates it; grep it for `deny`, `allow`, `defer` and
-`ask` alongside the README. The gate README's one in-plugin sibling is
+`ask` alongside the README. `docs/agent-environment-notes.md` names a
+refusal only where an agent must reach for a different command form to
+get its own work done — the git static-argv and forbidden-form denies,
+the out-of-repo path denies including the empty-string operand, the
+`HOME=` deny. It states no tier and no verdict vocabulary, so a
+rebucketing leaves it alone; a change that makes a currently-refused
+form work, or refuses one it prescribes, edits it. The gate README's
+one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
 verdicts only where they decide **which destination an agent should
 write a scratch file to** — the containment and `.git/` denies, their
