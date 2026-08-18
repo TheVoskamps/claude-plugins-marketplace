@@ -37,4 +37,5 @@ writes about the *whole tree* is the part nobody measured.
 **How to apply:** on any round whose point is "this value now lives in
 exactly one place", grep the value across the tree before letting the
 prose assert it, and re-read every paragraph the diff touched for
-wrap damage. See [[fan-out-doc-surfaces]].
+wrap damage. See [[agent-variant-doc-surfaces]] and
+[[fan-out-doc-surfaces]].

@@ -39,4 +39,5 @@ successor or a member of a "both"/"each" quantifier.
 `plugins/sdlc/` for `branch claim`, `checkout --detach`, `branch -D`
 and `check out the same branch`, and read the whole sentence — decide
 per hit which agents are still in the quantifier. See
-[[no-blanket-predicate-over-a-list]].
+[[no-blanket-predicate-over-a-list]] and
+[[agent-retirement-doc-surfaces]].
