@@ -102,7 +102,15 @@ restating no agent's contract, no model, and no effort. So it is not
 where a contract change lands: it takes an edit when a PR adds,
 removes, or renames a skill or an agent, or changes which cross-plugin
 skill this plugin invokes, and the sweep target for a contract change
-is unchanged. What it carries beyond the rosters is not a restatement
+is unchanged. The cross-plugin skills a `dependencies` edge covers are
+not the same set as the skills this plugin invokes, so settle that list
+by grepping the plugin tree for each dependency's skill names and
+grading every hit rather than writing it from memory: a mention is not
+a call site, and `skills/orchestrate/SKILL.md` names
+`git-cleanup-branches-and-worktrees` — covered by the same `git-tools`
+edge as skills `sdlc` genuinely invokes — only as the whole-repo sweep
+of the same shape as the per-worktree cleanup the orchestrator does
+inline. What it carries beyond the rosters is not a restatement
 of any of that, but each part has a trigger of its own: it spells the
 frontmatter keys that hold for a whole class — `isolation: worktree`
 on every agent, `user-invocable: false` on the skills that are not
@@ -111,7 +119,13 @@ file in the plugin that states `/sdlc:orchestrate` does not invoke
 `/sdlc:orchestrate-ready` — `skills/orchestrate/SKILL.md` names the
 grooming skill nowhere — so a PR that changes how the two relate edits
 it there and this paragraph, which states the same thing in the course
-of naming its owner, with it. An agent's contract — what it commits,
+of naming its owner, with it. Grade a uniqueness claim on either side
+of that pair — "stated here and in no other file" — with a grep that
+leaves the plugin, never one confined to `plugins/sdlc/`: the confined
+grep returns the answer the claim wants, and naming an owner is itself
+a second statement of the fact, so each side has to scope itself and
+name the other as the second edit point. An agent's contract — what it
+commits,
 when it runs, what it returns — is restated outside that agent's own
 file in
 `plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
@@ -285,7 +299,17 @@ who consumes it (no `sdlc` reader dispatches on `source-control` any
 more, and of the `sdlc` readers only the orchestrator and the review
 pipeline parse `issue-link-prefix`), and its "Migration policy"
 section records that the `sdlc` readers left the reader contract
-entirely in #143. The root `README.md`'s `sdlc` bullet names the
+entirely in #143. That plugin carries a **second** reader roster the
+`lib/repo-config.md` grep never reaches:
+`plugins/issues/skills/repo-config/SKILL.md`'s opening paragraph names
+the same readers while naming no field, so a new `sdlc` reader of
+repo-config is two separate edits and repairing "Migration policy"
+leaves the other one stale. Grep `plugins/issues/` for
+`multi-issue orchestrator`, not for the field name. Both are
+insertions into an already-wrapped paragraph: reflow the whole
+paragraph and write the new reader in without an ordinal, which rots
+the next time a reader joins. The root `README.md`'s `sdlc` bullet
+names the
 agents by shorthand only, with no contract to falsify. What that
 bullet does carry, and what can therefore go stale in it, is any skill
 name it spells: `docs/plugin-authoring-constraints.md` makes it one of
