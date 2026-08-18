@@ -39,6 +39,20 @@ the list. Read each new hit before adding it: a near-miss may belong to
 a different class, and that exclusion belongs in the prose rather than
 being silently dropped.
 
+A **byte-identity** claim over such a list — "in these twin sections
+only the gloss bullets are shared copy, the prose around them is
+deliberately per-agent" — is a diff result, not a reading. Slice both
+sections to scratch files, `diff` them, and let the hunks decide which
+sentences the rule calls shared: line wrapping hides identity, so two
+paragraphs that look per-agent can still end in the same sentence at a
+different wrap, and a later sweep trusting the rule then edits it in
+one file only.
+
+A **table row** can carry the same defect in miniature. A disposition
+worded "either X's or Y's path" collapses two actors whose outcomes
+differ; split it per actor, and re-grade the sentence under the table,
+which usually names only one actor's value.
+
 Prefer rewriting so each member carries its own verified description. A
 per-member sentence can go stale singly; it cannot hide a wrong member
 behind a right one.
@@ -154,6 +168,24 @@ usually does what its doc comment says; the falsehood is in the call
 sites, so grep the callers first — a single call site is the tell that
 a "for every X" claim is scoped — and then run it.
 
+Two more members of the family, each settled by opening one file:
+
+- **"X's value always wins."** That is a claim about sourcing and
+  assignment *order*, not about who owns the name. Open the consumer
+  and compare line numbers. Ownership is not evidence about order, and
+  such a rationale is normally copied to a library header, its
+  diagnostics, a call-site comment, the README, the example configs
+  and the wizards at once — so it can be right for a false reason on
+  every surface, with nothing red.
+- **"The abort names the path."** A sentence describing what a
+  diagnostic says is a claim about literal message strings, and a
+  validator with two branches usually names the detail in only one of
+  them — the branch that has it. Count the emitting branches and make
+  the prose describe the weakest one, or say which detail belongs to
+  which case. The same goes for a doc that quotes a command shape:
+  copy the real argv from the call site, since a dropped option word
+  can be the very thing that makes the quoted position load-bearing.
+
 ## A worked example is a claim too
 
 An example asserts that one specific input reaches one specific
@@ -218,6 +250,52 @@ in the test, with its blast radius measured rather than reasoned; an
 exception phrased as "covered by some other mechanism" is a reach claim
 of its own.
 
+Auditing a large mechanical sweep — "remove token T from every
+comment" — is the same problem pointed backwards. The sweep breaks
+prose exactly where the removed token was the head of a noun phrase,
+so pair the removed and added hunks and read only the ones where the
+sweep **added** words; those are where a sentence was rebuilt and can
+have been rebuilt wrong. Read the surrounding comment block joined
+into one string, since a wrap-split phrase is invisible to a
+line-oriented grep.
+
+## A split ruling is a defect in the rule, not in the instances
+
+When one round rules that something satisfies a check and the next
+rules that it does not, the finding is about the check's wording: it
+admits two readings, so repairing the flagged instances buys one clean
+round and the dispute returns on the next diff that reaches it. Pick
+the reading that stays satisfiable in the general case, write *that*
+into the rule, and only then re-grade the instances against the
+settled rule. Reflowing the instances to satisfy an unsatisfiable rule
+leaves the rule saying the impossible thing.
+
+## An issue's account of existing behavior is a prediction
+
+An issue body carries two kinds of claim, and only one is
+authoritative. The **rule** the change must implement is the issue's
+to decide. The author's **prediction** of what verdict that rule
+produces for each existing case is a claim about code you can run —
+and it is often wrong, because acceptance bullets get written from
+memory of the implementation. Measure each predicted row against the
+current binary or script before writing code for it, implement the
+rule uniformly, and report every divergence with its measurement
+rather than bending the code to match the prediction.
+
+The neighbouring case is an issue that specifies something a repo
+document already forbids. Ship neither half silently: implement the
+issue and settle the contradicted statement in the same change, having
+first graded the statement, because the two grades take opposite
+repairs. A **capability** claim — what the harness can or cannot do —
+is verifiable, and a false one is deleted rather than carved out of;
+an exception would preserve the falsehood as the general rule. A
+**policy** claim, where both behaviors are possible and the repo
+picked one, can take a named exception with its reason inline.
+Prescriptive wording ("may only", "never") does not settle which it
+is — that is exactly how a false capability claim reads. Say in the PR
+body which grade you gave it, and sweep every restatement rather than
+the one the issue names.
+
 ## A recommendation rests on a premise, and the premise is measurable
 
 A finding's defect is normally measured; the premise underneath its
@@ -230,6 +308,17 @@ When the premise falls, the fix usually still stands but its *stated
 benefit* changes. Reword every surface to the benefit you can prove and
 report the correction, rather than shipping the reviewer's sentence
 unexamined.
+
+A finding's evidence block covers the tools the reviewer ran, and your
+repair's prose usually generalizes past them. Re-run their probe, then
+probe every additional tool your own sentence names — the sentence is
+the wider claim, so it needs the wider measurement.
+
+The mirror-image premise is a recommendation to "do what the sibling
+already does". That assumes the sibling's precondition holds on your
+side: a sibling that solely owns its destination can afford an
+`rm -rf` there, and copying it into a layer whose destination is a
+merge target deletes bytes your layer never wrote.
 
 Premises about **external state** are snapshots taken at review time,
 and the world moves between the review and the fix. Re-read both ends —
@@ -250,7 +339,26 @@ quotes and expect at least one of its halves to be closed already.
 - **A sweep rule that says which surfaces carry a clause.** Propagating
   the clause to its siblings is what makes the rule false, and the rule
   is the surface you did not open. Prefer a quantified repair with a
-  named exception over an Nth copy of the list.
+  named exception over an Nth copy of the list. When the choice is
+  between de-specifying a restatement and widening the rule's
+  exception, de-specifying wins: dropping the restated value ends the
+  sweep obligation instead of enlarging it, and the follow-up grep for
+  the literal should then return only its owner.
+- **The prose that was written to argue for something now dropped.**
+  When an owner cuts half of what a change added, deleting the entry
+  is the small part: the rationale comment, the README enumeration,
+  the tests, the PR title and body were all written to advocate for
+  it. Convert them into a documented exclusion with its reason rather
+  than deleting the mentions, or the next reader re-proposes the thing
+  that was rejected.
+- **The gap an issue says it is leaving in place.** A "known gaps" or
+  "deliberately not fixed" section is the half a change's own docs
+  reliably omit, because the author writes what the change does. But a
+  gap is exactly what a later reader cannot recover from the code: an
+  absent check reads as an oversight to fix rather than a decision to
+  respect. Grep the README for each gap's mechanism before calling it
+  covered, and re-read the nearby prose, which by then usually states
+  a completeness the gap contradicts.
 - **A rule that cites its own violating site as an exemplar.** When a
   finding offers "fix the instance or soften the claim", grep the
   claim's paragraph for the instance's name. A hit means the instance

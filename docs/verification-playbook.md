@@ -56,6 +56,71 @@ Pair it with a real-shell micro-check of the underlying mechanism when
 the defect is a parsing fact, rather than asserting the mechanism from
 the suite's verdict alone.
 
+### Derive the control from the shipped code, and watch awk's `-v`
+
+A control that reproduces pre-fix behavior is worth having only if it
+reproduces the pre-fix *code*. Hand-typing the old loop drifts the
+moment the real one changes, and then proves nothing. Slice the real
+loop out of the shipped or generated script and transform those same
+lines back to the old shape — swap the changed line, drop the added
+expansions — then assert that the transform landed (the old line
+present, the new expansions absent) before reading anything into the
+behavioral flip.
+
+When awk does that transform, its `-v` assignment is not a verbatim
+channel: it runs escape processing on the value. Measured with
+`awk -v v="$x" 'BEGIN { printf "%s", v }' | od -c` on macOS awk
+20200816:
+
+| shell-side value | reaches the program as |
+| --- | --- |
+| `a\tb` | `a`, real TAB, `b` |
+| `a\\tb` | `a`, `\`, `t`, `b` |
+
+So re-emitting a line like `while IFS=$'\t' read -r a b c; do` through
+`-v` silently plants a real tab between the quotes. Nothing warns, and
+the generated control still *behaves* right — bash reads `$'<TAB>'` as
+a tab — so only a text assertion catches it. Keep two copies, and say
+in a comment which is which:
+
+```bash
+FOO="while IFS=\$'\\t' read -r a b c; do"       # for grep/assert
+FOO_AWK="while IFS=\$'\\\\t' read -r a b c; do" # for awk -v
+```
+
+Assert with the un-doubled copy. In the same family: `\x27` for a
+single quote is outside POSIX awk, so pass it in as `-v q="'"` and
+concatenate rather than embedding a hex escape in the program.
+
+### Run the doctored cases against the approved snippet as written
+
+When a brief hands you an approved fix to apply, the approval is of an
+idea; the bytes are still unverified. Run the failure cases from the
+finding that produced it against the snippet exactly as written,
+before shipping it — an approved fix can leave a case from its own
+finding failing open. Then negate your fix at its call site and
+confirm those cases go back to failing.
+
+### A control's liveness anchor can be voided by your own change
+
+A negative control usually proves its own harness is live by pinning
+one row that still lands where it always did. Your change can be the
+thing that moves exactly that row, and the control then passes
+vacuously — it is asserting nothing about a harness that no longer
+runs the path it names. Re-point the liveness half at a row the diff
+does not touch, and re-read every control whose anchor your diff
+names, not only the controls you edited.
+
+### Prefer the fix that spares an expensive verification
+
+When a finding admits several fix shapes and the branch's strongest
+evidence came from a run you cannot cheaply repeat — a real image
+build, a real boot, a container matrix — prefer the shape that leaves
+that already-exercised path byte-identical and confines the change to
+the branch that evidence never covered. The alternative is not a
+riskier fix so much as a fix that silently expires the PR's best
+measurement.
+
 ## Bound a cleanup escalation by stubbing `kill`
 
 Reviewing a "bounded" reap or cleanup escalation (grace, then SIGTERM,
@@ -85,6 +150,64 @@ consumer is a `= "0"` test rather than an exact-value match; that a
 test asserting the value **derives** it from source rather than
 hardcoding it; and that any terminal restore is ordered before the reap
 and re-asserted after.
+
+## A background child inside `$( )` holds the substitution open
+
+Command substitution reads until its **stdout closes**, not until the
+command exits. A backgrounded child inherits that same descriptor and
+holds it for its whole lifetime, so `PID="$(start_listener)"` blocks
+for as long as the listener lives even though `echo $!` already
+wrote the pid. Measured with a `sleep 3` child: inheriting the
+substitution's stdout costs 3s, redirecting the child's own stdio
+returns immediately.
+
+```bash
+start_listener() { real_listener … >/dev/null 2>&1 </dev/null & echo $!; }
+```
+
+Two faces, and the second is the dangerous one:
+
+- **The hang.** A helper that stands up a real listener (perl
+  `IO::Socket::UNIX`/`INET`, `nc`, `socat`) and echoes its pid appears
+  to "pass but take ~30s", or times out. Stock macOS has perl with
+  real unix and TCP listeners and does *not* have `socat`.
+- **The silent mismeasurement.** A timing assertion built this way
+  reports the stub's lifetime rather than the code's — a suite meant
+  to prove "returns in ~1s" took minutes while the function under test
+  was correct. That looks like evidence and is not.
+
+So when a shell test measures elapsed time: redirect every stub
+child's stdio, have the harness write its result to a **file** and
+`cat` that afterwards rather than echoing into the substituted stdout,
+and sanity-check the wall clock — a "1 second" assertion that takes
+minutes indicts the harness before the code. In a stub that must stay
+signal-responsive, write `sleep N & wait $!` rather than a foreground
+`sleep N`, which queues the signal behind itself and makes the stub
+look like it ignores signals it does not ignore.
+
+## Comment prose inside an unquoted heredoc is code
+
+`#` is inert inside a heredoc body, and an **unquoted** delimiter
+(`<<CONF`, needed whenever the body interpolates a variable) leaves
+backticks, `$( )` and `$VAR` live. A markdown-style comment written
+for a human reader — ``# falls back to `cp --preserve=…,xattr` `` —
+is paired-backtick command substitution: the shell runs the text and
+splices its output into the generated file. In
+`plugins/claude-vm/payload/provisioners/podman-mkosi.sh` that
+corrupted the generated `mkosi.conf` and surfaced as two unrelated
+sounding failures (`cp: illegal option --`, `hashed:: command not
+found`), neither of which any pure-function test could see. The same
+bug was re-committed later, from writing a `Packages=` justification
+that naturally wanted to quote a command name.
+
+Two consequences. When debugging a real build failure whose error text
+names a command the script does not run, grep the enclosing heredoc
+body for backtick pairs, `$( )` and unintended `$VAR` before believing
+any story about the diff — check `git diff origin/main..HEAD` on the
+file too, since the defect is often older than the branch under
+review. And when editing prose *inside* such a heredoc, decide up
+front to quote command names with `'single'` or `"double"` quotes;
+escaping the backticks works but is one more thing to miscount.
 
 ## Test an interactive-shell handoff under a real pty
 

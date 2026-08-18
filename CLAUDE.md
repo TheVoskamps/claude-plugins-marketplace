@@ -17,17 +17,21 @@ run:
 
 - [`docs/guardrails-verification-playbook.md`](docs/guardrails-verification-playbook.md)
   — binary provenance (recipe rebuild, `nm` tables, build IDs,
-  comment-only rounds), synthetic `PreToolUse` probing, flag-whitelist
-  audits, and row-cross replays.
+  comment-only rounds, quoted digests), synthetic `PreToolUse`
+  probing, flag-whitelist audits, row-cross replays, and the
+  comment-vocabulary sweep a rebucketing owes.
 - [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
   — non-booting vfkit probes, privileged-container mount semantics,
-  probe-container/guest package parity, mkosi source checks,
-  launcher-loop slicing, and grading a real boot's console-marker
-  assertions.
+  probe-container/guest package parity, container-egress probing,
+  mkosi source checks, launcher-loop slicing, driving a real build and
+  boot with a stub `claude` as the assertion channel, `debugfs`
+  inspection of the built image, and grading a real boot's
+  console-marker assertions.
 - [`docs/verification-playbook.md`](docs/verification-playbook.md) —
   cross-domain: suite baselining and hybrid-tree negative controls,
-  bounded-cleanup harnesses, pty handoff probes, bash 3.2 parsing,
-  async process-substitution probes,
+  deriving a control from the shipped code, bounded-cleanup harnesses,
+  command-substitution harness traps, pty handoff probes, bash 3.2
+  parsing, unquoted-heredoc prose, async process-substitution probes,
   containerized bash 5 runs with a borrowed yq, rebase verification,
   and lint baselining.
 
@@ -90,6 +94,38 @@ below.
 
 `lib/*.md` files under a plugin's `skills/` are ordinary documents and
 DO carry an H1. They lint clean, and a new one you write must too.
+
+## A test asserts behavior, never a documentation convention
+
+Never add a test that parses or greps a package's own source for prose
+shapes — issue references in comments, TODO formats, comment wording.
+When one is removed, do not replace it with a differently shaped check:
+no build tag, no `go:generate`, no linter config added in the same PR,
+no equivalent assertion relocated elsewhere. Documentation standards
+change independently of behavior, so a style rule living in `go test`
+fails the suite over prose, and a pattern-matching check quietly
+encodes its narrow syntactic case as the definition of the class — the
+one this repo shipped and reverted for issue #193
+(`TestNoIssueRefsInComments`) missed every wrap-split reference while
+making the tree look clean.
+
+The line is drawn at what the program *emits*. Text the code returns to
+a caller is behavior and stays under test:
+`trackerRefInReason` / `TestRemediationReasonsAreActionable_58` grades
+the `Reason` strings the permission-gate hands back to a blocked agent,
+which are part of its contract
+(`plugins/guardrails/hooks/permission-gate/README.md` → "Comments state
+the invariant, not the ticket", whose closing paragraphs draw the same
+line). Ask which side of it a proposed assertion sits on before writing
+it.
+
+When a finding asks you to enforce a documentation convention, state
+the convention on the doc surface and let review carry it, saying so
+explicitly rather than reaching for a mechanism. Removing such a
+mechanism sweeps every claim it spawned in the same round — README
+sections, code comments and the PR body, including its exemptions and
+any "fails the build if reintroduced" completeness claim, all of which
+are false the moment the check is gone.
 
 ## Never invoke a GitHub publishing verb
 
@@ -504,12 +540,16 @@ Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
 plugin describes it. The `/docs` surfaces that do are bounded, each in
 its own way.
-`docs/guardrails-verification-playbook.md` names verdicts only as the
-*controls a probe needs* — which track terminates in allow and which in
-defer, which probe rows must still deny, which spellings a widening
-already allowed on the base. A verdict change that moves any of those
-control rows updates it; grep it for `deny`, `allow`, `defer` and
-`ask` alongside the README. `docs/agent-environment-notes.md` names a
+`docs/guardrails-verification-playbook.md` names verdicts in two
+bounded ways: as the *controls a probe needs* — which track terminates
+in allow and which in defer, which probe rows must still deny, which
+spellings a widening already allowed on the base — and as the *comment
+vocabulary a rebucketing falsifies*, where the buckets are named to
+say which comment claims go stale and how to enumerate the surviving
+tier. A verdict change that moves any of those control rows, or that
+moves a bucket the vocabulary section names, updates it; grep it for
+`deny`, `allow`, `defer` and `ask` alongside the README.
+`docs/agent-environment-notes.md` names a
 refusal only where an agent must reach for a different command form to
 get its own work done. The gate is only one of the refusers it covers —
 the worktree-isolation check and the auto-mode classifier are in there

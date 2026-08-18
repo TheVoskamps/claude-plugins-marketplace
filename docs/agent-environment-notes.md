@@ -237,6 +237,23 @@ is a single event.
   the current remote tip, re-apply, verify the delta is unchanged, and
   push. Never force-push out of it, and re-fetch immediately before
   every push rather than trusting a fetch from an hour earlier.
+- Where a new branch is rooted is settled by **reading the ref**, never
+  by the fetch's exit status, and it fails in both directions. A
+  `git fetch origin main` that reports no error can leave
+  `origin/main` lagging in a freshly created worktree, so
+  `git switch -c <name> origin/main` roots the branch behind the real
+  tip; compare `git rev-parse origin/main` against `git log -1 HEAD`
+  straight after creating it, and repair with
+  `git branch -f <name> origin/main` (from a detached HEAD, since git
+  refuses to force-update the branch this worktree has checked out)
+  followed by `git checkout origin/main -- .`, because neither
+  `branch -f` nor `reset --soft` touches tracked file contents. In the
+  other direction, a fetch that never ran — an SSH timeout at
+  branch-create — usually blocks nothing: a subagent worktree shares
+  the primary clone's object store and refs, so `origin/main` already
+  carries whatever the orchestrator last left there. Read it, and
+  proceed when it matches. The end-of-run push still needs the
+  credential, so a genuinely missing one surfaces there instead.
 - `git status` compares against the branch's own remote ref and says
   nothing about main. `git merge-base --is-ancestor origin/main HEAD`
   is the check that answers whether a branch is behind. A PR reading

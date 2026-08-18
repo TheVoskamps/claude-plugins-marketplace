@@ -159,6 +159,170 @@ binary. Always pass `--platform linux/arm64` and prove the platform
 inside the run with `uname -m` before trusting the result. Treat that
 warning as "this probe is invalid", not as noise.
 
+### The `apt-get update` egress probe passes with zero egress
+
+Before concluding that a build failure like `Unable to connect to
+deb.debian.org:80` is your diff, verify container egress — but not
+with `apt-get update -qq >/dev/null && echo OK`. Index fetches fail as
+`W:` warnings, so `apt-get update` exits **0** on a machine with no
+outbound TCP at all, and the probe prints `OK` beside a build that
+cannot reach the network. Probe the socket instead:
+
+```bash
+podman run --rm docker.io/library/debian:trixie bash -c \
+  'timeout 10 bash -c "echo > /dev/tcp/deb.debian.org/80" && echo OK || echo FAIL'
+```
+
+`bash`, not `sh`: debian's `/bin/sh` is dash, which has no `/dev/tcp`
+and reports `cannot create /dev/tcp/…: Directory nonexistent` — a
+false FAIL that reads as a network verdict. macOS has no `timeout`, so
+the same line on the host leg is a false FAIL for a different reason;
+use `curl --max-time` there.
+
+A live gvproxy is not evidence either. `podman machine start`
+succeeding, and `ps` showing a fresh gvproxy beside its vfkit, are
+both compatible with containers having zero egress, and DNS keeps
+resolving through the machine, so `getent hosts` does not
+discriminate. When the machine is genuinely broken, say so plainly and
+corroborate on the guest's platform another way rather than reporting
+a build failure as a defect in the change: the sliced launcher
+fragments run fine in a cached `debian:trixie` container, which is
+real linux-arm64 GNU coreutils. Restore the machine to the state you
+found it in — it is usually stopped, and `podman machine start` is a
+state change, not an install.
+
+## Drive the build and boot yourself, with a stub `claude`
+
+A real build and a real boot are both reachable from a throwaway
+subagent worktree, and the assertion channel costs nothing: the boot
+launcher execs `"$CLAUDE_BIN" "$@"` where `CLAUDE_BIN` is
+`$CLAUDEBIN_MNT/claude`, guarded only by `[ ! -x "$CLAUDE_BIN" ]`
+(`build-guest-image.sh`). Put a `#!/bin/sh` script on the claudebin
+share instead of the binary and it runs as root inside the booted
+guest, asserts whatever you like, and powers the guest off by exiting
+0. `payload/test/host-acceptance.sh` criterion (b) already does this,
+so it is established practice rather than a hack.
+
+- **Write results to `/dev/console`** (hvc0), not stdout: hvc0 is the
+  host-captured `logFilePath`, so the assertions survive in a file to
+  `grep -a` afterwards. Bracket the block with unambiguous
+  `…-BEGIN`/`…-END` markers so a host poll loop has something to wait
+  on.
+- **Build with no claude binary at all** when the plugin manifest is
+  empty: derive `CLAUDE_VM_BAKE_CONFIG` / `CLAUDE_VM_BAKE_PLUGINS`
+  from two `{}` documents through the real
+  `claude_vm_bake_config_json` / `claude_vm_bake_plugins_json`, and
+  the whole verified-cache and GPG path is skipped.
+- **Set `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS` to a probe-specific
+  string** on both `--print-version` and `--output`, or you race the
+  operator's real cached images.
+- **Bump `LAUNCHER_LOGIC_REV` before boot-testing a launcher change,
+  even mid-PR.** The launcher's source is not covered by the
+  image-identity hash and the rev is the only cache invalidator, so an
+  image built earlier on the same branch keeps the old phase and the
+  run measures nothing. For a throwaway control use an obviously fake
+  rev so its image can never be mistaken for a real one.
+- **Skip the phases you are not testing** — empty `apt-install.list` /
+  `apt-sources.tsv` / `plugin-marketplaces.tsv` / `plugin-install.list`
+  on the runconfig share, plus
+  `CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=false` and
+  `CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=false` in run.env. Boot then takes
+  under a minute and needs no egress.
+
+Gotchas that each cost a whole boot:
+
+- `settings.json` on the claudecreds share is a **hard abort**
+  (`[ ! -s … ]` → `exit 1`, a deliberate security-posture backstop).
+  Render one with the real `claude_vm_render_guest_settings` over a
+  `{}` document. A missing `.credentials.json` or
+  `claude-json-seed.json` only warns.
+- Attach a **second** `virtio-serial,logFilePath` device even when
+  headless, and in order: the first is hvc0, the second hvc1. Without
+  it `serial-getty@hvc1` has no tty, the launcher never runs, and
+  nothing at all appears.
+- `efi,variable-store=$X,create` needs `$X` **not** to exist.
+- The gvproxy socket directory must be a short `$TMPDIR` path. vfkit
+  derives a sibling socket beside the one you hand it and `sun_path`
+  is ~104 bytes, which a `.claude/worktrees/agent-<hash>/…` path
+  exhausts on its own. A relative path does not help — gvproxy parses
+  `--listen-vfkit` as a URL, so `unixgram://net.sock` puts the name in
+  the host component and binds `""`. The real launcher sites the
+  socket under the system `$TMPDIR`, which is outside a worktree
+  agent's writable boundary, so **boot with no `virtio-net` device and
+  no gvproxy** when the phase under test does not need the network:
+  the mount phase runs first, and the getty only `Wants=`
+  network-online.
+
+What that buys, by criterion:
+
+- **Guest filesystem state** (mounts, paths, permissions, content) —
+  the stub greps `/proc/mounts`, `cat`s the mounted files and writes
+  into an rw mount, all with a greppable prefix. `host-acceptance.sh`
+  never writes a `mounts.tsv`, so a `boot_mount_phase` change is not
+  verified by running it; copy criterion (b)'s choreography into a
+  scratch script and add the `mounts` shares yourself.
+- **Write-through** — the shares are ordinary host directories, so
+  after the VM exits just `cat` them.
+- **Guest environment** — make the stub an env dumper, using
+  `eval "val=\${$v-<unset>}"` so unset is distinguishable from empty,
+  and drive the fixtures through the real
+  `claude_vm_resolve_boot_env` / `claude_vm_bake_config_json` rather
+  than hand-writing them, or you measure your own transcription. Two
+  boots of the *same* `.raw` answer two criteria: one with the full
+  boot tier proves precedence, one with an empty claudecreds share
+  proves the baked half persists and the boot half is absent.
+- **A secret's absence** — give it a distinctive literal and run
+  `LC_ALL=C grep -a -c '<literal>' guest.raw` after the boots. Because
+  `virtio-blk,path=` is read-write, anything the guest wrote is in
+  that file, so this is a real "not on the guest filesystem" claim.
+  Pair it with an in-guest `grep -rl` over `/root /etc /var`.
+
+Negative-control the *boot*, not just the unit tests: build a second
+image from the same tree with only the guard removed, boot it with the
+identical manifest, and "the mount was skipped" becomes "the check is
+what skipped it".
+
+### Inspect the built `.raw` with `debugfs`, not `mount`
+
+Loop devices are unavailable in this podman machine even under
+`--privileged` — which is why the recipe uses `RepartOffline=yes` —
+and a macOS bind-mounted `.raw` cannot back one either. Carve the
+partition out and read it directly, in a container with the `.raw`
+bind-mounted read-only:
+
+```bash
+sfdisk -J guest.raw            # the root partition is the LAST entry
+dd if=guest.raw of=/var/tmp/root.img bs=1M skip=<start*512/1MiB> count=…
+debugfs -R "ls -l /root/.claude/plugins" /var/tmp/root.img
+debugfs -R "rdump /root/.claude/plugins /somewhere" /var/tmp/root.img
+```
+
+`debugfs` in this e2fsprogs build has no `-o offset`, so the carve is
+required rather than a convenience. Artifacts are large (~820 MB with
+the `.raw`); keep them under `.claude/tmp/<slug>/` and delete them
+when the run succeeds.
+
+### Probing the plugin CLI's real code path
+
+A local throwaway marketplace does not exercise the git path.
+`claude plugin marketplace add` accepts only `owner/repo`, an
+`https://…` URL, or `./path`; `file://…` is rejected outright and a
+bare local path registers as `Source: Directory (…)`, which needs no
+git at all — so a probe built on one passes in a git-less container
+and proves nothing. To exercise the git path against a marketplace you
+can "bump", add the real `https://…` marketplace and roll its clone
+under `~/.claude/plugins/marketplaces/<name>` back to an older SHA
+(`git fetch -q --depth 1 origin <sha>` then `git reset -q --hard
+<sha>`, staying on the cloned branch so the later update
+fast-forwards).
+
+Grade the **artifact**, never the exit code or the message. With `git`
+off PATH, `claude plugin marketplace update` prints
+`Successfully updated 1 marketplace(s)` and exits 0 having updated
+nothing, while `marketplace add` at least exits 1. Read the installed
+version out of `claude plugin list`. This is why a fail-soft boot
+phase can be inert with no warning on the console log.
+
 ## Verify mkosi claims against the pinned source
 
 Image-build PRs assert what mkosi does **by default** — the default ESP
@@ -355,6 +519,20 @@ appends, via a sentinel capture
 strip-all. The same blind spot appears in name validation: Python
 `re.match(r"^…$")` accepts a trailing newline, so demand `re.fullmatch`
 or `\Z`.
+
+Two mikefarah-yq behaviors bite the emitters themselves rather than
+their consumers, and both are silent:
+
+- **A comma expression can drop a branch.** Over
+  `items: [{a: 1, b: 2}, {a: 3}]`, yq v4.53.3 answers
+  `.items[] | (.a), (.b)` with `1 / 3 / null` — the *first* element's
+  `b` is gone, dropped because a later element's branch was missing,
+  and what comes back still looks like a well-formed record stream.
+  `.items[] | [(.a), (.b)] | .[]` gives `1 / 2 / 3 / null`.
+- **`unique` does not sort.** On `[c, a, c, b]` it answers
+  `["c","a","b"]` — de-duplicated in first-seen order. An
+  order-insensitive canonical form, anything hashed, needs
+  `unique | sort`.
 
 ## Name probe fixtures with distinct words, not case pairs
 

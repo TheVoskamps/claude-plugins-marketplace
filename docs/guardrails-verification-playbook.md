@@ -155,6 +155,26 @@ Scope a "only a `_test.go` changed" claim to the **last commit that
 touched `bin/`** (`git log -- plugins/guardrails/hooks/bin/`), not to
 the latest commit.
 
+### A recorded digest is of somebody's pipeline
+
+A digest quoted in a review or PR body to pin an artifact —
+"`hooks.json` unchanged, sha256 `266f565e…` on the extracted command
+string" — is the hash of the byte stream that author's pipeline
+produced, not of the logical value, so a mismatch is not yet evidence
+that anything moved. The recurring instance is a trailing newline:
+`jq -r … | shasum -a 256` and a Python `json.load(…)["command"]` hash
+disagree for that one byte, and hashing the whole file gives a third
+value again — all three honestly describable as "the sha256 of the
+hook command string".
+
+Reproduce the convention before reading anything into a mismatch:
+print every plausible variant (`jq -r`, `jq -j`, whole file) against
+the **pre-change** ref first, and match the recorded digest there.
+Cheaper and stronger for the actual question, compare the git blob
+hash across the two refs (`git ls-tree <ref> -- <path>`), which needs
+no convention at all, and keep the recorded digest only to confirm you
+and the reviewer mean the same artifact.
+
 ## Adjudicate a "comments only, no behavior change" round
 
 Two commands, and they are decisive rather than suggestive:
@@ -575,6 +595,55 @@ empty `operation` from "the gate has no rule for this" is measuring the
 wrong thing. That label also loses to any other defer analysis on the
 same line, so a probe asserting it must not put a git/gh/aws arm in the
 same command.
+
+## A rebucketing falsifies the package's comment vocabulary
+
+Moving a residual from one bucket to another leaves far more comment
+residue than an ordinary classifier change, and the residue is
+uniform: "fail-closed ASK", "escalates to a human", "costs one click",
+"→ ASK", "never defers" are the package's whole vocabulary for
+*withholding an allow*, and each occurrence naming a bucket the round
+moved is a false claim. What the author edits is the arms changed and
+the helpers renamed; what stays stale is everything else, including
+whole files outside the diff and — worst — the **tier-summary
+headers** at the top of `classifyGh`, `classifyGhAPI`,
+`classifySimpleCommand`, `classifyGhAPIREST`, `classifyAws` and
+`classifyGit`, since nobody rereads a summary list when an arm below
+it changes.
+
+- Grep the **whole package**, not the diff, for
+  `fail-closed\|fail closed\|fails closed\|never defer` plus a
+  case-sensitive `ASK`, and grade each hit against the arm it
+  describes. Slurp comment *blocks*, since the phrase wraps.
+- Enumerate the surviving hard-ask tier mechanically —
+  `grep -n "ask(" *.go | grep -v _test` — and check every surface
+  that states "the whole tier is" against that list: the gate README
+  bullet, `main.go`'s package header and `decision.go`'s `BucketAsk`
+  comment each name the tier separately, so a widening takes all
+  three.
+- Distinguish a **bucket** claim from a **shape** claim. "The same
+  whitelist shape `ghAuthStatusEscalates` holds" survives a
+  rebucketing; "the same fail-closed posture" does not, once the two
+  land in different tiers. A counterfactual bucket ("treated as
+  contained rather than asking") is a claim too — say which verdict
+  the alternative actually is.
+- The rename class runs past the helpers into **test names**: a
+  rebucketing leaves a `TestFooAsks` whose body checks `BucketDefer`.
+  Derive that list rather than eyeballing it — parse each `func Test…`
+  body for its `Bucket*` tokens and diff the set against the bucket
+  word in the name, since a name like
+  `TestContainmentNoRepoNeverAllows` legitimately claims a bucket it
+  does not assert.
+- Probe the residual rows rather than reasoning about them, and
+  rebuild the committed binaries afterwards — a comment-only edit
+  still changes their bytes.
+
+The same directory-wide sweep applies to a **containment** change,
+one level deeper: the doc comments there duplicate *each other*
+across `classify_files.go`, `classify_inrepo_write.go` and
+`readonly_util.go`, each paraphrasing the same containment rule at its
+own call site. The author's call-site edit is necessary and not
+sufficient evidence the sweep is done.
 
 ## When an ask becomes an allow, re-audit the helpers
 
