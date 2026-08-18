@@ -1609,6 +1609,47 @@ nothing about what to do, and tells whoever is tuning the evaluator
 from the §7 log no more, so a Reason must be self-sufficiently
 actionable wherever it surfaces.
 
+## An escalation states the harm, not the gate's blind spot
+
+A reason names what the operation does to the world. It never rests on
+what the gate cannot see. "The gate cannot tell what this publishes to"
+invites the reader to treat the unknown as probably-fine and click
+through; "the URL may already have been handed out and may already have
+readers" puts the actual decision in front of them. The blind spot may
+be the *engineering* reason an arm is conservative — that belongs in
+the Go comment, which is written for whoever maintains the arm — but it
+is never the case the human is asked to judge.
+
+Before citing an unknown at all, ask which value of it is the bad one.
+The recurring mistake is assuming the unseen case is the weaker one,
+when the ordering can run the other way: on `gh gist edit` the target's
+visibility looks like the tier's weakness, and an existing gist with a
+circulating URL is what can make `edit` the worse of the two verbs
+(above). An unknown one of whose values is worse than a case the gate
+already escalates was never the argument, so it stays out of the
+message entirely rather than being hedged.
+
+Two consequences, each of which the gist arms above are worked
+instances of rather than the source of:
+
+- **Scope the escalation to the whole verb, not to the flag spellings
+  that carry the payload.** A tier scoped by flag spelling is a tier
+  that can be reached around by respelling, and the argument does not
+  get weaker the second time it is made.
+- **Pin the framing in a reason-content test.** Reason text is
+  behavior, not documentation (see *Comments state the invariant, not
+  the ticket*), so a test may both **require** the harm words and
+  **forbid** the blind-spot vocabulary — which is what stops a later
+  reword quietly reinstating a framing that was already rejected. A
+  verdict probe cannot do this job: the bucket is identical under
+  either wording.
+
+**Ask, not deny**, wherever a human has a legitimate reason to perform
+the operation. This gate governs interactive human sessions as well as
+agent ones, so one click preserves the legitimate use where a deny
+strands it — which is the same membership rule *The verdict model*
+states for the deny tier, seen from the other side.
+
 ## Rules are compiled in
 
 Policy lives in the binary, not on disk — a security gate's rule set

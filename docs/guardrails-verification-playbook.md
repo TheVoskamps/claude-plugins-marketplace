@@ -99,6 +99,24 @@ destinations land in `sc.redirectTargets` and are decided by
 `redirectVetoesAllow`. Neither `ls <path>` nor `cmd > <path>` is a
 vacuous probe.
 
+### A bucket probe is blind to the reason's wording
+
+A synthetic replay reads the bucket, and the evolution log adds the
+`operation` label — neither reads the `Reason` prose. So a round that
+rewords a reason looks identical on every probe in this section, and a
+probe table is not evidence that the message still says what the
+package decided it should say.
+
+The `Reason` a blocked agent or a prompted human gets is behavior
+(`plugins/guardrails/hooks/permission-gate/README.md` → "Comments state
+the invariant, not the ticket"), so grade a reword against the package's
+own reason-content assertions instead: the tests that require the
+substrings naming the harm and forbid the ones naming the gate's blind
+spot. Read both halves — a forbid-list can pass vacuously, since it
+holds for any message that never reached for those words, so its
+liveness is settled by negate-checking it per *Negate-check the PR's own
+tests* rather than by a green run.
+
 ## Prove which source a committed binary came from
 
 ### The cheap first move: rebuild and `cmp`

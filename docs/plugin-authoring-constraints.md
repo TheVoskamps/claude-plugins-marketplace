@@ -248,6 +248,35 @@ what keeps a standalone run correct. See
   *real* independence (different audience, optional backend), not for
   tidiness.
 
+### An agent or skill may not assert a rule it cannot cite
+
+An agent or skill `.md` is instruction-as-code: the next agent that
+runs it reads its prose as policy, with no way to tell a citation from
+an invention. So a categorical prohibition that *sounds* sourced —
+"forbidden regardless", "never allowed", "not permitted" — but that no
+rules file carries becomes policy nothing backs, which is worse for the
+reader than saying nothing. Before writing one into an agent or skill
+file, grep for it in the fleet rules (`~/.claude/rules/`,
+`~/.claude/CLAUDE.md`) and the repo's own (`.claude/rules/`,
+`CLAUDE.md`), and drop it if none of them carries it.
+
+The class this catches is generic mechanics an agent reaches for while
+explaining its own guard — commit signing, `--no-verify`,
+`--no-gpg-sign`, `--force`, force-push policy. None of that is a
+particular agent's business to assert: its sibling agents say nothing
+of the kind and must not have to, and an agent file that does becomes a
+second source of truth for a rule it does not own. An agent states only
+what its own guard logic needs ("if the commit or the push failed, do
+not delete the branch") and leaves the adjacent tooling to whatever
+rule actually governs it. When the narrow fact is all you can source,
+state the narrow fact and stop.
+
+A sentence added in an earlier round of the same change is not exempt,
+and is the likeliest instance — by the time anyone re-reads it, it
+reads as settled. The repair is deleting it: not softening the modal,
+not re-aiming it at a nearby rule that says something else, and not
+writing a rules file after the fact to back a sentence that came first.
+
 ## Gotchas
 
 ### Frontmatter YAML: quote descriptions containing a colon-space

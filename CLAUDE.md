@@ -18,8 +18,9 @@ run:
 - [`docs/guardrails-verification-playbook.md`](docs/guardrails-verification-playbook.md)
   — binary provenance (recipe rebuild, `nm` tables, build IDs,
   comment-only rounds, quoted digests), synthetic `PreToolUse`
-  probing, flag-whitelist audits, row-cross replays, and the
-  comment-vocabulary sweep a rebucketing owes.
+  probing and what a probe cannot settle, flag-whitelist audits,
+  row-cross replays, and the comment-vocabulary sweep a rebucketing
+  owes.
 - [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
   — non-booting vfkit probes, privileged-container mount semantics,
   probe-container/guest package parity, container-egress probing,
@@ -60,8 +61,9 @@ on its own trigger:
 - [`docs/plugin-authoring-constraints.md`](docs/plugin-authoring-constraints.md)
   — verified constraints of the plugin system itself (file sandboxing,
   skill namespacing, what a `lib/` file can be read by) and the
-  patterns this marketplace uses within them. Read it before adding a
-  plugin or moving anything between two of them.
+  patterns this marketplace uses within them, including what an agent
+  or skill file may assert as policy. Read it before adding a plugin,
+  moving anything between two of them, or writing agent or skill prose.
 - [`docs/plugin-migration-plan.md`](docs/plugin-migration-plan.md) —
   the frozen plan for repackaging `~/.claude` as plugins, kept for
   provenance. Read it for history; never edit it.
