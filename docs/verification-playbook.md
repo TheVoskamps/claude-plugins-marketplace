@@ -201,14 +201,14 @@ found`), neither of which any pure-function test could see. The same
 bug was re-committed later, from writing a `Packages=` justification
 that naturally wanted to quote a command name.
 
-Two consequences. When debugging a real build failure whose error text
-names a command the script does not run, grep the enclosing heredoc
-body for backtick pairs, `$( )` and unintended `$VAR` before believing
-any story about the diff — check `git diff origin/main..HEAD` on the
-file too, since the defect is often older than the branch under
-review. And when editing prose *inside* such a heredoc, decide up
-front to quote command names with `'single'` or `"double"` quotes;
-escaping the backticks works but is one more thing to miscount.
+So: when debugging a real build failure whose error text names a
+command the script does not run, grep the enclosing heredoc body for
+backtick pairs, `$( )` and unintended `$VAR` before believing any
+story about the diff — check `git diff origin/main..HEAD` on the file
+too, since the defect is often older than the branch under review.
+And when editing prose *inside* such a heredoc, decide up front to
+quote command names with `'single'` or `"double"` quotes; escaping the
+backticks works but is one more thing to miscount.
 
 ## Test an interactive-shell handoff under a real pty
 

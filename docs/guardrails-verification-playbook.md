@@ -59,7 +59,7 @@ no-repo-context residual (#262 moved it off `ask`, so a stale note
 expecting `ask` here reads as a probe failure rather than the setup
 mistake it is).
 
-Two probe-cwd traps fake a whole result table:
+The probe-cwd traps that fake a whole result table:
 
 - A cwd that does not **exist** resolves no repo context, so every row
   — including the control — comes back `defer` and the table looks
@@ -195,7 +195,7 @@ and the reviewer mean the same artifact.
 
 ## Adjudicate a "comments only, no behavior change" round
 
-Two commands, and they are decisive rather than suggestive:
+The commands below are decisive rather than suggestive:
 
 1. Non-comment lines changed must be zero:
 
@@ -337,7 +337,7 @@ the class.
 Never run the mutating verb the finding is about. Pick a read verb with
 a typed flag and give it garbage: `gh pr list -L=abc` fails inside the
 same `parseSingleShortArg` and the error **quotes the value pflag
-extracted**, which is the whole answer. On gh 2.97.0 five rows settle
+extracted**, which is the whole answer. On gh 2.97.0 these rows settle
 every discrimination at once:
 
 | Spelling | Value pflag extracted |
@@ -426,7 +426,7 @@ bundled row in both field orders. The check walks the document's
 fields, so a probe that always puts the redirectable verb first cannot
 tell a whole-document rule from a first-match one.
 
-Two traps in running the query itself:
+The traps in running the query itself:
 
 - **`__Type.inputFields` may be used at most twice per document.** A
   third alias fails the whole query with
@@ -535,7 +535,7 @@ So grade the derivation, not the total: a PR that states a width and
 its composition is reproducible, and one that states a bare count is
 not.
 
-Three more replays are cheap once the rig exists:
+Further replays are cheap once the rig exists:
 
 - **Last-reviewed tip to current tip**, bounding what the rounds since
   the last review changed. Anything moving beyond the directed change
@@ -637,8 +637,8 @@ it changes.
   `grep -n "ask(" *.go | grep -v _test` — and check every surface
   that states "the whole tier is" against that list: the gate README
   bullet, `main.go`'s package header and `decision.go`'s `BucketAsk`
-  comment each name the tier separately, so a widening takes all
-  three.
+  comment each name the tier separately, so a widening takes all of
+  them.
 - Distinguish a **bucket** claim from a **shape** claim. "The same
   whitelist shape `ghAuthStatusEscalates` holds" survives a
   rebucketing; "the same fail-closed posture" does not, once the two

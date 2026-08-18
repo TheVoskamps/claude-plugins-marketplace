@@ -426,7 +426,7 @@ only one of them is on the host you are typing on: macOS BSD `cp`
 under `/bin/bash` 3.2, and GNU coreutils in a `debian:trixie` aarch64
 container (`podman run --platform linux/arm64 --user 1000`).
 
-## A green boot marker is three claims, not one
+## A green boot marker is several claims, not one
 
 `payload/test/host-acceptance.sh` proves that a launcher step ran by
 grepping a fixed marker string out of the guest console capture —
