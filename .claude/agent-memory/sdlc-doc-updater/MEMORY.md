@@ -78,8 +78,8 @@
   the consumer README's new `dependencies` edge; no CLAUDE.md sweep
   section.
 - [new plugin README doc surfaces](project_new-plugin-readme-doc-surfaces.md)
-  — a round adding a skill AND the plugin's first README leaves three
-  enumerations stale: the registration-surface sentence, the README's own
+  — where a round adding a skill AND the plugin's first README lands its
+  far edits: the registration-surface sentence, the README's own
   dependencies list, and issues/lib repo-config's sdlc-reader roster.
 - [agent-variant doc surfaces](project_agent-variant-doc-surfaces.md)
   — adding an sdlc agent variant / preloaded-instruction skill leaves

@@ -132,15 +132,16 @@ Assess the fetched issue against each of these:
    Link the new issue back. A same-repo dependency gets a real edge,
    in whichever direction the work actually runs:
    `/issue-set-blocked-by <blocked> <blocker>` when the new issue is a
-   prerequisite of the groomed one, `/issue-set-blocks` when it is the
-   other way round. A cross-repo relation gets a
+   prerequisite of the groomed one,
+   `/issue-set-blocks <blocker> <blocked>` when it is the other way
+   round. A cross-repo relation gets a
    `References: <owner>/<repo>#<M>` line in the body instead — the
    groomed issue's, the new one's, or both, whichever makes the
    relation findable from the side that needs it. **Never** a closing
    keyword — a closing keyword in a body
    auto-closes the referenced issue on merge, and one aimed at an
    issue outside a branch's own set is precisely what
-   `rules/git-workflow.md` → "Issue references" forbids.
+   `~/.claude/rules/git-workflow.md` → "Issue references" forbids.
 
 6. **Set the status, then verify the write landed.** Resolve the
    orchestrate-ready status name per "Status resolution" below, then:

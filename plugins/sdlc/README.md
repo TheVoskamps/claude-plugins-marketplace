@@ -27,8 +27,11 @@ would go stale silently. When something here and an owner file
 disagree, the owner file wins and this file is the thing to fix.
 
 What this file *does* own is the roster itself: which skills and which
-agents the plugin ships. A PR that adds, removes, or renames one
-updates the matching table below.
+agents the plugin ships, plus the `dependencies` edges and the
+cross-plugin skills those edges cover. A PR that adds, removes, or
+renames a skill or an agent updates the matching table below; a PR
+that changes which cross-plugin skill this plugin invokes updates
+"Dependencies" at the end.
 
 ## Skills
 
@@ -53,21 +56,11 @@ it fans out parallel subagents and a subagent cannot spawn subagents.
 The worked reasoning is in `docs/plugin-authoring-constraints.md` →
 "Fanning out parallel agents: a main-session skill, not an agent".
 
-### `/sdlc:orchestrate-ready <issue>`
-
-The grooming step in front of the flow. Issues are filed at the
-tracker's backlog status; this skill assesses one against the
-`issue-developer`'s escalation bar — a design decision the issue does
-not answer — resolves the gaps with the user in plain conversation,
-rewrites the body in place as one current spec, and sets the status
-the repo configures as orchestrate-ready.
-
-It is interactive by construction, which is why it is a skill and not
-an agent: the gaps it finds are questions only the user can settle,
-and a subagent that cannot ask would have to answer them itself.
-
-`/sdlc:orchestrate` does not invoke it. The user runs it first, per
-issue, and runs the orchestrator once the issues are ready.
+`/sdlc:orchestrate-ready` is the grooming step in front of the flow,
+and `/sdlc:orchestrate` does not invoke it — the user runs it first,
+per issue, and runs the orchestrator once the issues are ready. What
+it assesses an issue against, and why it is interactive rather than an
+agent, is owned by `skills/orchestrate-ready/SKILL.md`.
 
 ## Agents
 
