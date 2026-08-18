@@ -28,6 +28,14 @@ where the rest of the edits land, none of them next to the diff:
   editing it costs an `issues` version bump, which is why it is the one
   most easily skipped. See [[agent-retirement-doc-surfaces]] for the same
   file on the removal side.
+- `plugins/issues/skills/repo-config/SKILL.md`'s opening paragraph is a
+  SECOND reader roster in that plugin ("read by the multi-issue
+  orchestrator, by its `sdlc:pr-review-pipeline` review skill, and by
+  every `/issue-*` skill"), and the `lib/repo-config.md` grep that finds
+  the Migration-policy one does not reach it — its wording names no
+  field. A round that repaired Migration policy still shipped this one
+  stale (PR #283). Grep `plugins/issues/` for `multi-issue orchestrator`,
+  not for the field name.
 
 **Why:** each is a list presented as complete, and each is written by an
 agent grading its own change in the same commit.
