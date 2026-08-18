@@ -37,14 +37,16 @@ updates the matching table below.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue up to the bar the orchestrator needs, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues | main session |
 | `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper over the review pipeline | main session |
-| `sdlc:pr-review-pipeline` | The review itself: generate theorems, fan out disprovers, fan out verifiers, post one argued review | main session, invoked by the two callers above |
+| `sdlc:pr-review-pipeline` | The review itself: generate theorems, fan out disprovers, fan out verifiers, post one argued review | main session, invoked by `/sdlc:orchestrate` and `/sdlc:git-review-pr` |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 
-The last two carry no leading slash here because they are not user
-verbs: `pr-review-pipeline` is invoked by `/sdlc:orchestrate` and
-`/sdlc:git-review-pr`, and `theorem-generation` is preloaded into each
-`theorem-generator` variant through that agent's `skills:`
-frontmatter.
+`pr-review-pipeline` and `theorem-generation` carry no leading slash
+here because they are not user verbs — each declares
+`user-invocable: false`, which keeps it out of the human `/` menu while
+leaving it invocable. `pr-review-pipeline` is invoked by
+`/sdlc:orchestrate` and `/sdlc:git-review-pr`; `theorem-generation` is
+preloaded into each `theorem-generator` variant through that agent's
+`skills:` frontmatter.
 
 Review runs **in the main session** rather than in an agent, because
 it fans out parallel subagents and a subagent cannot spawn subagents.
@@ -103,8 +105,9 @@ PR" says where a review lesson lands instead.
 `plugin.json` declares `dependencies` on `issues`, `git-tools`,
 `github-prs`, and `cc-tools`. Those edges are what guarantee the
 cross-plugin skills this plugin invokes are installed and enabled
-wherever it runs — the issue verbs, `git-branch-create` and
-`git-issues-from-branch`, the PR verbs, and `agent-memory-cleanup`.
+wherever it runs — the issue verbs, `git-branch-create`,
+`git-issues-from-branch` and `git-cleanup-branches-and-worktrees`, the
+PR verbs, and `agent-memory-cleanup`.
 The edge coordinates install and enablement, not file access: plugins
 are file-sandboxed, so nothing here reads another plugin's files (see
 `docs/plugin-authoring-constraints.md`).

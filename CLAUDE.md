@@ -96,11 +96,13 @@ error first.
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
 `plugins/sdlc/README.md` exists, but it is a **pointer** document: it
-owns the roster of skills and agents the plugin ships and nothing
-else, restating no agent's contract, no model, and no effort. So it is
-not where a contract change lands — it takes an edit only when a PR
-adds, removes, or renames a skill or an agent, and the sweep target
-for a contract change is unchanged. An agent's
+owns the roster of skills and agents the plugin ships, plus the
+`dependencies` edges and the cross-plugin skills those edges cover,
+and nothing else — restating no agent's contract, no model, and no
+effort. So it is not where a contract change lands: it takes an edit
+when a PR adds, removes, or renames a skill or an agent, or changes
+which cross-plugin skill this plugin invokes, and the sweep target for
+a contract change is unchanged. An agent's
 contract — what it commits, when it runs, what it returns — is
 restated outside that agent's own file in
 `plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:

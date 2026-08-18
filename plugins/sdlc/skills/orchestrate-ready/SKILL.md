@@ -6,8 +6,9 @@ description: Assess whether an issue is specified well enough for /sdlc:orchestr
 # Orchestrate-Ready Grooming
 
 You are grooming exactly one issue up to the bar `/sdlc:orchestrate`
-needs, then flipping its status. Issues are filed at `Backlog`; they
-reach the orchestrate-ready status once they are sound enough that an
+needs, then flipping its status. Issues are filed at the tracker's
+default backlog status; they reach the orchestrate-ready status once
+they are sound enough that an
 `issue-developer` can implement them without stopping to ask a
 question the body should have answered.
 
