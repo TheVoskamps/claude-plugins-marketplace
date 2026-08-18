@@ -129,6 +129,9 @@ name: its bullet exists and describes the plugin, so a skill added to
 an already-rostered plugin needs no edit there.
 `.claude-plugin/marketplace.json` is per-plugin, not per-skill, so a
 new skill in an already-published plugin needs no entry there either.
+A new `dependencies` edge's surface is the depending plugin's own
+`README.md`, where it ships one: the edge is a fact about that plugin,
+so its README names it.
 
 `github-prs:pr-closing-issues` is the same pattern on the other side
 of the same question: it is the one skill that reads a PR body's
