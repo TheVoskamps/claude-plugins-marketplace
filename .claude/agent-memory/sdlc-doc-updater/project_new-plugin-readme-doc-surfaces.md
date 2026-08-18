@@ -38,6 +38,14 @@ where the rest of the edits land, none of them next to the diff:
   `plugins/issues/` for `multi-issue orchestrator`, not for the field
   name.
 
+Both reader-roster edits are insertions into an already-wrapped
+paragraph, so they land ragged and they land as an ordinal ("is the
+third such reader") — a tally that rots the next time a reader joins.
+Reflow the whole paragraph and write the new reader in without
+counting it. A later fixer round that only tightens the new skill's
+own procedure has no other doc impact, so those leftovers are the
+whole pass.
+
 **Why:** each is a list presented as complete, and each is written by an
 agent grading its own change in the same commit.
 
