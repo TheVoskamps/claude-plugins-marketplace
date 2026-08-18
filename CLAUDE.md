@@ -440,13 +440,12 @@ prescriptive wording, the #225 redirect, the #229 publish read. A
 verdict change that leaves that choice
 unchanged needs no edit there; one that makes a previously-safe
 destination unsafe — or newly grades a path an agent parks a scratch
-file in — does. The other exception is
-`.claude/agent-memory/`, where notes teaching agents to route around a
-gate verdict DO describe classifier behavior and are silently falsified
-when the verdict changes. Grep the agent-memory tree — all agent
-subdirectories, not one — for the gate's own message fragments ("not all
-static literals", "resolves outside the current repository", "cannot
-resolve statically") whenever a verdict changes.
+file in — does. `.claude/agent-memory/` is **not** a further exception:
+notes there do teach agents to route around a gate verdict, but the
+tree is local to whichever clone wrote it and is never committed, so no
+PR can sweep it and none is asked to. A note that a verdict change
+falsifies is corrected by the agent that next reads it, not by the
+verdict's PR.
 
 What a verdict looks like **on the wire** is a different axis, owned by
 `docs/hook-event-notes.md` → `PreToolUse` (the decision channel, any

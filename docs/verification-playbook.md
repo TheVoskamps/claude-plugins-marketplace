@@ -282,15 +282,16 @@ mirror tree under `.claude/tmp/`, copy the repo's lint config in, then
 lint both trees and diff the summaries. A missing config silently
 changes which rules fire.
 
-**Config discovery is per-directory, closest wins**, and this repo
-nests a second config at `.claude/agent-memory/.markdownlint.jsonc`.
-A mirror tree that reproduces only the root config lints under the
-wrong rules. Copying the nested config in verbatim does not fix it
-either: its `"extends": "../../.markdownlint.jsonc"` is relative to its
-own directory, so from a deeper mirror it resolves to a nonexistent
-path and markdownlint-cli2 dies with `ENOENT` rather than falling back.
-Write an equivalent config by hand with the depth corrected, plus the
-same carve-outs.
+**Config discovery is per-directory, closest wins.** This repo commits
+a single config, at the root, so a mirror tree needs only that one. Any
+subtree that later carries its own config makes the mirror harder than
+it looks: reproducing only the root config lints the subtree under the
+wrong rules, and copying the nested config in verbatim does not fix it
+either — a relative `"extends"` is resolved against the config's own
+directory, so from a deeper mirror it lands on a nonexistent path and
+markdownlint-cli2 dies with `ENOENT` rather than falling back. Write an
+equivalent config by hand with the depth corrected, plus the same
+carve-outs.
 
 When the mirror's config lineage is in doubt, skip the mirror and prove
 **line provenance** instead: `wc -l` the base blob and check whether

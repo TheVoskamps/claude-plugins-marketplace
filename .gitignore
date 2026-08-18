@@ -41,6 +41,13 @@
 !/.claude/rules/
 !/.claude/rules/repo-config.md
 
+# Agent project memory is local-only and never committed. Agents that
+# declare `memory: project` keep writing here as they work; the tree is
+# a scratch surface for the clone it was written in, not repo content,
+# so it is neither reviewed nor swept as a doc surface. Un-ignoring
+# .claude/ above would otherwise make the whole tree git-add-able.
+.claude/agent-memory/
+
 # Always ignore local/temp/backup/lock files anywhere under .claude/,
 # even inside whitelisted directories
 /**/*.local.*
