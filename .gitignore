@@ -41,6 +41,14 @@
 !/.claude/rules/
 !/.claude/rules/repo-config.md
 
+# Agent memory is local-only and never committed. Agents that declare
+# `memory: project` keep writing here; none of it is repo content, so
+# none of it is reviewed, swept as a doc surface, or evidence for a
+# claim about this repo. A lesson worth keeping past the run that
+# learned it lands in CLAUDE.md or /docs instead. This rule sits after
+# the !/.claude/ whitelist above so last-match-wins makes it effective.
+/.claude/agent-memory/
+
 # Always ignore local/temp/backup/lock files anywhere under .claude/,
 # even inside whitelisted directories
 /**/*.local.*
