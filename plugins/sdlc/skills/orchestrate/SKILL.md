@@ -921,14 +921,24 @@ is the `CLAUDE.md` and `docs/` transfers it decides on.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running after every writer — not a budget, and not a rule that
-survives later work. **If a teammate captures after the scrubber ran,
-spawn the scrubber again.** A late `issue-fixer` round after a
-re-review, or a doc fix, each writes entries into the inbox the
-scrubber already emptied; the inbox is session-ephemeral, so entries
-left there when the session ends are lost. Re-running is the correct
-move rather than a violation, and the second pass sees only what the
-later round captured. The only wrong placement is spawning it *early*,
-while more branch work is still expected.
+survives later work. **If you spawned a memory-declaring teammate
+after the scrubber ran, spawn the scrubber again.** Decide that from
+your own spawn history: capture happens inside the teammate's
+end-of-run, and none of the three reports its capture outcome back to
+you, so the condition you can actually evaluate is "an
+`issue-developer`, `issue-fixer` or `doc-updater` ran since the last
+scrubber". That over-approximates — a round that wrote no entry
+triggers a scrubber spawn that finds nothing — and the cost of the
+over-approximation is one spawn that reports "no agent memory to
+curate" and commits nothing, against the cost of the under-approximation,
+which is a round's entries dying with the session. A late `issue-fixer`
+round after a re-review, or the `doc-updater` pass that follows it,
+each captures into the inbox the scrubber already emptied; the inbox is
+session-ephemeral, so entries left there when the session ends are
+lost. Re-running is the correct move rather than a violation, and the
+second pass sees only what the later round captured. The only wrong
+placement is spawning it *early*, while more branch work is still
+expected.
 
 Curation is destructive, so it is agent-owned work: the orchestrator
 never deletes, transfers, or rewrites memory entries itself, and never
@@ -1027,7 +1037,7 @@ concurrently.
 
 The review/fix loop leaves each PR **draft** and every issue it closes
 **In Progress**, with `agent-memory-scrubber` already run against it
-after every memory-writing teammate captured (Phase 2, "Before
+after every memory-writing teammate ran (Phase 2, "Before
 `/pr-ready`: curate the PR's agent memory") so the run's memory is
 curated before the human sees it. Phase 3 is where the human
 confirms — per PR — that the loop is done and the PR is good enough to
@@ -1048,12 +1058,14 @@ only then, the orchestrator performs these transitions:
    by state, not just by prose. Do **not** call `/pr-ready` earlier in
    the loop.
 
-   If any teammate captured memory after `agent-memory-scrubber` last
-   ran — a late `issue-fixer` round, another `doc-updater` pass — spawn
-   the scrubber again first (Phase 2, "Before `/pr-ready`: curate the
-   PR's agent memory"). Those entries sit in a session-ephemeral inbox
-   and are lost when the session ends, so flipping the PR ready over
-   them discards them.
+   If you spawned a memory-declaring teammate after
+   `agent-memory-scrubber` last ran — a late `issue-fixer` round,
+   another `doc-updater` pass — spawn the scrubber again first (Phase
+   2, "Before `/pr-ready`: curate the PR's agent memory"), which is a
+   read of your own spawn history rather than of any report. Whatever
+   that round captured sits in a session-ephemeral inbox and is lost
+   when the session ends, so flipping the PR ready over it discards
+   it.
 
 2. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`
@@ -1365,8 +1377,8 @@ draft-first lifecycle:
    pipeline, and any issue-fixer rounds all run against the draft PR,
    and so does
    `agent-memory-scrubber` — running after every memory-writing
-   teammate, re-spawned whenever a later round captures more (see
-   "Before `/pr-ready`: curate the PR's agent memory"). Nothing in
+   teammate, re-spawned whenever a later round runs one of them again
+   (see "Before `/pr-ready`: curate the PR's agent memory"). Nothing in
    that sequence flips the PR to ready.
 4. **Ready at end-of-loop, on human confirmation only.** In Phase 3,
    when the human confirms a PR is good enough to end the loop, the
