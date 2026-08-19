@@ -321,7 +321,7 @@ instance:
   sweeps it, and nothing carries it into the next session, so an entry
   the curator never grades is simply lost. That makes ordering part of
   the design — the curator runs after every writer, and again whenever
-  a later writer captures — rather than an implementation detail.
+  a later writer runs — rather than an implementation detail.
 - **A branch-keyed path is read before the detach.** An agent whose
   end-of-run cleanup detaches HEAD gets an empty
   `git branch --show-current` afterwards, so it resolves the branch
