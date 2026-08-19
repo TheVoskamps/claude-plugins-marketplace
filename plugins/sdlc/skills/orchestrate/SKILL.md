@@ -210,10 +210,10 @@ plugin's reader contract, and a bare cross-plugin reference to
 `skills/lib/repo-config.md` cannot resolve it either — plugins are
 file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
 are file-sandboxed"). This is deliberate, not a gap: the orchestrator
-no longer does branch/PR mechanics itself — `issue-developer` now
-delegates those reads to `git-tools:git-branch-create` and
-`github-prs:pr-create` — so the orchestrator only ever needed these
-things out of the old six-field contract:
+no longer does branch/PR mechanics itself — the branch and the draft
+PR both exist by the time `issue-developer` returns — so the
+orchestrator only ever needed these things out of the old six-field
+contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — used in spawn-prompt templates (`<link-prefix>101`) and the
@@ -649,10 +649,8 @@ review covers an incomplete PR.
 
 This applies to **every** round that puts commits on the branch — the
 initial `issue-developer` implementation and each `issue-fixer` round
-alike (see "Handling review findings — the fix loop" below). A fixer
-round rewrites docs and doc comments under exactly the conditions the
-developer's round did — in the same commit as the code they describe —
-so it needs the same doc pass before its re-review.
+alike (see "Handling review findings — the fix loop" below) — and each
+of those rounds needs the doc pass before its re-review.
 
 The doc pass is cheap in the common case and never costs a review
 round: a round with no doc impact returns without a doc commit, and

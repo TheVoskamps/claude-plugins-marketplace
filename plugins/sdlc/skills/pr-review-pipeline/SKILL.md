@@ -346,9 +346,9 @@ else.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into every agent you
-spawn here; this step only says what you put in each.
-`--counterexample` is the disprover's full `DISPROVED` report, copied
-through **unchanged** — never summarize it for the verifier.
+spawn here; this step only says what you put in each. What you put in
+`--counterexample` is the report that theorem's disprover returned to
+you, as received — never summarize it for the verifier.
 
 **No retry ping-pong.** A `REFUTED` counterexample ends that theorem's
 round: you do not re-spawn the disprover for another attack, and you

@@ -39,9 +39,7 @@ it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--class`, and
 `--pointers`.
 
-`--branch` is what step 1 checks out; without it you have no branch to
-settle the claim against, so stop and say so rather than reading the
-branch from GitHub yourself.
+Without `--branch` you have no branch to settle the claim against.
 
 If the brief carries two claims, or none, stop and say so rather than
 inventing the missing one.

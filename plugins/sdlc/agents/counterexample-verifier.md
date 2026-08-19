@@ -59,9 +59,7 @@ it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--class`,
 `--pointers`, and `--counterexample`.
 
-`--branch` is what step 1 checks out; without it you have no tree to
-check the quote against, so stop and say so rather than reading the
-branch from GitHub yourself.
+Without `--branch` you have no tree to check the quote against.
 
 `--counterexample` is the one parameter only you receive: it is the
 thing you attack.

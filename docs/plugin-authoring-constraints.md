@@ -169,10 +169,13 @@ the briefs and says only what it puts in each; it keeps the
 class-to-severity mapping, which is its own policy over the shared
 vocabulary rather than part of it.
 
-This is dedup *within* one plugin, so nothing is invoked and no
-`dependencies` edge is involved — unlike the cross-plugin case above,
-where the sandbox (constraint 1) is what forces the shared content
-into a skill the consumers invoke by name. The skill is still
+This is dedup *within* one plugin, so no `dependencies` edge is
+involved — unlike the cross-plugin case above, where the sandbox
+(constraint 1) is what forces the shared content into a skill the
+consumers invoke by name. The agents get the skill by preload rather
+than by invoking it; a main-session skill in the same plugin that
+needs the shared content — the pipeline, for the class glosses it
+grades step 2's findings by — reaches it by name. The skill is still
 machinery rather than a user verb, so it takes `user-invocable: false`
 (constraint 4) the same way.
 
