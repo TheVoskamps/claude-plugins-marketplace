@@ -414,7 +414,7 @@ either the pipeline or orchestrate is what would end that.
 spawns are strictly non-mutating on the PR branch: none of
 `theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
 declares `memory:`, and none carries a `Write` or `Edit` tool. A
-review round therefore commits nothing, pushes nothing, and adds
+review round therefore commits nothing, pushes nothing, and writes
 nothing to `.claude/agent-memory/`.
 
 That is enforcement, not convention, so keep it structural: do not add
@@ -423,23 +423,32 @@ not give the pipeline a commit step. A durable lesson learned while
 reviewing lands as a PR against `theorem-generation` (how to state a
 better theorem), `theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or
-this file — never as a memory commit on the branch being reviewed.
+this file — never as a memory entry on the branch being reviewed.
 
-`agent-memory-scrubber`'s roster of memory-declaring agents is
-therefore `issue-developer`, `issue-fixer`, `doc-updater` and nothing
-else. `plugins/sdlc/skills/orchestrate/SKILL.md` names that roster in its
-frontmatter-baseline paragraph and again under "Being last is the
-whole point", and the capture-then-curate sentences later in that same
-frontmatter-baseline paragraph refer back to it as "those three" — a
-count, not names, so no agent-name grep reaches that back-reference and
-it goes stale in silence. A PR that
-changes which agents declare `memory:` therefore sweeps every one of
-those sites plus the scrubber's own "You persist no memory of your own"
-section. `grep -rn 'memory: project' plugins/sdlc/` finds the
-frontmatter one; the "Being last" restatement names the agents without
-the key, so grep the agent names too, and read the frontmatter-baseline
-paragraph to its end rather than expecting a grep to surface the
-back-reference.
+No `sdlc` agent commits agent memory at all. `issue-developer`,
+`issue-fixer` and `doc-updater` declare `memory: project`, and their
+end-of-run step invokes `/cc-tools:agent-memory-inbox-capture`, which
+copies their entries into a session-scoped inbox under the harness
+scratchpad. `agent-memory-scrubber` runs after all of them, invokes
+`/cc-tools:agent-memory-inbox-cleanup`, and commits only the
+`CLAUDE.md` and `docs/` transfers it decides on. Nothing under
+`.claude/agent-memory/` is ever staged, and the inbox dies with the
+session — an entry the scrubber does not transfer is gone.
+
+That roster of memory-declaring agents is therefore `issue-developer`,
+`issue-fixer`, `doc-updater` and nothing else.
+`plugins/sdlc/skills/orchestrate/SKILL.md` names it in its
+frontmatter-baseline paragraph and again under "Before `/pr-ready`:
+curate the PR's agent memory", and the capture-then-curate sentences
+later in that same frontmatter-baseline paragraph refer back to it as
+"those three" — a count, not names, so no agent-name grep reaches that
+back-reference and it goes stale in silence. A PR that changes which
+agents declare `memory:` therefore sweeps every one of those sites plus
+the scrubber's own "You persist no memory of your own" section.
+`grep -rn 'memory: project' plugins/sdlc/` finds the frontmatter one;
+the curation restatement names the agents without the key, so grep the
+agent names too, and read the frontmatter-baseline paragraph to its end
+rather than expecting a grep to surface the back-reference.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 

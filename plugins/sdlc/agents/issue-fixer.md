@@ -9,6 +9,7 @@ memory: project
 skills:
   - issue-view
   - github-prs:pr-diff
+  - cc-tools:agent-memory-inbox-capture
 ---
 
 # Issue Fixer
@@ -125,35 +126,39 @@ them when a finding's intent is only clear from its issue.
 
 9. Push the branch (it's already tracking the remote).
 
-10. Capture agent memory onto the branch, before worktree cleanup.
-    `memory: project` resolves `.claude/agent-memory/` relative to
-    your cwd, which is this throwaway worktree — anything you wrote
-    there during this run is invisible to the PR and to every other
-    agent unless you commit it onto the branch yourself. If
-    `git status --porcelain .claude/agent-memory/` shows any changes:
+10. Capture agent memory into the session inbox, before worktree
+    cleanup. `memory: project` resolves `.claude/agent-memory/`
+    relative to your cwd, which is this throwaway worktree — anything
+    you wrote there during this run dies with the worktree unless you
+    move it out. Invoke:
 
-    ```bash
-    git add .claude/agent-memory/
-    git commit -m "Add agent memory from issue-fixer"
-    git push
+    ```text
+    /cc-tools:agent-memory-inbox-capture
     ```
 
-    Stage **only** `.claude/agent-memory/` — never `git add -A` or any
-    broader directory-wide add for this commit. This is a raw,
-    append-only capture: do not prune or curate your own memory here.
-    `agent-memory-scrubber` owns curation — for when it runs, see the
+    That copies your entries into the session's inbox for this branch,
+    where `agent-memory-scrubber` grades them and transfers the durable
+    ones into `CLAUDE.md` or `docs/` — for when it runs, see the
     `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
-    agent memory". The commit message must obey the same
-    closing-keyword rule as step 8 — never a closing keyword
-    immediately before an issue reference. If `.claude/agent-memory/`
-    has no changes, skip this step; there is nothing to commit.
+    agent memory". Nothing about your memory is committed, pushed, or
+    `git add`ed: `.claude/agent-memory/` never enters a commit. Do not
+    prune or curate your own entries here either — the capture is raw,
+    and grading belongs to the curator. If you wrote no entries, the
+    skill reports "nothing to capture" and there is nothing more to do.
+    If the capture fails, stop and report it rather than proceeding to
+    cleanup — the worktree removal is what makes the loss permanent.
+
+    A later round of yours on the same branch writes the same inbox
+    subdirectory, and a same-named entry from this run overwrites the
+    earlier one. That is intended: entries are one fact each, and this
+    run saw more.
 
 11. End-of-run cleanup — release the branch claim so subsequent
     subagents can check out the same branch. Run this only if your
-    commit and push both succeeded, or if you had nothing to commit —
-    if either the commit or the push failed, `git branch -D` would
-    destroy the only copy of your work, so stop and report the
-    failure instead of proceeding to cleanup:
+    commit and push both succeeded and step 10 completed, or if you had
+    nothing to commit — if either the commit or the push failed, `git
+    branch -D` would destroy the only copy of your work, so stop and
+    report the failure instead of proceeding to cleanup:
 
     ```bash
     git checkout --detach

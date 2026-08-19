@@ -8,6 +8,7 @@ isolation: worktree
 memory: project
 skills:
   - github-prs:pr-diff
+  - cc-tools:agent-memory-inbox-capture
 ---
 
 # Doc Updater
@@ -245,24 +246,27 @@ missing doc comments.
 ## Agent memory is not yours to curate
 
 You do not judge, prune, or edit anything under
-`.claude/agent-memory/`. That is the `agent-memory-scrubber` agent's
-sole job — for when it runs, see the `/sdlc:orchestrate` skill →
-"Before `/pr-ready`: curate the PR's agent memory". Curating here
-would only reach the captures that happened to land before you.
+`.claude/agent-memory/`, or anything in the session's agent-memory
+inbox. That is the `agent-memory-scrubber` agent's sole job — for when
+it runs, see the `/sdlc:orchestrate` skill → "Before `/pr-ready`:
+curate the PR's agent memory". Curating here would only reach the
+captures that happened to land before you.
 
 You may still *write* your own memory during the run as any agent
-does; the scrubber catches it later. What you must not do is stage,
-delete, or rewrite another agent's memory entries, or a `MEMORY.md`
+does, and capture it into the session inbox at the end (step 4 of
+"Output" below); the scrubber grades it there. What you must not do is
+delete or rewrite another agent's memory entries, or a `MEMORY.md`
 index.
 
 ## Output
 
 If discovery turned up no doc impact — nothing in the diff makes a
 doc, rule, or doc comment wrong, and no new symbol needs one — there
-is nothing to stage. Skip the doc commit entirely, still capture
-**and push** your agent memory — the capture step below and the push
-after it both apply on this path — still run the end-of-run cleanup,
-and say so in your report-back. A no-op pass is a normal outcome, not
+is nothing to stage. Skip the doc commit entirely, still capture your
+agent memory into the session inbox — the capture step below applies on
+this path too, and it pushes nothing — still run the end-of-run
+cleanup, and say so in your report-back. A no-op pass is a normal
+outcome, not
 a failure: you run after every `issue-developer` and `issue-fixer`
 round (see the `/sdlc:orchestrate` skill → "After each issue-developer
 or issue-fixer: doc-updater, then review"), and many fixer rounds
@@ -284,25 +288,25 @@ Otherwise, after making all edits:
    issue. The keyword as plain English prose with no adjacent issue
    reference is fine. See `git-workflow.md` → "Issue references" for
    the full rule.
-4. Capture your own agent memory onto the branch. `memory: project`
-   resolves `.claude/agent-memory/` relative to your cwd, which is
-   this throwaway worktree — anything you wrote there during this run
-   is invisible to the PR unless you commit it onto the branch
-   yourself. If `git status --porcelain .claude/agent-memory/` shows
-   any changes:
+4. Capture your own agent memory into the session inbox.
+   `memory: project` resolves `.claude/agent-memory/` relative to your
+   cwd, which is this throwaway worktree — anything you wrote there
+   during this run dies with the worktree unless you move it out.
+   Invoke:
 
-   ```bash
-   git add .claude/agent-memory/
-   git commit -m "Add agent memory from doc-updater"
+   ```text
+   /cc-tools:agent-memory-inbox-capture
    ```
 
-   Stage **only** `.claude/agent-memory/` for this commit. It is a
-   raw, append-only capture — do not prune or curate it, and do not
-   touch another agent's entries (see "Agent memory is not yours to
-   curate" above). The same closing-keyword rule as step 3 applies. If
-   `.claude/agent-memory/` has no changes, skip this step.
-5. Push the commit(s) to the same branch so they appear on the same
-   PR.
+   That copies your entries into the session's inbox for this branch,
+   where the scrubber grades them. Nothing about your memory is
+   committed, pushed, or `git add`ed: `.claude/agent-memory/` never
+   enters a commit, so it is not part of step 5's push. The capture is
+   raw — do not prune or curate it, and do not touch another agent's
+   entries (see "Agent memory is not yours to curate" above). If you
+   wrote no entries, the skill reports "nothing to capture".
+5. Push the doc commit(s) to the same branch so they appear on the
+   same PR.
 6. Report back a summary: which files changed, what sections or doc
    comments were updated, and anything you flagged as needing human
    review (e.g., a section you weren't sure was still accurate).
@@ -315,10 +319,11 @@ can do so in their own worktrees. The review pipeline's agents are not
 among them — a `theorem-generator`, a `theorem-disprover`, and a
 `counterexample-verifier` each detach from `origin/<branch>` and claim
 nothing.
-Run this only if your commit and push both succeeded, or if you had
-nothing to commit — if either the commit or the push failed, `git
-branch -D` would destroy the only copy of your work, so stop and
-report the failure instead of proceeding to cleanup:
+Run this only if your commit and push both succeeded and the memory
+capture completed, or if you had nothing to commit — if either the
+commit or the push failed, `git branch -D` would destroy the only copy
+of your work, so stop and report the failure instead of proceeding to
+cleanup:
 
 ```bash
 git checkout --detach
