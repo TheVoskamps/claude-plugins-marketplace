@@ -1,6 +1,6 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc review pipeline and the theorem agents — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter; not invoked from the user's slash menu.
+description: The interface between the sdlc review pipeline and the theorem agents — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by sdlc:pr-review-pipeline for the class glosses; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -13,6 +13,13 @@ the generator variants, `theorem-disprover`, and
 `## Inputs` names which of the parameters below its brief carries and
 adds only what is specific to that agent; the meaning of a parameter
 is stated here and nowhere else.
+
+The pipeline reads this file too, rather than only writing against it:
+its step 2 findings come from no theorem, so it grades them by the
+class glosses below and then transcribes the class into a severity by
+its own table. That is the one reader that is not an agent, and it
+reaches this skill by name in the main session rather than by
+preload.
 
 The pipeline's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by

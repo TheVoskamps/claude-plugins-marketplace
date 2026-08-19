@@ -53,7 +53,7 @@ therefore states it too, with it.
 | `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper over the review pipeline | main session |
 | `sdlc:pr-review-pipeline` | The review itself: generate theorems, fan out disprovers, fan out verifiers, post one argued review | main session, invoked by `/sdlc:orchestrate` and `/sdlc:git-review-pr` |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
-| `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent |
+| `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent; also read by name by `pr-review-pipeline` |
 
 `pr-review-pipeline`, `theorem-generation`, and
 `theorem-agents-interface` carry no leading slash here because they
@@ -64,7 +64,9 @@ keeps it out of the human `/` menu while leaving it invocable.
 `theorem-generator` variant through that agent's `skills:`
 frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
-`counterexample-verifier` — the same way.
+`counterexample-verifier` — the same way. `pr-review-pipeline` reads
+`theorem-agents-interface` by name as well, for the class glosses it
+grades its own theorem-less findings by.
 
 Review runs **in the main session** rather than in an agent, because
 it fans out parallel subagents and a subagent cannot spawn subagents.
