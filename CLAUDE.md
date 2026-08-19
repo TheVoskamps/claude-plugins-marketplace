@@ -451,6 +451,39 @@ the curation restatement names the agents without the key, so grep the
 agent names too, and read the frontmatter-baseline paragraph to its end
 rather than expecting a grep to surface the back-reference.
 
+## The memory hand-off's strings cross a plugin boundary
+
+The capture-then-curate flow above is owned by `cc-tools` and driven
+by `sdlc`, so a change inside `plugins/cc-tools/skills/` falsifies
+prose in a plugin the diff never opens — and such a PR bumps both
+plugins' versions. What `sdlc` quotes is each skill's **no-op
+output**, which no test pins:
+
+- `/cc-tools:agent-memory-inbox-capture` reports "nothing to capture"
+  when the run wrote no entry, and `issue-developer`, `issue-fixer`,
+  and `doc-updater` each tell their reader so at their capture step.
+- `/cc-tools:agent-memory-inbox-cleanup` reports "no agent memory to
+  curate" (the inbox was absent or empty) or "no changes to curate"
+  (every verdict was delete). `agent-memory-scrubber` branches its
+  landed-on-the-PR hard gate on both, and
+  `plugins/sdlc/skills/orchestrate/SKILL.md` names both in the
+  scrubber's spawn prompt.
+
+Renaming either skill, or rewording any of those no-op lines,
+therefore sweeps every one of those files.
+`grep -rn 'nothing to capture\|to curate' plugins/` finds them.
+
+The contracts under `plugins/cc-tools/skills/lib/` go the other way,
+and the discipline is to keep it that way. The inbox path and
+layout live only in `agent-memory-inbox.md`, and the grading rubric
+only in `agent-memory-grading.md`; no file outside `cc-tools` spells
+the inbox path, and the `sdlc` side says only that the entries go to
+a session-scoped inbox under the harness scratchpad. An `sdlc` file
+that spells the path, or restates when an entry is durable, is the
+second source of truth those contracts exist to prevent — and it
+cannot be a `Read` either way, since plugins are file-sandboxed
+(`docs/plugin-authoring-constraints.md` → "Verified constraints").
+
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
 How the `guardrails` permission-gate is *shipped* — prebuilt, committed

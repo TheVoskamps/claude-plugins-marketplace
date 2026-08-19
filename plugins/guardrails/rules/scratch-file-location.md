@@ -4,7 +4,9 @@ Agent scratch, temporary, and throwaway files go under
 **`<repo-root>/.claude/tmp/`** — never a loose `/tmp/` path and never
 `.git/` (git internal state). The one sanctioned out-of-repo
 destination is the **harness scratchpad**, `/tmp/claude-<uid>/`, and
-only for files that must outlive this repo or this session.
+only for a handoff whose reader the writer's own `.claude/tmp/` cannot
+serve — one in another repo, another session, or another subagent's
+worktree.
 
 ## The rule
 
@@ -19,8 +21,8 @@ as a `cd` target), not only as a bare assignment RHS (#225).
 
 - ✅ `<repo-root>/.claude/tmp/issue-30-scratch/foo.json`
 - ✅ `/tmp/claude-<uid>/<project-slug>/<session-id>/scratchpad/…` — the
-  harness scratchpad, but only for a cross-repo or cross-session
-  handoff file (see below).
+  harness scratchpad, but only for a handoff file whose reader sits
+  outside the writer's containment boundary (see below).
 - ❌ `/tmp/foo.json` — out of repo; boundaries can't be enforced and
   the artifact escapes inspection.
 - ❌ `.git/foo.json` (or anywhere under `.git/`) — git internal state.
@@ -86,15 +88,24 @@ well-placed the file is:
 A sanctioned destination buys the file past containment, not past the
 human.
 
-## Cross-repo / cross-session handoff
+## Cross-repo, cross-session, and cross-worktree handoff
 
 Repo-scoped scratch is the common case, and `.claude/tmp/` serves it.
-But a file whose whole purpose is to outlive one repo or one session —
-a handoff another session picks up, possibly from a sibling repo —
-cannot live in either repo's `.claude/tmp/`: the reader is outside the
-writer's containment boundary, so the read is a cross-repo escape.
+But a file whose whole purpose is to reach a reader the writer's own
+`.claude/tmp/` cannot serve goes to the scratchpad instead. These
+shapes qualify:
 
-That file goes in the **harness scratchpad**, which Claude Code
+- **A file that outlives one repo or one session** — a handoff another
+  session picks up, possibly from a sibling repo. It cannot live in
+  either repo's `.claude/tmp/`: the reader is outside the writer's
+  containment boundary, so the read is a cross-repo escape.
+- **A file handed from one subagent's worktree to another's**, within
+  a single session. An `isolation: worktree` agent's `.claude/tmp/` is
+  removed with its worktree, so a later agent never gets to read it —
+  the scratchpad is the only destination both agents can name. The
+  `cc-tools` agent-memory inbox is the worked instance.
+
+Either goes in the **harness scratchpad**, which Claude Code
 provisions per session at:
 
 ```text
