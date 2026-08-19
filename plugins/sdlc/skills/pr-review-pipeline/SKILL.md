@@ -322,8 +322,7 @@ Route the model exactly as step 4 did, by the theorem's class:
 rather than restating it here.
 
 You fetched in step 4 and the branch has not moved since, so pass the
-same `--head-sha` and `--fetched yes` a disprover got — the same
-lock-race reasoning applies to k verifiers sharing one ref store.
+same `--head-sha` and `--fetched yes` a disprover got.
 
 Each verifier's brief is one counterexample and nothing more:
 
@@ -345,10 +344,11 @@ or corrected consequence statement and a consequence class. Nothing
 else.
 ```
 
-The disprover's report is copied through **unchanged**, exactly as its
-quote is copied unchanged into a finding. Never summarize it for the
-verifier: a paraphrase is precisely the thing the verifier is checking
-for, so paraphrasing it here would make the check meaningless.
+What each parameter means is owned by the
+`sdlc:theorem-agents-interface` skill, preloaded into every agent you
+spawn here; this step only says what you put in each.
+`--counterexample` is the disprover's full `DISPROVED` report, copied
+through **unchanged** — never summarize it for the verifier.
 
 **No retry ping-pong.** A `REFUTED` counterexample ends that theorem's
 round: you do not re-spawn the disprover for another attack, and you

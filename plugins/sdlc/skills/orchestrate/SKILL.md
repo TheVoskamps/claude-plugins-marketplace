@@ -77,18 +77,16 @@ frontmatter baseline, with `memory: project` on `issue-developer`,
 `.claude/agent-memory/` relative to each agent's own cwd — its
 throwaway worktree, not the primary clone — memory written mid-run
 would otherwise vanish when the worktree is torn down, never having
-reached the PR. The agents close this gap with a capture-then-curate
-flow: `issue-developer`, `issue-fixer`, and `doc-updater` each commit
-their own raw, uncurated `.claude/agent-memory/` deltas onto the
-branch at end-of-run, before their worktree cleanup, staging only that
-path — and none of them judges any memory, its own or anyone else's.
-The review pipeline's agents are outside this flow entirely: none of
-`theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
-declares `memory:`, so a review round adds nothing to the tree and a
-durable review lesson arrives as a PR against
-`sdlc:theorem-generation`, the pipeline skill, or the repo's
-`CLAUDE.md` rather than as a memory commit. Curation is
-owned by `agent-memory-scrubber`, which runs as the **last agent to
+reached the PR. The agents close this gap by capturing at end-of-run:
+whatever those three write to `.claude/agent-memory/` is on the branch
+by the time the scrubber runs, so you never carry memory between
+spawns yourself. The review pipeline's agents are outside this flow
+entirely: none of `theorem-generator`, `theorem-disprover`, or
+`counterexample-verifier` declares `memory:`, so a review round adds
+nothing to the tree and a durable review lesson arrives as a PR
+against `sdlc:theorem-generation`, the pipeline skill, or the repo's
+`CLAUDE.md` rather than as a memory commit. Curation is owned by
+`agent-memory-scrubber`, which runs as the **last agent to
 touch the branch** before `/pr-ready` (see "Before `/pr-ready`: curate
 the PR's agent memory"), and it curates the whole tree. Running last
 is what makes one pass enough: every writer has captured by then, so

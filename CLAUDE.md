@@ -164,12 +164,7 @@ of that pair — "stated here and in no other file" — with a grep that
 leaves the plugin, never one confined to `plugins/sdlc/`: the confined
 grep returns the answer the claim wants, and naming an owner is itself
 a second statement of the fact, so each side has to scope itself and
-name the other as the second edit point. An agent's contract — what it
-commits, when it runs, what it returns — lives in that agent's own
-file and nowhere else; `plugins/sdlc/skills/orchestrate/SKILL.md`
-states only the condition the orchestrator branches on when an agent
-returns, so a contract change is a one-file edit unless it changes
-that condition.
+name the other as the second edit point.
 
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
@@ -195,11 +190,10 @@ skeletons are copies of one file" below. A PR that adds a further
 off-default variant extends the exception in both places rather than
 deleting the default.
 
-Review is a further exception to the "an agent's contract lives in its
-own file" shape above, because review is not an agent at all: it is
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the main
-session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So a
-change to what a review does sweeps several files, not one — the
+Review is a further exception, because review is not an agent at all:
+it is `plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the
+main session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So
+a change to what a review does sweeps several files, not one — the
 pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
 generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately

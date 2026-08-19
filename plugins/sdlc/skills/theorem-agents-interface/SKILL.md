@@ -25,19 +25,17 @@ agent's `--issues` is settled.
 
 - `--pr <N>` — the pull request under review.
 - `--branch <name>` — the PR's head branch. Every theorem agent checks
-  it out **detached**, from `origin/<branch>`, in its own worktree
-  before settling anything. The disprover and the verifier each say in
-  their own `## Inputs` what they have nothing to work against without
-  it, and stop rather than reading the branch from GitHub themselves.
+  it out **detached**, from `origin/<branch>`, in its own worktree. The
+  disprover and the verifier each say in their own `## Inputs` what
+  they have nothing to work against without it, and stop rather than
+  reading the branch from GitHub themselves.
 - `--head-sha <oid>` — optional. The PR's head commit as the pipeline
   read it. When the agent's `origin/<branch>` already points at it,
   there is nothing to fetch.
 - `--fetched yes` — optional. The pipeline fetched `origin` in its own
   session immediately before spawning the agent, so the shared ref
-  store is already current. Together with `--head-sha`, this is what
-  keeps a fan-out of k agents from running k concurrent fetches
-  against one repo's ref store; the agent's own step 1 decides from
-  the two whether to fetch at all.
+  store is already current. The agent's own step 1 decides from this
+  and `--head-sha` whether to fetch at all.
 - `--theorem T<k>` — the theorem's handle, from the generator's
   record. Reports are filed under it.
 - `--claim <text>` — the generator's claim, verbatim from its record:
