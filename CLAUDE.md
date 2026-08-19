@@ -33,6 +33,46 @@ run:
 They record technique, not policy: when a playbook step and a rule
 here disagree, the rule wins and the playbook is the thing to fix.
 
+[`docs/prose-claim-shapes.md`](docs/prose-claim-shapes.md) answers the
+inverse question — not how to establish a fact, but which sentences to
+distrust: the claim shapes that go false while every test stays green,
+each with the tell and the check that settles it. Read it before
+grading prose, and add to it when a round turns up a new shape.
+
+Their sibling [`docs/agent-tooling-notes.md`](docs/agent-tooling-notes.md)
+answers a different question — not how to establish a fact, but how the
+tools themselves behave here: which shell the Bash tool runs, when a
+successful `git fetch` leaves its ref behind, which `gh` verbs are
+GraphQL and can fail while REST is healthy, and the `yq` expressions
+that return a wrong answer rather than an error.
+
+## Grade a repo statement an issue contradicts, don't pick a side
+
+An issue can specify something a repo document already forbids. Never
+ship one half silently: implement the issue **and** settle the
+contradicted statement in the same PR. Shipping the issue's version
+alone leaves the repo asserting the opposite in a file a future agent
+reads as policy; shipping the repo's version alone leaves an acceptance
+criterion unmet with no explanation.
+
+Which repair is right turns on what kind of claim the statement makes,
+and the two take opposite repairs:
+
+- A **capability** claim — what the harness can or cannot do — is
+  verifiable. When it is false, delete it. Carving an exception out of
+  it preserves a false claim as the general rule.
+- A **policy** claim — a choice this repo made, where the harness
+  permits both — is not falsifiable, so an issue may carve a named
+  exception out of it, with the reason the two differ stated inline.
+
+Prescriptive wording ("may only", "never") does not settle the grade;
+that is exactly how a false capability claim reads. Whichever grade you
+give, sweep every restatement rather than the one the issue names, and
+say in the PR body which grade you gave, so the reviewer grades that
+judgment rather than re-finding the contradiction. This is not an
+escalation: the issue answered the design question, and what is left is
+only what the repo statement was worth.
+
 ## MD041 on a SKILL.md is convention, not debt
 
 `npx markdownlint-cli2` reports
@@ -978,3 +1018,85 @@ not update that roster — it is a separate, easy-to-miss doc surface.
 Word the bullet like its neighbors: the plugin name in bold backticks,
 an em-dash, and a one-line description (pull language from the plugin's
 `plugin.json` `description` or its README's opening line).
+
+## An issue's "Known gaps" section is a doc requirement
+
+When an issue body carries a "Known gaps left in place" section — or
+any equivalent statement of what the change deliberately does *not*
+do — treat it as an unmet doc requirement until the PR proves
+otherwise. The developer documents what the change does; the gaps read
+as nothing to write down, and they are exactly what a future agent
+cannot recover from the code, because the absence of a check looks
+like an oversight to fix rather than a decision to respect.
+
+Grep the README for each gap's mechanism name before concluding it is
+covered, and check whether nearby prose now reads as a completeness
+claim it cannot support — a true statement about one spelling of a
+case routinely reads as covering every spelling.
+
+## The PR description is a doc surface
+
+A PR body goes stale for the same reasons a README does, and nothing
+tests it, so a hand-listed count or an unjustified "the list is closed
+because …" survives there longest. Read it with
+`gh pr view <N> --json body -q .body`, edit a scratch copy, and pass it
+back with `--body-file`.
+
+Two constraints bound that work, and only two. The closing keyword
+survives byte for byte — never add, remove, or retarget one. And
+nothing else on the PR is in scope: no comments, no reviews, no
+labels, no other PR or issue.
+
+## A rebase can absorb an identical version bump
+
+After rebasing a plugin-touching branch, re-read each touched plugin's
+`version` against the default branch's copy and bump again if they now
+match. When both sides bumped the same plugin to the same value — which
+is exactly what happens when the branch and a concurrently-merged PR
+each apply the bump rule above — git sees an identical change on both
+sides and resolves it silently. No conflict, no marker, nothing in the
+rebase output; the file simply drops out of the branch's diff. The
+branch still modifies files under `plugins/<name>/`, so the per-PR bump
+rule is now violated, and the only signal is the *absence* of a diff
+line you have to notice is missing.
+
+## Never test the package's own prose
+
+A test suite asserts that code does what it should do. It is not the
+place to enforce a documentation or style standard. Never write a test
+that parses or greps the package's own source for prose shapes — issue
+references in comments, comment wording, TODO formats — and when told
+to remove one, do not replace it with a differently shaped mechanism:
+no build tag, no generator, no linter config added in the same PR, no
+equivalent check relocated elsewhere.
+
+Two reasons. Documentation standards change independently of behavior,
+so a style rule living in the test suite fails the build over prose.
+And a pattern-matching check encodes the narrow syntactic case as the
+definition of the class, making the tree look clean when it is not —
+the wrap-split instances of the very pattern go unseen.
+
+The legitimate sibling, so the line stays clear: a check over text the
+program *emits* is behavior and stays. Grading the reason strings a
+hook returns is part of its contract; grading comments is not.
+
+When you remove such a mechanism, sweep every claim it spawned in the
+same round — README sections, code comments, the PR body — including
+its exemptions and any "every X is gone" or "fails the build if
+reintroduced" completeness claim. Those are false the moment the check
+is gone, and a stale claim is worse than none. Keep the convention and
+its rationale; drop the enforcement story.
+
+## The rebase automation can move a PR branch mid-session
+
+This repo runs a scheduled rebase sweep that force-rebases open PR
+branches onto the default branch, and it can fire while you are working
+on one. The symptom is a checkout that reports diverged histories right
+after a fetch, with the same logical commits under different hashes
+rooted on a newer merge.
+
+Recover by rebuilding your work onto the new tip rather than resetting
+— a worktree must never reset away commits it has not pushed. The
+sweep acts only on behind-or-blocked states and deliberately skips
+conflicted ones, so a conflicted PR never self-heals and is yours to
+rebase.

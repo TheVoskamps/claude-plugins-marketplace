@@ -364,3 +364,275 @@ needs the happy path:
 Revert every flip and confirm `git status --porcelain` is empty, plus
 `git hash-object <file>` equal to `git rev-parse HEAD:<path>`, before
 writing anything up.
+
+## `set -e` does not abort a non-final failure in an AND-OR list
+
+`set -e` exempts a failing command that is part of an AND-OR list other
+than the last one, so `[ -f missing ] && . missing` continues silently
+mid-script. Rewriting that as an `if` is a legibility choice, not a
+`set -e` fix, and a comment claiming otherwise is wrong.
+
+The general obligation is what matters beyond the one fact: whenever a
+comment explains *why* a spelling is unsafe, mutate the code into the
+unsafe spelling and confirm the test goes red. If it stays green,
+either the assertion is vacuous or the explanation is false — and the
+sentence ships next to correct code, which is what makes it durable.
+
+## A lifetime claim is structural, and no test fails on a wrong one
+
+"Cleaned up on exit", "removed by the trap", "shredded", "discarded",
+"temporary" — each is an assertion about what some `cleanup()` actually
+does, settled by one grep, and each is easy to write on autopilot when
+adding a new per-run artifact. In `claude-vm` the plausible default is
+backwards: `cleanup()` removes the credential directory and decides the
+image clone's fate, but deliberately retains the run directory so the
+diff and apply verbs can read it afterward.
+
+The trap is that these sentences sit beside code that was genuinely
+verified, so the tested behavior lends the untested claim unearned
+credibility. Treat a lifetime claim like "the only caller" or
+"funnelled through a single helper": a structural assertion that needs
+its own check.
+
+## A process substitution's child runs asynchronously
+
+Settling what bash itself runs for a given shape means running it with
+a marker side effect — `touch M` inside a `mktemp -d` — not reasoning
+from the parser. The trap is that a **process** substitution's command
+runs in an async child, so checking the marker immediately after the
+shell exits reports "did not run" for a shape bash genuinely does run.
+Acting on that reading inverts the conclusion and turns an accurate
+sentence into a false one.
+
+Put a `sleep` between the run and the check; it flips every
+process-substitution row. Command substitutions are synchronous and
+never show the race, which is what makes the asymmetry surprising.
+
+Include a known-ran control so a probe that measures nothing announces
+itself, and run the probe from a script file rather than as an inline
+pipeline with redirects, which the worktree-isolation check refuses.
+When a claim asserts identical behavior across bash versions, run it
+under each one rather than under whichever is on PATH.
+
+## `awk -v` applies escape processing to its assignment
+
+POSIX awk processes escape sequences in a `-v` assignment, so the two
+characters `\` and `t` arrive inside the program as a single real tab.
+Nothing warns.
+
+This bites when awk reconstructs a literal line of shell source for a
+negative control. The generated control may still *behave* correctly —
+a literal tab inside `$'…'` is a tab — so a behavioral assertion passes
+while the control no longer matches the code it claims to reproduce.
+Keep two copies, one for the assertion and a doubled one for awk, with
+a comment saying why they differ.
+
+## `git status` cannot see staleness against the default branch
+
+`git status` reporting "up to date with `origin/<branch>`" says nothing
+about the default branch: it compares against the branch's own remote
+ref, and a plain fetch does not surface the gap either. Only
+`git merge-base --is-ancestor origin/<default> HEAD` answers whether the
+branch is behind, and `git diff --name-only <merge-base>..origin/<default>`
+names which of the files you care about moved.
+
+Being behind is not by itself something to act on — a rebase answers an
+actual conflict, not a precondition for editing a file. But a PR whose
+mergeable state is conflicted never self-heals if the repo's rebase
+automation acts only on behind-or-blocked states, so do not end a run
+assuming a sweep will pick it up.
+
+## A background child inside `$( )` holds the substitution open
+
+Command substitution reads until the subshell's stdout closes, and a
+backgrounded child inherits that same descriptor and holds it for its
+whole lifetime. So capturing a helper that backgrounds a long-lived
+process and echoes its pid blocks for the child's full duration instead
+of returning immediately. Redirect the background process's own stdio
+inside the helper, so only the `echo` writes to the captured stdout.
+
+The same mechanism ruins timing assertions: a harness captured with
+`$( )` measures the stub's pipe rather than the code under test, and
+the result either times out or passes for the wrong reason. Have the
+harness write its result to a file and read that afterwards. A
+foreground `sleep` in a stub also queues a signal behind itself, so the
+stub appears to ignore signals it does not actually ignore.
+
+## Negative-control the approved design, not just your own
+
+An approved design in a brief is a *direction*, not a verified
+artifact. Run every doctored failure case the finding names against the
+snippet exactly as written, and only then against your integrated
+version — printing the raw exit status per case, not pass/fail. A
+wrapper mapping specific failure statuses to a fail-closed verdict can
+sail past the very case it was written for, because the real failure
+arrives with a status nobody enumerated.
+
+Three cheap negations, in rising cost:
+
+- **A nil argument at the one call site.** When the fix is "consult a
+  new table" or "pass a new argument", pass an empty value instead of
+  deleting code, run the new tests, and read the failures. It restores
+  with one edit, and the failure list doubles as the pre-fix verdict
+  table for the report.
+- **Flip the named construct and re-measure.** A justification of the
+  shape "keyed on X, not Y, because Y would double-count" is a claim
+  about code that does not exist — make it exist for one run, measure,
+  restore from a backup copy.
+- **A whole-file baseline.** Extract the package at the base revision,
+  copy your new test in, and run it there. That separates the rows that
+  were already graded from the ones your change flips, which no
+  reasoning about the diff can do.
+
+## A negate-check names a set, so run the whole package
+
+"Removing arm A makes test T fail" asserts both that T is in the FAIL
+list and that the tests you did not name are not. Both halves are
+settled by one command — apply the mutation, run the **entire**
+package, read the FAIL list — and a `-run` filter cannot see the second
+failure.
+
+A fault-injection test is the shape most likely to go vacuous under
+exactly its own control mutation: if the mutation stops the fault from
+being injected at all, its subtest passes green while the regression is
+really caught elsewhere. Never write the negate-check sentence from the
+test you were editing; let the FAIL list name what it names. When a
+fault-injection subtest is absent from that list, say in its own
+comment what its control actually covers.
+
+## Delete the named mechanism to grade the reason
+
+A sentence of the form "X happens **because** the code treats this as
+Y" is two claims, and running the example confirms only the first. To
+grade the second, delete Y from the example and re-run: if the verdict
+survives, Y was never load-bearing. Keep a positive control alongside,
+so the surviving row is not read as "the mechanism is unmodelled".
+
+## A control needs a liveness anchor your change cannot void
+
+A negative control has two halves: the claim, and an anchor row that
+still rides the mechanism being swapped, proving the swap does
+something. When a later round moves the anchor row too, the control
+still compiles, still passes, and separates nothing. Re-anchor on a row
+outside the diff's reach whenever a round changes a verdict the control
+depends on.
+
+## Pin a spec's empirical premise with a live look
+
+An authoritative Design section can carry a factual premise — "the
+observed layout across many projects" — that is simply wrong, and
+implementing it faithfully still ships the defect. Fixtures can never
+catch it: a fixture restates the author's belief about the layout,
+which is the thing that was wrong, and a richer fixture set restates it
+again.
+
+Whenever a change encodes a pattern for paths some *other* system
+creates — harness scratch directories, cache trees, tool-managed
+directories — list the live surface before writing the pattern, and
+treat the issue's empirical claim as unverified until you have.
+
+## A bounded poll followed by an unconditional wait is unbounded
+
+A tick-budgeted loop followed by an unconditional blocking call only
+decides *when* you start blocking forever. The give-up branch must
+return before any blocking call, and that is a structural property
+worth asserting structurally — comparing the source positions of the
+give-up and the wait — rather than behaviourally.
+
+Escalate through finite rungs, each with its own budget, and treat
+"survived every rung" as a real outcome with its own status rather than
+falling through. Order teardown so user-visible state is restored
+before the reap, since a hang after a partial teardown leaves the
+operator's terminal wrong for the whole hang.
+
+## Audit a mechanical prose sweep by its added words
+
+A mechanical sweep over prose produces two kinds of hunk, and only one
+can be wrong. Pure deletions are safe by construction and reading them
+is waste. **Substitutions** — where the removed token was load-bearing
+and the sweeper had to put something in its place — are where every
+artifact lives.
+
+Two cheap passes, both scriptable: pair each run of removed lines with
+the added lines that replaced it, keep the pairs where the added side
+contains a word absent from the removed side, and read those; then
+independently re-extract every comment block in the current tree,
+join it with the wraps closed up, and grep the joined text for
+dangling-phrase shapes. Both must come back clean, and each finds
+artifacts the other misses.
+
+A second artifact lives in the same hunks: **wrap raggedness**, where
+the sweeper re-wrapped only the lines it touched. A blanket short-line
+scan is nearly all false positives, because code lines are short by
+nature. The reliable test is whether the first word of the next line
+would have fitted on this one at the file's own width — applied only
+inside the sweep's own substitution hunks, since a whole-file re-wrap
+is churn that buries the real change.
+
+## Derive a stale-identifier list mechanically
+
+When a finding hands you identifiers with the word "candidates", treat
+the list as evidence that a class exists, not as the class. Derive the
+real set from the two things that disagree — for a rename round, split
+each test file on its function boundaries, take the name, and report
+any test whose name claims something its body never asserts.
+
+Expect the derived run to surface both members the finding missed and
+pure false positives — a test that names a thing deliberately *because*
+it asserts its absence, or names the helper it calls rather than a
+verdict. The script picks the candidates; you grade each hit by reading
+it.
+
+## Derive an enumeration from the structure, never transcribe it
+
+An enumeration that silently drops members is the defect, so closing
+the one omission a finding names is not the fix — it ships the sibling
+defects and buys another round.
+
+Dump the real structure with a throwaway in-package test, grade every
+surface against that dump with a script rather than by eye, and run the
+checker **before** editing: it must fail on exactly the dropped
+members, and that failure is what makes its later pass mean anything.
+Cut each prose bullet at its first dash so a deliberate *negative*
+clause does not read as a claimed member. Restructure rather than
+truncate — if the complete set no longer reads as a parenthetical, make
+it a list. Not every hedged list is in the class: a scoped "some of
+these needed X, see Y for the rest" is scoped, not truncated, but say
+so rather than leaving the reader to notice.
+
+## When enumeration stalls, make the reach structural
+
+When a round hands you "you closed one more instance of the same
+class", and the round before it said the same thing, the enumeration
+itself is the defect. Stop adding call site N+1 and rewrite the
+mechanism so its reach is a property of the traversal rather than of a
+list a human keeps complete. Done once, that closes positions no round
+had thought to list.
+
+## Union-resolving a conflict silently reverts in-place edits
+
+A conflict hunk is a *region*, not a change set. When both sides append
+to the same tail and also revise existing lines, one region mixes lines
+only one side added, lines only the other added, and lines both sides
+rewrote from the same ancestor. Pasting both sides keeps the additions
+but re-installs your side's stale copy of every line the other revised
+— a silent revert with no marker and no diff line to notice missing.
+
+Read what the incoming commit actually changed with
+`git show <sha> -- <file>` first, take the incoming side only for the
+lines it touched, and take the other side's text for the rest.
+
+## MD060 scores each table separately
+
+With the default `any` style, MD060 does not pick one style per
+document: it scores **each table** against the alternatives and reports
+violations for whichever would produce the fewest. A table whose cells
+happen to be narrow can come out closest to one style while
+structurally identical tables in the same file come out closest to
+another.
+
+`--fix` repairs the per-pipe styles but never the aligned one, because
+fixing a single aligned violation can require rewriting the whole
+table. So a `--fix` pass over a batch of MD060 hits predictably leaves
+a residue that looks like a different, harder problem and is usually
+the same trivial one.

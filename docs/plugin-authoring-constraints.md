@@ -273,3 +273,95 @@ This bites skills that began life as custom slash commands (which did
 not require frontmatter) and later had a description bolted on without
 quoting. Run `claude plugin validate <path>` on every plugin before
 publishing.
+
+### `claude plugin validate` is silent on a passing skill
+
+`claude plugin validate <plugin-dir>` validates each skill's
+frontmatter, not only `plugin.json`, but on success it prints just the
+manifest line and the pass marker. The `Validating skill: <path>` line
+appears **only** for a skill that fails.
+
+That silence invites the wrong conclusion — that the command skipped
+the skills and a clean run proves nothing. It does not. Treat a clean
+run as real evidence that every skill's frontmatter parses: do not
+re-probe to confirm the command works, and do not write in a PR that
+frontmatter went unchecked.
+
+Agent frontmatter is not established as covered — only skills have been
+probed — so for a new agent file, still eyeball the `description:` for
+the unquoted colon-space above.
+
+### Verify agent tool names against the live documentation
+
+When a change touches an agent's `tools:` frontmatter, check the names
+against the current Claude Code tools, sub-agents and plugins reference
+documentation rather than against the issue body or training priors.
+Both drift: a tool can be removed entirely, or exist but be disabled by
+default in favour of a newer set, and an issue's claimed list of stale
+names can be written months before the work is picked up. The plugins
+reference is also the authority for which frontmatter keys a plugin
+agent supports at all, which is worth reading directly rather than
+inferring from the agents already in the tree.
+
+### Where a newly demonstrated fact belongs
+
+A round that adds a plugin, extracts a skill, or adds an agent variant
+updates the plugin's own tree and stops there, because nothing in the
+diff forces a marketplace-wide reference doc. Route by the kind of
+fact:
+
+- **A packaging-system fact** — sandboxing, skill namespacing,
+  `dependencies`, `bin/` on PATH, a new packaging *shape* such as a
+  within-plugin dedup via a preloaded skill — belongs in this file's
+  "Patterns this marketplace uses" section. That is the durable home
+  for a generalization, and a new shape is not covered by the existing
+  cross-plugin entries.
+- **A hook-event behavior fact** belongs in `docs/hook-event-notes.md`
+  with a citation to the hooks documentation. It does not belong here:
+  such facts hold for any `settings.json` hook with no plugin
+  involved, so they are off this file's charter.
+- **A new plugin's roster bullet** belongs in the root `README.md`.
+  That is the one doc that reliably goes stale when a plugin is added,
+  since nothing else cross-references the plugin list by name.
+- **Nothing** belongs in `docs/plugin-migration-plan.md`. It is a
+  frozen historical planning record whose table predates several
+  shipped plugins; adding to it documents a plan, not a roster.
+
+Two surfaces a skill-extraction round leaves behind: the consumer
+plugin's README does not mention the `dependencies` edge its
+`plugin.json` gained, even when that README has a section on how the
+plugin resolves things internally; and a consumer README's "what
+differs between these consumers" sentence enumerates the arms on which
+they diverge, so giving the extracted skill a new reported outcome
+makes its scoping false. Only opening both consumers settles it.
+
+Do **not** answer surviving duplication here with a sweep rule. A
+sweep rule over duplicated behavior is itself the defect — deliberate
+per-consumer policy arms are not drift.
+
+### An agent or skill may not assert a rule it cannot cite
+
+An agent definition is instruction-as-code for whoever runs it next, so
+prose that sounds like a citation but has no source is worse than no
+prose — it becomes policy nothing actually backs. Before writing a
+categorical prohibition about adjacent tooling into an agent or skill
+file, grep the actual rules files for it. If it is not there, state
+only the narrower fact this agent's own guard logic needs, and let a
+real rule govern the rest.
+
+Commit and push mechanics are the recurring temptation, and they are
+not a particular agent's business to legislate: sibling agents say
+nothing of the kind and should not have to.
+
+### A cross-plugin reference does not resolve
+
+Plugins are file-sandboxed, so a skill in one plugin cannot read a file
+living in another plugin's directory, and a `dependencies` entry does
+not grant file access either. A skill whose doc says it follows another
+plugin's reader contract "by reference" therefore follows nothing.
+
+Where a skill genuinely needs one or two per-repo config values, parse
+those lines inline and say so. Reserve a full duplicate of another
+plugin's contract for the case where the whole contract is genuinely
+needed — and where neither applies, the honest answer is that the guard
+was vacuous and belongs deleted rather than referenced.
