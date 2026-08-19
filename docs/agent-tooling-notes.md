@@ -115,6 +115,15 @@ the cwd, and a Read window: if the grep says a phrase is on one line
 and your Read of that range shows something else, you are reading two
 different files.
 
+The other remedy is to bypass the filesystem entirely and extract the
+bytes from the ref you mean: `git show HEAD:<path>` — or
+`git show origin/<branch>:<path>` — reads the path out of that commit
+rather than off disk, so it cannot reach another checkout's working
+files, whatever path the context handed you. Worktrees share one ref
+store, so the anchor that makes this yours is `HEAD`, which is
+per-worktree: after a detached checkout it names the commit you
+checked out, not the branch the primary clone sits on.
+
 The injected `CLAUDE.md` in system context is that same stale copy and
 can run whole sections behind the worktree's. Read the worktree's copy
 before deciding what a repo rule says.
