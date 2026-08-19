@@ -266,11 +266,10 @@ is nothing to stage. Skip the doc commit entirely, still capture your
 agent memory into the session inbox — the capture step below applies on
 this path too, and it pushes nothing — still run the end-of-run
 cleanup, and say so in your report-back. A no-op pass is a normal
-outcome, not
-a failure: you run after every `issue-developer` and `issue-fixer`
-round (see the `/sdlc:orchestrate` skill → "After each issue-developer
-or issue-fixer: doc-updater, then review"), and many fixer rounds
-touch no documentation at all.
+outcome, not a failure: you run after every `issue-developer` and
+`issue-fixer` round (see the `/sdlc:orchestrate` skill → "After each
+issue-developer or issue-fixer: doc-updater, then review"), and many
+fixer rounds touch no documentation at all.
 
 Otherwise, after making all edits:
 

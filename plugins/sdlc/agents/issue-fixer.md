@@ -266,8 +266,7 @@ the findings you were given, and report it either way.
   serve — one in another repo, another session, or another subagent's
   worktree, which is what your end-of-run memory capture is. Ordinary
   task scratch does not qualify and belongs under `.claude/tmp/` as
-  above. Write under the
-  scratchpad path the harness gave this session; do not hand-build a
-  lookalike path elsewhere in the tree.
+  above. Write under the scratchpad path the harness gave this session;
+  do not hand-build a lookalike path elsewhere in the tree.
 - Do NOT create a new PR — the existing PR will pick up your pushed
   commits.
