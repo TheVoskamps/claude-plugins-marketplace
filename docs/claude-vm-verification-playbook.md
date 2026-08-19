@@ -370,3 +370,402 @@ one inside a larger flow, and the wrong answer matches a *different*
 fixture's content. Before filing that, print the fixture the callee
 actually read from inside the flow, and check the fixture names for
 case-only distinctness. Name them `gbake.yml` / `gboot.yml`.
+
+## A guest boot is an assertion runner, via a stub `claude`
+
+The boot launcher runs `"$CLAUDE_BIN" "$@"` as the hvc1 session, and
+`CLAUDE_BIN` is `/mnt/claudebin/claude` — a path on a share the host
+stands up. Put a `#!/bin/sh` script there instead of the real binary.
+It only has to be executable, since the seam's check is
+`[ ! -x "$CLAUDE_BIN" ]`. It runs as root inside the booted guest, can
+assert anything, and `exit 0` makes the guest power itself off.
+`payload/test/host-acceptance.sh` criterion (b) already works this way.
+
+Write results to `/dev/console` (hvc0), not stdout: hvc0 is the
+host-captured `logFilePath`, so the assertions survive in a file to
+grep afterward. Bracket the block with unambiguous
+`BEGIN`/`END` markers so a host poll loop has something to wait on.
+
+Such a build needs no claude binary at all.
+`CLAUDE_VM_GUEST_CLAUDE_BIN` is consumed only when the plugin manifest
+is non-empty, so driving `build-guest-image.sh --output` with a bake
+config derived from two `{}` documents skips the whole
+verified-cache and GPG path. Set `CLAUDE_VM_IMAGE_IDENTITY_SEGMENTS`
+to a probe-specific string or the probe races the operator's real
+cached images, and give `CLAUDE_VM_ROOT_HEADROOM_MB` a small value to
+shave the build.
+
+Skip the boot phases the probe is not testing by writing empty
+`apt-install.list`, `apt-sources.tsv`, `plugin-marketplaces.tsv` and
+`plugin-install.list` onto the runconfig share, with
+`CLAUDE_VM_PACKAGES_UPDATE_AT_BOOT=false` and
+`CLAUDE_VM_PLUGINS_UPDATE_AT_BOOT=false` in run.env. The boot then
+needs no egress at all.
+
+### What the claudecreds share must carry
+
+Two of its files are hard aborts and one is optional, and the
+difference is not guessable from their names — each missing one costs
+a whole boot to discover:
+
+- `settings.json` — `[ ! -s … ]` → `exit 1`. It is the security-posture
+  file (the deny-list backstop), so the launcher refuses to boot
+  without it. Render one with the real
+  `claude_vm_render_guest_settings` over a `{}` document.
+- `.credentials.json` — `[ ! -s … ]` → `exit 1` as well. A probe that
+  treats the credential as optional because it is not testing
+  authentication still has to supply a non-empty one.
+- `claude-json-seed.json` — guarded by `[ -s … ]` and simply skipped
+  when absent. This is the only genuinely optional member.
+
+### Boot-probe requirements that each cost a boot
+
+- Attach a **second** `virtio-serial,logFilePath` device even when
+  headless. Without it `serial-getty@hvc1` has no tty, the boot
+  launcher never runs, and nothing appears at all. Device order is
+  load-bearing: the first is hvc0, the second hvc1.
+- The gvproxy socket directory must be a short `$TMPDIR` path. vfkit
+  derives a sibling socket in the same directory and the AF_UNIX limit
+  is 104 bytes, which a worktree path under `.claude/worktrees/` already
+  overflows.
+- `efi,variable-store=<path>,create` requires that the path not exist.
+  Pre-creating it as a directory fails with `Is a directory`.
+- A local-path marketplace does not need a `.git` directory; a plain
+  `git archive` export of the tree registers and installs fine.
+
+Write-through is checkable from the host afterward: the shares are
+ordinary host directories, so once the VM exits, read them directly.
+
+## Assert the guest environment with the same stub
+
+The stub extends to environment assertions. `printf` each variable to
+`/dev/console`, and use `eval "val=\${$v-<unset>}"` so an unset
+variable stays distinguishable from an empty one — that difference is
+usually the whole point of the probe.
+
+Derive the fixtures through the real helpers rather than by hand: the
+boot tier's env file from `claude_vm_resolve_boot_env` over a real boot
+document, the bake tier from `claude_vm_bake_config_json` into the
+provisioner's own render. A hand-written fixture measures the
+transcription, not the code.
+
+Boots of the *same* `.raw` answer separate criteria and the later ones
+are nearly free: one with the full boot tier establishes precedence,
+one with an empty claudecreds share establishes that the baked half
+persists while the boot half is absent.
+
+For a secret-leak check, give the secret a distinctive literal and
+`LC_ALL=C grep -a -c '<literal>' guest.raw` after the boots. Because
+`virtio-blk,path=` is read-write, anything the guest wrote is in that
+file, so the absence is a genuine "not on the guest filesystem"
+measurement rather than an inference. Pair it with an in-guest
+`grep -rl` over `/root`, `/etc` and `/var`.
+
+## `apt-get update` exits 0 when every fetch fails
+
+The obvious container-egress probe is broken:
+
+```bash
+podman run --rm docker.io/library/debian:trixie \
+  sh -c 'apt-get update -qq >/dev/null 2>&1 && echo OK || echo FAILED'
+```
+
+Failed index fetches are `W:` warnings, not errors, so this prints `OK`
+on a machine with no outbound TCP whatsoever — the exact false
+reassurance that sends a reader off blaming their own diff for a build
+that died on `Unable to connect to deb.debian.org:80`.
+
+Probe the socket instead:
+
+```bash
+podman run --rm docker.io/library/debian:trixie bash -c \
+  'timeout 10 bash -c "echo > /dev/tcp/deb.debian.org/80" && echo OK || echo FAIL'
+```
+
+Use `bash`, not `sh`: debian's `/bin/sh` is dash, which has no
+`/dev/tcp` and reports `Directory nonexistent` — a false FAIL that
+reads like a network verdict. macOS has no `timeout`, so the host leg
+of the same question needs `curl --max-time` instead.
+
+A live gvproxy proves nothing about egress. `podman machine start`
+succeeding, and a fresh non-zombie gvproxy with its vfkit in `ps`, are
+both compatible with containers having zero connectivity. DNS resolves
+through the machine either way, so name resolution is not a
+discriminator. When the machine is in that state the honest report is
+that a real build is unavailable until it is repaired — corroborate on
+the guest's platform in a cached `debian:trixie` container, and restore
+the machine to the state you found it in.
+
+## A plugin change is verifiable in a live guest before merge
+
+`claude plugin marketplace add <git-url>` clones the marketplace's
+**default branch** — there is no ref, branch or tag selection — so a
+baked image carries whatever version is on the default branch, never a
+feature branch. That fact is true, and the conclusion once drawn from
+it is false: it does not make a plugin change unverifiable before the
+merge, and telling a human that a guest verification is structurally
+impossible is wrong.
+
+The pre-merge recipe:
+
+1. Launch the guest from a **worktree of the branch**, copying the
+   repo's untracked `.claude-vm/` config pair into the worktree and
+   running the launcher from the worktree root.
+2. The checkout is available inside the guest at `/mnt/repo`. In the
+   guest, remove the git marketplace, add `/mnt/repo`, and install the
+   plugin from it — that installs the branch's version with no merge.
+3. `/reload-plugins` re-registers the plugin's hooks in the live
+   session, so a hook change takes effect without relaunching.
+4. Keep the baked version as the negative control: exercise the bug
+   against it first, then flip to the branch's version in the same
+   session. A before/after inside one live session is the strongest
+   evidence available.
+5. For a local-path marketplace, `CLAUDE_PLUGIN_ROOT` resolves to the
+   marketplace *source tree* (`/mnt/repo/plugins/<plugin>`), not the
+   version cache. Paths in hook output and in any probe follow that,
+   and it differs from the baked layout.
+
+Only the bake path itself waits for the merge — the image build
+installing the new version from the marketplace's default branch. That
+is one line in a PR, not a test plan handed to the human.
+
+## Driving a real build and boot yourself
+
+The podman machine is usually stopped and must be started explicitly,
+and its start does not always produce a working container network.
+Verify egress with the socket probe above before concluding anything
+about your own diff, and stop the machine again when done.
+
+Drive the build with `build-guest-image.sh --output <path>`, exporting
+the same environment the launcher does. Derive the JSON blobs with the
+real `claude_vm_bake_config_json` and `claude_vm_bake_plugins_json`
+over merged documents; the bake files' own schema has `packages:` as a
+flat list, with no `.packages.bake` normalization on that path.
+
+**Getting a real linux-arm64 claude binary.** The host's cache under
+`~/.config/claude-vm/` is unreadable from a worktree-isolated agent.
+Fetch one into repo scratch through the product's own verified path
+instead, setting `CLAUDE_VM_CACHE_DIR` under `.claude/tmp/<slug>/` and
+sourcing `lib/claude-cache.sh` to call `claude_cache_ensure`. The
+signing-key fingerprint is the only blocker: invoking `gpg` directly is
+denied and the pinned value sits in an unreadable config, but
+`claude_cache_gpg_verify` prints the real fingerprints in its mismatch
+diagnostic, so one run with a dummy pin yields them. Corroborate that
+value against the published key by computing the OpenPGP v4 fingerprint
+of the key file in pure Python — `sha1(b"\x99" + uint16(len(body)) +
+body)` over the first tag-6 packet, stdlib only. gpg still runs fine
+inside the product's own scripts; only a top-level call is blocked.
+
+Setting `CLAUDE_ARGS` to `plugin list` makes claude run
+non-interactively, print the installed set to hvc1, and exit, which
+turns a full boot including the plugin phase into an assertion channel
+with no interactive session and no Keychain.
+
+**Inspect the built `.raw` with `debugfs`, not `mount`.** Loop devices
+are unavailable in this podman machine even under `--privileged`, which
+is why the recipe uses `RepartOffline=yes`, and a macOS bind-mounted
+`.raw` cannot back a loop device either. Read the partition table with
+`sfdisk -J` (root is the last entry), `dd` that range out, and use
+`debugfs -R "ls -l <path>"` or `debugfs -R "rdump <path> <dest>"`.
+
+The guest-side boot phases are testable without a VM by slicing the
+function out of the launcher heredoc and sourcing it in an arm64
+container against a real linux-arm64 binary. A compiled hook binary is
+likewise testable on real linux-arm64 without any VM, since the podman
+machine is arm64 linux and the debian images are the guest's platform.
+`--platform linux/amd64` works under emulation. What is *not* reachable
+this way is an interactive in-guest claude session actually firing the
+hook — that one needs the live guest run above.
+
+## Unit tests do not reach the generated artifacts
+
+The provisioner's suite exercises pure functions in the config library
+and never renders or executes the `mkosi.conf` and in-container build
+script the provisioner writes. A real end-to-end build finds failures
+those tests had no chance to catch.
+
+The cheap harness that does reach them: put a stub `podman` on PATH in
+repo-local scratch that answers the preflight with success and, on
+`run`, captures the bind-mount source paths and copies the generated
+recipe out. That runs the provisioner's real code path and hands you
+the literal artifacts to inspect, without a real build.
+
+The suite's real-boot acceptance run is not coverage for every guest
+change either: it attaches only the built-in shares and never writes a
+mount manifest, so a change to the guest's mount phase is unverified by
+it — that run only proves the launcher still boots.
+
+## Inspect a built image with `debugfs`, not a loop device
+
+Loop devices are unavailable in this podman machine even privileged, so
+read the partition table, carve the root partition out with `dd`, and
+read the filesystem directly:
+
+```bash
+fdisk -l guest.raw                      # partition 2 is the ext4 root
+dd if=guest.raw of=rootfs.img bs=512 skip=<start> count=<count>
+debugfs -R "stat /usr/bin/apt-get" rootfs.img
+debugfs -R "cat /var/lib/dpkg/status" rootfs.img
+```
+
+This `e2fsprogs` build has **no** offset flag, so passing the whole
+disk image does not work — only a partition-only file does.
+
+Note that the provisioner's staging tree is never copied into the final
+image; that is mkosi's design. To see a rendered file that lives there,
+inspect the stage directory before its exit trap deletes it, not the
+built image.
+
+## mkosi facts that are only in its source
+
+The man page is necessary but not sufficient — default partition sizing
+and the exact repository stanzas written into the image are only in the
+Python source. Fetch the tree listing through the API and grep the
+paths rather than guessing a module path, because the directory name
+changed between versions and a wrong guess 404s silently.
+
+**`Minimize=guess` sizes the filesystem, not the partition.** With
+offline repart it tight-fits the filesystem to measured content, while
+a minimum-size setting only enlarges the GPT slot. The two do not
+compose as "the larger wins": the result is a partition with a large
+unformatted tail the running guest cannot use, and a guest whose free
+space matches the tight-fit filesystem rather than the configured
+headroom. Verify by reading the GPT entry and the filesystem
+superblock separately out of a real built image.
+
+## The build-time package manager does not land in the image
+
+mkosi's package list is installed by mkosi's own tooling running in the
+build container, which builds the guest rootfs from outside it. Those
+packages land in the guest; the tool that installed them does not. So a
+boot-time step that shells out to the package manager fails with
+"command not found" unless that package is *also* named in the recipe's
+base package list. Bake it unconditionally when the feature it serves
+has a default-on knob — gating the package on "is this configured"
+reproduces the same failure.
+
+**`apt-get clean`, measured in a real container:** it deletes fetched
+archives and both binary cache files, and does **not** touch the
+package-index lists, which a later install needs. Those caches
+regenerate on every subsequent invocation, so `clean` must be the last
+call in a sequence to leave the working set trimmed. Test this on a
+stock image only after removing the vendor drop-in that already
+disables those caches, or the measurement is of the drop-in.
+
+**A keyring's extension decides how apt loads it.** apt dispatches on
+the file extension, not the content, so binary OpenPGP bytes saved
+under an armored name load as an empty keyring and every update fails
+unsigned — while a signature verifier that *does* sniff content
+validates the same bytes happily. Sniff the first bytes after fetching
+and rename accordingly, before the line that composes the
+`signed-by=` path. An operator-pinned path is exempt, since renaming
+would desync the emitted line from the file on disk.
+
+## Probing the marketplace CLI
+
+The plugin CLI accepts only a few marketplace source forms; a
+`file://` URL is rejected outright, and a bare local path registers as
+a directory needing no git at all. So a local throwaway marketplace
+cannot exercise the git code path, and a probe built on one passes in a
+git-less container while proving nothing.
+
+To exercise the git path, add the real marketplace and then roll the
+clone backwards inside it — fetch a specific old revision and hard
+reset to it, staying on the cloned branch so the later update
+fast-forwards. Installing then pins the old version and the boot
+phase's update must carry it forward.
+
+## Two guest-image facts that are easy to get backwards
+
+**Getty respawn is governed by the restart setting, not the leading
+dash.** The upstream unit ships an always-restart policy, and
+overriding that is the only thing that stops the unit restarting when
+its login program exits. The leading dash on the exec line does
+something different — it makes a nonzero exit be *reported* as success.
+Shipping correct behavior with the wrong rationale invites a future
+reader to restore the dash believing it inert, or delete the restart
+override believing the missing dash covered it.
+
+**The image identity hash does not cover the boot-launcher source.** It
+hashes the bake config files and the repo name, and nothing else, so a
+launcher logic change needs its own revision stamp to invalidate cached
+images.
+
+## vfkit's own signal handler force-kills after a fixed deadline
+
+vfkit's SIGINT/SIGTERM handler requests an ACPI stop and then waits a
+**hardcoded** five seconds before logging a forced stop and killing the
+VM. A real guest reliably takes longer than that to halt, so a terminal
+interrupt reaching vfkit always force-kills. Its REST channel maps a
+stop request to the same underlying call but with no force timer, so
+the wait is natural — which is why the guest powering itself off is the
+clean path, and why a workaround built on job control is not.
+
+## An unquoted heredoc does not have comments
+
+A heredoc opened unquoted — required whenever a variable must
+interpolate into the generated file — gets no `#`-comment parsing. A
+prose comment written with paired backticks for a human reader is
+**command substitution** to the shell: it executes the quoted text as a
+real host command and splices its output into the generated file.
+
+The symptom is misleading, and reads as two or three unrelated bugs
+somewhere else entirely — an unknown flag from a command your script
+does not contain, a "command not found" for a fragment of your own
+prose. Grep the script for the command the error names before believing
+it; when it appears nowhere, the heredoc is the place to look.
+
+## A missing key and an explicit empty value differ
+
+Asked whether a downstream reader can see an empty field, the
+reachability question splits in two and the halves can have opposite
+answers. Probe both against the real emitter before writing "this
+cannot happen".
+
+Measured on the TSV emitters: with a guarded expression every absent
+key normalizes to a genuinely empty field, but an unguarded field
+renders a **missing** key as the literal four-character string `null`
+while an explicit empty value renders empty. So the same question is
+answered no for the omitted key and yes for the explicit one, in one
+emitter. Answering from the omitted-key case alone grades the site
+unreachable.
+
+## One named mechanism is usually one of several routes
+
+When a finding says a mechanism destroys the thing a gate tests, resist
+reasoning from that mechanism to the whole key set — it is usually one
+route of several, and each reaches a different subset. Build the
+member-by-spelling-by-layer matrix and run it through the real merge.
+
+Measured on the plugin-key placement gate, the named prune was one of
+three routes: the whole-empty-list-key prune, a recursive empty-map
+delete that reaches **every** key written as an empty map whether it is
+a list key or not, and no prune at all — where a valueless key arrives
+as a genuine null that a not-null test reads as absent. Negative-control
+with the pre-fix launcher extracted at its own revision.
+
+## Slice the caller to prove a guard is wired
+
+A new validator carries two separable claims: that it rejects bad
+input, and that the program actually asks it. A unit test on the helper
+proves only the first, and the second is what silently regresses — a
+guard can be written, tested, and never wired, or wired after the code
+that already consumed the bad value.
+
+Slice the launcher's own config-load block by line range, wrap it in a
+harness that sources the library and sets the tier variables from
+arguments, append a success marker, and run it with the temporary
+directory pointed inside the harness's own workspace. The fixture then
+travels the real merge and the real gate order.
+
+## Let re-verification cost break a tie between remedies
+
+A finding often lists several acceptable remedies, and in this plugin
+the cost of *re-verification* is usually the deciding one, because the
+only real evidence for guest behavior is a real build plus a real boot
+and a fix round rarely gets to redo that matrix.
+
+Prefer the remedy that leaves the already-verified path byte-identical,
+even when it is more lines than the alternative. Confining a change to
+the branch that was never verified anyway preserves the one piece of
+expensive evidence the work already has.

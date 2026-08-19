@@ -632,3 +632,351 @@ which value lands in each slot — a value validated only as a
 **charset** is not validated as a path component, and a default built
 from a different field never reaches the check that sits inside the
 `if` for the explicit one.
+
+## The `/tmp` cwd degrades two rules in opposite directions
+
+`classifyCmd` sets `CWD: "/tmp"`, which is not a git repository. Two
+different classes of rule read live git state, and the missing
+repository breaks them the opposite ways round — so "the `/tmp` cwd"
+is not a fact you can reason about in general. Check which way the rule
+under test degrades.
+
+**Origin-aware rules fail OPEN.** Foreign-target scoping compares a
+`gh` write's `-R`/`--repo` target against the session repo's origin, by
+calling `git remote get-url origin` at classify time. Under `/tmp` the
+lookup fails, the scoping is skipped, and the command *allows* rather
+than reaching the escalating verdict. Fail-open on a git failure is
+deliberate for these refinement rules — a git hiccup must not block
+normal use — so a test with no real cwd silently proves nothing about
+the branch it was written for. Give the event a real repository with an
+origin remote.
+
+**Containment fails CLOSED.** Path operands go through
+`resolveRepoContext`, which errors without a repository, so the call
+lands on the no-repo-context residual before any path is graded. The
+damage here is asymmetric and only half of it is loud: a row asserting
+ALLOW fails visibly, while a row asserting the residual's own bucket
+keeps passing — for the wrong arm — so the assertion survives while the
+coverage evaporates.
+
+That second half got worse when the residual moved to `defer`, because
+`defer` is also the honest verdict for the whole judgment middle, so a
+row landing there now looks plausible where the old bucket looked odd.
+
+So on any change that puts new operands through containment, sweep the
+existing tests for rows of that program carrying a path-shaped operand.
+Move them to a helper that initialises a real repository, or pin the
+reason rather than the bucket, so a bucket-only pass cannot hide the
+swap. This is the sibling of negate-checking: that establishes a *new*
+test reaches the new code, this one establishes an *old* test still
+reaches the code it was written for after the code moved beneath it.
+
+## The gate adjudicates the commands you edit it with
+
+The compiled gate is a live `PreToolUse` hook while you work on it, so
+it rules on your own tool calls in real time. The forms it refuses are
+not obstacles to route around — each has a plain spelling that works:
+
+- A `git` invocation carrying a command substitution or heredoc is
+  denied as non-static argv. Write a multi-line commit message to a
+  file under the worktree's own `.claude/tmp/<slug>/` and use
+  `git commit -F <file>`; the same applies to PR bodies via
+  `--body-file`. A file a publish verb sends to GitHub is itself
+  subject to read containment, so anchoring scratch inside the worktree
+  satisfies both rules at once. The anchor allowlist —
+  `$(git rev-parse --show-toplevel)`, `--git-common-dir`, `$(pwd)` —
+  is the one substitution that resolves, in every word position.
+- `git -C <absolute-path> <subcommand>` is a forbidden form even in a
+  subagent. Run bare `git <subcommand>`; the cwd is already the
+  worktree root on every call.
+- A write anchored at the *primary clone's* path is denied from inside
+  a worktree, because it resolves outside the agent's own tree.
+- BSD `sed -i ''` is denied: the mandatory empty suffix reads as a
+  write target that resolves outside the repository, so no in-repo
+  spelling gets through. Use the Edit tool, or copy the file and edit
+  the copy — `cp` itself is fine.
+- Setting `HOME=` inline is refused, since a redirected HOME changes
+  where git reads configuration and therefore where git might write.
+  This does not make a HOME-redirected experiment impossible: move it
+  into a container, where the redirection is the container's business
+  and no host git configuration is in play.
+- A multi-construct one-liner — a `for` loop, an `&&` chain, anything
+  carrying a redirect — is refused as too complex to verify it stays
+  inside the worktree. Write the script to a file and run
+  `bash <script>`, or issue one plain command per call. This bites
+  exactly when probing a rebuilt binary against several synthetic
+  events: run one invocation per call.
+- Reads outside the repository are refused for `cat`, `grep` and
+  `find`, so a dependency's source under a module cache is unreadable.
+  Query it through its own tooling instead — `go doc <import-path>.<Symbol>`
+  answers exported field and method shapes without a filesystem read.
+
+Forms that look like they should be refused and are not, so no
+workaround is warranted: a leading `GOOS=`/`GOARCH=`/`CGO_ENABLED=`
+assignment on a `go build`, `podman run` including a host bind-mount,
+`mkdir -p` and `>` redirects relative to the worktree cwd, and an
+environment prefix on a program the git/gh/aws classifiers never see.
+
+The Edit tool enforces the worktree boundary independently of the gate,
+and reading the primary clone's copy is allowed — which makes it easy
+to Read one path and then fail to Edit it. Anchor every path to the
+worktree root, reads included.
+
+## Settle a reach claim by running the classifier, not by reading it
+
+A claim about the gate's *reach* — "the walk descends into every
+process substitution", "every operand funnels through this choke
+point", "all three tracks" — is settled with a throwaway
+`zz_docprobe_test.go` in the package that logs the classifier's
+verdict for each shape, run and then deleted before staging.
+
+Reading the helper bottom-up confirms such a claim; only running it
+refutes one. The helper usually does exactly what its doc comment
+says, and the falsehood is in its *call sites*: a descent helper that
+genuinely descends into every substitution of the word it is handed
+still misses the shapes its single caller never passes it. So grep the
+helper's callers first — one call site is the tell that a "for every
+X" claim is scoped — and then probe.
+
+To say whether a verdict you measured is a widening or was already
+there, probe the merge base the same way: extract that revision of the
+package with `git archive` into a scratch directory, copy the probe
+file in, and run it there. Guessing turns a pre-existing allow into a
+reported regression.
+
+Never prescribe a gate-permitted spelling you have not run. And note
+that the verdict you measure is the branch's source, while the gate
+adjudicating your own tool calls is the installed plugin cache's
+binary.
+
+## The package restates one containment rule at each call site
+
+After a change to containment or classification, the diff's own doc
+comments are not the sweep. This package duplicates each containment
+rule as a paraphrase at every call site that depends on it, across
+several files, so a behavior change leaves the other paraphrases
+describing the old verdict.
+
+Grep the whole package directory for the old behavior's vocabulary —
+the verb-and-outcome pair being changed — rather than trusting the
+author's call-site edit as evidence the sweep is complete.
+
+A rebucketing round has a second wave: renaming the tests leaves their
+*doc comments* still describing the old verb, so the comment sweep
+needs a pass after the rename, not before it.
+
+## Editing a comment here invalidates the committed binaries
+
+The binaries under `hooks/bin/<goos>-<goarch>/` are build artifacts of
+the sources beside them, and Go embeds file:line, so adding or
+removing even a comment line shifts them. A doc pass that fixes a
+stale Go doc comment — squarely in scope — otherwise leaves the
+shipped binaries built from a source tree that no longer exists, and
+the next reviewer's rebuild-and-compare shows a delta to adjudicate.
+
+So after editing any `.go` file under `hooks/permission-gate/`, run
+`gofmt -l .`, rebuild every committed arch with the README's exact
+commands, and stage the binaries in the same commit. They
+cross-compile from macOS with no extra setup. Run `gofmt -l .` even
+when you touched no Go file: an unformatted map alignment left by an
+earlier round is cheapest to catch here.
+
+## An unrunnable-binary case needs a wrong GOOS, not a wrong GOARCH
+
+Planting a wrong-architecture ELF to test a "present, exec bit set, but
+not runnable" path does **not** produce an exec failure on this host:
+the podman machine has qemu `binfmt_misc` handlers registered, so the
+foreign binary runs under emulation and returns a correct decision with
+exit 0. The case looks like it passed while testing nothing, and the
+emulation is invisible unless the probe prints the raw exit status per
+case.
+
+The reliably-unrunnable case is a wrong **GOOS** — a Mach-O binary at a
+`linux-*` path, or the reverse — which has no handler and gives an exec
+format error. Cross-check both directions.
+
+## `cat` already allows, so probe a read carve-out with something else
+
+The gate has two bash read tracks with different terminals for the same
+containment verdict: the curated read-only utilities (`cat`, `head`,
+`grep`) terminate in **allow** for any operand that is contained or
+lands in any carve-out, while the path-reader track (`less`, `more`,
+`od`) terminates in **defer**.
+
+So an assertion that `cat <new-carve-out-path>` allows passes
+identically before and after the carve-out exists. Probe a new read
+carve-out with a path-reader utility or the file-read tool, or the
+negate-check leaves every `cat` assertion green while proving nothing.
+
+## Measure which AST node a construct hangs off
+
+The gate walks a shell AST, and when a fix depends on *which node* a
+construct attaches to, a throwaway in-package probe that parses a list
+of command strings and logs the node type plus redirect count costs a
+minute. Assumptions that read as obvious are wrong often enough to
+matter: a bare truncate idiom parses to a statement with a nil command
+and one redirect, so an early nil-command return silently drops it; a
+redirect on a binary command parks on the *inner* statement, leaving
+the outer one with none; a redirect on a function definition parks on
+the body's statement.
+
+## The worktree git gate counts git-prefixed basenames
+
+In a worktree-isolated agent, a git command is refused as "names git
+more than once" when an argument's **final path component** begins with
+`git` followed by a word — a directory like `git-tools`, or a file
+whose basename starts that way. The count of literal `git` tokens in
+the command is not what decides it.
+
+The workarounds are mechanical: name a deeper component, the parent
+directory, or a specific file inside the offending directory. The same
+command with a broader path argument runs fine.
+
+## A parity fix moves verdicts in every direction
+
+A finding names the direction that alarmed the reporter. Making a
+respelling inherit the canonical verdict also moves every other row of
+the same class, including rows that become *more* permissive — and
+those are the ones a reviewer will find if you do not. Say the
+permissive ones first.
+
+**A count is a property of the row set, not of the fix.** Rounds that
+each hand-build their own row list, each measure honestly, and each
+report a different number are quantifying over different sets. A bare
+"N rows moved" is unfalsifiable: nobody can reproduce it, and the next
+reviewer's own number reads as a defect. State the row set in the same
+sentence as the number, build that set by crossing the code's own
+tables rather than listing rows you thought of, publish the derivation,
+and re-measure at a deliberately wider cross — the moving set is
+invariant to the width, so two measurements beat one number.
+
+Prefer stating a permissive set in closed form over enumerating it. A
+screen that scans tokens for a flag name, blind to position, over-asks
+exactly where the real parser does not read that token as a flag —
+after a separated value, and after the end-of-options marker. That
+description is checkable against the verb's own flag map; a hand-listed
+enumeration is not, and drops a member.
+
+Build one row list covering the fix, its mirror and unrelated controls,
+and replay it through both the base and rebuilt binaries in one table.
+Keep a known-contained read in it: if the probe's working directory
+loses repository context every row reads the residual bucket and the
+table is meaningless. Two traps produce exactly that — a working
+directory that does not exist, and relative levels counted by feel that
+resolve back inside the primary clone.
+
+## A teaching verdict is graded per document, not per element
+
+When a tier's membership rule is "this verdict is legitimate only
+because its message tells the caller what to do instead", the rule is a
+property of the whole input. A check that fires on the first matching
+element returns a message enumerating that element's alternatives while
+saying nothing about an uncovered sibling — a dead end, which is what
+the tier forbids.
+
+The tell is a codebase that already spells all-elements-must-pass for
+one set and not the other; mirror it. Probe per shape, not per verb:
+the element alone, with a covered companion, with an uncovered
+companion, and with the uncovered companion **first**, since a
+first-match loop is order-sensitive and a same-order probe hides it.
+
+A map whose value is a single string forces the rationale into the
+caller's message, which then gets written for the founding member;
+splitting the value keeps a second member from inheriting the first's
+justification verbatim.
+
+## Rank a thin residual, do not just fill it
+
+When a high-frequency site logs an empty record, the obvious fix is to
+give it an account — but read the aggregator that picks which record
+the whole call emits first. If it is first-wins over "has an account",
+filling the blank makes the residual *win* lines it previously lost,
+because the residual usually fires on the first part of a command, and
+the specific account a tuner actually needs gets dropped.
+
+The repair is a rank, not a discard: hold the residual aside and use it
+only when no other account was seen. Assert the ranking in **both**
+orderings — the informative-part-first row passes with or without the
+fix, so only the residual-first row proves anything. Say which is the
+control in the test's own comment, or the next reader deletes the wrong
+subtest.
+
+## A tier premise is often a vendor fact
+
+A tier that carves one form out as safe rests on a claim about a
+third-party product, which no amount of reading this repo settles.
+Check it at the vendor's documentation and quote them in the message,
+so the next reader can re-grade the premise without re-deriving it. A
+default that is *unlisted* rather than private is the classic case: the
+carve-out publishes a readable copy of a contained file to a durable
+URL, and containment can never catch that, because containment bounds
+which file, and a contained file is exactly where "the bytes stay on
+the machine" fails.
+
+Two follow-ons. A screen that decided a branch you are making
+unconditional is **dead, not repurposable** — a walk that reported a
+flag being *named* cannot describe the value it carried, so reusing it
+to sharpen the message produces a false sentence. And negative-control
+a structural escalation as a **pair**: removing the arm must fail
+loudly, and restoring the old table entry must fail *nothing*, which is
+what proves the escalation comes from the arm rather than the table.
+
+## State the harm, not the gate's blind spot
+
+An escalation message states the harm, never the gate's ignorance. "The
+gate cannot tell what this publishes to" invites the reader to treat
+the unknown as probably-fine and click through; naming what actually
+happens puts the decision in front of them. Before citing an unknown,
+ask which value of it is the bad one — if the answer is "either, and
+one is worse than the case already escalated", the unknown was never
+the argument.
+
+Scope such an escalation to the whole verb, not to the flag spellings
+that carry the payload; scoping by flag is the sensitivity that
+produces holes. And assert the framing in a test that both requires the
+harm words and forbids the blind-spot vocabulary, so a later reword
+cannot quietly reintroduce it.
+
+Ask rather than deny where a human has legitimate reasons to proceed:
+this gate governs interactive human sessions as well as agent ones, and
+one click preserves those where a deny does not.
+
+## An upstream guard decides which rows can reach yours
+
+When a finding says to narrow a guard, every row written for the new
+behavior must first survive whatever runs *before* it. Pick the row by
+reading the upstream guard's own table, not by choosing a token that
+reads plausibly — rows pairing a static path with a dynamic value
+routinely die on a non-static-argv precondition, which is a different
+guard with a different table, and never reach the code under test.
+
+## A recorded digest is of a pipeline, not of a value
+
+A digest quoted in a finding or a PR body is of whatever byte stream
+the author's pipeline produced. A tool that terminates its output with
+a newline, one that does not, and hashing the whole file all give
+different answers, and every one is "the digest of that value" by an
+honest description — so a mismatch reads as "the artifact moved" when
+nothing did.
+
+Reproduce the candidate pipelines against the *pre-change* revision
+first and match one, which proves you have the author's convention.
+Cheaper and stronger: compare the git blob hash across the two
+revisions, which needs no convention at all, and use the recorded
+digest only to confirm you and the reviewer mean the same artifact.
+
+## Baseline the rebuild before editing, and grade it by content
+
+Because a rebuild absorbs any difference between your toolchain and the
+previous builder's, do the baseline **first**: confirm the Go release
+matches what the committed binary was built with, then rebuild every
+arch from the unmodified tip and compare against the committed
+binaries.
+
+That comparison is opportunistic and expires. The embedded revision
+stamp comes from the primary clone's HEAD, so a byte comparison matches
+only while the default branch has not moved since the binaries were
+built. When it has, all arches differ inside the build-information
+region with nothing wrong — do not report that as a provenance failure,
+and never write "a rebuild is byte-identical to the committed binary"
+into a PR body, since it is false for every later reader.
