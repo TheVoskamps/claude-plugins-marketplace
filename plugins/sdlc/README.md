@@ -53,7 +53,7 @@ therefore states it too, with it.
 | `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper over the review pipeline | main session |
 | `sdlc:pr-review-pipeline` | The review itself: generate theorems, fan out disprovers, fan out verifiers, post one argued review | main session, invoked by `/sdlc:orchestrate` and `/sdlc:git-review-pr` |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
-| `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent; also read by name by `pr-review-pipeline` |
+| `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 
 `pr-review-pipeline`, `theorem-generation`, and
 `theorem-agents-interface` carry no leading slash here because they

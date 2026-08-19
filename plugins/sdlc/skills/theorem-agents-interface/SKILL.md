@@ -9,10 +9,13 @@ user-invocable: false
 This is the one statement of what goes into a theorem agent and what
 comes back out. The `sdlc:pr-review-pipeline` skill writes the briefs;
 the generator variants, `theorem-disprover`, and
-`counterexample-verifier` receive them and answer. Each agent's own
-`## Inputs` names which of the parameters below its brief carries and
-adds only what is specific to that agent; the meaning of a parameter
-is stated here and nowhere else.
+`counterexample-verifier` receive them and answer. An `## Inputs`
+section names which of the parameters below one agent's brief carries
+and adds only what is specific to that agent — `theorem-disprover`'s
+and `counterexample-verifier`'s in their own agent files, the
+generator's in `sdlc:theorem-generation`, since the generator
+skeletons hold no instructions of their own. The meaning of a
+parameter is stated here and nowhere else.
 
 The pipeline reads this file too, rather than only writing against it:
 its step 2 findings come from no theorem, so it grades them by the
@@ -41,9 +44,9 @@ them as well.
 - `--pr <N>` — the pull request under review.
 - `--branch <name>` — the PR's head branch. Every theorem agent checks
   it out **detached**, from `origin/<branch>`, in its own worktree. The
-  disprover and the verifier each say in their own `## Inputs` what
-  they have nothing to work against without it, and stop rather than
-  reading the branch from GitHub themselves.
+  Without it, stop and say so rather than reading the branch from
+  GitHub yourself. The disprover's and the verifier's own `## Inputs`
+  each name what that agent is left with nothing to work against.
 - `--head-sha <oid>` — optional. The PR's head commit as the pipeline
   read it. When the agent's `origin/<branch>` already points at it,
   there is nothing to fetch.

@@ -429,15 +429,17 @@ this file — never as a memory commit on the branch being reviewed.
 therefore `issue-developer`, `issue-fixer`, `doc-updater` and nothing
 else. `plugins/sdlc/skills/orchestrate/SKILL.md` names that roster in its
 frontmatter-baseline paragraph and again under "Being last is the
-whole point", and the capture-then-curate paragraph between them
-refers back to it as "those three" — a count, not names, so no
-agent-name grep reaches it and it goes stale in silence. A PR that
+whole point", and the capture-then-curate sentences later in that same
+frontmatter-baseline paragraph refer back to it as "those three" — a
+count, not names, so no agent-name grep reaches that back-reference and
+it goes stale in silence. A PR that
 changes which agents declare `memory:` therefore sweeps every one of
 those sites plus the scrubber's own "You persist no memory of your own"
 section. `grep -rn 'memory: project' plugins/sdlc/` finds the
 frontmatter one; the "Being last" restatement names the agents without
-the key, so grep the agent names too, and read the paragraph between
-them rather than expecting a grep to surface it.
+the key, so grep the agent names too, and read the frontmatter-baseline
+paragraph to its end rather than expecting a grep to surface the
+back-reference.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
