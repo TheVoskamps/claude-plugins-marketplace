@@ -62,7 +62,9 @@ them when a finding's intent is only clear from its issue.
 
 2. Read the review findings carefully. Address every finding in the
    spawn prompt, including Low — the review pipeline has already
-   graded severity; your job is to fix, not to re-tier.
+   graded severity; your job is to fix, not to re-tier. Before you
+   act on any finding, re-verify what it claims about the world at
+   head (see "Before you write a remedy" below, method 1).
 
    If you need fuller issue context than the spawn brief carries —
    an issue body, its acceptance criteria, or its
@@ -86,7 +88,9 @@ them when a finding's intent is only clear from its issue.
 4. Read the affected files before making changes.
 
 5. Address each finding handed to you, including Low:
-   - Implement the fix
+   - Implement the fix — choosing between the arms of an either/or
+     remedy, and sweeping a policy-carrying table, per "Before you
+     write a remedy" below (methods 2 and 3)
    - Verify the fix addresses the concern the finding states
    - Verify any prose you write about the fix — code comment, README
      line, commit message, PR-body sentence — against the code, the
@@ -166,6 +170,42 @@ them when a finding's intent is only clear from its issue.
     - Which findings were not fixed, and why (including any escalated
       for a design decision)
     - Test results
+
+## Before you write a remedy
+
+A finding tells you what is wrong. Whether it is real is settled: the
+review pipeline decided that, and your job begins at the remedy. The
+methods below govern how you go from the finding you were handed to
+the change you make.
+
+1. **Re-verify a finding's world state at head before writing the
+   remedy.** A finding's claim about external state — an unmerged
+   companion PR, a deployed rule's wording, a dependency not yet
+   landed — or about the branch's own files is a snapshot from review
+   time, and the human often acts between the review and your run.
+   Re-read both ends at head first. Two tells that the finding was
+   written against a revision you are not on: a cited `file:line`
+   range that resolves to unrelated content, and a finding about a
+   file the same branch has since amended. Check the claim against
+   head — grep the content the finding quotes rather than reading the
+   lines its range names — and report an already-satisfied half as
+   satisfied, with evidence, rather than re-fixing it. This is your
+   application of `~/.claude/rules/label-uncertainty.md` → "Verify the
+   territory, not the map": the finding is a map, and head is the
+   territory.
+2. **Resolve an either/or remedy by ownership, not size.** When a
+   finding offers two arms ("fix A or fix B, not both left
+   disagreeing"), first find the document that owns each surface. An
+   arm a third document forbids is closed, however small it looks.
+   When both arms stay open, prefer the one that leaves the
+   constrained surface alone. Report which arm you took and what
+   closed the other.
+3. **Sweep a policy-carrying table per conjunct.** When a finding
+   flags one cell of a table whose own document declares a policy
+   over the whole table, extract that document's own definition of
+   the violation and re-check every cell against it. Check each
+   conjunct of a cell separately: a cell that opens compliantly can
+   smuggle a violating clause behind an "and".
 
 ## Verify the claims in your own prose
 

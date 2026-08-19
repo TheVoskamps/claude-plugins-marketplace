@@ -62,14 +62,14 @@ touch a file the section mentions.
 
 ## Inputs
 
-You are given exactly these, as double-dash parameters:
+You are given exactly these, as double-dash parameters, each meaning
+what the `sdlc:theorem-agents-interface` skill (preloaded into your
+agent alongside this one) says it means: `--pr`, `--issues`, and
+`--branch`.
 
-- `--pr <N>` — the pull request.
-- `--issues <N…>` — the issue set the PR is reviewed against, already
-  resolved by the pipeline. This is the answer, not a claim: do not
-  re-derive it, do not parse the branch name, and do not add or remove
-  a member.
-- `--branch <name>` — the PR's head branch.
+`--issues` is the answer, not a claim: the pipeline already resolved
+it, so do not re-derive it, do not parse the branch name, and do not
+add or remove a member.
 
 ## Workflow
 

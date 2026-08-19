@@ -165,18 +165,11 @@ leaves the plugin, never one confined to `plugins/sdlc/`: the confined
 grep returns the answer the claim wants, and naming an owner is itself
 a second statement of the fact, so each side has to scope itself and
 name the other as the second edit point. An agent's contract — what it
-commits,
-when it runs, what it returns — is restated outside that agent's own
-file in
-`plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
-the teammate-agent roster near the top (one bullet per agent, each
-closing with what that agent leaves behind — a push, a PR, or a posted
-review), and again in running prose in the "After each issue-developer
-or issue-fixer" section and the fix-loop's `doc-updater` step. A PR
-that edits only `plugins/sdlc/agents/*.md` falsifies every one of them
-silently. Grep SKILL.md for each agent the PR touches and check every
-hit against that agent's current Output section, rather than fixing
-only the roster bullet.
+commits, when it runs, what it returns — lives in that agent's own
+file and nowhere else; `plugins/sdlc/skills/orchestrate/SKILL.md`
+states only the condition the orchestrator branches on when an agent
+returns, so a contract change is a one-file edit unless it changes
+that condition.
 
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
@@ -218,63 +211,14 @@ cites the pipeline as its worked instance and names the stages, and
 the fetch-once paragraph below it names the agents that skip their own
 fetch.
 
-The briefs the pipeline writes are a two-sided contract, and both
-sides are prose. A double-dash parameter added to, removed from, or
-redefined in a generator, disprover, or verifier brief lands in the
-pipeline's brief block *and* in the receiving agent's "Inputs" list —
-plus, when the parameter changes what a step does, in that step
-itself: `--head-sha` and `--fetched yes` are described in each of the
-pipeline's two fan-out steps, and again in step 1 of
-`theorem-disprover` and step 1 of `counterexample-verifier`, each of
-which decides from them whether to fetch. Grep the parameter name
-across `plugins/sdlc/` rather than editing the end that the change
-started from.
-
-One vocabulary spans three of those files instead of two: the
-consequence-class tokens. `theorem-disprover` proposes one,
-`counterexample-verifier` confirms or corrects it, and the pipeline
-transcribes it into a severity. The *tokens* appear in all three
-files: glossed in the two agent files, bare in the pipeline's
-class-to-severity table. Only the pipeline states that mapping, and
-the two agent files say outright that the severity is not theirs to
-argue. So adding, renaming, or removing a class edits all three files
-— the gloss in each agent file, the token in the pipeline's table —
-and a severity table appearing in an agent file is the defect this
-split exists to prevent.
-
-Inside those two "The consequence classes" sections, the gloss bullets
-are shared copy — byte-identical, and they must stay so. So is the
-sentence that ends both sections, handing the severity to the pipeline
-("What severity each class becomes is the pipeline's business, not
-yours…"); it is the same wording in both files at a different line
-wrap, so a change to it edits both. What is deliberately per-agent is
-the sentence introducing the bullets and the sentences that precede
-that closing one, because the two agents stand in different places in
-the chain: the disprover's say its class is a *proposal* the verifier
-may correct, the verifier's say the disprover proposed one and that on
-disagreement the verifier's wins. Do not converge those framing
-sentences while sweeping the bullets; a disprover file that claims its
-class is final, or a verifier file that calls its own class a
-proposal, is the error the split wording prevents.
-
-The glosses themselves have a fourth home, which a token grep does not
-reach: the pipeline's "The findings that carry no class" section
-restates those same definitions against the **severity** names,
-because step 2's findings come from no theorem and no verifier grades
-them. Those bullets say outright that they are "the same ones the
-classes name", so a change to what a class *means* — as opposed to
-what it is called — edits them too, and they are the surface that
-silently keeps the old meaning.
-
-On any brief or spawn-template widening — the pipeline's briefs and
-the orchestrator's teammate templates alike — the receiving side is
-the half that stays stale, and the half to check is the bullet *list*
-under that agent's `## Inputs`, not the prose around it. A widening is
-often argued by quoting that prose, which reads like checking the
-other end: the quoted sentence can be true while the enumeration above
-it still omits the new field. Match the list against the template
-block field by field and repair on the receiving side, since the
-template is what actually gets sent.
+On any widening of the orchestrator's teammate spawn templates, the
+receiving side is the half that stays stale, and the half to check is
+the bullet *list* under that agent's `## Inputs`, not the prose around
+it. A widening is often argued by quoting that prose, which reads like
+checking the other end: the quoted sentence can be true while the
+enumeration above it still omits the new field. Match the list against
+the template block field by field and repair on the receiving side,
+since the template is what actually gets sent.
 
 The orchestrator's own teammate briefs are two-sided the same way, and
 the load-bearing side is what a brief may **not** carry.

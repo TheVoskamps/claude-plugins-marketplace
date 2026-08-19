@@ -6,6 +6,7 @@ model: sonnet
 effort: medium
 isolation: worktree
 skills:
+  - sdlc:theorem-agents-interface
   - github-prs:pr-diff
 ---
 
@@ -52,31 +53,18 @@ instructions at the top of that file.
 
 ## Inputs
 
-Your brief carries exactly these double-dash parameters:
+Your brief carries exactly these double-dash parameters, each meaning
+what the `sdlc:theorem-agents-interface` skill (preloaded above) says
+it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
+(optional), `--theorem`, `--claim`, `--issues`, `--class`,
+`--pointers`, and `--counterexample`.
 
-- `--pr <N>` — the pull request.
-- `--branch <name>` — the PR's head branch. This is what step 1 checks
-  out; without it you have no tree to check the quote against, so stop
-  and say so rather than reading the branch from GitHub yourself.
-- `--head-sha <oid>` — optional. The PR's head commit. When your
-  `origin/<branch>` already points at it, there is nothing to fetch.
-- `--fetched yes` — optional. The caller fetched `origin` in its own
-  session immediately before spawning you, so the ref store is already
-  current.
-- `--theorem T<k>` — the handle to report back under.
-- `--claim <text>` — the generator's claim, verbatim from its record:
-  the one the counterexample claims to refute.
-- `--issues <N…>` — the member issue(s) the theorem is tagged to.
-  Context for your consequence statement; you never review against
-  them.
-- `--class <mechanical|semantic>` — the theorem's class, as the
-  generator assigned it. A hint about how the underlying claim gets
-  settled, not a cap on what you may read.
-- `--pointers <text>` — the generator's pointers, verbatim.
-- `--counterexample <text>` — the disprover's full `DISPROVED` report,
-  verbatim: every line of it as the disprover wrote it — `VERDICT`,
-  `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
-  This is the thing you attack.
+`--branch` is what step 1 checks out; without it you have no tree to
+check the quote against, so stop and say so rather than reading the
+branch from GitHub yourself.
+
+`--counterexample` is the one parameter only you receive: it is the
+thing you attack.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.
@@ -219,24 +207,14 @@ managed to reject belongs in front of the human.
 
 ## The consequence classes
 
-A `STANDS` report carries one of exactly these tokens as its `CLASS`:
-
-- `breaks-production` — merging causes data loss, opens a security
-  hole, or breaks production.
-- `behavior-broken-or-criterion-unmet` — shipped behavior is
-  materially broken, or an acceptance criterion of a member issue is
-  unmet.
-- `defect-no-shipped-breakage` — a real defect or debt that should be
-  fixed in this PR but does not break shipped behavior.
-- `optional-polish` — genuinely optional. If it must be fixed before
-  merge, it is not this one.
+A `STANDS` report carries one of the class tokens the
+`sdlc:theorem-agents-interface` skill → "The consequence classes"
+defines as its `CLASS`.
 
 The disprover proposed a class in the report you were handed. Confirm
 it or correct it; on disagreement **your** class is the one the
 pipeline uses, because you are the second reader and you have the
-first opinion in hand. What severity each class becomes is the
-pipeline's business, not yours — grade the consequence, not the
-severity, and never argue for a severity in your report.
+first opinion in hand.
 
 ## Output
 
@@ -269,7 +247,7 @@ VERDICT: STANDS
 THEOREM: T<k>
 CONSEQUENCE: <what happens if this PR merges as-is — the disprover's
 statement confirmed, or your corrected version of it>
-CLASS: <one of the tokens above>
+CLASS: <one of the tokens the `sdlc:theorem-agents-interface` skill defines>
 ```
 
 State the consequence as an effect of merging, not as a topic. "An
