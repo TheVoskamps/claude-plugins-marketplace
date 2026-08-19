@@ -198,6 +198,53 @@ Further reliable members of this class:
 These are `semantic` by nature. State them against named files, not in
 the abstract, or the disprover has nowhere to start.
 
+### 5. Style guides
+
+The code and comment style guides are a theorem source of the same
+standing as the sources above. A style rule that reaches a developer
+agent as prose alone gets applied unevenly, and the violations that
+do surface arrive as ad-hoc reviewer nits rather than as reproduced,
+verified findings.
+
+Resolve each guide layer by layer:
+
+1. The global guide, at `~/.claude/rules/code-style.md` and
+   `~/.claude/rules/comment-style.md`.
+2. The repo's extension, appended to its global counterpart, at
+   `<repo>/docs/code-style.md` and `<repo>/docs/comment-style.md`.
+   Those names are fixed, and the repo layer extends and overrides the
+   global one.
+
+An absent file yields no style theorems from that file, silently. A
+missing global guide is not an abort, and a repo carrying no extension
+file is the ordinary case. Never reconstruct a style rule from memory
+when its file is absent: an invented rule is precisely the ad-hoc nit
+this source exists to remove.
+
+The guides are written to be consumed this way, and you rely on that
+structure. Each rule carries its own heading, so the rules enumerate
+mechanically. Each rule is already stated as a claim that a single
+quoted counterexample refutes. Where that counterexample may be quoted
+from is the rule's own business: a guide lets a rule quantify over the
+diff, over the repository at head, or over stable external
+documentation, so a rule about matching what a file already does is
+refuted by a pair — the added lines and the untouched lines they fail
+to match — and a rule about every call site reaches the whole repo.
+Judgment-only guidance lives in a clearly-marked preamble, which is
+not a theorem source; read the rule sections and nothing else.
+
+A rule section therefore maps to a theorem with no rewriting: quote
+the rule and state it against this change. Do not paraphrase a rule
+into a claim of your own wording, and do not merge several rules into
+one theorem — a counterexample to one rule says nothing about the
+others.
+
+A rule becomes a theorem only when the diff **plausibly engages it**.
+This mirrors the test "Codebase consistency" above applies to the
+repo's `CLAUDE.md` sweep sections: touching a file a rule could apply
+to is not the trigger, and treating it as one turns every diff into
+one vacuously-true theorem per rule.
+
 ## The emission bar: falsifiability, then stakes
 
 A claim goes in the list only when it passes **both** questions below.
