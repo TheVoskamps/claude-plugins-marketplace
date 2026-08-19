@@ -21,6 +21,14 @@ that skill's Inputs section. Some spell the same as parameters below
 the pipeline's `--issues` is a claim it reconciles, where a theorem
 agent's `--issues` is settled.
 
+The generator's theorem *record* carries the same vocabulary again, on
+a third surface: `sdlc:theorem-generation` states what a generator
+puts in each record field, and the pipeline's "The theorem contract"
+tabulates what it consumes from one. A record is not a brief — the
+pipeline transcribes the former into the latter — so neither is a
+restatement of this file, and a class renamed or redefined here sweeps
+them as well.
+
 ## The brief parameters
 
 - `--pr <N>` — the pull request under review.
@@ -75,9 +83,11 @@ these tokens as its `CLASS`, alongside its `CONSEQUENCE` statement:
   merge, it is not this one.
 
 The class grades the **consequence of merging as-is**, never the
-topic. Which agent's class the pipeline takes when the two disagree is
-stated in each agent's own "The consequence classes" section, from
-where that agent stands in the chain. What severity each class becomes
+topic. A generator assigns no class at all; only `theorem-disprover`
+and `counterexample-verifier` do, and which of the two the pipeline
+takes when they disagree is stated in each of those agents' own "The
+consequence classes" section, from where that agent stands in the
+chain. What severity each class becomes
 is the pipeline's business, not the agents' — an agent grades the
 consequence, not the severity, and never argues for a severity in its
 report.

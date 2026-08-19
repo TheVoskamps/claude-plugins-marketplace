@@ -166,6 +166,22 @@ grep returns the answer the claim wants, and naming an owner is itself
 a second statement of the fact, so each side has to scope itself and
 name the other as the second edit point.
 
+What an agent *leaves behind* — a pushed branch, a draft PR, a doc
+commit, nothing at all — is the half of its contract restated outside
+its own file, in `plugins/sdlc/skills/orchestrate/SKILL.md`, because
+the orchestrator branches on it: the teammate-agent roster near the
+top closes each bullet with the condition that agent's return leaves
+the orchestrator in, and the "After each issue-developer or
+issue-fixer: doc-updater, then review" section and the fix-loop's
+`doc-updater` step say the same of a round with no doc impact. What an
+agent *does* to get there is its own file's alone and is deliberately
+absent from SKILL.md — a roster bullet that regains a workflow is the
+restatement this split removed. So a PR that changes an agent's
+post-condition greps SKILL.md for that agent and checks every hit
+against that agent's current Output section, rather than fixing only
+the roster bullet; a PR that changes only how the agent works edits
+the agent file alone.
+
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
 confined to the agent file. That holds of `theorem-disprover` too,
@@ -212,10 +228,16 @@ So adding, renaming, or redefining a parameter or a class edits that
 skill: the pipeline states only what it *puts* in each parameter and
 what severity each class becomes, and an agent file only which
 parameters its own brief carries and what it does with them that its
-siblings do not. A parameter gloss or a class gloss reappearing in the
-pipeline or in an agent file is the second source of truth this split
-removes, and a widening that stops at the pipeline leaves every
-receiving agent describing a brief it no longer gets.
+siblings do not. A brief-parameter gloss or a class gloss reappearing in
+the pipeline or in an agent file is the second source of truth this
+split removes, and a widening that stops at the pipeline leaves every
+receiving agent describing a brief it no longer gets. The generator's
+theorem *record* is a different surface carrying the same vocabulary,
+and is not that duplication: `skills/theorem-generation/SKILL.md`
+states what a generator puts in each record field and the pipeline's
+"The theorem contract" tabulates what it consumes from one, with the
+pipeline transcribing a record into a brief between them. So renaming
+or redefining a class sweeps those surfaces as well.
 
 On any widening of the orchestrator's teammate spawn templates, the
 receiving side is the half that stays stale, and the half to check is
@@ -421,14 +443,17 @@ this file — never as a memory commit on the branch being reviewed.
 
 `agent-memory-scrubber`'s roster of memory-declaring agents is
 therefore `issue-developer`, `issue-fixer`, `doc-updater` and nothing
-else. `plugins/sdlc/skills/orchestrate/SKILL.md` restates that roster
-in its frontmatter-baseline paragraph, in the capture-then-curate
-paragraph below it, and again under "Being last is the whole point" —
-so a PR that changes which agents declare `memory:` sweeps every one
-of them plus the scrubber's own "You persist no memory" section.
-`grep -rn 'memory: project' plugins/sdlc/` finds the first; the other
-restatements name the agents without the key, so grep the agent names
-too.
+else. `plugins/sdlc/skills/orchestrate/SKILL.md` names that roster in its
+frontmatter-baseline paragraph and again under "Being last is the
+whole point", and the capture-then-curate paragraph between them
+refers back to it as "those three" — a count, not names, so no
+agent-name grep reaches it and it goes stale in silence. A PR that
+changes which agents declare `memory:` therefore sweeps every one of
+those sites plus the scrubber's own "You persist no memory of your own"
+section. `grep -rn 'memory: project' plugins/sdlc/` finds the
+frontmatter one; the "Being last" restatement names the agents without
+the key, so grep the agent names too, and read the paragraph between
+them rather than expecting a grep to surface it.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
