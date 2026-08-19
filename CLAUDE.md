@@ -211,6 +211,18 @@ cites the pipeline as its worked instance and names the stages, and
 the fetch-once paragraph below it names the agents that skip their own
 fetch.
 
+What a brief parameter *means*, and what a consequence class means, is
+owned by `plugins/sdlc/skills/theorem-agents-interface/SKILL.md`,
+preloaded into every theorem agent through its `skills:` frontmatter.
+So adding, renaming, or redefining a parameter or a class edits that
+skill: the pipeline states only what it *puts* in each parameter and
+what severity each class becomes, and an agent file only which
+parameters its own brief carries and what it does with them that its
+siblings do not. A parameter gloss or a class gloss reappearing in the
+pipeline or in an agent file is the second source of truth this split
+removes, and a widening that stops at the pipeline leaves every
+receiving agent describing a brief it no longer gets.
+
 On any widening of the orchestrator's teammate spawn templates, the
 receiving side is the half that stays stale, and the half to check is
 the bullet *list* under that agent's `## Inputs`, not the prose around

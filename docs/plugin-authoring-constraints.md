@@ -141,6 +141,40 @@ closing lines and reports which issues the PR closes, so
 `/sdlc:orchestrate`'s end-of-loop status flip
 each invoke it instead of describing the scan again.
 
+### Sharing an interface across an agent set: one preloaded skill
+
+The skill that writes a brief and the agents that receive it are the
+two ends of one contract, and each end tends to spell the whole thing
+out: what every parameter means, and what vocabulary the answer comes
+back in. Kept in both places the two ends drift, and the receiving end
+is the half that goes stale, because a widening is usually written
+from the sending end.
+
+State the interface once, as a skill in the same plugin, and name that
+skill in each receiving agent's `skills:` frontmatter so it is
+preloaded at spawn — the same mechanism the skeleton pattern below
+uses, for a different reason. Each agent's own file then carries only
+what is specific to it: which of the parameters its brief carries, and
+what it does with them that its siblings do not. The writing end
+carries what it *puts* in each parameter, which is policy rather than
+meaning, and points at the skill for the rest.
+
+`sdlc`'s theorem agents are the worked instance:
+`plugins/sdlc/skills/theorem-agents-interface/SKILL.md` states each
+brief parameter and each consequence class once, and is preloaded into
+the `theorem-generator` variants, `theorem-disprover`, and
+`counterexample-verifier`. `skills/pr-review-pipeline/SKILL.md` writes
+the briefs and says only what it puts in each; it keeps the
+class-to-severity mapping, which is its own policy over the shared
+vocabulary rather than part of it.
+
+This is dedup *within* one plugin, so nothing is invoked and no
+`dependencies` edge is involved — unlike the cross-plugin case above,
+where the sandbox (constraint 1) is what forces the shared content
+into a skill the consumers invoke by name. The skill is still
+machinery rather than a user verb, so it takes `user-invocable: false`
+(constraint 4) the same way.
+
 ### Varying one agent's budget: skeletons over a preloaded skill
 
 An agent's reasoning tier is its frontmatter `effort:`, and the `Agent`

@@ -64,7 +64,7 @@ them when a finding's intent is only clear from its issue.
    spawn prompt, including Low — the review pipeline has already
    graded severity; your job is to fix, not to re-tier. Before you
    act on any finding, re-verify what it claims about the world at
-   head (see "Before you write a remedy" below, method 1).
+   head (see "Before you write a remedy" below).
 
    If you need fuller issue context than the spawn brief carries —
    an issue body, its acceptance criteria, or its
@@ -90,7 +90,7 @@ them when a finding's intent is only clear from its issue.
 5. Address each finding handed to you, including Low:
    - Implement the fix — choosing between the arms of an either/or
      remedy, and sweeping a policy-carrying table, per "Before you
-     write a remedy" below (methods 2 and 3)
+     write a remedy" below
    - Verify the fix addresses the concern the finding states
    - Verify any prose you write about the fix — code comment, README
      line, commit message, PR-body sentence — against the code, the
