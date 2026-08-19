@@ -164,19 +164,7 @@ of that pair — "stated here and in no other file" — with a grep that
 leaves the plugin, never one confined to `plugins/sdlc/`: the confined
 grep returns the answer the claim wants, and naming an owner is itself
 a second statement of the fact, so each side has to scope itself and
-name the other as the second edit point. An agent's contract — what it
-commits,
-when it runs, what it returns — is restated outside that agent's own
-file in
-`plugins/sdlc/skills/orchestrate/SKILL.md`, in several places at once:
-the teammate-agent roster near the top (one bullet per agent, each
-closing with what that agent leaves behind — a push, a PR, or a posted
-review), and again in running prose in the "After each issue-developer
-or issue-fixer" section and the fix-loop's `doc-updater` step. A PR
-that edits only `plugins/sdlc/agents/*.md` falsifies every one of them
-silently. Grep SKILL.md for each agent the PR touches and check every
-hit against that agent's current Output section, rather than fixing
-only the roster bullet.
+name the other as the second edit point.
 
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
@@ -202,11 +190,10 @@ skeletons are copies of one file" below. A PR that adds a further
 off-default variant extends the exception in both places rather than
 deleting the default.
 
-Review is a further exception to the "an agent's contract lives in its
-own file" shape above, because review is not an agent at all: it is
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the main
-session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So a
-change to what a review does sweeps several files, not one — the
+Review is a further exception, because review is not an agent at all:
+it is `plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the
+main session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So
+a change to what a review does sweeps several files, not one — the
 pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
 generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
@@ -218,63 +205,32 @@ cites the pipeline as its worked instance and names the stages, and
 the fetch-once paragraph below it names the agents that skip their own
 fetch.
 
-The briefs the pipeline writes are a two-sided contract, and both
-sides are prose. A double-dash parameter added to, removed from, or
-redefined in a generator, disprover, or verifier brief lands in the
-pipeline's brief block *and* in the receiving agent's "Inputs" list —
-plus, when the parameter changes what a step does, in that step
-itself: `--head-sha` and `--fetched yes` are described in each of the
-pipeline's two fan-out steps, and again in step 1 of
-`theorem-disprover` and step 1 of `counterexample-verifier`, each of
-which decides from them whether to fetch. Grep the parameter name
-across `plugins/sdlc/` rather than editing the end that the change
-started from.
+What a brief parameter *means*, and what a consequence class means, is
+owned by `plugins/sdlc/skills/theorem-agents-interface/SKILL.md`,
+preloaded into every theorem agent through its `skills:` frontmatter.
+So adding, renaming, or redefining a parameter or a class edits that
+skill: the pipeline states only what it *puts* in each parameter and
+what severity each class becomes, and an agent file only which
+parameters its own brief carries and what it does with them that its
+siblings do not. A brief-parameter gloss or a class gloss reappearing in
+the pipeline or in an agent file is the second source of truth this
+split removes, and a widening that stops at the pipeline leaves every
+receiving agent describing a brief it no longer gets. The generator's
+theorem *record* is a different surface carrying the same vocabulary,
+and is not that duplication: `skills/theorem-generation/SKILL.md`
+states what a generator puts in each record field and the pipeline's
+"The theorem contract" tabulates what it consumes from one, with the
+pipeline transcribing a record into a brief between them. So renaming
+or redefining a class sweeps those surfaces as well.
 
-One vocabulary spans three of those files instead of two: the
-consequence-class tokens. `theorem-disprover` proposes one,
-`counterexample-verifier` confirms or corrects it, and the pipeline
-transcribes it into a severity. The *tokens* appear in all three
-files: glossed in the two agent files, bare in the pipeline's
-class-to-severity table. Only the pipeline states that mapping, and
-the two agent files say outright that the severity is not theirs to
-argue. So adding, renaming, or removing a class edits all three files
-— the gloss in each agent file, the token in the pipeline's table —
-and a severity table appearing in an agent file is the defect this
-split exists to prevent.
-
-Inside those two "The consequence classes" sections, the gloss bullets
-are shared copy — byte-identical, and they must stay so. So is the
-sentence that ends both sections, handing the severity to the pipeline
-("What severity each class becomes is the pipeline's business, not
-yours…"); it is the same wording in both files at a different line
-wrap, so a change to it edits both. What is deliberately per-agent is
-the sentence introducing the bullets and the sentences that precede
-that closing one, because the two agents stand in different places in
-the chain: the disprover's say its class is a *proposal* the verifier
-may correct, the verifier's say the disprover proposed one and that on
-disagreement the verifier's wins. Do not converge those framing
-sentences while sweeping the bullets; a disprover file that claims its
-class is final, or a verifier file that calls its own class a
-proposal, is the error the split wording prevents.
-
-The glosses themselves have a fourth home, which a token grep does not
-reach: the pipeline's "The findings that carry no class" section
-restates those same definitions against the **severity** names,
-because step 2's findings come from no theorem and no verifier grades
-them. Those bullets say outright that they are "the same ones the
-classes name", so a change to what a class *means* — as opposed to
-what it is called — edits them too, and they are the surface that
-silently keeps the old meaning.
-
-On any brief or spawn-template widening — the pipeline's briefs and
-the orchestrator's teammate templates alike — the receiving side is
-the half that stays stale, and the half to check is the bullet *list*
-under that agent's `## Inputs`, not the prose around it. A widening is
-often argued by quoting that prose, which reads like checking the
-other end: the quoted sentence can be true while the enumeration above
-it still omits the new field. Match the list against the template
-block field by field and repair on the receiving side, since the
-template is what actually gets sent.
+On any widening of the orchestrator's teammate spawn templates, the
+receiving side is the half that stays stale, and the half to check is
+the bullet *list* under that agent's `## Inputs`, not the prose around
+it. A widening is often argued by quoting that prose, which reads like
+checking the other end: the quoted sentence can be true while the
+enumeration above it still omits the new field. Match the list against
+the template block field by field and repair on the receiving side,
+since the template is what actually gets sent.
 
 The orchestrator's own teammate briefs are two-sided the same way, and
 the load-bearing side is what a brief may **not** carry.
@@ -471,14 +427,19 @@ this file — never as a memory commit on the branch being reviewed.
 
 `agent-memory-scrubber`'s roster of memory-declaring agents is
 therefore `issue-developer`, `issue-fixer`, `doc-updater` and nothing
-else. `plugins/sdlc/skills/orchestrate/SKILL.md` restates that roster
-in its frontmatter-baseline paragraph, in the capture-then-curate
-paragraph below it, and again under "Being last is the whole point" —
-so a PR that changes which agents declare `memory:` sweeps every one
-of them plus the scrubber's own "You persist no memory" section.
-`grep -rn 'memory: project' plugins/sdlc/` finds the first; the other
-restatements name the agents without the key, so grep the agent names
-too.
+else. `plugins/sdlc/skills/orchestrate/SKILL.md` names that roster in its
+frontmatter-baseline paragraph and again under "Being last is the
+whole point", and the capture-then-curate sentences later in that same
+frontmatter-baseline paragraph refer back to it as "those three" — a
+count, not names, so no agent-name grep reaches that back-reference and
+it goes stale in silence. A PR that
+changes which agents declare `memory:` therefore sweeps every one of
+those sites plus the scrubber's own "You persist no memory of your own"
+section. `grep -rn 'memory: project' plugins/sdlc/` finds the
+frontmatter one; the "Being last" restatement names the agents without
+the key, so grep the agent names too, and read the frontmatter-baseline
+paragraph to its end rather than expecting a grep to surface the
+back-reference.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 

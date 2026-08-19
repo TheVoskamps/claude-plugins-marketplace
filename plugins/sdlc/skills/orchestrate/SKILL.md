@@ -20,23 +20,26 @@ principle") and what you do with the report that comes back
 ("Report-consumption principle"). Synthesizing is the second of those
 — it is deciding, not forwarding.
 
-You have access to these teammate agents:
+You have access to these teammate agents. Each bullet states what
+you branch on when that agent returns — the condition its report
+leaves you in — not the agent's own workflow, which its definition
+under `agents/` owns:
 
 - `issue-developer` — implements one **batch** (an ordered set of one
-  or more issues) in its own `isolation: worktree` worktree, runs
-  tests, makes one commit per issue, pushes, creates one PR closing
-  every member
+  or more issues) in its own `isolation: worktree` worktree. When it
+  returns, a pushed branch and an open draft PR exist for the members
+  it landed
 - `issue-fixer` — addresses PR review feedback in a fresh
-  `isolation: worktree` worktree, pushes fixes
-- `doc-updater` — inspects a PR in a fresh `isolation: worktree`
-  worktree, updates CLAUDE.md, README(s), `.claude/rules/`,
-  `.claude/skills/`, /docs, and in-code doc comments in files the PR
-  touched, and pushes a doc commit when the round had doc impact —
-  a round with none returns without one
+  `isolation: worktree` worktree. When it returns, the branch carries
+  new commits for the review to see again
+- `doc-updater` — updates the docs a PR's changes falsify in a fresh
+  `isolation: worktree` worktree. When it returns, the branch carries
+  a doc commit if the round had doc impact and none otherwise; either
+  way the review runs next
 - `theorem-generator` — reads a PR, its issues, and the surrounding
   codebase in a fresh `isolation: worktree` worktree, and returns a
-  list of disprovable theorems. It posts nothing, commits nothing, and
-  writes nothing
+  list of disprovable theorems. Spawned by the review pipeline, never
+  by you; it leaves nothing on the branch
 - `theorem-generator-high`, `theorem-generator-xhigh` — the same
   generator at a higher reasoning tier, returning the same theorem
   list. The generator definitions are skeletons over the one
@@ -45,20 +48,16 @@ You have access to these teammate agents:
   `description:`. Pick one per review per "Picking a generator tier"
   below
 - `theorem-disprover` — tries to break exactly one theorem in a fresh
-  `isolation: worktree` worktree and returns `DISPROVED` with a
-  verbatim counterexample, a consequence statement, and a proposed
-  consequence class, or `SURVIVED` with what it checked. One
-  definition, no tiers. It posts nothing, commits nothing, and
-  writes nothing
+  `isolation: worktree` worktree. One definition, no tiers. Spawned by
+  the review pipeline, never by you; it leaves nothing on the branch
 - `counterexample-verifier` — tries to reject exactly one disprover's
-  counterexample in a fresh `isolation: worktree` worktree and returns
-  `REFUTED` with the rejection reason or `STANDS` with a confirmed or
-  corrected consequence statement and its consequence class. One
-  definition, no tiers. It posts nothing, commits nothing, and
-  writes nothing
+  counterexample in a fresh `isolation: worktree` worktree. One
+  definition, no tiers. Spawned by the review pipeline, never by you;
+  it leaves nothing on the branch
 - `agent-memory-scrubber` — curates the PR's `.claude/agent-memory/`
-  in a fresh `isolation: worktree` worktree via the
-  `/cc-tools:agent-memory-cleanup` skill, pushes the curated result
+  in a fresh `isolation: worktree` worktree. When it returns, the
+  curated result is on the branch and it must stay the last commit
+  before `/pr-ready`
 
 Review itself is not a teammate. It is the `sdlc:pr-review-pipeline`
 skill, which **you** run in this session — it spawns the generator,
@@ -78,18 +77,16 @@ frontmatter baseline, with `memory: project` on `issue-developer`,
 `.claude/agent-memory/` relative to each agent's own cwd — its
 throwaway worktree, not the primary clone — memory written mid-run
 would otherwise vanish when the worktree is torn down, never having
-reached the PR. The agents close this gap with a capture-then-curate
-flow: `issue-developer`, `issue-fixer`, and `doc-updater` each commit
-their own raw, uncurated `.claude/agent-memory/` deltas onto the
-branch at end-of-run, before their worktree cleanup, staging only that
-path — and none of them judges any memory, its own or anyone else's.
-The review pipeline's agents are outside this flow entirely: none of
-`theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
-declares `memory:`, so a review round adds nothing to the tree and a
-durable review lesson arrives as a PR against
-`sdlc:theorem-generation`, the pipeline skill, or the repo's
-`CLAUDE.md` rather than as a memory commit. Curation is
-owned by `agent-memory-scrubber`, which runs as the **last agent to
+reached the PR. The agents close this gap by capturing at end-of-run:
+whatever those three write to `.claude/agent-memory/` is on the branch
+by the time the scrubber runs, so you never carry memory between
+spawns yourself. The review pipeline's agents are outside this flow
+entirely: none of `theorem-generator`, `theorem-disprover`, or
+`counterexample-verifier` declares `memory:`, so a review round adds
+nothing to the tree and a durable review lesson arrives as a PR
+against `sdlc:theorem-generation`, the pipeline skill, or the repo's
+`CLAUDE.md` rather than as a memory commit. Curation is owned by
+`agent-memory-scrubber`, which runs as the **last agent to
 touch the branch** before `/pr-ready` (see "Before `/pr-ready`: curate
 the PR's agent memory"), and it curates the whole tree. Running last
 is what makes one pass enough: every writer has captured by then, so
@@ -213,10 +210,10 @@ plugin's reader contract, and a bare cross-plugin reference to
 `skills/lib/repo-config.md` cannot resolve it either — plugins are
 file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
 are file-sandboxed"). This is deliberate, not a gap: the orchestrator
-no longer does branch/PR mechanics itself — `issue-developer` now
-delegates those reads to `git-tools:git-branch-create` and
-`github-prs:pr-create` — so the orchestrator only ever needed these
-things out of the old six-field contract:
+no longer does branch/PR mechanics itself — the branch and the draft
+PR both exist by the time `issue-developer` returns — so the
+orchestrator only ever needed these things out of the old six-field
+contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — used in spawn-prompt templates (`<link-prefix>101`) and the
@@ -620,11 +617,9 @@ it has always been.
 
 Before spawning the follow-up agents, call `/github-prs:pr-link-issue
 <PR> <issues>` for the PR the developer just reported, passing every
-member the PR closes. This is an idempotent safety-net: the
-`issue-developer` already writes one `Closes #<issue>` line per member
-into the PR body at create time, so this call normally no-ops
-("already linked") — but running it unconditionally guarantees every
-member carries its own closing keyword (and thus its
+member the PR closes. This is an idempotent safety-net: it normally
+no-ops ("already linked") — but running it unconditionally guarantees
+every member carries its own closing keyword (and thus its
 Development-sidebar link and its auto-close-on-merge) even if a
 developer variant or a human hand-edit skipped one. The orchestrate
 flow always has the issue numbers in hand, so this always runs.
@@ -654,27 +649,14 @@ review covers an incomplete PR.
 
 This applies to **every** round that puts commits on the branch — the
 initial `issue-developer` implementation and each `issue-fixer` round
-alike (see "Handling review findings — the fix loop" below). A fixer
-round rewrites docs and doc comments under exactly the conditions the
-developer's round did — in the same commit as the code they describe —
-so it needs the same doc pass before its re-review.
+alike (see "Handling review findings — the fix loop" below) — and each
+of those rounds needs the doc pass before its re-review.
 
 The doc pass is cheap in the common case and never costs a review
-round: when a round had no doc impact, `doc-updater` returns without a
-doc commit — it still pushes its own `.claude/agent-memory/` capture
-like every other memory-declaring teammate — and the review-round cap
-(Hard Constraints → "Max review rounds per PR") counts pipeline runs
-only, at whichever tier "Picking a generator tier" selected.
-
-`doc-updater` runs in a fresh worktree and checks out the PR branch
-attached, because it commits and pushes. Its end-of-run cleanup
-deletes that local branch again, so the next subagent that needs the
-branch attached — an `issue-fixer`, the `agent-memory-scrubber` — can
-check it out from `origin` without git refusing. The review pipeline
-runs in this session and claims nothing; the generator, disprovers,
-and verifiers it spawns each check out `origin/<branch>` **detached**,
-which is what lets a whole fan-out share one repo's ref store at
-once.
+round: a round with no doc impact returns without a doc commit, and
+the review-round cap (Hard Constraints → "Max review rounds per PR")
+counts pipeline runs only, at whichever tier "Picking a generator
+tier" selected.
 
 Cleanup of each subagent's worktree directory happens in this phase too,
 **serially within the wave** — never in parallel. See
@@ -909,10 +891,9 @@ member)**:
    review must see the final state of the PR including any doc commit;
    if doc-updater runs after the review, the review covers an
    incomplete PR. Skipping this step is what lets a fixer's own
-   unverified doc claim reach the review unchecked. When the round had
-   no doc impact, the agent returns without a doc commit — its
-   agent-memory capture is still pushed — and the pass does not
-   consume a review round.
+   unverified doc claim reach the review unchecked. A round with no
+   doc impact returns without a doc commit and does not consume a
+   review round.
 5. Run the review pipeline again over the new changes, re-picking the
    generator tier per "Picking a generator tier" — a round in which
    the previous tier's theorem list missed a defect the human caught
@@ -1402,10 +1383,10 @@ itself:
 Every PR the orchestrate flow produces goes through the same
 draft-first lifecycle:
 
-1. **Born draft.** `issue-developer` creates each PR with `--draft`
-   (see its agent definition). A draft PR cannot be auto-merged — the
-   repo's auto-merge workflow filters `isDraft == false` — so the PR
-   is inert from the moment it opens.
+1. **Born draft.** Every PR the developer reports back is a draft;
+   its agent definition is what guarantees that. A draft PR cannot be
+   auto-merged — the repo's auto-merge workflow filters
+   `isDraft == false` — so the PR is inert from the moment it opens.
 2. **Linked.** Right after the developer reports back, the
    orchestrator calls `/github-prs:pr-link-issue <PR> <issues>` to
    guarantee the PR body closes every issue it delivers, one closing

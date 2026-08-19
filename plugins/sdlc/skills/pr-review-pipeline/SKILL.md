@@ -280,22 +280,15 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-`--branch` is the same `headRefName` you passed the generator. Every
-disprover needs it — each checks the head commit out in its own
-worktree before settling anything — and each does so **detached**,
-from `origin/<branch>`, per its agent definition. That is what makes
-this fan-out possible at all: worktrees of one repo share a single ref
-store and a branch can be checked out in only one of them at a time,
-so an attached checkout would leave k−1 of your k disprovers dead at
-`fatal: '<branch>' is already used by worktree at '…'`.
-
-`--head-sha` and `--fetched yes` are what keep the fetch you just ran
-from being run k more times: a disprover given both, and finding
-`origin/<branch>` already at that SHA, checks out straight from the
-ref it has. Pass them only when you really did fetch in this session —
-a disprover told `--fetched yes` against a ref that is behind would
-review the wrong tree, so the honest omission costs one fetch and the
-dishonest claim costs the whole round.
+What each parameter means is owned by the
+`sdlc:theorem-agents-interface` skill, preloaded into every agent you
+spawn here; this step only says what you put in each. `--branch` is
+the same `headRefName` you passed the generator. `--head-sha` is the
+`headRefOid` step 1 read and the fetch above confirmed. Pass
+`--head-sha` and `--fetched yes` only when you really did fetch in
+this session — a disprover told `--fetched yes` against a ref that is
+behind would review the wrong tree, so the honest omission costs one
+fetch and the dishonest claim costs the whole round.
 
 Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
@@ -329,8 +322,7 @@ Route the model exactly as step 4 did, by the theorem's class:
 rather than restating it here.
 
 You fetched in step 4 and the branch has not moved since, so pass the
-same `--head-sha` and `--fetched yes` a disprover got — the same
-lock-race reasoning applies to k verifiers sharing one ref store.
+same `--head-sha` and `--fetched yes` a disprover got.
 
 Each verifier's brief is one counterexample and nothing more:
 
@@ -352,10 +344,11 @@ or corrected consequence statement and a consequence class. Nothing
 else.
 ```
 
-The disprover's report is copied through **unchanged**, exactly as its
-quote is copied unchanged into a finding. Never summarize it for the
-verifier: a paraphrase is precisely the thing the verifier is checking
-for, so paraphrasing it here would make the check meaningless.
+What each parameter means is owned by the
+`sdlc:theorem-agents-interface` skill, preloaded into every agent you
+spawn here; this step only says what you put in each. What you put in
+`--counterexample` is the report that theorem's disprover returned to
+you, as received — never summarize it for the verifier.
 
 **No retry ping-pong.** A `REFUTED` counterexample ends that theorem's
 round: you do not re-spawn the disprover for another attack, and you
@@ -714,15 +707,15 @@ Which agent's class you take is settled under the table.
 | `defect-no-shipped-breakage` | Medium |
 | `optional-polish` | Low |
 
-The class comes from the verifier's `STANDS` report. The disprover
-proposed one and the verifier confirmed or corrected it; where the two
-disagree the verifier's wins, because it is the second reader and it
-had the first opinion in hand. The one case where you take the
-disprover's proposal is the one step 5 defines: a verifier malformed
-twice, whose finding stands anyway. If a `STANDS` report carries no
-class at all, that is a malformed report — re-spawn per step 5 rather
-than assigning a class yourself. You are not a source of consequence
-grades any more than you are a source of theorems.
+The class comes from the verifier's `STANDS` report: where the
+verifier and the disprover disagree, the verifier's class is the one
+you take, per `counterexample-verifier` → "The consequence classes",
+which states why. The one case where you take the disprover's proposal
+is the one step 5 defines: a verifier malformed twice, whose finding
+stands anyway. If a `STANDS` report carries no class at all, that is a
+malformed report — re-spawn per step 5 rather than assigning a class
+yourself. You are not a source of consequence grades any more than you
+are a source of theorems.
 
 This is the same derivation-not-judgment principle the verdicts
 already follow, moved one link up the chain: the agent that read the
@@ -742,17 +735,11 @@ Critical.
 
 Step 2's findings — a claimed issue outside the branch's set, and an
 unexplained undelivered branch member — come from no theorem, so no
-verifier graded them. Grade them by these definitions, which are
-the same ones the classes name:
-
-- **Critical**: merging causes data loss, opens a security hole, or
-  breaks production.
-- **High**: shipped behavior is materially broken, or an acceptance
-  criterion of a member issue is unmet.
-- **Medium**: a real defect or debt that should be fixed in this PR
-  but does not break shipped behavior.
-- **Low**: genuinely optional polish. If it must be fixed before
-  merge, it is not Low — re-grade it Medium or higher.
+verifier graded them. Grade each one yourself by the class glosses in
+the `sdlc:theorem-agents-interface` skill → "The consequence classes",
+and transcribe the class through the table above into Critical, High,
+Medium, or Low. A finding that must be fixed before merge is not Low —
+re-grade it Medium or higher.
 
 A finding whose entire remedy is rewording a comment or docstring is
 at most Low — *unless* the comment masks an unmet acceptance criterion

@@ -9,22 +9,23 @@ the human a set of PRs to bless.
 ## This README points; it does not restate
 
 Every contract in this plugin has exactly one owner, and it is never
-this file. An agent's contract — what it commits, when it runs, what
-it returns — is owned by that agent's own definition under `agents/`.
+this file. An agent's contract — what it does, what it commits, when
+it runs — is owned by that agent's own definition under `agents/`.
 What a review checks and how it is reported is owned by
 `skills/pr-review-pipeline/SKILL.md`. What a generator may emit is
-owned by `skills/theorem-generation/SKILL.md`. How the whole flow is
-sequenced, and what each teammate is briefed with, is owned by
-`skills/orchestrate/SKILL.md`.
+owned by `skills/theorem-generation/SKILL.md`. What the pipeline's
+briefs to the theorem agents mean, and what a consequence class means,
+is owned by `skills/theorem-agents-interface/SKILL.md`. How the whole
+flow is sequenced, what each teammate is briefed with, and the
+condition each teammate's return leaves the orchestrator in are owned
+by `skills/orchestrate/SKILL.md`.
 
 So the rosters below carry a one-line purpose and a pointer, never a
-restatement. That is deliberate: `skills/orchestrate/SKILL.md` already
-restates each agent's contract in several places, and the repo's
-`CLAUDE.md` carries the sweep rule that keeps those restatements
-honest. A README that added a further copy would add a further surface
-to sweep — one that no test and no doc pass naturally opens — and it
-would go stale silently. When something here and an owner file
-disagree, the owner file wins and this file is the thing to fix.
+restatement. That is deliberate: a README that added a copy of a
+contract would add a surface to sweep — one that no test and no doc
+pass naturally opens — and it would go stale silently. When something
+here and an owner file disagree, the owner file wins and this file is
+the thing to fix.
 
 What this file *does* own is the roster itself: which skills and which
 agents the plugin ships, plus the `dependencies` edges and the
@@ -52,14 +53,20 @@ therefore states it too, with it.
 | `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper over the review pipeline | main session |
 | `sdlc:pr-review-pipeline` | The review itself: generate theorems, fan out disprovers, fan out verifiers, post one argued review | main session, invoked by `/sdlc:orchestrate` and `/sdlc:git-review-pr` |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
+| `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 
-`pr-review-pipeline` and `theorem-generation` carry no leading slash
-here because they are not user verbs — each declares
-`user-invocable: false`, which keeps it out of the human `/` menu while
-leaving it invocable. `pr-review-pipeline` is invoked by
-`/sdlc:orchestrate` and `/sdlc:git-review-pr`; `theorem-generation` is
-preloaded into each `theorem-generator` variant through that agent's
-`skills:` frontmatter.
+`pr-review-pipeline`, `theorem-generation`, and
+`theorem-agents-interface` carry no leading slash here because they
+are not user verbs — each declares `user-invocable: false`, which
+keeps it out of the human `/` menu while leaving it invocable.
+`pr-review-pipeline` is invoked by `/sdlc:orchestrate` and
+`/sdlc:git-review-pr`; `theorem-generation` is preloaded into each
+`theorem-generator` variant through that agent's `skills:`
+frontmatter, and `theorem-agents-interface` into every theorem agent
+— the generator variants, `theorem-disprover`, and
+`counterexample-verifier` — the same way. `pr-review-pipeline` reads
+`theorem-agents-interface` by name as well, for the class glosses it
+grades its own theorem-less findings by.
 
 Review runs **in the main session** rather than in an agent, because
 it fans out parallel subagents and a subagent cannot spawn subagents.

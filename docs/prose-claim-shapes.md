@@ -425,21 +425,6 @@ one current caller, say so by name, because a claim phrased as an
 intrinsic property reads as durable long after the call site that made
 it true is gone.
 
-## A finding's world-state is a snapshot
-
-When a finding's defect is *external state* — a companion PR still
-open, a deployed rule still carrying old wording, a dependency not yet
-landed — that state was captured at review time and the human often
-acts between the review and your run. Re-read both ends before writing
-anything about it. The remedy usually survives while its tense flips.
-
-The branch's own later commits are the same shape, and there the tell
-is a stale line range: grade a finding by grepping the content it
-quotes, never by reading the lines its range names. A range resolving
-to unrelated code means the finding was written against a revision you
-are not on, so one of its halves may already be closed — report that
-with evidence rather than silently skipping it.
-
 ## A finding's exclusivity premise is measurable
 
 Under a recommendation there is usually a premise — "this is the only

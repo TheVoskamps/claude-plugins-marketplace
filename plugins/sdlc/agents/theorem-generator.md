@@ -7,6 +7,7 @@ effort: medium
 isolation: worktree
 skills:
   - sdlc:theorem-generation
+  - sdlc:theorem-agents-interface
   - issue-view
   - github-prs:pr-diff
 ---

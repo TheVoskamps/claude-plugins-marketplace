@@ -6,6 +6,7 @@ model: sonnet
 effort: medium
 isolation: worktree
 skills:
+  - sdlc:theorem-agents-interface
   - github-prs:pr-diff
 ---
 
@@ -32,28 +33,13 @@ instructions at the top of that file.
 
 ## Inputs
 
-Your brief carries exactly these double-dash parameters:
+Your brief carries exactly these double-dash parameters, each meaning
+what the `sdlc:theorem-agents-interface` skill (preloaded above) says
+it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
+(optional), `--theorem`, `--claim`, `--issues`, `--class`, and
+`--pointers`.
 
-- `--pr <N>` — the pull request.
-- `--branch <name>` — the PR's head branch. This is what step 1 checks
-  out; without it you have no branch to settle the claim against, so
-  stop and say so rather than reading the branch from GitHub yourself.
-- `--head-sha <oid>` — optional. The PR's head commit. When your
-  `origin/<branch>` already points at it, there is nothing to fetch.
-- `--fetched yes` — optional. The caller fetched `origin` in its own
-  session immediately before spawning you, so the ref store is already
-  current.
-- `--theorem T<k>` — the handle to report back under.
-- `--claim <text>` — the one claim you try to disprove.
-- `--issues <N…>` — the member issue(s) the theorem is tagged to.
-  Context for your consequence statement; you never review against
-  them.
-- `--class <mechanical|semantic>` — how the generator expects the
-  claim to be settled. `mechanical` means a grep, a file listing, or a
-  one-command check should do it; `semantic` means you need to read
-  behavior or exercise code. It is a hint, not a cap: if a
-  `mechanical` claim turns out to need reading, read.
-- `--pointers <text>` — where to start.
+Without `--branch` you have no branch to settle the claim against.
 
 If the brief carries two claims, or none, stop and say so rather than
 inventing the missing one.
@@ -197,23 +183,12 @@ the cited location have to survive somebody else running
 
 ## The consequence classes
 
-A `DISPROVED` report proposes one of exactly these tokens as its
-`CLASS`, alongside its `CONSEQUENCE` statement:
-
-- `breaks-production` — merging causes data loss, opens a security
-  hole, or breaks production.
-- `behavior-broken-or-criterion-unmet` — shipped behavior is
-  materially broken, or an acceptance criterion of a member issue is
-  unmet.
-- `defect-no-shipped-breakage` — a real defect or debt that should be
-  fixed in this PR but does not break shipped behavior.
-- `optional-polish` — genuinely optional. If it must be fixed before
-  merge, it is not this one.
+A `DISPROVED` report proposes one of the class tokens the
+`sdlc:theorem-agents-interface` skill → "The consequence classes"
+defines as its `CLASS`, alongside its `CONSEQUENCE` statement.
 
 Your class is a **proposal**: the verifier confirms or corrects it,
-and on disagreement the verifier's wins. What severity each class
-becomes is the pipeline's business, not yours — grade the consequence,
-not the severity, and never argue for a severity in your report.
+and on disagreement the verifier's wins.
 
 ## Output
 
@@ -228,7 +203,7 @@ COUNTEREXAMPLE: <what refutes the claim, in one or two sentences>
 EVIDENCE: in `<file-or-location>` at <line/section>:
 > <byte-for-byte quote of the offending text>
 CONSEQUENCE: <what happens if this PR merges as-is>
-CLASS: <one of the tokens under "The consequence classes">
+CLASS: <one of the tokens the `sdlc:theorem-agents-interface` skill defines>
 ```
 
 The `EVIDENCE` quote must be a byte-for-byte copy of the source text —
