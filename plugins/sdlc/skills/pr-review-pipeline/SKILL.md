@@ -199,8 +199,8 @@ theorem list. Everything else it posts is a disproved theorem.
 ### 3. Spawn the theorem generator
 
 Spawn the definition `--generator` named (default `theorem-generator`)
-with the `Agent` tool, `run_in_background: false`, passing the
-resolved set from step 2 — not the caller's claim:
+with the `Agent` tool, passing the resolved set from step 2 — not the
+caller's claim:
 
 ```text
 --pr <PR_N>
@@ -240,10 +240,9 @@ the PR's shape (step 1) and restart the review from step 2 against the
 new head, rather than reviewing a mix of two trees.
 
 Then spawn one `theorem-disprover` per theorem, **all in a single
-message block** so they run concurrently, each with
-`run_in_background: false`. One disprover per theorem is the starting
-point; if missed counterexamples show up in practice, N disprovers per
-theorem is a one-line change here.
+message block** so they run concurrently. One disprover per theorem is
+the starting point; if missed counterexamples show up in practice, N
+disprovers per theorem is a one-line change here.
 
 Route the model by the theorem's class:
 
@@ -307,7 +306,7 @@ disprover from wandering into unrelated nits.
 A `DISPROVED` report is a candidate finding, not a finding. Once
 **every** disprover has returned, spawn one `counterexample-verifier`
 per `DISPROVED` theorem, **all in a single message block** so they run
-concurrently, each with `run_in_background: false`.
+concurrently.
 
 `SURVIVED` theorems spawn no verifier. There is no counterexample to
 attack, and verifying survivals would double the cost of the common

@@ -159,15 +159,7 @@ subagent frontmatter with no `effort:` key inherits the effort level of
 the interactive session that spawned it, per the Claude Code subagent
 docs; without a pin, an orchestrator session running at a high effort
 level would silently propagate that cost to every teammate regardless
-of the teammate's actual task size. Foreground
-execution is not a frontmatter concern: the agents do
-**not** declare `background: false` (it is inert — the Claude Code docs
-document only `background: true` as forcing a direction). Foreground
-spawns are enforced by the `block-background-agents` plugin's
-`PreToolUse` hook (which denies any `Agent` call lacking an explicit
-`run_in_background: false`) and, as a fallback for installs without that
-hook, by this skill's own "never run subagents in the background" hard
-constraint.
+of the teammate's actual task size.
 
 Each teammate, at the start of every run, reads `~/.claude/CLAUDE.md`
 (and iteratively each `@~/` include it references — subagents don't
@@ -411,9 +403,6 @@ teammates yet.
 ---
 
 ## Phase 2: Execution
-
-Spawn teammates in the foreground only — see "Never run subagents in
-the background" under Hard Constraints below.
 
 Work in waves of batches, as defined by your plan. Each batch gets one
 `issue-developer`, one branch, and one PR.
@@ -1035,10 +1024,7 @@ When a teammate escalates:
 3. If the human's direction is "retry," prefer re-dispatching a fresh
    subagent over resuming the escalated one. A fresh dispatch starts
    in a clean worktree; resume inherits whatever environmental state
-   caused the escalation, and `SendMessage` also runs the resumed
-   subagent in a way that suppresses surfacing (see "Never run
-   subagents in the background" below and
-   `~/.claude/rules/foreground-vs-background.md`).
+   caused the escalation.
 
 #### A dropped batch member
 
@@ -1265,8 +1251,8 @@ pipeline's severity line and the fixer's report. Fill them per
     instead.
   - `git branch -D` of a feature branch while a subagent still
     holds it
-  - Resuming an escalated subagent via `SendMessage` (always
-    re-dispatch fresh in the foreground if the human says retry)
+  - Resuming an escalated subagent instead of asking the human
+    (always re-dispatch fresh if the human says retry)
   - Any cleanup that touches a worktree whose subagent is still
     mid-run or escalated, or whose lock reason does not match the
     standard harness shape (`claude agent agent-<hash> (pid NNNN)`).
@@ -1278,26 +1264,6 @@ pipeline's severity line and the fixer's report. Fill them per
   "What the orchestrator IS allowed to do" below for the canonical
   pattern, and the `/git-tools:git-cleanup-branches-and-worktrees`
   skill for the whole-repo sweep of the same shape.
-- **Never run subagents in the background.** Permission requests and
-  escalations need to bubble up to the human in real time. This
-  covers both `run_in_background: true` on initial spawn AND
-  `SendMessage` to resume a previously-paused subagent (both have
-  the same effect of suppressing surfacing). This constraint is the
-  fallback backstop; the primary enforcement is the
-  `block-background-agents` plugin's `PreToolUse` hook, which denies
-  any `Agent` call that does not pass an explicit
-  `run_in_background: false`. The teammates do **not** declare
-  `background: false` in their frontmatter — that key is inert (the
-  Claude Code docs document only `background: true` as forcing a
-  direction, so `background: false` behaves like unset and the
-  spawn-time `run_in_background` governs). Regardless of which
-  mechanism catches it, the rule on you is the same: never reach for
-  `run_in_background: true` or `SendMessage`. See
-  `~/.claude/rules/foreground-vs-background.md` for the canonical
-  rule, including what to do instead when a foreground subagent
-  stops and the human resolves the blocker (orchestrator self-does
-  the plumbing, or spawns a fresh foreground `Agent` with inline
-  resume context — never `SendMessage`).
 - **Never skip the planning phase.** Even for a single issue.
 - **Never spawn a Wave 2 batch concurrently with a conflicting Wave 1
   batch.**
