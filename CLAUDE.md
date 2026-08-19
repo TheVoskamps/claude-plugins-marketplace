@@ -489,13 +489,16 @@ prescriptive wording, the #225 redirect, the #229 publish read. A
 verdict change that leaves that choice
 unchanged needs no edit there; one that makes a previously-safe
 destination unsafe — or newly grades a path an agent parks a scratch
-file in — does. The other exception is
-`.claude/agent-memory/`, where notes teaching agents to route around a
-gate verdict DO describe classifier behavior and are silently falsified
-when the verdict changes. Grep the agent-memory tree — all agent
-subdirectories, not one — for the gate's own message fragments ("not all
-static literals", "resolves outside the current repository", "cannot
-resolve statically") whenever a verdict changes.
+file in — does. `.claude/agent-memory/` is deliberately not on that
+list, though a note teaching an agent to route around a gate verdict
+does describe classifier behavior: that tree is gitignored, it lives
+only inside the writing agent's throwaway worktree, and the session
+inbox its entries are captured into dies with the session, so nothing
+there survives to be falsified. Such a note reaches the repo only once
+the scrubber transfers it into `CLAUDE.md` or a `/docs` file — grep
+those two for the gate's own message fragments ("not all static
+literals", "resolves outside the current repository", "cannot resolve
+statically") whenever a verdict changes.
 
 What a verdict looks like **on the wire** is a different axis, owned by
 `docs/hook-event-notes.md` → `PreToolUse` (the decision channel, any
@@ -554,7 +557,7 @@ code and check the prose enumerates the same set.
 
 ## Narrow every claude-vm surface-only claim to the layer it measures
 
-Four `plugins/claude-vm` surfaces assert that the guest's Claude
+These `plugins/claude-vm` surfaces assert that the guest's Claude
 configuration comes from the claude-vm configs **only**, because the
 host's `~/.claude/settings.json` is never read:
 
@@ -573,7 +576,7 @@ half of such a sentence is its noun, not its verb: the `settings.json`
 grep that finds these sites keeps returning true statements while the
 subject above them is wrong. Grep the surface wording across
 `plugins/claude-vm/` rather than checking only the files the diff
-touched — two of the four are example YAML files that no test and no
+touched — two of them are example YAML files that no test and no
 doc pass naturally opens.
 
 ## Sweep every "no read-only mounts" surface when read-only lands
