@@ -9,15 +9,16 @@ the human a set of PRs to bless.
 ## This README points; it does not restate
 
 Every contract in this plugin has exactly one owner, and it is never
-this file. An agent's contract — what it commits, when it runs, what
-it returns — is owned by that agent's own definition under `agents/`.
+this file. An agent's contract — what it does, what it commits, when
+it runs — is owned by that agent's own definition under `agents/`.
 What a review checks and how it is reported is owned by
 `skills/pr-review-pipeline/SKILL.md`. What a generator may emit is
 owned by `skills/theorem-generation/SKILL.md`. What the pipeline's
 briefs to the theorem agents mean, and what a consequence class means,
 is owned by `skills/theorem-agents-interface/SKILL.md`. How the whole
-flow is sequenced, and what each teammate is briefed with, is owned by
-`skills/orchestrate/SKILL.md`.
+flow is sequenced, what each teammate is briefed with, and the
+condition each teammate's return leaves the orchestrator in are owned
+by `skills/orchestrate/SKILL.md`.
 
 So the rosters below carry a one-line purpose and a pointer, never a
 restatement. That is deliberate: a README that added a copy of a

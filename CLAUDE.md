@@ -166,22 +166,6 @@ grep returns the answer the claim wants, and naming an owner is itself
 a second statement of the fact, so each side has to scope itself and
 name the other as the second edit point.
 
-What an agent *leaves behind* — a pushed branch, a draft PR, a doc
-commit, nothing at all — is the half of its contract restated outside
-its own file, in `plugins/sdlc/skills/orchestrate/SKILL.md`, because
-the orchestrator branches on it: the teammate-agent roster near the
-top closes each bullet with the condition that agent's return leaves
-the orchestrator in, and the "After each issue-developer or
-issue-fixer: doc-updater, then review" section and the fix-loop's
-`doc-updater` step say the same of a round with no doc impact. What an
-agent *does* to get there is its own file's alone and is deliberately
-absent from SKILL.md — a roster bullet that regains a workflow is the
-restatement this split removed. So a PR that changes an agent's
-post-condition greps SKILL.md for that agent and checks every hit
-against that agent's current Output section, rather than fixing only
-the roster bullet; a PR that changes only how the agent works edits
-the agent file alone.
-
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
 confined to the agent file. That holds of `theorem-disprover` too,

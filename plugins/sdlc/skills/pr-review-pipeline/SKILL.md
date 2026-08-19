@@ -707,15 +707,15 @@ Which agent's class you take is settled under the table.
 | `defect-no-shipped-breakage` | Medium |
 | `optional-polish` | Low |
 
-The class comes from the verifier's `STANDS` report. The disprover
-proposed one and the verifier confirmed or corrected it; where the two
-disagree the verifier's wins, because it is the second reader and it
-had the first opinion in hand. The one case where you take the
-disprover's proposal is the one step 5 defines: a verifier malformed
-twice, whose finding stands anyway. If a `STANDS` report carries no
-class at all, that is a malformed report — re-spawn per step 5 rather
-than assigning a class yourself. You are not a source of consequence
-grades any more than you are a source of theorems.
+The class comes from the verifier's `STANDS` report: where the
+verifier and the disprover disagree, the verifier's class is the one
+you take, per `counterexample-verifier` → "The consequence classes",
+which states why. The one case where you take the disprover's proposal
+is the one step 5 defines: a verifier malformed twice, whose finding
+stands anyway. If a `STANDS` report carries no class at all, that is a
+malformed report — re-spawn per step 5 rather than assigning a class
+yourself. You are not a source of consequence grades any more than you
+are a source of theorems.
 
 This is the same derivation-not-judgment principle the verdicts
 already follow, moved one link up the chain: the agent that read the

@@ -152,12 +152,13 @@ from the sending end.
 
 State the interface once, as a skill in the same plugin, and name that
 skill in each receiving agent's `skills:` frontmatter so it is
-preloaded at spawn — the same mechanism the skeleton pattern below
-uses, for a different reason. Each agent's own file then carries only
-what is specific to it: which of the parameters its brief carries, and
-what it does with them that its siblings do not. The writing end
-carries what it *puts* in each parameter, which is policy rather than
-meaning, and points at the skill for the rest.
+preloaded at spawn — the same mechanism "Varying one agent's budget:
+skeletons over a preloaded skill" below uses, for a different reason.
+Each agent's own file then carries only what is specific to it: which
+of the parameters its brief carries, and what it does with them that
+its siblings do not. The writing end carries what it *puts* in each
+parameter, which is policy rather than meaning, and points at the
+skill for the rest.
 
 `sdlc`'s theorem agents are the worked instance:
 `plugins/sdlc/skills/theorem-agents-interface/SKILL.md` states each
