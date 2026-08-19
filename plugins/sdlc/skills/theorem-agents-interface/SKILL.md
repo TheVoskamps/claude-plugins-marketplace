@@ -83,11 +83,12 @@ these tokens as its `CLASS`, alongside its `CONSEQUENCE` statement:
   merge, it is not this one.
 
 The class grades the **consequence of merging as-is**, never the
-topic. A generator assigns no class at all; only `theorem-disprover`
-and `counterexample-verifier` do, and which of the two the pipeline
-takes when they disagree is stated in each of those agents' own "The
-consequence classes" section, from where that agent stands in the
-chain. What severity each class becomes
-is the pipeline's business, not the agents' — an agent grades the
+topic. A generator assigns no consequence class at all — the `--class`
+above is a different vocabulary, about how a claim gets settled — and
+only `theorem-disprover` and `counterexample-verifier` do; which of
+the two the pipeline takes when they disagree is stated in each of
+those agents' own "The consequence classes" section, from where that
+agent stands in the chain. What severity each class becomes is the
+pipeline's business, not the agents' — an agent grades the
 consequence, not the severity, and never argues for a severity in its
 report.
