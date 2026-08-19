@@ -927,8 +927,9 @@ memory-declaring teammate was spawned after the scrubber last ran.**
 That is this trigger's one full statement; every other mention of it
 in this file uses the same noun phrase or points here. Decide it from
 your own spawn history: capture happens inside the teammate's
-end-of-run, and none of the three reports its capture outcome back to
-you, so a spawn is the only evidence you have. That over-approximates
+end-of-run, and none of the three reports a *successful* capture back
+to you — a failed one it does report, stopping before its cleanup — so
+a spawn is the only evidence you have that entries may be waiting. That over-approximates
 — a round that wrote no entry triggers a scrubber spawn that finds
 nothing — and the cost of the over-approximation is one spawn that
 reports "no agent memory to curate" and commits nothing, against the

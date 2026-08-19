@@ -165,10 +165,11 @@ Report:
 - The commit SHA pushed, or the no-op outcome the skill reported —
   "no agent memory to curate" (nothing to grade) or "no changes to
   curate" (everything graded delete).
-- Anything the skill transferred only because the delete check could
-  not be substantiated. There is no verdict that leaves an entry in
-  the inbox, so an unsubstantiated delete becomes a transfer — those
-  are the transfers a human most wants to see.
+- Any entry the skill deleted without citing a delete case. There is
+  no verdict that leaves an entry in the inbox, so the skill's verdict
+  turns on whether the entry states a constraint the repo should
+  carry: an entry that states none is deleted even when no delete case
+  fits it, and those are the deletions a human most wants to see.
 
 ## End-of-run cleanup
 
