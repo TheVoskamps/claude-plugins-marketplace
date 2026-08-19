@@ -111,9 +111,10 @@ Give every entry exactly one verdict per the rubric, then:
    done.
 
 Deletions are not confirmed with anyone. The inbox is not a repository
-and holds no undo, which is why the rubric's evidence bar is the whole
-protection: an unsubstantiated delete is the one thing this pass cannot
-take back.
+and holds no undo, which is why a delete that cites a rubric case has
+to produce that case's evidence, and a delete that cites none has to
+say so in the report: an unexamined delete is the one thing this pass
+cannot take back.
 
 ### Land the transfers
 
@@ -170,7 +171,8 @@ Transferred (N):
   - <plugin>-<agent>/<file> -> <destination> — <the constraint, one line>
 
 Deleted (N):
-  - <plugin>-<agent>/<file> — <the check that substantiated it>
+  - <plugin>-<agent>/<file> — <the delete case, and the check that substantiated it>
+  - <plugin>-<agent>/<file> — no citable delete case; states no constraint the repo should carry
 
 Inbox: emptied
 ```
@@ -180,6 +182,13 @@ when every verdict was delete and nothing was staged. Where the inbox
 was absent or empty, the whole report is the single line "no agent
 memory to curate".
 
+The two delete lines above are the two shapes a deletion takes, and
+every deleted entry is reported as one of them. A delete that cites a
+rubric case quotes the check that substantiated it. A surviving-bar
+delete cites no case — there is none to cite — so it says so in those
+words instead, which is the whole record a human gets of an entry
+nothing else grades.
+
 The per-entry lines are the record of a destructive operation. Report
-all of them, and quote the check for every delete — those are what a
-human reads to tell curation from data loss.
+all of them — those are what a human reads to tell curation from data
+loss.
