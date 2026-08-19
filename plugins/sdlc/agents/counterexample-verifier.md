@@ -1,7 +1,7 @@
 ---
 name: counterexample-verifier
 description: Tries to refute exactly one counterexample a theorem-disprover produced. Given the theorem's claim and the disprover's DISPROVED report, it either rejects the counterexample with a reason or confirms it stands, with a consequence statement and a consequence class. It reviews nothing else, suggests nothing, and posts nothing.
-tools: Read, Glob, Grep, Bash, Skill
+tools: Read, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: sonnet
 effort: medium
 isolation: worktree
