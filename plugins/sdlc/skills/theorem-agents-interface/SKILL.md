@@ -43,7 +43,7 @@ them as well.
 
 - `--pr <N>` — the pull request under review.
 - `--branch <name>` — the PR's head branch. Every theorem agent checks
-  it out **detached**, from `origin/<branch>`, in its own worktree. The
+  it out **detached**, from `origin/<branch>`, in its own worktree.
   Without it, stop and say so rather than reading the branch from
   GitHub yourself. The disprover's and the verifier's own `## Inputs`
   each name what that agent is left with nothing to work against.
