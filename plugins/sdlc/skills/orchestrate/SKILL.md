@@ -44,7 +44,7 @@ under `agents/` owns:
   generator at a higher reasoning tier, returning the same theorem
   list. The generator definitions are skeletons over the one
   `sdlc:theorem-generation` skill, preloaded into each at spawn, and
-  differ only in `name:`, `effort:`, and a tier word in
+  differ only in `name:`, `effort:`, and a tier phrase in
   `description:`. Pick one per review per "Picking a generator tier"
   below
 - `theorem-disprover` — tries to break exactly one theorem in a fresh

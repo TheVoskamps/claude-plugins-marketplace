@@ -1,9 +1,10 @@
 # Agent memory grading rubric (`skills/lib/agent-memory-grading.md`)
 
 This file is the single source of truth for **how a memory entry is
-graded**: what makes an entry durable, what evidence a delete has to
-produce, how a transfer is phrased, and which file it lands in. It is
-reference prose, not an executable script.
+graded**: what makes an entry durable, what separates that from an
+entry with no code home, what evidence a delete has to produce, how a
+transfer is phrased, and which file it lands in. It is reference prose,
+not an executable script.
 
 `/cc-tools:agent-memory-cleanup` and
 `/cc-tools:agent-memory-inbox-cleanup` both read this contract, and
@@ -68,12 +69,28 @@ destructive.
 
 An entry is durable lore when it is a "don't undo this deliberate
 choice" constraint that the code **cannot** express — a deliberate
-omission, an absent API, a non-obvious read path, a harness behavior
-that surprises, a tool that misbehaves in a way no source file in the
-repo records.
+omission, an absent API, a non-obvious read path.
 
 Durable is the narrow case, not the default. If the code already makes
 the point clear to a reader, the verdict is delete.
+
+## Entries with no code home
+
+A second surviving class sits beside durable lore: a genuine
+preference, workflow correction, or tooling gotcha with **no code
+home** — a CLI that behaves unexpectedly, a skill doc that omits a
+step, a harness constraint. Nothing in the repo's code can carry it.
+
+The two classes are disjoint, so no entry matches both. Durable lore is
+a claim **about the repo's own code** — what it deliberately does or
+does not do — that the code cannot state about itself. A no-code-home
+entry is a claim about something outside the repo's code: a tool, the
+harness, or the way the work is done. Grade by what the entry is about,
+and exactly one of the two fits.
+
+What happens to a no-code-home entry depends on whether the calling
+skill has a verdict that keeps an entry where it is, so each skill
+states that outcome itself.
 
 ## Where a transfer lands
 

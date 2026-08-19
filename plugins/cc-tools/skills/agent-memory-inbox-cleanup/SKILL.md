@@ -44,12 +44,14 @@ curates a `.claude/agent-memory/` tree that agents read back on a later
 run. The inbox has no such reader, so "keep it in the inbox" would mean
 "discard it at the end of the session with extra steps".
 
-That difference moves the line the rubric draws in one direction only:
-an entry with **no code home** — a harness constraint, a tool that
-misbehaves, a workflow correction — is durable lore here and gets
-transferred into `CLAUDE.md`, where the sibling skill would have left
-it in the tree. Everything the rubric grades as a delete stays a
-delete, evidence bar included.
+That difference decides one outcome the rubric leaves to each skill.
+An entry the rubric grades under "Entries with no code home" has
+nowhere here to be kept, so it transfers into `CLAUDE.md`, where the
+sibling skill would have left it in the tree. Everything the rubric
+grades as a delete stays a delete, evidence bar included — and where
+the rubric says an unsubstantiated delete falls back to whichever
+non-destructive verdict the calling skill offers, this skill's fallback
+is `transfer`.
 
 ## Execution
 

@@ -226,11 +226,14 @@ owns — but never a finding, a location, or an implementation shape
 
 12. End-of-run cleanup — release the branch claim so subsequent
     subagents (`doc-updater`, `issue-fixer`) can check out the same
-    branch in their own worktrees. Run this only if your commit and
-    push both succeeded and step 11 completed, or if you had nothing to
-    commit — if either the commit or the push failed, `git branch -D`
-    would destroy the only copy of your work, so stop and report the
-    failure instead of proceeding to cleanup:
+    branch in their own worktrees. Run this only if step 11 completed
+    **and** either your commit and push both succeeded or you had
+    nothing to commit — if the capture failed, or if either the commit
+    or the push failed, `git branch -D` would destroy the only copy of
+    your work, so stop and report the failure instead of proceeding to
+    cleanup. The capture condition holds on the nothing-to-commit path
+    too: your memory entries live only in this worktree until step 11
+    moves them out, whether or not you committed anything:
 
     ```bash
     git checkout --detach

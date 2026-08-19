@@ -192,8 +192,8 @@ instruction into a skill in the same plugin, name that skill in each
 definition's `skills:` frontmatter so it is preloaded at spawn, and
 leave each definition a **skeleton** — frontmatter plus a pointer at
 the skill. The definitions then differ only in `name:`, `effort:`, and
-the tier word in `description:`, and choosing a tier is choosing which
-definition to spawn.
+the tier phrase in `description:`, and choosing a tier is choosing
+which definition to spawn.
 
 `sdlc`'s theorem generators are the worked instance:
 `theorem-generator`, `theorem-generator-high`, and

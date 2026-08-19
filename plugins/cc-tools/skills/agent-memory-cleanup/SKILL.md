@@ -123,10 +123,10 @@ Then delete the memory entry.
 
 #### Persist — keep the entry
 
-Persist when the entry is a genuine preference, workflow correction,
-or tooling gotcha with **no code home** — a CLI that behaves
-unexpectedly, a skill doc that omits a step, a harness constraint.
-Nothing in the repo can carry it, so the memory is where it belongs.
+Persist when the entry falls in
+`skills/lib/agent-memory-grading.md` → "Entries with no code home".
+Nothing in the repo can carry it, and this skill curates a tree that
+agents read back on a later run, so the memory is where it belongs.
 Restate it present-tense if it is written as the story of when it was
 discovered.
 

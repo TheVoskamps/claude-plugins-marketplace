@@ -321,8 +321,9 @@ Say so in the report instead of churning on them.
 `plugins/sdlc/agents/theorem-generator.md`,
 `theorem-generator-high.md`, and `theorem-generator-xhigh.md` are
 byte-identical except for the frontmatter lines `name:` and `effort:`
-and the tier word inside `description:`. That is the whole design —
-the generation instructions live in
+and the tier phrase inside `description:` (`default (medium)` versus
+`high` or `xhigh`). That is the whole design — the generation
+instructions live in
 `plugins/sdlc/skills/theorem-generation/SKILL.md`, preloaded into each
 skeleton through its `skills:` frontmatter, so a tier is a choice of
 which definition to spawn rather than a parameter anything passes.
@@ -557,7 +558,7 @@ code and check the prose enumerates the same set.
 
 ## Narrow every claude-vm surface-only claim to the layer it measures
 
-These `plugins/claude-vm` surfaces assert that the guest's Claude
+Four `plugins/claude-vm` surfaces assert that the guest's Claude
 configuration comes from the claude-vm configs **only**, because the
 host's `~/.claude/settings.json` is never read:
 
@@ -576,7 +577,7 @@ half of such a sentence is its noun, not its verb: the `settings.json`
 grep that finds these sites keeps returning true statements while the
 subject above them is wrong. Grep the surface wording across
 `plugins/claude-vm/` rather than checking only the files the diff
-touched — two of them are example YAML files that no test and no
+touched — two of the four are example YAML files that no test and no
 doc pass naturally opens.
 
 ## Sweep every "no read-only mounts" surface when read-only lands
