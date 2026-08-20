@@ -381,7 +381,7 @@ removed.
 
 Generation guidance itself never goes in a skeleton. It goes in
 `theorem-generation`, which is tier-blind by construction — it takes
-`--pr`, `--issues`, `--branch`, `--carried-records`, `--delta-base`
+`--pr`, `--issues`, `--branch`, `--carried-records`, `--delta-commits`
 and no tier parameter, and asking it
 which variant is running would let the tiers drift apart in behavior
 as well as budget. The pipeline's tier rubric and its `--generator`

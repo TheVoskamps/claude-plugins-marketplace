@@ -267,7 +267,7 @@ which reads context lines as part of the patch. A PR commit re-applied
 over changed context — an upstream edit within a few lines of its own
 — is therefore not patch-equivalent to its old self and stays in the
 delta, though the change it makes is unchanged. That costs a round one
-already-seen commit in the generator's `git diff`; the alternative
+already-seen commit in the generator's read; the alternative
 would be a mechanism deciding that two different patches mean the same
 thing, which patch-id deliberately does not.
 
@@ -323,9 +323,12 @@ which is what makes this pipeline self-contained given `--pr`.
 **Retire on survive.** A theorem that survived its round, or whose
 counterexample the verifier refuted, **retires in that same round**:
 step 9 stamps its record `retired` against that round's head SHA, and
-no later default round re-disproves it. Retirement is a record state,
-never a deletion — a retired theorem still appears in every later
-round's records block, carrying the head SHA it settled at.
+no later default round re-disproves it — except an
+acceptance-criterion theorem, which step 6 regenerates on every round
+that fans out and which therefore goes live again whatever state it
+holds. Retirement is a record state, never a deletion — a retired
+theorem still appears in every later round's records block, carrying
+the head SHA it settled at.
 
 **Fall back to round-1 behavior** — full generation from the whole
 diff, every theorem live — when any of these holds, and say which in
@@ -422,20 +425,30 @@ it back in the theorem-record format that skill defines, and nothing
 else.
 ```
 
-On a **delta round**, the brief adds the carried records and the delta
-base, and the generator emits only what those imply:
+On a **delta round**, the brief adds the carried records and the
+round's delta commits, and the generator emits only what those imply:
 
 ```text
 --pr <PR_N>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
 --carried-records <the records block, verbatim from the previous review>
---delta-base <prev-head>
+--delta-commits <the oids step 3's rev-list returned, space-separated>
 
 Generate the theorem list per your preloaded generation skill. Report
 it back in the theorem-record format that skill defines, and nothing
 else.
 ```
+
+Pass the delta as the **commit list** step 3 computed, never as the
+previous head for the generator to diff against: that rev-list is
+bounded to the PR's own commits, and a two-dot tree diff from
+`<prev-head>` is not — after a rebase that advanced the base it returns
+the base branch's changes as though this PR had written them. On an
+adjustment-only round the list is empty, and `--delta-commits` carries
+an empty value rather than being dropped: the generator reads that as a
+delta of nothing, which is what makes its criterion theorems the
+round's whole output.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into the generator;
@@ -481,8 +494,8 @@ generator emitted. On a delta round it is exactly:
 - theorems **minted from an adjustment comment** that have not yet
   survived a round.
 
-Everything else — every retired theorem — carries its verdict forward
-untouched and gets no disprover.
+Everything else — every retired theorem the bullets above do not name
+— carries its verdict forward untouched and gets no disprover.
 
 Acceptance-criterion theorems are the one class that regenerates on
 every round that fans out, because the issues can be edited between
@@ -547,8 +560,10 @@ show up in practice, N disprovers per theorem is a one-line change
 here.
 
 A retired theorem gets no disprover on a default round, so it never
-reaches this fan-out. That is the whole cost saving — the disprovers
-that do run are unbounded, and only the list is smaller.
+reaches this fan-out — unless it is an acceptance-criterion theorem,
+which step 6 puts back on the live list whatever state it holds. That
+is the whole cost saving — the disprovers that do run are unbounded,
+and only the list is smaller.
 
 Route the model by the theorem's class:
 
@@ -1046,8 +1061,12 @@ owns:
 - **`state`** — one of `disproved`, `unsettled`, or `retired`. A
   theorem is stamped `retired` in the very round that settled it — the
   round it survived, or the round whose counterexample the verifier
-  refuted — and holds that state in every later round's block; step 9
-  does the stamping. `state-detail` says what settled it: `survived`,
+  refuted — and holds that state in every later round's block unless a
+  later round puts it back on the live list. Two rounds do: any round
+  that fans out re-runs the acceptance-criterion theorems, and a
+  `--full` round re-runs every record. Such a theorem then takes
+  whatever state that round leaves it in. Step 9 does the stamping.
+  `state-detail` says what settled it: `survived`,
   `disproved-but-refuted`, `subject removed` for a generator
   retirement, or `human-refuted` for a rejected finding an adjustment
   comment retired. On a `disproved` record, `state-detail` names the

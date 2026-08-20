@@ -83,11 +83,15 @@ them as well.
   inferring it from this parameter. It is what the generator
   must not re-emit — a carried theorem is already recorded, so
   restating it would mint a duplicate under a new id.
-- `--delta-base <oid>` — the head commit the previous round reviewed.
-  Paired with `--carried-records`, and present on the same brief.
-  The round's change is what lies between it and the PR's current
-  head, computed patch-equivalently so a clean rebase leaves nothing
-  in it.
+- `--delta-commits <oid…>` — the round's change, as the list of this
+  PR's **own** commits that have no patch-equivalent commit in the head
+  the previous round reviewed. `sdlc:pr-review-pipeline` → "3. Carry
+  the previous round's theorems forward" computes it and bounds it to
+  the PR's own commits, so a rebase that advanced the base cannot put
+  the base branch's commits in it. Paired with `--carried-records`, and
+  present on the same brief. A clean rebase leaves the list **empty**,
+  and so does an adjustment-only round: an empty value is a delta of
+  nothing, not a missing parameter.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, every line as the disprover wrote it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.

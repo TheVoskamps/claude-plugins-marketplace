@@ -65,16 +65,20 @@ You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
 `--branch`, and — on a re-review only — `--carried-records` and
-`--delta-base`.
+`--delta-commits`.
 
 `--issues` is the answer, not a claim: the pipeline already resolved
 it, so do not re-derive it, do not parse the branch name, and do not
 add or remove a member.
 
-`--carried-records` and `--delta-base` arrive together or not at all,
-and which of the two cases you are in decides your whole workflow —
-see "On a re-review, generate from the delta" below. Absent both, you
-are generating round 1: the whole diff, the full list.
+`--carried-records` and `--delta-commits` arrive together or not at
+all, and which of the two cases you are in decides your whole
+workflow — see "On a re-review, generate from the delta" below. Absent
+both, you are generating round 1: the whole diff, the full list. A
+`--delta-commits` that arrives carrying **no oids** is a re-review
+whose delta is empty, not a round 1: `--carried-records` is present
+beside it, and the round still wants its acceptance-criterion
+theorems.
 
 ## Workflow
 
@@ -351,7 +355,7 @@ a later run.
 
 ## On a re-review, generate from the delta
 
-When your brief carries `--carried-records` and `--delta-base`, the
+When your brief carries `--carried-records` and `--delta-commits`, the
 theorem list already exists and you are extending it, not rebuilding
 it. The pipeline persists the records in the review it posts, so a
 theorem stated in round 1 is still on the books in round 5 under the
@@ -359,16 +363,27 @@ same id.
 
 Read the carried records first. They are the claims already made about
 this PR, with the state each one holds and the head SHA it was settled
-against. Then read the round's change:
+against. Then read the round's change, one delta commit at a time:
 
 ```bash
-git diff <delta-base>..origin/<branch>
+git show <oid>   # once per oid in --delta-commits
 ```
+
+Read those commits' own patches. Do **not** substitute a two-dot
+`git diff <previous-head>..origin/<branch>`: that is a tree
+comparison, so after a rebase that advanced the base it hands you the
+base branch's changes as though this PR had written them. Measured on
+a reproduced clean rebase, it returned two upstream files the PR never
+touched while the round's real delta was empty; on a reproduced
+conflict-resolving rebase, it showed the upstream line as added and
+left the PR commit's own added line out of the patch entirely.
+`--delta-commits` carries only this PR's own commits, so upstream
+content cannot enter it.
 
 You emit exactly two things, and nothing else:
 
-- **New theorems arising from the delta.** Claims about what changed
-  since `--delta-base` — including a claim about how the delta
+- **New theorems arising from the delta.** Claims about what the delta
+  commits changed — including a claim about how the delta
   interacts with code it did not touch, which is where the
   codebase-consistency and design-shape sources still earn their
   keep. Number them **continuing the carried sequence**: if the
@@ -398,10 +413,11 @@ Invariant theorems — everything from the other sources — persist
 instead of regenerating.
 
 The delta is computed patch-equivalently by the pipeline, so a clean
-rebase between rounds yields nothing to generate from. When your
-`git diff` above comes back empty, emit an empty list of new theorems
-and say so rather than reaching back into the whole diff for something
-to say; the acceptance-criterion theorems still regenerate.
+rebase between rounds yields nothing to generate from — it arrives as
+an empty `--delta-commits`, with no oid to read. When the list is
+empty, emit an empty list of new theorems and say so rather than
+reaching back into the whole diff for something to say; the
+acceptance-criterion theorems still regenerate.
 
 ## Output format
 
@@ -413,7 +429,7 @@ T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
 class: semantic
-pointers: plugins/sdlc/skills/pr-review-pipeline/SKILL.md, step 4
+pointers: plugins/sdlc/skills/pr-review-pipeline/SKILL.md, step 7
 ```
 
 Field rules:
