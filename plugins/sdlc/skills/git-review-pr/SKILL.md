@@ -35,8 +35,13 @@ skill computes.
 
 ## Process
 
-1. **Resolve the PR number.** `$ARGUMENTS` is the PR number to review.
-   If it is empty, ask the user which PR to review before proceeding.
+1. **Resolve the PR number.** The first positional token in
+   `$ARGUMENTS` is the PR number to review, with or without a leading
+   `#`. Any `--generator <name>` and `--full` tokens alongside it are
+   the human overrides above; they are not part of the PR number and
+   pass through to the reviewer spawn in step 2 unchanged. If
+   `$ARGUMENTS` carries no positional token, ask the user which PR to
+   review before proceeding.
 
 2. **Spawn the reviewer agent** with the `Agent` tool, using the
    `subagent_type` `sdlc:theorem-based-pr-reviewer`, and give it the

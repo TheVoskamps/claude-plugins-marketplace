@@ -723,8 +723,14 @@ removes:
 
 ```bash
 git worktree list
-git worktree remove .claude/worktrees/<name>
+git worktree remove <absolute-path-from-the-listing>
 ```
+
+Remove by the **absolute** path `git worktree list` prints, never by a
+`.claude/worktrees/<name>` path relative to your cwd. You are yourself
+running inside an `isolation: worktree` worktree under the repo's
+`.claude/worktrees/`, so the relative form resolves to a nested path
+that does not exist and the removal fails.
 
 Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
