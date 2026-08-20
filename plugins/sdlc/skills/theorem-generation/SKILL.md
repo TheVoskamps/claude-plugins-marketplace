@@ -362,8 +362,7 @@ theorem stated in round 1 is still on the books in round 5 under the
 same id.
 
 Read the carried records first. They are the claims already made about
-this PR, with the state each one holds and the head SHA it was settled
-against. Then read the round's change, one delta commit at a time:
+this PR. Then read the round's change, one delta commit at a time:
 
 ```bash
 git show <oid>   # once per oid in --delta-commits

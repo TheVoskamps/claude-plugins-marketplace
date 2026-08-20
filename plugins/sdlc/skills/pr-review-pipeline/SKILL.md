@@ -225,7 +225,7 @@ gh pr view <PR> --json reviews \
   --jq '.reviews | sort_by(.submittedAt) | last | {submittedAt, body}'
 ```
 
-Read three things out of it, in this order.
+Read the following, in this order.
 
 **The carried records.** The review body carries the full theorem
 records in a collapsed `<details>` block — see "The theorem records
