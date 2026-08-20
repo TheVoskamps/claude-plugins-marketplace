@@ -296,6 +296,24 @@ reordering, a dropped subtitle. A wrapped pointer and an unwrapped one
 to the same heading both pass, so never reflow surrounding prose just
 to unwrap one.
 
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` numbers its workflow
+steps (`### 4. Pick the generator tier`), which adds a failure mode
+the bar above does not catch on its own: inserting or deleting a step
+renames every later heading without the diff touching one of them, and
+the pointers quoting the old number sit in files such a PR has no
+other reason to open — every generator skeleton,
+`skills/theorem-generation/SKILL.md`,
+`skills/theorem-agents-interface/SKILL.md`,
+`skills/orchestrate/SKILL.md`, and this file. So a renumbering PR
+greps `→ "` for a leading digit across the repo rather than across
+`plugins/sdlc/`, and compares each hit against the heading it names.
+That grep is not the whole sweep either: the pipeline's own body
+refers to its steps by bare number ("step 3", "step 9") throughout,
+and no heading grep reaches those, so read that file end to end after
+a renumber. The numbered headings themselves stay as they are, for the
+reason the `Phase 1` / `Phase 2` paragraph below gives: renaming them
+is a cross-file refactor rather than a doc-pass sweep.
+
 Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
