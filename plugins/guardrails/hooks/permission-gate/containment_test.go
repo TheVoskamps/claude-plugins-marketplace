@@ -1921,9 +1921,9 @@ func TestContainmentDeniesArePrescriptive_30(t *testing.T) {
 	if !containsSubstr(wd.Reason, ".git/") {
 		t.Errorf("#30: #148 Write deny must warn against .git/; got %q", wd.Reason)
 	}
-	// Prescribing ONLY the in-repo destination left a genuine handoff file with
-	// no legal landing spot, so the write denies now name the harness scratchpad
-	// as the second destination.
+	// Prescribing ONLY the in-repo destination left a genuine cross-repo /
+	// cross-session handoff file with no legal landing spot, so the write denies
+	// now name the harness scratchpad as the second destination.
 	if !containsSubstr(wd.Reason, harnessScratchDisplay()) {
 		t.Errorf("#193: #148 Write deny must also name the harness scratchpad; got %q", wd.Reason)
 	}

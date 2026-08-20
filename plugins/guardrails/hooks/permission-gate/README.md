@@ -1144,17 +1144,11 @@ The gate's engines feed that decision:
   against `.git/`, so an open-ended denial does not induce the model to
   improvise a bad landing spot. As of #193 they name a **second**
   destination alongside it — the harness scratchpad,
-  `<system-tmp>/claude-<uid>/` — for a handoff file whose reader the
-  in-repo tree cannot serve, and the read-side denies name that handoff
-  location too; prescribing only the in-repo path left a genuine
+  `<system-tmp>/claude-<uid>/` — for a file that must outlive this repo
+  or this session, and the read-side denies name that handoff location
+  too; prescribing only the in-repo path left a genuine cross-repo
   handoff with no legal landing spot, which is the same open-ended
-  denial in a different disguise. The criterion the hints state is the
-  reader's position, and `rules/scratch-file-location.md` enumerates
-  the shapes that qualify: another repo, another session, or another
-  subagent's worktree. Both hints carry all of them — a hint that
-  enumerated only the first two would tell an agent handing a file
-  between worktrees that it has no sanctioned destination, which is the
-  open-ended denial again. The in-repo destination is emitted as
+  denial in a different disguise. The in-repo destination is emitted as
   the **resolved** root the gate is already holding (`rc.topLevel`, the
   same value the cross-repo deny prints as `repo root %s`), not as the
   literal `<repo-root>` placeholder written here and not as a
@@ -1213,8 +1207,8 @@ The gate's engines feed that decision:
   directs the model to put temporary files there, so treating it as an
   ordinary `/tmp` escape made the gate fight the harness: a hook deny
   beats a `settings.json` allow, leaving the scratchpad unusable from
-  every repo session and leaving handoff files with no sanctioned home
-  at all. The verdict is **graded on where
+  every repo session and leaving cross-repo / cross-session handoff
+  with no sanctioned home at all. The verdict is **graded on where
   inside the prefix the target lands**, not a blanket defer — and it is
   a function of **region × track**, not of region alone. The tracks are
   the **path-reader** track (the `Read` file tool, and the

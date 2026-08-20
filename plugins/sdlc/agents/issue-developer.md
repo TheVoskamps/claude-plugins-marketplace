@@ -324,12 +324,11 @@ and the theorem that catches it costs a full round trip.
 - The single sanctioned out-of-repo destination is the harness's own
   per-session scratchpad,
   `<system-tmp>/claude-<uid>/<project-slug>/<session-id>/scratchpad/`,
-  and only for a handoff whose reader your own `.claude/tmp/` cannot
-  serve — one in another repo, another session, or another subagent's
-  worktree, which is what your end-of-run memory capture is. Ordinary
-  task scratch does not qualify and belongs under `.claude/tmp/` as
-  above. Write under the scratchpad path the harness gave this session;
-  do not hand-build a lookalike path elsewhere in the tree.
+  and only for a file that must outlive this repo or this session — a
+  cross-repo or cross-session handoff. Ordinary task scratch does not
+  qualify and belongs under `.claude/tmp/` as above. Write under the
+  scratchpad path the harness gave this session; do not hand-build a
+  lookalike path elsewhere in the tree.
 
 ## Engineering Principles
 
