@@ -1296,11 +1296,11 @@ pipeline's severity line and the fixer's report. Fill them per
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A
-  round is one `sdlc:pr-review-pipeline` run at any generator tier —
-  the fan-outs inside a round are one round, however many
-  `theorem-disprover` and `counterexample-verifier` agents they
-  spawned; the `doc-updater` pass that precedes each one is not a
-  review and never counts against the cap.
+  round is one `theorem-based-pr-reviewer` spawn at any generator
+  tier — everything inside that spawn is one round, however many
+  `theorem-disprover` and `counterexample-verifier` agents its
+  fan-outs spawned; the `doc-updater` pass that precedes each one is
+  not a review and never counts against the cap.
 
 ### What the orchestrator IS allowed to do
 

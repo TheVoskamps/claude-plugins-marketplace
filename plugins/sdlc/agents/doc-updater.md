@@ -314,10 +314,11 @@ Otherwise, after making all edits:
 
 Release the branch claim so subsequent subagents that check the branch
 out attached (e.g. an `issue-fixer` or the `agent-memory-scrubber`)
-can do so in their own worktrees. The review pipeline's agents are not
-among them — a `theorem-generator`, a `theorem-disprover`, and a
-`counterexample-verifier` each detach from `origin/<branch>` and claim
-nothing.
+can do so in their own worktrees. Review's agents are not among them —
+a `theorem-generator`, a `theorem-disprover`, and a
+`counterexample-verifier` each detach from `origin/<branch>`, and the
+`theorem-based-pr-reviewer` that spawns them never checks the branch
+out at all, so none of them claims anything.
 Run this only if the memory capture completed **and** either your
 commit and push both succeeded or you had nothing to commit — if the
 capture failed, or if either the commit or the push failed, `git branch
