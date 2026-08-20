@@ -504,3 +504,15 @@ destination*. A verbatim mirror into a destination that is an additive
 merge target can ship a worse defect than the one it fixes — and the
 suite stays green, because nothing asserts the pre-existing content
 survives.
+
+## A permission's whole surface is not its caller's surface
+
+Prose justifying a permission scope earns the scope by enumerating
+every API surface it unlocks, then predicts the failure the code hits
+without it. The enumeration is about the scope; the failure is about
+the one call the code actually makes. Collapsing the two yields "it
+fails in two different shapes", where one shape belongs to an endpoint
+nothing here calls. The tell is a failure sentence whose shape count
+matches the endpoint count in the sentence above it. Grep the callers
+for each endpoint named, attribute the failure to the ones that
+survive, and demote the rest to what a different caller would get.

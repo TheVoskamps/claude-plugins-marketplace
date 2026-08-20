@@ -103,15 +103,15 @@ only) that the automation exists to deliver.
 whether CI passed. `GET /repos/{owner}/{repo}/commits/{ref}/check-runs`
 needs the first and `GET /repos/{owner}/{repo}/commits/{ref}/status`
 needs the second, and the `statusCheckRollup` GraphQL field the
-PR-automation workflows gate on reads both. An App without them fails
-the first time a merge pass has an open PR to evaluate, in two
-different shapes: the REST reads return HTTP 403, while the GraphQL
-rollup returns HTTP 200 carrying a `FORBIDDEN` body error —
+PR-automation workflows gate on reads both. Those workflows read the
+rollup and make neither REST call, so an App without the two scopes
+fails in the GraphQL shape the first time a merge pass has an open PR
+to evaluate: HTTP 200 carrying a `FORBIDDEN` body error —
 `Resource not accessible by integration` — which exits `gh api
-graphql` non-zero. Both are
-read-only on an App that already holds write on Pull requests,
-Contents, and Issues, so they widen nothing an operator has not
-already granted.
+graphql` non-zero. HTTP 403 is the REST shape, and it is what a caller
+of either endpoint above gets instead. Both scopes are read-only on an
+App that already holds write on Pull requests, Contents, and Issues,
+so they widen nothing an operator has not already granted.
 
 **No webhook.** This App mints installation tokens in CI; it does not
 receive event deliveries. Leave "Active" under Webhook **unchecked**

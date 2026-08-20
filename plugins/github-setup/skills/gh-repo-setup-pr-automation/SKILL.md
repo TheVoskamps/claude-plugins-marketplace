@@ -88,8 +88,9 @@ only) — the very thing this automation exists to carry out.
 
 `checks: read` and `statuses: read` cover the **CI-outcome reads** the
 rendered workflows make. `auto-enable-automerge.yml` reads the
-aggregate `statusCheckRollup.state` and its `CheckRun` contexts;
-`auto-rebase-prs.yml` reads those contexts. Every one of those queries
+aggregate `statusCheckRollup.state` and its contexts under both
+`CheckRun` and `StatusContext`; `auto-rebase-prs.yml` reads the
+`CheckRun` contexts. Every one of those queries
 runs with `GH_TOKEN` set to the App-minted installation token, not the
 default `GITHUB_TOKEN`. The rollup draws on check runs and commit
 statuses, so a token holding neither read cannot see whether CI passed.
