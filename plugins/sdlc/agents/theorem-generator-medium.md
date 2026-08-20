@@ -1,9 +1,9 @@
 ---
-name: theorem-generator
-description: Reads a PR, the issues it closes, and the surrounding codebase at the default (low) reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:pr-review-pipeline skill; it posts nothing and writes nothing.
+name: theorem-generator-medium
+description: Reads a PR, the issues it closes, and the surrounding codebase at the medium reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:pr-review-pipeline skill; it posts nothing and writes nothing.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
-effort: low
+effort: medium
 isolation: worktree
 skills:
   - sdlc:theorem-generation
@@ -33,11 +33,11 @@ generator variants (see the `sdlc:pr-review-pipeline` skill → Inputs).
 
 This definition deliberately declares no `memory:` key, and it carries
 no `Write` or `Edit` tool. Both omissions are the enforcement: the
-review pipeline is strictly non-mutating, so there is nothing of yours
-to capture into the session's agent-memory inbox and nothing for
-`agent-memory-scrubber` to curate from a review round. A durable review
-lesson becomes a PR against `sdlc:theorem-generation` or the repo's
-`CLAUDE.md`, not a memory entry.
+review pipeline is strictly non-mutating on the branch, so there is no
+capture to commit, no push, and nothing for `agent-memory-scrubber` to
+curate from a review round. A durable review lesson becomes a PR
+against `sdlc:theorem-generation` or the repo's `CLAUDE.md`, not a
+memory commit.
 
 ## End-of-run cleanup
 

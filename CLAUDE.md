@@ -182,28 +182,42 @@ statements as well; grep SKILL.md for `effort` and confirm every hit
 still describes the agents it claims to.
 
 Both statements carry a named exception, so neither reads "every
-teammate" unqualified: `theorem-generator-high` and
+teammate" unqualified: `theorem-generator` pins `effort: low`, and
+`theorem-generator-high` and
 `theorem-generator-xhigh` pin `effort: high` and `effort: xhigh`. That
 is not effort varying per spawn — the thing the same statements forbid
 — but a different agent definition being spawned, per "The generator
-skeletons are copies of one file" below. A PR that adds a further
+skeletons are copies of one file" below. `theorem-generator-medium`
+sits at the default and is deliberately *not* in that exception list.
+A PR that adds a further
 off-default variant extends the exception in both places rather than
 deleting the default.
 
-Review is a further exception, because review is not an agent at all:
-it is `plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, run in the
-main session by both `/sdlc:orchestrate` and `/sdlc:git-review-pr`. So
+Review is an agent — `theorem-based-pr-reviewer` — but its contract
+lives in the skill preloaded into it,
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, which both
+`/sdlc:orchestrate` and `/sdlc:git-review-pr` reach by spawning that
+agent. So
 a change to what a review does sweeps several files, not one — the
-pipeline skill, orchestrate's "Run the review pipeline" and "Picking a
-generator tier" sections, and `skills/git-review-pr/SKILL.md`, which
+pipeline skill, orchestrate's "Run the review pipeline" and
+"Overriding the generator tier" sections, the reviewer agent file, and
+`skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
 does not pass. A change to the pipeline's *stages* — which agents it
 spawns, in how many fan-outs — reaches one surface outside
 `plugins/sdlc/` as well: `docs/plugin-authoring-constraints.md` →
-"Fanning out parallel agents: a main-session skill, not an agent"
+"Fanning out parallel agents: a skill, run wherever the fan-out is"
 cites the pipeline as its worked instance and names the stages, and
 the fetch-once paragraph below it names the agents that skip their own
 fetch.
+
+The generator **tier rubric** lives in the pipeline skill, next to the
+delta it reads, and nowhere else. Orchestrate carries override
+guidance only, and `git-review-pr` states that it computes no tier at
+all. A PR that changes what the rubric measures edits the pipeline
+section; a PR that changes when a *human* should override it edits
+orchestrate. Re-adding a rubric to either caller is the second source
+of truth this split removes.
 
 What a brief parameter *means*, and what a consequence class means, is
 owned by `plugins/sdlc/skills/theorem-agents-interface/SKILL.md`,
@@ -319,7 +333,8 @@ Say so in the report instead of churning on them.
 ## The generator skeletons are copies of one file
 
 `plugins/sdlc/agents/theorem-generator.md`,
-`theorem-generator-high.md`, and `theorem-generator-xhigh.md` are
+`theorem-generator-medium.md`, `theorem-generator-high.md`, and
+`theorem-generator-xhigh.md` are
 byte-identical except for the frontmatter lines `name:` and `effort:`
 and the tier phrase inside `description:` (`default (medium)` versus
 `high` or `xhigh`). That is the whole design — the generation
@@ -332,6 +347,8 @@ So an edit to any one skeleton sweeps every other one, and the check
 is mechanical:
 
 ```bash
+diff plugins/sdlc/agents/theorem-generator.md \
+     plugins/sdlc/agents/theorem-generator-medium.md
 diff plugins/sdlc/agents/theorem-generator.md \
      plugins/sdlc/agents/theorem-generator-high.md
 diff plugins/sdlc/agents/theorem-generator.md \
@@ -346,13 +363,15 @@ removed.
 
 Generation guidance itself never goes in a skeleton. It goes in
 `theorem-generation`, which is tier-blind by construction — it takes
-`--pr`, `--issues`, `--branch` and no tier parameter, and asking it
+`--pr`, `--issues`, `--branch`, `--carried-records`, `--delta-base`
+and no tier parameter, and asking it
 which variant is running would let the tiers drift apart in behavior
-as well as budget. The pipeline's `--generator` parameter and the
-orchestrator's selection rule
-(`plugins/sdlc/skills/orchestrate/SKILL.md` → "Picking a generator
-tier") are where a variant is named; adding or removing one updates
-that section, the teammate roster above it, the pipeline skill's
+as well as budget. The pipeline's tier rubric and its `--generator`
+override parameter
+(`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` → "4. Pick the
+generator tier") are where a variant is named; adding or removing one
+updates that section, orchestrate's "Overriding the generator tier"
+section and the teammate roster above it, the pipeline skill's
 Inputs, and both `effort` statements the sdlc sweep section already
 names.
 
@@ -365,7 +384,7 @@ the skeletons carried had already fallen behind, naming some of
 repair that fails next time is widening such a list; a skeleton
 pointing at the whole file cannot go stale as the skill gains or
 renames a section. The `diff` above is no protection here: that list
-was byte-identical in all three skeletons, so it passed the check while
+was byte-identical in every skeleton, so it passed the check while
 naming a section set the skill no longer had. Read a skeleton's pointer
 against `theorem-generation`'s own headings, not against its siblings.
 
@@ -382,9 +401,9 @@ either question edits the skill and then re-reads every such site,
 because a bar spelled out at one of them is the second source of truth
 that keeping generation guidance in one file removes. The bar is
 tier-blind, like the rest of that skill: a higher tier buys a deeper
-search for claims that clear it, never a lower one, which is why
-"Picking a generator tier" reads blast radius and not the effort the
-change took to write.
+search for claims that clear it, never a lower one, which is why the
+pipeline's tier rubric reads what the round's delta puts at stake and
+not the effort the change took to write.
 
 `theorem-disprover` is deliberately **not** a skeleton set. It has one
 definition and no tiers, and its instructions live in the agent file
@@ -411,12 +430,20 @@ either the pipeline or orchestrate is what would end that.
 
 ## Review writes nothing, so review lore is a PR
 
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` and the agents it
-spawns are strictly non-mutating on the PR branch: none of
-`theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
+`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, the
+`theorem-based-pr-reviewer` agent that runs it, and the agents that
+agent spawns are strictly non-mutating on the PR branch: none of
+`theorem-based-pr-reviewer`, `theorem-generator`, `theorem-disprover`,
+or `counterexample-verifier`
 declares `memory:`, and none carries a `Write` or `Edit` tool. A
 review round therefore commits nothing, pushes nothing, and writes
 nothing to `.claude/agent-memory/`.
+
+The theorem list a round carries forward is no exception to that,
+because it never lands on the branch: the pipeline persists the
+records in the **review it posts**, and the next round reads them back
+off the PR. A PR artifact is not a branch write. Do not repair a
+persistence gap by giving review a file to write.
 
 That is enforcement, not convention, so keep it structural: do not add
 a `memory:` key or a writing tool to any of those definitions, and do

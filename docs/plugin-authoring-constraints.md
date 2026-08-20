@@ -173,7 +173,7 @@ This is dedup *within* one plugin, so no `dependencies` edge is
 involved — unlike the cross-plugin case above, where the sandbox
 (constraint 1) is what forces the shared content into a skill the
 consumers invoke by name. The agents get the skill by preload rather
-than by invoking it; a main-session skill in the same plugin that
+than by invoking it; a skill in the same plugin that
 needs the shared content — the pipeline, for the class glosses it
 grades step 2's findings by — reaches it by name. The skill is still
 machinery rather than a user verb, so it takes `user-invocable: false`
@@ -196,7 +196,8 @@ the tier phrase in `description:`, and choosing a tier is choosing
 which definition to spawn.
 
 `sdlc`'s theorem generators are the worked instance:
-`theorem-generator`, `theorem-generator-high`, and
+`theorem-generator`, `theorem-generator-medium`,
+`theorem-generator-high`, and
 `theorem-generator-xhigh` are skeletons over
 `plugins/sdlc/skills/theorem-generation/SKILL.md`. What keeps the
 pattern honest is enforced by the repo's `CLAUDE.md` →
@@ -220,30 +221,35 @@ Such a skill is machinery, not a user verb: give it
 `user-invocable: false` (constraint 4) so it stays out of the human `/`
 menu while remaining loadable by the agents that declare it.
 
-### Fanning out parallel agents: a main-session skill, not an agent
+### Fanning out parallel agents: a skill, run wherever the fan-out is
 
-A subagent cannot spawn subagents, so a procedure whose design **is** a
-parallel fan-out of agents cannot live in an agent definition. An agent
-handed that job does not fail — it quietly collapses to one reader
-doing the work by hand, which is the shape the fan-out existed to
-replace.
+A procedure whose design **is** a parallel fan-out of agents belongs in
+a skill (`user-invocable: false`, constraint 4, when it is machinery
+rather than a user verb) rather than being spelled out at each caller.
+The skill spawns the agents itself; each caller passes the same
+parameter vocabulary.
 
-Package such a procedure as a skill (`user-invocable: false`,
-constraint 4, when it is machinery rather than a user verb) and have
-every caller **run it in the main session** rather than delegate it to
-an agent. The skill spawns the agents itself; each caller passes the
-same parameter vocabulary.
+The session that runs such a skill may be the main session or a
+subagent — **nested spawning works in this harness**: a spawned agent
+holds the `Agent` tool, and a plugin-prefixed `subagent_type` such as
+`sdlc:counterexample-verifier` resolves from inside one. What a
+spawned agent's context does *not* carry is an agent-type roster, so a
+skill that will run inside an agent has to name the exact
+plugin-prefixed `subagent_type` string of everything it spawns rather
+than relying on the runner to recognize a bare name.
 
 `sdlc`'s PR review is the worked instance:
 `plugins/sdlc/skills/pr-review-pipeline/SKILL.md` spawns a
-`theorem-generator`, then one `theorem-disprover` per theorem, then one
-`counterexample-verifier` per disproved theorem — two fan-outs in one
-procedure, the second stage reading only what the first broke — and
-its callers — `/sdlc:git-review-pr` and `/sdlc:orchestrate` — each run
-it in their own session. The orchestrator's copy needs an explicit
-carve-out in its "Never do work an agent owns" constraint, because a
-rule that says "spawn the teammate that owns this" otherwise reads as
-an instruction to delegate the very thing that cannot be delegated.
+`theorem-generator`, then one `theorem-disprover` per live theorem,
+then one `counterexample-verifier` per disproved theorem — two
+fan-outs in one procedure, the second stage reading only what the
+first broke. It runs inside the `theorem-based-pr-reviewer` agent,
+which has it preloaded, and both callers —
+`/sdlc:git-review-pr` and `/sdlc:orchestrate` — spawn that agent
+rather than running the pipeline themselves. Packaging the fan-out in
+an agent is what keeps the per-round working state out of the caller's
+context: what comes back to the caller is the verdicts and the
+findings, not the theorem list, the briefs, and every agent's report.
 
 **A fanned-out agent must check out detached.** Every `isolation:
 worktree` worktree of a repo shares that repo's single ref store, and
@@ -263,11 +269,12 @@ time, running several in parallel only when each has a branch of its
 own. An agent that only *reads* the branch and can be spawned more
 than once concurrently must detach.
 
-**The spawning session fetches; the fan-out does not.** The same shared
+**The spawning agent fetches; the fan-out does not.** The same shared
 ref store makes `git fetch origin` a contended write: k siblings
 fetching at once compete for one `.git`, and a loser of that lock race
-fails rather than waiting. So run the fetch once, in the session that
-spawns, and give each agent enough to skip its own — the pipeline reads
+fails rather than waiting. So run the fetch in whichever session does
+the spawning — for review that is `theorem-based-pr-reviewer`, not its
+caller — and give each agent enough to skip its own: the pipeline reads
 the PR's `headRefOid` alongside `headRefName`, fetches, confirms
 `origin/<branch>` carries that commit, and passes `--head-sha` and
 `--fetched yes` in every disprover and verifier brief, the second

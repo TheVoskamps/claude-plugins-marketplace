@@ -20,9 +20,10 @@ parameter is stated here and nowhere else.
 The pipeline reads this file too, rather than only writing against it:
 its step 2 findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
-its own table. That is the one reader that is not an agent, and it
-reaches this skill by name in the main session rather than by
-preload.
+its own table. That reader is a skill rather than an agent, and it
+reaches this skill by name rather than by preload — it runs inside
+`theorem-based-pr-reviewer`, whose frontmatter preloads the pipeline
+and nothing else.
 
 The pipeline's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by
@@ -71,6 +72,18 @@ them as well.
   gets read.
 - `--pointers <text>` — the generator's pointers, verbatim: the files,
   regions, or symbols to start from.
+- `--carried-records <text>` — the previous round's theorem records
+  block, verbatim from the previous review's body: every recorded
+  theorem with its id, claim, issues, class, pointers, the state it
+  held, and the head SHA it was settled against. Only a generator
+  receives it, and only on a delta round. It is what the generator
+  must not re-emit — a carried theorem is already recorded, so
+  restating it would mint a duplicate under a new id.
+- `--delta-base <oid>` — the head commit the previous round reviewed.
+  Paired with `--carried-records` and present only on a delta round.
+  The round's change is what lies between it and the PR's current
+  head, computed patch-equivalently so a clean rebase leaves nothing
+  in it.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, every line as the disprover wrote it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.

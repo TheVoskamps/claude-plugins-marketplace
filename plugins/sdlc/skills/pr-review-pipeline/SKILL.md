@@ -1,6 +1,6 @@
 ---
 name: pr-review-pipeline
-description: The sdlc PR review pipeline — resolve the issue set, spawn a theorem-generator, fan out one theorem-disprover per theorem in parallel, fan out one counterexample-verifier per disproved theorem, derive severities and verdicts mechanically, and post a single argued review. Runs in the main session, invoked by /sdlc:git-review-pr and by the /sdlc:orchestrate loop; not invoked from the user's slash menu.
+description: The sdlc PR review pipeline — resolve the issue set, carry the previous round's theorem records forward, compute the round's delta, pick a generator tier, spawn a theorem-generator, fan out one theorem-disprover per live theorem in parallel, fan out one counterexample-verifier per disproved theorem, derive severities and verdicts mechanically, and post a single argued review. Preloaded into the theorem-based-pr-reviewer agent, which /sdlc:orchestrate and /sdlc:git-review-pr each spawn; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
@@ -20,26 +20,37 @@ theorem gets a second, adversarial reader whose brief is to reject the
 counterexample, and only a counterexample that survives that becomes a
 finding.
 
-## Run this in the main session
+## Run this inside the theorem-based-pr-reviewer agent
 
-You run this pipeline **in the main session**, never inside a
-subagent. A subagent cannot spawn subagents, and the two fan-outs in
-steps 4 and 5 are the whole design, so a pipeline run from inside an
-agent would collapse to a single reader — exactly the shape this
-replaced.
-
-Each entry path is a main-session path:
+You run this pipeline **inside the `theorem-based-pr-reviewer`
+agent**, which has this skill preloaded and holds the `Agent` tool.
+Both entry paths spawn that agent rather than running the pipeline in
+their own session:
 
 - `/sdlc:git-review-pr <PR>` — the standalone review.
 - The `/sdlc:orchestrate` loop, after each `doc-updater` pass.
 
+A spawned agent's context carries **no agent-type roster**, so every
+agent this file tells you to spawn is named by its exact
+plugin-prefixed `subagent_type` string — `sdlc:theorem-generator`,
+`sdlc:theorem-generator-medium`, `sdlc:theorem-generator-high`,
+`sdlc:theorem-generator-xhigh`, `sdlc:theorem-disprover`, and
+`sdlc:counterexample-verifier`. Pass those strings as written rather
+than a bare name you reconstruct.
+
 You write no code and you post exactly one review. You never commit,
 never push, and never edit a file: the pipeline is strictly
-non-mutating on the branch. The agents it spawns are non-mutating too
-— `theorem-generator`, `theorem-disprover`, and
+non-mutating on the branch. The agent that runs it is non-mutating too,
+and so are the agents it spawns — `theorem-based-pr-reviewer`,
+`theorem-generator`, `theorem-disprover`, and
 `counterexample-verifier` each declare no `memory:`, so there is
 nothing to capture into the session's agent-memory inbox and nothing
 for `agent-memory-scrubber` to curate from this pipeline.
+
+The **posted review is the pipeline's only persistence**. It carries
+the round's full theorem records, so the next round reads them off the
+PR rather than off the branch — which is what lets review persist a
+theorem list while still writing nothing.
 
 ## Why the diff never lands in your context
 
@@ -48,10 +59,12 @@ worktree and returns a theorem list; each disprover reads only the
 region its own theorem points at, and each verifier only the region
 the counterexample it was handed points at. What reaches you is the
 theorem list, the per-theorem verdicts, the verification verdicts, and
-the change counts you read from `gh pr view`. That is deliberate: the
-main session's job here is routing and derivation, and a diff in
-context would tempt it into re-reviewing by hand — an opinion nothing
-asked for.
+the change counts you read from `gh pr view`. That is deliberate: your
+job here is routing and derivation, and a diff in context would tempt
+you into re-reviewing by hand — an opinion nothing asked for.
+
+The delta step 3 computes is a commit list, not a diff, so computing it
+does not breach this.
 
 ## Inputs
 
@@ -70,16 +83,20 @@ flags.
   the standalone path.
 - `--branch <name>` (optional) — the PR's head branch. Absent, step 2
   reads it from GitHub.
-- `--generator <agent-name>` (optional) — which `theorem-generator`
-  definition to spawn, one of `theorem-generator` (the default),
-  `theorem-generator-high`, or `theorem-generator-xhigh`. The
-  orchestrator picks one per its selection rule (see the
-  `/sdlc:orchestrate` skill → "Picking a generator tier"); the
-  standalone path passes none and gets the default.
+- `--generator <agent-name>` (optional) — a **pure human-override
+  channel**, one of `theorem-generator`, `theorem-generator-medium`,
+  `theorem-generator-high`, or `theorem-generator-xhigh`. Passed, it
+  wins outright; absent, the tier rubric in step 4 decides. Neither
+  caller computes a tier — both pass this only when a human named one.
+- `--full` (optional, no value) — re-disprove **every** theorem in the
+  carried records, retired ones included, with full briefs. See "The
+  `--full` round" below. Absent, the round is a default round and the
+  live list is delta-sized.
 
 No other parameter exists. In particular there is no effort or model
-parameter for the generator: its tier IS the definition named by
-`--generator`, and the generation instructions it runs are tier-blind.
+parameter for the generator: its tier IS the definition spawned, and
+the generation instructions it runs are tier-blind. Nothing carries
+human adjustments either — those ride PR comments, per step 3.
 
 ## Read repo config first
 
@@ -126,7 +143,7 @@ gh pr view <PR> --json headRefName,headRefOid,body,changedFiles,additions,deleti
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed step 2;
-`headRefOid` feeds step 4's single fetch and every disprover's and
+`headRefOid` feeds step 7's single fetch and every disprover's and
 verifier's brief. Do not fetch the diff — see "Why the diff never
 lands in your context" above.
 
@@ -196,11 +213,134 @@ anywhere and must not be flagged.
 The findings above are the only ones this pipeline raises outside the
 theorem list. Everything else it posts is a disproved theorem.
 
-### 3. Spawn the theorem generator
+### 3. Carry the previous round's theorems forward
 
-Spawn the definition `--generator` named (default `theorem-generator`)
-with the `Agent` tool, passing the resolved set from step 2 — not the
-caller's claim:
+The previous round's review is the **most recent PR Review on the
+PR**. During the orchestrate loop that is always this pipeline's own —
+the human's own review lands only after the loop terminates.
+
+```bash
+gh pr view <PR> --json reviews \
+  --jq '.reviews | sort_by(.submittedAt) | last | {submittedAt, body}'
+```
+
+Read three things out of it, in this order.
+
+**The carried records.** The review body carries the full theorem
+records in a collapsed `<details>` block — see "The theorem records
+block" below for its shape. Parse it into the carried list: every
+record with its id, claim, issues, class, pointers, and the state it
+held last round.
+
+**The previously reviewed head.** The body's Review method section
+states the head SHA that round reviewed. Call it `<prev-head>`.
+
+**The round's delta.** The delta is the commits in the current head
+with no patch-equivalent commit in `<prev-head>`:
+
+```bash
+git fetch origin
+git rev-list --right-only --cherry-pick <prev-head>...<headRefOid>
+```
+
+A clean rebase onto the base branch therefore yields an **empty
+delta**: every commit's patch survived unchanged, so `--cherry-pick`
+drops all of them. A conflict-resolving rebase yields exactly the
+commits whose patches changed. The delta is what the generator reads
+and what the tier rubric measures, so both are rebase-proof by
+construction.
+
+**The adjustment comments.** The human's input on a round — a rejected
+finding, a severity override, a missed defect — reaches later rounds
+only as a **PR comment the orchestrator posted on the human's
+instruction**. Read the comments posted since the previous review:
+
+```bash
+gh pr view <PR> --json comments \
+  --jq '.comments[] | select(.createdAt > "<prev-review-submittedAt>")'
+```
+
+Apply each to the carried records:
+
+- **A rejected finding** — its theorem retires as *human-refuted*.
+- **A severity override** — it rewrites the derived severity of that
+  theorem's finding, replacing what the class table would give.
+- **A missed defect** — it mints a **new** theorem, continuing the id
+  sequence, live until it survives a round.
+
+No spawn parameter carries adjustments. The PR is the whole channel,
+which is what makes this pipeline self-contained given `--pr`.
+
+**Retire on survive.** A theorem that survived its round, or whose
+counterexample the verifier refuted, **retires**: its record persists
+with its state and the head SHA it held at, and no later default round
+re-disproves it. Retirement is a record state, never a deletion — a
+retired theorem still appears in every later round's records block.
+
+**Fall back to round-1 behavior** — full generation from the whole
+diff, every theorem live — when any of these holds, and say which in
+the Review method section:
+
+- there is no previous PR Review (round 1, the ordinary case);
+- the most recent review carries no theorem records block (the first
+  round after this pipeline ships, or an anomalous state);
+- `<prev-head>`'s objects are not fetchable, so no delta can be
+  computed.
+
+**An empty delta with no new adjustment comments ends the round
+here.** Do not spawn a generator, do not fan out disprovers, and do not
+regenerate the acceptance-criterion theorems. Every verdict carries
+forward unchanged, the records carry forward unchanged, and the posted
+review says the round was empty-delta. That is the stated trade: an
+issue edited between rounds with no code change goes unchecked until
+the next non-empty round or a `--full` run. Adjustment comments still
+apply on such a round, and a theorem one of them mints does get its
+disprover — so "no new adjustment comments" is part of the condition,
+not a detail.
+
+### 4. Pick the generator tier
+
+The rubric runs **here**, next to the delta it reads. No caller
+computes a tier: `--generator` is a human-override channel on both
+callers, and when it is passed it wins outright.
+
+The rubric's output is **low or medium, nothing else**:
+
+- **`theorem-generator` (low)** — the default. It runs unless a signal
+  below fires.
+- **`theorem-generator-medium` (medium)** — when either signal fires.
+
+The signals are a **disjunction and never stack**. Either one firing
+means medium; both firing still means medium:
+
+- **Complexity** — the delta touches code with dependents or run-time
+  behavior: a contract other agents consume, a `lib/` helper, config
+  parse or merge, the launcher, gate verdict logic. Markdown and shell
+  alike; the question is what depends on it, not what language it is
+  written in.
+- **Extent** — the delta spans many files, or adds a new unit (a new
+  skill, agent, script, or gate arm) rather than editing existing
+  ones.
+
+**The cap stays.** A delta that is doc-only, agent-memory-only,
+hygiene, version bumps, a mechanical sweep, or tests-only is **low**
+whatever its size. No combination of the signals raises such a delta
+off the default.
+
+`theorem-generator-high` and `theorem-generator-xhigh` are **never**
+picked by this rubric. They exist for an explicit `--generator`
+override and nothing else.
+
+Both signals read the same delta step 3 computed — on a round-1 or
+fallback round, the whole PR diff. Say which tier ran, and whether the
+rubric or an override picked it, in the Review method section.
+
+### 5. Spawn the theorem generator
+
+Spawn the definition step 4 settled on, with the `Agent` tool, passing
+the resolved set from step 2 — not the caller's claim.
+
+On a **round-1 or fallback round**, the brief is the whole PR:
 
 ```text
 --pr <PR_N>
@@ -212,23 +352,106 @@ it back in the theorem-record format that skill defines, and nothing
 else.
 ```
 
+On a **delta round**, the brief adds the carried records and the delta
+base, and the generator emits only what those imply:
+
+```text
+--pr <PR_N>
+--issues <resolved_N1> <resolved_N2> …
+--branch <headRefName>
+--carried-records <the records block, verbatim from the previous review>
+--delta-base <prev-head>
+
+Generate the theorem list per your preloaded generation skill. Report
+it back in the theorem-record format that skill defines, and nothing
+else.
+```
+
+What each parameter means is owned by the
+`sdlc:theorem-agents-interface` skill, preloaded into the generator;
+this step only says what you put in each.
+
 Pass no tier, effort, or model in the brief. The generator's tier is
 the `effort:` of the definition you spawned.
 
 You get back a numbered theorem list. Each record carries a claim, the
 member issue(s) it is tagged to, a `mechanical` / `semantic` class,
-and file/region pointers. If any record is missing a field, ask the
-generator to re-emit that record rather than guessing the field
-yourself — you are not a source of theorems.
+and file/region pointers. **Ids are stable across rounds and are never
+reused**: new theorems continue the numbering the carried records
+ended at, so a finding's history stays legible as "T7: disproved round
+1, survived round 2". If any record is missing a field, or reuses an
+id the carried records already hold, ask the generator to re-emit that
+record rather than guessing the field yourself — you are not a source
+of theorems.
 
-### 4. Fan out one disprover per theorem, in parallel
+On a delta round the report may also carry a `RETIREMENTS` list: ids
+of carried theorems whose subject the delta removed. Stamp each named
+record `retired`, with `state-detail: subject removed`, and drop it
+from the live list. A retirement that names an id absent from the
+carried records, or an id the generator also emitted as a new theorem,
+is malformed — ask for a re-emit rather than guessing which was
+meant.
 
-**Fetch once, here, before you spawn anything.** The k disprovers run
-in k worktrees of one repo, and those worktrees share that repo's
-single ref store — so k concurrent `git fetch origin` calls contend
-for the same `.git`, and the loser of a lock race fails rather than
-waiting. Run the fetch yourself, in this session, and confirm the ref
-carries the head commit step 1 read:
+### 6. Assemble the round's live list
+
+The **live list** is the set of theorems that get a disprover this
+round. On a round-1 or fallback round it is every theorem the
+generator emitted. On a delta round it is exactly:
+
+- theorems **disproved last round** — re-disproof is the check that
+  the fix landed;
+- theorems left **unsettled** last round;
+- the **acceptance-criterion theorems**, regenerated this round;
+- the **new theorems** the delta produced;
+- theorems **minted from an adjustment comment** that have not yet
+  survived a round.
+
+Everything else — every retired theorem — carries its verdict forward
+untouched and gets no disprover.
+
+Acceptance-criterion theorems are the one class that regenerates on
+every round that fans out, because the issues can be edited between
+rounds and the class is mechanical: one theorem per criterion.
+Invariant theorems persist instead of regenerating. An empty-delta
+round skips even this regeneration, per step 3.
+
+Every live theorem gets a **full, unbounded** disprover: no brief
+limits what it may read, and nothing about a delta round makes a
+disproof cheaper per theorem. Per-round cost is delta-sized because
+the *list* is delta-sized.
+
+#### The `--full` round
+
+With `--full`, the live list is **every theorem in the records,
+retired included**, each with a full brief. That is the backstop that
+measures what retirement risked: between a theorem's retirement and a
+`--full` run, a fix can silently break the retired claim, and `--full`
+is the bounded-cost check for that, priced once instead of every
+round.
+
+The natural moment is the round before the merge blessing. The
+orchestrator or the human names it; a default round never runs it.
+**No rule here forces a `--full` round**, deliberately: whether one
+becomes mandatory before a merge blessing is a policy decision to take
+with measured burn data, not a default to assume. A `--full` round
+says so in its Review method section.
+
+That leaves a stated gap rather than a hidden one: between a theorem's
+retirement and a `--full` run, a fix can break the retired claim and
+nothing notices. Retirement is what makes a round delta-priced, and
+`--full` is what bounds the risk; a design that re-disproved
+everything every round would have no gap and no saving either.
+
+### 7. Fan out one disprover per live theorem, in parallel
+
+**The fetching happens in your session, never in the fan-out.** The k
+disprovers run in k worktrees of one repo, and those worktrees share
+that repo's single ref store — so k concurrent `git fetch origin`
+calls contend for the same `.git`, and the loser of a lock race fails
+rather than waiting. Fetch yourself, here, before you spawn anything,
+and confirm the ref carries the head commit step 1 read. Step 3
+already fetched on a round that read a previous review, and repeating
+it costs nothing:
 
 ```bash
 git fetch origin
@@ -239,10 +462,15 @@ If it does not match, the branch moved between step 1 and now: re-read
 the PR's shape (step 1) and restart the review from step 2 against the
 new head, rather than reviewing a mix of two trees.
 
-Then spawn one `theorem-disprover` per theorem, **all in a single
-message block** so they run concurrently. One disprover per theorem is
-the starting point; if missed counterexamples show up in practice, N
-disprovers per theorem is a one-line change here.
+Then spawn one `sdlc:theorem-disprover` per theorem on step 6's live
+list, **all in a single message block** so they run concurrently. One
+disprover per theorem is the starting point; if missed counterexamples
+show up in practice, N disprovers per theorem is a one-line change
+here.
+
+A retired theorem gets no disprover on a default round, so it never
+reaches this fan-out. That is the whole cost saving — the disprovers
+that do run are unbounded, and only the list is smaller.
 
 Route the model by the theorem's class:
 
@@ -294,10 +522,11 @@ Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
 disprover from wandering into unrelated nits.
 
-### 5. Fan out one verifier per disproved theorem, in parallel
+### 8. Fan out one verifier per disproved theorem, in parallel
 
 A `DISPROVED` report is a candidate finding, not a finding. Once
-**every** disprover has returned, spawn one `counterexample-verifier`
+**every** disprover has returned, spawn one
+`sdlc:counterexample-verifier`
 per `DISPROVED` theorem, **all in a single message block** so they run
 concurrently.
 
@@ -314,17 +543,17 @@ one that asserts file topology without having run a topology command
 (see "Before claiming file-topology issues" below). Re-spawn that one
 disprover with the same brief rather than filing the finding on a
 paraphrase or dropping it silently; if the second run is malformed
-too, the theorem is unsettled — see the disposition table in step 6.
+too, the theorem is unsettled — see the disposition table in step 9.
 Spawning a verifier against a malformed report would waste the check
 on evidence that has already failed a cheaper one.
 
-Route the model exactly as step 4 did, by the theorem's class:
+Route the model exactly as step 7 did, by the theorem's class:
 `model: haiku` on the `Agent` call for a `mechanical` theorem, no
 `model` for a `semantic` one, so that spawn uses whatever
 `counterexample-verifier`'s frontmatter declares. Read the value there
 rather than restating it here.
 
-You fetched in step 4 and the branch has not moved since, so pass the
+You fetched in step 7 and the branch has not moved since, so pass the
 same `--head-sha` and `--fetched yes` a disprover got.
 
 Each verifier's brief is one counterexample and nothing more:
@@ -365,7 +594,7 @@ too, the finding **stands** — resolve toward filing, never toward
 silently dropping a counterexample that carried verbatim evidence, and
 take the consequence class from the disprover's proposal in that case.
 
-### 6. Derive the disposition of every theorem
+### 9. Derive the disposition of every theorem
 
 This step is a **derivation, not a judgment**. There is no synthesizer
 agent because there is nothing left to judge: the disprover returned a
@@ -399,11 +628,25 @@ A `REFUTED` theorem is **not** proved. It had one counterexample
 offered against it and rejected, and its Verified line says exactly
 that rather than claiming the claim was checked and held.
 
-Then derive the verdicts per "Per-issue verdicts, one overall" and
-"Verdict follows from findings" below. Every step from here to the
-posted review is mechanical.
+Then stamp each theorem's record with the state this round left it in
+— `survived`, `disproved`, `disproved-but-refuted`, `unsettled`, or
+`retired` — because that state is what the next round reads back. The
+first two rows above retire their theorem, per "Retire on survive" in
+step 3, and the record carries the head SHA it retired at.
 
-### 7. Post one review
+A theorem that got no disprover this round — a retired one on a
+default round — keeps the state and the head SHA it already had. Do
+not restate it as survived-this-round: the record says which head it
+was settled against, and re-stamping it would claim a check that never
+ran.
+
+Then derive the verdicts per "Per-issue verdicts, one overall" and
+"Verdict follows from findings" below. A carried-forward theorem
+carries its previous verdict contribution with it, so an empty-delta
+round reproduces the previous round's verdict block unchanged. Every
+step from here to the posted review is mechanical.
+
+### 10. Post one review
 
 Post via `/github-prs:pr-review-submit <PR> <verdict> <body>`, with
 `<verdict>` the **overall** verdict — one of `approve`,
@@ -414,11 +657,13 @@ the self-review constraint (`gh` blocks `--approve` when the reviewer
 is the PR author) by downgrading to an inline `--comment` carrying an
 explicit `APPROVED` line.
 
-The body carries the **full theorem list**, per "Review body" below.
-Coverage is auditable that way: a reader can see every claim that was
-checked, not only the ones that broke.
+The body carries the **full theorem list**, per "Review body" below,
+and the **theorem records block** that the next round reads back, per
+"The theorem records block". Coverage is auditable that way: a reader
+can see every claim that was checked, not only the ones that broke —
+and the round after this one can pick up where this one stopped.
 
-### 8. Clean up the spawned worktrees
+### 11. Clean up the spawned worktrees
 
 Every generator, disprover, and verifier runs in its own
 `isolation: worktree` worktree, and none of them ever claims the PR
@@ -478,6 +723,16 @@ belongs to every member it affects — that is what makes each of their
 verdicts reflect it. A theorem tagged to no member is malformed: it
 would produce a finding no verdict line carries, which is exactly how
 a defect escapes the overall verdict.
+
+`id` is stable for the life of the PR, not for the life of a round.
+The generator continues the sequence the carried records ended at, and
+no id is ever reused, which is what makes a theorem's history legible
+across rounds.
+
+The two fields the *pipeline* adds — `state` and `settled-at` — are
+not the generator's to emit. You stamp them in step 9 and write them
+into the records block; a generator that emits either has misread its
+brief.
 
 The generation skill (`sdlc:theorem-generation`) owns *what* theorems
 to generate. This section owns only the record shape the pipeline
@@ -546,7 +801,7 @@ diff <path-A> <path-B>          # do two paths have different content?
 
 A disprover that reports `DISPROVED` on a topology claim without such
 a command has not disproved it. That report is malformed, so it is
-sent back at step 5 before any verifier is spawned; if the second
+sent back at step 8 before any verifier is spawned; if the second
 report is still unverified, treat the theorem as unsettled rather than
 filing the finding. A hedged-but-wrong topology finding
 ("appears to be a separate copy", "likely out of sync") still lands as
@@ -593,13 +848,25 @@ body with these sections, in this order:
 1. **Verdicts** — one line per member of the set you review against,
    plus one per any other issue a finding names, plus the overall
    line. See "Per-issue verdicts, one overall".
-2. **Review method** — the generator tier that ran, how many theorems
-   it emitted, and one paragraph stating the method: theorems
-   generated against the PR and its issues, one disprover per theorem
-   in parallel, one verifier per disproved theorem attacking the
-   counterexample, severities transcribed from the surviving
-   counterexample's consequence class. Write it so a reader who has
-   never seen this pipeline can weigh the rest of the body.
+2. **Review method** — the **head SHA reviewed**, the generator tier
+   that ran and whether the rubric or a `--generator` override picked
+   it, how many theorems were live and how many the generator emitted,
+   and one paragraph stating the method: theorems generated against
+   the PR and its issues, one disprover per live theorem in parallel,
+   one verifier per disproved theorem attacking the counterexample,
+   severities transcribed from the surviving counterexample's
+   consequence class. Write it so a reader who has never seen this
+   pipeline can weigh the rest of the body.
+
+   Say which **kind of round** this was, because the rest of the body
+   is read differently for each: a round-1 or fallback round (and, on
+   a fallback, which condition in step 3 fired), a delta round (naming
+   `<prev-head>`), an empty-delta round whose verdicts all carried
+   forward, or a `--full` round.
+
+   The head SHA is not decoration here — it is what the *next* round
+   diffs against to compute its delta, so a body that omits it forces
+   that round back to round-1 behavior.
 3. **Change counts** — files changed, additions, deletions, from
    step 1.
 4. **Disproved theorems** — one entry per standing finding's theorem,
@@ -635,11 +902,77 @@ body with these sections, in this order:
    APPROVED, say what the approval rests on instead.
 
 Sections 4, 6, and 7 together are the **full theorem list**: every
-theorem the generator emitted appears in exactly one of them. That is
-the coverage audit — a reader can see what was checked, what broke,
+theorem the round fanned out over appears in exactly one of them. That
+is the coverage audit — a reader can see what was checked, what broke,
 and what nearly broke, rather than only the survivors and the
 findings. Section 5 is not part of that partition: each of its
 findings is the actionable face of an entry in section 4.
+
+The **theorem records block** below is appended after all eight
+sections. It is the machine-readable carrier, not a ninth argued
+section, and it covers every recorded theorem — retired ones the round
+never fanned out over included — where the argued partition covers
+only the round's live list.
+
+### The theorem records block
+
+Append one collapsed block after section 8, so the argued body stays
+readable and the next round still has everything it needs:
+
+```markdown
+<details>
+<summary>Theorem records (machine-readable — the next round reads this)</summary>
+
+T1
+claim: The diff satisfies acceptance criterion "…" of #206.
+issues: #206
+class: semantic
+pointers: plugins/sdlc/skills/pr-review-pipeline/SKILL.md, step 7
+state: retired
+state-detail: survived
+settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+
+T2
+claim: …
+issues: #206
+class: mechanical
+pointers: …
+state: disproved
+state-detail: finding 1, High
+settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
+
+</details>
+```
+
+Field rules, on top of the record shape "The theorem contract" already
+owns:
+
+- **`state`** — one of `survived`, `disproved`,
+  `disproved-but-refuted`, `unsettled`, or `retired`. `retired` is the
+  state a theorem holds from the round after it survived or had its
+  counterexample refuted; `state-detail` says which of the two it was,
+  or which finding a `disproved` state produced, or that a human
+  adjustment refuted it (`human-refuted`).
+- **`settled-at`** — the head SHA the state was established against.
+  For a carried-forward retired theorem that is an *older* head than
+  this round's, which is exactly the fact a reader needs to judge how
+  much a `--full` round would buy.
+
+Every recorded theorem gets a record, in id order, retired ones
+included. **Ids are never reused**: a round that mints new theorems
+continues the sequence, so `T7` means the same claim in every round of
+the PR's life.
+
+Write the block even on an empty-delta round, unchanged apart from
+this round's head SHA in the Review method section. A round that omits
+it makes the next round fall back to round-1 behavior, per step 3.
+
+The block grows with the PR's theorem count, and **no size cap is
+handled here**. GitHub's comment size limit is 64 KB; if a PR's
+records ever approach it, that is a follow-up to file, not something
+to solve by silently truncating the block — a truncated block is
+indistinguishable from a missing one to the next round, which would
+throw away every carried verdict without saying so.
 
 ### Per-issue verdicts, one overall
 
@@ -714,15 +1047,21 @@ The class comes from the verifier's `STANDS` report: where the
 verifier and the disprover disagree, the verifier's class is the one
 you take, per `counterexample-verifier` → "The consequence classes",
 which states why. The one case where you take the disprover's proposal
-is the one step 5 defines: a verifier malformed twice, whose finding
+is the one step 8 defines: a verifier malformed twice, whose finding
 stands anyway. If a `STANDS` report carries no class at all, that is a
-malformed report — re-spawn per step 5 rather than assigning a class
+malformed report — re-spawn per step 8 rather than assigning a class
 yourself. You are not a source of consequence grades any more than you
 are a source of theorems.
 
 This is the same derivation-not-judgment principle the verdicts
 already follow, moved one link up the chain: the agent that read the
-code grades the consequence, and the main session transcribes.
+code grades the consequence, and you transcribe.
+
+**A human severity override outranks the table.** When an adjustment
+comment step 3 read overrides a finding's severity, that value is the
+finding's severity, and the records block says so. That is not a
+judgment of yours either — it is a transcription from a different
+source, and it is the only thing that displaces the class table.
 
 **The acceptance-criterion floor overrides the table.** A standing
 finding on a theorem the generator emitted as an acceptance-criterion
@@ -780,7 +1119,8 @@ Report every verdict line posted — APPROVED, NEEDS_CHANGES, or
 BLOCKED, one per member plus any extra line per "Per-issue verdicts,
 one overall" — plus the overall verdict, plus severity counts
 (Critical, High, Medium, Low) covering findings only. Report the
-theorem tally alongside: how many were generated, how many disproved,
+theorem tally alongside: how many were live this round, how many were
+newly generated, how many carried forward retired, how many disproved,
 how many of those disproved had their counterexample **refuted by
 verification**, how many survived, how many went unsettled. Surviving,
 refuted, and unsettled theorems are never counted toward severity: a
@@ -791,5 +1131,9 @@ them produces a finding.
 The refuted count is the one number that says what the verification
 stage bought this round, so report it even when it is zero.
 
-Also report which generator tier ran, so an override has something to
-disagree with.
+Also report which generator tier ran and whether the rubric or a
+`--generator` override picked it, so an override has something to
+disagree with. And report which kind of round it was — round-1 or
+fallback (with the condition that fired), delta, empty-delta, or
+`--full` — since a caller reading only "no findings" cannot otherwise
+tell a clean round from a round that fanned out over nothing.

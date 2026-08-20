@@ -50,8 +50,8 @@ therefore states it too, with it.
 | ------- | --------- | --------------- |
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue up to the bar the orchestrator needs, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues | main session |
-| `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper over the review pipeline | main session |
-| `sdlc:pr-review-pipeline` | The review itself: generate theorems, fan out disprovers, fan out verifiers, post one argued review | main session, invoked by `/sdlc:orchestrate` and `/sdlc:git-review-pr` |
+| `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
+| `sdlc:pr-review-pipeline` | The review itself: carry the previous round's theorems forward, generate from the delta, fan out disprovers, fan out verifiers, post one argued review | preloaded into `theorem-based-pr-reviewer`, which `/sdlc:orchestrate` and `/sdlc:git-review-pr` each spawn |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 
@@ -59,8 +59,10 @@ therefore states it too, with it.
 `theorem-agents-interface` carry no leading slash here because they
 are not user verbs — each declares `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
-`pr-review-pipeline` is invoked by `/sdlc:orchestrate` and
-`/sdlc:git-review-pr`; `theorem-generation` is preloaded into each
+`pr-review-pipeline` is preloaded into `theorem-based-pr-reviewer`
+through that agent's `skills:` frontmatter, and
+`/sdlc:orchestrate` and `/sdlc:git-review-pr` each spawn that agent;
+`theorem-generation` is preloaded into each
 `theorem-generator` variant through that agent's `skills:`
 frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
@@ -68,10 +70,10 @@ frontmatter, and `theorem-agents-interface` into every theorem agent
 `theorem-agents-interface` by name as well, for the class glosses it
 grades its own theorem-less findings by.
 
-Review runs **in the main session** rather than in an agent, because
-it fans out parallel subagents and a subagent cannot spawn subagents.
-The worked reasoning is in `docs/plugin-authoring-constraints.md` →
-"Fanning out parallel agents: a main-session skill, not an agent".
+Review runs **inside an agent** that fans out parallel subagents of
+its own. The worked reasoning is in
+`docs/plugin-authoring-constraints.md` →
+"Fanning out parallel agents: a skill, run wherever the fan-out is".
 
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
 and `/sdlc:orchestrate` does not invoke it — the user runs it first,
@@ -92,9 +94,11 @@ here.
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
+| `theorem-based-pr-reviewer` | Reviews one PR by running the review pipeline, fanning out from inside itself |
 | `theorem-generator` | Searches one PR for claims worth trying to disprove |
-| `theorem-generator-high` | The same generator at a higher reasoning tier |
-| `theorem-generator-xhigh` | The same generator at a higher reasoning tier still |
+| `theorem-generator-medium` | The same generator at a higher reasoning tier |
+| `theorem-generator-high` | The same generator at a higher reasoning tier still |
+| `theorem-generator-xhigh` | The same generator at the highest reasoning tier |
 | `theorem-disprover` | Tries to break exactly one theorem |
 | `counterexample-verifier` | Tries to reject exactly one disprover's counterexample |
 
