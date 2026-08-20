@@ -47,15 +47,20 @@ callers:
 The caller passes:
 
 - **`required_permissions`** -- a map of permission scope to access
-  level (e.g. `{ contents: write, pull_requests: write,
-  issues: write }`). The verifier checks these against the App's
-  declared permissions.
+  level (e.g. `{ contents: write, pull_requests: write, issues: write,
+  checks: read, statuses: read }`). The verifier checks these against
+  the App's declared permissions.
 
   Include every scope the automation's **side effects** need, not just
   the ones its direct API calls need. The scope most often left out is
   `issues: write`: merging a PR whose body carries a closing keyword
   closes the linked issues under the merging token's authority, so an
   App without it merges fine and silently leaves the issues open.
+
+  Include the scopes its **decision inputs** need too. An automation
+  that acts on a CI outcome reads check runs (`checks: read`) and
+  commit statuses (`statuses: read`) — the two the `statusCheckRollup`
+  GraphQL field draws on — and 403s without them.
 - **`target_repo`** (optional) -- the `owner/repo` to verify
   installation on. Defaults to the current repo
   (`gh repo view --json nameWithOwner -q .nameWithOwner`).

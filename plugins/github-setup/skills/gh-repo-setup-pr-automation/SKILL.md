@@ -63,6 +63,8 @@ map (passed to `skills/lib/gh-app.md`):
 contents:      write    # force-push rebased PR branches
 pull_requests: write    # enable auto-merge, read PR state
 issues:        write    # close the issues a merged PR's `Closes #N` lines link
+checks:        read     # read check-run results via `statusCheckRollup`
+statuses:      read     # read commit statuses via `statusCheckRollup`
 ```
 
 `contents: write` covers the auto-rebase force-push (and the
@@ -84,11 +86,23 @@ issue state. What it defeats is `rules/git-workflow.md`'s
 closing-keyword convention (PR body only, the branch's own issue set
 only) — the very thing this automation exists to carry out.
 
-Because the scope now sits in the `required_permissions` map above,
-Step 3's find/verify pass **is** the converge-time check: an App
-provisioned before `issues: write` joined the set fails the library's
+`checks: read` and `statuses: read` cover the **CI-outcome reads** the
+rendered workflows make. `auto-enable-automerge.yml` reads the
+aggregate `statusCheckRollup.state` and its `CheckRun` contexts;
+`auto-rebase-prs.yml` reads those contexts. Every one of those queries
+runs with `GH_TOKEN` set to the App-minted installation token, not the
+default `GITHUB_TOKEN`. The rollup draws on check runs and commit
+statuses, so a token holding neither read cannot see whether CI passed,
+and the query 403s the first time the pass has an open PR to evaluate.
+Both are read-only, which is why they sit at `read` on an App that
+already writes Pull requests, Contents, and Issues.
+
+Because every one of those scopes sits in the `required_permissions`
+map above, Step 3's find/verify pass **is** the converge-time check: an
+App provisioned before a scope joined the set fails the library's
 permission filter and the skill aborts with its "missing permissions"
-report, rather than installing workflows that will merge-but-not-close.
+report, rather than installing workflows that will merge-but-not-close
+or 403 on the rollup query.
 Remediating an existing App takes two steps — a UI-only permission
 edit and an approval from every installing account — both documented
 in `skills/lib/gh-app.md` → "Granting a missing permission to an
@@ -162,7 +176,8 @@ These resolve `__GH_ORG__`, `__GH_REPO__`, and `__DEFAULT_BRANCH__`.
 Run the find/verify sequence in `skills/lib/gh-app.md` (Steps 1–5) with:
 
 ```text
-required_permissions = { contents: write, pull_requests: write, issues: write }
+required_permissions = { contents: write, pull_requests: write, issues: write,
+                         checks: read, statuses: read }
 target_repo          = <gh_org>/<gh_repo>
 ```
 
