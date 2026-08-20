@@ -1167,19 +1167,24 @@ Every cell in those tables is a claim to the human, and most of them
 arrive from a teammate's report rather than from something you
 observed — the `Doc Changes` list is `doc-updater`'s account of its
 own commit, and the `Review Verdict` and the severity detail behind it
-are the pipeline's. `Review Rounds` is the cell that is genuinely
-yours: the pipeline reports one round's verdict, tally and tier and
-never a round count, so the number is your own tally of loop
-iterations, while the parenthetical explaining it draws on the
-pipeline's severity line and the fixer's report. Fill them per
+are `theorem-based-pr-reviewer`'s. `Review Rounds` is the cell that is
+genuinely yours: the reviewer reports one round's verdict, tally, tier
+and round kind and never a round count, so the number is your own
+tally of loop iterations, while the parenthetical explaining it draws
+on the reviewer's severity line and the fixer's report. Fill them per
 "Report-consumption principle":
 
 - The PR column and the verdict are load-bearing — the human decides
   whether to merge on them — so verify them against the live PR rather
   than against your notes of what was reported.
-- Say what a finding's provenance was when it is not the pipeline's
-  own. A finding the human raised in a prior round, or one you
-  observed yourself, is not "the review found" it.
+- Say what a finding's provenance was when it is not the review's own.
+  A defect you observed yourself is never "the review found" it, and
+  neither is one the human raised that you never relayed. A defect the
+  human raised that you *did* relay as an adjustment comment is
+  different: the next round minted it as a theorem and a disprover
+  broke it, so it is the review's finding by that round, and the
+  human's contribution is that the theorem exists at all. Name which
+  of those a finding is.
 - A discrepancy between an agent's report and what you observe gets
   its own **Needs Your Attention** row, naming both versions. Silently
   publishing whichever one you believe hides the discrepancy that was

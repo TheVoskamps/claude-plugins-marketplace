@@ -22,9 +22,10 @@ one `theorem-disprover` per live theorem in parallel, then one
 spawning the harness supports, so the fan-outs happen inside the
 agent.
 
-This path passes **no** `--generator`. The pipeline's own tier rubric
-picks between `theorem-generator` (low) and `theorem-generator-medium`
-(medium) from the round's delta, and it never routes to
+This path **computes** no `--generator`. The pipeline's own tier
+rubric picks between `theorem-generator` (low) and
+`theorem-generator-medium` (medium) from the round's delta, and it
+never routes to
 `theorem-generator-high` or `theorem-generator-xhigh`. A user who
 wants a specific tier for a one-off review passes
 `--generator <name>` to this skill and it goes through unchanged; a
@@ -49,8 +50,9 @@ skill computes.
    severity counts, and theorem tally.
    ```
 
-   This path passes `--pr` alone — no `--issues`, no `--branch`, no
-   `--generator`, and no `--full` — which is what makes it the
+   Unless the user asked for an override, this path passes `--pr`
+   alone — no `--issues`, no `--branch`, no `--generator`, and no
+   `--full` — which is what makes it the
    pipeline's **standalone** path: with no orchestrator brief naming
    the issues, the pipeline takes its claim from
    `/github-prs:pr-closing-issues <PR>` and reconciles it against the
