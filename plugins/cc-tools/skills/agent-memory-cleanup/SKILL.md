@@ -20,6 +20,13 @@ moves durable lore into `CLAUDE.md` or `docs/*.md`, and it repairs the
 indexes. It is not read-only, and it does not hand a recommendation to
 someone else to apply.
 
+Read `skills/lib/agent-memory-grading.md` for the grading rubric — what
+counts as durable, the evidence a delete must produce, how a transfer
+is phrased, and which file it lands in. That contract is shared with
+`/cc-tools:agent-memory-inbox-cleanup` and is not restated here; what
+this skill states is its own third verdict, `persist`, which that
+sibling does not have.
+
 ## Invocation
 
 ```text
@@ -40,15 +47,15 @@ The argument also selects the mode:
 | PR number | autonomous | applied without asking | committed and pushed onto the PR branch, or left untouched with "no changes to curate" when every verdict was persist |
 | none | interactive | confirmed with you one at a time | left uncommitted in the working tree |
 
-Deletions are not confirmed in either mode. In autonomous mode the
-commit is the undo for its current caller, `agent-memory-scrubber`,
-which always runs in a fresh worktree and checks out the branch fresh
-before invoking this skill — every entry it scrubs was already
-committed on the branch before the run started, so a commit is always
-available to revert to. This skill does not itself guarantee that; a
-different autonomous-mode caller invoking this skill over a working
-tree that already holds untracked, never-committed memory entries
-would not have a commit to fall back on for those entries. In
+Deletions are not confirmed in either mode. Autonomous mode therefore
+carries a **precondition on its caller**: every entry this skill scrubs
+must already be committed on the branch before the run starts, so the
+commit this skill makes is an undo that reverts to a tree still holding
+those entries. A caller that checks the branch out fresh in a clean
+worktree satisfies it. A caller that invokes this skill over a working
+tree already holding untracked, never-committed memory entries does
+not, and has no commit to fall back on for those entries. This skill
+does not verify the precondition and cannot; the caller owns it. In
 interactive mode the uncommitted working tree is the undo **only for
 entries git already tracks** — for an entry that is still untracked (a
 fresh capture never committed), deleting the file is permanent,
@@ -92,84 +99,35 @@ that is a valid outcome, not a failure.
 
 2. Read every entry file and every `MEMORY.md` in full.
 
-3. Read the surfaces the verdicts are decided against:
-   - the root `CLAUDE.md`, plus any nested `CLAUDE.md`
-   - `.claude/rules/*.md`
-   - `docs/*.md`
-   - the code each entry makes a claim about
-
-You cannot grade an entry without reading what it claims about. An
-entry saying "the X helper skips Y" is a scrub when the source visibly
-skips Y, and a keep when the source says nothing either way — and
-opening the file is the only way to tell those apart.
+3. Read the surfaces the verdicts are decided against, per
+   `skills/lib/agent-memory-grading.md` → "Read before you grade".
 
 ### Grade each entry
 
-Every entry gets exactly one verdict.
+Every entry gets exactly one verdict, from three.
 
 #### Scrub — delete the entry
 
-Scrub when the entry:
-
-- **Restates something already implemented and self-documented in the
-  code.** If the code says it, the doc doesn't — and a memory is a
-  doc.
-- **Names a design doc, a decomposition doc, or another repo or plugin
-  as the "source of truth."** That pointer sends the next agent away
-  from the code that actually governs, toward a document that has
-  already drifted.
-- **Narrates finished work.** "Slice 3 added the retry loop" is a
-  changelog, and `git log` already holds it. A memory earns its place
-  by binding future behavior, not by recording past behavior.
-- **Restates content already in `CLAUDE.md`,** in `.claude/rules/`, or
-  in a skill or agent definition.
-- **Duplicates another entry.** Merge the surviving content into the
-  more complete entry first, then scrub the duplicate.
+The delete cases, and the evidence each one has to produce, are
+`skills/lib/agent-memory-grading.md` → "The delete cases" and "A delete
+needs evidence". This skill's keep-in-place verdict, which that
+rubric's unsubstantiated-delete fallback resolves to, is `persist`.
 
 #### Transfer — move the content out, then delete the entry
 
-Transfer when the entry is genuine durable lore: a "don't undo this
-deliberate choice" constraint that the code **cannot** express — a
-deliberate omission, an absent API, a non-obvious read path. Write it
-into `CLAUDE.md` when it constrains how anyone works in the repo, or
-into the closest-fitting `docs/*.md` when it is subsystem lore. Write
-it as a **present-tense constraint**:
-
-- no SHAs, no issue numbers, no PR numbers
-- no provenance — not "we learned that…", not "as of…"
-- no external-source framing — not "per the X design doc"
-- present tense, stated as the rule it is rather than the story of how
-  it was found
-
-Then delete the memory entry. Transfer is the narrow case, not the
-default: if the code already makes the point clear to a reader, the
-verdict is scrub.
+What counts as durable, which file the constraint lands in, and how it
+is phrased are `skills/lib/agent-memory-grading.md` → "What counts as
+durable", "Where a transfer lands", and "How a transfer is phrased".
+Then delete the memory entry.
 
 #### Persist — keep the entry
 
-Persist when the entry is a genuine preference, workflow correction,
-or tooling gotcha with **no code home** — a CLI that behaves
-unexpectedly, a skill doc that omits a step, a harness constraint.
-Nothing in the repo can carry it, so the memory is where it belongs.
+Persist when the entry falls in
+`skills/lib/agent-memory-grading.md` → "Entries with no code home".
+Nothing in the repo can carry it, and this skill curates a tree that
+agents read back on a later run, so the memory is where it belongs.
 Restate it present-tense if it is written as the story of when it was
 discovered.
-
-### A scrub needs evidence
-
-A scrub verdict is a claim, and each scrub case above is checkable.
-Before deleting, produce the check:
-
-| Scrub case | The check that substantiates it |
-| --- | --- |
-| the code already says it | the file and lines that say it |
-| names an external source of truth | the pointer, quoted from the entry |
-| narrates finished work | the past-tense narration, quoted |
-| already in `CLAUDE.md` or a rule | the file and lines that say it |
-| duplicate | the entry it duplicates |
-
-If you cannot produce the check, the verdict is not scrub — persist
-the entry and say so in the report. "It feels stale" is not evidence,
-and curation is destructive.
 
 ### Apply the verdicts
 
@@ -202,16 +160,12 @@ consistent:
    file now shows staged (`git status` reports `A` then `AD` after the
    delete) rather than fully uncommitted, but the content is fully
    recoverable, which is what the undo claim depends on. Skip this
-   check for autonomous mode — there the commit is the undo regardless
-   of tracked state. This skill does not itself guarantee a fresh
-   checkout in autonomous mode; the guarantee comes from its current
-   caller, `agent-memory-scrubber`, which always runs in a fresh
-   worktree and checks out the branch fresh before invoking this skill,
-   so every entry it scrubs was already committed on the branch before
-   the run started — there is no untracked, never-committed case for
-   `git add <path>` to fail to preserve. A different autonomous-mode
-   caller invoking this skill over a working tree that already holds
-   untracked memory entries would not have that guarantee.
+   check for autonomous mode — there the commit is the undo, on the
+   caller-side precondition stated under "Invocation" above: every
+   entry was already committed on the branch before the run started, so
+   there is no untracked, never-committed case for `git add <path>` to
+   fail to preserve. This skill does not verify that precondition, and
+   an autonomous-mode caller that breaks it loses those entries.
 4. Delete the entry files for every scrub and every completed
    transfer.
 5. Rewrite the entries you persisted that needed a present-tense

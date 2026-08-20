@@ -26,8 +26,10 @@ The marketplace currently ships these plugins (one entry each in
   it; clean up merged branches and stale worktrees; and generate unit
   tests.
 - **`cc-tools`** — Claude Code meta-skills: load all global rules,
-  track Claude Code feature/bug watchlist status, and curate a repo's
-  `.claude/agent-memory/` in one acting pass.
+  track Claude Code feature/bug watchlist status, curate a repo's
+  `.claude/agent-memory/` in one acting pass, and route a session's
+  agent memory through a scratchpad inbox — capture on the writer side,
+  transfer-or-delete into `CLAUDE.md` and docs on the curator side.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity.

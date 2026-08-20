@@ -37,9 +37,9 @@ You write no code and you post exactly one review. You never commit,
 never push, and never edit a file: the pipeline is strictly
 non-mutating on the branch. The agents it spawns are non-mutating too
 — `theorem-generator`, `theorem-disprover`, and
-`counterexample-verifier` each declare no `memory:`, so there is no
-memory capture to commit and nothing for `agent-memory-scrubber` to
-curate from this pipeline.
+`counterexample-verifier` each declare no `memory:`, so there is
+nothing to capture into the session's agent-memory inbox and nothing
+for `agent-memory-scrubber` to curate from this pipeline.
 
 ## Why the diff never lands in your context
 

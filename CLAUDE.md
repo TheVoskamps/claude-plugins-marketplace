@@ -321,8 +321,9 @@ Say so in the report instead of churning on them.
 `plugins/sdlc/agents/theorem-generator.md`,
 `theorem-generator-high.md`, and `theorem-generator-xhigh.md` are
 byte-identical except for the frontmatter lines `name:` and `effort:`
-and the tier word inside `description:`. That is the whole design —
-the generation instructions live in
+and the tier phrase inside `description:` (`default (medium)` versus
+`high` or `xhigh`). That is the whole design — the generation
+instructions live in
 `plugins/sdlc/skills/theorem-generation/SKILL.md`, preloaded into each
 skeleton through its `skills:` frontmatter, so a tier is a choice of
 which definition to spawn rather than a parameter anything passes.
@@ -414,7 +415,7 @@ either the pipeline or orchestrate is what would end that.
 spawns are strictly non-mutating on the PR branch: none of
 `theorem-generator`, `theorem-disprover`, or `counterexample-verifier`
 declares `memory:`, and none carries a `Write` or `Edit` tool. A
-review round therefore commits nothing, pushes nothing, and adds
+review round therefore commits nothing, pushes nothing, and writes
 nothing to `.claude/agent-memory/`.
 
 That is enforcement, not convention, so keep it structural: do not add
@@ -423,23 +424,65 @@ not give the pipeline a commit step. A durable lesson learned while
 reviewing lands as a PR against `theorem-generation` (how to state a
 better theorem), `theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or
-this file — never as a memory commit on the branch being reviewed.
+this file — never as a memory entry on the branch being reviewed.
 
-`agent-memory-scrubber`'s roster of memory-declaring agents is
-therefore `issue-developer`, `issue-fixer`, `doc-updater` and nothing
-else. `plugins/sdlc/skills/orchestrate/SKILL.md` names that roster in its
-frontmatter-baseline paragraph and again under "Being last is the
-whole point", and the capture-then-curate sentences later in that same
-frontmatter-baseline paragraph refer back to it as "those three" — a
-count, not names, so no agent-name grep reaches that back-reference and
-it goes stale in silence. A PR that
-changes which agents declare `memory:` therefore sweeps every one of
-those sites plus the scrubber's own "You persist no memory of your own"
-section. `grep -rn 'memory: project' plugins/sdlc/` finds the
-frontmatter one; the "Being last" restatement names the agents without
-the key, so grep the agent names too, and read the frontmatter-baseline
-paragraph to its end rather than expecting a grep to surface the
-back-reference.
+No `sdlc` agent commits agent memory at all. `issue-developer`,
+`issue-fixer` and `doc-updater` declare `memory: project`, and their
+end-of-run step invokes `/cc-tools:agent-memory-inbox-capture`, which
+copies their entries into a session-scoped inbox under the harness
+scratchpad. `agent-memory-scrubber` runs after all of them, invokes
+`/cc-tools:agent-memory-inbox-cleanup`, and commits only the
+`CLAUDE.md` and `docs/` transfers it decides on. Nothing under
+`.claude/agent-memory/` is ever staged, and the inbox dies with the
+session — an entry the scrubber does not transfer is gone.
+
+That roster of memory-declaring agents is therefore `issue-developer`,
+`issue-fixer`, `doc-updater` and nothing else.
+`plugins/sdlc/skills/orchestrate/SKILL.md` names it in its
+frontmatter-baseline paragraph and again under "Before `/pr-ready`:
+curate the PR's agent memory", and the capture-then-curate sentences
+later in that same frontmatter-baseline paragraph refer back to it as
+"those three" — a count, not names, so no agent-name grep reaches that
+back-reference and it goes stale in silence. A PR that changes which
+agents declare `memory:` therefore sweeps every one of those sites plus
+the scrubber's own "You persist no memory of your own" section.
+`grep -rn 'memory: project' plugins/sdlc/` finds the frontmatter one;
+the curation restatement names the agents without the key, so grep the
+agent names too, and read the frontmatter-baseline paragraph to its end
+rather than expecting a grep to surface the back-reference.
+
+## The memory hand-off's strings cross a plugin boundary
+
+The capture-then-curate flow above is owned by `cc-tools` and driven
+by `sdlc`, so a change inside `plugins/cc-tools/skills/` falsifies
+prose in a plugin the diff never opens — and such a PR bumps both
+plugins' versions. What `sdlc` quotes is each skill's **no-op
+output**, which no test pins:
+
+- `/cc-tools:agent-memory-inbox-capture` reports "nothing to capture"
+  when the run wrote no entry, and `issue-developer`, `issue-fixer`,
+  and `doc-updater` each tell their reader so at their capture step.
+- `/cc-tools:agent-memory-inbox-cleanup` reports "no agent memory to
+  curate" (the inbox was absent or empty) or "no changes to curate"
+  (every verdict was delete). `agent-memory-scrubber` branches its
+  landed-on-the-PR hard gate on both, and
+  `plugins/sdlc/skills/orchestrate/SKILL.md` names both in the
+  scrubber's spawn prompt.
+
+Renaming either skill, or rewording any of those no-op lines,
+therefore sweeps every one of those files.
+`grep -rn 'nothing to capture\|to curate' plugins/` finds them.
+
+The contracts under `plugins/cc-tools/skills/lib/` go the other way,
+and the discipline is to keep it that way. The inbox path and
+layout live only in `agent-memory-inbox.md`, and the grading rubric
+only in `agent-memory-grading.md`; no file outside `cc-tools` spells
+the inbox path, and the `sdlc` side says only that the entries go to
+a session-scoped inbox under the harness scratchpad. An `sdlc` file
+that spells the path, or restates when an entry is durable, is the
+second source of truth those contracts exist to prevent — and it
+cannot be a `Read` either way, since plugins are file-sandboxed
+(`docs/plugin-authoring-constraints.md` → "Verified constraints").
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
@@ -480,13 +523,16 @@ prescriptive wording, the #225 redirect, the #229 publish read. A
 verdict change that leaves that choice
 unchanged needs no edit there; one that makes a previously-safe
 destination unsafe — or newly grades a path an agent parks a scratch
-file in — does. The other exception is
-`.claude/agent-memory/`, where notes teaching agents to route around a
-gate verdict DO describe classifier behavior and are silently falsified
-when the verdict changes. Grep the agent-memory tree — all agent
-subdirectories, not one — for the gate's own message fragments ("not all
-static literals", "resolves outside the current repository", "cannot
-resolve statically") whenever a verdict changes.
+file in — does. `.claude/agent-memory/` is deliberately not on that
+list, though a note teaching an agent to route around a gate verdict
+does describe classifier behavior: that tree is gitignored, it lives
+only inside the writing agent's throwaway worktree, and the session
+inbox its entries are captured into dies with the session, so nothing
+there survives to be falsified. Such a note reaches the repo only once
+the scrubber transfers it into `CLAUDE.md` or a `/docs` file — grep
+those two for the gate's own message fragments ("not all static
+literals", "resolves outside the current repository", "cannot resolve
+statically") whenever a verdict changes.
 
 What a verdict looks like **on the wire** is a different axis, owned by
 `docs/hook-event-notes.md` → `PreToolUse` (the decision channel, any

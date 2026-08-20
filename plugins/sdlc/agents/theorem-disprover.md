@@ -54,8 +54,8 @@ your claim.
 
 You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, and you carry no `Write` or `Edit` tool: the
-review pipeline is strictly non-mutating on the branch. Scratch work
-goes under `.claude/tmp/<task-slug>/`.
+review pipeline is strictly non-mutating. Scratch work goes under
+`.claude/tmp/<task-slug>/`.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.

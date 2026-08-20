@@ -91,7 +91,7 @@ here.
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
-| `agent-memory-scrubber` | Curates the PR's `.claude/agent-memory/` |
+| `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `theorem-generator` | Searches one PR for claims worth trying to disprove |
 | `theorem-generator-high` | The same generator at a higher reasoning tier |
 | `theorem-generator-xhigh` | The same generator at a higher reasoning tier still |
@@ -105,10 +105,14 @@ tier is picking which definition to spawn. The
 repo's `CLAUDE.md` → "The generator skeletons are copies of one file"
 carries the invariant and the `diff` check that enforces it.
 
-Which agents persist memory, and which write nothing at all on the PR
-branch, is stated in `skills/orchestrate/SKILL.md`. The repo's
-`CLAUDE.md` → "Review writes nothing, so review lore is a PR" says how
-that is enforced and where a review lesson lands instead.
+Which agents write memory, and which write nothing at all, is stated
+in `skills/orchestrate/SKILL.md`. No agent memory reaches a commit:
+the writers capture their entries into a session-scoped inbox under
+the harness scratchpad, and `agent-memory-scrubber` transfers the
+durable ones into `CLAUDE.md` or `docs/` and deletes the rest. The
+repo's `CLAUDE.md` → "Review writes nothing, so review lore is a PR"
+says how the review side's silence is enforced and where a review
+lesson lands instead.
 
 ## Dependencies
 
@@ -116,7 +120,8 @@ that is enforced and where a review lesson lands instead.
 `github-prs`, and `cc-tools`. Those edges are what guarantee the
 cross-plugin skills this plugin invokes are installed and enabled
 wherever it runs — the issue verbs, `git-branch-create`,
-`git-issues-from-branch`, the PR verbs, and `agent-memory-cleanup`.
+`git-issues-from-branch`, the PR verbs, `agent-memory-inbox-capture`,
+and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which nothing here invokes:
 `skills/orchestrate/SKILL.md` names it as the whole-repo sweep of the
