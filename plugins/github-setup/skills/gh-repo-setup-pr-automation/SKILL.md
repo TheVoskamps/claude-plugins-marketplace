@@ -92,8 +92,14 @@ aggregate `statusCheckRollup.state` and its `CheckRun` contexts;
 `auto-rebase-prs.yml` reads those contexts. Every one of those queries
 runs with `GH_TOKEN` set to the App-minted installation token, not the
 default `GITHUB_TOKEN`. The rollup draws on check runs and commit
-statuses, so a token holding neither read cannot see whether CI passed,
-and the query 403s the first time the pass has an open PR to evaluate.
+statuses, so a token holding neither read cannot see whether CI passed.
+That failure does not arrive as an HTTP 403: GraphQL answers 200 and
+puts a `FORBIDDEN` error — `Resource not accessible by integration` —
+in the response body, so what the step actually sees is `gh api
+graphql` exiting non-zero with that message, the first time the pass
+has an open PR to evaluate. (The 403 is the REST shape, and it is what
+`GET /repos/{owner}/{repo}/commits/{ref}/status` returns to an App
+without `statuses: read`.)
 Both are read-only, which is why they sit at `read` on an App that
 already writes Pull requests, Contents, and Issues.
 
@@ -102,7 +108,8 @@ map above, Step 3's find/verify pass **is** the converge-time check: an
 App provisioned before a scope joined the set fails the library's
 permission filter and the skill aborts with its "missing permissions"
 report, rather than installing workflows that will merge-but-not-close
-or 403 on the rollup query.
+or fail their rollup query with `Resource not accessible by
+integration`.
 Remediating an existing App takes two steps — a UI-only permission
 edit and an approval from every installing account — both documented
 in `skills/lib/gh-app.md` → "Granting a missing permission to an
