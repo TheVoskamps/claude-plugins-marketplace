@@ -17,16 +17,20 @@ The PR-automation GitHub App's permission set is restated as a literal
 list in several places here, each a separate edit:
 
 - `skills/gh-create-app/SKILL.md` — the *Starter permission set* table,
-  the `required_permissions` code block under it, the "Permissions →
+  the per-scope rationale paragraphs between it and the
+  `required_permissions` code block, that code block, the "Permissions →
   Repository permissions" bullets the user is told to click through
-  during registration, the `__APP_PERMISSIONS__` rendering example in
-  the metadata-doc step, and the reused-App upgrade note in the final
-  report.
+  during registration, the scopes named as the worked example in the
+  App-resolution step's missing-permissions branch, the
+  `__APP_PERMISSIONS__` rendering example in the metadata-doc step, and
+  the reused-App upgrade note in the final report.
 - `skills/gh-repo-setup-pr-automation/SKILL.md` — the *Required GitHub
-  App permissions* block and the `required_permissions = { … }` line in
-  its App-resolution step.
+  App permissions* block, the per-scope prose under it saying what each
+  scope covers, and the `required_permissions = { … }` line in its
+  App-resolution step.
 - `skills/lib/gh-app.md` — the `required_permissions` example in the
-  caller-passes list.
+  caller-passes list, and the paragraphs under it that name a scope
+  callers forget.
 
 `payload/gh-create-app/app-metadata.md` renders the set from
 `__APP_PERMISSIONS__` and holds no literal list, so it never takes this

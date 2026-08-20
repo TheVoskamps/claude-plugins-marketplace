@@ -976,6 +976,21 @@ and the emitted boot launcher's file-header step list in
 `build-guest-image.sh` — go stale while the function's own header and the
 phase's own block comment get updated.
 
+## github-setup's App-permission sweep is owned by its plugin README
+
+`plugins/github-setup/README.md` → "Sweep every App-permission surface
+when the starter set changes" owns what a change to the PR-automation
+App's starter permission set fires: which files in that plugin restate
+the set as a literal list, which one deliberately renders it instead,
+which look-alike list in another plugin is never swept along, and the
+converge-time consequence of widening the set. Read it before editing
+any `plugins/github-setup/` file that names a permission scope.
+
+None of that is restated here. The pointer exists because this file is
+loaded in every session and a plugin README is not, so without it the
+sweep is reachable only by an agent who already thought to open the
+README.
+
 ## Add a README roster entry when you publish a plugin
 
 When a PR adds a new plugin entry to `.claude-plugin/marketplace.json`,

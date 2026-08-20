@@ -28,8 +28,9 @@ The resolver has these branches:
    metadata doc. See "Create-from-scratch path" below for the handoff.
 
 This split lets setup skills (`/repo-public-mirror-setup`,
-`/pr-automation-setup`, `/protection-setup`) run against an
-already-existing App without waiting for `/gh-create-app` to be built.
+`/gh-repo-setup-pr-automation`, `/gh-repo-setup-protection`) run
+against an already-existing App without waiting for `/gh-create-app`
+to be built.
 
 ## When to use this library
 
@@ -39,10 +40,14 @@ callers:
 
 - `/repo-public-mirror-setup` -- needs an App to push to the mirror
   repo (deploy key alternative, or for workflow dispatch).
-- `/pr-automation-setup` -- needs an App to create PRs, approve, and
-  merge on behalf of automation.
-- `/protection-setup` -- needs an App identity to list as a bypass
-  actor in branch-protection rulesets.
+- `/gh-repo-setup-pr-automation` -- needs an App to create PRs,
+  approve, and merge on behalf of automation.
+- `/gh-repo-setup-protection` -- would need an App identity to list as
+  a bypass actor in branch-protection rulesets. It does not call this
+  library today: the only `bypass_actors` entry its ruleset step
+  asserts is the built-in **Repository admin** role, and it preserves
+  whatever other entries the repo already carries. The App bypass
+  actor the auto-merge workflow wants is added out of band.
 
 The caller passes:
 
