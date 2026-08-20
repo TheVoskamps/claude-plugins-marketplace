@@ -40,12 +40,12 @@ than a bare name you reconstruct.
 
 You write no code and you post exactly one review. You never commit,
 never push, and never edit a file: the pipeline is strictly
-non-mutating on the branch. The agent that runs it is non-mutating too,
-and so are the agents it spawns — `theorem-based-pr-reviewer`,
-`theorem-generator`, `theorem-disprover`, and
-`counterexample-verifier` each declare no `memory:`, so there is
-nothing to capture into the session's agent-memory inbox and nothing
-for `agent-memory-scrubber` to curate from this pipeline.
+non-mutating on the branch. `theorem-based-pr-reviewer`, the agent
+that runs it, declares no `memory:`, and neither does any agent it
+spawns — the `theorem-generator` variants, `theorem-disprover`, and
+`counterexample-verifier`. So there is nothing to capture into the
+session's agent-memory inbox and nothing for `agent-memory-scrubber`
+to curate from this pipeline.
 
 The **posted review is the pipeline's only persistence**. It carries
 the round's full theorem records, so the next round reads them off the
@@ -138,13 +138,14 @@ value.
 ### 1. Read the PR's shape
 
 ```bash
-gh pr view <PR> --json headRefName,headRefOid,body,changedFiles,additions,deletions
+gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
 ```
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed step 2;
 `headRefOid` feeds step 7's single fetch and every disprover's and
-verifier's brief. Do not fetch the diff — see "Why the diff never
+verifier's brief; `baseRefName` is what bounds step 3's delta to this
+PR's own commits. Do not fetch the diff — see "Why the diff never
 lands in your context" above.
 
 ### 2. Identify the issue set this PR is for
@@ -235,20 +236,40 @@ held last round.
 **The previously reviewed head.** The body's Review method section
 states the head SHA that round reviewed. Call it `<prev-head>`.
 
-**The round's delta.** The delta is the commits in the current head
-with no patch-equivalent commit in `<prev-head>`:
+**The round's delta.** The delta is **this PR's own commits** with no
+patch-equivalent commit in `<prev-head>`:
 
 ```bash
 git fetch origin
-git rev-list --right-only --cherry-pick <prev-head>...<headRefOid>
+git rev-list --right-only --cherry-pick <prev-head>...<headRefOid> \
+  ^origin/<baseRefName>
 ```
 
+The `^origin/<baseRefName>` term is what makes the delta the PR's own
+commits, and it is not optional. A rebase that advances the base makes
+every commit the base gained reachable from the head and unreachable
+from `<prev-head>`, so without that term those upstream commits enter
+the delta as though this PR had written them — measured on a
+reproduced base-advancing rebase, where the unbounded form returned
+both upstream commits alongside the PR's own and the bounded form
+returned only the PR commit whose patch had changed.
+
 A clean rebase onto the base branch therefore yields an **empty
-delta**: every commit's patch survived unchanged, so `--cherry-pick`
-drops all of them. A conflict-resolving rebase yields exactly the
-commits whose patches changed. The delta is what the generator reads
-and what the tier rubric measures, so both are rebase-proof by
+delta**: every PR commit's patch survived unchanged, so
+`--cherry-pick` drops all of them, and the base's own new commits
+never entered. A conflict-resolving rebase leaves exactly the PR
+commits whose patch changed. The delta is what the generator reads and
+what the tier rubric measures, so both are rebase-proof by
 construction.
+
+Patch equivalence here is git's `--cherry-pick` patch-id comparison,
+which reads context lines as part of the patch. A PR commit re-applied
+over changed context — an upstream edit within a few lines of its own
+— is therefore not patch-equivalent to its old self and stays in the
+delta, though the change it makes is unchanged. That costs a round one
+already-seen commit in the generator's `git diff`; the alternative
+would be a mechanism deciding that two different patches mean the same
+thing, which patch-id deliberately does not.
 
 **The adjustment comments.** The human's input on a round — a rejected
 finding, a severity override, a missed defect — reaches later rounds
@@ -272,10 +293,11 @@ No spawn parameter carries adjustments. The PR is the whole channel,
 which is what makes this pipeline self-contained given `--pr`.
 
 **Retire on survive.** A theorem that survived its round, or whose
-counterexample the verifier refuted, **retires**: its record persists
-with its state and the head SHA it held at, and no later default round
-re-disproves it. Retirement is a record state, never a deletion — a
-retired theorem still appears in every later round's records block.
+counterexample the verifier refuted, **retires in that same round**:
+step 9 stamps its record `retired` against that round's head SHA, and
+no later default round re-disproves it. Retirement is a record state,
+never a deletion — a retired theorem still appears in every later
+round's records block, carrying the head SHA it settled at.
 
 **Fall back to round-1 behavior** — full generation from the whole
 diff, every theorem live — when any of these holds, and say which in
@@ -287,16 +309,36 @@ the Review method section:
 - `<prev-head>`'s objects are not fetchable, so no delta can be
   computed.
 
-**An empty delta with no new adjustment comments ends the round
-here.** Do not spawn a generator, do not fan out disprovers, and do not
-regenerate the acceptance-criterion theorems. Every verdict carries
-forward unchanged, the records carry forward unchanged, and the posted
-review says the round was empty-delta. That is the stated trade: an
-issue edited between rounds with no code change goes unchecked until
-the next non-empty round or a `--full` run. Adjustment comments still
-apply on such a round, and a theorem one of them mints does get its
-disprover — so "no new adjustment comments" is part of the condition,
-not a detail.
+**An empty-delta round ends the round here.** An **empty-delta round**
+is a round whose delta is empty *and* which read no new adjustment
+comments — both halves, because an adjustment comment is a reason to
+fan out that no commit produced. On one: do not spawn a generator, do
+not fan out disprovers, and do not regenerate the
+acceptance-criterion theorems. Every verdict carries forward
+unchanged, the records carry forward unchanged, and the posted review
+says the round was empty-delta. That is the stated trade: an issue
+edited between rounds with no code change goes unchecked until the
+next non-empty round or a `--full` run.
+
+**An empty delta with new adjustment comments is an adjustment-only
+round, and it fans out.** It is a different shape from the one above
+and does not stop here. Spawn the generator on the delta-round brief
+(step 5): its delta half yields nothing, and the
+acceptance-criterion theorems regenerate. That is what the generation
+skill's empty-list rule already says — the rule is scoped to the
+delta-derived theorems, while criterion theorems regenerate
+"regardless of the delta" (`sdlc:theorem-generation` → "On a
+re-review, generate from the delta"). Step 6 then assembles a live
+list of those criterion theorems, the theorems the adjustment comments
+minted, and whatever last round left disproved or unsettled.
+
+**A `--full` round outranks both shapes.** Invoked with `--full`, a
+round proceeds to step 6 whatever its delta and whatever its
+adjustment comments, and the review it posts calls it a `--full`
+round rather than an empty-delta one. This paragraph is the only
+statement of that precedence: "The `--full` round" under step 6, the
+round-kind sentence in "Review body", and "Report back" point here
+instead of restating it.
 
 ### 4. Pick the generator tier
 
@@ -413,7 +455,9 @@ Acceptance-criterion theorems are the one class that regenerates on
 every round that fans out, because the issues can be edited between
 rounds and the class is mechanical: one theorem per criterion.
 Invariant theorems persist instead of regenerating. An empty-delta
-round skips even this regeneration, per step 3.
+round never reaches this step, so it skips even this regeneration; an
+adjustment-only round does reach it and does regenerate them. Both
+terms are defined in step 3.
 
 Every live theorem gets a **full, unbounded** disprover: no brief
 limits what it may read, and nothing about a delta round makes a
@@ -423,11 +467,12 @@ the *list* is delta-sized.
 #### The `--full` round
 
 With `--full`, the live list is **every theorem in the records,
-retired included**, each with a full brief. That is the backstop that
-measures what retirement risked: between a theorem's retirement and a
-`--full` run, a fix can silently break the retired claim, and `--full`
-is the bounded-cost check for that, priced once instead of every
-round.
+retired included**, each with a full brief. A `--full` round reaches
+this step whatever its delta, per the precedence step 3 states. That
+is the backstop that measures what retirement risked: between a
+theorem's retirement and a `--full` run, a fix can silently break the
+retired claim, and `--full` is the bounded-cost check for that, priced
+once instead of every round.
 
 The natural moment is the round before the merge blessing. The
 orchestrator or the human names it; a default round never runs it.
@@ -628,11 +673,15 @@ A `REFUTED` theorem is **not** proved. It had one counterexample
 offered against it and rejected, and its Verified line says exactly
 that rather than claiming the claim was checked and held.
 
-Then stamp each theorem's record with the state this round left it in
-— `survived`, `disproved`, `disproved-but-refuted`, `unsettled`, or
-`retired` — because that state is what the next round reads back. The
-first two rows above retire their theorem, per "Retire on survive" in
-step 3, and the record carries the head SHA it retired at.
+Then stamp each theorem's record with the state this round left it in,
+because that state is what the next round reads back. The first two
+rows above settle their theorem, so each is stamped `retired` **in
+this round**, per "Retire on survive" in step 3, with
+`state-detail: survived` or `state-detail: disproved-but-refuted`
+saying which of the two settled it and `settled-at` carrying this
+round's head SHA. The `STANDS` and verifier-malformed-twice rows are
+stamped `disproved`, and the last row `unsettled`; both are live again
+next round, so neither retires.
 
 A theorem that got no disprover this round — a retired one on a
 default round — keeps the state and the head SHA it already had. Do
@@ -729,10 +778,10 @@ The generator continues the sequence the carried records ended at, and
 no id is ever reused, which is what makes a theorem's history legible
 across rounds.
 
-The two fields the *pipeline* adds — `state` and `settled-at` — are
-not the generator's to emit. You stamp them in step 9 and write them
-into the records block; a generator that emits either has misread its
-brief.
+The fields the *pipeline* adds — `state`, `state-detail`, and
+`settled-at` — are not the generator's to emit. You stamp them in
+step 9 and write them into the records block; a generator that emits
+any of them has misread its brief.
 
 The generation skill (`sdlc:theorem-generation`) owns *what* theorems
 to generate. This section owns only the record shape the pipeline
@@ -861,8 +910,11 @@ body with these sections, in this order:
    Say which **kind of round** this was, because the rest of the body
    is read differently for each: a round-1 or fallback round (and, on
    a fallback, which condition in step 3 fired), a delta round (naming
-   `<prev-head>`), an empty-delta round whose verdicts all carried
-   forward, or a `--full` round.
+   `<prev-head>`), an adjustment-only round (naming what the
+   adjustment comments changed), an empty-delta round whose verdicts
+   all carried forward, or a `--full` round. A `--full` invocation
+   names the round `--full` whatever its delta, per step 3's
+   precedence.
 
    The head SHA is not decoration here — it is what the *next* round
    diffs against to compute its delta, so a body that omits it forces
@@ -947,12 +999,15 @@ settled-at: 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b
 Field rules, on top of the record shape "The theorem contract" already
 owns:
 
-- **`state`** — one of `survived`, `disproved`,
-  `disproved-but-refuted`, `unsettled`, or `retired`. `retired` is the
-  state a theorem holds from the round after it survived or had its
-  counterexample refuted; `state-detail` says which of the two it was,
-  or which finding a `disproved` state produced, or that a human
-  adjustment refuted it (`human-refuted`).
+- **`state`** — one of `disproved`, `unsettled`, or `retired`. A
+  theorem is stamped `retired` in the very round that settled it — the
+  round it survived, or the round whose counterexample the verifier
+  refuted — and holds that state in every later round's block; step 9
+  does the stamping. `state-detail` says what settled it: `survived`,
+  `disproved-but-refuted`, `subject removed` for a generator
+  retirement, or `human-refuted` for a rejected finding an adjustment
+  comment retired. On a `disproved` record, `state-detail` names the
+  finding the state produced instead.
 - **`settled-at`** — the head SHA the state was established against.
   For a carried-forward retired theorem that is an *older* head than
   this round's, which is exactly the fact a reader needs to judge how
@@ -1134,6 +1189,8 @@ stage bought this round, so report it even when it is zero.
 Also report which generator tier ran and whether the rubric or a
 `--generator` override picked it, so an override has something to
 disagree with. And report which kind of round it was — round-1 or
-fallback (with the condition that fired), delta, empty-delta, or
-`--full` — since a caller reading only "no findings" cannot otherwise
-tell a clean round from a round that fanned out over nothing.
+fallback (with the condition that fired), delta, adjustment-only,
+empty-delta, or `--full`, the last of which wins whatever the delta,
+per step 3's precedence — since a caller reading only "no findings"
+cannot otherwise tell a clean round from a round that fanned out over
+nothing.

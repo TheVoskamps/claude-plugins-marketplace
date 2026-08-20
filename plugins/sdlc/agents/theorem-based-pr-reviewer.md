@@ -93,6 +93,8 @@ re-reading the PR. Your caller reads the posted review for anything
 beyond that.
 
 Say which tier ran and whether the rubric or an override picked it,
-and say whether the round was a delta round, a round-1-behavior
-fallback, or a `--full` round. Those are the facts a caller needs to
-judge the round, and they are cheap to omit by accident.
+and say which kind of round it was, in the vocabulary the pipeline's
+"Report back" section enumerates — that section owns the round kinds,
+so name them from it rather than from a list here. Those are the facts
+a caller needs to judge the round, and they are cheap to omit by
+accident.
