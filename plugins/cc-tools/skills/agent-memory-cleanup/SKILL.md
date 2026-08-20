@@ -110,9 +110,8 @@ Every entry gets exactly one verdict, from three.
 
 The delete cases, and the evidence each one has to produce, are
 `skills/lib/agent-memory-grading.md` → "The delete cases" and "A delete
-needs evidence". Where that rubric says to fall back to a
-non-destructive verdict for an unsubstantiated delete, this skill's
-fallback is `persist`.
+needs evidence". This skill's keep-in-place verdict, which that
+rubric's unsubstantiated-delete fallback resolves to, is `persist`.
 
 #### Transfer — move the content out, then delete the entry
 

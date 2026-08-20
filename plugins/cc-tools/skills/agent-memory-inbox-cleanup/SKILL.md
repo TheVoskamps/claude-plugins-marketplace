@@ -44,14 +44,24 @@ curates a `.claude/agent-memory/` tree that agents read back on a later
 run. The inbox has no such reader, so "keep it in the inbox" would mean
 "discard it at the end of the session with extra steps".
 
-That difference decides one outcome the rubric leaves to each skill.
+That difference decides two outcomes the rubric leaves to each skill.
+
 An entry the rubric grades under "Entries with no code home" has
 nowhere here to be kept, so it transfers into `CLAUDE.md`, where the
-sibling skill would have left it in the tree. Everything the rubric
-grades as a delete stays a delete, evidence bar included — and where
-the rubric says an unsubstantiated delete falls back to whichever
-non-destructive verdict the calling skill offers, this skill's fallback
-is `transfer`.
+sibling skill would have left it in the tree.
+
+And the verdict turns on the surviving bar rather than on the delete
+bar. `transfer` iff the entry states a present-tense constraint this
+repo should carry — durable lore per the rubric's "What counts as
+durable", or an entry with no code home per the class beside it.
+Everything else is `delete`. The rubric's delete cases each describe an
+entry that fails that bar, so they remain the shapes to look for, and
+their evidence bar remains what you produce in the report when you cite
+one. What does not carry over is the rubric's unsubstantiated-delete
+fallback: it hands the entry to a keep-in-place verdict, and this skill
+has none. An entry that is neither a citable delete case nor a statable
+constraint is deleted, because writing it into `CLAUDE.md` would put
+prose the repo should not carry into the one file every agent reads.
 
 ## Execution
 

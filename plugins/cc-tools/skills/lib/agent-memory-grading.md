@@ -61,9 +61,17 @@ deleting, produce the check:
 | duplicate | the entry it duplicates |
 
 If you cannot produce the check, the verdict is not delete. Fall back
-to whichever non-destructive verdict the calling skill offers, and say
-so in the report. "It feels stale" is not evidence, and curation is
-destructive.
+to the calling skill's **keep-in-place** verdict — the one that leaves
+the entry where it is — and say so in the report. "It feels stale" is
+not evidence, and curation is destructive.
+
+A calling skill with no keep-in-place verdict has no fallback to take,
+and must not borrow a different one: every verdict it offers either
+destroys the entry or writes its content somewhere else, so a fallback
+would answer "I could not substantiate a delete" by publishing the
+entry. Such a skill decides the entry's fate on "What counts as
+durable" and the class beside it instead — the entry survives only when
+it clears one of those bars — and states that in its own verdict set.
 
 ## What counts as durable
 

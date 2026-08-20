@@ -443,12 +443,18 @@ func scratchHint(toolName string, repoRoot string) string {
 // containment-escape deny carries. A guardrail that only forbids invites a
 // workaround; one that prescribes prevents it. It names BOTH sanctioned
 // destinations, because prescribing only the in-repo one left an agent
-// with a genuine cross-repo / cross-session handoff file no legal landing spot
-// at all — and an under-specified denial is exactly what induces an improvised
-// bad write (e.g. under .git/, purely because it is gitignored and in-repo):
+// with a genuine handoff file no legal landing spot at all — and an
+// under-specified denial is exactly what induces an improvised bad write (e.g.
+// under .git/, purely because it is gitignored and in-repo):
 //
-//   - repo-scoped scratch  -> <repo-root>/.claude/tmp/ (already gitignored)
-//   - cross-repo/-session  -> the harness scratchpad, <system-tmp>/claude-<uid>/
+//   - repo-scoped scratch -> <repo-root>/.claude/tmp/ (already gitignored)
+//   - a handoff whose reader that tree cannot serve -> the harness scratchpad,
+//     <system-tmp>/claude-<uid>/
+//
+// The second destination's criterion is the reader's position, not a fixed pair
+// of cases: rules/scratch-file-location.md enumerates another repo, another
+// session, and another subagent's worktree as the shapes that qualify, and the
+// hint below is worded to carry all three rather than the first two.
 //
 // repoRoot is the RESOLVED repository root — rc.topLevel, the same value the
 // adjacent cross-repo deny already prints as `repo root %s`. Every call site
@@ -462,8 +468,9 @@ func scratchHint(toolName string, repoRoot string) string {
 func scratchDestinations(repoRoot string) string {
 	return fmt.Sprintf(
 		"For repo-scoped scratch or temporary files, write under %s/.claude/tmp/ (already gitignored) "+
-			"instead of an out-of-repo path. For a file that must outlive this repo or this session (a "+
-			"cross-repo or cross-session handoff), use the harness scratchpad under %s/ instead. "+
+			"instead of an out-of-repo path. For a handoff file whose reader that tree cannot serve — "+
+			"another repo, another session, or another subagent's worktree — use the harness scratchpad "+
+			"under %s/ instead. "+
 			"Never write scratch files under .git/.",
 		repoRoot, harnessScratchDisplay())
 }
@@ -496,14 +503,15 @@ func harnessScratchBadRootDefer(op string, lead string) Decision {
 		lead, harnessScratchDisplay(), defect, harnessScratchDisplay()))
 }
 
-// handoffHint names the sanctioned cross-repo / cross-session handoff location
-// for a READ deny. The read side has no scratch-destination problem, but
-// it has the mirror-image one: a session reading back a handoff file another
-// session wrote needs to be told where that file legitimately lives, or the
+// handoffHint names the sanctioned handoff location for a READ deny. The read
+// side has no scratch-destination problem, but it has the mirror-image one: a
+// session reading back a handoff file another session (or another subagent's
+// worktree) wrote needs to be told where that file legitimately lives, or the
 // deny reads as "this workflow is impossible" and invites a workaround.
 func handoffHint() string {
 	return fmt.Sprintf(
-		"A cross-repo or cross-session handoff file belongs under the harness scratchpad at %s/, "+
+		"A handoff file whose reader sits outside the writer's containment boundary — another repo, "+
+			"another session, or another subagent's worktree — belongs under the harness scratchpad at %s/, "+
 			"which reads and writes are not blocked from.",
 		harnessScratchDisplay())
 }

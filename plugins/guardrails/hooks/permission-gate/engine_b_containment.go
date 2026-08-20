@@ -635,8 +635,8 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// actively instructs the model to put temporary files there. Treating that
 	// tree as an ordinary /tmp escape made the gate fight the harness — a hook
 	// deny beats a settings.json allow, so the scratchpad was unusable from
-	// every repo session, and there was no sanctioned home for a cross-repo /
-	// cross-session handoff file. Unlike ~/.claude this is not a blanket
+	// every repo session, and there was no sanctioned home for a handoff file
+	// at all. Unlike ~/.claude this is not a blanket
 	// defer; the verdict is graded on where inside the prefix the target lands.
 	// This function's job is only the REGION — the verdict is a function of
 	// region × track, and each caller applies its own terminal to the region

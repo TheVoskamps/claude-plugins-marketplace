@@ -209,7 +209,11 @@ the model's discretion. Issue #193 completes the prescription: naming
 only the in-repo destination left a genuine cross-repo handoff file
 with no legal landing spot at all, which is the same open-ended denial
 in a different disguise, so the denies now name **both** destinations
-and the read-side denies name the handoff location too. They also name
+and the read-side denies name the handoff location too. Both hints
+state the criterion this rule states — a reader the writer's own
+`.claude/tmp/` cannot serve — and enumerate the same three shapes that
+qualify, so a hint never tells an agent that a sanctioned handoff has
+nowhere to go. They also name
 the **resolved** repository root — the absolute path the gate already
 holds — rather than a `<repo-root>` placeholder the model has to
 resolve for itself (and can resolve to the primary clone instead of
