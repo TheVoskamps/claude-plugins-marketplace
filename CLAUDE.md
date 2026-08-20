@@ -976,44 +976,20 @@ and the emitted boot launcher's file-header step list in
 `build-guest-image.sh` — go stale while the function's own header and the
 phase's own block comment get updated.
 
-## Sweep every App-permission surface when the starter set changes
+## github-setup's App-permission sweep is owned by its plugin README
 
-The PR-automation GitHub App's permission set is restated as a literal
-list in several `plugins/github-setup` places, each a separate edit:
+`plugins/github-setup/README.md` → "Sweep every App-permission surface
+when the starter set changes" owns what a change to the PR-automation
+App's starter permission set fires: which files in that plugin restate
+the set as a literal list, which one deliberately renders it instead,
+which look-alike list in another plugin is never swept along, and the
+converge-time consequence of widening the set. Read it before editing
+any `plugins/github-setup/` file that names a permission scope.
 
-- `skills/gh-create-app/SKILL.md` — the *Starter permission set* table,
-  the `required_permissions` code block under it, the "Permissions →
-  Repository permissions" bullets the user is told to click through
-  during registration, and the `__APP_PERMISSIONS__` rendering example
-  in the metadata-doc step.
-- `skills/gh-repo-setup-pr-automation/SKILL.md` — the *Required GitHub
-  App permissions* block and the `required_permissions = { … }` line in
-  its App-resolution step.
-- `skills/lib/gh-app.md` — the `required_permissions` example in the
-  caller-passes list.
-
-`payload/gh-create-app/app-metadata.md` renders the set from
-`__APP_PERMISSIONS__` and holds no literal list, so it never takes this
-edit — hard-coding a map there would freeze one caller's scopes into
-every rendered metadata doc.
-`plugins/github-claude-identity/skills/gh-create-identity-app/SKILL.md`
-does carry a literal permission list, but it belongs to a **different**
-App (the per-user commit identity, provisioned with its own scopes).
-Never sweep it along with this set.
-
-Widening the set has a converge-time consequence worth stating wherever
-the new scope is introduced: a scope added to an already-registered App
-is not live until every installing account approves it
-(`skills/lib/gh-app.md` → "Granting a missing permission to an existing
-App"), so every previously-provisioned App fails the library's
-permission filter until that approval lands.
-
-That failure is determinate in every caller: the library aborts the
-calling skill with its "missing permissions" report and the pointer to
-the two-step remediation — on the discovery path from Step 3's
-no-suitable-candidates branch, on the `--app-name` path from that
-path's own permission check. No caller routes such an App into
-registration instead.
+None of that is restated here. The pointer exists because this file is
+loaded in every session and a plugin README is not, so without it the
+sweep is reachable only by an agent who already thought to open the
+README.
 
 ## Add a README roster entry when you publish a plugin
 

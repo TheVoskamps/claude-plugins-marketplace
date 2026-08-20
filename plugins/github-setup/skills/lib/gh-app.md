@@ -27,9 +27,9 @@ The resolver has these branches:
    the App, sets the secrets, verifies a minted token, and saves a
    metadata doc. See "Create-from-scratch path" below for the handoff.
 
-This split lets setup skills (`/repo-public-mirror-setup`,
-`/pr-automation-setup`, `/protection-setup`) run against an
-already-existing App without waiting for `/gh-create-app` to be built.
+This split lets `/gh-repo-setup-pr-automation` run against an
+already-existing App without waiting for `/gh-create-app` to be
+built.
 
 ## When to use this library
 
@@ -37,25 +37,44 @@ A skill that needs a GitHub App identity calls the find/verify
 sequence documented below as part of its own setup flow. Typical
 callers:
 
-- `/repo-public-mirror-setup` -- needs an App to push to the mirror
-  repo (deploy key alternative, or for workflow dispatch).
-- `/pr-automation-setup` -- needs an App to create PRs, approve, and
-  merge on behalf of automation.
-- `/protection-setup` -- needs an App identity to list as a bypass
-  actor in branch-protection rulesets.
+- `/repo-public-mirror-setup` -- would need an App to push to the
+  mirror repo, as an alternative to a deploy key or for workflow
+  dispatch. It does not call this library today: it uses the
+  deploy-key flow instead — a write-enabled deploy key on the mirror
+  plus the `PUBLIC_MIRROR_DEPLOY_KEY` secret on the source — and the
+  App resolver is warranted only if a future variant pushes via an
+  App.
+- `/gh-repo-setup-pr-automation` -- needs an App to create PRs,
+  approve, and merge on behalf of automation.
+- `/gh-repo-setup-protection` -- would need an App identity to list as
+  a bypass actor in branch-protection rulesets. It does not call this
+  library today: the only `bypass_actors` entry its ruleset step
+  asserts is the built-in **Repository admin** role, and it preserves
+  whatever other entries the repo already carries. The App bypass
+  actor the auto-merge workflow wants is added out of band.
 
 The caller passes:
 
 - **`required_permissions`** -- a map of permission scope to access
-  level (e.g. `{ contents: write, pull_requests: write,
-  issues: write }`). The verifier checks these against the App's
-  declared permissions.
+  level (e.g. `{ contents: write, pull_requests: write, issues: write,
+  checks: read, statuses: read }`). The verifier checks these against
+  the App's declared permissions.
 
   Include every scope the automation's **side effects** need, not just
   the ones its direct API calls need. The scope most often left out is
   `issues: write`: merging a PR whose body carries a closing keyword
   closes the linked issues under the merging token's authority, so an
   App without it merges fine and silently leaves the issues open.
+
+  Include the scopes its **decision inputs** need too. An automation
+  that acts on a CI outcome reads check runs (`checks: read`) and
+  commit statuses (`statuses: read`) — the two the `statusCheckRollup`
+  GraphQL field draws on. Without them the REST reads
+  (`GET /repos/{owner}/{repo}/commits/{ref}/check-runs`,
+  `GET /repos/{owner}/{repo}/commits/{ref}/status`) 403, and the
+  GraphQL rollup comes back as a body-level `FORBIDDEN` error —
+  `Resource not accessible by integration` — at HTTP 200, which
+  `gh api graphql` surfaces as a non-zero exit.
 - **`target_repo`** (optional) -- the `owner/repo` to verify
   installation on. Defaults to the current repo
   (`gh repo view --json nameWithOwner -q .nameWithOwner`).

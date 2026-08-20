@@ -504,3 +504,29 @@ destination*. A verbatim mirror into a destination that is an additive
 merge target can ship a worse defect than the one it fixes — and the
 suite stays green, because nothing asserts the pre-existing content
 survives.
+
+## A permission's whole surface is not its caller's surface
+
+Prose justifying a permission scope earns the scope by enumerating
+every API surface it unlocks, then predicts the failure the code hits
+without it. The enumeration is about the scope; the failure is about
+the one call the code actually makes. Collapsing the two yields "it
+fails in two different shapes", where one shape belongs to an endpoint
+nothing here calls. The tell is a failure sentence whose shape count
+matches the endpoint count in the sentence above it. Grep the callers
+for each endpoint named, attribute the failure to the ones that
+survive, and demote the rest to what a different caller would get.
+
+## A "restated in these places" list is graded by the diff
+
+A doc section enumerating where a value is restated, each site a
+separate edit, reads complete because no bullet in it looks wrong. Its
+evidence is the change sitting in front of you: every hunk that edited
+a restatement of the value is an edit point by construction, so a site
+the list omits is where the next change to that value goes stale. Grep
+the changed token — a permission scope, a config key, a verdict
+spelling — across the plugin and match every hit to a bullet; the hits
+with no bullet are the gap. Widen the list before committing, and
+describe each site by its role ("the per-scope rationale paragraphs
+under it") rather than by quoting the value, or the list itself rots on
+the next change.

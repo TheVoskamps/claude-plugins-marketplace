@@ -86,6 +86,8 @@ The default `--permissions=starter` requests exactly:
 | Pull requests | Read and write | open / approve / merge / label PRs |
 | Contents | Read and write | push branches, create commits |
 | Issues | Read and write | close the issues a merged PR's `Closes #N` lines link |
+| Checks | Read-only | read a commit's check-run results before merging |
+| Commit statuses | Read-only | read a commit's combined status before merging |
 | Metadata | Read-only | mandatory; GitHub auto-selects it |
 
 `Issues: write` is not optional decoration. Merging a PR whose body
@@ -97,6 +99,20 @@ open. That is the exact half of `rules/git-workflow.md`'s
 closing-keyword convention (PR body only, the branch's own issue set
 only) that the automation exists to deliver.
 
+`Checks: read` and `Commit statuses: read` are what let the App see
+whether CI passed. `GET /repos/{owner}/{repo}/commits/{ref}/check-runs`
+needs the first and `GET /repos/{owner}/{repo}/commits/{ref}/status`
+needs the second, and the `statusCheckRollup` GraphQL field the
+PR-automation workflows gate on reads both. Those workflows read the
+rollup and make neither REST call, so an App without the two scopes
+fails in the GraphQL shape the first time a merge pass has an open PR
+to evaluate: HTTP 200 carrying a `FORBIDDEN` body error —
+`Resource not accessible by integration` — which exits `gh api
+graphql` non-zero. HTTP 403 is the REST shape, and it is what a caller
+of either endpoint above gets instead. Both scopes are read-only on an
+App that already holds write on Pull requests, Contents, and Issues,
+so they widen nothing an operator has not already granted.
+
 **No webhook.** This App mints installation tokens in CI; it does not
 receive event deliveries. Leave "Active" under Webhook **unchecked**
 during registration.
@@ -105,7 +121,8 @@ The corresponding `required_permissions` map (the shape
 `skills/lib/gh-app.md` and consuming skills use) is:
 
 ```text
-{ pull_requests: write, contents: write, issues: write, metadata: read }
+{ pull_requests: write, contents: write, issues: write, checks: read,
+  statuses: read, metadata: read }
 ```
 
 For `--permissions=custom`, ask the user which scopes and levels they
@@ -200,8 +217,8 @@ the "User-supplied App name (skip discovery)" path from that library.
   "Granting a missing permission to an existing App": the UI-only
   edit, **and** the approval each installing account must give before
   the new scope goes live. An App that predates a change to the
-  starter set — one provisioned before `issues: write` joined it, say
-  — lands in exactly this branch.
+  starter set — one provisioned before `checks: read` and
+  `statuses: read` joined it, say — lands in exactly this branch.
 
 - **No suitable App** — proceed to Step 3 (registration).
 
@@ -237,6 +254,8 @@ Tell the user to set:
   - Pull requests: **Read and write**
   - Contents: **Read and write**
   - Issues: **Read and write**
+  - Checks: **Read-only**
+  - Commit statuses: **Read-only**
   - Metadata: **Read-only** (auto-selected; leave it)
 - **Where can this GitHub App be installed?** "Only on this account"
   is the right choice for an internal automation App.
@@ -392,8 +411,8 @@ Render the metadata doc from the payload and write it to
 
    The `__APP_PERMISSIONS__` value is an inline, comma-separated
    string (e.g. `Pull requests: write, Contents: write, Issues: write,
-   Metadata: read`), not a markdown list — the template renders it
-   inside a sentence.
+   Checks: read, Commit statuses: read, Metadata: read`), not a
+   markdown list — the template renders it inside a sentence.
 
 4. **Converge** like the other setup skills: if the target file is
    absent, write it; if present and **semantically equal** to the
@@ -433,6 +452,20 @@ Next steps:
   5. Re-run /gh-create-app any time — it detects the existing App and
      converges (verify + refresh metadata) instead of re-creating.
 ```
+
+When the App was **reused** rather than created, append the
+check-state upgrade note to the report:
+
+```text
+  6. Checks: read and Commit statuses: read joined the starter set
+     after some Apps were registered. If this App predates that, add
+     both in the App's settings AND accept the change on every
+     installation — granting alone leaves it pending and the minted
+     token unchanged.
+```
+
+Both scopes are read-only, so an operator who reads that note is being
+asked for the two reads and nothing else.
 
 ---
 
