@@ -680,8 +680,17 @@ one matching the worktree-naming pattern; cross-check by branch or
 path), then:
 
 ```bash
-git worktree remove .claude/worktrees/<name>
+git worktree remove <absolute-path-from-the-listing>
 ```
+
+Remove by the **absolute** path the listing prints, never by a short
+`.claude/worktrees/<name>` form. `git worktree remove` matches its
+argument as a suffix of each registered worktree's path and needs that
+match to be unique, and a `theorem-based-pr-reviewer` worktree carries
+a `.claude/worktrees/` of its own, so the short form can match two
+worktrees and fail with an error that reads as though the worktree
+were already gone. See `docs/agent-tooling-notes.md` → "Remove a
+worktree by the path `git worktree list` prints".
 
 The reviewer's own fan-out worktrees are not yours: it removes the
 generator's, every disprover's, and every verifier's itself before it
@@ -694,8 +703,8 @@ and left a stale lock — this is routine end-of-wave cleanup, not an
 escalation. Unlock-then-remove:
 
 ```bash
-git worktree unlock .claude/worktrees/<name>
-git worktree remove .claude/worktrees/<name>
+git worktree unlock <absolute-path-from-the-listing>
+git worktree remove <absolute-path-from-the-listing>
 ```
 
 Unlock-then-remove is **not** allowed when the subagent is still
@@ -841,7 +850,7 @@ per-issue verdicts tell you which member's criteria each finding is
 measured against; carry those tags into the fixer's brief rather than
 flattening them.
 
-When the review pipeline reports back:
+When `theorem-based-pr-reviewer` reports back:
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member. Do not spawn the fixer — no loop
