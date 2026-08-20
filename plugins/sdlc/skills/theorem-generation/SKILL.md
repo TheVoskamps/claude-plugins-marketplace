@@ -399,8 +399,9 @@ instead of regenerating.
 
 The delta is computed patch-equivalently by the pipeline, so a clean
 rebase between rounds yields nothing to generate from. When your
-`git diff` above comes back empty, emit an empty list and say so
-rather than reaching back into the whole diff for something to say.
+`git diff` above comes back empty, emit an empty list of new theorems
+and say so rather than reaching back into the whole diff for something
+to say; the acceptance-criterion theorems still regenerate.
 
 ## Output format
 
@@ -453,5 +454,6 @@ T4 — the section this claim is about was deleted by the delta.
 
 Emit the `RETIREMENTS` line only when you have at least one. A round
 with new theorems and no retirements, or retirements and no new
-theorems, is ordinary; a round with neither emits an empty list and
-says so.
+theorems, is ordinary; a round with neither emits the regenerated
+criterion theorems alone — an empty list when the issues yield none —
+and says so.
