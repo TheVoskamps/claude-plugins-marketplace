@@ -64,7 +64,7 @@ same reason a commit message goes through `git commit -F <file>` here.
 Verify draft-ness and the closing line by re-reading the created PR
 rather than trusting the create's own output.
 
-## Two `yq` traps in the mikefarah build
+## `yq` traps in the mikefarah build
 
 **`unique` does not sort.** It removes duplicates while preserving
 first-seen order, so two lists holding the same set in different orders
@@ -144,3 +144,30 @@ git push origin HEAD:<branch>
 No local branch is created, so there is no end-of-run branch to
 release, and the other worktree's local ref is simply behind origin
 afterwards — say so rather than repairing it.
+
+## Remove a worktree by the path `git worktree list` prints
+
+`git worktree list` prints absolute paths, and `git worktree remove`
+resolves a relative one against the cwd. A session sitting at the repo
+root can therefore write `git worktree remove .claude/worktrees/<name>`
+and be right. A session that is itself inside a worktree cannot: the
+same string resolves to
+`<repo>/.claude/worktrees/<self>/.claude/worktrees/<name>`, which does
+not exist, and git answers
+
+```text
+fatal: '.claude/worktrees/<name>' is not a working tree
+```
+
+— an error that names the path but not the reason, so it reads as "the
+worktree is already gone" rather than "you are standing somewhere
+else".
+
+Every `isolation: worktree` agent runs inside a worktree, so this fires
+on any agent that spawns agents and cleans up after them. Take the path
+from the listing rather than composing one:
+
+```bash
+git worktree list
+git worktree remove <absolute-path-from-the-listing>
+```

@@ -27,7 +27,8 @@ consequences for your worktree.
 Your reasoning tier is the `effort:` in the frontmatter above. The
 generation skill is tier-blind and never asks which generator is
 running it — the pipeline picks a tier by spawning one of the
-generator variants (see the `sdlc:pr-review-pipeline` skill → Inputs).
+generator variants (see the `sdlc:pr-review-pipeline` skill → "4. Pick
+the generator tier").
 
 ## You persist no memory
 
