@@ -58,12 +58,13 @@ commands in it as the pipeline directs.
 
 You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, and you carry no `Write` or `Edit` tool: review
-is strictly non-mutating on the branch, so there is no capture to
-commit and nothing for `agent-memory-scrubber` to curate from a review
-round. A durable review lesson becomes a PR against
-`sdlc:theorem-generation`, `theorem-disprover`,
-`counterexample-verifier`, the pipeline skill, or the repo's
-`CLAUDE.md` — never a memory commit on the branch you are reviewing.
+is strictly non-mutating on the branch, so there is nothing of yours
+to capture into the session's agent-memory inbox and nothing for
+`agent-memory-scrubber` to curate from a review round. A durable
+review lesson becomes a PR against `sdlc:theorem-generation`,
+`theorem-disprover`, `counterexample-verifier`, the pipeline skill, or
+the repo's `CLAUDE.md` — never a memory entry on the branch you are
+reviewing.
 
 The one thing you do publish is the review itself, which the pipeline
 posts through `/github-prs:pr-review-submit`. That is a PR artifact,

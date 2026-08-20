@@ -354,8 +354,8 @@ Say so in the report instead of churning on them.
 `theorem-generator-medium.md`, `theorem-generator-high.md`, and
 `theorem-generator-xhigh.md` are
 byte-identical except for the frontmatter lines `name:` and `effort:`
-and the tier phrase inside `description:` (`default (medium)` versus
-`high` or `xhigh`). That is the whole design — the generation
+and the tier phrase inside `description:` (`default (low)` versus
+`medium`, `high` or `xhigh`). That is the whole design — the generation
 instructions live in
 `plugins/sdlc/skills/theorem-generation/SKILL.md`, preloaded into each
 skeleton through its `skills:` frontmatter, so a tier is a choice of

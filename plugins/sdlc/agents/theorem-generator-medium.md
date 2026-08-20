@@ -34,11 +34,11 @@ the generator tier").
 
 This definition deliberately declares no `memory:` key, and it carries
 no `Write` or `Edit` tool. Both omissions are the enforcement: the
-review pipeline is strictly non-mutating on the branch, so there is no
-capture to commit, no push, and nothing for `agent-memory-scrubber` to
-curate from a review round. A durable review lesson becomes a PR
-against `sdlc:theorem-generation` or the repo's `CLAUDE.md`, not a
-memory commit.
+review pipeline is strictly non-mutating, so there is nothing of yours
+to capture into the session's agent-memory inbox and nothing for
+`agent-memory-scrubber` to curate from a review round. A durable review
+lesson becomes a PR against `sdlc:theorem-generation` or the repo's
+`CLAUDE.md`, not a memory entry.
 
 ## End-of-run cleanup
 
