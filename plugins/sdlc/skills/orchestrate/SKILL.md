@@ -1162,9 +1162,10 @@ a summary:
 | D | <link-prefix>103 | Batch C to merge | same file conflict |
 
 ### Worktrees Cleaned
-N worktrees cleaned (each subagent's worktree was removed after the
-subagent returned, serially within each wave to avoid Anthropic
-issue #48927).
+N worktrees cleaned (each subagent you spawned had its worktree
+removed after it returned, serially within each wave to avoid
+Anthropic issue #48927). The reviewer's generator, disprover and
+verifier worktrees are not in N — it removes those itself.
 
 All ready-for-review PRs are open and awaiting your approval.
 Nothing has been merged.

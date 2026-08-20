@@ -30,9 +30,11 @@ the thing to fix.
 What this file *does* own is the roster itself: which skills and which
 agents the plugin ships, plus the `dependencies` edges and the
 cross-plugin skills those edges cover. A PR that adds, removes, or
-renames a skill or an agent updates the matching table below; a PR
-that changes which cross-plugin skill this plugin invokes updates
-"Dependencies" at the end.
+renames a skill or an agent updates the matching table below, and so
+does one that changes a user verb's argument shape — the Skill column
+spells that shape, and a human reading a roster rather than a skill
+file has nowhere else to find it. A PR that changes which cross-plugin
+skill this plugin invokes updates "Dependencies" at the end.
 
 Not everything below is a roster entry, and what is not has a trigger
 of its own. The frontmatter keys spelled here hold for a whole class —
@@ -50,7 +52,7 @@ therefore states it too, with it.
 | ------- | --------- | --------------- |
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue up to the bar the orchestrator needs, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues | main session |
-| `/sdlc:git-review-pr <PR>` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
+| `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `sdlc:pr-review-pipeline` | The review itself: carry the previous round's theorems forward, generate from the delta, fan out disprovers, fan out verifiers, post one argued review | preloaded into `theorem-based-pr-reviewer`, which `/sdlc:orchestrate` and `/sdlc:git-review-pr` each spawn |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent |
