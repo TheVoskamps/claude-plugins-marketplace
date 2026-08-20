@@ -289,6 +289,34 @@ Apply each to the carried records:
 - **A missed defect** — it mints a **new** theorem, continuing the id
   sequence, live until it survives a round.
 
+A minted record still has to satisfy the theorem contract, and the
+comment the orchestrator posts carries only the defect and a
+`<file-or-location>`. So every field has a fixed source here, and none
+of them is yours to invent:
+
+| Field | Where it comes from |
+| --- | --- |
+| `id` | the next id in the sequence the carried records ended at |
+| `claim` | the defect as the comment states it, quoted, not reworded |
+| `issues` | the member(s) the comment names; the resolved set from step 2 when it names none |
+| `class` | always `semantic` |
+| `pointers` | the comment's `<file-or-location>`, verbatim |
+
+`class` is assigned rather than judged because nothing in a human's
+prose settles whether a grep would close the claim, and what the field
+drives is the model routing in step 7 and the identical routing in
+step 8: `semantic` spawns each agent at its declared default, which is
+costlier than the `mechanical` route and never weaker. Reading a class
+out of the comment would need the human to write pipeline vocabulary
+the orchestrator is forbidden to supply on their behalf
+(`sdlc:orchestrate` → "Posting the human's review adjustments as a PR
+comment").
+
+`issues` falls back to the whole resolved set because a theorem tagged
+to no member is malformed — see "The theorem contract". On a batch
+that tags the minted theorem to every member, which is the safe
+direction: each member's verdict then reflects it.
+
 No spawn parameter carries adjustments. The PR is the whole channel,
 which is what makes this pipeline self-contained given `--pr`.
 
@@ -425,6 +453,11 @@ ended at, so a finding's history stays legible as "T7: disproved round
 id the carried records already hold, ask the generator to re-emit that
 record rather than guessing the field yourself — you are not a source
 of theorems.
+
+That rule is about a **generator's** record, and the one record you
+fill in yourself is no exception to it: an adjustment comment's minted
+theorem is transcribed field by field from the human's instruction,
+per the table under step 3, so nothing there is judged either.
 
 On a delta round the report may also carry a `RETIREMENTS` list: ids
 of carried theorems whose subject the delta removed. Stamp each named
@@ -727,10 +760,15 @@ git worktree remove <absolute-path-from-the-listing>
 ```
 
 Remove by the **absolute** path `git worktree list` prints, never by a
-`.claude/worktrees/<name>` path relative to your cwd. You are yourself
-running inside an `isolation: worktree` worktree under the repo's
-`.claude/worktrees/`, so the relative form resolves to a nested path
-that does not exist and the removal fails.
+short `.claude/worktrees/<name>` form. `git worktree remove` matches
+its argument as a suffix of each registered worktree's path and needs
+that match to be unique; you are yourself running inside an
+`isolation: worktree` worktree under the repo's `.claude/worktrees/`,
+which carries a `.claude/worktrees/` of its own, so the short form can
+match two worktrees and fail with an error that reads as though the
+worktree were already gone. See
+`docs/agent-tooling-notes.md` → "Remove a worktree by the path
+`git worktree list` prints".
 
 Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
@@ -1112,7 +1150,8 @@ is the one step 8 defines: a verifier malformed twice, whose finding
 stands anyway. If a `STANDS` report carries no class at all, that is a
 malformed report — re-spawn per step 8 rather than assigning a class
 yourself. You are not a source of consequence grades any more than you
-are a source of theorems.
+are a source of theorems — everything you write into a record is
+transcribed from the agent or the human that produced it.
 
 This is the same derivation-not-judgment principle the verdicts
 already follow, moved one link up the chain: the agent that read the

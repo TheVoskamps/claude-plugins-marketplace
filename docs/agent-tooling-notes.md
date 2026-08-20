@@ -147,25 +147,33 @@ afterwards — say so rather than repairing it.
 
 ## Remove a worktree by the path `git worktree list` prints
 
-`git worktree list` prints absolute paths, and `git worktree remove`
-resolves a relative one against the cwd. A session sitting at the repo
-root can therefore write `git worktree remove .claude/worktrees/<name>`
-and be right. A session that is itself inside a worktree cannot: the
-same string resolves to
-`<repo>/.claude/worktrees/<self>/.claude/worktrees/<name>`, which does
-not exist, and git answers
+`git worktree remove` does **not** resolve its argument against the
+cwd. It matches the argument as a component-aligned **suffix** of each
+registered worktree's absolute path, and the match has to be unique.
+Measured on git 2.55.0, from a cwd several levels below the worktree
+root where the argument existed as no relative path at all:
+`git worktree remove .claude/worktrees/<name>` still removed the
+worktree at `<somewhere>/.claude/worktrees/<name>`. A bare `<name>`
+works the same way. A suffix that starts mid-component does not match
+at all — `obe-align` finds no worktree whose path ends `/probe-align`.
+
+So a short argument is not wrong because of where you stand — it is
+wrong when it is **ambiguous**. This repo nests worktrees under
+`.claude/worktrees/`, and an agent's own worktree carries a further
+`.claude/worktrees/` inside it, so two live worktrees can share a
+trailing component run. When more than one matches, git answers
 
 ```text
-fatal: '.claude/worktrees/<name>' is not a working tree
+fatal: '<arg>' is not a working tree
 ```
 
-— an error that names the path but not the reason, so it reads as "the
-worktree is already gone" rather than "you are standing somewhere
-else".
+which is also exactly what it answers when nothing matches. The error
+names the path but not the reason, so an ambiguous argument reads as
+"the worktree is already gone".
 
-Every `isolation: worktree` agent runs inside a worktree, so this fires
-on any agent that spawns agents and cleans up after them. Take the path
-from the listing rather than composing one:
+The absolute path `git worktree list` prints is unique by
+construction and works from any cwd, which is the whole reason to take
+the path from the listing rather than composing one:
 
 ```bash
 git worktree list

@@ -76,11 +76,15 @@ them as well.
   block, verbatim from the previous review's body: every recorded
   theorem with its id, claim, issues, class, pointers, the state it
   held, and the head SHA it was settled against. Only a generator
-  receives it, and only on a delta round. It is what the generator
+  receives it, and only on the **delta-round brief**, which
+  `sdlc:pr-review-pipeline` → "5. Spawn the theorem generator" writes
+  and its step 3 decides the rounds for — more than one round kind
+  sends that brief, so read the round taxonomy there rather than
+  inferring it from this parameter. It is what the generator
   must not re-emit — a carried theorem is already recorded, so
   restating it would mint a duplicate under a new id.
 - `--delta-base <oid>` — the head commit the previous round reviewed.
-  Paired with `--carried-records` and present only on a delta round.
+  Paired with `--carried-records`, and present on the same brief.
   The round's change is what lies between it and the PR's current
   head, computed patch-equivalently so a clean rebase leaves nothing
   in it.
