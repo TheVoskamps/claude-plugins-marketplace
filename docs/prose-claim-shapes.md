@@ -586,3 +586,27 @@ stock `/usr/bin/python3`; the mkosi provisioner's blocks run inside
 the Debian build container, on an interpreter that image installs, so
 they are evidence for no constraint macOS imposes. Read each cited
 site for *where it executes*, not for the call it makes.
+
+## A paraphrased input list loses the arguments the template requires
+
+"Call the X template with `a = …` and `b = …`" is two claims: that X
+is the right template, and that those are its inputs. A reviewer
+grades the first, and the template itself is usually right — so the
+defect sits entirely in the paraphrase, where a required argument the
+caller has to supply from an earlier step is absent, or a nested
+input is flattened to a name the callee does not take. Nothing greps
+as inconsistent, because both the pointer and its target name the
+same template.
+
+The tell is a template invoked by name with an argument list the
+prose rewrites rather than quotes. Match the paraphrase against the
+target's own parameter declarations field by field, and ask, for each
+required one the paraphrase omits, where the call site would get it.
+
+`/issue-create`'s `kind: issue-field` bullets told the reader to call
+`setIssueFieldValue` with `fieldId` and "the resolved option's node
+ID". That mutation also declares `issueId: ID!` — the issue node ID
+an earlier step looks up — and takes the field and option nested in
+an `issueFields:` list as `fieldId` + `singleSelectOptionId`, so the
+described input is one the API rejects. The template in the library
+the bullets pointed at spelled all of it correctly throughout.

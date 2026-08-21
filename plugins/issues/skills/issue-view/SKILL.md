@@ -155,9 +155,9 @@ Body:
 ```
 
 The `Priority:`, `Size:`, and `Status:` rows in the block above
-are illustrative — they are the three conceptually-standard slots
-today. The actual rows emitted come from iterating `fields:` in
-repo-config (per step 3) in the order the slots appear in YAML.
+are illustrative — they are the conceptually-standard slots today.
+The actual rows emitted come from iterating `fields:` in repo-config
+(per step 3) in the order the slots appear in YAML.
 `Size:` is positioned adjacent to `Priority:` when both are
 present. Rows for slots that are absent or `kind: skip` are not
 emitted at all.
@@ -165,7 +165,7 @@ emitted at all.
 When a section has no entries, replace its body with a single
 `(none)` line — for the inline fields (`Labels:`, `Assignees:`,
 `Type:`, the per-slot rows, and `Parent:`), that means the value
-column reads `(none)`; for the three list sections (`Sub-issues:`,
+column reads `(none)`; for the list sections (`Sub-issues:`,
 `Blocked by:`, `Blocking:`), that means the section header is
 followed by one `(none)` line at the bullet indent instead of any
 `- #<N>` lines.

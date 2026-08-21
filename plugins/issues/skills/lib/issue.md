@@ -1165,9 +1165,8 @@ project item and no `addProjectV2ItemById` step.
 
 ### Echo formats
 
-Each verb defines its own three echo lines, parameterized by its
-slot name (e.g. `priority`, `size`). The shapes are uniform across
-verbs:
+Each verb defines its own echo lines, parameterized by its slot name
+(e.g. `priority`, `size`). The shapes are uniform across verbs:
 
 - **`kind: number`** (success):
   `#<N> <slot> set to <value>.`

@@ -142,13 +142,13 @@ what didn't — do not roll back successful steps.
    default-resolution order from `skills/lib/issue.md` to `--type`,
    `--labels`, and `--parent` — i.e. CLI flag, then repo-config
    default, then built-in default where applicable. Resolve
-   `--assignee` through its own four-rung order from the flag spec
-   above (lines 36–57): CLI flag, then `default-assignee` from the
-   **repo-level** user-config, then `default-assignee` from the
+   `--assignee` through its own order from the `--assignee` flag spec
+   under "Invocation" above: CLI flag, then `default-assignee` from
+   the **repo-level** user-config, then `default-assignee` from the
    **user-global** user-config (both read via the canonical sequence
    in `skills/lib/user-config.md`, which this consumer pins to
    user-config schema-version `1`), then the authenticated GitHub
-   user as the final fallback. None of these four flags prompt; their
+   user as the final fallback. None of these flags prompt; their
    resolution is complete after this step. The slot flags
    (`--priority`, `--size`, `--status`) get rung 1 here (CLI flag,
    if passed); the remaining rungs are handled in Step 2 below.
