@@ -1,9 +1,9 @@
 ---
 name: theorem-generator
-description: Reads a PR, the issues it closes, and the surrounding codebase at the default (medium) reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:pr-review-pipeline skill; it posts nothing and writes nothing.
+description: Reads a PR, the issues it closes, and the surrounding codebase at the default (low) reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:theorem-based-pr-reviewer agent; it posts nothing and writes nothing.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
-effort: medium
+effort: low
 isolation: worktree
 skills:
   - sdlc:theorem-generation
@@ -26,8 +26,9 @@ consequences for your worktree.
 
 Your reasoning tier is the `effort:` in the frontmatter above. The
 generation skill is tier-blind and never asks which generator is
-running it — the pipeline picks a tier by spawning one of the
-generator variants (see the `sdlc:pr-review-pipeline` skill → Inputs).
+running it — the reviewer picks a tier by spawning one of the
+generator variants (see the `sdlc:theorem-based-pr-reviewer` agent →
+"4. Pick the generator tier").
 
 ## You persist no memory
 

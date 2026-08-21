@@ -530,3 +530,41 @@ with no bullet are the gap. Widen the list before committing, and
 describe each site by its role ("the per-scope rationale paragraphs
 under it") rather than by quoting the value, or the list itself rots on
 the next change.
+
+## A right remedy carries its mechanism unchecked
+
+"Always pass X, because the tool does Y" is two claims, and only the
+first gets tested. The remedy is what a reader acts on and what every
+restating site copies, so a wrong Y survives every round: the advice
+still works, nobody's run disagrees, and each restatement inherits the
+error verbatim. The tell is a mechanism sentence with no measurement
+beside it, stated in the same commit as the remedy it justifies —
+self-graded by the author of both.
+
+`git worktree remove` was documented as *not* resolving its argument
+against the cwd, matching a unique path suffix instead. Measured, it
+tries the cwd-relative path **first**, and only falls back to the
+suffix match — so a short argument can silently remove a different
+worktree rather than merely failing. "Use the absolute path" was right
+throughout. Run the mechanism, including the case the sentence says
+cannot happen.
+
+## An invariant restated as a reject rule loses its exception
+
+A property stated abstractly — "ids are never reused", "every entry is
+unique", "the key is always present" — reads the same whether or not
+the design carves an exception out of it. It goes false when a later
+round writes the *same words* as an operational check: "if X, send it
+back as malformed". The abstract form tolerated the exception because
+nothing acted on it; the reject rule now refuses exactly what another
+file mandates. Nothing greps as inconsistent, because both sentences
+say the invariant correctly.
+
+The tell is an imperative — reject, abort, re-emit, treat as
+malformed — whose condition is quoted from a general statement rather
+than derived from the case list the design actually has. A theorem
+generator was told to give a regenerated acceptance-criterion theorem
+its existing id, while the reviewer receiving that report was told to
+send back any record reusing a carried id. The check that settles it
+is to walk the design's own exceptions and ask, for each, what the
+reject rule does to it — not to re-read the invariant, which is true.

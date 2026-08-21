@@ -7,9 +7,9 @@ ready-for-review, link it to the issues it resolves via one closing
 keyword each in the PR body, and read those closing lines back to say
 which issues it closes.
 
-These skills serve the `/sdlc:orchestrate` flow, its agents, and its
-review pipeline. The `issue-developer` opens the PR. The
-`sdlc:pr-review-pipeline` posts the single review that carries the
+These skills serve the `/sdlc:orchestrate` flow and its agents. The
+`issue-developer` opens the PR. The
+`theorem-based-pr-reviewer` posts the single review that carries the
 verdict, and — when run standalone on a bare PR number — reads the
 PR's closing lines to learn which issues it claims; the
 `theorem-generator`, `theorem-disprover`, and `counterexample-verifier`
@@ -171,7 +171,8 @@ Fetches the PR body and reports the set of issues it closes, applying
 the closing-keyword-immediately-before-reference syntax
 (`rules/git-workflow.md` → "Issue References" is the authority). It is
 the one place in this marketplace that syntax is applied to a PR body,
-so `/pr-link-issue`, `sdlc:pr-review-pipeline` running standalone, and
+so `/pr-link-issue`, `sdlc:theorem-based-pr-reviewer` running
+standalone, and
 `/sdlc:orchestrate`'s end-of-loop status flip all invoke it rather
 than scanning a body themselves. A single-PR primitive: a caller
 holding several PRs loops.

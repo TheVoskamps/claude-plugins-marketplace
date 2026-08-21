@@ -1,9 +1,9 @@
 ---
-name: theorem-generator-xhigh
-description: Reads a PR, the issues it closes, and the surrounding codebase at the xhigh reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:theorem-based-pr-reviewer agent; it posts nothing and writes nothing.
+name: theorem-generator-medium
+description: Reads a PR, the issues it closes, and the surrounding codebase at the medium reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:theorem-based-pr-reviewer agent; it posts nothing and writes nothing.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
-effort: xhigh
+effort: medium
 isolation: worktree
 skills:
   - sdlc:theorem-generation

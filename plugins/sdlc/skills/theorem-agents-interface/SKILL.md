@@ -1,14 +1,14 @@
 ---
 name: theorem-agents-interface
-description: The interface between the sdlc review pipeline and the theorem agents — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by sdlc:pr-review-pipeline for the class glosses; not invoked from the user's slash menu.
+description: The interface between the sdlc reviewer and the theorem agents it spawns — what each double-dash brief parameter means, and what each consequence class means. Preloaded into every theorem agent (the generator variants, the disprover, and the verifier) via its skills frontmatter, and read by name by the sdlc:theorem-based-pr-reviewer agent for the class glosses; not invoked from the user's slash menu.
 user-invocable: false
 ---
 
 # Theorem Agents Interface
 
 This is the one statement of what goes into a theorem agent and what
-comes back out. The `sdlc:pr-review-pipeline` skill writes the briefs;
-the generator variants, `theorem-disprover`, and
+comes back out. The `sdlc:theorem-based-pr-reviewer` agent writes the
+briefs; the generator variants, `theorem-disprover`, and
 `counterexample-verifier` receive them and answer. An `## Inputs`
 section names which of the parameters below one agent's brief carries
 and adds only what is specific to that agent — `theorem-disprover`'s
@@ -17,25 +17,26 @@ generator's in `sdlc:theorem-generation`, since the generator
 skeletons hold no instructions of their own. The meaning of a
 parameter is stated here and nowhere else.
 
-The pipeline reads this file too, rather than only writing against it:
+The reviewer reads this file too, rather than only writing against it:
 its step 2 findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
-its own table. That is the one reader that is not an agent, and it
-reaches this skill by name in the main session rather than by
-preload.
+its own table. It reaches this skill by name rather than by preload —
+its frontmatter declares only the skills it invokes as workflow steps,
+and the glosses are wanted on the one branch that raises a
+theorem-less finding.
 
-The pipeline's *own* inputs — the flags `/sdlc:orchestrate` and
+The reviewer's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by
-that skill's Inputs section. Some spell the same as parameters below
+that agent's Inputs section. Some spell the same as parameters below
 (`--pr`, `--issues`, `--branch`) but carry a different contract there:
-the pipeline's `--issues` is a claim it reconciles, where a theorem
+the reviewer's `--issues` is a claim it reconciles, where a theorem
 agent's `--issues` is settled.
 
 The generator's theorem *record* carries the same vocabulary again, on
 a third surface: `sdlc:theorem-generation` states what a generator
-puts in each record field, and the pipeline's "The theorem contract"
+puts in each record field, and the reviewer's "The theorem contract"
 tabulates what it consumes from one. A record is not a brief — the
-pipeline transcribes the former into the latter — so neither is a
+reviewer transcribes the former into the latter — so neither is a
 restatement of this file, and a class renamed or redefined here sweeps
 them as well.
 
@@ -47,10 +48,10 @@ them as well.
   Without it, stop and say so rather than reading the branch from
   GitHub yourself. The disprover's and the verifier's own `## Inputs`
   each name what that agent is left with nothing to work against.
-- `--head-sha <oid>` — optional. The PR's head commit as the pipeline
+- `--head-sha <oid>` — optional. The PR's head commit as the reviewer
   read it. When the agent's `origin/<branch>` already points at it,
   there is nothing to fetch.
-- `--fetched yes` — optional. The pipeline fetched `origin` in its own
+- `--fetched yes` — optional. The reviewer fetched `origin` in its own
   session immediately before spawning the agent, so the shared ref
   store is already current. The agent's own step 1 decides from this
   and `--head-sha` whether to fetch at all.
@@ -71,6 +72,26 @@ them as well.
   gets read.
 - `--pointers <text>` — the generator's pointers, verbatim: the files,
   regions, or symbols to start from.
+- `--carried-records <text>` — the previous round's theorem records
+  block, verbatim from the previous review's body: every recorded
+  theorem with its id, claim, issues, class, pointers, the state it
+  held, and the head SHA it was settled against. Only a generator
+  receives it, and only on the **delta-round brief**, which
+  `sdlc:theorem-based-pr-reviewer` → "5. Spawn the theorem generator"
+  writes and its step 3 decides the rounds for — more than one round
+  kind sends that brief, so read the round taxonomy there rather than
+  inferring it from this parameter. It is what the generator
+  must not re-emit — a carried theorem is already recorded, so
+  restating it would mint a duplicate under a new id.
+- `--delta-commits <oid…>` — the round's change, as the list of this
+  PR's **own** commits that have no patch-equivalent commit in the head
+  the previous round reviewed. `sdlc:theorem-based-pr-reviewer` →
+  "3. Carry the previous round's theorems forward" computes it and
+  bounds it to the PR's own commits, so a rebase that advanced the base
+  cannot put the base branch's commits in it. Paired with `--carried-records`, and
+  present on the same brief. A clean rebase leaves the list **empty**,
+  and so does an adjustment-only round: an empty value is a delta of
+  nothing, not a missing parameter.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
   verbatim, every line as the disprover wrote it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
@@ -96,9 +117,9 @@ The class grades the **consequence of merging as-is**, never the
 topic. A generator assigns no consequence class at all — the `--class`
 above is a different vocabulary, about how a claim gets settled — and
 only `theorem-disprover` and `counterexample-verifier` do; which of
-the two the pipeline takes when they disagree is stated in each of
+the two the reviewer takes when they disagree is stated in each of
 those agents' own "The consequence classes" section, from where that
 agent stands in the chain. What severity each class becomes is the
-pipeline's business, not the agents' — an agent grades the
+reviewer's business, not the agents' — an agent grades the
 consequence, not the severity, and never argues for a severity in its
 report.

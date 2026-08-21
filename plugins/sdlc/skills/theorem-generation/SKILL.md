@@ -9,10 +9,10 @@ user-invocable: false
 This is the operating instruction for every `sdlc` theorem generator.
 It is **tier-invariant**: it carries no tier parameter and never asks
 which generator is running it. The generator's reasoning tier lives
-solely in the spawned agent's frontmatter `effort:`, and the pipeline
+solely in the spawned agent's frontmatter `effort:`, and the reviewer
 picks a tier by naming which definition to spawn (see the
-`sdlc:pr-review-pipeline` skill → Inputs, and the `/sdlc:orchestrate`
-skill → "Picking a generator tier").
+`sdlc:theorem-based-pr-reviewer` agent → "4. Pick the generator
+tier").
 
 Your entire output is a **theorem list**. You do not review, you do
 not grade, you do not file findings, and you never post to the PR.
@@ -64,16 +64,29 @@ touch a file the section mentions.
 
 You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
-agent alongside this one) says it means: `--pr`, `--issues`, and
-`--branch`.
+agent alongside this one) says it means: `--pr`, `--issues`,
+`--branch`, and — on a re-review only — `--carried-records` and
+`--delta-commits`.
 
 `--issues` is the answer, not a claim: the pipeline already resolved
 it, so do not re-derive it, do not parse the branch name, and do not
 add or remove a member.
 
+`--carried-records` and `--delta-commits` arrive together or not at
+all, and which of the two cases you are in decides your whole
+workflow — see "On a re-review, generate from the delta" below. Absent
+both, you are generating round 1: the whole diff, the full list. A
+`--delta-commits` that arrives carrying **no oids** is a re-review
+whose delta is empty, not a round 1: `--carried-records` is present
+beside it, and the round still wants its acceptance-criterion
+theorems.
+
 ## Workflow
 
-1. **Fetch the diff** via `/github-prs:pr-diff <PR>`.
+1. **Fetch the diff** via `/github-prs:pr-diff <PR>`. On a re-review
+   the whole-PR diff is context rather than your subject — what you
+   generate from is the delta, per "On a re-review, generate from the
+   delta" below.
 2. **Read each member issue independently** via `/issue-view <N>`,
    once per member of `--issues`. Read them yourself rather than
    relying on any summary in your brief — each issue's own text,
@@ -341,13 +354,71 @@ file's content instead — what it says, what it references, whether it
 matches its siblings — and leave "it behaves correctly when loaded" to
 a later run.
 
-## On a re-review, regenerate from the whole diff
+## On a re-review, generate from the delta
 
-When you are generating for round N of a PR, read the **entire** diff
-again, not the delta since round N−1, and regenerate the whole theorem
-list. A theorem that survived in round 1 is not automatically true in
-round 3: a later round can break it, and only a fresh pass over the
-whole change sees the inconsistency that accumulated across rounds.
+When your brief carries `--carried-records` and `--delta-commits`, the
+theorem list already exists and you are extending it, not rebuilding
+it. The pipeline persists the records in the review it posts, so a
+theorem stated in round 1 is still on the books in round 5 under the
+same id.
+
+Read the carried records first. They are the claims already made about
+this PR. Then read the round's change, one delta commit at a time:
+
+```bash
+git show <oid>   # once per oid in --delta-commits
+```
+
+Read those commits' own patches. Do **not** substitute a two-dot
+`git diff <previous-head>..origin/<branch>`: that is a tree
+comparison, so after a rebase that advanced the base it hands you the
+base branch's changes as though this PR had written them. Measured on
+a reproduced clean rebase, it returned two upstream files the PR never
+touched while the round's real delta was empty; on a reproduced
+conflict-resolving rebase, it showed the upstream line as added while
+demoting the PR commit's own added line to unmarked context — the line
+is still in the patch, but nothing marks it as this round's change.
+`--delta-commits` carries only this PR's own commits, so upstream
+content cannot enter it.
+
+You emit exactly two things, and nothing else:
+
+- **New theorems arising from the delta.** Claims about what the delta
+  commits changed — including a claim about how the delta
+  interacts with code it did not touch, which is where the
+  codebase-consistency and design-shape sources still earn their
+  keep. Number them **continuing the carried sequence**: if the
+  records end at `T9`, your first new theorem is `T10`. Never reuse an
+  id, and never renumber a carried one.
+- **Retirements of carried theorems whose subject the delta removed.**
+  When the delta deletes the file, section, or symbol a carried
+  theorem is about, say so as a retirement line naming the id and the
+  reason. That is the only thing you say about a carried theorem.
+
+You do **not** re-emit survivors, and you do not restate a carried
+theorem in your own wording. A carried theorem the delta did not
+remove is the pipeline's to carry forward; re-emitting it mints a
+duplicate under a new id, which is exactly what stable ids exist to
+prevent.
+
+**Acceptance-criterion theorems are the exception, and they
+regenerate in full.** Issues can be edited between rounds, and the
+class is mechanical — one theorem per criterion of every member
+issue — so re-read each issue via `/issue-view <N>` and emit the
+criterion theorems for this round regardless of the delta. Give a
+criterion whose theorem the records already carry that theorem's
+existing id, so its history stays legible; a criterion the issue
+gained since gets a new id from the sequence.
+
+Invariant theorems — everything from the other sources — persist
+instead of regenerating.
+
+The delta is computed patch-equivalently by the pipeline, so a clean
+rebase between rounds yields nothing to generate from — it arrives as
+an empty `--delta-commits`, with no oid to read. When the list is
+empty, emit an empty list of new theorems and say so rather than
+reaching back into the whole diff for something to say; the
+acceptance-criterion theorems still regenerate.
 
 ## Output format
 
@@ -359,13 +430,15 @@ T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
 class: semantic
-pointers: plugins/sdlc/skills/pr-review-pipeline/SKILL.md, step 4
+pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, step 7
 ```
 
 Field rules:
 
 - **`id`** — `T1`, `T2`, … in emission order. The pipeline routes and
-  reports by this handle.
+  reports by this handle. On a re-review the sequence continues from
+  the carried records rather than restarting at `T1`, and an id is
+  never reused.
 - **`claim`** — one sentence, stated so a counterexample refutes it.
   Quote the criterion or the PR-body sentence the claim comes from.
 - **`issues`** — one or more members of `--issues`, comma-separated.
@@ -386,3 +459,18 @@ Field rules:
 
 Close the list with a one-line count of theorems by class, so the
 pipeline can sanity-check the fan-out it is about to run.
+
+On a re-review, a **retirement** is the one other thing your report
+may carry. Emit those after the theorem records, under a
+`RETIREMENTS` line, one per row:
+
+```text
+RETIREMENTS
+T4 — the section this claim is about was deleted by the delta.
+```
+
+Emit the `RETIREMENTS` line only when you have at least one. A round
+with new theorems and no retirements, or retirements and no new
+theorems, is ordinary; a round with neither emits the regenerated
+criterion theorems alone — an empty list when the issues yield none —
+and says so.
