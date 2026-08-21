@@ -80,12 +80,13 @@ is not a valid invocation; `gh issue comment 42` is.
 
 ## Jira path (`issues: Jira`)
 
-Follow the Jira backend "Comment" path in `skills/lib/issue.md` → "Jira
-backend" → "Comment". Concretely:
+Follow the Jira backend comment path in `skills/lib/issue.md` → "Jira
+backend" → "Comment (`/issue-comment`)". Concretely:
 
 1. Normalize `<issue-number>` to a Jira key (`SET-42`; both `42` and
-   `SET-42` are accepted) per the Jira-backend "Preconditions". Confirm
-   `acli` is present and authenticated first.
+   `SET-42` are accepted) per the Jira-backend "Preconditions (every
+   Jira operation)". Confirm `acli` is present and authenticated
+   first.
 2. Fetch the work item's summary (title) for the report-back via the
    `workitem view` template from the `/issues-jira:jira-lib` skill. Surface any
    non-zero exit verbatim and stop — if the item can't be read, do not
@@ -99,9 +100,9 @@ backend" → "Comment". Concretely:
    comment's URL/identifier if `acli` returns one.
 
 Do not partially implement on an `acli`-absent or auth failure: handle
-those per the Jira-backend "Preconditions" (the "`acli` not installed"
-catalogue entry, or the `acli jira auth login --web` recovery) rather
-than posting.
+those per the Jira-backend "Preconditions (every Jira operation)" (the
+"`acli` not installed" catalogue entry, or the `acli jira auth login
+--web` recovery) rather than posting.
 
 ## Hard constraints
 

@@ -11,10 +11,11 @@ matching template/recipe.
 See `skills/lib/issue.md` for the shared "Set-slot dispatcher"
 routine, GraphQL templates (number, single-select, and the
 `setIssueFieldValue` native-issue-field template), the
-"Label-namespace update" recipe, the catalogue error wordings, and
-the slot-absent / `kind: skip` equivalence. This file documents only
-what is specific to `/issue-set-priority`: the slot name
-(`priority`) and the verb-specific echo lines.
+"Label-namespace update (`gh issue edit`, not GraphQL)" recipe, the
+catalogue error wordings, and the slot-absent / `kind: skip`
+equivalence. This file documents only what is specific to
+`/issue-set-priority`: the slot name (`priority`) and the
+verb-specific echo lines.
 
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's

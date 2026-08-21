@@ -322,7 +322,7 @@ not re-parse the file per key.
 This is the minimal end-to-end consumer that demonstrates the read
 contract works. It is intentionally low-touch: a documented reader
 in prose plus the real reader wired in `skills/issue-create/SKILL.md`
-(see "Optional: per-user assignee default" there).
+(see the `--assignee` flag spec under "Invocation" there).
 
 A reader that wants a per-user default GitHub assignee — so a
 single user can have their issues self-assigned without changing

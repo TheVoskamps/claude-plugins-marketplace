@@ -241,7 +241,8 @@ what didn't — do not roll back successful steps.
      with `fieldId = fields.priority.id` and that `optionId`.
    - **`kind: label`** — resolve the option name against
      `fields.priority.options` (flat list, case-insensitive), then
-     follow the "Label-namespace update" recipe with
+     follow the "Label-namespace update (`gh issue edit`, not
+     GraphQL)" recipe with
      `<namespace> = fields.priority.namespace` and
      `<requested> = <canonical>`. This is a `gh issue edit`
      invocation, not GraphQL.
@@ -277,8 +278,9 @@ what didn't — do not roll back successful steps.
      single-select-field template with `fieldId = fields.size.id` and
      that `optionId`.
    - **`kind: label`** — resolve the option name against
-     `fields.size.options`, then follow the "Label-namespace update"
-     recipe with `<namespace> = fields.size.namespace`.
+     `fields.size.options`, then follow the "Label-namespace update
+     (`gh issue edit`, not GraphQL)" recipe with
+     `<namespace> = fields.size.namespace`.
    - **`kind: issue-field`** — resolve the option name against
      `fields.size.options` (case-insensitive), then follow the
      **issue-field write path** from the "Set-slot dispatcher" routine
@@ -424,10 +426,10 @@ code or reading files in the repo.
 2. Apply the acceptance-items adjustment (signal 3) in steps. A
    "step" for `kind: single-select` / `kind: label` / `kind: issue-field`
    slots means moving one option along the **magnitude order** (see
-   "The option set is the slot's own" above), clamped to the
-   smallest / largest option. For `kind: number`, a step is one
-   increment along `[min, max]` in equal-thirds buckets (so a slot with
-   `min: 1, max: 9` has steps of 3).
+   "The option set is the slot's own, not a fixed t-shirt set" above),
+   clamped to the smallest / largest option. For `kind: number`, a
+   step is one increment along `[min, max]` in equal-thirds buckets
+   (so a slot with `min: 1, max: 9` has steps of 3).
 3. Apply complexity signals (signal 4) as additional upward steps.
 4. Override to the **least-work option** (the start of the magnitude
    order — `XS` for the t-shirt set, `Low` for `Effort`) if the

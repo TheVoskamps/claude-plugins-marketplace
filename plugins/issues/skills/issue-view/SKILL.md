@@ -84,14 +84,16 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
        prefix (e.g. `M`, not `size:M`)
      - **more than one match** → `(multiple)` — the read path does
        **not** delete extras; the user runs `/issue-set-<slot>` to
-       converge. The "Label-namespace update" recipe enforces the
-       at-most-one invariant on the next write.
+       converge. The "Label-namespace update (`gh issue edit`, not
+       GraphQL)" recipe enforces the at-most-one invariant on the
+       next write.
    - **`kind: skip`** — the slot is omitted entirely from the output.
      No row, no `(none)` placeholder, no "skipped" notice.
 
    Slots that are **absent entirely** from `fields:` are also omitted
    entirely from the output (the same shape as `kind: skip`, per
-   "Graceful degradation" in `skills/lib/issue.md`).
+   "Graceful degradation when the block is missing" in
+   `skills/lib/issue.md`).
 
    The list of slots, their canonical names, and the row order in
    the output are all derived from `fields:` as read from repo-config.
@@ -100,8 +102,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    `priority:` row for free.
 
    If `github-project:` is missing from repo-config, omit the
-   project-fields section entirely per "Graceful degradation" — do
-   not warn; reads degrade quietly.
+   project-fields section entirely per "Graceful degradation when the
+   block is missing" — do not warn; reads degrade quietly.
 
    If the configured project is present but the issue has no item on
    it, render every `kind: number` and `kind: single-select` slot as

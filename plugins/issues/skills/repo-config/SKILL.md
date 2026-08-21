@@ -377,8 +377,9 @@ available.
 Separately from the project fields above, enumerate the repo's
 **native GitHub Issue Fields** — the preview feature that attaches
 ProjectV2-style fields directly to issues, independent of any project
-board. These back the `kind: issue-field` slot (see "Field kinds" in
-`skills/lib/issue.md`). Query the repository, not the project:
+board. These back the `kind: issue-field` slot (see "Field kinds
+(`fields.<slot>.kind`)" in `skills/lib/issue.md`). Query the
+repository, not the project:
 
 ```bash
 gh api graphql -F owner=<owner> -F repo=<repo> -f query='
@@ -517,11 +518,12 @@ this slot:
   `kind: label` in the rendered block.
 - One option for **skip**: `None / skip` — slot stays unconfigured
   and is rendered as `kind: skip`. Per `skills/lib/issue.md`'s "Field
-  kinds" section, an emitted `kind: skip` and a slot-absent entry are
-  intentionally equivalent in verb behavior; the wizard always emits
-  `kind: skip` for visibility. The slot-absent path only occurs when
-  the user never reached the per-slot interview at all (e.g. they
-  chose `Skip` at the block level in Step 3b.1).
+  kinds (`fields.<slot>.kind`)" section, an emitted `kind: skip` and
+  a slot-absent entry are intentionally equivalent in verb behavior;
+  the wizard always emits `kind: skip` for visibility. The
+  slot-absent path only occurs when the user never reached the
+  per-slot interview at all (e.g. they chose `Skip` at the block
+  level in Step 3b.1).
 
 Mark the recommended choice with `(Recommended)` in its label — the
 carried-over kind if the file recorded one for this slot, else per the
@@ -565,7 +567,8 @@ recommendation noted below.
   - Ask which option should be the **default** for new issues.
     Recommend the carried-over `default` option if present in the
     enumerated option list; otherwise use the slot-aware chain
-    (see "Default-option recommendation" below).
+    (see "Default-option recommendation (single-select, issue-field,
+    label)" below).
   - Always include an `Other` choice to free-type one of the
     enumerated option names.
 
@@ -577,11 +580,12 @@ recommendation noted below.
   - Ask which option should be the **default** for new issues.
     Recommend the carried-over `default` option if present in the
     enumerated option list; otherwise use the slot-aware chain
-    (see "Default-option recommendation" below). For GitHub's native
-    `Priority` field the options are `Urgent`, `High`, `Medium`,
-    `Low`; for the native `Effort` field — the `size`-slot backing —
-    they are `High`, `Medium`, `Low`. Always include an `Other`
-    choice to free-type one of the enumerated option names.
+    (see "Default-option recommendation (single-select, issue-field,
+    label)" below). For GitHub's native `Priority` field the options
+    are `Urgent`, `High`, `Medium`, `Low`; for the native `Effort`
+    field — the `size`-slot backing — they are `High`, `Medium`,
+    `Low`. Always include an `Other` choice to free-type one of the
+    enumerated option names.
   - This kind is single-select-only for now; the other native
     data-types (date, number, text, multi-select) are out of scope.
 
@@ -598,15 +602,16 @@ recommendation noted below.
   - Ask for the **default** option (must be one of the entered
     options, case-insensitive match against the list). Recommend the
     carried-over `default` if present in the entered list; otherwise
-    use the slot-aware chain (see "Default-option recommendation"
-    below).
+    use the slot-aware chain (see "Default-option recommendation
+    (single-select, issue-field, label)" below).
   - No field `id` is captured — labels are not project fields and
     the label name is its own identifier.
 
 - **Skip** (`kind: skip`):
   - Nothing to capture beyond `kind: skip`. The slot is explicitly
     declared as unused. Verbs that target the slot warn and exit
-    zero per the "Field kinds" section of `skills/lib/issue.md`.
+    zero per the "Field kinds (`fields.<slot>.kind`)" section of
+    `skills/lib/issue.md`.
   - For the `status` slot specifically, `Skip` is allowed but
     discouraged — surface a brief note to the user that
     `/issue-set-status` and the `--status` flag will warn-and-skip,
@@ -629,8 +634,9 @@ an option set whose YAML order runs most-work-first (e.g. the native
   *magnitude order* (least-work → most-work), not the first YAML
   option. Establish the magnitude order from the option semantics
   exactly as the size heuristic does (see "The option set is the
-  slot's own" in `skills/issue-create/SKILL.md`): for the t-shirt set
-  `XS, S, M, L, XL` the YAML order already runs least-work-first, so
+  slot's own, not a fixed t-shirt set" in
+  `skills/issue-create/SKILL.md`): for the t-shirt set `XS, S, M, L,
+  XL` the YAML order already runs least-work-first, so
   the least-work option is `XS` (the first entry); for the native
   `Effort` field `High, Medium, Low` the magnitude order is the
   **reverse**, so the least-work option is `Low` (the last entry), not
@@ -857,9 +863,10 @@ Jira analogue of the Step 3b `github-project:` interview, run through
 `acli` instead of `gh`.
 
 All discovery here uses the `acli` command templates in
-the `/issues-jira:jira-lib` skill — read that file's "Discovery primitives" section
-for the exact command shapes and their version caveat. Do not invent
-`acli` flags inline; reference the library.
+the `/issues-jira:jira-lib` skill — read that file's "Discovery
+primitives (for `/repo-config`)" section for the exact command shapes
+and their version caveat. Do not invent `acli` flags inline;
+reference the library.
 
 ### 3c.0 — Preflight: `acli` and auth
 
@@ -922,7 +929,8 @@ the discovery + per-slot defaults below. Carry-over is not
 live-validated.
 
 Discover the project's metadata once, up front, via the
-the `/issues-jira:jira-lib` skill "Discovery primitives" templates:
+the `/issues-jira:jira-lib` skill "Discovery primitives (for
+`/repo-config`)" templates:
 
 - **Issue types** — from `acli jira project view --key <KEY> --json`,
   falling back to `acli jira workitem create --project <KEY>
