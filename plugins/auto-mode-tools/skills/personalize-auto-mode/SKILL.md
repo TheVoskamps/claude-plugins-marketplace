@@ -33,7 +33,8 @@ showing the schema below. Do not invent facts and do not read them out
 of the block you are rewriting.
 
 The schema, with placeholder values — nothing identity-specific ships
-in this plugin:
+in this plugin. The plugin's `README.md` carries this same block
+verbatim, so a schema change edits both copies:
 
 ```yaml
 schema-version: 1

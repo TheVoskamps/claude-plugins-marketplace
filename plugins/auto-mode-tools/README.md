@@ -62,7 +62,9 @@ macOS `/usr/bin/python3` runs it with nothing installed. That matches
 the constraint the repo's existing **host-side** Python already works
 under: the inline `python3 -c` scripts in
 `plugins/claude-vm/payload/lib/credential.sh`, and in its test under
-`plugins/claude-vm/payload/test/`, run on that same stock interpreter.
+`plugins/claude-vm/payload/test/`, run on the macOS host and target
+that same stock interpreter — each calls bare `python3` and each says
+in its own header that it requires no more than the one macOS ships.
 The `python3 -c` blocks in
 `plugins/claude-vm/payload/provisioners/podman-mkosi.sh` are not that
 precedent: they run inside the Debian build container, on the
@@ -183,7 +185,7 @@ block.
 
 ### Provenance
 
-`~/.local/state/auto-mode-tools/provenance.yml` holds the three items
+`~/.local/state/auto-mode-tools/provenance.yml` holds the provenance
 `settings.json` cannot carry: `revision`, the revision number of the
 tuned block; `prompt-sha256`, the SHA-256 of the captured critique
 prompt that produced it; and `last-run`, the UTC timestamp of the run
