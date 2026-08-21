@@ -568,3 +568,21 @@ its existing id, while the reviewer receiving that report was told to
 send back any record reusing a carried id. The check that settles it
 is to walk the design's own exceptions and ask, for each, what the
 reject rule does to it — not to re-read the invariant, which is true.
+
+## A cited precedent claims the environment it is cited for
+
+"This constraint is nothing new — X and Y already work under it" is a
+claim about X and Y, not about the new code, and it is the half nobody
+runs. The tell is a precedent list of two or more sites gathered by
+grepping for the *technology* (a `python3 -c`, a `jq` call, a `curl`)
+rather than for the environment the constraint is about, in a sentence
+whose point is that the constraint is already survivable.
+
+`auto-mode-tools`' sink documented stdlib-only, Python-3.9 syntax as
+matching what `plugins/claude-vm/payload/`'s inline `python3 -c`
+scripts already target, naming `lib/credential.sh` and
+`provisioners/podman-mkosi.sh`. Only the first runs on the host's
+stock `/usr/bin/python3`; the mkosi provisioner's blocks run inside
+the Debian build container, on an interpreter that image installs, so
+they are evidence for no constraint macOS imposes. Read each cited
+site for *where it executes*, not for the call it makes.

@@ -50,19 +50,31 @@ the capture cannot happen at all.
 ```
 
 It prints the base URL on stdout and also writes it to `<dir>/sink-url`,
-then serves until it captures a body into `<dir>/critique-request.json`.
-If no request reaches it for `--timeout` seconds (default 180) it gives
-up, reports that on stderr and exits non-zero, so a critique that never
-started cannot leave the caller waiting on a sink that never returns.
+then serves until it captures a body into `<dir>/critique-request.json`
+— `--body-file` renames that file, and the test reads the same default
+off the module's `DEFAULT_BODY_FILE`. If no request reaches it for
+`--timeout` seconds (default 180) it gives up, reports that on stderr
+and exits non-zero, so a critique that never started cannot leave the
+caller waiting on a sink that never returns.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
 macOS `/usr/bin/python3` runs it with nothing installed. That matches
-the constraints the repo's existing Python already works under: the
-inline `python3 -c` scripts under `plugins/claude-vm/payload/` (in
-`lib/credential.sh` and `provisioners/podman-mkosi.sh`) target the same
-stock interpreter. What is new here is the first `.py` *file*, not the
-first Python — and it adds no lint configuration, the repo declaring
-none for Python.
+the constraint the repo's existing **host-side** Python already works
+under: the inline `python3 -c` scripts in
+`plugins/claude-vm/payload/lib/credential.sh`, and in its test under
+`plugins/claude-vm/payload/test/`, run on that same stock interpreter.
+The `python3 -c` blocks in
+`plugins/claude-vm/payload/provisioners/podman-mkosi.sh` are not that
+precedent: they run inside the Debian build container, on the
+interpreter that image installs, so they say nothing about what macOS
+ships.
+
+What is new here is the first `.py` *file*, not the first Python. It
+adds no lint configuration, the repo declaring none for Python, but it
+does change what CI runs: `.github/scripts/codeql-language-present.sh`
+arms the `python` analysis leg whenever a tracked, non-vendored `*.py`
+file is present, so `codeql.yml` analyzes Python on every PR from here
+on.
 
 ### Why the sink is not a one-request server
 
