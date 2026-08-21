@@ -32,8 +32,8 @@ If the file does not exist, stop and tell the human where to write it,
 showing the schema below. Do not invent facts and do not read them out
 of the block you are rewriting.
 
-The schema, with placeholder values — nothing identity-specific ships
-in this plugin. The plugin's `README.md` carries this same block
+The schema, with placeholder values — no machine's real facts ship in
+this plugin. The plugin's `README.md` carries this same block
 verbatim, so a schema change edits both copies:
 
 ```yaml
@@ -113,3 +113,10 @@ This skill does not depend on `/auto-mode-tools:tune-auto-mode` and
 **does not read the ledger**. It writes nothing to the state directory.
 It must work on an `autoMode` block that has never been tuned. There is
 no ordering contract between the two skills.
+
+Writing nothing there includes the tuner's
+`~/.local/state/auto-mode-tools/provenance.yml`: a rewrite by this
+skill leaves that file naming the revision the tuner last wrote, which
+this rewrite has changed. That is deliberate — bumping the revision
+here would claim a critique round this skill never ran. Say so if the
+human asks what revision their block is at after a rewrite.

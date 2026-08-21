@@ -81,6 +81,15 @@ the built-in rules and the tool descriptions all change with Claude
 Code releases, and a stale captured prompt produces a
 plausible-looking critique against an obsolete baseline.
 
+Clear `<state>/last-run/` before anything else in this step, per
+*Retention* below. The wait loop further down tests for a non-empty
+`<state>/last-run/sink-url`, and the previous run left one there: a
+stale URL satisfies that test before this run's sink has bound a port,
+and the critique — which carries the whole scratch `settings.json` —
+then goes to a port nobody is listening on, or to one another process
+has since taken. Nothing this run needs is lost by clearing, because
+the sink writes its first artifact only after it binds.
+
 Start the sink **in the background** and run the critique in the same
 shell. The sink serves until it captures a request or its timeout
 expires, so a foreground launch never reaches the critique command
@@ -96,6 +105,7 @@ Run both in one invocation, with a dummy key so no real credential is
 sent to the local socket:
 
 ```bash
+rm -rf <state>/last-run
 /usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/payload/sink.py" \
   --run-dir <state>/last-run &
 SINK_PID=$!
@@ -232,8 +242,18 @@ print(hashlib.sha256(prompt.encode("utf-8")).hexdigest())' \
 ```
 
 A run that leaves the live file untouched writes no provenance at all:
-the revision names what is in `~/.claude/settings.json`, so bumping it
-without writing that file would name a revision nobody has.
+bumping the revision without writing `~/.claude/settings.json` would
+name a revision nobody has.
+
+What a record names is the block **this skill last wrote**, not
+whatever `~/.claude/settings.json` holds when it is read.
+`/auto-mode-tools:personalize-auto-mode` writes the same file and
+writes nothing to the state directory, so after it runs the recorded
+`revision` and `prompt-sha256` describe a block that has since been
+rewritten. Do not repair that by having either skill read the other's
+state — the two are independent by design. If the human asks what
+revision their live block is at, say the record is the tuner's own
+history.
 
 ### 8. Write the PR body
 
@@ -247,11 +267,17 @@ on a branch of a config repo is then an ordinary `git-tools` plus
 
 `<state>/last-run/` holds the **last run only**, where a run is one
 invocation of this skill including every round inside it — not the last
-round. Clear it at the start of a run.
+round. Step 3 clears it, before the sink binds and so before this run
+writes any artifact into it.
 
-The ledger is the exception: it is **cumulative**, accumulating across
-every run and never truncated. Feeding prior rejections into a later
-round is the whole point of keeping it.
+Both files beside it survive, and each is read back on a later run:
+
+- `<state>/ledger.yml` is **cumulative**, accumulating across every run
+  and never truncated. Feeding prior rejections into a later round is
+  the whole point of keeping it.
+- `<state>/provenance.yml` is overwritten rather than accumulated, but
+  step 7 reads the previous `revision` out of it to increment, so
+  clearing it would restart the revision count at `1`.
 
 ## Independence
 

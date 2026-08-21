@@ -194,8 +194,19 @@ ledger's is.
 
 `/tune-auto-mode` writes it as the last step of writing the live file,
 reading the previous `revision` back to increment it. A run that leaves
-`~/.claude/settings.json` untouched writes no provenance, because the
-revision names what is in that file.
+`~/.claude/settings.json` untouched writes no provenance, because a
+revision that names no write names a block nobody has.
+
+A record therefore names the block **this tuner last wrote**, not
+whatever `settings.json` holds now. `/personalize-auto-mode` writes the
+same file and writes nothing to the state directory, so once it has
+run, `revision` and `prompt-sha256` describe a block that has since
+been rewritten. That is a decision rather than an oversight: having the
+personalizer bump the revision would claim a critique round it never
+ran, and having it read the state directory would end the independence
+the two skills are built on. Read the record as the tuner's own
+history, and re-run the tuner if you want provenance for what is in the
+live file today.
 
 ### Run artifacts
 
@@ -231,9 +242,8 @@ The shape is a hybrid, and the split is deliberate:
   longer work on that project", "this laptop is one-employer-only",
   "everything under `~/scratch` is disposable".
 
-The full schema, with placeholder values — nothing identity-specific
-ships in the plugin, so this documentation uses these placeholders and
-not any real machine's facts:
+The full schema, with placeholder values — no machine's real facts
+ship in the plugin, so this documentation uses placeholders throughout:
 
 ```yaml
 schema-version: 1
@@ -291,10 +301,15 @@ it the rest to reason from.
 
 ## Genericity
 
-Nothing identity-specific ships in the plugin. Organizations, hosts,
-SSO profiles, repository lists and paths come from the facts file or
-from the `autoMode` block being tuned; the plugin supplies only the
-harness.
+The facts the plugin tunes against never ship inside it.
+Organizations, hosts, SSO profiles, repository lists and paths come
+from the facts file or from the `autoMode` block being tuned; the
+plugin supplies only the harness.
+
+The `author` block in `.claude-plugin/plugin.json` is outside that
+claim and stays. It names the plugin's maintainer, as every plugin in
+this marketplace does, and no skill reads it — it is not a fact any
+rule is tuned against.
 
 ## Deliberately out of scope
 
