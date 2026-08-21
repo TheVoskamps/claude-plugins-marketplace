@@ -224,3 +224,24 @@ reason to take the path from the listing rather than composing one:
 git worktree list
 git worktree remove <absolute-path-from-the-listing>
 ```
+
+## A push over SSH can hang in the foreground and succeed in the background
+
+`git push` over SSH to `github.com` intermittently stalls here. The same
+command can fail with `ssh: connect to host github.com port 22:
+Operation timed out`, then produce no output at all until the Bash
+tool's foreground timeout kills it, and then complete with exit 0 under
+`run_in_background`. Reachability is not the variable that moved:
+`nc -vz github.com 22` reports `succeeded` while a push is hanging.
+
+The stall reads as an authentication or credential failure and is not
+one. Believing that leads to reporting a blocked push, or to rewriting
+the remote URL or reaching into the credential agent — both forbidden
+on an agent's own initiative.
+
+So re-run the identical command with `run_in_background: true` and read
+the task output before concluding anything about credentials. Settle
+the outcome against the remote with `git ls-remote origin <branch>`
+rather than against the command's exit path. Escalate per
+`rules/credential-surfaces.md` only once an actual authentication error
+text comes back.
