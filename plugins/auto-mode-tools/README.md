@@ -142,12 +142,16 @@ only after a timestamped backup of the existing
 `/personalize-auto-mode` writes the same file, so it carries the same
 protections in the same order.
 
+Neither skill fixes a path for that backup: each writes a timestamped
+name of its own choosing and tells the human where it went, so the
+backup is not among the fixed paths below.
+
 ## Machine-local state
 
-Everything the tuner keeps between runs lives under
-`$XDG_STATE_HOME/auto-mode-tools/`, defaulting to
-`~/.local/state/auto-mode-tools/` — macOS sets no `XDG_STATE_HOME`, so
-the default is the path this will use in practice.
+The tuner's own state lives under `$XDG_STATE_HOME/auto-mode-tools/`,
+defaulting to `~/.local/state/auto-mode-tools/` — macOS sets no
+`XDG_STATE_HOME`, so the default is the path this will use in
+practice.
 
 Concurrent `/tune-auto-mode` invocations are not supported, and the
 skill does **not** guard against them: there is no lock file and no
