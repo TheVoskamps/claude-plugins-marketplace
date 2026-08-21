@@ -19,8 +19,8 @@ JSON `permissionDecision` (`deny` / `ask` / `allow`):
 printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"<repo>","tool_input":{"command":"cat \\"$HOME/.ssh/id_rsa\\""}}' | <bin>
 ```
 
-**A defer has no `permissionDecision` at all.** Since #271 the gate
-spells its abstention as the envelope with the field omitted —
+**A defer has no `permissionDecision` at all.** The gate spells its
+abstention as the envelope with the field omitted —
 
 ```json
 {"hookSpecificOutput":{"hookEventName":"PreToolUse"}}
@@ -55,9 +55,9 @@ worktree root. Do not `cd` in one call and `git init -q .` in the next:
 cwd does not persist between Bash calls, so the second call
 reinitializes the worktree root instead and the scratch dir ends up
 with no `.git`, after which every probe reads `defer` — the
-no-repo-context residual (#262 moved it off `ask`, so a stale note
-expecting `ask` here reads as a probe failure rather than the setup
-mistake it is).
+no-repo-context residual, not the `ask` a stale note may expect, so
+such a note reads as a probe failure rather than the setup mistake
+it is.
 
 Two probe-cwd traps fake a whole result table:
 
@@ -328,9 +328,9 @@ byte.
 
 `ALIASES` is the one with teeth. A table keyed on the canonical verb
 misses every alias, so an aliased spelling lands on the
-unrecognized-verb residual (*defer* since #262) instead of the
-containment *deny*. Resolve the alias to its canonical spelling before
-any tier runs.
+unrecognized-verb residual (*defer*) instead of the containment
+*deny*. Resolve the alias to its canonical spelling before any tier
+runs.
 
 Enumerating aliases: the block is rendered per command, so the complete
 set needs a walk of the whole tree — and the section headings are not
@@ -362,21 +362,21 @@ than by the verb's name or by gh's docs:
 gh api graphql -f query='query { __type(name: "UpdateIssueInput") { inputFields { name } } }'
 ```
 
-That is what kept the generic `updateIssue` off the list in #256: its
-input carries an `agentAssignment` arm (`targetRepositoryId`,
-`baseRef`, `customInstructions`, `customAgent`), which dispatches a
-third-party coding agent at an arbitrary repository — a surface the
-gate cannot distinguish from a title edit, since it never inspects
-arguments, so no argument inspection would make the verb allowable and
-it is refused whichever arm the document sets, aliased or not. #262
-moved that refusal from `ask` to `deny`, on the second half of the same
-grading: the introspection settles whether a verb can ever be ALLOWED,
-and a separate question — is there a TOTAL set of allowed spellings
-covering every legitimate use? — settles whether refusing it is a
-teaching deny or a dead end. For `updateIssue` there is one
+That is what keeps the generic `updateIssue` off the list: its input
+carries an `agentAssignment` arm (`targetRepositoryId`, `baseRef`,
+`customInstructions`, `customAgent`), which dispatches a third-party
+coding agent at an arbitrary repository — a surface the gate cannot
+distinguish from a title edit, since it never inspects arguments, so no
+argument inspection would make the verb allowable and it is refused
+whichever arm the document sets, aliased or not. That refusal is a
+`deny` rather than an `ask`, on the second half of the same grading: the
+introspection settles whether a verb can ever be ALLOWED, and a separate
+question — is there a TOTAL set of allowed spellings covering every
+legitimate use? — settles whether refusing it is a teaching deny or a
+dead end. For `updateIssue` there is one
 (`updateIssueFieldValue`/`setIssueFieldValue`/`deleteIssueFieldValue`,
-`updateIssueIssueType`, `closeIssue`/`reopenIssue`, `gh issue edit`),
-so it denies; a verb with no such enumeration defers instead. Grade
+`updateIssueIssueType`, `closeIssue`/`reopenIssue`, `gh issue edit`), so
+it denies; a verb with no such enumeration defers instead. Grade
 **every** arm the input declares, and follow a composite arm into its
 own input type.
 
@@ -511,10 +511,9 @@ Three more replays are cheap once the rig exists:
   contained counterparts, an unmodelled flag, `-h`. **Zero**
   `deny -> ask`, `deny -> defer` or `deny -> allow` is a much stronger
   statement that containment still outranks the new arm than a
-  hand-picked probe list. Count `defer` as a weakening target since
-  #262: it is now the residual bucket, so a lost deny lands there as
-  readily as in `allow`, and a cross that only watches `allow` misses
-  it.
+  hand-picked probe list. Count `defer` as a weakening target: it is
+  the residual bucket, so a lost deny lands there as readily as in
+  `allow`, and a cross that only watches `allow` misses it.
 - **Alias parity**: for every row whose noun or verb is an alias,
   assert `tip(alias) == tip(canonical)`. Zero violations settles that
   the resolution grants exactly the canonical verdict and nothing
@@ -544,10 +543,10 @@ outranks `settings.json` and so beats the user's own deny list.
 Changing the bucket a *residual* arm returns — the unrecognized-verb
 floor, the no-repo-context arm, the unknown-flag screen — moves every
 call that was reaching it only by falling through, and those calls are
-invisible in the diff. #262 moved the unrecognized-`gh` floor from
-`ask` to `defer` and would have dropped `gh auth token` (which prints
-the live OAuth token) out of the credential tier, purely because
-nothing else classified it.
+invisible in the diff. Moving the unrecognized-`gh` floor from `ask` to
+`defer` would have dropped `gh auth token` (which prints the live OAuth
+token) out of the credential tier, purely because nothing else
+classified it.
 
 The enumeration is a replay, not a reading. Cross the tip binary
 against the merge-base binary over the whole probe corpus and list
@@ -557,13 +556,13 @@ only ever escalating by accident shows up here as a bucket change with
 no corresponding arm in the diff.
 
 The synthetic replay also reads the evolution log, which is the second
-half of the evidence since #262: `PERMISSION_GATE_LOG=<path>` puts the
-record where the probe can read it, and `ask`, `deny` and `defer` each
-append one. That is how a probe distinguishes *which* arm produced a
-`defer` — every defer is byte-identical on stdout, because
-`emitDecision` omits both the decision and the reason for one. Assert
-the `operation` label, not just the bucket, whenever more than one arm
-can produce the verdict under test.
+half of the evidence: `PERMISSION_GATE_LOG=<path>` puts the record where
+the probe can read it, and `ask`, `deny` and `defer` each append one.
+That is how a probe distinguishes *which* arm produced a `defer` — every
+defer is byte-identical on stdout, because `emitDecision` omits both the
+decision and the reason for one. Assert the `operation` label, not just
+the bucket, whenever more than one arm can produce the verdict under
+test.
 
 `operation` and `analysis` are populated only where the arm had an
 account to give: a `deferJudgment` site fills both, while a bare
