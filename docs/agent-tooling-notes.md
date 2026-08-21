@@ -132,6 +132,12 @@ firing:
   `head`, `sed`, `awk`, `jq`, `find`, the pagers). A `python3 -c`, a
   `node -e`, or any other unrecognized program reaches the residual
   defer, so the primary-clone path it opens is never graded.
+- **`git`'s own read subcommands.** `git` is a recognized program, but
+  the gate classifies it by *subcommand shape* — the identity write,
+  the push refspec, the remote re-aim, the subagent `reset --hard` —
+  and reads no path operand for containment. Every other subcommand
+  allows, so `git diff --no-index <primary-clone>/<path> <path>` reads
+  the wrong tree from a statically-resolvable path with no deny.
 
 The tell for a wrong-tree read is a line-number mismatch between
 `grep -n`, which runs from the cwd, and a Read window: if the grep says

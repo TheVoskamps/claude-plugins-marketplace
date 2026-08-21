@@ -700,9 +700,9 @@ The gate's engines feed that decision:
   subscription-only scoping is load-bearing: a subscription bundled with
   a mutation is a mutation-bearing document and takes that path's
   **defer** under the multi-operation rule above, never this deny.
-  `TestGhAPIGraphQLFailClosed_113` pins the standalone
+  `TestGhAPIGraphQLFailClosed` pins the standalone
   `subscription { x }` deny and
-  `TestGhAPIGraphQLMixedMutationDefers_195` the bundled defer. On a REST
+  `TestGhAPIGraphQLMixedMutationDefers` the bundled defer. On a REST
   endpoint the gate runs a path-prefix GET-gate: a
   known-flag-only GET whose endpoint is on the read allowlist (exact
   `rate_limit`/`meta`/`user`;
@@ -1251,11 +1251,11 @@ The gate's engines feed that decision:
   row is **pre-existing behavior of that track**, not something the
   scratchpad carve-out decides: that classifier's terminal for any
   contained-or-carved-out operand is an `allow`, which it already
-  returned for an in-repo operand and for the `~/.claude` carve-out
-  The row is recorded because the table has to describe what
-  the gate does, not what this carve-out chose. An earlier revision of
-  this table gave one verdict per region and was wrong about exactly
-  that row.
+  returned for an in-repo operand and for the `~/.claude` carve-out.
+  The row is recorded because the table has to describe what the gate
+  does, not what this carve-out chose. An earlier revision of this
+  table gave one verdict per region and was wrong about exactly that
+  row.
 
   `allow` rather than `defer` for the session shape is deliberate:
   writing to the scratchpad is precisely what we want to permit, and a
@@ -1289,7 +1289,7 @@ The gate's engines feed that decision:
   reintroducing this issue's own symptom for them. The widening stops
   at the quantifier: the character class stays `[A-Za-z0-9]`, which is
   exactly the alphabet the harness emits.
-  `TestHarnessShapesMatchLiveLayout_193` walks the machine's real
+  `TestHarnessShapesMatchLiveLayout` walks the machine's real
   prefix and asserts every existing session directory matches, so the
   next such claim is checked against the filesystem rather than
   against the issue body.
@@ -1781,11 +1781,11 @@ Without these guards the hook fails **open**: the hook exits with a
 status the harness treats as a non-blocking error, and every gated tool
 call proceeds with no adjudication at all while the transcript shows only
 a `PreToolUse:Bash hook error`. That is exactly what happened in a
-claude-vm `linux-arm64` guest before the `linux-arm64` binary existed
-A security gate that cannot run must block, not step aside
-— so an unprovisioned or unrunnable platform is unusable rather than
-silently ungated, and the remedy is to add that platform to the
-cross-compile recipe above and rebuild.
+claude-vm `linux-arm64` guest before the `linux-arm64` binary existed.
+A security gate that cannot run must block, not step aside — so an
+unprovisioned or unrunnable platform is unusable rather than silently
+ungated, and the remedy is to add that platform to the cross-compile
+recipe above and rebuild.
 
 Every binary must be committed with its executable bit set — git mode
 `100755`, verifiable with `git ls-files -s plugins/guardrails/hooks/bin/`.

@@ -66,7 +66,8 @@ func TestGhAPIGraphQLQueryOnly(t *testing.T) {
 //
 // The fields exercised here are deliberately OFF the issue-metadata
 // allowlist — an allow-listed field now ALLOWs, and that path is pinned by the
-// _195 tests below. This test owns the residual "any other mutation" DEFER.
+// allowlist tests below. This test owns the residual "any other mutation"
+// DEFER.
 func TestGhAPIGraphQLMutationDefers(t *testing.T) {
 	d := classifyCmd(t, `gh api graphql -f query='mutation { deleteIssue(input: {}) { clientMutationId } }'`, false)
 	wantBucket(t, d, BucketDefer, "graphql mutation defers")

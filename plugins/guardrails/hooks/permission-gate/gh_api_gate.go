@@ -593,7 +593,7 @@ func ghGraphQLMutationRedirect(fields []string) (Decision, bool) {
 		noun = "mutations"
 		teaching = append(teaching, fmt.Sprintf("'%s': %s %s", named[i], e.why, e.redirect))
 	}
-	return deny("gh api graphql "+strings.Join(named, ", ")+"", fmt.Sprintf(
+	return deny("gh api graphql "+strings.Join(named, ", "), fmt.Sprintf(
 		"Blocked: 'gh api graphql' carries the '%s' %s, which the gate denies rather than escalates. %s",
 		strings.Join(named, "', '"), noun, strings.Join(teaching, " "))), true
 }

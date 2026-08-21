@@ -146,8 +146,8 @@ func TestEveryBucketWritesJSONToStdoutWithExitZero(t *testing.T) {
 				if present {
 					t.Fatalf("a defer must abstain by OMITTING permissionDecision, but stdout carried %q "+
 						"(%q). The literal \"defer\" makes Claude Code PAUSE the tool call for later "+
-						"resumption; inside a subagent it never resolves and the session is torn down "+
-						".", decision, out)
+						"resumption; inside a subagent it never resolves and the session is torn down.",
+						decision, out)
 				}
 				return
 			}
