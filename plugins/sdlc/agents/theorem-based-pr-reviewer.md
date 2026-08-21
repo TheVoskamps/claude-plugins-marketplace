@@ -490,10 +490,19 @@ member issue(s) it is tagged to, a `mechanical` / `semantic` class,
 and file/region pointers. **Ids are stable across rounds and are never
 reused**: new theorems continue the numbering the carried records
 ended at, so a finding's history stays legible as "T7: disproved round
-1, survived round 2". If any record is missing a field, or reuses an
-id the carried records already hold, ask the generator to re-emit that
-record rather than guessing the field yourself — you are not a source
-of theorems.
+1, survived round 2". If any record is missing a field, or gives a
+**new** theorem an id the carried records already hold, ask the
+generator to re-emit that record rather than guessing the field
+yourself — you are not a source of theorems.
+
+A **regenerated acceptance-criterion theorem** carrying the id its own
+carried record already holds is not that, and rejecting it would
+reject what the generation skill mandates: step 6 puts those theorems
+back on the live list every round that fans out, and the generator
+re-emits each under its existing id so a criterion's history stays
+under one handle. Reuse means a *different* claim under an id already
+spoken for; a criterion theorem re-emitted verbatim under its own id
+is the same claim.
 
 That rule is about a **generator's** record, and the one record you
 fill in yourself is no exception to it: an adjustment comment's minted
@@ -1277,6 +1286,14 @@ refuted, and unsettled theorems are never counted toward severity: a
 surviving or refuted theorem lands in the Verified list and an
 unsettled one under "Theorems that could not be settled", and none of
 them produces a finding.
+
+Report the **generator tier** that ran and whether the rubric or a
+`--generator` override picked it, and the **kind of round** it was, in
+the same vocabulary the Review method section uses. Both callers relay
+those two onward, because either one changes how the rest of the
+report reads: an empty-delta round's verdicts are carried forward
+rather than freshly checked, and a `--full` invocation names the round
+`--full` whatever its delta, per the precedence step 3 states.
 
 The refuted count is the one number that says what the verification
 stage bought this round, so report it even when it is zero.

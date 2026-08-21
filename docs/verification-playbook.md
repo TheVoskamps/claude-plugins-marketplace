@@ -268,8 +268,10 @@ The controls are the point. A rebase makes everything the base
 gained reachable from the head and unreachable from `<prev-head>`, so
 an unbounded commit walk reports upstream work as though this PR had
 written it, and a two-dot tree diff — a comparison of two *trees*, not
-two commit series — does worse: it can show the upstream line as the
-change and drop the PR's own line out of the patch entirely. Both
+two commit series — does worse: it shows the upstream line as the
+change while demoting the PR commit's own added line to unmarked
+context, so the line is still in the patch with nothing marking it as
+this round's work. Both
 failures are silent and both produce plausible output, which is why a
 formula that looks obviously right still has to be run.
 

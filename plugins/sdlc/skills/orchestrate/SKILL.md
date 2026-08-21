@@ -772,8 +772,10 @@ findings, severity counts, and theorem tally.
 
 Pass no `--generator`, no `--full`, no effort, and no model on an
 ordinary round. The reviewer picks the tier itself from the round's
-delta, and the two override flags go in only when a human named one —
-see "Overriding the generator tier" below.
+delta. The two override flags differ in who may reach for them:
+`--generator` goes in only when a human named a tier, while `--full`
+is the human's or yours to call. See "Overriding the generator tier"
+below.
 
 The reviewer returns every verdict line it posted, the overall
 APPROVED / NEEDS_CHANGES / BLOCKED, the severity counts, the findings
