@@ -556,13 +556,24 @@ itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin describes it. `docs/guardrails-verification-playbook.md` is the
-one `/docs` surface that does, and it names verdicts only as the
-*controls a probe needs* — which track terminates in allow and which in
-defer, which probe rows must still deny, which spellings a widening
-already allowed on the base. A verdict change that moves any of those
-control rows updates it; grep it for `deny`, `allow`, `defer` and
-`ask` alongside the README. The gate README's one in-plugin sibling is
+plugin describes it. Two `/docs` surfaces do, each bounded to one
+reader. `docs/guardrails-verification-playbook.md` names verdicts only
+as the *controls a probe needs* — which track terminates in allow and
+which in defer, which probe rows must still deny, which spellings a
+widening already allowed on the base. A verdict change that moves any
+of those control rows updates it; grep it for `deny`, `allow`, `defer`
+and `ask` alongside the README.
+`docs/agent-tooling-notes.md` → "Read the worktree, never the primary
+clone's path" names them for the agent being denied: that a
+primary-clone read comes back as a worktree-escape deny carrying the
+path to use instead, and the routes that still reach the wrong bytes
+with no deny at all — a ref rather than a path, a statically
+unresolvable path, a program the gate has no read table for, and
+`git`'s own subcommands, which it classifies by subcommand shape and
+never for path containment. A verdict change that opens or closes one
+of those routes, or that makes a denied read allow, updates it.
+
+The gate README's one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
 verdicts only where they decide **which destination an agent should
 write a scratch file to** — the containment and `.git/` denies, their

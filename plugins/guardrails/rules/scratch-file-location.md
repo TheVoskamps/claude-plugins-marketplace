@@ -156,17 +156,17 @@ location:
 
 - **In-repo** → the permission-gate's containment check treats it as
   `contained`, so the write is allowed (it defers to the normal
-  pipeline) rather than blocked as a cross-repo or
-  worktree-escape escape. That holds for a credentialed tool's
-  redirect too — `gh pr diff 224 > .claude/tmp/x.md` is graded on its
-  destination like `tee .claude/tmp/x.md` and allows, rather than asking
-  purely for being a `gh`/`git`/`aws` redirect. The other
-  side of that grading is now a deny: a credentialed redirect whose
-  destination the gate proves ESCAPES the worktree
-  (`git show HEAD:f > /tmp/x.md`) is denied with the same prescription
-  this document records, exactly as `Write` to that path is. An ask there
-  would let an agent click through a destination the `Write` spelling of
-  the same write redirects it away from.
+  pipeline) rather than blocked as a cross-repo or worktree escape.
+  That holds for a credentialed tool's redirect too —
+  `gh pr diff 224 > .claude/tmp/x.md` is graded on its destination like
+  `tee .claude/tmp/x.md` and allows, rather than asking purely for
+  being a `gh`/`git`/`aws` redirect. The other side of that grading is
+  a deny: a credentialed redirect whose destination the gate proves
+  ESCAPES the worktree (`git show HEAD:f > /tmp/x.md`) is denied with
+  the same prescription this document records, exactly as `Write` to
+  that path is. An ask there would let an agent click through a
+  destination the `Write` spelling of the same write redirects it away
+  from.
 - **Gitignored** → scratch artifacts never get committed and never
   pollute a diff.
 - **Inspectable on failure** → because it lives under the repo, a
@@ -183,46 +183,44 @@ git check-ignore -v .claude/tmp/x
 ## Why the permission-gate deny messages point here
 
 A guardrail that only forbids invites a workaround; a guardrail that
-prescribes prevents one. The permission-gate's containment denies
-— the worktree-escape and cross-repo denies — could tell the agent only
-what it may *not* do. Faced
-with an open-ended denial of a scratch write, the model improvises its
-own landing spot — and a plausible-but-wrong improvisation is to write
-under `.git/` purely because that directory is gitignored and in-repo,
-so it slips past containment. The deny induced the bad write.
+prescribes prevents one. The permission-gate's containment denies —
+the worktree-escape and cross-repo denies — once told the agent only
+what it may *not* do. Faced with an open-ended denial of a scratch
+write, the model improvises its own landing spot — and a
+plausible-but-wrong improvisation is to write under `.git/` purely
+because that directory is gitignored and in-repo, so it slips past
+containment. The deny induced the bad write.
 
-So the write/edit containment-escape denies name this
-canonical destination and explicitly warn against `.git/`, so the
-feedback prescribes the correct alternative instead of leaving it to
-the model's discretion. The handoff location completes the prescription:
-naming
-only the in-repo destination left a genuine cross-repo handoff file
-with no legal landing spot at all, which is the same open-ended denial
-in a different disguise, so the denies now name **both** destinations
-and the read-side denies name the handoff location too. They also name
+So the write/edit containment-escape denies name this canonical
+destination and explicitly warn against `.git/`, so the feedback
+prescribes the correct alternative instead of leaving it to the
+model's discretion. The handoff location completes the prescription:
+naming only the in-repo destination left a genuine cross-repo handoff
+file with no legal landing spot at all, which is the same open-ended
+denial in a different disguise, so the denies now name **both**
+destinations and the read-side cross-repo denies name the handoff
+location too. They also name
 the **resolved** repository root — the absolute path the gate already
 holds — rather than a `<repo-root>` placeholder the model has to
 resolve for itself (and can resolve to the primary clone instead of
 its own worktree) or a `$(git rev-parse --show-toplevel)` incantation
 it is told to run for a value the gate is already holding. The same
 prescriptive remediation is emitted by the in-repo-write classifier
-when a file-mutating shell
-command (`cp`, `mv`, `mkdir`, `touch`, `sed -i`, `tee FILE`) targets a
-path that escapes the worktree or the repo: the bash
-deny steers scratch writes here too. The policy itself is compiled
+when a file-mutating shell command (`cp`, `mv`, `mkdir`, `touch`,
+`sed -i`, `tee FILE`) targets a path that escapes the worktree or the
+repo: the bash deny steers scratch writes here too. The policy itself is compiled
 into the permission-gate binary (see
 `hooks/permission-gate/classify_files.go` for the write/edit denies and
 `hooks/permission-gate/classify_inrepo_write.go` for the bash
 in-repo-write denies); this document records the convention the deny
 messages prescribe.
 
-The same reasoning reaches the credentialed-redirect
-track. An ask on `git show HEAD:f > /tmp/x.md`, or on a redirect into
-`.git/`, would prompt where the `Write` tool denies the identical
-destination — so the one spelling that most needs the prescription, the
-one an agent reaches for when capturing command output, would get a
-prompt instead of it. Both deny and carry the prescription. The
-induced-bad-write
-argument above is why: a click-through leaves the agent to improvise a
+The same reasoning reaches the credentialed-redirect track. An ask on
+`git show HEAD:f > /tmp/x.md`, or on a redirect into `.git/`, would
+prompt where the `Write` tool denies the identical destination — so the
+one spelling that most needs the prescription, the one an agent reaches
+for when capturing command output, would get a prompt instead of it.
+Both deny and carry the prescription. The induced-bad-write argument
+above is why: a click-through leaves the agent to improvise a
 landing spot just as an open-ended denial does, and the prescription is
 what stops the improvisation.

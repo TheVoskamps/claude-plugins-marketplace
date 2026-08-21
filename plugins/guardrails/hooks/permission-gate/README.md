@@ -1154,8 +1154,8 @@ The gate's engines feed that decision:
   improvise a bad landing spot. They name a **second**
   destination alongside it — the harness scratchpad,
   `<system-tmp>/claude-<uid>/` — for a file that must outlive this repo
-  or this session, and the read-side denies name that handoff location
-  too; prescribing only the in-repo path left a genuine cross-repo
+  or this session, and the read-side cross-repo denies name that handoff
+  location too; prescribing only the in-repo path left a genuine cross-repo
   handoff with no legal landing spot, which is the same open-ended
   denial in a different disguise. The in-repo destination is emitted as
   the **resolved** root the gate is already holding (`rc.topLevel`, the
@@ -1166,8 +1166,11 @@ The gate's engines feed that decision:
   agent's own worktree. `scratchDestinations` is the single helper every
   deny that names it calls, and
   `TestScratchDestinationsNameResolvedRoot` guards the property
-  across its call sites (the read-side denies name only the handoff
-  location, via `handoffHint`). See
+  across its call sites. A read-side deny names one destination or
+  none: the cross-repo denies name the handoff location via
+  `handoffHint`, the worktree-escape denies prescribe the
+  worktree-anchored path instead, and the `.git/`-tree read deny
+  prescribes nothing beyond the prohibition. See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
   for the convention. (3) **reading** a non-`.git/` file that resolves
   into the primary clone / shared git dir **denies**, under
