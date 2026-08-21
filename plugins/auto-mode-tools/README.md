@@ -172,15 +172,28 @@ tuner rather than inheriting someone else's decisions.
 
 It cannot live inside `settings.json`, because Claude Code strips
 `//`-prefixed keys whenever it rewrites that file itself. The same
-constraint applies to all of the tuner's provenance — last revision,
-hash of the captured prompt, when the tuner last ran — so all of it
-lives beside the ledger in the state directory too, and the `autoMode`
+constraint applies to all of the tuner's provenance, so that lives
+beside the ledger too — in `provenance.yml`, below — and the `autoMode`
 block ends up carrying only `environment`, `allow`, `soft_deny` and
 `hard_deny`.
 
 Each ledger entry keys on the rule's label rather than on a position or
 an index, so a decision survives reordering or a later rewrite of the
 block.
+
+### Provenance
+
+`~/.local/state/auto-mode-tools/provenance.yml` holds the three items
+`settings.json` cannot carry: `revision`, the revision number of the
+tuned block; `prompt-sha256`, the SHA-256 of the captured critique
+prompt that produced it; and `last-run`, the UTC timestamp of the run
+that wrote it. It carries a `schema-version` key gated exactly as the
+ledger's is.
+
+`/tune-auto-mode` writes it as the last step of writing the live file,
+reading the previous `revision` back to increment it. A run that leaves
+`~/.claude/settings.json` untouched writes no provenance, because the
+revision names what is in that file.
 
 ### Run artifacts
 

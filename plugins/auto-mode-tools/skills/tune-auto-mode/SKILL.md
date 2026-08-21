@@ -26,6 +26,8 @@ the default is the path in practice). Resolve it once and use it
 throughout:
 
 - `<state>/ledger.yml` — the cumulative decision ledger.
+- `<state>/provenance.yml` — the provenance `settings.json` cannot
+  hold, written by step 7.
 - `<state>/last-run/` — the artifacts of the most recent run.
 
 Concurrent invocations of this skill are **not supported** and it does
@@ -100,6 +102,11 @@ SINK_PID=$!
 while [ ! -s <state>/last-run/sink-url ] && kill -0 "$SINK_PID" 2>/dev/null; do
   sleep 0.1
 done
+if [ ! -s <state>/last-run/sink-url ]; then
+  wait "$SINK_PID"; SINK_STATUS=$?
+  echo "sink exited with status $SINK_STATUS before writing sink-url" >&2
+  exit 1
+fi
 CLAUDE_CONFIG_DIR=<scratch> \
 ANTHROPIC_BASE_URL="$(cat <state>/last-run/sink-url)" \
 ANTHROPIC_API_KEY=auto-mode-tools-dummy-key \
@@ -108,7 +115,14 @@ wait "$SINK_PID"
 ```
 
 The `kill -0` arm of the wait loop is what stops the loop spinning
-forever when the sink dies before it can write the URL.
+forever when the sink dies before it can write the URL, and the `if`
+below it is what keeps that exit path away from the critique. The loop
+has two exits, and only one of them leaves a URL behind: on the other,
+`ANTHROPIC_BASE_URL` would expand to the empty string, and
+`claude auto-mode critique` would carry the captured prompt and the
+whole scratch `settings.json` to whatever an empty base URL resolves
+to rather than to a sink that is no longer running. Stop and report
+the sink's exit status; do not retry the critique without a sink.
 
 `wait` reports the sink's exit status. The sink writes the request body
 to `<state>/last-run/critique-request.json` and exits 0 once it has
@@ -181,9 +195,45 @@ file untouched and say where the scratch copy is.
 The tuned `autoMode` block carries only `environment`, `allow`,
 `soft_deny` and `hard_deny`. Do not write provenance into
 `settings.json` — Claude Code strips `//`-prefixed keys whenever it
-rewrites that file itself, so the last revision, the hash of the
-captured prompt and when the tuner last ran all live in `<state>/`
-beside the ledger.
+rewrites that file itself. Write it to `<state>/provenance.yml`
+instead, beside the ledger, as the fourth step of the sequence above
+and only when the third one wrote the live file:
+
+```yaml
+schema-version: 1
+revision: 7
+prompt-sha256: 5c9bbf8318cdb561f1b3269cab1f74e59a4532a155626f7231b9bc2de059663d
+last-run: 2026-08-20T14:03:11Z
+```
+
+- `revision` is the revision of the tuned block: read the existing
+  `provenance.yml`, add one, and start at `1` when the file is absent.
+  Gate its `schema-version` exactly as step 1 gates the ledger's,
+  naming `<state>/provenance.yml` in the abort.
+- `prompt-sha256` is the SHA-256 of the captured prompt — the one user
+  message step 3 read out of `critique-request.json`, hashed as UTF-8
+  bytes, not the hash of the whole request body.
+- `last-run` is the moment this run wrote the live file, in UTC, in
+  ISO 8601.
+
+The Messages API spells a message's `content` either as a bare string
+or as a list of content blocks, and which one the CLI sends is not a
+contract this plugin controls, so hash it with a reader that handles
+both:
+
+```bash
+/usr/bin/python3 -c 'import hashlib, json, sys
+body = json.load(open(sys.argv[1]))
+prompt = next(m["content"] for m in body["messages"] if m["role"] == "user")
+if not isinstance(prompt, str):
+    prompt = "".join(b["text"] for b in prompt if b.get("type") == "text")
+print(hashlib.sha256(prompt.encode("utf-8")).hexdigest())' \
+  <state>/last-run/critique-request.json
+```
+
+A run that leaves the live file untouched writes no provenance at all:
+the revision names what is in `~/.claude/settings.json`, so bumping it
+without writing that file would name a revision nobody has.
 
 ### 8. Write the PR body
 
