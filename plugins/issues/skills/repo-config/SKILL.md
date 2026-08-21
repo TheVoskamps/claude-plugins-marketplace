@@ -488,7 +488,7 @@ Run the **same** four-step procedure once per slot, in this order:
    so only a new backing kind is added, not a rename. When `size` is
    backed by `Effort`, the slot's effective options become the native
    field's own (`High` / `Medium` / `Low`), captured verbatim in
-   Step 3 below — **not** the six-bucket t-shirt set.
+   Step 3 below — **not** the t-shirt set.
 
 For every slot, the procedure is:
 

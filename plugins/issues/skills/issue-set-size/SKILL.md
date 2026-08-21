@@ -68,7 +68,7 @@ One fenced example per kind:
   options `High` / `Medium` / `Low`) is the size-slot analogue of the
   native `Priority` field, so a `size` slot backed by Effort uses this
   kind. The slot's effective options are the native field's own
-  (`High` / `Medium` / `Low`) — **not** the six-bucket t-shirt set —
+  (`High` / `Medium` / `Low`) — **not** the t-shirt set —
   so `<value>` must be one of the native field's option names:
 
   ```text

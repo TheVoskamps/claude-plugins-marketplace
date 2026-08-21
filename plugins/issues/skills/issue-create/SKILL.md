@@ -178,7 +178,7 @@ what didn't — do not roll back successful steps.
    - For `--priority` and `--status`, the recommended option is
      `fields.<slot>.default` from repo-config (if set). Issue one
      `AskUserQuestion` per slot.
-   - The three prompts MAY be combined into a single
+   - The per-slot prompts MAY be combined into a single
      `AskUserQuestion` call when convenient (the harness allows up
      to four questions per call) — the user experience is
      equivalent.
@@ -308,8 +308,8 @@ what didn't — do not roll back successful steps.
     case-insensitive lookup rules ("Name -> ID lookup rules") and
     calls the `updateProjectV2ItemFieldValue` single-select-field
     template with `fieldId = fields.status.id` and that `optionId`.
-    The other three kinds (`number`, `label`, `skip`/absent) follow
-    the same per-kind write paths as in step 8.
+    The remaining kinds (`number`, `label`, `issue-field`, and
+    `skip`/absent) follow the same per-kind write paths as in step 8.
 
     If the `github-project:` block is missing entirely, warn and
     skip as above.
@@ -332,12 +332,12 @@ The buckets named below (`XS` / `S` / `M` / `L` / `XL`) are the
 **conventional** size options for a `kind: label` or
 `kind: single-select` size slot, and the worked examples use them. But
 the heuristic operates on **whatever options the slot actually
-declares** in `fields.size.options` — it does not assume the
-six-bucket t-shirt set. When the `size` slot is backed by a native
-GitHub Issue Field (`kind: issue-field`, e.g. the native `Effort`
-field), the slot's effective option set is the native field's own
-options (`High` / `Medium` / `Low`), and the heuristic ranks and steps
-across **those** three options instead.
+declares** in `fields.size.options` — it does not assume the t-shirt
+set. When the `size` slot is backed by a native GitHub Issue Field
+(`kind: issue-field`, e.g. the native `Effort` field), the slot's
+effective option set is the native field's own options (`High` /
+`Medium` / `Low`), and the heuristic ranks and steps across **those**
+options instead.
 
 To apply the heuristic to any option set, first establish a
 **magnitude order** — the options sorted from least-work to most-work —
@@ -371,7 +371,7 @@ With the magnitude order fixed:
   for `Effort`).
 
 The file-count → t-shirt mapping in signal 2 below is the canonical
-example for the six-bucket set; for any other option set, derive the
+example for the t-shirt set; for any other option set, derive the
 analogous proportional mapping over the magnitude order as described
 above rather than forcing the t-shirt labels.
 

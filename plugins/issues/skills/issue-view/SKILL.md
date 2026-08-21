@@ -53,7 +53,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 3. **Resolve per-slot field values by `kind:`.** Iterate the
    `github-project.fields` map in repo-config and, for each slot,
    dispatch on its `kind:` per the "Field-value read by kind" recipe
-   in `skills/lib/issue.md`. There are exactly five cases:
+   in `skills/lib/issue.md`. The cases:
 
    - **`kind: number`** — scan the project item's `fieldValues` for
      the `ProjectV2ItemFieldNumberValue` whose `field.id` matches
@@ -98,7 +98,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    The list of slots, their canonical names, and the row order in
    the output are all derived from `fields:` as read from repo-config.
    This skill hardcodes nothing about which slots exist — a repo that
-   adds e.g. a `priority` slot under any of the five kinds gets a
+   adds e.g. a `priority` slot under any of the kinds gets a
    `priority:` row for free.
 
    If `github-project:` is missing from repo-config, omit the
