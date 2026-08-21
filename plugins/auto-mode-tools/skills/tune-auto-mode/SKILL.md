@@ -79,29 +79,43 @@ the built-in rules and the tool descriptions all change with Claude
 Code releases, and a stale captured prompt produces a
 plausible-looking critique against an obsolete baseline.
 
-Start the sink, which prints its base URL on stdout and also writes it
-to `<run-dir>/sink-url`:
+Start the sink **in the background** and run the critique in the same
+shell. The sink serves until it captures a request or its timeout
+expires, so a foreground launch never reaches the critique command
+below: the shell sits on the sink until it gives up, and the run ends
+with nothing captured.
+
+The sink writes its base URL to `<run-dir>/sink-url` before it begins
+serving, and prints it on stdout as well. Read the file: the
+backgrounded sink shares the shell's own stdout, so its line cannot be
+captured into a variable the way a foreground `$( )` would capture it.
+
+Run both in one invocation, with a dummy key so no real credential is
+sent to the local socket:
 
 ```bash
 /usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/payload/sink.py" \
-  --run-dir <state>/last-run
-```
-
-Then run the critique against it, with a dummy key so no real
-credential is sent to the local socket:
-
-```bash
+  --run-dir <state>/last-run &
+SINK_PID=$!
+while [ ! -s <state>/last-run/sink-url ] && kill -0 "$SINK_PID" 2>/dev/null; do
+  sleep 0.1
+done
 CLAUDE_CONFIG_DIR=<scratch> \
-ANTHROPIC_BASE_URL=<sink-url> \
+ANTHROPIC_BASE_URL="$(cat <state>/last-run/sink-url)" \
 ANTHROPIC_API_KEY=auto-mode-tools-dummy-key \
   claude auto-mode critique
+wait "$SINK_PID"
 ```
 
-The sink writes the request body to
-`<state>/last-run/critique-request.json` and exits. The prompt is the
-one user message in that body. If the sink exits non-zero, or the file
-is absent, stop and report — do not fall back to writing a critique
-prompt of your own.
+The `kill -0` arm of the wait loop is what stops the loop spinning
+forever when the sink dies before it can write the URL.
+
+`wait` reports the sink's exit status. The sink writes the request body
+to `<state>/last-run/critique-request.json` and exits 0 once it has
+captured; it exits non-zero when its timeout expired with nothing
+arriving. The prompt is the one user message in that body. If the sink
+exits non-zero, or the file is absent, stop and report — do not fall
+back to writing a critique prompt of your own.
 
 ### 4. Fetch the built-in rules
 

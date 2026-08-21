@@ -18,7 +18,15 @@ import sys
 import tempfile
 import urllib.request
 
-SINK = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "sink.py")
+PAYLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir)
+
+SINK = os.path.join(PAYLOAD_DIR, "sink.py")
+
+# The sink is a loose script rather than a package member, so this import
+# cannot join the block above: the path entry has to exist first.
+sys.path.insert(0, PAYLOAD_DIR)
+
+import sink
 
 FAILURES = []
 
@@ -91,7 +99,7 @@ def run_case(label, body, expected_type, preflight=False):
         content_type, payload = post(url, body)
         check(process.wait(timeout=30) == 0, label + ": sink exits 0")
 
-        captured = os.path.join(run_dir, "critique-request.json")
+        captured = os.path.join(run_dir, sink.DEFAULT_BODY_FILE)
         check(os.path.exists(captured), label + ": captured body file exists")
         with open(captured, "rb") as handle:
             check(handle.read() == body, label + ": captured body is verbatim")

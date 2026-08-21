@@ -37,12 +37,16 @@ writes the received request body to the run directory, returns a
 minimal well-formed response so the invoking CLI exits cleanly, and
 terminates.
 
-`/tune-auto-mode` starts it, then runs `claude auto-mode critique` with
-`ANTHROPIC_BASE_URL` pointed at it and `ANTHROPIC_API_KEY` set to a
-dummy value, so no real credential is sent to the local socket.
+`/tune-auto-mode` starts it **in the background**, then runs `claude
+auto-mode critique` in the same shell with `ANTHROPIC_BASE_URL` pointed
+at it and `ANTHROPIC_API_KEY` set to a dummy value, so no real
+credential is sent to the local socket. The backgrounding is not
+optional: the sink serves until it captures a body or its timeout
+expires, so a foreground launch never reaches the critique command and
+the capture cannot happen at all.
 
 ```bash
-/usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/payload/sink.py" --run-dir <dir>
+/usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/payload/sink.py" --run-dir <dir> &
 ```
 
 It prints the base URL on stdout and also writes it to `<dir>/sink-url`,
@@ -170,9 +174,10 @@ block.
 
 `~/.local/state/auto-mode-tools/last-run/` retains the last run only,
 where a run is one `/tune-auto-mode` invocation including every round
-inside it — not the last round. It holds the captured critique prompt,
-the built-in rules as fetched, the per-round transcripts, and the
-proposed-edit sets.
+inside it — not the last round. It holds the captured critique prompt
+(`critique-request.json`), the URL the sink bound (`sink-url`), the
+built-in rules as fetched (`defaults.json`), the per-round transcripts,
+and the proposed-edit sets.
 
 As its last act, `/tune-auto-mode` writes a ready-to-use PR body into
 that directory: the accepted findings with the human's reasons and the

@@ -29,6 +29,8 @@ MESSAGE_ID = "msg_auto_mode_tools_sink"
 
 MODEL_NAME = "auto-mode-tools-sink"
 
+DEFAULT_BODY_FILE = "critique-request.json"
+
 
 def _message_object():
     """The Messages-API assistant turn both response shapes are built from."""
@@ -184,7 +186,7 @@ def main(argv=None):
     )
     parser.add_argument(
         "--body-file",
-        default="critique-request.json",
+        default=DEFAULT_BODY_FILE,
         help="name of the captured-body file inside the run directory",
     )
     parser.add_argument(
