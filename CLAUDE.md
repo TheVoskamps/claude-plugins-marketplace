@@ -576,8 +576,17 @@ containment. A
 verdict change that opens or closes one of those routes, or that makes
 a denied read allow, updates it — and so does a change to the
 `PreToolUse` matcher itself, which decides the first route and is
-quoted verbatim there and in the gate README's "Gaps left in place
-deliberately".
+quoted verbatim there, in the gate README's "Gaps left in place
+deliberately", and again in that README's "Registration" — so sweep it
+by grepping the matcher string, not by editing the sites this sentence
+happens to name.
+`docs/verification-playbook.md` → "Baseline a lint run before filing
+anything" names one verdict only, and only to keep a technique
+runnable: linting the primary clone's copy of a file is the base-config
+baseline, so that paragraph says why the lint run survives the
+primary-clone read deny and why reading the base config itself does
+not. A change that grades an unrecognized program's path operands, or
+that changes what the read deny prescribes, updates it.
 
 The gate README's one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
