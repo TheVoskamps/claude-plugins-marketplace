@@ -36,10 +36,10 @@ under `agents/` owns:
   `isolation: worktree` worktree. When it returns, the branch carries
   a doc commit if the round had doc impact and none otherwise; either
   way the review runs next
-- `theorem-based-pr-reviewer` — reviews one PR by running the
-  `sdlc:pr-review-pipeline` skill in a fresh `isolation: worktree`
-  worktree, spawning the generator and both fan-outs from inside
-  itself. When it returns, one review is posted on the PR and its
+- `theorem-based-pr-reviewer` — reviews one PR in a fresh
+  `isolation: worktree` worktree, carrying the whole review procedure
+  in its own definition and spawning the generator and both fan-outs
+  from inside itself. When it returns, one review is posted on the PR and its
   report carries the verdicts and findings you brief a fixer from. It
   leaves nothing on the branch
 - `theorem-generator` — reads a PR, its issues, and the surrounding
@@ -51,7 +51,7 @@ under `agents/` owns:
   tier, returning the same theorem list. The generator definitions are
   skeletons over the one `sdlc:theorem-generation` skill, preloaded
   into each at spawn, and differ only in `name:`, `effort:`, and a
-  tier word in `description:`. The pipeline's own rubric picks between
+  tier word in `description:`. The reviewer's own rubric picks between
   the base and `-medium`; the other two are yours to override with,
   per "Overriding the generator tier" below
 - `theorem-disprover` — tries to break exactly one theorem in a fresh
@@ -66,9 +66,9 @@ under `agents/` owns:
   returns, every transfer it decided on is a pushed commit on the
   branch and the inbox is empty
 
-Review **is** a teammate spawn: `theorem-based-pr-reviewer` runs the
-`sdlc:pr-review-pipeline` skill and spawns the generator and both
-fan-outs from inside itself. See "Run the review pipeline" below; that
+Review **is** a teammate spawn: `theorem-based-pr-reviewer` carries
+the review procedure and spawns the generator and both fan-outs from
+inside itself. See "Run the review pipeline" below; that
 section, not this roster, is where review's contract lives.
 
 Every teammate declares `isolation: worktree` in its frontmatter, so
@@ -93,7 +93,7 @@ Review is outside this flow entirely: none of
 `theorem-disprover`, or `counterexample-verifier`
 declares `memory:`, so a review round captures nothing and a durable
 review lesson arrives as a PR against `sdlc:theorem-generation`, the
-pipeline skill, or the repo's `CLAUDE.md` rather than as a memory
+reviewer agent, or the repo's `CLAUDE.md` rather than as a memory
 entry. Curation is owned by `agent-memory-scrubber`, which runs after
 every memory-declaring teammate, before `/pr-ready` (see "Before
 `/pr-ready`: curate the PR's agent memory"), and grades every captured
@@ -160,7 +160,7 @@ per-spawn `model` is routed rather than fixed. Each one's frontmatter
 because a grep-shaped claim is settled by running the grep, and
 checking that grep is grep-shaped too. No model is named here: the
 defaults live in those agents' frontmatter and the routed value in the
-pipeline skill. That routing is confined to the pipeline's two
+reviewer agent. That routing is confined to the reviewer's two
 fan-outs and never applies to a teammate spawn you make.
 
 Each agent still pins its own `effort:` in frontmatter, because a
@@ -526,8 +526,8 @@ an `issue-fixer` brief or to the human:
 
 - **Never pre-set or soften a severity.** A severity is transcribed
   mechanically from a consequence class one of the review agents
-  assigned, by the rules in the `sdlc:pr-review-pipeline` skill →
-  "Findings by severity"; re-tiering a finding on its way into a brief
+  assigned, by the rules in the `sdlc:theorem-based-pr-reviewer` agent
+  → "Findings by severity"; re-tiering a finding on its way into a brief
   substitutes your judgment for that derivation, and the fixer gives
   back the tier you handed it.
 - **Supply consequence, not a consistency checklist.** The question is
@@ -745,34 +745,33 @@ files changed and what you updated.
 
 Review is a teammate spawn like any other. Spawn
 `theorem-based-pr-reviewer` with the `Agent` tool, giving it the
-pipeline's own double-dash parameters — the PR number, the issue set,
+reviewer's own double-dash parameters — the PR number, the issue set,
 and the branch name (`--pr`, `--issues`, `--branch`). That is the one
 vocabulary both this path and a standalone `/sdlc:git-review-pr` use.
 
-The reviewer runs the `sdlc:pr-review-pipeline` skill preloaded into
-it, and spawns the generator, one `theorem-disprover` per live theorem
+The reviewer carries the review procedure in its own definition, and
+spawns the generator, one `theorem-disprover` per live theorem
 in parallel, and one `counterexample-verifier` per disproved theorem
 in parallel, all from inside itself. You spawn nothing of the
-pipeline's own, and "Never do work an agent owns" applies to review
+reviewer's own, and "Never do work an agent owns" applies to review
 with no carve-out: you never write a review body and never run
 `gh pr review` yourself.
 
-The issue set is not context here: it is the **claim** the pipeline
+The issue set is not context here: it is the **claim** the reviewer
 reconciles against the branch name, so pass the set the PR actually
 closes (a dropped member is not in it), and pass it on every run. Left
-out, the pipeline falls back to reading the PR body itself, which is
+out, the reviewer falls back to reading the PR body itself, which is
 the standalone path rather than this one:
 
 ```text
 --pr <PR_N> --issues <issue_N1> <issue_N2> … --branch <branch-name>
 
-Review this PR per your agent definition and the review pipeline skill
-preloaded into you. Report back its verdicts, findings, severity
-counts, and theorem tally.
+Review this PR per your agent definition. Report back its verdicts,
+findings, severity counts, and theorem tally.
 ```
 
 Pass no `--generator`, no `--full`, no effort, and no model on an
-ordinary round. The pipeline picks the tier itself from the round's
+ordinary round. The reviewer picks the tier itself from the round's
 delta, and the two override flags go in only when a human named one —
 see "Overriding the generator tier" below.
 
@@ -782,7 +781,7 @@ themselves, and the theorem tally — which includes how many disproved
 theorems had their counterexample refuted by verification, the number
 that says what the verification stage bought that round. What the
 tally enumerates, and which of its counts never reach severity, is the
-pipeline skill's own "Report back" section; this summary defers to it
+reviewer agent's own "Report back" section; this summary defers to it
 rather than restating it. Remove the reviewer's worktree afterwards,
 serially, like any other subagent's; the reviewer removes the
 generator's, the disprovers', and the verifiers' itself.
@@ -790,8 +789,8 @@ generator's, the disprovers', and the verifiers' itself.
 That return is a report, so read it per "Report-consumption
 principle" — which cuts both ways here.
 
-In its favour: you write none of the pipeline's briefs — not the
-generator's, not a disprover's, not a verifier's. The pipeline fixes
+In its favour: you write none of the reviewer's briefs — not the
+generator's, not a disprover's, not a verifier's. The reviewer fixes
 them all, from parameters you pass (`--pr`, `--issues`, `--branch`)
 and nothing else, so a review finding is independent of your judgment
 by construction and "the review found X" is an honest relay.
@@ -806,9 +805,9 @@ round it ran.
 
 ### Overriding the generator tier
 
-You do not pick a tier. The rubric lives in the pipeline, next to the
-delta it reads (see the `sdlc:pr-review-pipeline` skill → "4. Pick the
-generator tier"), and it routes between `theorem-generator` (low) and
+You do not pick a tier. The rubric lives in the reviewer, next to the
+delta it reads (see the `sdlc:theorem-based-pr-reviewer` agent →
+"4. Pick the generator tier"), and it routes between `theorem-generator` (low) and
 `theorem-generator-medium` (medium) and nowhere else.
 
 `--generator` is a human-override channel, and you pass it only when
@@ -842,7 +841,7 @@ round was a `--full` one.
 
 ### Handling review findings — the fix loop
 
-The pipeline reports a verdict per issue the PR closes — plus one for
+The reviewer reports a verdict per issue the PR closes — plus one for
 any other issue its findings name, such as a branch-set member the
 body silently dropped — and an overall verdict, which is the worst of
 them. **The overall verdict drives the loop** — the PR merges as one
@@ -906,7 +905,7 @@ member)**:
    doc impact returns without a doc commit and does not consume a
    review round.
 5. Spawn `theorem-based-pr-reviewer` again over the new changes, with
-   the same parameters. The pipeline re-picks the tier itself from the
+   the same parameters. The reviewer re-picks the tier itself from the
    new round's delta; a round in which the pick missed a defect the
    human caught is a reason to ask the human for a `--generator`
    override, per "Overriding the generator tier".
@@ -1220,8 +1219,8 @@ on the reviewer's severity line and the fixer's report. Fill them per
     authored but couldn't push itself (see "What the orchestrator IS
     allowed to do" below); the orchestrator never authors new
     feature-work commits in the primary clone.
-  - **PR reviews** — owned by `theorem-based-pr-reviewer`, which runs
-    the `sdlc:pr-review-pipeline` skill and spawns the
+  - **PR reviews** — owned by `theorem-based-pr-reviewer`, which
+    carries the review procedure and spawns the
     `theorem-generator` / `theorem-disprover` /
     `counterexample-verifier` agents itself. You **spawn** that
     reviewer (see "Run the review pipeline") and do none of its work:
@@ -1544,14 +1543,14 @@ These carve-outs keep this rule from being over-broad:
   `theorem-generator-xhigh` are separate definitions pinning
   `effort: low`, `effort: high` and `effort: xhigh`, so a cheaper or
   costlier generation is bought by spawning a different definition,
-  never by an effort override. The pipeline chooses between the low
+  never by an effort override. The reviewer chooses between the low
   and medium ones itself; the two higher ones are reachable only
   through a `--generator` override (see "Overriding the generator
-  tier"). The pipeline routes a `model` per spawn
+  tier"). The reviewer routes a `model` per spawn
   of its own, described above: a `mechanical` theorem is spawned below
   the declared default of `theorem-disprover` and of
   `counterexample-verifier` alike, and no such value is named here.
-  That is inside the pipeline's fan-outs, not a teammate spawn you
+  That is inside the reviewer's fan-outs, not a teammate spawn you
   make.
 - Reserve your own model (the orchestrator's) for planning decisions
   and synthesis only

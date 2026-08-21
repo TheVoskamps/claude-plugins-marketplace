@@ -12,8 +12,8 @@ Every contract in this plugin has exactly one owner, and it is never
 this file. An agent's contract — what it does, what it commits, when
 it runs — is owned by that agent's own definition under `agents/`.
 What a review checks and how it is reported is owned by
-`skills/pr-review-pipeline/SKILL.md`. What a generator may emit is
-owned by `skills/theorem-generation/SKILL.md`. What the pipeline's
+`agents/theorem-based-pr-reviewer.md`. What a generator may emit is
+owned by `skills/theorem-generation/SKILL.md`. What the reviewer's
 briefs to the theorem agents mean, and what a consequence class means,
 is owned by `skills/theorem-agents-interface/SKILL.md`. How the whole
 flow is sequenced, what each teammate is briefed with, and the
@@ -53,29 +53,27 @@ therefore states it too, with it.
 | `/sdlc:orchestrate-ready <issue>` | Groom one issue up to the bar the orchestrator needs, then flip its status | main session, interactive |
 | `/sdlc:orchestrate <issue>…` | Plan, delegate, and coordinate the end-to-end fix for one or more issues | main session |
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
-| `sdlc:pr-review-pipeline` | The review itself: carry the previous round's theorems forward, generate from the delta, fan out disprovers, fan out verifiers, post one argued review | preloaded into `theorem-based-pr-reviewer`, which `/sdlc:orchestrate` and `/sdlc:git-review-pr` each spawn |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
-| `sdlc:theorem-agents-interface` | What the pipeline's brief parameters and the consequence classes mean | preloaded into each theorem agent |
+| `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 
-`pr-review-pipeline`, `theorem-generation`, and
+`theorem-generation` and
 `theorem-agents-interface` carry no leading slash here because they
 are not user verbs — each declares `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
-`pr-review-pipeline` is preloaded into `theorem-based-pr-reviewer`
-through that agent's `skills:` frontmatter, and
-`/sdlc:orchestrate` and `/sdlc:git-review-pr` each spawn that agent;
 `theorem-generation` is preloaded into each
 `theorem-generator` variant through that agent's `skills:`
 frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
-`counterexample-verifier` — the same way. `pr-review-pipeline` reads
-`theorem-agents-interface` by name as well, for the class glosses it
-grades its own theorem-less findings by.
+`counterexample-verifier` — the same way. `theorem-based-pr-reviewer`
+reads `theorem-agents-interface` by name as well, for the class
+glosses it grades its own theorem-less findings by.
 
-Review runs **inside an agent** that fans out parallel subagents of
-its own. The worked reasoning is in
+The review procedure itself is not a skill: it lives in
+`agents/theorem-based-pr-reviewer.md`, the agent both
+`/sdlc:orchestrate` and `/sdlc:git-review-pr` spawn, which fans out
+parallel subagents of its own. The worked reasoning is in
 `docs/plugin-authoring-constraints.md` →
-"Fanning out parallel agents: a skill, run wherever the fan-out is".
+"Fanning out parallel agents: one home for the procedure".
 
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
 and `/sdlc:orchestrate` does not invoke it — the user runs it first,
@@ -96,7 +94,7 @@ here.
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `theorem-based-pr-reviewer` | Reviews one PR by running the review pipeline, fanning out from inside itself |
+| `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |
 | `theorem-generator-high` | The same generator at a higher reasoning tier still |

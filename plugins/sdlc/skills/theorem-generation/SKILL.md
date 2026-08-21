@@ -9,9 +9,10 @@ user-invocable: false
 This is the operating instruction for every `sdlc` theorem generator.
 It is **tier-invariant**: it carries no tier parameter and never asks
 which generator is running it. The generator's reasoning tier lives
-solely in the spawned agent's frontmatter `effort:`, and the pipeline
+solely in the spawned agent's frontmatter `effort:`, and the reviewer
 picks a tier by naming which definition to spawn (see the
-`sdlc:pr-review-pipeline` skill → "4. Pick the generator tier").
+`sdlc:theorem-based-pr-reviewer` agent → "4. Pick the generator
+tier").
 
 Your entire output is a **theorem list**. You do not review, you do
 not grade, you do not file findings, and you never post to the PR.
@@ -374,8 +375,9 @@ comparison, so after a rebase that advanced the base it hands you the
 base branch's changes as though this PR had written them. Measured on
 a reproduced clean rebase, it returned two upstream files the PR never
 touched while the round's real delta was empty; on a reproduced
-conflict-resolving rebase, it showed the upstream line as added and
-left the PR commit's own added line out of the patch entirely.
+conflict-resolving rebase, it showed the upstream line as added while
+demoting the PR commit's own added line to unmarked context — the line
+is still in the patch, but nothing marks it as this round's change.
 `--delta-commits` carries only this PR's own commits, so upstream
 content cannot enter it.
 
@@ -428,7 +430,7 @@ T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
 class: semantic
-pointers: plugins/sdlc/skills/pr-review-pipeline/SKILL.md, step 7
+pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, step 7
 ```
 
 Field rules:

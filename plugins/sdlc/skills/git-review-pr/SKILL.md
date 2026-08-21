@@ -5,23 +5,24 @@ description: Review a GitHub pull request for quality, security, and best practi
 
 # Review GitHub Pull Request
 
-This skill is a thin wrapper around the `sdlc:pr-review-pipeline`
-skill (`skills/pr-review-pipeline/SKILL.md`), which is the single
+This skill is a thin wrapper around the
+`sdlc:theorem-based-pr-reviewer` agent
+(`agents/theorem-based-pr-reviewer.md`), which is the single
 source of truth for *what* a review checks and *how* it is reported —
 every section of it, deliberately not enumerated here. A list of the
-pipeline's parts written at this distance goes stale as the pipeline
+review's parts written at this distance goes stale as the review
 gains a stage, and reads as its complete set while it does. Do not
 restate or fork that guidance here.
 
-You do **not** run the pipeline in this session. You spawn the
-`sdlc:theorem-based-pr-reviewer` agent, which has the pipeline skill
-preloaded and runs it. That agent spawns a `theorem-generator`, then
+You do **not** run the review in this session. You spawn the
+`sdlc:theorem-based-pr-reviewer` agent, which carries the whole
+procedure. That agent spawns a `theorem-generator`, then
 one `theorem-disprover` per live theorem in parallel, then one
 `counterexample-verifier` per disproved theorem in parallel — nested
 spawning the harness supports, so the fan-outs happen inside the
 agent.
 
-This path **computes** no `--generator`. The pipeline's own tier
+This path **computes** no `--generator`. The reviewer's own tier
 rubric picks between `theorem-generator` (low) and
 `theorem-generator-medium` (medium) from the round's delta, and it
 never routes to
@@ -44,26 +45,25 @@ skill computes.
 
 2. **Spawn the reviewer agent** with the `Agent` tool, using the
    `subagent_type` `sdlc:theorem-based-pr-reviewer`, and give it the
-   PR number as the pipeline's own `--pr` parameter:
+   PR number as the reviewer's own `--pr` parameter:
 
    ```text
    --pr <PR_N>
 
-   Review this PR per your agent definition and the review pipeline
-   skill preloaded into you. Report back its verdicts, findings,
-   severity counts, and theorem tally.
+   Review this PR per your agent definition. Report back its
+   verdicts, findings, severity counts, and theorem tally.
    ```
 
    Unless the user asked for an override, this path passes `--pr`
    alone — no `--issues`, no `--branch`, no `--generator`, and no
    `--full` — which is what makes it the
-   pipeline's **standalone** path: with no orchestrator brief naming
-   the issues, the pipeline takes its claim from
+   reviewer's **standalone** path: with no orchestrator brief naming
+   the issues, the reviewer takes its claim from
    `/github-prs:pr-closing-issues <PR>` and reconciles it against the
    branch itself. Add `--generator <name>` or `--full` to the brief
    only when the user asked for one.
 
-   The pipeline reads `issue-link-prefix` from the repo's
+   The reviewer reads `issue-link-prefix` from the repo's
    `.claude/rules/repo-config.md` (for recognizing `References:`
    trailers), resolves the issue set, carries the previous round's
    theorem records forward off the PR, computes the round's delta,
@@ -76,13 +76,13 @@ skill computes.
 
    Remove the reviewer agent's worktree when it returns.
 
-3. **Relay the pipeline's verdicts and findings** back to the user:
+3. **Relay the reviewer's verdicts and findings** back to the user:
    the overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every
    per-issue verdict (a PR may deliver a batch of several), plus the
    severity counts (Critical, High, Medium, Low) and the theorem
    tally. What that tally enumerates, and which of its counts never
-   reach severity, is the pipeline skill's own "Report back" section;
-   relay it as the pipeline returned it rather than restating the
+   reach severity, is the reviewer agent's own "Report back" section;
+   relay it as the reviewer returned it rather than restating the
    enumeration here. Relay the tier that ran and the kind of round it
    was as well — a user reading "no findings" off an empty-delta round
    is reading a carried-forward verdict, not a fresh check.

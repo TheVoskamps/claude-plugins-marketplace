@@ -169,7 +169,7 @@ name the other as the second edit point.
 Frontmatter tiers are a partial exception, and the halves differ.
 SKILL.md deliberately names no agent's `model:`, so a model change is
 confined to the agent file. That holds of `theorem-disprover` too,
-whose model the review pipeline routes per spawn: SKILL.md describes
+whose model the reviewer routes per spawn: SKILL.md describes
 the routing without spelling either model, per "The generator
 skeletons are copies of one file" below. It does state the
 `effort: medium` default — twice, in the teammate-frontmatter prose
@@ -193,48 +193,51 @@ A PR that adds a further
 off-default variant extends the exception in both places rather than
 deleting the default.
 
-Review is an agent — `theorem-based-pr-reviewer` — but its contract
-lives in the skill preloaded into it,
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, which both
-`/sdlc:orchestrate` and `/sdlc:git-review-pr` reach by spawning that
-agent. So
+Review is an agent — `theorem-based-pr-reviewer` — and its contract
+lives in that agent's own body,
+`plugins/sdlc/agents/theorem-based-pr-reviewer.md`, which both
+`/sdlc:orchestrate` and `/sdlc:git-review-pr` reach by spawning it.
+The review procedure is deliberately **not** a preloaded skill: the
+shell-over-skill shape in this plugin exists for the generator tiers
+alone, where `effort:` being frontmatter-only forces several
+definitions over one procedure, and the reviewer has no tiers. So
 a change to what a review does sweeps several files, not one — the
-pipeline skill, orchestrate's "Run the review pipeline" and
-"Overriding the generator tier" sections, the reviewer agent file, and
+reviewer agent file, orchestrate's "Run the review pipeline" and
+"Overriding the generator tier" sections, and
 `skills/git-review-pr/SKILL.md`, which
 is the standalone caller and states which parameters it deliberately
-does not pass. A change to the pipeline's *stages* — which agents it
+does not pass. A change to the review's *stages* — which agents it
 spawns, in how many fan-outs — reaches one surface outside
 `plugins/sdlc/` as well: `docs/plugin-authoring-constraints.md` →
-"Fanning out parallel agents: a skill, run wherever the fan-out is"
-cites the pipeline as its worked instance and names the stages, and
+"Fanning out parallel agents: one home for the procedure"
+cites the reviewer as its worked instance and names the stages, and
 the fetch-once paragraph below it names the agents that skip their own
 fetch.
 
-The generator **tier rubric** lives in the pipeline skill, next to the
+The generator **tier rubric** lives in the reviewer agent, next to the
 delta it reads, and nowhere else. Orchestrate carries override
 guidance only, and `git-review-pr` states that it computes no tier at
-all. A PR that changes what the rubric measures edits the pipeline
-section; a PR that changes when a *human* should override it edits
-orchestrate. Re-adding a rubric to either caller is the second source
-of truth this split removes.
+all. A PR that changes what the rubric measures edits the reviewer's
+rubric section; a PR that changes when a *human* should override it
+edits orchestrate. Re-adding a rubric to either caller is the second
+source of truth this split removes.
 
 What a brief parameter *means*, and what a consequence class means, is
 owned by `plugins/sdlc/skills/theorem-agents-interface/SKILL.md`,
 preloaded into every theorem agent through its `skills:` frontmatter.
 So adding, renaming, or redefining a parameter or a class edits that
-skill: the pipeline states only what it *puts* in each parameter and
-what severity each class becomes, and an agent file only which
+skill: the reviewer states only what it *puts* in each parameter and
+what severity each class becomes, and a spawned agent's file only which
 parameters its own brief carries and what it does with them that its
 siblings do not. A brief-parameter gloss or a class gloss reappearing in
-the pipeline or in an agent file is the second source of truth this
-split removes, and a widening that stops at the pipeline leaves every
+the reviewer or in an agent file is the second source of truth this
+split removes, and a widening that stops at the reviewer leaves every
 receiving agent describing a brief it no longer gets. The generator's
 theorem *record* is a different surface carrying the same vocabulary,
 and is not that duplication: `skills/theorem-generation/SKILL.md`
-states what a generator puts in each record field and the pipeline's
+states what a generator puts in each record field and the reviewer's
 "The theorem contract" tabulates what it consumes from one, with the
-pipeline transcribing a record into a brief between them. So renaming
+reviewer transcribing a record into a brief between them. So renaming
 or redefining a class sweeps those surfaces as well.
 
 On any widening of the orchestrator's teammate spawn templates, the
@@ -296,7 +299,7 @@ reordering, a dropped subtitle. A wrapped pointer and an unwrapped one
 to the same heading both pass, so never reflow surrounding prose just
 to unwrap one.
 
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` numbers its workflow
+`plugins/sdlc/agents/theorem-based-pr-reviewer.md` numbers its workflow
 steps (`### 4. Pick the generator tier`), which adds a failure mode
 the bar above does not catch on its own: inserting or deleting a step
 renames every later heading without the diff touching one of them, and
@@ -307,7 +310,7 @@ other reason to open — every generator skeleton,
 `skills/orchestrate/SKILL.md`, and this file. So a renumbering PR
 greps `→ "` for a leading digit across the repo rather than across
 `plugins/sdlc/`, and compares each hit against the heading it names.
-That grep is not the whole sweep either: the pipeline's own body
+That grep is not the whole sweep either: the reviewer's own body
 refers to its steps by bare number ("step 3", "step 9") throughout,
 and no heading grep reaches those, so read that file end to end after
 a renumber. The numbered headings themselves stay as they are, for the
@@ -384,12 +387,12 @@ Generation guidance itself never goes in a skeleton. It goes in
 `--pr`, `--issues`, `--branch`, `--carried-records`, `--delta-commits`
 and no tier parameter, and asking it
 which variant is running would let the tiers drift apart in behavior
-as well as budget. The pipeline's tier rubric and its `--generator`
+as well as budget. The reviewer's tier rubric and its `--generator`
 override parameter
-(`plugins/sdlc/skills/pr-review-pipeline/SKILL.md` → "4. Pick the
+(`plugins/sdlc/agents/theorem-based-pr-reviewer.md` → "4. Pick the
 generator tier") are where a variant is named; adding or removing one
 updates that section, orchestrate's "Overriding the generator tier"
-section and the teammate roster above it, the pipeline skill's
+section and the teammate roster above it, the reviewer's own
 Inputs, and both `effort` statements the sdlc sweep section already
 names.
 
@@ -411,8 +414,8 @@ the same single owner: `theorem-generation` → "The emission bar:
 falsifiability, then stakes", which states the questions a candidate
 must clear to be emitted at all. Nowhere else — this file included —
 is that bar restated rather than reached by pointer, and each pointing
-site is deliberately bounded: the pipeline's "The theorem contract"
-says only what a theorem arriving at the pipeline therefore is, and
+site is deliberately bounded: the reviewer's "The theorem contract"
+says only what a theorem arriving at the reviewer therefore is, and
 orchestrate's teammate-effort paragraph only prices a surplus theorem
 against the diff's stakes. A change to
 either question edits the skill and then re-reads every such site,
@@ -420,18 +423,18 @@ because a bar spelled out at one of them is the second source of truth
 that keeping generation guidance in one file removes. The bar is
 tier-blind, like the rest of that skill: a higher tier buys a deeper
 search for claims that clear it, never a lower one, which is why the
-pipeline's tier rubric reads what the round's delta puts at stake and
+reviewer's tier rubric reads what the round's delta puts at stake and
 not the effort the change took to write.
 
 `theorem-disprover` is deliberately **not** a skeleton set. It has one
 definition and no tiers, and its instructions live in the agent file
 because there is no sibling to drift from. What varies per spawn is
-its `model`, which the pipeline routes by theorem class. A frontmatter
+its `model`, which the reviewer routes by theorem class. A frontmatter
 `model:` is only a default — the `Agent` tool's `model` parameter may
 name a lower, higher, or equal model on any spawn — so the value in
 the disprover's frontmatter is what an unrouted spawn gets, not a
-bound on what the pipeline may pass. No file outside that frontmatter
-spells the value, here included: the pipeline names only the cheaper
+bound on what the reviewer may pass. No file outside that frontmatter
+spells the value, here included: the reviewer names only the cheaper
 model it passes for a `mechanical` theorem and otherwise says "the
 declared default", which is what keeps a disprover model change a
 one-file edit.
@@ -439,18 +442,17 @@ one-file edit.
 `counterexample-verifier` is the same shape and holds the same
 property. It too is a single definition with no tiers, its model is
 routed per spawn by the same theorem class, and no file outside its
-frontmatter spells its value — the pipeline's verifier fan-out names
+frontmatter spells its value — the reviewer's verifier fan-out names
 the cheaper `mechanical` model and otherwise points at the agent
 file, and `plugins/sdlc/skills/orchestrate/SKILL.md`'s
 model-routing paragraph names neither agent's default. So a verifier
 model change is a one-file edit too, and adding a restatement to
-either the pipeline or orchestrate is what would end that.
+either the reviewer or orchestrate is what would end that.
 
 ## Review writes nothing, so review lore is a PR
 
-`plugins/sdlc/skills/pr-review-pipeline/SKILL.md`, the
-`theorem-based-pr-reviewer` agent that runs it, and the agents that
-agent spawns are strictly non-mutating on the PR branch: none of
+`plugins/sdlc/agents/theorem-based-pr-reviewer.md` and the agents it
+spawns are strictly non-mutating on the PR branch: none of
 `theorem-based-pr-reviewer`, `theorem-generator`, `theorem-disprover`,
 or `counterexample-verifier`
 declares `memory:`, and none carries a `Write` or `Edit` tool. A
@@ -458,14 +460,14 @@ review round therefore commits nothing, pushes nothing, and writes
 nothing to `.claude/agent-memory/`.
 
 The theorem list a round carries forward is no exception to that,
-because it never lands on the branch: the pipeline persists the
+because it never lands on the branch: the reviewer persists the
 records in the **review it posts**, and the next round reads them back
 off the PR. A PR artifact is not a branch write. Do not repair a
 persistence gap by giving review a file to write.
 
 That is enforcement, not convention, so keep it structural: do not add
 a `memory:` key or a writing tool to any of those definitions, and do
-not give the pipeline a commit step. A durable lesson learned while
+not give the reviewer a commit step. A durable lesson learned while
 reviewing lands as a PR against `theorem-generation` (how to state a
 better theorem), `theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or
