@@ -56,6 +56,11 @@ The marketplace currently ships these plugins (one entry each in
 - **`writing-tools`** — writing and text-editing helpers: mask
   inappropriate language (profanity, slurs, strong insults) in
   provided text or a file with asterisks, character-for-character.
+- **`auto-mode-tools`** — tune and personalize the Claude Code auto
+  mode classifier config: capture the `claude auto-mode critique`
+  prompt through a loopback sink and run the critique loop in the
+  current session, which has no 4K-token answer ceiling, and rewrite
+  an existing `autoMode` block against this machine's facts.
 
 ## Add this marketplace
 

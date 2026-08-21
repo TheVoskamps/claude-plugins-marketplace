@@ -20,6 +20,7 @@
     { "name": "show-loaded-rules", "source": "./plugins/show-loaded-rules" },
     { "name": "show-loaded-skills", "source": "./plugins/show-loaded-skills" },
     { "name": "show-agent-calls", "source": "./plugins/show-agent-calls" },
-    { "name": "writing-tools", "source": "./plugins/writing-tools" }
+    { "name": "writing-tools", "source": "./plugins/writing-tools" },
+    { "name": "auto-mode-tools", "source": "./plugins/auto-mode-tools" }
   ]
 }
