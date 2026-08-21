@@ -29,11 +29,11 @@ func mustParse(t *testing.T, cmd string) *syntax.File {
 // the event's cwd (ev.CWD). These tests cover the original repro and the full
 // cd-tracking test plan.
 
-// TestCdTrackingContainsRelativeOperandAfterCd_129 is the original regression: a
+// TestCdTrackingContainsRelativeOperandAfterCd is the original regression: a
 // `cd <subdir> && cmd ../x` must resolve `../x` against <subdir>, landing back
 // inside the worktree, and must NOT be treated as escaping into the primary
 // clone just because ev.CWD is higher up the tree.
-func TestCdTrackingContainsRelativeOperandAfterCd_129(t *testing.T) {
+func TestCdTrackingContainsRelativeOperandAfterCd(t *testing.T) {
 	primary, wt := setupWorktree(t)
 
 	// Build <worktree>/plugins/claude-vm/payload and a sibling
@@ -58,16 +58,16 @@ func TestCdTrackingContainsRelativeOperandAfterCd_129(t *testing.T) {
 	cmd := "cd " + payload + " && cat ../.claude-plugin/plugin.json"
 	d := classifyBash(cmd, ev)
 	if d.Bucket == BucketAsk || d.Bucket == BucketDeny {
-		t.Errorf("#125/#129 repro: 'cd payload && cat ../.claude-plugin/plugin.json' must not ASK/DENY; got %q (%s)",
+		t.Errorf("repro: 'cd payload && cat ../.claude-plugin/plugin.json' must not ASK/DENY; got %q (%s)",
 			d.Bucket, d.Reason)
 	}
 
 	_ = primary // referenced only to build the worktree pair
 }
 
-// TestCdTrackingMultipleDotDotLevels_129 covers a `cd a/b; cat ../../c`
+// TestCdTrackingMultipleDotDotLevels covers a `cd a/b; cat ../../c`
 // resolving back to the worktree root's c.
-func TestCdTrackingMultipleDotDotLevels_129(t *testing.T) {
+func TestCdTrackingMultipleDotDotLevels(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	ab := filepath.Join(wt, "a", "b")
@@ -86,22 +86,22 @@ func TestCdTrackingMultipleDotDotLevels_129(t *testing.T) {
 	}
 }
 
-// TestCdTrackingDynamicCdFailsClosed_129 covers `cd "$UNKNOWN" && cat ../x`:
+// TestCdTrackingDynamicCdFailsClosed covers `cd "$UNKNOWN" && cat ../x`:
 // a dynamic cd target invalidates the running cwd, so the later relative
 // operand must fail closed (DEFER), not silently resolve against ev.CWD.
-func TestCdTrackingDynamicCdFailsClosed_129(t *testing.T) {
+func TestCdTrackingDynamicCdFailsClosed(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := `cd "$UNKNOWN" && cat ../x`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketDefer, "#129 dynamic cd must invalidate running cwd and withhold the allow")
+	wantBucket(t, d, BucketDefer, "dynamic cd must invalidate running cwd and withhold the allow")
 }
 
-// TestCdTrackingAbsoluteOperandUnaffected_129 covers `cd <worktree>/a &&
+// TestCdTrackingAbsoluteOperandUnaffected covers `cd <worktree>/a &&
 // cat /abs/outside/x`: an absolute operand is unaffected by cd-tracking and
 // the cross-repo deny still fires.
-func TestCdTrackingAbsoluteOperandUnaffected_129(t *testing.T) {
+func TestCdTrackingAbsoluteOperandUnaffected(t *testing.T) {
 	base := t.TempDir()
 	_, wt := setupWorktree(t)
 
@@ -120,13 +120,13 @@ func TestCdTrackingAbsoluteOperandUnaffected_129(t *testing.T) {
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	cmd := "cd " + a + " && cat " + filepath.Join(outside, "x")
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketDeny, "#129 absolute operand after cd is still cross-repo denied (#148)")
+	wantBucket(t, d, BucketDeny, "absolute operand after cd is still cross-repo denied")
 }
 
-// TestCdTrackingKnownVarCdTarget_129 covers `P=<known>; cd "$P"/sub && cat
+// TestCdTrackingKnownVarCdTarget covers `P=<known>; cd "$P"/sub && cat
 // ./x` — the cd target resolves via a knownVars literal (assignment tracking
 // feeds cd tracking).
-func TestCdTrackingKnownVarCdTarget_129(t *testing.T) {
+func TestCdTrackingKnownVarCdTarget(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	sub := filepath.Join(wt, "sub")
@@ -141,18 +141,18 @@ func TestCdTrackingKnownVarCdTarget_129(t *testing.T) {
 	cmd := `P=` + wt + `; cd "$P"/sub && cat ./x`
 	d := classifyBash(cmd, ev)
 	if d.Bucket == BucketAsk || d.Bucket == BucketDeny {
-		t.Errorf("#129: cd to a knownVars-resolved target must resolve; got %q (%s)", d.Bucket, d.Reason)
+		t.Errorf("cd to a knownVars-resolved target must resolve; got %q (%s)", d.Bucket, d.Reason)
 	}
 }
 
-// TestCdTrackingSubshellCdDoesNotPersist_129 covers `( cd <worktree>/a ) &&
+// TestCdTrackingSubshellCdDoesNotPersist covers `( cd <worktree>/a ) &&
 // cat ../x`: the subshell's cd must not persist; '../x' must resolve against
 // the PRE-subshell cwd (scopeDepth discipline, mirroring assignment tracking).
 // Asserts directly on the per-command cwd stamped by extractSimpleCommands,
 // rather than the aggregate classifyBash bucket, so the assertion pins the
 // scope discipline precisely instead of depending on how `cat`'s eventual
 // containment result happens to bucket.
-func TestCdTrackingSubshellCdDoesNotPersist_129(t *testing.T) {
+func TestCdTrackingSubshellCdDoesNotPersist(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	a := filepath.Join(wt, "a")
@@ -173,15 +173,15 @@ func TestCdTrackingSubshellCdDoesNotPersist_129(t *testing.T) {
 	// target), because the subshell runs in a child shell.
 	catCmd := cmds[1]
 	if catCmd.cwd != wt {
-		t.Errorf("#129: subshell cd leaked into the enclosing scope — cat's cwd = %q, want %q (pre-subshell cwd)",
+		t.Errorf("subshell cd leaked into the enclosing scope — cat's cwd = %q, want %q (pre-subshell cwd)",
 			catCmd.cwd, wt)
 	}
 }
 
-// TestCdTrackingDeepDotDotStillCrossRepoDeny_129 covers `cd <worktree>/a &&
+// TestCdTrackingDeepDotDotStillCrossRepoDeny covers `cd <worktree>/a &&
 // cat ../../../../../../etc/passwd`: the '..' chain escapes even from the
 // tracked cwd, and containment still catches it as a cross-repo/outside read.
-func TestCdTrackingDeepDotDotStillCrossRepoDeny_129(t *testing.T) {
+func TestCdTrackingDeepDotDotStillCrossRepoDeny(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	a := filepath.Join(wt, "a")
@@ -193,14 +193,14 @@ func TestCdTrackingDeepDotDotStillCrossRepoDeny_129(t *testing.T) {
 	cmd := "cd " + a + " && cat ../../../../../../etc/passwd"
 	d := classifyBash(cmd, ev)
 	if d.Bucket == BucketAllow {
-		t.Errorf("#129: a '..' chain escaping even the tracked cwd must not ALLOW; got %q (%s)", d.Bucket, d.Reason)
+		t.Errorf("a '..' chain escaping even the tracked cwd must not ALLOW; got %q (%s)", d.Bucket, d.Reason)
 	}
 }
 
-// TestCdTrackingPreservedGuarantees_129 pins that the cross-worktree
+// TestCdTrackingPreservedGuarantees pins that the cross-worktree
 // write deny, the cross-repo deny, and the .git/-tree deny are all
 // unchanged by cd-tracking.
-func TestCdTrackingPreservedGuarantees_129(t *testing.T) {
+func TestCdTrackingPreservedGuarantees(t *testing.T) {
 	primary, wt := setupWorktree(t)
 
 	// Cross-worktree: cd inside the worktree, then write into the primary clone by
@@ -218,7 +218,7 @@ func TestCdTrackingPreservedGuarantees_129(t *testing.T) {
 		cmd := "cd " + a + " && touch " + filepath.Join(rel, "escape.txt")
 		d := classifyBash(cmd, ev)
 		if d.Bucket != BucketDeny && d.Bucket != BucketAsk {
-			t.Errorf("#127: cross-worktree write via tracked cwd must still deny/ask; got %q (%s)", d.Bucket, d.Reason)
+			t.Errorf("cross-worktree write via tracked cwd must still deny/ask; got %q (%s)", d.Bucket, d.Reason)
 		}
 	})
 
@@ -246,7 +246,7 @@ func TestCdTrackingPreservedGuarantees_129(t *testing.T) {
 		ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 		cmd := "cd " + a + " && cat " + rel
 		d := classifyBash(cmd, ev)
-		wantBucket(t, d, BucketDeny, "#148: cross-repo read via tracked cwd must still deny")
+		wantBucket(t, d, BucketDeny, "cross-repo read via tracked cwd must still deny")
 	})
 
 	// .git/ tree deny: cd inside the worktree, then write into .git/ by

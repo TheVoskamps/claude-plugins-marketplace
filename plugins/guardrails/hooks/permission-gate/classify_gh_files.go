@@ -5,8 +5,7 @@ import (
 	"strings"
 )
 
-// Read containment for the LOCAL FILES a `gh` command publishes to GitHub
-// (issue #229).
+// Read containment for the LOCAL FILES a `gh` command publishes to GitHub.
 //
 // `gh`'s body-file flags read a file off the local disk and send its contents to
 // GitHub, where the destination may be public and outlives any local cleanup.
@@ -16,7 +15,7 @@ import (
 // ordinary flag value and never reached containment, so
 // `gh pr comment 227 -F /etc/passwd` published the file under an outright ALLOW.
 //
-// This is the converse of issue #225's class 1. There a LOCAL redirect
+// This is the converse of the local-redirect class. There a LOCAL redirect
 // (`gh pr diff > .claude/tmp/x`) exfiltrates nothing, because the bytes stay in
 // a worktree the agent can already read and write. Here the bytes genuinely
 // leave, so the read source is graded exactly as the read tracks grade theirs.
@@ -32,7 +31,7 @@ import (
 // ALLOW (a contained body file is no grounds to bless the publish itself; the
 // verb's own tier decides that).
 //
-// Properties carried over from #225:
+// Properties carried over from the local-redirect grading:
 //
 //   - APPENDED, never substituted. The flag values are added to the verb's
 //     positional file operands, so the flag model can only ever put MORE paths
@@ -42,7 +41,7 @@ import (
 //     flag set, and an unrecognized flag escalates rather than riding the verb's
 //     allow — the same whitelist SHAPE ghAuthStatusEscalates holds for
 //     `gh auth status`, though not the same tier: this one DEFERS with its
-//     analysis (#262 rebucketed it from ask), where the `gh auth status` screen
+//     analysis, where the `gh auth status` screen
 //     is a credential-read guard and stays a hard ask. A future gh release that
 //     adds another file-reading flag therefore costs a graded, deferred call,
 //     not a silent publish. See ghUnmodelledFlagDefer.
@@ -62,7 +61,7 @@ import (
 // command: the ordinary agent spelling
 // `gh pr create --title "$TITLE" --body-file .claude/tmp/body.md` carries a
 // dynamic value on a deliberately shielded flag beside a perfectly literal body
-// file, and #229 requires it to keep allowing.
+// file, and the publish-file rule requires it to keep allowing.
 
 // ghFileSpec models one gh noun/verb for the purpose of grading the local files
 // it reads and publishes.
@@ -94,7 +93,7 @@ import (
 // the verdict is the one the prefix earns: `gh release create v1
 // '../sib/*.tgz'` denies, while a contained `gh gist create '*.md'` is not
 // denied for a path the gate could not expand — it falls through to its verb's
-// own tier, which for both gist verbs is the publish ASK (#229).
+// own tier, which for both gist verbs is the publish ASK.
 //
 // defaultsToStdin marks a verb that reads STDIN when the invocation gives it no
 // file operand at all — the implicit spelling of the `-` marker, which has no
@@ -148,7 +147,7 @@ var ghInheritedBoolFlags = map[string]bool{"--help": true, "-h": true}
 
 // ghSpec builds a ghFileSpec, folding gh's inherited flags into the verb's own
 // sets. pathValueFlags must be a subset of the verb's valueFlags; that is
-// asserted by TestGhFileSpecsPathFlagsAreValueFlags_229 rather than at run time.
+// asserted by TestGhFileSpecsPathFlagsAreValueFlags rather than at run time.
 func ghSpec(valueFlags, boolFlags, pathValueFlags map[string]bool, filePositionalsFrom int) ghFileSpec {
 	merged := make(map[string]bool, len(valueFlags)+len(ghInheritedValueFlags))
 	for f := range valueFlags {
@@ -411,7 +410,7 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 		// LOCAL file whose contents replace a gist file, and `-a`/`--add` names a
 		// local file to add. `-f`/`--filename` and `-r`/`--remove` name files
 		// INSIDE the gist and open nothing locally. Like its `create` sibling the
-		// verb reaches the publish ASK rather than an outright ALLOW (#229), so
+		// verb reaches the publish ASK rather than an outright ALLOW, so
 		// this spec is what keeps an ESCAPING operand a DENY rather than a
 		// click-through on that prompt.
 		//
@@ -446,7 +445,7 @@ var ghFileSpecs = map[string]map[string]ghFileSpec{
 // pflag cluster walk `ghBoolFlagNamed` under it) is gone: `gh gist create`
 // escalates on the verb alone now, in every spelling of every flag, because a
 // gist created without `--public` is unlisted rather than private and is
-// therefore exposure too (#229). Nothing else consulted the screen, so reading
+// therefore exposure too. Nothing else consulted the screen, so reading
 // the flag would only have decorated a message with a distinction the gate
 // cannot state honestly — the walk reported the flag being NAMED, not the value
 // it carried, so `--public=false` (a SECRET gist) would have been described as a
@@ -505,10 +504,10 @@ func ghPublishedFileEscalates(cmd []string, sc simpleCommand, ev *Event) (Decisi
 		// The question is asked of the PATH TOKENS, not of the whole command: a
 		// dynamic value on a SHIELDED non-path flag leaves a literal body file
 		// perfectly gradable, and `gh pr create --title "$TITLE" --body-file
-		// .claude/tmp/body.md` is the ordinary agent spelling, which #229 requires
-		// to keep allowing.
+		// .claude/tmp/body.md` is the ordinary agent spelling, which the
+		// publish-file rule requires to keep allowing.
 		if ghPathTokensDynamic(refs, rest, sc) {
-			return deferJudgment("gh publish-file:dynamic-path (#229)", fmt.Sprintf(
+			return deferJudgment("gh publish-file:dynamic-path", fmt.Sprintf(
 				"'%s' reads a local file whose path is built from an expansion the gate cannot resolve "+
 					"statically, and it publishes that file's contents to GitHub, so containment cannot grade "+
 					"what leaves the machine.", label)), true
@@ -766,7 +765,7 @@ func ghFilePositionalRefs(args []string, spec ghFileSpec) []pathRef {
 
 // ghUnmodelledFlagDefer screens a publish verb's flags against the verb's complete
 // modelled grammar and returns a terminal DEFER for the first token the gate does
-// not recognize (#262 rebucketed it from ask, and renamed it to match). This is
+// not recognize. This is
 // the whitelist half of the fix: without it, a gh release
 // that adds a second file-reading flag would ride the verb's existing ALLOW and
 // publish an ungraded file, exactly as `-F` did before this change.
@@ -795,7 +794,7 @@ func ghUnmodelledFlagDefer(label string, args []string, spec ghFileSpec) (Decisi
 				"notes-file flag, or a file operand), so an unmodelled flag could name a file that leaves the " +
 				"machine without ever being graded against the repository boundary."
 		}
-		return deferJudgment("gh publish-file:unknown-flag (#229)", fmt.Sprintf(
+		return deferJudgment("gh publish-file:unknown-flag", fmt.Sprintf(
 			"'%s %s' carries a flag the permission gate does not model. %s If the flag is a routine one, it "+
 				"can be added to the gate's per-verb flag model.", label, tok, risk)), true
 	}

@@ -138,17 +138,12 @@ These are the ways a check goes wrong often enough to be worth naming:
   `origin/<base>`. A pre-existing failure — or a stale lint config at
   the fork point — fabricates a counterexample that a rebase
   dissolves.
-- **Read inside your worktree, never the primary clone.** Before you
-  quote or grade any content, confirm the file you read sits under
-  your worktree root — `git rev-parse --show-toplevel`, the cwd the
-  harness gave you — at the head checkout from step 1. Never read
-  through an absolute path built from the repository path in injected
-  context: that path is the primary clone, and the read succeeds with
-  plausible pre-branch content. When in doubt, extract with
-  `git show HEAD:<path>`, which after the detached checkout is the PR
-  head. The `EVIDENCE` quote of a `DISPROVED` report is always in this
-  category. `docs/agent-tooling-notes.md` → "Read the worktree, never
-  the primary clone's path" carries the mechanism and the tell.
+- **Extract evidence bytes from `HEAD`, never another ref.**
+  `git show HEAD:<path>` after the detached checkout of step 1 is the
+  PR head; `git show main:<path>` or `git show origin/<base>:<path>`
+  returns the base's bytes and fabricates a counterexample out of
+  content the branch already changed. The `EVIDENCE` quote of a
+  `DISPROVED` report is always in this category.
 - **Prove supersession from the end state.** When a branch works
   forward past a wrong-approach commit, the correcting commit's diff
   does not establish the current state — a working-tree `test -e` or a

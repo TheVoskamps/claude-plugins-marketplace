@@ -12,7 +12,7 @@ func isMCPTool(name string) bool {
 }
 
 // classifyMCP branches on the MCP tool name (§2). Read-only MCP tools ALLOW;
-// everything else DEFERS (#262). The mutation branch and the unknown-tool
+// everything else DEFERS. The mutation branch and the unknown-tool
 // branch are both judgment-middle calls: the classification here is a
 // SUBSTRING match on a tool NAME, which says nothing about what the call
 // actually targets, so a downstream judge reading the arguments and the

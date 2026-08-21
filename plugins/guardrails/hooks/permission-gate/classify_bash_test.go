@@ -46,7 +46,7 @@ func wantBucket(t *testing.T, d Decision, want Bucket, label string) {
 // bucket-only assertion can pass without ever reaching the rule under test —
 // which is how a row asserting one particular DEFER keeps passing after it
 // starts earning the no-repo-context DEFER instead. (That residual was an ASK
-// until #262 rebucketed it, so the same trap used to be aimed at rows
+// until the defer middle took it, so the same trap used to be aimed at rows
 // asserting a publish ASK; the collision moved tiers, it did not go away, and
 // the DEFER tier now holds far more arms for a row to land on by accident.)
 // Use this wherever the bucket alone does not identify which rule fired.
@@ -65,7 +65,7 @@ func wantReason(t *testing.T, d Decision, want Bucket, reasonFragment, label str
 // §10: git globals before -C; commands inside &&/;/pipelines;
 // env VAR=x <cmd>; quoted/expanded strings — verified by classification.
 
-func TestGitGlobalsBeforeSubcommand_13(t *testing.T) {
+func TestGitGlobalsBeforeSubcommand(t *testing.T) {
 	// --no-pager / -c k=v / -P globals must be consumed; the real subcommand
 	// (status) is read-only → ALLOW. NOTE: `-c core.pager=cat` was previously
 	// asserted ALLOW here, but the config-injection gate now DENYs any
@@ -100,8 +100,8 @@ func TestEnvWrapper(t *testing.T) {
 	// This SUPERSEDES the prior expectation that `env FOO=bar git status` and
 	// `FOO=bar git log` ALLOW. Both the `env VAR=x cmd` and bare `VAR=x cmd`
 	// inline-prefix forms are denied for git.
-	wantBucket(t, classifyCmd(t, "env FOO=bar git status", false), BucketDeny, "env VAR=x git status (#64 inline env)")
-	wantBucket(t, classifyCmd(t, "FOO=bar git log", false), BucketDeny, "VAR=x git log (#64 inline env)")
+	wantBucket(t, classifyCmd(t, "env FOO=bar git status", false), BucketDeny, "env VAR=x git status inline env")
+	wantBucket(t, classifyCmd(t, "FOO=bar git log", false), BucketDeny, "VAR=x git log inline env")
 	// env wrapping a destructive subagent reset still DENYs (the inline-env deny
 	// fires first, but either way it is a deny).
 	wantBucket(t, classifyCmd(t, "env GIT_PAGER=cat git reset --hard", true), BucketDeny, "env + destructive")
@@ -112,7 +112,7 @@ func TestEnvWrapper(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "env FOO=bar printf hi", false), BucketAllow, "env VAR=x printf (non-git/gh/aws)")
 }
 
-func TestQuotedAndExpandedStrings_1(t *testing.T) {
+func TestQuotedAndExpandedStrings(t *testing.T) {
 	// Quoted argument to a read-only command — still classified ALLOW.
 	wantBucket(t, classifyCmd(t, `git log --grep="fix bug"`, false), BucketAllow, "quoted arg read-only")
 	// A command substitution anywhere makes the line non-statically-safe; it
@@ -124,7 +124,7 @@ func TestQuotedAndExpandedStrings_1(t *testing.T) {
 }
 
 // §10: gh auth switch and multi-identity switch forms are denied.
-func TestGhAuthSwitchDenied_117(t *testing.T) {
+func TestGhAuthSwitchDenied(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch", false), BucketDeny, "gh auth switch")
 	wantBucket(t, classifyCmd(t, "gh auth switch --user other", false), BucketDeny, "gh auth switch --user")
 	wantBucket(t, classifyCmd(t, "gh auth switch && gh pr list", false), BucketDeny, "gh auth switch in compound")
@@ -132,28 +132,28 @@ func TestGhAuthSwitchDenied_117(t *testing.T) {
 
 // §10: subagent git reset --hard is denied/asked with detached-checkout
 // remediation in stderr.
-func TestGitResetHard_120(t *testing.T) {
+func TestGitResetHard(t *testing.T) {
 	dSub := classifyCmd(t, "git reset --hard HEAD", true)
 	wantBucket(t, dSub, BucketDeny, "subagent git reset --hard")
 	if !containsSubstr(dSub.Reason, "detached checkout") {
-		t.Errorf("#120 remediation must mention detached checkout; got %q", dSub.Reason)
+		t.Errorf("remediation must mention detached checkout; got %q", dSub.Reason)
 	}
-	// Main session: DEFER (#262) — still destructive, but whether it is
+	// Main session: DEFER — still destructive, but whether it is
 	// destructive HERE depends on the working tree and what the session was
 	// doing, which the evaluator reads and the gate cannot. The same
 	// remediation hint rides the analysis into the §7 log.
 	dMain := classifyCmd(t, "git reset --hard HEAD", false)
 	wantBucket(t, dMain, BucketDefer, "main git reset --hard")
 	if !containsSubstr(dMain.Reason, "detached checkout") {
-		t.Errorf("#120 main-session defer analysis must keep the remediation; got %q", dMain.Reason)
+		t.Errorf("main-session defer analysis must keep the remediation; got %q", dMain.Reason)
 	}
 }
 
 // §10: git config user.* identity writes are denied, including the
 // `--file <path>` form where the file path precedes the user.* key. (The direct
 // file-tool Write/Edit of a .git/config is exercised separately in
-// containment_test.go's TestGitConfigFileWriteDenied_125.)
-func TestGitConfigIdentityDenied_125(t *testing.T) {
+// containment_test.go's TestGitConfigFileWriteDenied.)
+func TestGitConfigIdentityDenied(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git config user.email x@y.z", false), BucketDeny, "git config user.email")
 	wantBucket(t, classifyCmd(t, "git config user.name Foo", false), BucketDeny, "git config user.name")
 	wantBucket(t, classifyCmd(t, "git config --global user.email x@y.z", false), BucketDeny, "git config --global user.email")
@@ -192,7 +192,7 @@ func TestGitConfigIdentityDenied_125(t *testing.T) {
 // fix's `-C` path, and the absolute form is asserted separately as a
 // forbidden-form deny so the interaction is documented rather than silently
 // colliding.
-func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
+func TestGitConfigIdentityReadVsWrite(t *testing.T) {
 	// Reads → not denied. (Relative `-C` exercises the get-form path through
 	// parseGitGlobals + gitConfigIdentityRule.)
 	for _, cmd := range []string{
@@ -223,7 +223,7 @@ func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 		"git -C /some/repo config --local user.email foo@bar",
 	} {
 		d := classifyCmd(t, cmd, false)
-		wantBucket(t, d, BucketDeny, "abs -C (#78): "+cmd)
+		wantBucket(t, d, BucketDeny, "abs -C: "+cmd)
 		if !containsSubstr(d.Operation, "forbidden-form:git-C-abs") {
 			t.Errorf("abs -C form should deny via the forbidden-form rule; got op %q (%s)", d.Operation, d.Reason)
 		}
@@ -239,7 +239,7 @@ func TestGitConfigIdentityReadVsWrite_35(t *testing.T) {
 // (DeclClause), [[ … ]] (TestClause), let (LetClause), time (TimeClause), and
 // command substitutions inside an assignment RHS must be reduced precisely, not
 // blanket-asked as bash:unhandled-construct.
-func TestReducibleConstructs_35(t *testing.T) {
+func TestReducibleConstructs(t *testing.T) {
 	notUnhandled := func(cmd string) Decision {
 		t.Helper()
 		d := classifyCmd(t, cmd, false)
@@ -307,7 +307,7 @@ func TestReadOnlyAllowed(t *testing.T) {
 }
 
 // The aws terminal fall-through inverted from ALLOW to a withheld allow, and
-// #262 settled it in the DEFER middle: an aws op the gate cannot prove
+// The DEFER middle settles it: an aws op the gate cannot prove
 // read-only (e.g. s3api delete-object) defers, because the
 // call carries the guest's credentials to a control plane outside the
 // microVM and mutates real cloud state the VM cannot roll back — containment
@@ -362,7 +362,7 @@ func TestUnparseableFailsClosed(t *testing.T) {
 	}
 }
 
-// TestProcessSubstitutionDoesNotPanic_5 covers the panic repro: the gate
+// TestProcessSubstitutionDoesNotPanic covers the panic repro: the gate
 // panicked with a nil-pointer dereference while classifying `<(...)` /
 // `>(...)` process substitution, because the expand.Config used by literalWord
 // set no ProcSubst handler and expand.Literal calls it unconditionally. The
@@ -370,13 +370,14 @@ func TestUnparseableFailsClosed(t *testing.T) {
 //
 // The not-ALLOW assertion below is satisfied by classifyCmd's `/tmp` cwd, not
 // by any procsubst rule: with no repo context every containment-bearing arm
-// terminates in the no-repo-context residual (a DEFER since #262, an ASK
+// terminates in the no-repo-context residual (a DEFER under the defer
+// middle, an ASK
 // before). The gate DOES descend into the inner command — replayed against the
 // built binary with a real repo cwd, `cat <(echo hi)`, `comm -12 <(sort a)
 // <(sort b)` and `wc -l < <(grep x file)` all ALLOW, while `cat <(ls /etc)`
 // denies on the inner operand — so "procsubst never allows" is not a property
 // this test pins, and the row that matters here is the panic, not the bucket.
-func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
+func TestProcessSubstitutionDoesNotPanic(t *testing.T) {
 	cmds := []string{
 		"cat <(echo hi)",
 		"diff <(normalize a) <(normalize b)",
@@ -405,11 +406,11 @@ func TestProcessSubstitutionDoesNotPanic_5(t *testing.T) {
 	}
 }
 
-// TestMultilineEmbeddedCmdSubstDoesNotPanic_5 covers the sibling panic traces:
+// TestMultilineEmbeddedCmdSubstDoesNotPanic covers the sibling panic traces:
 // a multi-line command that prefixes a command with assignments whose RHS is a
 // command substitution (`ROOT="$(git rev-parse --show-toplevel)"`) followed by
 // a command using the variable. These must classify without panicking.
-func TestMultilineEmbeddedCmdSubstDoesNotPanic_5(t *testing.T) {
+func TestMultilineEmbeddedCmdSubstDoesNotPanic(t *testing.T) {
 	cmds := []string{
 		"P=\"/abs/path\"  ROOT=\"$(git rev-parse --show-toplevel)\"\n  diff \"$P\" \"$ROOT\"",
 		"S=\"/abs/scratch\"\n  wc -l \"$S/nbm-rendered.yml\"",

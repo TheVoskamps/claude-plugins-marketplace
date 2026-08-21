@@ -20,7 +20,7 @@ func bashEvIn(t *testing.T, repoRoot, agentType string) *Event {
 
 // The contained-allow cases — every acceptance-criterion ALLOW form, run
 // against a real repo so Engine B containment resolves a concrete worktree root.
-func TestInRepoWriteContainedAllow_32(t *testing.T) {
+func TestInRepoWriteContainedAllow(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -58,7 +58,7 @@ func TestInRepoWriteContainedAllow_32(t *testing.T) {
 // cp/mv with a destination that does not yet exist still resolves correctly
 // (canonicalize handles the non-existent tail via the longest existing ancestor)
 // and ALLOWs.
-func TestInRepoWriteNonExistentDest_32(t *testing.T) {
+func TestInRepoWriteNonExistentDest(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -77,7 +77,7 @@ func TestInRepoWriteNonExistentDest_32(t *testing.T) {
 
 // Escape-deny cases — a write whose operand resolves outside the repo (or
 // into the primary clone) DENIES with the worktree-anchored remediation.
-func TestInRepoWriteEscapeDeny_32(t *testing.T) {
+func TestInRepoWriteEscapeDeny(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	sibling := filepath.Join(base, "sibling")
@@ -119,7 +119,7 @@ func TestInRepoWriteEscapeDeny_32(t *testing.T) {
 
 // A write whose target lands under .git/ is denied, even though it
 // is technically in-repo / contained.
-func TestInRepoWriteGitTreeDenied_32(t *testing.T) {
+func TestInRepoWriteGitTreeDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -140,7 +140,7 @@ func TestInRepoWriteGitTreeDenied_32(t *testing.T) {
 // worktree-escape deny is preserved (the classifier inherits Engine B's
 // worktree-root resolution, so the subagent's worktree root is the containment
 // boundary).
-func TestInRepoWriteSubagentPrimaryCloneDenied_127(t *testing.T) {
+func TestInRepoWriteSubagentPrimaryCloneDenied(t *testing.T) {
 	primary, wt := setupWorktree(t)
 	if err := os.WriteFile(filepath.Join(wt, "a.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -149,14 +149,14 @@ func TestInRepoWriteSubagentPrimaryCloneDenied_127(t *testing.T) {
 
 	// cp from the worktree INTO the primary clone → worktree-escape deny.
 	cpd := classifyBash(`cp a.txt `+filepath.Join(primary, "stolen.txt"), ev)
-	wantBucket(t, cpd, BucketDeny, "#127 subagent cp into primary clone")
+	wantBucket(t, cpd, BucketDeny, "subagent cp into primary clone")
 	if !containsSubstr(cpd.Reason, "worktree") {
-		t.Errorf("#127 cp deny should mention the worktree; got %q", cpd.Reason)
+		t.Errorf("cp deny should mention the worktree; got %q", cpd.Reason)
 	}
 
 	// sed -i targeting a file in the primary clone → worktree-escape deny.
 	sedd := classifyBash(`sed -i 's/a/b/' `+filepath.Join(primary, "README.md"), ev)
-	wantBucket(t, sedd, BucketDeny, "#127 subagent sed -i into primary clone")
+	wantBucket(t, sedd, BucketDeny, "subagent sed -i into primary clone")
 
 	// A subagent writing INSIDE its own worktree is contained → ALLOW.
 	own := classifyBash(`cp a.txt b.txt`, ev)
@@ -165,7 +165,7 @@ func TestInRepoWriteSubagentPrimaryCloneDenied_127(t *testing.T) {
 
 // A symlink inside the worktree pointing outside it is caught (both
 // sides canonicalized) when used as a cp/sed -i target.
-func TestInRepoWriteSymlinkEscape_12(t *testing.T) {
+func TestInRepoWriteSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
 	}
@@ -185,12 +185,12 @@ func TestInRepoWriteSymlinkEscape_12(t *testing.T) {
 
 	// cp into the symlinked path resolves into the primary clone → deny.
 	d := classifyBash(`cp a.txt `+link, ev)
-	wantBucket(t, d, BucketDeny, "#12 cp through symlink escaping worktree")
+	wantBucket(t, d, BucketDeny, "cp through symlink escaping worktree")
 }
 
 // Unknown-expansion targets DEFER, not ALLOW (a $(...)-built target cannot be
 // statically contained).
-func TestInRepoWriteDynamicPathDefers_32(t *testing.T) {
+func TestInRepoWriteDynamicPathDefers(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -223,7 +223,7 @@ func TestInRepoWriteDynamicPathDefers_32(t *testing.T) {
 // rm stays OFF the in-repo-write allow track (conservative default). A
 // contained `rm` must NOT auto-allow — it defers (the normal pipeline / its
 // ask-list governs it).
-func TestInRepoWriteRmStaysOffAllowTrack_32(t *testing.T) {
+func TestInRepoWriteRmStaysOffAllowTrack(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -236,7 +236,7 @@ func TestInRepoWriteRmStaysOffAllowTrack_32(t *testing.T) {
 	for _, cmd := range []string{`rm a.txt`, `rm -rf sub`, `rm -f a.txt b.txt`} {
 		d := classifyBash(cmd, ev)
 		if d.Bucket == BucketAllow {
-			t.Errorf("rm must NOT ride the in-repo-write allow track (conservative #32); got ALLOW for %q", cmd)
+			t.Errorf("rm must NOT ride the in-repo-write allow track (conservative); got ALLOW for %q", cmd)
 		}
 	}
 }
@@ -244,7 +244,7 @@ func TestInRepoWriteRmStaysOffAllowTrack_32(t *testing.T) {
 // The read-only forms of the dual-mode programs (sed without -i, tee
 // /dev/null) keep their read-only-utility ALLOW and do NOT route through the
 // write classifier.
-func TestInRepoWriteDualModeReadOnlyUnaffected_32(t *testing.T) {
+func TestInRepoWriteDualModeReadOnlyUnaffected(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -261,7 +261,7 @@ func TestInRepoWriteDualModeReadOnlyUnaffected_32(t *testing.T) {
 
 // A real-file redirect on a write command disqualifies the ALLOW (bytes
 // also leave for a file the operand parser does not model) → defer.
-func TestInRepoWriteRedirectDefers_32(t *testing.T) {
+func TestInRepoWriteRedirectDefers(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -279,7 +279,7 @@ func TestInRepoWriteRedirectDefers_32(t *testing.T) {
 
 // Unit: sedFileOperands excludes the inline script but keeps files, and
 // keeps every operand when -e/-f supplies the script.
-func TestSedFileOperands_32(t *testing.T) {
+func TestSedFileOperands(t *testing.T) {
 	cases := []struct {
 		args []string
 		want []string
@@ -303,7 +303,7 @@ func TestSedFileOperands_32(t *testing.T) {
 
 // Unit: cpMvOperands keeps all path operands incl. dest, handles -t DEST and
 // skips suffix values.
-func TestCpMvOperands_32(t *testing.T) {
+func TestCpMvOperands(t *testing.T) {
 	cases := []struct {
 		args []string
 		want []string
@@ -325,7 +325,7 @@ func TestCpMvOperands_32(t *testing.T) {
 }
 
 // Unit: teeTargets returns real-file destinations, dropping /dev/null and flags.
-func TestTeeTargets_32(t *testing.T) {
+func TestTeeTargets(t *testing.T) {
 	cases := []struct {
 		args []string
 		want []string

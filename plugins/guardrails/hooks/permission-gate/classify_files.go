@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -11,16 +12,15 @@ import (
 // tested; the worst result wins (escape → deny, contained → defer to the
 // normal pipeline).
 //
-// Writes and reads diverge on a primary-clone-escape target: a
-// mutating tool DENIES a target that resolves into the primary clone /
-// shared git dir (a write there corrupts state another worktree
-// depends on), while a non-mutating (read) tool is CONTAINED there instead —
-// a linked worktree shares tracked content with the primary clone, so a read
-// discloses nothing new — except a target under `.git/`, which stays denied
-// for reads too. Cross-repo escapes (a genuine sibling repo)
-// are still denied for both reads and writes. The hook only DENIES on a
-// proven escape; an in-worktree (or now, primary-clone-read) path defers
-// (the normal pipeline / settings.json denyRead etc. still apply).
+// A primary-clone-escape target DENIES for reads and writes alike, with a
+// different reason each way: a write there corrupts state another worktree
+// depends on, while a read returns the primary clone's working file, which can
+// differ from this worktree's — plausible content from the wrong tree, with no
+// error to signal it. A target under `.git/` denies on its own grounds, ahead
+// of both. Cross-repo escapes (a genuine sibling repo) are still denied for
+// both reads and writes. The hook only DENIES on a proven escape; an
+// in-worktree path defers (the normal pipeline / settings.json denyRead etc.
+// still apply).
 //
 // The one path to an outright ALLOW here is the harness scratchpad
 // carve-out: when EVERY target of the call lands in an allow-eligible region
@@ -75,7 +75,7 @@ func classifyFileTool(ev *Event) Decision {
 		// hooks (`.git/hooks/pre-commit`), or corrupt repo state. Reads of `.git/`
 		// files are not mutations, so this is gated on a mutating tool.
 		if isMutatingFileTool(ev.ToolName) && isUnderGitDir(canonicalize(p), rc) {
-			return deny("write:.git tree (#125)", fmt.Sprintf(
+			return deny("write:.git tree", fmt.Sprintf(
 				"Blocked: %s target '%s' is inside a .git/ directory. Directly editing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
 					"repo state. Git's own commands own that tree — do not hand-edit .git/. %s If a setting is "+
@@ -90,36 +90,34 @@ func classifyFileTool(ev *Event) Decision {
 		switch res {
 		case escapeWorktree:
 			if !isMutatingFileTool(ev.ToolName) {
-				// A Read of the primary clone / shared git dir is a read of
-				// content the worktree already shares — not the write hazard (that
-				// is a WRITE into the shared clone). The .git/ tree deny still
-				// applies independently (checked above via isUnderGitDir, though
-				// that check is gated to mutating tools — so re-check it here for
-				// the read case: a read of .git/ internals stays gated even where
-				// primary-clone reads are otherwise relaxed, because config and
-				// hooks disclose identity and executable content the shared-content
-				// argument does not cover).
+				// The .git/-tree read deny is checked first and independently of
+				// the working-file deny below: the isUnderGitDir check at the top
+				// of the loop is gated to mutating tools, so the read case is
+				// re-checked here. Its message names the git internals it protects
+				// (config and hooks disclose identity and executable content),
+				// which the working-file deny's staleness reasoning does not cover.
 				if isUnderGitDir(real, rc) {
-					return deny("read:.git tree (#125)", fmt.Sprintf(
+					return deny("read:.git tree", fmt.Sprintf(
 						"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
-							"hooks, etc.) stay gated even though primary-clone reads are otherwise allowed. Do not "+
-							"work around this by reading or writing under .git/.",
+							"hooks, etc.) are gated for their own reasons: they disclose identity and executable "+
+							"content, which no shared-content argument covers. Do not work around this by reading "+
+							"or writing under .git/.",
 						ev.ToolName, p))
 				}
-				// Not under .git/: treat as contained and keep checking remaining
-				// paths — defer to the normal pipeline, the same as an in-worktree
-				// read.
-				continue
+				return deny("read:worktree-escape", fmt.Sprintf(
+					"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
+						"The primary clone's working files can differ from this worktree's, so what comes back is "+
+						"plausible content from the wrong tree with no error. %s",
+					ev.ToolName, p, real, rc.topLevel, worktreeReadRemediation(real, rc)))
 			}
-			correct := correctWorktreePath(real, rc)
-			return deny("containment:worktree-escape (#127)", fmt.Sprintf(
+			return deny("containment:worktree-escape", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 					"Writes and edits must land inside this worktree. Use the worktree-anchored path instead: %s. "+
 					"Anchor every absolute path to $(git rev-parse --show-toplevel). %s",
-				ev.ToolName, p, real, rc.topLevel, correct,
+				ev.ToolName, p, real, rc.topLevel, correctWorktreePath(real, rc),
 				scratchDestinations(rc.topLevel)))
 		case escapeRepo:
-			return deny("containment:cross-repo (#148)", fmt.Sprintf(
+			return deny("containment:cross-repo", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves outside the current repository (%s, repo root %s). "+
 					"Tool-mediated reads and writes must stay within the current repo — do not reach into a sibling "+
 					"repo (e.g. another project's node_modules). If you need third-party API details, consult the "+
@@ -128,7 +126,7 @@ func classifyFileTool(ev *Event) Decision {
 		case harnessScratchBadRoot:
 			// Record, do not return: a later target may be a genuine escape,
 			// and a deny must outrank this defer.
-			badRoot = harnessScratchBadRootDefer("file:scratchpad-root (#193)",
+			badRoot = harnessScratchBadRootDefer("file:scratchpad-root",
 				fmt.Sprintf("%s target '%s'", ev.ToolName, p))
 			haveBadRoot = true
 		case harnessScratchSession:
@@ -214,16 +212,15 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 
 // containPathOperands runs Engine B containment on a read-class command's path
 // operands. It returns ok=true when every operand is contained inside the
-// current worktree, is a non-.git/ read of the primary clone / shared git dir
-// (a linked worktree shares tracked content with the primary clone, so
-// this is not a disclosure), or is one of the carve-outs (the ~/.claude tree,
+// current worktree, or is one of the carve-outs (the ~/.claude tree,
 // or the harness scratchpad prefix), so the caller may proceed to its
 // contained-path terminal (ALLOW for the read-only-utility classifier, DEFER
 // for classifyPathReader).
 //
 // ok=false means the returned Decision is TERMINAL — return it verbatim.
-// Usually that is a deny (cross-repo, or a .git/-tree read) or a
-// defer-with-analysis (no repo context, or a defective scratchpad root), but
+// Usually that is a deny (cross-repo, a worktree escape, or a .git/-tree
+// read) or a defer-with-analysis (no repo context, or a defective scratchpad
+// root), but
 // it is also how the scratchpad ALLOW is delivered: when every operand
 // lands in a read-eligible region of the harness prefix (a session-shaped
 // scratchpad directory, or the bundled-skills tree), the read is allowed
@@ -285,29 +282,31 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 		}
 		switch res {
 		case escapeRepo:
-			return deny("bash-read:cross-repo (#148)", fmt.Sprintf(
+			return deny("bash-read:cross-repo", fmt.Sprintf(
 				"Blocked: '%s' would read '%s' which resolves outside the current repository (%s, repo root %s). "+
 					"Do not read another repo's files (e.g. a sibling project's node_modules) to verify third-party "+
 					"APIs — use the dependency's published docs. %s Do not work around this by reading or writing "+
 					"under .git/.",
 				prog, p, real, rc.topLevel, handoffHint())), false
 		case escapeWorktree:
-			// A linked worktree SHARES tracked content with the primary
-			// clone / common dir, so reading a non-.git/ file there discloses
-			// nothing the worktree's own history doesn't already have. Relax to
-			// contained for reads — but the .git/ tree deny MUST
-			// survive independently of this relaxation: check it BEFORE relaxing.
+			// The .git/-tree read deny is checked first and independently of the
+			// working-file deny below, because its message names the git
+			// internals it protects rather than the staleness hazard.
 			if isUnderGitDir(real, rc) {
-				return deny("bash-read:.git tree (#125)", fmt.Sprintf(
+				return deny("bash-read:.git tree", fmt.Sprintf(
 					"Blocked: '%s' would read '%s' which is inside a .git/ directory. Reads of .git/ internals "+
-						"(config, hooks, etc.) stay gated even though primary-clone reads are otherwise allowed. "+
-						"Do not work around this by reading or writing under .git/.",
+						"(config, hooks, etc.) are gated for their own reasons: they disclose identity and "+
+						"executable content, which no shared-content argument covers. Do not work around this by "+
+						"reading or writing under .git/.",
 					prog, real)), false
 			}
-			// Not under .git/: a legitimate shared-content read (the git-tree
-			// intent). Treat as contained rather than escalating.
+			return deny("bash-read:worktree-escape", fmt.Sprintf(
+				"Blocked: '%s' would read '%s' which resolves to the primary clone / shared git dir (%s), not this "+
+					"worktree (%s). The primary clone's working files can differ from this worktree's, so what comes "+
+					"back is plausible content from the wrong tree with no error. %s",
+				prog, p, real, rc.topLevel, worktreeReadRemediation(real, rc))), false
 		case harnessScratchBadRoot:
-			badRoot = harnessScratchBadRootDefer("bash-read:scratchpad-root (#193)",
+			badRoot = harnessScratchBadRootDefer("bash-read:scratchpad-root",
 				fmt.Sprintf("'%s' operand '%s'", prog, p))
 			haveBadRoot = true
 		case harnessScratchSession, harnessScratchBundled:
@@ -607,15 +606,13 @@ func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 // one the gate cannot bless. hit=false means every destination is fine and the
 // caller may proceed to its own verdict.
 //
-// The two PROVEN-bad destinations DENY (#262), with the same prescriptive
-// prose the Write tool's denies carry for the identical destination. Before
-// #262 they asked, which made one escape carry two verdicts decided purely by
-// spelling: `Write` to /tmp/x.md denied with scratchDestinations guidance,
-// while `git show HEAD:f > /tmp/x.md` — same escape, same containment
-// predicate, same message — prompted the operator. It was observed in the
-// wild: an sdlc:theorem-disprover redirecting `git show` output to /tmp/
-// prompted a human when the message it was shown would have redirected it
-// perfectly. The deny is also the tier that TEACHES: a redirect has a
+// The two PROVEN-bad destinations DENY, with the same prescriptive
+// prose the Write tool's denies carry for the identical destination. An ask
+// here would make one escape carry two verdicts decided purely by spelling:
+// `Write` to /tmp/x.md denies with scratchDestinations guidance, so
+// `git show HEAD:f > /tmp/x.md` — same escape, same containment predicate,
+// same message — must not instead prompt the operator. The deny is also the
+// tier that TEACHES: a redirect has a
 // prescriptive alternative (write under <repo>/.claude/tmp/, or the harness
 // scratchpad), which is exactly what qualifies it for BucketDeny rather than
 // the judgment middle.
@@ -753,4 +750,31 @@ func correctWorktreePath(real string, rc *repoContext) string {
 		return rc.topLevel + rel
 	}
 	return rc.topLevel + "/<the-intended-relative-path>"
+}
+
+// worktreeReadRemediation returns the sentence a worktree-escape READ deny
+// ends with, naming where the reader should go instead.
+//
+// correctWorktreePath's prefix substitution names a usable file only where
+// this worktree carries the same relative path the primary clone does. A
+// target inside another agent's worktree — the primary clone's
+// .claude/worktrees/<agent>/ tree, which is gitignored and never checked out
+// here — rewrites to a path under THIS worktree's own .claude/worktrees/, and
+// so does any other primary-clone path this worktree does not track.
+// Prescribing one of those sends the reader to a file that does not exist.
+//
+// A read wants bytes that already exist, so existence is what decides which
+// remediation is the true one, and it also covers the cases no path test
+// would enumerate. Where the substitution misses, the bytes are not on this
+// worktree's disk at all and only a ref extraction reaches them.
+func worktreeReadRemediation(real string, rc *repoContext) string {
+	correct := correctWorktreePath(real, rc)
+	if _, err := os.Stat(correct); err == nil {
+		return fmt.Sprintf("Read '%s' instead. Anchor every absolute path to "+
+			"$(git rev-parse --show-toplevel).", correct)
+	}
+	return fmt.Sprintf("This worktree holds no file at the corresponding path ('%s'), so there is no "+
+		"worktree-anchored path to substitute — the bytes are not on this worktree's disk. Extract them "+
+		"from a ref instead: git show HEAD:<path-relative-to-repo-root>, run from this worktree. If no ref "+
+		"carries them, ask the human rather than reaching across the filesystem.", correct)
 }

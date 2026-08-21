@@ -139,19 +139,19 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	if cmd[0] == "auth" && len(cmd) >= 2 {
 		switch cmd[1] {
 		case "switch":
-			return deny("gh auth switch (#117)",
+			return deny("gh auth switch",
 				"Blocked: 'gh auth switch' changes the active GitHub identity and is forbidden — "+
 					"it silently re-attributes every subsequent gh action to a different account. "+
 					"Do not switch identities. If the wrong identity is active, surface it to the human; "+
 					"App-managed repos should call the gh_wrapper which mints the correct token per call.")
 		case "login":
-			// HARD ASK tier (#262): login can re-target identity, and the
+			// HARD ASK tier: login can re-target identity, and the
 			// credential surface is user-owned, so this is a human decision by
 			// policy rather than an unclassifiable command. (The normal pipeline
 			// allow-lists 'gh auth login', but a switch via re-login is the
 			// multi-identity-switch form the deny above warns about.)
 			if containsToken(cmd[2:], "--hostname") || containsToken(cmd[2:], "-h") {
-				return ask("gh auth login --hostname (#117)",
+				return ask("gh auth login --hostname",
 					"'gh auth login' targeting a specific host can switch the active identity. Credential "+
 						"surfaces are user-owned, so this is a human decision by policy. Confirm this is "+
 						"intended and not an unprompted identity switch.")
@@ -181,18 +181,18 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 			}
 			return allow("gh auth status reports the active account and scopes without printing a credential")
 		case "token":
-			// HARD ASK tier (#262), and an EXPLICIT arm rather than a
+			// HARD ASK tier, and an EXPLICIT arm rather than a
 			// fall-through. `gh auth token` prints the live OAuth token — the
 			// same credential read `gh auth status --show-token` performs, with
 			// no flag needed — so it belongs beside that ask on policy grounds.
 			//
-			// Before #262 it escalated only because it reached the unrecognized-
-			// command floor, and that floor was an ASK. Moving the floor to
-			// DEFER would have silently dropped a credential print out of the
-			// tier, which is exactly the class of regression a residual-bucket
-			// change causes: nothing about `gh auth token` changed, only what
+			// An EXPLICIT arm is what keeps it in the tier. Leaving it to the
+			// unrecognized-command floor would tie a credential print to
+			// whatever bucket that floor happens to hold, which is exactly the
+			// class of regression a residual-bucket change causes: nothing
+			// about `gh auth token` changes, only what
 			// happened to catch it.
-			return ask("gh auth token (#262)",
+			return ask("gh auth token",
 				"'gh auth token' prints the live OAuth token in plain text — a credential read, not a status "+
 					"read. Credential surfaces are user-owned, so this is a human decision by policy. Confirm "+
 					"this is intended; 'gh auth status' reports the active account and its scopes without "+
@@ -237,20 +237,20 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		return d
 	}
 
-	// HARD ASK tier (#262): gh repo edit --visibility (sanctioned-skill
+	// HARD ASK tier: gh repo edit --visibility (sanctioned-skill
 	// territory). A visibility flip is a publish in the sense this tier cares
 	// about — CLAUDE.md already treats the human click as the sanctioned
 	// escalation for publishing — so it is meant to stand rather than be waived
 	// downstream (that precedence is design intent, not a pinned fact).
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {
-			return ask("gh repo edit --visibility (#64)",
+			return ask("gh repo edit --visibility",
 				"'gh repo edit --visibility' flips repo visibility — an accidental public flip leaks scrubbed "+
 					"identifiers. Confirm this is intended; visibility changes should go through the sanctioned skill.")
 		}
 	}
 
-	// HARD ASK tier (#262): release / gist publish (exposure, irreversible).
+	// HARD ASK tier: release / gist publish (exposure, irreversible).
 	// The spec DENYs publish "unless via sanctioned visibility skill"; the gate
 	// has no signal for that wrapper, and a hard DENY would leave no escape
 	// hatch for legitimate release creation, so it routes to ASK (one human
@@ -259,7 +259,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// evaluator waive it would remove the one control on an irreversible
 	// exposure.
 	if cmd[0] == "release" && len(cmd) >= 2 && cmd[1] == "create" {
-		return ask("gh release create (#64 publish)",
+		return ask("gh release create publish",
 			"'gh release create' publishes a release — exposure that is effectively irreversible. "+
 				"Confirm this is intended; publishing should go through the sanctioned visibility skill.")
 	}
@@ -278,7 +278,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		//
 		// Containment above still outranks this: an ESCAPING file operand DENYs
 		// rather than softening to a click-through on the ask.
-		return ask("gh gist create (#64/#229 publish)",
+		return ask("gh gist create publish",
 			"'gh gist create' publishes the contents of a local file to GitHub, at a URL that outlives any "+
 				"local cleanup — with or without '--public'. A gist created WITHOUT the flag is what GitHub "+
 				"calls SECRET, which means UNLISTED rather than private: GitHub's own docs say a secret gist "+
@@ -307,7 +307,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		//
 		// Containment above still outranks this: an ESCAPING file operand DENYs
 		// rather than softening to a click-through on the ask.
-		return ask("gh gist edit (#64/#229 publish)",
+		return ask("gh gist edit publish",
 			"'gh gist edit' publishes a local file's contents into a gist that ALREADY EXISTS — one whose URL "+
 				"may have been handed out already and may already have readers, so the content is exposed the "+
 				"moment it lands, and deleting it afterwards does not un-read it. That is the same egress "+
@@ -348,12 +348,12 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 		// distinguish from an own-repo comment. Whether a given cross-repo write
 		// is that channel or ordinary work (a fork, an upstream issue) is
 		// context the gate cannot read and the evaluator can, so it DEFERS with
-		// the target named (#262). An own-repo target (or no explicit target)
+		// the target named. An own-repo target (or no explicit target)
 		// stays ALLOW; an undeterminable origin fails open to the former ALLOW
 		// (the verb already passed the recoverable-write allowlist).
 		if target := ghExplicitRepoTarget(leadingRepo, cmd); target != "" {
 			if origin := sessionOriginRepo(ev.CWD); origin != "" && target != origin {
-				return deferJudgment("gh foreign-target write (#163)",
+				return deferJudgment("gh foreign-target write",
 					"'gh "+strings.Join(cmd, " ")+"' writes to '"+target+"', which differs from this session's "+
 						"origin repo ('"+origin+"'). A write to another repo is an exfil-by-write channel the egress "+
 						"proxy cannot see (it sees only ciphertext to an allowed host).")
@@ -369,7 +369,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// precisely what the gate cannot vouch for — but "unrecognized" is an
 	// absence of gate knowledge, not evidence of harm, so it is the judgment
 	// middle rather than a human click.
-	return deferJudgment("gh unrecognized command (#163)",
+	return deferJudgment("gh unrecognized command",
 		"'gh "+strings.Join(cmd, " ")+"' is not a recognized read or an enumerated recoverable write, so the "+
 			"permission gate cannot classify it. If it is a routine safe operation, it can be added to the "+
 			"gate's enumerated verb set.")
@@ -399,7 +399,7 @@ var ghAuthStatusBoolFlags = map[string]bool{
 // returns a terminal HARD ASK for any form the gate cannot vouch for as
 // credential-free. flags is the token slice AFTER `auth status`.
 //
-// Both arms sit in the enumerated hard-ask tier (#262), including the
+// Both arms sit in the enumerated hard-ask tier, including the
 // unknown-flag one — which is why it does NOT defer alongside the other
 // unmodelled-flag arms (`gh api`, the aws global, the publish-file model).
 // Those grade a command whose CLASS is otherwise established; this one exists
@@ -418,7 +418,7 @@ var ghAuthStatusBoolFlags = map[string]bool{
 // are the exact `-a` and `-h`; every glued or bundled short form escalates.
 func ghAuthStatusEscalates(flags []string) (Decision, bool) {
 	tokenAsk := func() (Decision, bool) {
-		return ask("gh auth status --show-token (#225)",
+		return ask("gh auth status --show-token",
 			"'gh auth status' with '-t'/'--show-token' prints the live OAuth token in plain text — including "+
 				"inside '--json' output — which makes it a credential read rather than a status read. Confirm this "+
 				"is intended; drop the flag if the active account and its scopes are what you need. A bundled "+
@@ -426,7 +426,7 @@ func ghAuthStatusEscalates(flags []string) (Decision, bool) {
 				"will not rule out '--show-token' inside one."), true
 	}
 	unknownAsk := func(tok string) (Decision, bool) {
-		return ask("gh auth status unknown-flag (#225)",
+		return ask("gh auth status unknown-flag",
 			"'gh auth status "+tok+"' carries a token the permission gate does not recognize as credential-free, "+
 				"so it escalates to a human rather than allowing a form that may print the auth token. The "+
 				"recognized flags are --active, --hostname, --json, --jq, --template and --help (each short flag "+
@@ -490,7 +490,7 @@ func ghAuthStatusEscalates(flags []string) (Decision, bool) {
 // The `gist` noun is absent ENTIRELY rather than carrying an empty verb set:
 // both of its write verbs send local content to a URL outside the repo — where
 // `create` mints one, `edit` pushes content into one that may already have
-// readers — so both are routed to the publish ASK above (#229), and neither was
+// readers — so both are routed to the publish ASK above, and neither was
 // ever a recoverable write. "Recoverable" is not a coherent property for
 // something others may already have read.
 var ghRecoverableWriteVerbs = map[string]map[string]bool{
@@ -629,23 +629,23 @@ func ghIrreparableDeny(cmd []string) (Decision, bool) {
 	case "repo":
 		switch verb {
 		case "delete":
-			return d("gh repo delete (#64)",
+			return d("gh repo delete",
 				"Blocked: 'gh repo delete' is irreparable — a repository is not a recoverable git object. Denied. "+
 					"If archiving is the intent, 'gh repo archive' is reversible; do a genuine deletion deliberately "+
 					"via the GitHub UI, not as part of automated work.")
 		case "rename":
-			return d("gh repo rename (#64)",
+			return d("gh repo rename",
 				"Blocked: 'gh repo rename' changes the repository's identity and breaks every existing reference. "+
 					"Denied; rename deliberately via the GitHub UI if genuinely intended.")
 		case "transfer":
-			return d("gh repo transfer (#64)",
+			return d("gh repo transfer",
 				"Blocked: 'gh repo transfer' moves the repository to another owner — irreparable from here. Denied. "+
 					"Transfer deliberately via the GitHub UI's repository settings if genuinely intended.")
 		}
 	case "release":
 		switch verb {
 		case "delete":
-			return d("gh release delete (#64)",
+			return d("gh release delete",
 				"Blocked: 'gh release delete' destroys release assets, which are NOT git objects and not "+
 					"recoverable. Denied. If a release should be withdrawn without destroying its assets, "+
 					"'gh release edit <tag> --draft' un-publishes it reversibly; delete deliberately via the "+
@@ -653,13 +653,13 @@ func ghIrreparableDeny(cmd []string) (Decision, bool) {
 		}
 	case "issue":
 		if verb == "delete" {
-			return d("gh issue delete (#64)",
+			return d("gh issue delete",
 				"Blocked: 'gh issue delete' is a HARD delete (contrast 'gh issue close', which is reversible). "+
 					"Denied; close the issue instead if that is the intent.")
 		}
 	case "gist":
 		if verb == "delete" {
-			return d("gh gist delete (#64)",
+			return d("gh gist delete",
 				"Blocked: 'gh gist delete' destroys the gist irreparably. Denied. If the content should just be "+
 					"withdrawn, 'gh gist edit' can empty it reversibly; delete deliberately via the GitHub UI if it "+
 					"is genuinely disposable.")
@@ -674,14 +674,14 @@ func ghIrreparableDeny(cmd []string) (Decision, bool) {
 		case "list", "get":
 			return Decision{}, false // a read; fall through to the enumerated-read ALLOW.
 		default:
-			return d("gh "+noun+" write (#64)",
+			return d("gh "+noun+" write",
 				"Blocked: 'gh "+noun+" "+verb+"' writes or deletes a "+noun+" value the gate cannot recover. "+
 					"Denied; set "+noun+"s deliberately via the GitHub UI's Settings → Secrets and variables, not "+
 					"as part of automated work.")
 		}
 	case "ruleset":
 		if verb == "delete" {
-			return d("gh ruleset delete (#64)",
+			return d("gh ruleset delete",
 				"Blocked: 'gh ruleset delete' weakens branch-protection guardrails — it disarms the guardrail the "+
 					"rest of this policy relies on. Denied. Adjust rulesets deliberately via the GitHub UI's "+
 					"Settings → Rules, or re-run the gh-repo-setup-protection skill to reconverge them.")
@@ -706,7 +706,7 @@ func hasFlagPrefix(args []string, prefix string) bool {
 // justification — the egress proxy's host-allowlist can see and control it)
 // and an unclassifiable graphql document.
 func classifyghAPIDeny(reason string) Decision {
-	return deny("gh api deny (#64/#113)", reason)
+	return deny("gh api deny", reason)
 }
 
 // ghAPIHostnameDenyReason is shared by the `--hostname` and `--hostname=…`
@@ -843,19 +843,19 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 		case a == "-H" || a == "--header":
 			if i+1 < len(args) {
 				if headerIsMethodOverride(args[i+1]) {
-					return deferJudgment("gh api x-http-method-override (#162)",
+					return deferJudgment("gh api x-http-method-override",
 						"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET.")
 				}
 				i++
 			}
 		case strings.HasPrefix(a, "-H") && len(a) > 2:
 			if headerIsMethodOverride(strings.TrimPrefix(a, "-H")) {
-				return deferJudgment("gh api x-http-method-override (#162)",
+				return deferJudgment("gh api x-http-method-override",
 					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET.")
 			}
 		case strings.HasPrefix(a, "--header="):
 			if headerIsMethodOverride(strings.TrimPrefix(a, "--header=")) {
-				return deferJudgment("gh api x-http-method-override (#162)",
+				return deferJudgment("gh api x-http-method-override",
 					"'gh api' with an X-HTTP-Method-Override header performs a write disguised as a GET.")
 			}
 		case strings.HasPrefix(a, "-") && a != "-":
@@ -879,7 +879,7 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 	// endpoint branch so a `-X DELETE graphql` or a `-f a=b`-flipped POST to a
 	// REST endpoint is graded regardless of endpoint.
 	if method != "" && !strings.EqualFold(method, "GET") {
-		return deferJudgment("gh api non-GET method (#162)",
+		return deferJudgment("gh api non-GET method",
 			"'gh api' with a non-GET method (-X/--method "+method+") performs a write.")
 	}
 	if bodyBearing && method == "" && !graphql {
@@ -888,7 +888,7 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 		// is how the query is passed; the graphql path below classifies the
 		// document instead of asking on the body flag.) The `-XGET -f …`
 		// carve-out (method == "GET") stays a read and falls through.
-		return deferJudgment("gh api implicit-POST body flag (#162)",
+		return deferJudgment("gh api implicit-POST body flag",
 			"'gh api' with a request-body flag (-f/-F/--field/--raw-field/--input) and no explicit GET method "+
 				"implicitly flips to POST and performs a write.")
 	}
@@ -957,7 +957,7 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 			// target is an opaque node ID the gate cannot resolve, which is
 			// exactly what a context-reading evaluator grades better than a
 			// prompt.
-			return deferJudgment("gh api graphql mutation (#113)",
+			return deferJudgment("gh api graphql mutation",
 				"'gh api graphql' carries a mutation operation ("+strings.Join(res.mutationFields, ", ")+") "+
 					"that is not on the gate's issue-metadata allowlist. Mutations write to GitHub, and these "+
 					"address opaque node IDs the gate cannot resolve to a repository.")
@@ -1040,7 +1040,7 @@ func isGhReadOnly(cmd []string) bool {
 //     tier: credential surfaces are user-owned, so the click is policy.
 //   - ALLOW: read-only ops only (describe-/list-/get- hyphen anchor + the
 //     explicit read-only whitelist).
-//   - DEFER: every other aws op, plus the unknown-global desync (#262). An
+//   - DEFER: every other aws op, plus the unknown-global desync. An
 //     aws mutation is not a guest-local operation — it carries the guest's
 //     credentials to a control plane OUTSIDE the VM and mutates real cloud
 //     state the VM cannot roll back, so containment-lives-in-the-microVM does
@@ -1059,7 +1059,7 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	// to an arbitrary host. Gate this BEFORE op classification so even a
 	// read-shaped op cannot exfiltrate via a redirected endpoint.
 	if awsHasEndpointURL(args) {
-		return deny("aws --endpoint-url (#64)",
+		return deny("aws --endpoint-url",
 			"Blocked: 'aws --endpoint-url <url>' redirects the SIGNED request — carrying your credentials — to an "+
 				"arbitrary host (credential/data exfil and SSRF). Denied. Remove --endpoint-url; the default "+
 				"AWS endpoints are the only sanctioned targets.")
@@ -1072,9 +1072,9 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 		// so a credential read could be hiding behind the shift. The gate cannot
 		// classify the operation at all, which is an unmodelled-flag case rather
 		// than an established credential read, so it DEFERS with the desync
-		// named (#262). The enumerated credential reads below keep their hard
+		// named. The enumerated credential reads below keep their hard
 		// ask; this arm is the one that could not reach them.
-		return deferJudgment("aws unknown-global (#64)",
+		return deferJudgment("aws unknown-global",
 			"'aws' has an unrecognized leading global flag whose argument shape the permission gate cannot "+
 				"determine; this can hide a credential read behind a shifted operation token, so the operation "+
 				"token itself cannot be trusted.")
@@ -1087,27 +1087,27 @@ func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 		return allow("aws (no classifiable service/operation)")
 	}
 
-	// HARD ASK tier (#262): credential/secret reads. Credential surfaces are
+	// HARD ASK tier: credential/secret reads. Credential surfaces are
 	// user-owned, so this stays a human click by policy — it is not a
 	// classification the gate is unsure about, and an LLM must not be able to
 	// waive it.
 	if awsCredentialRead(svc, op, args) {
-		return ask("aws credential-read (#64)",
+		return ask("aws credential-read",
 			fmt.Sprintf("'aws %s %s' returns credentials or secrets. Credential surfaces are user-owned, so this "+
 				"is a human decision by policy. Confirm this is intended; do not pipe the output anywhere it "+
 				"could be captured.", svc, op))
 	}
 
-	// HARD ASK tier (#262): credential MINTS. `aws sts assume-role` and
+	// HARD ASK tier: credential MINTS. `aws sts assume-role` and
 	// `aws iam create-access-key` return live credentials on stdout exactly as
 	// `sts get-session-token` does, but they are not `get-*` READS, so neither
 	// the exact-pair switch nor awsCredentialShapedGet reaches them and they
-	// rode the residual — which #262 moved from ask to defer, dropping
+	// would otherwise ride the residual, which is a defer — dropping
 	// credential minting out of the hard-ask tier altogether. Credential
 	// surfaces are user-owned, so an evaluator must not be able to waive a call
 	// that hands the session fresh live AWS credentials.
 	if awsCredentialMint(svc, op) {
-		return ask("aws credential-mint (#262)",
+		return ask("aws credential-mint",
 			fmt.Sprintf("'aws %s %s' MINTS live credential material and returns it. Credential surfaces are "+
 				"user-owned, so this is a human decision by policy. Confirm this is intended; do not pipe the "+
 				"output anywhere it could be captured.", svc, op))
@@ -1255,7 +1255,7 @@ var awsCredentialMaterialTokens = map[string]bool{
 // exposure gain. Non-read prefixes (`generate-`/`request-`/`send-`) never reach
 // the ALLOW floor at all — they already fall through awsReadOnlyOp to the DEFER
 // residual, and `generate-`/`request-` carrying credential material are caught
-// by awsCredentialMint's hard ask (#262) — so they need no guard here.
+// by awsCredentialMint's hard ask — so they need no guard here.
 func awsCredentialShapedGet(op string) bool {
 	op = strings.ToLower(op)
 	if !strings.HasPrefix(op, "get-") {
@@ -1297,9 +1297,9 @@ var awsCredentialMintPrefixes = []string{"create-", "reset-", "update-", "genera
 //
 // It exists because the read-shaped signals miss the mint-shaped ops entirely.
 // `sts assume-role` and `iam create-access-key` return live credentials exactly
-// as `sts get-session-token` does, but they are not `get-*` reads, so before
-// #262 they merely rode the ask-default residual; when that residual became a
-// defer, they silently left the hard-ask tier. Enumerating only the two ops the
+// as `sts get-session-token` does, but they are not `get-*` reads, so without
+// this predicate they ride the residual, which is a defer, and silently leave
+// the hard-ask tier. Enumerating only the two ops the
 // review named would reinstate the same one-release-behind blacklist the
 // awsCredentialRead comment argues against, so the match is structural.
 //
@@ -1655,10 +1655,10 @@ func parseGhGlobals(args []string) ([]string, *Decision, string) {
 			}
 			i++ // `-Rfoo` / `--repo=foo` carry their value inline.
 		default:
-			d := deny("gh unknown-global (#64)",
+			d := deny("gh unknown-global",
 				"Blocked: an unrecognized leading 'gh' global flag ("+a+") cannot be classified safely — it may "+
 					"consume the following token as its value, desyncing the gate's noun/verb detection and letting an "+
-					"irreparable operation slip past the deny tier. Fail-closed (issue #64 decision 3). Run gh without "+
+					"irreparable operation slip past the deny tier. The gate fails closed here. Run gh without "+
 					"the unrecognized global; if it is genuinely needed, surface it to the human.")
 			return nil, &d, ""
 		}

@@ -121,7 +121,7 @@ func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 	// or decided on them upstream), but we still skip their value tokens so a
 	// value like `-q .login` is not misread as an unknown flag.
 	if unknown, ok := ghAPIRESTUnknownFlag(restArgs); ok {
-		return deferJudgment("gh api unknown-flag (#113)",
+		return deferJudgment("gh api unknown-flag",
 			"'gh api "+unknown+"' carries a flag the permission gate does not model for the installed gh version. "+
 				"It parses as a read (GET) but the gate cannot fully classify the flag.")
 	}
@@ -131,9 +131,8 @@ func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 		return allow("gh api " + endpoint + " is an allow-listed read (GET) endpoint")
 	}
 
-	// Step 4: non-matching endpoint (or no endpoint at all) → DEFER
-	// (Deviation 2, rebucketed by #262).
-	return deferJudgment("gh api (#113)",
+	// Step 4: non-matching endpoint (or no endpoint at all) → DEFER.
+	return deferJudgment("gh api",
 		"'gh api' can perform reads and writes against the GitHub API. This form parses as a read (GET) but its "+
 			"endpoint is not on the allow-listed read surface.")
 }
@@ -433,8 +432,8 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // since the value can simply be set again, so neither adds exposure the set
 // verb has not already accepted.
 //
-// The native-field `updateIssueFieldValue` joined the list on that same basis
-// (#256): it rewrites a native issue-field value that can simply be set back —
+// The native-field `updateIssueFieldValue` joined the list on that same
+// basis: it rewrites a native issue-field value that can simply be set back —
 // the same surface `setIssueFieldValue`/`deleteIssueFieldValue` already cover.
 // Its existence as a `Mutation` field was confirmed by introspection.
 //
@@ -454,8 +453,8 @@ func graphqlDocHasFragmentSpread(stripped string) bool {
 // and a surface no narrower allow-listed verb reaches. The allowlist is keyed
 // on the mutation FIELD name only — allGraphQLMutationFieldsAllowed below
 // inspects names and never arguments — so the gate cannot tell that arm from a
-// title edit, and the whole verb therefore stays off the allowlist. The triage friction
-// that motivated #256 was `updateIssue` used only to set `issueTypeId`, and
+// title edit, and the whole verb therefore stays off the allowlist. The triage
+// friction this costs is `updateIssue` used only to set `issueTypeId`, and
 // that has its own narrow verb, `updateIssueIssueType`, already on this list
 // and what the issues plugin's canonical templates use.
 //
@@ -494,7 +493,7 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 // redirect, which is why the other non-allowlisted mutations DEFER instead of
 // joining this map.
 //
-// `updateIssue` is the founding member (#262). It can never join
+// `updateIssue` is the founding member. It can never join
 // ghGraphQLMutationAllowlist — `UpdateIssueInput`'s `agentAssignment` arm
 // dispatches a Copilot coding agent at an arbitrary repository with
 // attacker-chosen instructions, and the allowlist is keyed on field NAMES only,
@@ -505,7 +504,7 @@ var ghGraphQLMutationAllowlist = map[string]bool{
 // generic denial with no such prose.
 //
 // Individual verbs graduate to the allowlist or into this map case-by-case as
-// evidence accumulates, exactly as `updateIssueFieldValue` did in #257.
+// evidence accumulates, exactly as `updateIssueFieldValue` did.
 //
 // Both halves of an entry are per-VERB, which is why the value is a struct
 // rather than a bare redirect string: `why` is the reason this particular verb
@@ -536,7 +535,7 @@ var ghGraphQLMutationRedirects = map[string]ghGraphQLMutationRedirectEntry{
 // least one is a redirect member.
 //
 // The all-fields condition is what keeps the deny a redirect rather than a dead
-// end (#262). The deny's whole justification is that the caller can read the
+// end. The deny's whole justification is that the caller can read the
 // reason and re-issue the call correctly, so a document bundling a redirectable
 // verb with one the gate can only refuse — `mutation { updateIssue(…)
 // deleteIssue(…) }` — must NOT deny: the teaching would cover `updateIssue` and
@@ -594,7 +593,7 @@ func ghGraphQLMutationRedirect(fields []string) (Decision, bool) {
 		noun = "mutations"
 		teaching = append(teaching, fmt.Sprintf("'%s': %s %s", named[i], e.why, e.redirect))
 	}
-	return deny("gh api graphql "+strings.Join(named, ", ")+" (#262)", fmt.Sprintf(
+	return deny("gh api graphql "+strings.Join(named, ", "), fmt.Sprintf(
 		"Blocked: 'gh api graphql' carries the '%s' %s, which the gate denies rather than escalates. %s",
 		strings.Join(named, "', '"), noun, strings.Join(teaching, " "))), true
 }

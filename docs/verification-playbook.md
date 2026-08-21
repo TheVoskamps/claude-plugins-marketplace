@@ -352,6 +352,17 @@ config is discovered upward from each file's directory, linting the
 primary clone's copy of the same file is a quick base-config baseline.
 Only errors that survive under the base's config are findings.
 
+This is the one place a primary-clone path is the right target, and it
+survives the read deny only because the linter is a program the
+permission gate has no read table for, so its operands are never graded
+for containment. Do not `cat` or `Read` the base config itself to
+inspect it: that read denies from a linked worktree, and its
+remediation prescribes this worktree's copy — the branch's config,
+which is the one the baseline exists to get away from. Extract it with
+`git show origin/<base>:<path>` instead. See
+[`agent-tooling-notes.md`](./agent-tooling-notes.md) → "Read the
+worktree, never the primary clone's path".
+
 ### Grading a lint *fix* needs two controls
 
 A clean sweep proves nothing until the same command has been shown to

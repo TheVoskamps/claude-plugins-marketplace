@@ -556,18 +556,44 @@ itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin describes it. `docs/guardrails-verification-playbook.md` is the
-one `/docs` surface that does, and it names verdicts only as the
-*controls a probe needs* — which track terminates in allow and which in
-defer, which probe rows must still deny, which spellings a widening
-already allowed on the base. A verdict change that moves any of those
-control rows updates it; grep it for `deny`, `allow`, `defer` and
-`ask` alongside the README. The gate README's one in-plugin sibling is
+plugin describes it. The `/docs` surfaces that do are each bounded to
+one reader. `docs/guardrails-verification-playbook.md` names verdicts
+only as the *controls a probe needs* — which track terminates in allow
+and which in defer, which probe rows must still deny, which spellings a
+widening already allowed on the base. A verdict change that moves any
+of those control rows updates it; grep it for `deny`, `allow`, `defer`
+and `ask` alongside the README.
+`docs/agent-tooling-notes.md` → "Read the worktree, never the primary
+clone's path" names them for the agent being denied: that a
+primary-clone read comes back as a worktree-escape deny carrying either
+the worktree path to re-read or, where this worktree checks that path
+out nowhere, a ref extraction; and the routes that still reach the
+wrong bytes with no deny at all — a tool `hooks.json`'s matcher does
+not name, a ref rather than a path, a statically unresolvable path, a
+program the gate has no read table for, and `git`'s own subcommands,
+which it classifies by subcommand shape and never for path
+containment. A
+verdict change that opens or closes one of those routes, or that makes
+a denied read allow, updates it — and so does a change to the
+`PreToolUse` matcher itself, which decides the first route and is
+quoted verbatim there, in the gate README's "Gaps left in place
+deliberately", and again in that README's "Registration" — so sweep it
+by grepping the matcher string, not by editing the sites this sentence
+happens to name.
+`docs/verification-playbook.md` → "Baseline a lint run before filing
+anything" names one verdict only, and only to keep a technique
+runnable: linting the primary clone's copy of a file is the base-config
+baseline, so that paragraph says why the lint run survives the
+primary-clone read deny and why reading the base config itself does
+not. A change that grades an unrecognized program's path operands, or
+that changes what the read deny prescribes, updates it.
+
+The gate README's one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
 verdicts only where they decide **which destination an agent should
 write a scratch file to** — the containment and `.git/` denies, their
-prescriptive wording, the #225 redirect, the #229 publish read. A
-verdict change that leaves that choice
+prescriptive wording, the credentialed-tool redirect destination, the
+`gh` publish-file read. A verdict change that leaves that choice
 unchanged needs no edit there; one that makes a previously-safe
 destination unsafe — or newly grades a path an agent parks a scratch
 file in — does. `.claude/agent-memory/` is deliberately not on that
@@ -638,7 +664,7 @@ code and check the prose enumerates the same set.
 
 ## Narrow every claude-vm surface-only claim to the layer it measures
 
-Four `plugins/claude-vm` surfaces assert that the guest's Claude
+These `plugins/claude-vm` surfaces assert that the guest's Claude
 configuration comes from the claude-vm configs **only**, because the
 host's `~/.claude/settings.json` is never read:
 
@@ -657,7 +683,7 @@ half of such a sentence is its noun, not its verb: the `settings.json`
 grep that finds these sites keeps returning true statements while the
 subject above them is wrong. Grep the surface wording across
 `plugins/claude-vm/` rather than checking only the files the diff
-touched — two of the four are example YAML files that no test and no
+touched — the example YAML files among them are ones no test and no
 doc pass naturally opens.
 
 ## Sweep every "no read-only mounts" surface when read-only lands

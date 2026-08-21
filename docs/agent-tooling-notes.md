@@ -105,28 +105,61 @@ artifacts. Cross-check against local git objects with
 Build every absolute path from the worktree root — the cwd the harness
 gives you, or `git rev-parse --show-toplevel` — and never from the
 repository path that appears throughout injected context. That path is
-the *primary clone*, which sits on the default branch. A Read against
-it succeeds and returns real, plausible, pre-branch prose, so a claim
-you believe you verified is verified against the wrong branch, with no
-error and no warning.
+the *primary clone*, which sits on the default branch.
 
-The tell is a line-number mismatch between `grep -n`, which runs from
-the cwd, and a Read window: if the grep says a phrase is on one line
-and your Read of that range shows something else, you are reading two
-different files.
+From a linked worktree the permission-gate denies such a read: a `Read`
+of a primary-clone working file, and a `cat` / `grep` / `head` naming
+one, each come back as a worktree-escape deny. So the failure is loud,
+and the message carries the fix — but read which of its two fixes it
+gave you. When this worktree holds a file at the corresponding path,
+the message prescribes that path and you re-read there. When it does
+not — reaching into another agent's worktree under the primary clone's
+`.claude/worktrees/` is how that happens, since this worktree never
+checks that tree out — the message says so and prescribes
+`git show HEAD:<path>`, because the bytes are not on your disk at all.
+Do not hand-build the substituted path yourself: for the second case it
+names a file that does not exist.
 
-The other remedy is to bypass the filesystem entirely and extract the
-bytes from the ref you mean: `git show HEAD:<path>` — or
-`git show origin/<branch>:<path>` — reads the path out of that commit
-rather than off disk, so it cannot reach another checkout's working
-files, whatever path the context handed you. Worktrees share one ref
-store, so the anchor that makes this yours is `HEAD`, which is
-per-worktree: after a detached checkout it names the commit you
-checked out, not the branch the primary clone sits on.
+The deny grades a statically-resolvable path handed to a tool or
+command it knows, so these cases reach the wrong bytes without it
+firing:
 
-The injected `CLAUDE.md` in system context is that same stale copy and
-can run whole sections behind the worktree's. Read the worktree's copy
-before deciding what a repo rule says.
+- **A tool the hook never runs on.**
+  `plugins/guardrails/hooks/hooks.json` matches
+  `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*`. A tool
+  outside that list — `Grep` and `Glob` among them — raises no
+  `PreToolUse` event for the gate, so whatever path it is pointed at
+  earns no verdict at all, not even a defer.
+- **The wrong ref.** `git show main:<path>` or
+  `git show origin/<base>:<path>` extracts bytes from a commit, so no
+  containment rule grades it. Evidence comes from `HEAD`, which is
+  per-worktree: after a detached checkout it names the commit you
+  checked out, not the branch the primary clone sits on. `git show
+  HEAD:<path>` is also the remedy when you want bytes off a ref rather
+  than off disk.
+- **A path the gate cannot resolve statically.** A read behind a
+  dynamic path defers rather than denying, so the containment check
+  never runs on it.
+- **A program the gate has no read table for.** Containment runs on
+  the `Read` tool and on the curated read commands (`cat`, `grep`,
+  `head`, `sed`, `awk`, `jq`, `find`, the pagers). A `python3 -c`, a
+  `node -e`, or any other unrecognized program reaches the residual
+  defer, so the primary-clone path it opens is never graded.
+- **`git`'s own read subcommands.** `git` is a recognized program, but
+  the gate classifies it by *subcommand shape* — the identity write,
+  the push refspec, the remote re-aim, the subagent `reset --hard` —
+  and reads no path operand for containment. Every other subcommand
+  allows, so `git diff --no-index <primary-clone>/<path> <path>` reads
+  the wrong tree from a statically-resolvable path with no deny.
+
+The tell for a wrong-tree read is a line-number mismatch between
+`grep -n`, which runs from the cwd, and a Read window: if the grep says
+a phrase is on one line and your Read of that range shows something
+else, you are reading two different files.
+
+The injected `CLAUDE.md` in system context is a stale copy of the
+primary clone's and can run whole sections behind the worktree's. Read
+the worktree's copy before deciding what a repo rule says.
 
 ## A branch already claimed by another worktree
 

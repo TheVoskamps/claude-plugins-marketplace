@@ -13,7 +13,8 @@ import (
 // logPath and returns stdout, the exit code, and every record the run appended.
 //
 // It drives the REAL binary rather than calling logEvent directly, because what
-// #262 changed is which decisions main.go hands to the logger — a unit test on
+// the defer middle changed is which decisions main.go hands to the logger —
+// a unit test on
 // logEvent would keep passing with the DEFER arm deleted from that condition.
 func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []logRecord) {
 	t.Helper()
@@ -52,7 +53,8 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 // a bare `deferToPipeline` has no account to give and logs both fields empty,
 // which is how a reader tells the two kinds of defer apart. The rows below are
 // all verdict-reaching sites. The defer rows are the
-// point of #262: they are the feed for tuning the evaluator those calls now
+// point of the defer middle: they are the feed for tuning the evaluator
+// those calls now
 // land in, and a deferred call that appears nowhere is a call nobody can tune
 // for.
 //
@@ -62,7 +64,7 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 // would leave the largest share of real deferred traffic invisible to the
 // re-tune. It is the one row whose analysis is thin by construction — the gate
 // genuinely established only which program it saw.
-func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
+func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis(t *testing.T) {
 	bin := buildBinary(t)
 
 	for _, tc := range []struct {
@@ -76,7 +78,7 @@ func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
 			// Hard-ask tier: a credential read.
 			"ask",
 			`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"gh auth token"}}`,
-			"ask", "gh auth token (#262)", "prints the live OAuth token",
+			"ask", "gh auth token", "prints the live OAuth token",
 		},
 		{
 			// Deny-with-teaching.
@@ -144,7 +146,7 @@ func TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262(t *testing.T) {
 // first-wins and ranking agree, so a run that logged the reset in BOTH
 // orderings only proves the ranking when the residual-first ordering is the one
 // asserted.
-func TestResidualDeferRanksBelowAnInformativeDefer_262(t *testing.T) {
+func TestResidualDeferRanksBelowAnInformativeDefer(t *testing.T) {
 	bin := buildBinary(t)
 
 	for _, tc := range []struct{ name, command string }{
@@ -181,7 +183,7 @@ func TestResidualDeferRanksBelowAnInformativeDefer_262(t *testing.T) {
 
 // An ALLOW is still not logged: the log is the evolution/tuning feed, and the
 // hot path is exactly what the allow track exists to keep out of it.
-func TestEvolutionLogSkipsAllow_262(t *testing.T) {
+func TestEvolutionLogSkipsAllow(t *testing.T) {
 	bin := buildBinary(t)
 	logPath := filepath.Join(t.TempDir(), "gate.jsonl")
 	out, _, recs := runBinaryWithLog(t, bin, logPath,
@@ -197,7 +199,7 @@ func TestEvolutionLogSkipsAllow_262(t *testing.T) {
 // A DEFER's analysis rides the §7 log and NOT the stdout verdict. A deferred
 // call must reach the downstream evaluator exactly as a bare defer does — the
 // gate did not decide, so it puts no words in the judge's mouth.
-func TestDeferAnalysisStaysOutOfTheStdoutVerdict_262(t *testing.T) {
+func TestDeferAnalysisStaysOutOfTheStdoutVerdict(t *testing.T) {
 	bin := buildBinary(t)
 	logPath := filepath.Join(t.TempDir(), "gate.jsonl")
 	out, _, recs := runBinaryWithLog(t, bin, logPath,
@@ -212,7 +214,7 @@ func TestDeferAnalysisStaysOutOfTheStdoutVerdict_262(t *testing.T) {
 	if b := stdoutBucket(t, out); b != BucketDefer {
 		t.Fatalf("this event must defer for the test to mean anything; got %q", b)
 	}
-	// Since #271 a defer abstains by omitting permissionDecision, and the
+	// A defer abstains by omitting permissionDecision, and the
 	// reason key goes with it — there is no field left to leak the analysis on,
 	// which is a stronger form of the same guarantee than the empty string was.
 	if raw, ok := got.HookSpecificOutput["permissionDecisionReason"]; ok {
@@ -234,10 +236,10 @@ func TestDeferAnalysisStaysOutOfTheStdoutVerdict_262(t *testing.T) {
 // bucket missing from main.go's log condition, logEvent is never reached for
 // it, nothing fails, and that subtest passes vacuously. Measured: deleting the
 // `|| d.Bucket == BucketDefer` arm leaves all three subtests here green, and
-// fails TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis_262 instead.
+// fails TestEvolutionLogRecordsEveryNonAllowBucketWithAnalysis instead.
 // That test is the one that pins which buckets are wired; this one pins only
 // that a wired bucket's log failure is swallowed.
-func TestLoggingFailureChangesNoVerdict_262(t *testing.T) {
+func TestLoggingFailureChangesNoVerdict(t *testing.T) {
 	bin := buildBinary(t)
 	blocker := filepath.Join(t.TempDir(), "not-a-dir")
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {

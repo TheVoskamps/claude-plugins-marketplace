@@ -92,7 +92,7 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	// call back to the pipeline.
 	//
 	// It defers WITH an account rather than bare, even though the account is
-	// thin (#262 review). This is the residual an unrecognized program reaches —
+	// thin. This is the residual an unrecognized program reaches —
 	// `npm test`, `python3 x.py`, `make`, every tool the gate has no table for —
 	// so it is by volume the largest single source of DEFER records, and a blank
 	// `{"operation":"","analysis":""}` row makes exactly that traffic invisible
@@ -182,9 +182,9 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 // This precondition is one of the arms that keeps every path through the
 // git/gh/aws classifiers ACCOUNTED FOR: callers convert a non-static command
 // into a concrete DENY here rather than handing it back to the pipeline
-// unlabelled. (Those classifiers no longer "never defer" — #262 moved their
-// residual and their context-dependent arms onto deferJudgment — but a defer
-// they return carries an operation label and an analysis, never silence.)
+// unlabelled. (Those classifiers do not "never defer": their residual and
+// their context-dependent arms ride deferJudgment — but a defer they return
+// carries an operation label and an analysis, never silence.)
 //
 // The argv half used to fire on the whole-command hasUnknownExpansion bool, so
 // ANY dynamic token anywhere denied. Its rationale — a dynamic token can hide a
@@ -199,7 +199,7 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 // a human to review than the variable-carrying form.
 func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
 	if sc.hasInlineAssignment {
-		return deny(tool+" inline-env-assignment (#64)",
+		return deny(tool+" inline-env-assignment",
 			"Blocked: an inline environment-assignment prefix on '"+tool+"' (e.g. "+
 				"AWS_ENDPOINT_URL=…, GIT_SSH_COMMAND=…, GH_HOST=…, AWS_PAGER=…) can redirect egress, "+
 				"swap identity, or inject a pager without touching the command's arguments. "+
@@ -210,7 +210,7 @@ func preconditionDeny(tool string, sc simpleCommand) (Decision, bool) {
 		if tok != "" {
 			where = "the token '" + tok + "' is not a static literal"
 		}
-		return deny(tool+" non-static-argv (#64)",
+		return deny(tool+" non-static-argv",
 			"Blocked: a '"+tool+"' command where "+where+" (a command substitution, unresolved variable, or "+
 				"glob) in a position the gate classifies on — the subcommand, the endpoint, or a value-taking "+
 				"global — cannot be statically classified, and could reach a dangerous operation through the "+
@@ -352,7 +352,7 @@ func fieldKeyPinned(staticPrefix string) bool {
 // This classifier's CATCH-ALL is ALLOW, not defer: a recognized git
 // subcommand with no dangerous shape falls through to ALLOW. Defer is reached
 // only from the individually-classified arms below — `git remote
-// add`/`set-url`/… (#163) and a main-session `git reset --hard` (#262) — plus
+// add`/`set-url`/… and a main-session `git reset --hard` — plus
 // an unpinnable credentialed redirect. For git that catch-all ALLOW rests
 // on a boundary the egress proxy DOES own: guest-local git effects are
 // contained by the disposable microVM ("two boundaries, split by
@@ -411,12 +411,12 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 	// given remote change is that channel or a routine one is exactly the
 	// context-dependent call the tuned evaluator reads the surrounding session
 	// for, so it DEFERS with that analysis rather than spending a hard prompt
-	// on it (#262). A `git remote -v` / `get-url` read is not a mutation and is
+	// on it. A `git remote -v` / `get-url` read is not a mutation and is
 	// not caught here.
 	if sub == "remote" && len(rest) >= 1 {
 		switch rest[0] {
 		case "add", "set-url", "set-url-add", "set-branches", "set-head":
-			return deferJudgment("git remote add/set-url (#163)",
+			return deferJudgment("git remote add/set-url",
 				"'git remote "+rest[0]+"' changes where a later 'git push' sends its refspec. Re-aiming a remote "+
 					"at a different repo turns an otherwise-allowed push into an exfil-by-push channel the egress proxy "+
 					"cannot see (it filters on host, not repo path).")
@@ -482,7 +482,7 @@ func classifyGit(args []string, sc simpleCommand, ev *Event) Decision {
 // (principle 3).
 func gitGlobalRCEDeny(args []string) (Decision, bool) {
 	rceDeny := func() (Decision, bool) {
-		return deny("git -c config-injection RCE (#64)",
+		return deny("git -c config-injection RCE",
 			"Blocked: a 'git -c <key>=<value>' / '--config-env' / '--exec-path=<dir>' global option can execute "+
 				"arbitrary commands (e.g. -c core.pager='curl x|sh', -c core.sshCommand=…, -c diff.external=…, "+
 				"-c alias.*). These defeat any read-only classification. Run git without the config-injection global; "+
@@ -575,11 +575,11 @@ func classifyGitPush(rest []string) Decision {
 	for _, a := range rest {
 		switch {
 		case a == "--mirror":
-			return deny("git push --mirror (#64)",
+			return deny("git push --mirror",
 				"Blocked: 'git push --mirror' deletes every remote ref that is absent locally — "+
 					"an irreparable bulk overwrite/delete of the remote. Push specific branches instead.")
 		case a == "--prune":
-			return deny("git push --prune (#64)",
+			return deny("git push --prune",
 				"Blocked: 'git push --prune' deletes every remote ref under the pushed refspec that is absent "+
 					"locally. This can irreparably delete remote branches. Push specific branches without --prune.")
 		case a == "--force" || a == "-f":
@@ -622,11 +622,11 @@ func classifyGitPush(rest []string) Decision {
 		// merits. Before, `+src:dst` reached the same ask only incidentally,
 		// because it also contained a colon — the '+' was never inspected.
 		if strings.HasPrefix(src, "+") {
-			// HARD ASK tier (#262): a history-destroying push is one of the
+			// HARD ASK tier: a history-destroying push is one of the
 			// enumerated calls fleet policy (core-principles §1) reserves for an
 			// explicit human decision, so it must not be waivable by a
 			// downstream judge however sensible the context looks.
-			return ask("git push forced-refspec (#64)",
+			return ask("git push forced-refspec",
 				"'git push' with a '+' prefix on the refspec (e.g. 'origin +HEAD:branch') forces the update: "+
 					"the '+' is git's per-ref equivalent of --force, so the remote accepts a non-fast-forward "+
 					"and the overwritten commits are lost unless someone captured the prior SHA. Fleet policy "+
@@ -652,11 +652,11 @@ func classifyGitPush(rest []string) Decision {
 	}
 
 	if hasForce && !hasForceWithLease {
-		// HARD ASK tier (#262): same policy basis as the forced-refspec arm
+		// HARD ASK tier: same policy basis as the forced-refspec arm
 		// above — fleet rules reserve a history-destroying push for an explicit
 		// human decision. --force-with-lease and --force-if-includes are exempt
 		// there and here (hasForceWithLease clears this arm).
-		return ask("git push --force (#64)",
+		return ask("git push --force",
 			"'git push --force' overwrites the remote ref and, if nobody captured the prior SHA, degrades to "+
 				"irreparable. Fleet policy requires explicit human permission for a history-destroying push. "+
 				"Prefer 'git push --force-with-lease' for race protection, which is allowed without a prompt.")

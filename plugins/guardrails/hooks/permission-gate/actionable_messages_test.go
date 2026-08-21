@@ -10,17 +10,17 @@ import (
 // must never appear in an agent-facing Reason: an "issue(s) #N" pointer,
 // or a bare "(#N)" parenthetical embedded in prose. An issue number
 // tells a blocked agent nothing about what to do — the Reason must be
-// self-sufficiently actionable. Deny/ask LABELS (the Operation field) may
-// still carry a stable "(#N)" tag; only the Reason is constrained here.
+// self-sufficiently actionable. Operation labels carry no tracker tag either;
+// this guard constrains the Reason.
 var trackerRefInReason = regexp.MustCompile(`issues? #\d+|\(#\d+\)|the #\d+ |#\d+\)\.`)
 
-// TestRemediationReasonsAreActionable_58 is a class-level regression guard:
+// TestRemediationReasonsAreActionable is a class-level regression guard:
 // every deny/ask Reason an agent can receive must read as self-sufficient
 // remediation, with no bare issue-tracker pointer. It exercises each rule that
 // previously embedded an issue reference in its Reason. If a future edit
 // reintroduces a "See issue #N" / "(#N)" pointer in agent-facing text, this
 // fails.
-func TestRemediationReasonsAreActionable_58(t *testing.T) {
+func TestRemediationReasonsAreActionable(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -73,7 +73,7 @@ func TestRemediationReasonsAreActionable_58(t *testing.T) {
 	}
 }
 
-// TestScratchDestinationsNameResolvedRoot_193 is a class-level guard over every
+// TestScratchDestinationsNameResolvedRoot is a class-level guard over every
 // deny that carries the prescriptive scratch guidance. The gate already holds
 // the resolved repository root (rc.topLevel — the same value the adjacent
 // cross-repo deny prints as `repo root %s`), so the prescription must name that
@@ -85,7 +85,7 @@ func TestRemediationReasonsAreActionable_58(t *testing.T) {
 // `$(git rev-parse --show-toplevel)` incantation, which tells the model to run
 // a command for a value the gate is already holding. Call sites used to
 // disagree with each other AND with the helper's own doc comment.
-func TestScratchDestinationsNameResolvedRoot_193(t *testing.T) {
+func TestScratchDestinationsNameResolvedRoot(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
