@@ -247,11 +247,13 @@ what didn't — do not roll back successful steps.
      `fields.priority.options` (case-insensitive), then follow the
      **issue-field write path** from the "Set-slot dispatcher" routine
      in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
-     the `setIssueFieldValue` template with
-     `fieldId = fields.priority.field-id` and the resolved option's
-     node ID. This writes on the issue itself and does **not** depend
-     on the project-item lookup from step 5 — it works even when the
-     issue is not on (or there is no) project board.
+     the "`setIssueFieldValue` — native issue field (single-select)"
+     template with `issueId = <the issue node ID from step 4>`,
+     `fieldId = fields.priority.field-id`, and
+     `optionId = fields.priority.options.<canonical>`. This writes on
+     the issue itself and does **not** depend on the project-item
+     lookup from step 5 — it works even when the issue is not on (or
+     there is no) project board.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
      from "Graceful degradation" in `skills/lib/issue.md` and skip.
 
@@ -278,13 +280,15 @@ what didn't — do not roll back successful steps.
      `fields.size.options` (case-insensitive), then follow the
      **issue-field write path** from the "Set-slot dispatcher" routine
      in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
-     the `setIssueFieldValue` template with
-     `fieldId = fields.size.field-id` and the resolved option's node
-     ID. This writes on the issue itself and does **not** depend on the
-     project-item lookup from step 5 — it works even when the issue is
-     not on (or there is no) project board. GitHub's native `Effort`
-     field is the size analogue here; its options are `High` /
-     `Medium` / `Low`, not the t-shirt buckets.
+     the "`setIssueFieldValue` — native issue field (single-select)"
+     template with `issueId = <the issue node ID from step 4>`,
+     `fieldId = fields.size.field-id`, and
+     `optionId = fields.size.options.<canonical>`. This writes on the
+     issue itself and does **not** depend on the project-item lookup
+     from step 5 — it works even when the issue is not on (or there is
+     no) project board. GitHub's native `Effort` field is the size
+     analogue here; its options are `High` / `Medium` / `Low`, not the
+     t-shirt buckets.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
      and skip.
 
