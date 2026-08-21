@@ -1,0 +1,6 @@
+{
+  "name": "auto-mode-tools",
+  "description": "Tune and personalize the Claude Code auto mode classifier config: capture the `claude auto-mode critique` prompt through a loopback sink and run the critique loop in the current session, which has no 4K-token answer ceiling, and rewrite an existing autoMode block against this machine's facts.",
+  "version": "0.1.0",
+  "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
+}
