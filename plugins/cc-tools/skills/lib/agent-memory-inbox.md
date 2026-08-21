@@ -10,12 +10,17 @@ contract; neither restates the path.
 
 An agent that declares `memory: project` under `isolation: worktree`
 gets `.claude/agent-memory/<plugin>-<agent>/` resolved inside its own
-throwaway worktree. That tree starts empty on every run and is removed
-with the worktree, so it persists nothing: it is a per-run intake
-queue, not memory. Durable lore has exactly one home — `CLAUDE.md` and
-`/docs/*.md` — and the inbox is the hand-off that carries a run's
-lessons from the agent that learned them to the agent that writes them
-there.
+throwaway worktree. That directory is removed with the worktree, so
+what a run writes there persists nothing: it is a per-run intake
+queue, not memory. Whether the surrounding `.claude/agent-memory/`
+tree starts empty depends on the repo — one that gitignores the tree
+checks nothing out, one that commits it checks out every agent's
+committed entries — so a reader scopes itself to its own
+`<plugin>-<agent>/` directory rather than to the tree.
+
+Durable lore has exactly one home — `CLAUDE.md` and `/docs/*.md` — and
+the inbox is the hand-off that carries a run's lessons from the agent
+that learned them to the agent that writes them there.
 
 Nothing is committed to a repository at any point in that hand-off, and
 the inbox itself lives outside every repository.
