@@ -7,10 +7,11 @@ import (
 
 // Coverage for the gh ALLOW floor being replaced by ALLOW-by-enumeration
 // (recognized reads + an enumerated recoverable-own-repo-write verb set);
-// unrecognized gh noun/verb DEFERs (the residual floor, an ASK until #262);
+// unrecognized gh noun/verb DEFERs (the residual floor);
 // an enumerated write to a FOREIGN repo DEFERs (exfil-by-write scoping); and
 // `git remote add`/`set-url` DEFERs (the git version of the same channel).
-// All three withhold the allow; #262 settled which side of the allow line
+// All three withhold the allow; the defer middle settles which side of the
+// allow line
 // they land on, not whether they land there.
 
 // setupRepoWithOrigin creates a real git repo whose `origin` remote points at
@@ -35,7 +36,7 @@ func classifyInRepo(t *testing.T, cmd, repoDir string) Decision {
 
 // --- gh ALLOW-by-enumeration; unrecognized DEFERs ----------------------------
 
-func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
+func TestGhEnumeratedRecoverableWriteAllow(t *testing.T) {
 	// The sanctioned hot-loop write verbs ALLOW (own repo, no explicit target).
 	for _, cmd := range []string{
 		"gh pr create --fill",
@@ -57,7 +58,7 @@ func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
 	// The `gist` noun contributes NO row to this list: ghRecoverableWriteVerbs has
 	// no `gist` entry at all, because both of its write verbs publish local
 	// content to a URL outside the repo and both reach the publish ask instead
-	// (#229) — `create` because a gist without `--public` is unlisted rather than
+	// — `create` because a gist without `--public` is unlisted rather than
 	// private, `edit` because the gist it writes into may already have readers.
 	// Asserted rather than left implicit, with a real repo cwd rather than the
 	// `/tmp` classifyCmd uses, so the file operand resolves inside a repo and the
@@ -68,13 +69,13 @@ func TestGhEnumeratedRecoverableWriteAllow_163(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo)
 	if _, ok := ghRecoverableWriteVerbs["gist"]; ok {
-		t.Error("#229 ghRecoverableWriteVerbs must carry no `gist` entry: both its write verbs publish")
+		t.Error("ghRecoverableWriteVerbs must carry no `gist` entry: both its write verbs publish")
 	}
 	wantReason(t, classifyInRepo(t, "gh gist edit abc123 f.txt", repo), BucketAsk,
 		"into a gist that ALREADY EXISTS", "gh gist edit is not an enumerated recoverable write")
 }
 
-func TestGhReadStillAllow_163(t *testing.T) {
+func TestGhReadStillAllow(t *testing.T) {
 	// Reads remain ALLOW (including secret/variable list, whose write verbs DENY).
 	for _, cmd := range []string{
 		"gh pr list",
@@ -89,10 +90,10 @@ func TestGhReadStillAllow_163(t *testing.T) {
 	}
 }
 
-func TestGhUnrecognizedFailsClosedToDefer_163(t *testing.T) {
+func TestGhUnrecognizedFailsClosedToDefer(t *testing.T) {
 	// The former silent ALLOW floor is gone: an unrecognized gh noun/verb —
 	// which the microVM does not backstop for a credential-carrying operation —
-	// withholds the ALLOW. Post-#262 the residual is DEFER: "the gate does not
+	// withholds the ALLOW. The residual is DEFER: "the gate does not
 	// recognize this verb" is an absence of gate knowledge, not evidence of
 	// harm, and it is precisely what a context-reading evaluator grades better
 	// than a prompt.
@@ -112,16 +113,17 @@ func TestGhUnrecognizedFailsClosedToDefer_163(t *testing.T) {
 // hard-ask-tier CREDENTIAL READ and keeps its human click.
 //
 // It gets that click from its own arm in classifyGh's `auth` switch, added in
-// #262. Before then it escalated only INCIDENTALLY, by falling through to the
-// unrecognized-command floor, and that floor was an ASK; when #262 moved the
+// the defer middle. An EXPLICIT arm is what holds it there: falling through
+// to the unrecognized-command floor would escalate only INCIDENTALLY, and
+// when the defer middle moved the
 // floor to DEFER, an explicit arm was the difference between the tier keeping
 // this call and silently losing it. What the assertion on the reason adds is
 // WHICH rule produced the ask: with the floor now at DEFER, deleting the arm
 // is caught by the bucket alone (measured — the arm removed, `gh auth token`
 // answers `defer`), but a bucket-only check would still pass on any future
 // rule that escalates this call for some unrelated account, which is exactly
-// the incidental escalation #262 removed.
-func TestGhAuthTokenIsAHardAsk_262(t *testing.T) {
+// the incidental escalation the defer middle removed.
+func TestGhAuthTokenIsAHardAsk(t *testing.T) {
 	for _, cmd := range []string{
 		"gh auth token",
 		"gh auth token --hostname github.com",
@@ -133,19 +135,19 @@ func TestGhAuthTokenIsAHardAsk_262(t *testing.T) {
 
 // A verb explicitly mapped false in ghRecoverableWriteVerbs (issue transfer) is
 // NOT an enumerated recoverable write and falls through to the residual DEFER.
-func TestGhMappedFalseVerbDefers_262(t *testing.T) {
+func TestGhMappedFalseVerbDefers(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh issue transfer 5 other/repo", false), BucketDefer,
 		"issue transfer (mapped false) → residual DEFER")
 }
 
 // --- foreign-target write scoping --------------------------------------------
 
-func TestGhForeignTargetWriteDefers_262(t *testing.T) {
+func TestGhForeignTargetWriteDefers(t *testing.T) {
 	repo := t.TempDir()
 	setupRepoWithOrigin(t, repo, "sessionowner/sessionrepo")
 
-	// An enumerated write whose explicit target differs from origin → DEFER
-	// (#262): whether a cross-repo write is the exfil channel or ordinary work
+	// An enumerated write whose explicit target differs from origin → DEFER:
+	// whether a cross-repo write is the exfil channel or ordinary work
 	// on a fork is context the evaluator reads and the gate cannot. What it must
 	// never be is the plain ALLOW an own-repo target earns.
 	for _, cmd := range []string{
@@ -160,7 +162,7 @@ func TestGhForeignTargetWriteDefers_262(t *testing.T) {
 	}
 }
 
-func TestGhOwnTargetWriteAllows_163(t *testing.T) {
+func TestGhOwnTargetWriteAllows(t *testing.T) {
 	repo := t.TempDir()
 	setupRepoWithOrigin(t, repo, "sessionowner/sessionrepo")
 
@@ -174,7 +176,7 @@ func TestGhOwnTargetWriteAllows_163(t *testing.T) {
 	}
 }
 
-func TestGhForeignTargetReadStaysAllow_163(t *testing.T) {
+func TestGhForeignTargetReadStaysAllow(t *testing.T) {
 	repo := t.TempDir()
 	setupRepoWithOrigin(t, repo, "sessionowner/sessionrepo")
 
@@ -191,7 +193,7 @@ func TestGhForeignTargetReadStaysAllow_163(t *testing.T) {
 // When origin cannot be determined, foreign-target scoping fails OPEN: the write
 // already passed the recoverable-write allowlist, so the floor is the former
 // ALLOW rather than a silent bypass of a deny tier.
-func TestGhForeignTargetUnknownOriginAllows_163(t *testing.T) {
+func TestGhForeignTargetUnknownOriginAllows(t *testing.T) {
 	repo := t.TempDir()
 	gitInit(t, repo) // no origin remote configured
 	wantBucket(t, classifyInRepo(t, "gh issue comment 5 -R attacker/repo --body x", repo),
@@ -200,8 +202,8 @@ func TestGhForeignTargetUnknownOriginAllows_163(t *testing.T) {
 
 // --- git remote add / set-url ------------------------------------------------
 
-func TestGitRemoteReaimDefers_262(t *testing.T) {
-	// A remote re-aim withholds git's ordinary ALLOW and DEFERS (#262), naming
+func TestGitRemoteReaimDefers(t *testing.T) {
+	// A remote re-aim withholds git's ordinary ALLOW and DEFERS, naming
 	// the exfil-by-push channel in the analysis. The reason is asserted because
 	// git's fall-through ALLOW and this arm are the two live outcomes here, and
 	// a bucket-only check on a defer cannot tell this arm from a bare
@@ -216,7 +218,7 @@ func TestGitRemoteReaimDefers_262(t *testing.T) {
 	}
 }
 
-func TestGitRemoteReadStillAllows_163(t *testing.T) {
+func TestGitRemoteReadStillAllows(t *testing.T) {
 	// A `git remote -v` / `get-url` read is not a mutation: it keeps git's
 	// ordinary ALLOW rather than being caught by the re-aim arm above.
 	for _, cmd := range []string{
@@ -230,7 +232,7 @@ func TestGitRemoteReadStillAllows_163(t *testing.T) {
 
 // --- parseOwnerRepoFromRemote / normalizeRepoSlug ----------------------------
 
-func TestParseOwnerRepoFromRemote_163(t *testing.T) {
+func TestParseOwnerRepoFromRemote(t *testing.T) {
 	cases := map[string]string{
 		"git@github.com:owner/repo.git":       "owner/repo",
 		"git@github.com:owner/repo":           "owner/repo",

@@ -37,9 +37,9 @@ func inRepoEvent(t *testing.T, files ...string) (*Event, string) {
 	return &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}, cwd
 }
 
-// TestReadOnlyUtilityAllows_31 covers the headline acceptance criteria: the
+// TestReadOnlyUtilityAllows covers the headline acceptance criteria: the
 // read-only forms of the curated utilities ALLOW (assuming in-repo paths).
-func TestReadOnlyUtilityAllows_31(t *testing.T) {
+func TestReadOnlyUtilityAllows(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "a", "b")
 	for _, cmd := range []string{
 		// Conditionally-read-only utilities in their read-only form.
@@ -76,10 +76,10 @@ func TestReadOnlyUtilityAllows_31(t *testing.T) {
 	}
 }
 
-// TestReadOnlyUtilityPureOutputAllows_31 covers pure-output utilities, which
+// TestReadOnlyUtilityPureOutputAllows covers pure-output utilities, which
 // take no path operands and so ALLOW without a containment fork — they must
 // ALLOW even in a non-repo cwd (the test helper's /tmp).
-func TestReadOnlyUtilityPureOutputAllows_31(t *testing.T) {
+func TestReadOnlyUtilityPureOutputAllows(t *testing.T) {
 	for _, cmd := range []string{
 		`printf '%s\n' x`,
 		`echo hello world`,
@@ -95,21 +95,21 @@ func TestReadOnlyUtilityPureOutputAllows_31(t *testing.T) {
 	}
 }
 
-// TestReadOnlyUtilityPipeline_31: `sort file | uniq` — every part is a
+// TestReadOnlyUtilityPipeline: `sort file | uniq` — every part is a
 // read-only utility → the whole line ALLOWs (criterion from the issue).
-func TestReadOnlyUtilityPipeline_31(t *testing.T) {
+func TestReadOnlyUtilityPipeline(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	wantBucket(t, classifyBash(`sort file | uniq`, ev), BucketAllow, "sort | uniq pipeline")
 	wantBucket(t, classifyBash(`cat file | grep x | wc -l`, ev), BucketAllow, "cat | grep | wc pipeline")
 }
 
-// TestSedInPlaceNotReadOnlyAllowed_31_32: `sed -i ...` is NOT a read-only-utility
+// TestSedInPlaceNotReadOnlyAllowed: `sed -i ...` is NOT a read-only-utility
 // ALLOW — the read-only classifier must never bless an in-place edit as
 // non-mutating. It is instead handled by the in-repo-write classifier,
 // which ALLOWs the contained form (the file is in the repo) and denies an
 // escaping target. This test pins both: a contained in-place edit ALLOWs (as a
 // write), while the read-only-utility track itself does not classify it.
-func TestSedInPlaceNotReadOnlyAllowed_31_32(t *testing.T) {
+func TestSedInPlaceNotReadOnlyAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	// Contained in-place edit → ALLOW via the in-repo-write classifier.
 	for _, cmd := range []string{
@@ -118,7 +118,7 @@ func TestSedInPlaceNotReadOnlyAllowed_31_32(t *testing.T) {
 		`sed -i.bak 's/a/b/' file`,
 		`sed --in-place=.bak 's/a/b/' file`,
 	} {
-		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "contained sed in-place allows (#32): "+cmd)
+		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "contained sed in-place allows: "+cmd)
 	}
 	// The read-only-utility classifier MUST NOT itself classify the in-place form
 	// as a read-only ALLOW — its defersForm predicate withholds it (the
@@ -128,9 +128,9 @@ func TestSedInPlaceNotReadOnlyAllowed_31_32(t *testing.T) {
 	}
 }
 
-// TestAwkInPlaceAndRedirectNotAllowed_31: gawk in-place editing and an explicit
+// TestAwkInPlaceAndRedirectNotAllowed: gawk in-place editing and an explicit
 // output-file redirect must NOT ALLOW.
-func TestAwkInPlaceAndRedirectNotAllowed_31(t *testing.T) {
+func TestAwkInPlaceAndRedirectNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	// gawk in-place via `-i inplace` defers.
 	d := classifyBash(`awk -i inplace '{print}' file`, ev)
@@ -146,9 +146,9 @@ func TestAwkInPlaceAndRedirectNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestFindMutatingNotAllowed_31: find with a mutating/command-running action
+// TestFindMutatingNotAllowed: find with a mutating/command-running action
 // (`-delete`, `-exec`, `-ok`, `-fprintf`) must NOT ALLOW.
-func TestFindMutatingNotAllowed_31(t *testing.T) {
+func TestFindMutatingNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t)
 	for _, cmd := range []string{
 		`find . -name '*.tmp' -delete`,
@@ -163,23 +163,23 @@ func TestFindMutatingNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestTeeToRealFileNotReadOnlyAllowed_31_32: `tee FILE` (a real-file write) is
+// TestTeeToRealFileNotReadOnlyAllowed: `tee FILE` (a real-file write) is
 // NOT a read-only-utility ALLOW. It is handled by the in-repo-write
 // classifier: a contained destination ALLOWs (as a write), an escaping one
 // denies. The read-only-utility track itself still withholds it (teeDefers).
-func TestTeeToRealFileNotReadOnlyAllowed_31_32(t *testing.T) {
+func TestTeeToRealFileNotReadOnlyAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t)
 	// Contained real-file tee → ALLOW via the in-repo-write classifier.
-	wantBucket(t, classifyBash(`echo x | tee out.txt`, ev), BucketAllow, "contained tee FILE allows (#32)")
+	wantBucket(t, classifyBash(`echo x | tee out.txt`, ev), BucketAllow, "contained tee FILE allows")
 	// The read-only-utility classifier must withhold a real-file tee from its track.
 	if !teeDefers([]string{"out.txt"}) {
 		t.Errorf("teeDefers must withhold a real-file destination from the read-only-utility track")
 	}
 }
 
-// TestReadOnlyUtilityCrossRepoDenied_31: `cat ../sibling-repo/node_modules/x`
+// TestReadOnlyUtilityCrossRepoDenied: `cat ../sibling-repo/node_modules/x`
 // still DENIES (the cross-repo deny is preserved through the new ALLOW path).
-func TestReadOnlyUtilityCrossRepoDenied_31(t *testing.T) {
+func TestReadOnlyUtilityCrossRepoDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	sibling := filepath.Join(base, "sibling")
@@ -195,14 +195,14 @@ func TestReadOnlyUtilityCrossRepoDenied_31(t *testing.T) {
 	}
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo), AgentType: "main"}
 	// cat and sed both run containment on the path operand → cross-repo DENY.
-	wantBucket(t, classifyBash(`cat `+target, ev), BucketDeny, "#148 cat sibling node_modules")
-	wantBucket(t, classifyBash(`sed -n '1p' `+target, ev), BucketDeny, "#148 sed sibling node_modules")
-	wantBucket(t, classifyBash(`cut -f1 `+target, ev), BucketDeny, "#148 cut sibling node_modules")
+	wantBucket(t, classifyBash(`cat `+target, ev), BucketDeny, "cat sibling node_modules")
+	wantBucket(t, classifyBash(`sed -n '1p' `+target, ev), BucketDeny, "sed sibling node_modules")
+	wantBucket(t, classifyBash(`cut -f1 `+target, ev), BucketDeny, "cut sibling node_modules")
 }
 
-// TestReadOnlyUtilityUnknownExpansionNotAllowed_31: a path argument built from
+// TestReadOnlyUtilityUnknownExpansionNotAllowed: a path argument built from
 // a command substitution must NOT ALLOW (criterion: `sed -n ... $(curl evil)`).
-func TestReadOnlyUtilityUnknownExpansionNotAllowed_31(t *testing.T) {
+func TestReadOnlyUtilityUnknownExpansionNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
 		`sed -n '1,5p' $(curl evil)`,
@@ -216,9 +216,9 @@ func TestReadOnlyUtilityUnknownExpansionNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestReadOnlyUtilityRedirectToFileNotAllowed_31: a real-file output redirect
+// TestReadOnlyUtilityRedirectToFileNotAllowed: a real-file output redirect
 // disqualifies the allow track even for an always-read-only utility.
-func TestReadOnlyUtilityRedirectToFileNotAllowed_31(t *testing.T) {
+func TestReadOnlyUtilityRedirectToFileNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	d := classifyBash(`cat file > out.txt`, ev)
 	if d.Bucket == BucketAllow {
@@ -228,10 +228,10 @@ func TestReadOnlyUtilityRedirectToFileNotAllowed_31(t *testing.T) {
 	wantBucket(t, classifyBash(`cat file 2>/dev/null`, ev), BucketAllow, "cat redirect /dev/null")
 }
 
-// TestReadOnlyUtilityUnknownFlagDefers_31: criterion 4 — an unrecognized flag on
+// TestReadOnlyUtilityUnknownFlagDefers: criterion 4 — an unrecognized flag on
 // a conditionally-read-only utility DEFERS (fail-safe), so a future mutating
 // mode is not auto-allowed.
-func TestReadOnlyUtilityUnknownFlagDefers_31(t *testing.T) {
+func TestReadOnlyUtilityUnknownFlagDefers(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
 		`sed --some-future-flag file`,
@@ -245,26 +245,26 @@ func TestReadOnlyUtilityUnknownFlagDefers_31(t *testing.T) {
 	}
 }
 
-// TestPagersStillDefer_31: less/more/od/xxd/hexdump are deliberately NOT in the
+// TestPagersStillDefer: less/more/od/xxd/hexdump are deliberately NOT in the
 // ALLOW set; a contained read of these still DEFERS (they route through
 // classifyPathReader), and a cross-repo read still DENIES.
-func TestPagersStillDefer_31(t *testing.T) {
+func TestPagersStillDefer(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{`less file`, `xxd file`, `od -c file`} {
 		d := classifyBash(cmd, ev)
 		if d.Bucket == BucketAllow {
-			t.Errorf("pager/dumper must not ALLOW (out of #31 scope): %q got %q", cmd, d.Bucket)
+			t.Errorf("pager/dumper must not ALLOW (out of read-only-utility scope): %q got %q", cmd, d.Bucket)
 		}
 		wantBucket(t, d, BucketDefer, "pager defers: "+cmd)
 	}
 }
 
-// TestAlwaysReadOnlyWriteFormsNotAllowed_31 covers a review HIGH finding:
+// TestAlwaysReadOnlyWriteFormsNotAllowed covers a review HIGH finding:
 // always-read-only path-bearing utilities that have a write-capable flag or a
 // write-destination operand must NOT ride the ALLOW track. Each form here writes
 // a file in the repo (the common case containment does NOT catch), so it must
 // defer to the in-repo-write classifier rather than auto-allow.
-func TestAlwaysReadOnlyWriteFormsNotAllowed_31(t *testing.T) {
+func TestAlwaysReadOnlyWriteFormsNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "README.md", "out.txt", "clobber.txt")
 	for _, cmd := range []string{
 		// sort -o / --output writes a file (sort -o f f clobbers in place).
@@ -283,11 +283,11 @@ func TestAlwaysReadOnlyWriteFormsNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestAlwaysReadOnlyUnknownFlagDefers_31 covers a review HIGH finding's
+// TestAlwaysReadOnlyUnknownFlagDefers covers a review HIGH finding's
 // criterion-4 generalization: an unrecognized flag on an ALWAYS-read-only
 // utility must fail safe (defer), not allow — previously these utilities carried
 // no flag inspection at all, so `sort --frobnicate file` rode the ALLOW track.
-func TestAlwaysReadOnlyUnknownFlagDefers_31(t *testing.T) {
+func TestAlwaysReadOnlyUnknownFlagDefers(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
 		`sort --frobnicate file`,
@@ -315,10 +315,10 @@ func TestAlwaysReadOnlyUnknownFlagDefers_31(t *testing.T) {
 	}
 }
 
-// TestAlwaysReadOnlyReadFormsStillAllow_31 guards against over-correction: the
+// TestAlwaysReadOnlyReadFormsStillAllow guards against over-correction: the
 // genuinely read-only forms of every always-read-only utility — including the
 // common flag forms — must STILL ALLOW after the write-form/fail-safe tightening.
-func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
+func TestAlwaysReadOnlyReadFormsStillAllow(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "a", "b", "README.md")
 	for _, cmd := range []string{
 		`sort -r file`,
@@ -356,7 +356,7 @@ func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
 	}
 }
 
-// TestLsAmbiguousShortFlagsDefer_193 pins the deliberate gap in lsDefers: the
+// TestLsAmbiguousShortFlagsDefer pins the deliberate gap in lsDefers: the
 // short flags whose arity DIVERGES between GNU and BSD ls (`-I`, `-T`, `-w`) are
 // unmodelled, so they hit the unknown-flag arm and defer.
 //
@@ -370,8 +370,8 @@ func TestAlwaysReadOnlyReadFormsStillAllow_31(t *testing.T) {
 //
 // Note the assertion's own limit: DEFER is also the fallback bucket, so these
 // cases would pass identically if `ls` left readOnlyUtilities altogether. It is
-// TestHarnessScratchLsAllowed_193 and the ALLOW rows below that pin membership.
-func TestLsAmbiguousShortFlagsDefer_193(t *testing.T) {
+// TestHarnessScratchLsAllowed and the ALLOW rows below that pin membership.
+func TestLsAmbiguousShortFlagsDefer(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
 		`ls -I file .`,
@@ -387,12 +387,12 @@ func TestLsAmbiguousShortFlagsDefer_193(t *testing.T) {
 	}
 }
 
-// TestLsCrossRepoDenied_193 pins the consequence of putting `ls` on the
+// TestLsCrossRepoDenied pins the consequence of putting `ls` on the
 // path-bearing read track: an out-of-repo listing now earns the ordinary
 // read deny, exactly as `cat`/`grep`/`find`/`less` already did for the same
 // operand. Before that `ls` was on no track at all and deferred for
 // every path — including the carve-out ones, which is the defect this fixes.
-func TestLsCrossRepoDenied_193(t *testing.T) {
+func TestLsCrossRepoDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -402,10 +402,10 @@ func TestLsCrossRepoDenied_193(t *testing.T) {
 
 	ev := bashEvIn(t, root, "issue-developer")
 	wantBucket(t, classifyBash("ls "+canonicalize(sibling), ev), BucketDeny,
-		"ls of a sibling repo is the #148 cross-repo read deny")
+		"ls of a sibling repo is the cross-repo read deny")
 }
 
-// TestClusteredReadOnlyShortFlagsAllow_31 covers the round-2 review MEDIUM
+// TestClusteredReadOnlyShortFlagsAllow covers the round-2 review MEDIUM
 // regression: the round-1 binary (09bd8e7) ALLOWed clustered read-only short
 // flags on every always-read-only utility, but the round-1 fix (e24a135) added
 // per-utility flagScan predicates that only set clusterable on cat/wc/tr/comm —
@@ -413,7 +413,7 @@ func TestLsCrossRepoDenied_193(t *testing.T) {
 // cut -sf1) began to DEFER. Enabling clusterable on the read-only-only-flag
 // specs restores them. Each form below is an all-bool cluster (or a bool cluster
 // with a trailing value flag) with NO write flag, so it must ALLOW.
-func TestClusteredReadOnlyShortFlagsAllow_31(t *testing.T) {
+func TestClusteredReadOnlyShortFlagsAllow(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "a", "b")
 	for _, cmd := range []string{
 		// grep: the headline form. -rn = -r -n, -in = -i -n, -rin = -r -i -n.
@@ -442,13 +442,13 @@ func TestClusteredReadOnlyShortFlagsAllow_31(t *testing.T) {
 	}
 }
 
-// TestClusteredWriteFlagStillDefers_31 is the load-bearing safety guard for the
+// TestClusteredWriteFlagStillDefers is the load-bearing safety guard for the
 // round-2 fix: enabling clusterable on sort (whose -o writes a file) must NOT
 // let a write-capable flag ride through a cluster. `sort -ro file` (where -o
 // would consume `file` as a write target) and every other cluster containing a
 // write flag MUST still defer. This guards against the regression's fix opening
 // a write hole.
-func TestClusteredWriteFlagStillDefers_31(t *testing.T) {
+func TestClusteredWriteFlagStillDefers(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
 		`sort -ro file`, // -o inside the cluster writes file → must defer
@@ -463,10 +463,10 @@ func TestClusteredWriteFlagStillDefers_31(t *testing.T) {
 	}
 }
 
-// TestClusterIsReadOnlyHelper_31 exercises clusterIsReadOnly directly: all-bool
+// TestClusterIsReadOnlyHelper exercises clusterIsReadOnly directly: all-bool
 // clusters and a trailing value flag are read-only; a write flag anywhere in the
 // cluster (or an unknown char) is not.
-func TestClusterIsReadOnlyHelper_31(t *testing.T) {
+func TestClusterIsReadOnlyHelper(t *testing.T) {
 	bools := map[string]bool{"-r": true, "-n": true, "-i": true, "-s": true, "-u": true}
 	values := map[string]bool{"-f": true, "-k": true}
 	writes := map[string]bool{"-o": true}
@@ -489,11 +489,11 @@ func TestClusterIsReadOnlyHelper_31(t *testing.T) {
 	}
 }
 
-// TestAwkProfileOutputDumpNotAllowed_31 covers a review MEDIUM finding:
+// TestAwkProfileOutputDumpNotAllowed covers a review MEDIUM finding:
 // gawk's profile/pretty-print/dump-variables flags write a file (awkprof.out /
 // awkvars.out) and must NOT ALLOW. They were previously listed as read-only
 // boolFlags. Bare, attached, and long-with-value forms all defer.
-func TestAwkProfileOutputDumpNotAllowed_31(t *testing.T) {
+func TestAwkProfileOutputDumpNotAllowed(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file", "prof")
 	for _, cmd := range []string{
 		`awk -p prof '{print}' file`, // bare -p writes awkprof.out; "prof" is program text
@@ -514,10 +514,10 @@ func TestAwkProfileOutputDumpNotAllowed_31(t *testing.T) {
 	}
 }
 
-// TestAwkNonWritingFlagsStillAllow_31 guards the MEDIUM fix against
+// TestAwkNonWritingFlagsStillAllow guards the MEDIUM fix against
 // over-correction: gawk flags that do NOT write a file (-O/--optimize,
 // -P/--posix, -D/--debug) must STILL ALLOW.
-func TestAwkNonWritingFlagsStillAllow_31(t *testing.T) {
+func TestAwkNonWritingFlagsStillAllow(t *testing.T) {
 	ev, _ := inRepoEvent(t, "file")
 	for _, cmd := range []string{
 		`awk -O '{print}' file`,
@@ -531,9 +531,9 @@ func TestAwkNonWritingFlagsStillAllow_31(t *testing.T) {
 	}
 }
 
-// TestAwkDefersHelper_31 exercises awkDefers directly for the write/non-write
+// TestAwkDefersHelper exercises awkDefers directly for the write/non-write
 // flag distinction (MEDIUM finding).
-func TestAwkDefersHelper_31(t *testing.T) {
+func TestAwkDefersHelper(t *testing.T) {
 	for _, a := range [][]string{
 		{"-p", "{print}", "file"},
 		{"-o", "{print}", "file"},
@@ -561,9 +561,9 @@ func TestAwkDefersHelper_31(t *testing.T) {
 	}
 }
 
-// TestSortUniqDefersHelpers_31 exercises sortDefers/uniqDefers directly for the
+// TestSortUniqDefersHelpers exercises sortDefers/uniqDefers directly for the
 // write-flag and write-operand detection (HIGH finding).
-func TestSortUniqDefersHelpers_31(t *testing.T) {
+func TestSortUniqDefersHelpers(t *testing.T) {
 	// sort: -o / --output write a file → defer; read-only flags do not.
 	if !sortDefers([]string{"-o", "out.txt", "file"}) {
 		t.Error("sort -o must defer")
@@ -595,10 +595,10 @@ func TestSortUniqDefersHelpers_31(t *testing.T) {
 	}
 }
 
-// TestReadOnlyUtilitySpecHelpers_31 exercises the per-program defersForm
+// TestReadOnlyUtilitySpecHelpers exercises the per-program defersForm
 // predicates directly, covering the flag-parsing edges (value flags, attached
 // long-flag values, the `--` operand boundary).
-func TestReadOnlyUtilitySpecHelpers_31(t *testing.T) {
+func TestReadOnlyUtilitySpecHelpers(t *testing.T) {
 	// sed: read-only flags and value flags do not defer; in-place does.
 	if sedDefers([]string{"-n", "-e", "s/a/b/", "file"}) {
 		t.Error("sed -n -e ... must not defer")

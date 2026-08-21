@@ -533,7 +533,7 @@ then `gh api graphql -f query='…' -f id="$ID"` is fine, so a node ID
 captured from a prior query does not have to be pasted back as a
 literal. The guardrails permission-gate shields a `-f`/`-F` value from
 its static-argv deny as long as the field NAME is spelled literally and
-is not `query` (guardrails #225). The document itself still has to be a
+is not `query`. The document itself still has to be a
 literal — `-f query="$DOC"` denies, and so does a dynamic field name
 (`-f "$KEY"=v`).
 

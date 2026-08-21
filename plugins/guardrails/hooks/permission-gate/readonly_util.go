@@ -428,11 +428,10 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		if d, hit := cdInvalidDefer(prog, sc); hit {
 			return d
 		}
-		// Engine B containment on every path it reads: a cross-repo read still
-		// denies; a primary-clone/worktree-escape read is treated as
-		// contained instead of escalating, except a target under `.git/`,
-		// which still denies. A non-contained path returns that
-		// deny verdict; otherwise ALLOW.
+		// Engine B containment on every path it reads: a cross-repo read, a
+		// read that resolves into the primary clone from a linked worktree,
+		// and a read under `.git/` each deny. A non-contained path returns
+		// that deny verdict; otherwise ALLOW.
 		if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {
 			return d
 		}

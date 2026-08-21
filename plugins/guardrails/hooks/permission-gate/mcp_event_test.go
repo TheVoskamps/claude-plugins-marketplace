@@ -3,7 +3,7 @@ package main
 import "testing"
 
 // §10 / §2: read-only MCP tools allowed; write MCP tools defer; unknown defers
-// (#262 — an MCP tool NAME substring is not grounds for a human click).
+// (an MCP tool NAME substring is not grounds for a human click).
 func TestMCPClassification(t *testing.T) {
 	cases := []struct {
 		name string
@@ -30,7 +30,7 @@ func TestMCPClassification(t *testing.T) {
 	}
 }
 
-// §10 (#262): an uncertain operation lands in DEFER, and — the half that
+// §10: an uncertain operation lands in DEFER, and — the half that
 // matters — never in ALLOW. The bucket is asserted exactly so a future
 // widening of the read-only sets cannot quietly turn an unknown tool into an
 // allow while this test keeps passing on a "not ask" check.
@@ -74,7 +74,7 @@ func TestMainSessionNotSubagent(t *testing.T) {
 	}
 }
 
-// A Bash event missing its command never ALLOWs. Post-#262 it defers with the
+// A Bash event missing its command never ALLOWs. It defers with the
 // read error as its analysis, rather than spending a human click on an event
 // that carries no command for a human to adjudicate.
 func TestBashNoCommandNeverAllows(t *testing.T) {

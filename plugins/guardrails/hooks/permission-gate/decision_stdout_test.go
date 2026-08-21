@@ -8,7 +8,7 @@ import (
 )
 
 // The registration wrapper in hooks/hooks.json treats "the gate exited 0 but
-// wrote nothing to stdout" as a fail-closed condition (issue #216 round 2). It
+// wrote nothing to stdout" as a fail-closed condition. It
 // has to: a gate binary that is present and executable but not *runnable* —
 // most sharply, a zero-byte file with the exec bit set, which the kernel's
 // ENOEXEC shell fallback runs as an empty script — exits 0 with no stdout and
@@ -22,7 +22,7 @@ import (
 // nothing" shortcut — fails here instead of silently reopening the fail-open
 // hole in the wrapper.
 //
-// The second invariant these tests pin is the DEFER WIRE SPELLING (#271). A
+// The second invariant these tests pin is the DEFER WIRE SPELLING. A
 // defer is the envelope with NO permissionDecision field — the documented
 // per-call abstention — and specifically not the literal "defer", which Claude
 // Code reads as "pause this tool call for later resumption"; inside a subagent
@@ -68,7 +68,7 @@ func permissionDecisionOf(out string) (value string, present bool, err error) {
 
 // stdoutBucket reports which bucket an emitted envelope spells: the
 // permissionDecision value when the field is present, and BucketDefer when it
-// is absent, which is how a defer abstains (#271). Tests that only need "did
+// is absent, which is how a defer abstains. Tests that only need "did
 // this event land in bucket X" use it; the two tests in this file deliberately
 // do NOT, asserting the presence bit directly instead, since they are what
 // pins the spelling this helper encodes.
@@ -100,14 +100,14 @@ func TestEveryBucketWritesJSONToStdoutWithExitZero(t *testing.T) {
 			`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","tool_input":{"command":"git status"}}`,
 		},
 		{
-			// Engine A deny track: history destruction from a subagent (#120).
+			// Engine A deny track: history destruction from a subagent.
 			BucketDeny,
 			`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp","agent_type":"issue-developer","tool_input":{"command":"git reset --hard HEAD"}}`,
 		},
 		{
 			// Engine A ask track: a credential read escalates to a human.
 			// A hard-ask-tier member. The MCP mutation that used to sit here
-			// moved to DEFER in #262, so this row now names a call the tier
+			// sits in the DEFER middle, so this row names a call the tier
 			// keeps by POLICY — a credential read — which is what makes it a
 			// stable choice rather than one more classification residue.
 			BucketAsk,
@@ -147,7 +147,7 @@ func TestEveryBucketWritesJSONToStdoutWithExitZero(t *testing.T) {
 					t.Fatalf("a defer must abstain by OMITTING permissionDecision, but stdout carried %q "+
 						"(%q). The literal \"defer\" makes Claude Code PAUSE the tool call for later "+
 						"resumption; inside a subagent it never resolves and the session is torn down "+
-						"(#271).", decision, out)
+						".", decision, out)
 				}
 				return
 			}
@@ -197,7 +197,7 @@ func TestEmitDecisionNeverExitsZeroWithEmptyStdout(t *testing.T) {
 				if present {
 					t.Fatalf("emitDecision(%q) wrote permissionDecision=%q; a defer abstains by omitting "+
 						"the field, because the literal \"defer\" pauses the tool call for later "+
-						"resumption and never resolves inside a subagent (#271)", b, decision)
+						"resumption and never resolves inside a subagent", b, decision)
 				}
 				return
 			}

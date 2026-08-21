@@ -20,11 +20,11 @@ import (
 
 // --- 1. credentialed-tool redirects are GRADED, not vetoed --------------------
 
-// TestCredentialedRedirectGraded_225 pins that a git/gh/aws redirect whose every
+// TestCredentialedRedirectGraded pins that a git/gh/aws redirect whose every
 // destination is contained in this worktree earns the same verdict as the same
 // write spelled through argv (`tee <path>`), instead of the ungraded ask the
 // bare hasRedirectToFile bool used to produce.
-func TestCredentialedRedirectGraded_225(t *testing.T) {
+func TestCredentialedRedirectGraded(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -54,7 +54,7 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 		wantBucket(t, classifyBash(cmd, ev), BucketAllow, "contained redirect: "+cmd)
 	}
 
-	// A PROVEN escape DENIES (#262), and the reason names clobber and escape
+	// A PROVEN escape DENIES, and the reason names clobber and escape
 	// rather than exfiltration. It also carries the same prescriptive scratch
 	// destinations the Write tool's deny for the identical path carries — which
 	// is the whole point of the ask→deny move: one escape, one verdict,
@@ -71,7 +71,7 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 		t.Errorf("the escape deny must prescribe both scratch destinations; got %q", esc.Reason)
 	}
 	// The spelling control: the Write tool's deny for the SAME destination
-	// prescribes the same thing. Before #262 these two diverged — Write denied
+	// prescribes the same thing. The two must not diverge — Write denies
 	// with this prose while the redirect asked — which is the defect the move
 	// closes.
 	wd := fileToolBucket(t, "Write", root, filepath.Join(sib, "x.diff"))
@@ -98,7 +98,7 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 	wantBucket(t, classifyBash("gh pr diff 224 > .claude/tmp/x.md 2> "+filepath.Join(sib, "e"), ev),
 		BucketDeny, "mixed redirect destinations")
 
-	// The wild-caught spelling #262 was filed on, tool by tool: `git show` into
+	// The wild-caught spelling, tool by tool: `git show` into
 	// `/tmp/` prompted an sdlc:theorem-disprover when the message it was shown
 	// would have redirected it perfectly. All three credentialed tools reach the
 	// same grading, so all three are pinned — a per-tool call site means a
@@ -116,8 +116,8 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 	}
 }
 
-// TestCredentialedRedirectToScratchpadAllows_225 covers the second blessed
-// destination: the harness scratchpad the #193 carve-out designates safe by
+// TestCredentialedRedirectToScratchpadAllows covers the second blessed
+// destination: the harness scratchpad the carve-out designates safe by
 // construction, which the ungraded veto rejected just as hard as a sibling repo.
 //
 // All three credentialed tools are enumerated for the same reason the sibling
@@ -125,7 +125,7 @@ func TestCredentialedRedirectGraded_225(t *testing.T) {
 // reached from a per-tool call site (credentialedRedirectVerdict is invoked
 // separately from classifyGit, classifyGh and classifyAws), so a per-tool
 // regression is possible and a gh-only row would not catch it.
-func TestCredentialedRedirectToScratchpadAllows_225(t *testing.T) {
+func TestCredentialedRedirectToScratchpadAllows(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -145,11 +145,11 @@ func TestCredentialedRedirectToScratchpadAllows_225(t *testing.T) {
 
 // --- 2. anchor command substitutions resolve wherever they appear -------------
 
-// TestAnchorResolvesQuotedInlineAndAsCdTarget_225 pins the three placements the
-// #132 allowlist did not reach: the correctly QUOTED assignment RHS (the
+// TestAnchorResolvesQuotedInlineAndAsCdTarget pins the three placements the
+// anchor allowlist did not reach: the correctly QUOTED assignment RHS (the
 // spelling that survives a space in a path), an anchor embedded INLINE in a
 // larger word, and an anchor used as a `cd` target.
-func TestAnchorResolvesQuotedInlineAndAsCdTarget_225(t *testing.T) {
+func TestAnchorResolvesQuotedInlineAndAsCdTarget(t *testing.T) {
 	_, wt := setupWorktree(t)
 	for _, sub := range []string{filepath.Join(".claude", "agent-memory"), "docs"} {
 		if err := os.MkdirAll(filepath.Join(wt, sub), 0o755); err != nil {
@@ -181,11 +181,11 @@ func TestAnchorResolvesQuotedInlineAndAsCdTarget_225(t *testing.T) {
 	}
 }
 
-// TestAnchorStillRunsThroughContainment_225 is the other half of the widening:
+// TestAnchorStillRunsThroughContainment is the other half of the widening:
 // recognizing an anchor in more PLACES must never change what an anchor
 // AUTHORIZES. A resolved anchor still passes through containment and the .git/
 // deny exactly as a literal path does.
-func TestAnchorStillRunsThroughContainment_225(t *testing.T) {
+func TestAnchorStillRunsThroughContainment(t *testing.T) {
 	_, wt := setupWorktree(t)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 
@@ -204,12 +204,12 @@ func TestAnchorStillRunsThroughContainment_225(t *testing.T) {
 
 // --- 3. gh auth status ---------------------------------------------------------
 
-// TestGhAuthStatusAllows_225 pins that the read verb allows while the
+// TestGhAuthStatusAllows pins that the read verb allows while the
 // credential-printing and identity-switching verbs keep their verdicts. `auth`
 // is recognized in classifyGh's dedicated switch rather than by joining
 // isGhReadOnly's knownNouns, because readVerbs already contains `get` and
 // `gh auth token` must keep escalating.
-func TestGhAuthStatusAllows_225(t *testing.T) {
+func TestGhAuthStatusAllows(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth status", false), BucketAllow, "gh auth status")
 	// The recorded spelling pipes into `head -5`, whose obsolete bare-count flag
 	// headTailDefers deliberately treats as unrecognized — an unrelated,
@@ -224,14 +224,14 @@ func TestGhAuthStatusAllows_225(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch", false), BucketDeny, "gh auth switch still denies")
 }
 
-// TestGhAuthStatusFlagScreen_225 pins the other half of that allow. The verb is a
+// TestGhAuthStatusFlagScreen pins the other half of that allow. The verb is a
 // read only in the spellings that print no credential: `gh auth status` has its
 // own credential-printing FLAG (`-t`/`--show-token`, which `--json hosts` embeds
 // in the JSON), so recognizing the verb settles nothing on its own. The
 // redirect case is the sharp one — the destination is contained, so without the
 // flag screen `gh auth status -t > .claude/tmp/t` lands the live token in a file
 // with no human in the loop.
-func TestGhAuthStatusFlagScreen_225(t *testing.T) {
+func TestGhAuthStatusFlagScreen(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -291,12 +291,12 @@ func TestGhAuthStatusFlagScreen_225(t *testing.T) {
 
 // --- 4. git push HEAD:branch ---------------------------------------------------
 
-// TestGitPushHeadRefspecAllows_225 pins the refspec verdicts. A plain
+// TestGitPushHeadRefspecAllows pins the refspec verdicts. A plain
 // `src:dst` is not an overwrite — receive-pack refuses a non-fast-forward
 // update unless it is forced — so the ask rested on a false premise. The `+`
 // prefix IS the force and is now escalated on its own merits rather than
 // incidentally, because it happens to contain a colon.
-func TestGitPushHeadRefspecAllows_225(t *testing.T) {
+func TestGitPushHeadRefspecAllows(t *testing.T) {
 	for _, cmd := range []string{
 		"git push origin HEAD:issue-216-fail-closed-on-missing-gate-binary",
 		"git push origin HEAD:refs/heads/issue-216-fail-closed-on-missing-gate-binary",
@@ -320,11 +320,11 @@ func TestGitPushHeadRefspecAllows_225(t *testing.T) {
 
 // --- 5. process substitution ----------------------------------------------------
 
-// TestProcessSubstitutionIsNotAPath_225 pins that `<(cmd)` is graded as the
+// TestProcessSubstitutionIsNotAPath pins that `<(cmd)` is graded as the
 // /dev/fd pipe it is, not as "a path argument built from an expansion the gate
 // cannot resolve statically". The substituted commands are classified on their
 // own terms, which is what makes the enclosing command's allow sound.
-func TestProcessSubstitutionIsNotAPath_225(t *testing.T) {
+func TestProcessSubstitutionIsNotAPath(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -354,13 +354,13 @@ func TestProcessSubstitutionIsNotAPath_225(t *testing.T) {
 		BucketDeny, "a real operand alongside a process substitution is still contained")
 }
 
-// TestProcSubstInRedirectPositionIsClassified_225 is the redirect-position half
+// TestProcSubstInRedirectPositionIsClassified is the redirect-position half
 // of the test above. Both positions have to earn the same verdict: `<(cmd)` is
 // exact wherever it sits, and the containment walks skip the /dev/fd token in a
 // redirect target exactly as they do in argv, so a descent wired only to argv
 // would leave `cat < <(cat <escaping-path>)` graded by nobody and riding the
 // enclosing command's ALLOW while the argv spelling denies.
-func TestProcSubstInRedirectPositionIsClassified_225(t *testing.T) {
+func TestProcSubstInRedirectPositionIsClassified(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -413,7 +413,8 @@ func TestProcSubstInRedirectPositionIsClassified_225(t *testing.T) {
 	wantBucket(t, classifyBash("cd sub < <(cat ../x)", ev), BucketDeny,
 		"the substitution is resolved against the pre-cd cwd")
 
-	// Structural: the descent must not swallow the #193 redirect-only fallback.
+	// Structural: the descent must not swallow the scratchpad redirect-only
+	// fallback.
 	// That fallback fires only when the descent into stmt.Cmd emitted nothing, so
 	// a substituted command counted as "something emitted" would leave the WRITE
 	// half of the same statement ungraded. It has to hold for a substitution in
@@ -440,7 +441,7 @@ func TestProcSubstInRedirectPositionIsClassified_225(t *testing.T) {
 	}
 }
 
-// TestProcSubstGradedInEveryWordPosition_225 is the whole-class half. Bash
+// TestProcSubstGradedInEveryWordPosition is the whole-class half. Bash
 // accepts a process substitution in every word position, not just argv and a
 // redirect target, and in each of them literalWord reduces an INPUT
 // substitution to the procSubstFD token the containment walks skip — so a
@@ -448,7 +449,7 @@ func TestProcSubstInRedirectPositionIsClassified_225(t *testing.T) {
 // nobody while the enclosing line rides the allow track. Every position below
 // was measured to RUN the substituted command in real bash, so grading it is
 // what bash itself does, not a conservative guess.
-func TestProcSubstGradedInEveryWordPosition_225(t *testing.T) {
+func TestProcSubstGradedInEveryWordPosition(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -580,14 +581,14 @@ func TestProcSubstGradedInEveryWordPosition_225(t *testing.T) {
 	}
 }
 
-// TestProcSubstDescentIsExhaustive_225 is the structural guard the row-by-row
+// TestProcSubstDescentIsExhaustive is the structural guard the row-by-row
 // test above cannot give: hand-enumerating word positions did not converge
 // (each of three review rounds found a position the round before had missed),
 // so this asserts the invariant directly — for every shape, the number of
 // substituted commands the walk GRADES equals the number of ProcSubst nodes the
 // PARSER reports. A future position added to bash, or a walk arm that stops
 // forwarding, fails here rather than silently allowing.
-func TestProcSubstDescentIsExhaustive_225(t *testing.T) {
+func TestProcSubstDescentIsExhaustive(t *testing.T) {
 	// `marker` is not a real program; it only has to arrive at the walk's output
 	// as args[0] of its own simple command.
 	const marker = "zz-substituted-marker"
@@ -668,9 +669,9 @@ func TestProcSubstDescentIsExhaustive_225(t *testing.T) {
 
 // --- 5b. command substitution ---------------------------------------------------
 
-// TestCmdSubstGradedInEveryWordPosition_225 is the command-substitution half of
-// TestProcSubstGradedInEveryWordPosition_225, and it closes a hole that pre-dates
-// this branch (every escaping row below ALLOWs at #225's merge base).
+// TestCmdSubstGradedInEveryWordPosition is the command-substitution half of
+// TestProcSubstGradedInEveryWordPosition, and it closes a hole that pre-dates
+// this branch (every escaping row below ALLOWs at that branch's merge base).
 //
 // A non-anchor `$(…)` leaves its word INEXACT, and that half-covers the class:
 // inexactness stops the allow track only where the inexact word rides a command
@@ -679,7 +680,7 @@ func TestProcSubstDescentIsExhaustive_225(t *testing.T) {
 // prefix, an array element, a `[[ … ]]` operand, a bare or declared assignment
 // RHS — so nothing carried the inexactness forward and the line allowed on its
 // remaining parts while bash ran an arbitrary substituted command.
-func TestCmdSubstGradedInEveryWordPosition_225(t *testing.T) {
+func TestCmdSubstGradedInEveryWordPosition(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -830,13 +831,13 @@ func TestCmdSubstGradedInEveryWordPosition_225(t *testing.T) {
 	}
 }
 
-// TestCmdSubstDescentIsExhaustive_225 is the count-equality guard for the
-// command-substitution class, mirroring TestProcSubstDescentIsExhaustive_225:
+// TestCmdSubstDescentIsExhaustive is the count-equality guard for the
+// command-substitution class, mirroring TestProcSubstDescentIsExhaustive:
 // for every shape, the number of substituted commands the walk GRADES equals the
 // number of CmdSubst nodes the PARSER reports. Hand-enumerating word positions is
 // what failed to converge on this issue, so the invariant is asserted directly
 // rather than as a list of positions someone has to keep complete.
-func TestCmdSubstDescentIsExhaustive_225(t *testing.T) {
+func TestCmdSubstDescentIsExhaustive(t *testing.T) {
 	// `marker` is not a real program; it only has to arrive at the walk's output
 	// as args[0] of its own simple command.
 	const marker = "zz-substituted-marker"
@@ -964,7 +965,7 @@ func countGraded(cmds []simpleCommand, marker string) int {
 	return graded
 }
 
-// TestAnchorCmdSubstIsNotDescendedInto_225 pins the descent's one deliberate
+// TestAnchorCmdSubstIsNotDescendedInto pins the descent's one deliberate
 // exception, on both axes.
 //
 // STRUCTURAL: an allowlisted anchor substitution is skipped, so its CmdSubst node
@@ -973,14 +974,15 @@ func countGraded(cmds []simpleCommand, marker string) int {
 // of three read-only forms EXACTLY — the command is already known in full, and
 // the value it resolves to still runs through normal containment.
 //
-// BEHAVIORAL: grading them instead would regress #132's own idiom. Measured by
+// BEHAVIORAL: grading them instead would regress the anchor idiom itself.
+// Measured by
 // deleting the skip and re-running this test, the two git anchors grade as ALLOW
 // and cost nothing, but bare `pwd` earns no high-confidence allow of its own, so
 // descending into `$(pwd)` turns `cat "$(pwd)/a.txt"`, `case "$(pwd)" in …` and
 // `FOO=$(pwd) echo hi` from allows into prompts. The skip is applied uniformly
 // across the allowlist anyway — one rule rots less than three — so the structural
 // half below covers all three forms.
-func TestAnchorCmdSubstIsNotDescendedInto_225(t *testing.T) {
+func TestAnchorCmdSubstIsNotDescendedInto(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -1052,12 +1054,12 @@ func TestAnchorCmdSubstIsNotDescendedInto_225(t *testing.T) {
 
 // --- 6. dynamic tokens in established flag-value positions -----------------------
 
-// TestGhDynamicFieldValueDoesNotDeny_225 pins the scoping of the non-static-argv
+// TestGhDynamicFieldValueDoesNotDeny pins the scoping of the non-static-argv
 // precondition. The ordinary GraphQL chain — capture a node ID, feed it to the
 // next mutation — could not be scripted at all, because a deny has no escape
 // hatch; the only route through was to paste opaque node IDs as literals, which
 // is strictly harder for a human to review than the variable-carrying form.
-func TestGhDynamicFieldValueDoesNotDeny_225(t *testing.T) {
+func TestGhDynamicFieldValueDoesNotDeny(t *testing.T) {
 	const addItem = `gh api graphql -f query='mutation($p:ID!,$c:ID!){addProjectV2ItemById(input:{projectId:$p,contentId:$c}){item{id}}}' -F p=PVT_x -F c=I_y`
 	wantBucket(t, classifyCmd(t, addItem, false), BucketAllow, "static allow-listed graphql mutation")
 
@@ -1094,11 +1096,11 @@ func TestGhDynamicFieldValueDoesNotDeny_225(t *testing.T) {
 
 // --- 7. sed / awk program text is not a path ------------------------------------
 
-// TestReadTrackOperandGrammar_225 pins the read track's per-program operand
+// TestReadTrackOperandGrammar pins the read track's per-program operand
 // grammar. A `sed` range address earned the cross-repo DENY purely because its
 // leading `/` made it look absolute — a guardrail agents had already memorized a
 // workaround for, which is a guardrail enforcing nothing.
-func TestReadTrackOperandGrammar_225(t *testing.T) {
+func TestReadTrackOperandGrammar(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -1141,14 +1143,14 @@ func TestReadTrackOperandGrammar_225(t *testing.T) {
 		"-e script: the remaining operand is still a contained file")
 }
 
-// TestReadTrackFileFlagValuesAreContained_225 pins the boundary of that grammar.
+// TestReadTrackFileFlagValuesAreContained pins the boundary of that grammar.
 // What an operand grammar may drop is a pattern, a script or a number — never a
 // file the utility OPENS. `grep -f`, `sed -f` and `awk -f` all name a file the
 // program reads, and diff/wc/sort/realpath carry path-valued flags whose GLUED
 // spelling the plain non-flag walk drops (the token begins with `-`) while the
 // separate-token spelling of the same command is contained. Both shapes are
 // containment holes: the value escapes the repo and the command allows.
-func TestReadTrackFileFlagValuesAreContained_225(t *testing.T) {
+func TestReadTrackFileFlagValuesAreContained(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -1223,11 +1225,11 @@ func TestReadTrackFileFlagValuesAreContained_225(t *testing.T) {
 		"sed -i reading an in-repo script")
 }
 
-// TestPathValueFlagsAreDeclaredValueFlags_225 is the structural guard on the two
+// TestPathValueFlagsAreDeclaredValueFlags is the structural guard on the two
 // tables: pathFlagValues finds a value only for a flag its walk knows to be
 // value-taking, so a pathValueFlags entry missing from valueFlags would be
 // silently inert — the exact failure this class is about.
-func TestPathValueFlagsAreDeclaredValueFlags_225(t *testing.T) {
+func TestPathValueFlagsAreDeclaredValueFlags(t *testing.T) {
 	for prog, spec := range readOnlyUtilities {
 		for flag := range spec.pathValueFlags {
 			if !spec.valueFlags[flag] {
@@ -1246,12 +1248,12 @@ func TestPathValueFlagsAreDeclaredValueFlags_225(t *testing.T) {
 
 // --- 8. a parse error is a syntax error, not a decision --------------------------
 
-// TestParseErrorDenies_225 pins the one class where the gate's VERDICT was right
+// TestParseErrorDenies pins the one class where the gate's VERDICT was right
 // and its RESPONSE was the defect. The command really is unparseable; real bash
 // rejects the identical string. Approving runs a command bash will refuse, and a
 // PreToolUse hook fires on commands the MODEL authored — a human cannot repair
 // syntax by clicking Yes.
-func TestParseErrorDenies_225(t *testing.T) {
+func TestParseErrorDenies(t *testing.T) {
 	const backtick = "grep -n \"convention\\|doesn't match\\|does not match\\|B` empty\\|empty\" plugins/sdlc/agents/pr-reviewer.md"
 	d := classifyCmd(t, backtick, false)
 	wantBucket(t, d, BucketDeny, "unescaped backtick inside a double-quoted string")

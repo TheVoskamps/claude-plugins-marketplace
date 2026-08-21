@@ -19,7 +19,7 @@
 //     against the EVENT's cwd, with symlink canonicalization on both sides and
 //     fail-closed subprocess handling.
 //
-// Posture: three tiers plus a defer middle (#262). The gate buckets a call by
+// Posture: three tiers plus a defer middle. The gate buckets a call by
 // what it can do BETTER than the downstream tuned automode evaluator, not by
 // how confident it is:
 //
@@ -141,11 +141,11 @@ func isFileTool(name string) bool {
 // "defer" — Claude Code gave that wire value different semantics (it PAUSES
 // the tool call for later resumption, added for headless-resume workflows).
 // Inside a subagent a paused tool call never resolves, the tool use ends with
-// no result, and the harness tears the agent session down (#271).
+// no result, and the harness tears the agent session down.
 //
 // The empty envelope is still non-empty JSON, which the hooks.json wrapper
 // requires: it reads "exit 0 with empty stdout" as an unrunnable gate binary
-// and fails closed (#216 round 2), so the no-output spelling of abstention is
+// and fails closed, so the no-output spelling of abstention is
 // unavailable to this gate. decision_stdout_test.go pins both halves.
 //
 // A defer's reason is DROPPED here — with the decision field gone there is no

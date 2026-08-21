@@ -13,11 +13,11 @@ import (
 // bypass containment or the .git/ deny, and it must respect scopeDepth like
 // any other recorded assignment.
 
-// TestGitTopLevelAnchorResolvesToContainment_132 is the shape-B repro:
+// TestGitTopLevelAnchorResolvesToContainment is the shape-B repro:
 // `root=$(git rev-parse --show-toplevel); cat "$root/…"` must resolve and run
 // through normal containment (contained, not ASK) instead of failing closed
 // on the unresolvable command substitution.
-func TestGitTopLevelAnchorResolvesToContainment_132(t *testing.T) {
+func TestGitTopLevelAnchorResolvesToContainment(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	pluginDir := filepath.Join(wt, "plugins", "sdlc", ".claude-plugin")
@@ -34,18 +34,18 @@ func TestGitTopLevelAnchorResolvesToContainment_132(t *testing.T) {
 cat "$root/plugins/sdlc/.claude-plugin/plugin.json"`
 	d1 := classifyBash(cmd1, ev)
 	if d1.Bucket == BucketAsk {
-		t.Errorf("#132 #126 repro: $(git rev-parse --show-toplevel) anchor must not ASK; got ASK (%s)", d1.Reason)
+		t.Errorf("repro: $(git rev-parse --show-toplevel) anchor must not ASK; got ASK (%s)", d1.Reason)
 	}
 
 	cmd2 := `root=$(git rev-parse --show-toplevel)
 grep -rn X "$root/plugins/"`
 	d2 := classifyBash(cmd2, ev)
 	if d2.Bucket == BucketAsk {
-		t.Errorf("#132: $(git rev-parse --show-toplevel) anchor over a directory must not ASK; got ASK (%s)", d2.Reason)
+		t.Errorf("$(git rev-parse --show-toplevel) anchor over a directory must not ASK; got ASK (%s)", d2.Reason)
 	}
 }
 
-// TestGitCommonDirAnchorResolvesThenDeniesGitDir_132 pins the design's
+// TestGitCommonDirAnchorResolvesThenDeniesGitDir pins the design's
 // explicit carve-out: $(git rev-parse --git-common-dir) resolves (it is NOT
 // left unresolvable), but a path anchored there lands under .git/ and must
 // hit the deterministic .git/ deny — never a fail-closed ASK, and never a
@@ -55,26 +55,26 @@ grep -rn X "$root/plugins/"`
 // .git/ lives directly under its own topLevel, so testContainmentFrom
 // classifies it as merely `contained` (a literal .git/config read there
 // already ALLOWs today, pre-dating and unrelated to the anchor work — see
-// TestPrimaryCloneReadRelaxed_130 for the existing gated case). The .git/
+// TestPrimaryCloneReadRelaxed for the existing gated case). The .git/
 // deny fires via the escapeWorktree branch, which only diverges from
 // `contained` when commonDir sits outside THIS worktree's topLevel — i.e.
 // a linked worktree pointing at a primary clone's shared .git/.
-func TestGitCommonDirAnchorResolvesThenDeniesGitDir_132(t *testing.T) {
+func TestGitCommonDirAnchorResolvesThenDeniesGitDir(t *testing.T) {
 	_, wt := setupWorktree(t)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 
 	cmd := `g=$(git rev-parse --git-common-dir); cat "$g/config"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketDeny, "#132: $(git rev-parse --git-common-dir)/config must resolve then hit the .git/ deny")
+	wantBucket(t, d, BucketDeny, "$(git rev-parse --git-common-dir)/config must resolve then hit the .git/ deny")
 	if d.Bucket == BucketAsk {
-		t.Errorf("#132: git-common-dir anchor must not fail closed to ASK; got ASK (%s)", d.Reason)
+		t.Errorf("git-common-dir anchor must not fail closed to ASK; got ASK (%s)", d.Reason)
 	}
 }
 
-// TestPwdAnchorResolvesToTrackedCwd_132 pins the $(pwd)/`pwd` anchor: it must
+// TestPwdAnchorResolvesToTrackedCwd pins the $(pwd)/`pwd` anchor: it must
 // resolve against the CD-TRACKED running cwd (the tracked runningCWD), not ev.CWD
 // — a preceding `cd` changes what a real `pwd` would print.
-func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
+func TestPwdAnchorResolvesToTrackedCwd(t *testing.T) {
 	_, wt := setupWorktree(t)
 
 	sub := filepath.Join(wt, "sub")
@@ -91,14 +91,14 @@ func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 	cmd := `cd ` + sub + `; p=$(pwd); cat "$p/x"`
 	d := classifyBash(cmd, ev)
 	if d.Bucket == BucketAsk {
-		t.Errorf("#132: $(pwd) anchor after cd must not ASK; got ASK (%s)", d.Reason)
+		t.Errorf("$(pwd) anchor after cd must not ASK; got ASK (%s)", d.Reason)
 	}
 
 	// Backtick `pwd` form resolves identically.
 	cmdBacktick := "cd " + sub + "; p=`pwd`; cat \"$p/x\""
 	dBacktick := classifyBash(cmdBacktick, ev)
 	if dBacktick.Bucket == BucketAsk {
-		t.Errorf("#132: `pwd` (backtick) anchor after cd must not ASK; got ASK (%s)", dBacktick.Reason)
+		t.Errorf("`pwd` (backtick) anchor after cd must not ASK; got ASK (%s)", dBacktick.Reason)
 	}
 
 	// Directly assert the RESOLVED value is the tracked post-cd cwd (sub),
@@ -115,11 +115,11 @@ func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 	catCmd := cmds[1]
 	wantArg := filepath.Join(sub, "x")
 	if len(catCmd.args) < 2 || catCmd.args[1] != wantArg {
-		t.Errorf("#132: $(pwd) must resolve to the tracked cwd %q, got args=%v", wantArg, catCmd.args)
+		t.Errorf("$(pwd) must resolve to the tracked cwd %q, got args=%v", wantArg, catCmd.args)
 	}
 }
 
-// TestHomeAnchorStillYieldsToClaudeConfigCarveOut_132 is regression coverage
+// TestHomeAnchorStillYieldsToClaudeConfigCarveOut is regression coverage
 // for the $HOME/$PWD env-var read-side resolution: $HOME must keep
 // resolving (this test confirms the existing behavior rather than pinning
 // anything new). A $HOME-anchored path under
@@ -131,7 +131,7 @@ func TestPwdAnchorResolvesToTrackedCwd_132(t *testing.T) {
 // is neither ASK nor DENY, and deliberately does not pin WHICH of the
 // remaining buckets the carve-out lands in. An earlier name said "Defers",
 // which read as a BucketDefer assertion the body never makes.
-func TestHomeAnchorStillYieldsToClaudeConfigCarveOut_132(t *testing.T) {
+func TestHomeAnchorStillYieldsToClaudeConfigCarveOut(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -140,18 +140,18 @@ func TestHomeAnchorStillYieldsToClaudeConfigCarveOut_132(t *testing.T) {
 
 	d := classifyBash(`cat "$HOME/.claude/CLAUDE.md"`, ev)
 	if d.Bucket == BucketAsk {
-		t.Errorf("#132/#159: $HOME must still resolve (not fail closed); got ASK (%s)", d.Reason)
+		t.Errorf("$HOME must still resolve (not fail closed); got ASK (%s)", d.Reason)
 	}
 	if d.Bucket == BucketDeny {
-		t.Errorf("#132/#159: $HOME/.claude/* must yield to the claudeConfig carve-out, not DENY; got DENY (%s)", d.Reason)
+		t.Errorf("$HOME/.claude/* must yield to the claudeConfig carve-out, not DENY; got DENY (%s)", d.Reason)
 	}
 }
 
-// TestCompoundCmdSubstNotAnAnchor_132 pins the "matching must be strict" rule:
+// TestCompoundCmdSubstNotAnAnchor pins the "matching must be strict" rule:
 // a compound substitution (more than one statement inside `$(...)`) is NOT
 // recognized as an anchor even though its first statement is
 // `git rev-parse --show-toplevel` — it must stay unresolved (fail closed).
-func TestCompoundCmdSubstNotAnAnchor_132(t *testing.T) {
+func TestCompoundCmdSubstNotAnAnchor(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -160,13 +160,13 @@ func TestCompoundCmdSubstNotAnAnchor_132(t *testing.T) {
 
 	cmd := `x=$(git rev-parse --show-toplevel; echo hi); cat "$x/y"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketDefer, "#132: compound command substitution must not be recognized as an anchor")
+	wantBucket(t, d, BucketDefer, "compound command substitution must not be recognized as an anchor")
 }
 
-// TestNonAllowlistedCmdSubstStillEscalates_132 pins the negative case: an
+// TestNonAllowlistedCmdSubstStillEscalates pins the negative case: an
 // arbitrary, non-allowlisted command substitution (`$(git log)`) must stay
 // unresolved (fail closed), exactly as before this issue.
-func TestNonAllowlistedCmdSubstStillEscalates_132(t *testing.T) {
+func TestNonAllowlistedCmdSubstStillEscalates(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
 	gitInit(t, repo)
@@ -175,18 +175,18 @@ func TestNonAllowlistedCmdSubstStillEscalates_132(t *testing.T) {
 
 	cmd := `x=$(git log); cat "$x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketDefer, "#132: non-allowlisted command substitution must still escalate")
+	wantBucket(t, d, BucketDefer, "non-allowlisted command substitution must still escalate")
 }
 
-// TestAnchorInSubshellDoesNotLeak_132 pins scopeDepth discipline for anchor
+// TestAnchorInSubshellDoesNotLeak pins scopeDepth discipline for anchor
 // assignments: an anchor assigned inside a `( … )` subshell must not persist
 // into the program-global knownVars, exactly like any other recorded
 // assignment (a follow-up to the assignment-tracking work).
-func TestAnchorInSubshellDoesNotLeak_132(t *testing.T) {
+func TestAnchorInSubshellDoesNotLeak(t *testing.T) {
 	_, wt := setupWorktree(t)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 
 	cmd := `( root=$(git rev-parse --show-toplevel) ) ; cat "$root/x"`
 	d := classifyBash(cmd, ev)
-	wantBucket(t, d, BucketDefer, "#132: anchor assigned inside a subshell must not leak to the enclosing scope")
+	wantBucket(t, d, BucketDefer, "anchor assigned inside a subshell must not leak to the enclosing scope")
 }

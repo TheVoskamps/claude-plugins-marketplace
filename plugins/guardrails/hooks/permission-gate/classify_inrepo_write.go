@@ -177,14 +177,14 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 // worktree-escape, each carrying the worktree-anchored remediation
 // (mirroring the file-tool deny wording).
 //
-// Unlike the read side (containPathOperands), a worktree-escape here always
-// DENIES: writing into the primary clone from a subagent worktree is the
-// worktree escape, exactly the case classifyFileTool denies for Write/Edit. The
-// read side treats a non-.git/ primary-clone target as contained instead,
-// but that relaxation is read-only and does not extend to writes. A
-// subagent writing inside its own worktree is contained and fine; a subagent
-// writing into the primary clone still denies, because rc.topLevel is the
-// subagent's worktree root.
+// A worktree-escape here DENIES: writing into the primary clone from a
+// subagent worktree is the worktree escape, exactly the case classifyFileTool
+// denies for Write/Edit. The read side (containPathOperands) denies its own
+// worktree escape too, on the staleness grounds rather than the corruption
+// ones, so the reason strings differ while the verdict does not. A subagent
+// writing inside its own worktree is contained and fine; a subagent writing
+// into the primary clone still denies, because rc.topLevel is the subagent's
+// worktree root.
 //
 // baseCWD is the running cwd this command executes in, tracked through
 // any preceding `cd` in the same parsed program (sc.cwd); a relative operand
@@ -224,7 +224,7 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 		// the Write/Edit tools. An in-worktree `.git/` target would otherwise be
 		// `contained` and ride the ALLOW.
 		if isUnderGitDir(canonicalizeFrom(p, base), rc) {
-			return deny("bash-write:.git tree (#125)", fmt.Sprintf(
+			return deny("bash-write:.git tree", fmt.Sprintf(
 				"Blocked: '%s' target '%s' is inside a .git/ directory. Directly writing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
 					"repo state. Git's own commands own that tree — do not hand-write .git/. %s",
@@ -235,20 +235,20 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 		switch res {
 		case escapeWorktree:
 			correct := correctWorktreePath(real, rc)
-			return deny("bash-write:worktree-escape (#127)", fmt.Sprintf(
+			return deny("bash-write:worktree-escape", fmt.Sprintf(
 				"Blocked: '%s' target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 					"Writes must land inside this worktree. Use the worktree-anchored path instead: %s. Anchor every "+
 					"absolute path to $(git rev-parse --show-toplevel). %s",
 				prog, p, real, rc.topLevel, correct,
 				scratchDestinations(rc.topLevel))), false
 		case escapeRepo:
-			return deny("bash-write:cross-repo (#148)", fmt.Sprintf(
+			return deny("bash-write:cross-repo", fmt.Sprintf(
 				"Blocked: '%s' target '%s' resolves outside the current repository (%s, repo root %s). Tool-mediated "+
 					"writes must stay within the current repo — do not write into a sibling repo or the wider "+
 					"filesystem. %s",
 				prog, p, real, rc.topLevel, scratchDestinations(rc.topLevel))), false
 		case harnessScratchBadRoot:
-			badRoot = harnessScratchBadRootDefer("bash-write:scratchpad-root (#193)",
+			badRoot = harnessScratchBadRootDefer("bash-write:scratchpad-root",
 				fmt.Sprintf("'%s' target '%s'", prog, p))
 			haveBadRoot = true
 		case harnessScratchSession, harnessScratchBundled, claudeConfig, harnessScratch:

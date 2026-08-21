@@ -105,28 +105,36 @@ artifacts. Cross-check against local git objects with
 Build every absolute path from the worktree root — the cwd the harness
 gives you, or `git rev-parse --show-toplevel` — and never from the
 repository path that appears throughout injected context. That path is
-the *primary clone*, which sits on the default branch. A Read against
-it succeeds and returns real, plausible, pre-branch prose, so a claim
-you believe you verified is verified against the wrong branch, with no
-error and no warning.
+the *primary clone*, which sits on the default branch.
 
-The tell is a line-number mismatch between `grep -n`, which runs from
-the cwd, and a Read window: if the grep says a phrase is on one line
-and your Read of that range shows something else, you are reading two
-different files.
+From a linked worktree the permission-gate denies such a read: a `Read`
+of a primary-clone working file, and a `cat` / `grep` / `head` naming
+one, each come back as a worktree-escape deny whose message carries the
+worktree-anchored path to use instead. So the failure is loud, and the
+fix is the path the message names.
 
-The other remedy is to bypass the filesystem entirely and extract the
-bytes from the ref you mean: `git show HEAD:<path>` — or
-`git show origin/<branch>:<path>` — reads the path out of that commit
-rather than off disk, so it cannot reach another checkout's working
-files, whatever path the context handed you. Worktrees share one ref
-store, so the anchor that makes this yours is `HEAD`, which is
-per-worktree: after a detached checkout it names the commit you
-checked out, not the branch the primary clone sits on.
+Two cases the deny cannot reach, because neither touches the primary
+clone's filesystem:
 
-The injected `CLAUDE.md` in system context is that same stale copy and
-can run whole sections behind the worktree's. Read the worktree's copy
-before deciding what a repo rule says.
+- **The wrong ref.** `git show main:<path>` or
+  `git show origin/<base>:<path>` extracts bytes from a commit, so no
+  containment rule grades it. Evidence comes from `HEAD`, which is
+  per-worktree: after a detached checkout it names the commit you
+  checked out, not the branch the primary clone sits on. `git show
+  HEAD:<path>` is also the remedy when you want bytes off a ref rather
+  than off disk.
+- **A path the gate cannot resolve statically.** A read behind a
+  dynamic path defers rather than denying, so the containment check
+  never runs on it.
+
+The tell for a wrong-tree read is a line-number mismatch between
+`grep -n`, which runs from the cwd, and a Read window: if the grep says
+a phrase is on one line and your Read of that range shows something
+else, you are reading two different files.
+
+The injected `CLAUDE.md` in system context is a stale copy of the
+primary clone's and can run whole sections behind the worktree's. Read
+the worktree's copy before deciding what a repo rule says.
 
 ## A branch already claimed by another worktree
 

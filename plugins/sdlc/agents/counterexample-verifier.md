@@ -164,19 +164,12 @@ calls in a subagent context.
 You are checking somebody else's check, so the ways a check goes wrong
 are your subject matter. These are the ones that decide verifications:
 
-- **Read inside your worktree, never the primary clone.** Before you
-  grade a quote or quote anything yourself, confirm the file you read
-  sits under your worktree root — `git rev-parse --show-toplevel`, the
-  cwd the harness gave you — at the head checkout from step 1. Never
-  read through an absolute path built from the repository path in
-  injected context: that path is the primary clone, and the read
-  succeeds with plausible pre-branch content, which is how a real
-  counterexample gets `REFUTED`. When in doubt, extract with
-  `git show HEAD:<path>`, which after the detached checkout is the PR
-  head. Your byte-for-byte check of a `DISPROVED` report's `EVIDENCE`
-  is always in this category. `docs/agent-tooling-notes.md` → "Read
-  the worktree, never the primary clone's path" carries the mechanism
-  and the tell.
+- **Extract evidence bytes from `HEAD`, never another ref.**
+  `git show HEAD:<path>` after the detached checkout of step 1 is the
+  PR head; `git show main:<path>` or `git show origin/<base>:<path>`
+  returns the base's bytes, which is how a real counterexample gets
+  `REFUTED`. Your byte-for-byte check of a `DISPROVED` report's
+  `EVIDENCE` is always in this category.
 - **A zero-hit grep is not a refutation.** A `$'…'` or otherwise
   shell-quoted needle silently changes meaning as a regex — use
   `grep -F` for a literal needle. A multi-token needle misses a site

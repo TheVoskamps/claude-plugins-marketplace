@@ -3,7 +3,7 @@
 A compiled (Go) PreToolUse hook that adjudicates the tool calls Claude
 Code is about to make: **allow**, **deny**, **ask**, or **defer**. It is
 the deterministic enforcement layer the OS sandbox structurally cannot
-provide (issue #247). It replaces the shell hooks
+provide. It replaces the shell hooks
 `auto-approve-compound-commands.sh` and `worktree-file-guard.sh`.
 
 ## The verdict model
@@ -126,9 +126,9 @@ The gate's engines feed that decision:
   MCP tool names. A command substitution `$(…)` outside the anchor
   allowlist, and an **output** process substitution `>(…)`, mark the
   word inexact rather than crashing; an earlier nil
-  `ProcSubst` expander panicked on `<(…)` (#5). An **input** process
+  `ProcSubst` expander panicked on `<(…)`. An **input** process
   substitution `<(…)` is treated as what bash actually passes — a
-  `/dev/fd/N` pipe, never a filesystem path (#225). It no longer marks
+  `/dev/fd/N` pipe, never a filesystem path. It no longer marks
   the enclosing command inexact, and the operand walks skip it rather
   than reporting it as "a path argument built from an expansion the
   gate cannot resolve statically", which is what made `comm -3 <(…)
@@ -162,7 +162,8 @@ The gate's engines feed that decision:
   Command substitutions are graded by the same traversal, over the same
   nodes: `descendCmdSubsts` finds every `*syntax.CmdSubst` — the `$(…)`
   spelling and the backtick `` `cmd` `` alike — with `syntax.Walk` and grades
-  its statements as ordinary commands. That closes a hole older than #225. A
+  its statements as ordinary commands. That closes a hole older than the
+  process-substitution grading itself. A
   non-anchor `$(…)` does mark its word inexact, but inexactness stops the
   allow track **only in a word position that emits a command**: a
   `for`/`select` item list, a `case` subject word or pattern, an inline
@@ -204,7 +205,8 @@ The gate's engines feed that decision:
   two git anchors grade as allow and cost nothing, but bare `pwd` earns no
   high-confidence allow of its own, so descending into `$(pwd)` turns
   `cat "$(pwd)/a.txt"`, `case "$(pwd)" in …` and `FOO=$(pwd) echo hi` back
-  into prompts — the escalation #132 was filed to remove. The skip is applied
+  into prompts — the escalation the anchor allowlist exists to remove. The
+  skip is applied
   uniformly across the allowlist regardless, because one rule for "an anchor
   is not an ordinary substitution" rots less than three.
   One hole the measurement turned up is closable by neither class: a
@@ -218,7 +220,7 @@ The gate's engines feed that decision:
   A parameter expansion (`$P` / `${P}`) whose variable was
   assigned a **static literal** earlier in the same parsed program is
   resolved to that literal and run through normal containment, instead
-  of failing closed on `hasUnknownExpansion` (#60): e.g.
+  of failing closed on `hasUnknownExpansion`: e.g.
   `P=/abs/dir; cat "$P/file"` is contained, not escalated. A variable
   assigned from a command substitution / another unresolved expansion,
   or a non-plain expansion (`${P:-x}`, `${#P}`, …) stays inexact and
@@ -226,7 +228,7 @@ The gate's engines feed that decision:
   that one command only and does not persist to later commands. A name
   absent from that in-script static-assignment map falls through to a
   **closed allowlist of process-environment-derived variables**
-  (#156) — `$HOME`, `$USER`, `$TMPDIR`, `$PWD`, `$OLDPWD` — each
+  — `$HOME`, `$USER`, `$TMPDIR`, `$PWD`, `$OLDPWD` — each
   resolved from its own authoritative source rather than the gate's
   ambient process environment: `$HOME`/`$USER`/`$TMPDIR` from
   `os.UserHomeDir`/`os.LookupEnv` (injectable for tests), and
@@ -246,7 +248,7 @@ The gate's engines feed that decision:
   (matching real bash). The inherit-IN direction still holds: a
   top-level static assignment IS visible to a use nested inside such a
   scope. Engine A also tracks the **running working directory across an
-  in-command `cd`** (#129): a relative path operand on a command that
+  in-command `cd`**: a relative path operand on a command that
   follows a `cd` in the same parsed program — `cd <subdir> && cat
   ../x`, `cd <subdir>; touch y` — resolves against the `cd` target, not
   the event's `cwd`, matching what bash actually runs. A
@@ -261,20 +263,20 @@ The gate's engines feed that decision:
   subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
   the static-variable scope discipline above. Each `cd` also records the
-  **prior** running cwd as `$OLDPWD`'s tracked source (#156, mirroring
+  **prior** running cwd as `$OLDPWD`'s tracked source (mirroring
   real bash), so a command that follows a `cd` and uses `$OLDPWD` (e.g.
   `cd <subdir>; cat "$OLDPWD/x"`) resolves against the directory the
   `cd` left, not the event's cwd; before any `cd` in scope, `$OLDPWD` is
   untracked and fails closed. A sibling mechanism, the **command-substitution
-  anchor allowlist** (#132), recognizes one of the anchor command
+  anchor allowlist**, recognizes one of the anchor command
   substitutions — `$(git rev-parse --show-toplevel)` (this
   worktree's root), `$(git rev-parse --git-common-dir)` (the shared git dir,
   which a later use still runs through the `.git/` deny), and `$(pwd)` /
-  `` `pwd` `` (the cd-tracked running cwd, #129, not the event's raw cwd) —
+  `` `pwd` `` (the cd-tracked running cwd, not the event's raw cwd) —
   and resolves it to its value instead of dropping the word as unresolvable.
   Matching on the *substitution* is exact: extra flags, extra arguments, or a
   compound substitution is not an anchor and falls through to the
-  fail-closed drop. Where the substitution may SIT is not restricted (#225):
+  fail-closed drop. Where the substitution may SIT is not restricted:
   the allowlist is consulted per word-part, so an anchor resolves bare
   (`R=$(git rev-parse --show-toplevel)`), wrapped in double quotes
   (`R="$(…)"` — the spelling every style guide asks for because it survives a
@@ -289,7 +291,7 @@ The gate's engines feed that decision:
   resolves bare *variable* references from authoritative sources, while the
   anchor allowlist resolves specific *command-substitution* forms. A `for x
   in <words>; do
-  …; done` whose header is a fully static item list (#131, broadened by
+  …; done` whose header is a fully static item list (broadened by
   a follow-up) fans out: the body is walked once per resolved item with
   the loop variable bound to that item, so a body use of `"$x"`
   resolves and is run through normal containment instead of failing
@@ -321,13 +323,13 @@ The gate's engines feed that decision:
   `{1..9}` — ranges without a top-level comma resolve via the upstream
   path directly and never reach the fallback) keeps the loop variable
   unbound and the body fails closed on that variable, matching
-  pre-#131 behavior. A `for x; do …` with no `in` clause
+  the pre-for-loop behavior. A `for x; do …` with no `in` clause
   (iterates `"$@"`) is likewise never reduced. The binding is saved and
   restored around the loop so it does not clobber an outer variable of
   the same name, per the static-variable scope discipline above. Engine
   A also carries a
   **read-only-utility classifier**
-  (`readonly_util.go`, #31): a curated set of high-frequency text/data
+  (`readonly_util.go`): a curated set of high-frequency text/data
   utilities — `cat`, `head`, `tail`, `wc`, `sort`, `uniq`, `cut`, `tr`,
   `comm`, `paste`, `nl`, `fold`, `fmt`, `column`, `rev`, `realpath`,
   `ls`, `grep`, `diff`, `printf`, `echo`, `basename`, `dirname`, `true`,
@@ -338,8 +340,8 @@ The gate's engines feed that decision:
   ALLOW is
   withheld — the line **defers** — when a real-file redirect (other
   than one whose every destination is a session-shaped harness
-  scratchpad, #193) or a
-  command substitution / unresolved expansion is present (#1); when a
+  scratchpad) or a
+  command substitution / unresolved expansion is present; when a
   utility is invoked in a **file-writing form** — a write-capable flag
   (`sed -i`, gawk `-i inplace`/`-p`/`-o`/`-d`, `sort -o`/`--output`,
   `jq -i`) or a write-destination operand (`uniq INPUT OUTPUT`,
@@ -350,7 +352,7 @@ The gate's engines feed that decision:
   conditional `sed`/`awk`/`jq`/`find`/`tee` set): each path-bearing
   utility enumerates its read-only flag grammar, and anything outside it
   defers. A utility whose leading positional is a PROGRAM rather than a
-  path also carries its own **operand grammar** (#225), the read-track
+  path also carries its own **operand grammar**, the read-track
   counterpart of the one the write track has always had for `sed -i`:
   for `sed` the first non-flag token is the script unless `-e`/`-f`
   supplied one, for `awk` the program text unless `-f` did, for `grep`
@@ -397,7 +399,7 @@ The gate's engines feed that decision:
   always arrive as separate non-flag tokens the plain walk already
   contains. The read
   still **denies** when a path operand escapes
-  containment (#148 cross-repo, #127 worktree) — and an **input
+  containment (cross-repo, worktree) — and an **input
   redirect source** (`cat < f`) is graded by that same containment,
   including for a utility whose own operands are not paths, so
   `tee /dev/null < ../sibling-repo/.env` cannot copy an out-of-repo
@@ -415,12 +417,13 @@ The gate's engines feed that decision:
   the exception and not a hole: it is exact because it names a `/dev/fd`
   pipe rather than a path, and the substituted command earns its own
   verdict from the per-statement descent above.
-  `ls` joined the set in #193: it was in neither bash read track, so it
+  `ls` joined the set for the scratchpad carve-out: it was in neither bash
+  read track, so it
   deferred for every path while `find` and `grep` — both strictly more
   capable — allowed, and the scratchpad carve-out's own worked example
   (an `ls` of the bundled-skills hash directory) was false. It is
   path-bearing like the rest, so an `ls` of a path outside the repo now
-  earns the ordinary #148 read deny rather than a defer. Its
+  earns the ordinary cross-repo read deny rather than a defer. Its
   fail-safe predicate models only flags that are bools in **both** GNU
   and BSD `ls`; the short flags whose arity diverges (`-I`, `-T`, `-w`)
   are left unmodelled and defer. That gap holds no hole shut: for `ls`
@@ -435,7 +438,7 @@ The gate's engines feed that decision:
   model must not assert an arity that is wrong on one of the two
   platforms: as value flags the predicate misreads BSD's `ls -I .`, and
   as bools it misreads GNU's `ls -w 80 .`.
-- **In-repo-write classifier** (`classify_inrepo_write.go`, #32): the
+- **In-repo-write classifier** (`classify_inrepo_write.go`): the
   write-side counterpart to the read-only-utility classifier. The agent
   can already mutate any in-repo file via the Write/Edit tools (Engine B
   lets those through when contained), so an equivalent in-repo write via
@@ -446,39 +449,41 @@ The gate's engines feed that decision:
   program's operands are parsed against its own flag grammar so a flag
   value or a `sed` script (`s/a/b/`) is never tested as a path — the
   read track carries the mirror of that grammar for `sed`/`awk`/`grep`
-  (see above); before #225 it had none, so this claim held only here.
+  (see above); the read track had none before that grammar landed, so this
+  claim held only here.
   Not being tested as a *write target* is not the same as being ignored:
   a flag value that names a file the program READS (`sed -i -f SCRIPT`)
   is graded by the **read** containment via `containReadSources`,
   alongside the input-redirect sources, so it can withhold this
   classifier's ALLOW but never earn one. An
-  operand that escapes the repo (#148) or the worktree into the primary
-  clone (#127) **denies** with the worktree-anchored remediation; a
-  target under `.git/` **denies** (#125); an operand built from an
-  unresolved expansion **defers** (#1) — except that a command-substitution
+  operand that escapes the repo or the worktree into the primary
+  clone **denies** with the worktree-anchored remediation; a
+  target under `.git/` **denies**; an operand built from an
+  unresolved expansion **defers** — except that a command-substitution
   operand also carries the substituted command's own verdict, which outranks
   that defer when it denies (`cp "$(cat ../sibling-repo/.env)" x` denies, while
   `cp "$(echo hi)" x` defers); a real-file redirect **defers**
   unless every destination is a session-shaped harness scratchpad
-  (#193), the same graded veto the read track carries. An **input
+  the same graded veto the read track carries. An **input
   redirect source** is graded by the *read* containment, so
   `tee f.md < ../sibling-repo/.env` denies even though every operand
   the parser sees is in-repo; a read source can only withhold this
   classifier's allow, never earn it.
-  `rm` is deliberately **excluded** (the conservative #32 posture): the
+  `rm` is deliberately **excluded** (the conservative posture): the
   highest-blast-radius mutating program stays off the allow track, so no
   `rm` is ever blessed by the gate. `sed` and `tee` are dual-mode — their read-only
   forms (`sed -n`, `tee /dev/null`) stay on the read-only-utility track;
   only the mutating form routes here.
 - **Dangerous git / gh / aws classifier** (`classify_command.go`,
-  `rules.go`, #64, #163): the deny/ask half of the command classifier
+  `rules.go`): the deny/ask half of the command classifier
   for the tools whose remote operations can damage or expose a
   remote GitHub repo (`git`/`gh`) or exfil credentials/data or mutate
   remote cloud state (`aws`). Every path through them is **accounted
   for** — it reaches a verdict carrying an operation label and an
-  analysis, never a bare unlabelled defer (#262 replaced the earlier
+  analysis, never a bare unlabelled defer (the defer middle replaced the
+  earlier
   "never defer" property, which was a proxy for this one back when the
-  residual was an ASK). The tiering rests on the **#163 "two
+  residual was an ASK). The tiering rests on the **"two
   boundaries, split by visibility"** role (which replaces the earlier
   "the hook is a filter; containment lives in the microVM" premise):
   the microVM's egress proxy is the **network boundary** — it filters
@@ -492,18 +497,18 @@ The gate's engines feed that decision:
   - For **`git`**, the ALLOW default covers only the guest-local
     subcommands (commit, add, checkout, rebase, …), which the
     disposable microVM contains and which git's content-addressed
-    objects make recoverable (#64 principle 4) — neither justification
+    objects make recoverable — neither justification
     involves the proxy. The remote-touching shapes (push refspecs,
     `remote add`/`set-url` re-aim) are individually classified in the
     deny/ask tiers, because a credential-carrying push to an allowed
     host is the proxy's blind spot.
-  - For **`gh`**, ALLOW is **no longer a floor** (#163): it is a
+  - For **`gh`**, ALLOW is **not a floor**: it is a
     property of an **enumerated verb** — recognized reads
     (`isGhReadOnly`) and an enumerated recoverable-own-repo-write set
     (`isGhRecoverableWrite`: `pr create`/`comment`/`merge`/`close`,
     `issue create`/`comment`/`close`/`edit`, `label`, …). An
-    **unrecognized `gh` noun/verb DEFERS** (#64 principle 2, rebucketed
-    by #262) rather than the pre-#163 silent ALLOW. An enumerated write
+    **unrecognized `gh` noun/verb DEFERS** rather than a silent ALLOW. An
+    enumerated write
     whose explicit target (`-R`/`--repo`, or a `gh api`
     `repos/{owner}/{repo}` segment) differs from the session's `origin`
     **DEFERS** — an exfil-by-write to a foreign repo (`gh issue comment
@@ -512,7 +517,7 @@ The gate's engines feed that decision:
     channel or ordinary work on a fork is read from the context, not
     from the slug; reads stay unscoped. The companion `git remote
     add`/`set-url` DEFER closes the git version of that channel.
-  - For **`aws`** the default is **DEFER** (#124, rebucketed by #262):
+  - For **`aws`** the default is **DEFER**:
     an aws mutation is not
     a guest-local operation — it carries the guest's credentials to a
     control plane outside the microVM and mutates real cloud state the
@@ -529,7 +534,7 @@ The gate's engines feed that decision:
   (1) a **non-static argv** (command substitution, unresolved variable,
   glob) on any of those tools **denies** — the dynamic token can
   hide a dangerous op. That rationale only reaches a token in a
-  **classification-bearing position**, so #225 scoped the check to
+  **classification-bearing position**, so the check is scoped to
   those. Scoping is spelled as an allowlist of SHIELDED flags rather
   than an enumeration of bearing positions, so every position the
   allowlist does not name stays bearing by default: the noun, the verb,
@@ -570,7 +575,7 @@ The gate's engines feed that decision:
   `--force-with-lease`, a
   clean named-branch delete (`--delete <branch>`, `origin :branch`), an
   ordinary fast-forward push, and a plain `src:dst` refspec **allow**.
-  A plain `src:dst` was asked on a false premise until #225: git does
+  A plain `src:dst` used to be asked on a false premise: git does
   not overwrite there. `receive-pack` rejects a non-fast-forward ref
   update unless the update is forced, so `origin HEAD:branch` either
   fast-forwards or is refused by the remote, exactly like
@@ -580,40 +585,40 @@ The gate's engines feed that decision:
   never inspected the `+` at all; `+src:dst` reached the ask only
   incidentally, because it also contains a colon. And **`git remote add`/
   `set-url`** (which re-aim where a later ALLOWed push sends its
-  refspec) **defer** (#163, rebucketed by #262) — the git version of the
+  refspec) **defer** — the git version of the
   gh foreign-target exfil channel, and context-dependent in exactly the
   same way. For `gh`: `gh api` is routed
-  through a method/body/endpoint gate (#64, extended by #113 and #162).
+  through a method/body/endpoint gate.
   A REST write — a non-GET method, an implicit-POST-flipping body flag
-  on a REST endpoint, or an `x-http-method-override` header — **defers**
-  (#162, rebucketed by #262): a `gh api` REST write is a
+  on a REST endpoint, or an `x-http-method-override` header — **defers**:
+  a `gh api` REST write is a
   credential-carrying mutation of remote repo state the microVM cannot
   roll back, the same not-backstopped-by-containment class as an `aws`
-  mutation (#124) — but which endpoint it writes, and whether that is
+  mutation — but which endpoint it writes, and whether that is
   the write the session is meant to be making, is read from the
   arguments and the context rather than from the method token this arm
   matches on. `--hostname` (which aims the signed request at a
   non-default host — the gh analog of `--endpoint-url`) keeps its own
   **deny**: it is the one shape the egress proxy's host-allowlist can
   see and control, not a write/read question. On the `graphql` endpoint
-  the gate now **classifies the query document** instead of blanket-denying (#113):
+  the gate **classifies the query document** instead of blanket-denying:
   a document supplied literally via `-f query=…` / `--raw-field
   query=…` is scanned (string literals and `#` comments stripped) and,
   if every top-level construct is provably a `query`, the anonymous
   `{…}` shorthand, or a `fragment`, it **allows**; a **fragment-free**
   mutation document whose **every** top-level mutation field is on the
-  curated issue-metadata allowlist (#195 — `setIssueFieldValue`,
+  curated issue-metadata allowlist (`setIssueFieldValue`,
   `updateProjectV2ItemFieldValue`, `addProjectV2ItemById`,
   `updateIssueIssueType`, `addSubIssue`, `removeSubIssue`,
   `addBlockedBy`, `removeBlockedBy`, `closeIssue`, `reopenIssue`; the
   GraphQL spelling of the recoverable-write verbs `gh` already allows,
-  plus the issues plugin's metadata verbs; extended in #209 with the
+  plus the issues plugin's metadata verbs; extended with the
   clear verbs `deleteIssueFieldValue` and
   `clearProjectV2ItemFieldValue`, which unset a native issue field and
   a project-board item field respectively — recoverable exactly as
   their set counterparts are (the value can just be set again), and for
   a board field the only spelling, since
-  `updateProjectV2ItemFieldValue` cannot clear; extended again in #256
+  `updateProjectV2ItemFieldValue` cannot clear; extended again
   with the native-field `updateIssueFieldValue`, which rewrites a
   native issue-field value that can simply be set back, on the same
   surface `setIssueFieldValue`/`deleteIssueFieldValue` already covers)
@@ -633,7 +638,7 @@ The gate's engines feed that decision:
   list is, and no narrower allow-listed verb reaches it; because the
   allowlist keys on the mutation field NAME and never on its
   arguments, the gate cannot tell that arm from a title edit, so no
-  argument inspection would make the verb allowable. #262 therefore
+  argument inspection would make the verb allowable. The gate therefore
   moved it from ASK to **DENY, with teaching**: every legitimate use of
   it has an allowed spelling, so the deny reason enumerates them per
   concept — field values via
@@ -657,7 +662,7 @@ The gate's engines feed that decision:
   still denies — those need no redirect of their own, being already the
   allowed spelling. Individual verbs graduate to the allowlist or into the
   redirect map case-by-case as evidence accumulates, as
-  `updateIssueFieldValue` did in #256/#257. The triage friction that prompted #256
+  `updateIssueFieldValue` did. The triage friction that motivates it
   was `updateIssue` used only to set `issueTypeId`, and that has its
   own narrow verb on the list already — `updateIssueIssueType`, which
   is what the issues plugin's canonical templates use. The
@@ -677,7 +682,7 @@ The gate's engines feed that decision:
   allowlist (`mutation { ...addSubIssue } fragment addSubIssue on
   Mutation { deleteIssue(…) }` — GitHub's mutation root type is
   literally `Mutation`, so that type condition executes). Any `...`
-  spread or `fragment` definition therefore withholds the #195 allow
+  spread or `fragment` definition therefore withholds the allowlist allow
   and the document keeps its mutation **defer**, even when the fragment
   is benign; the query-only allow above is unaffected, since a query
   operation's fragments cannot reach a mutation field. The same
@@ -685,7 +690,7 @@ The gate's engines feed that decision:
   `updateIssue` deny: `mutation { ...updateIssue }` names a FRAGMENT,
   not the field, so denying on it would teach a redirect for a call that
   was never made. Those
-  allow-listed mutations address opaque node IDs, so (unlike the #163
+  allow-listed mutations address opaque node IDs, so (unlike the
   `-R` check) the gate cannot see which repo the target belongs to;
   accepted because the writes are recoverable, land on human-visible
   surfaces, and need only write access the credential already holds. A
@@ -698,7 +703,7 @@ The gate's engines feed that decision:
   `TestGhAPIGraphQLFailClosed_113` pins the standalone
   `subscription { x }` deny and
   `TestGhAPIGraphQLMixedMutationDefers_195` the bundled defer. On a REST
-  endpoint the gate runs a path-prefix GET-gate (#113): a
+  endpoint the gate runs a path-prefix GET-gate: a
   known-flag-only GET whose endpoint is on the read allowlist (exact
   `rate_limit`/`meta`/`user`;
   segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a
@@ -706,13 +711,14 @@ The gate's engines feed that decision:
   `://`- or `..`-bearing endpoint **denies**; an unknown flag or a
   non-allowlisted endpoint **defers** (the two owner-decision
   deviations from the appendix GET-gate — a hard deny would recreate the
-  no-escape-hatch wall this gate exists to remove, and #262 dropped the
+  no-escape-hatch wall this gate exists to remove, and the defer middle
+  dropped the
   human click that stood in for it, since "the gate does not model this
   flag" is an absence of gate knowledge rather than evidence of harm).
   The egress proxy backstops a GET only against a
   **disallowed** host; against an already-allowed host it sees
   ciphertext and cannot distinguish a read from an exfil, so the GET
-  allowlist (not "no-egress") is the gate's own control here (#163).
+  allowlist (not "no-egress") is the gate's own control here.
   Irreparable verbs
   (`repo`/`release`/`issue`/`gist delete`, `secret`/`variable`
   writes, `repo rename`/`transfer`, `ruleset delete`) **deny**;
@@ -725,7 +731,7 @@ The gate's engines feed that decision:
   hard-ask-tier credential reads. Beyond those carve-outs, a recognized
   gh command ALLOWs only
   when it is an enumerated read or an enumerated recoverable-own-repo
-  write (#163); an **unrecognized noun/verb defers** — after
+  write; an **unrecognized noun/verb defers** — after
   gh's own command ALIASES have been resolved to the canonical spelling,
   so `gh gist new` is `gh gist create` and not an unrecognized verb (see
   the alias paragraph below) — and an
@@ -738,7 +744,7 @@ The gate's engines feed that decision:
   that same parsed `-R`/`--repo` value feeds the foreign-target scoping;
   an unrecognized leading global fails closed (**deny**) rather than
   desyncing detection. **A gh command that PUBLISHES a local file has
-  that file's path graded by read containment (#229)**
+  that file's path graded by read containment**
   (`classify_gh_files.go`). gh's body-file flags read a file off local
   disk and send its contents to GitHub, where the destination may be
   public and outlives any local cleanup — and the gate already held the
@@ -746,7 +752,8 @@ The gate's engines feed that decision:
   read), but `classifyGh` never asked for it: the operand was consumed
   as an ordinary flag value and never reached containment, so
   `gh pr comment 227 -F /etc/passwd` published the file under an
-  outright ALLOW. This is the converse of #225's class 1, where a LOCAL
+  outright ALLOW. This is the converse of the local-redirect class, where a
+  LOCAL
   redirect (`gh pr diff > .claude/tmp/x`) exfiltrates nothing because
   the bytes stay in a worktree the agent can already read and write.
   Per noun/verb, `ghFileSpecs` names the flags whose value is a local
@@ -859,8 +866,8 @@ The gate's engines feed that decision:
   explicit-GET carve-out, which stays a read: `gh api -X GET -F
   q=@/etc/passwd repos/o/r` **allows**, so a `@file` value on an
   allow-listed GET endpoint reaches GitHub without being graded against
-  the repository boundary. #229 neither widened nor closed that.
-  **EVERY `gh gist create` asks — secret and public alike (#229).**
+  the repository boundary. The publish-file rule neither widened nor closed
+  that. **EVERY `gh gist create` asks — secret and public alike.**
   GitHub's "secret" gist is UNLISTED, not private: its own docs say a
   secret gist stays out of Discover and out of search but that "if
   someone you don't know discovers the URL, they'll also be able to see
@@ -899,7 +906,7 @@ The gate's engines feed that decision:
   why both gh-local cluster walks stop at the `=` (above), and `-p`
   stays in the verb's modelled bool set so the unmodelled-flag screen
   still recognizes it.
-  **EVERY `gh gist edit` asks too (#229).** `gh gist edit <id> -a <file>`
+  **EVERY `gh gist edit` asks too.** `gh gist edit <id> -a <file>`
   — and its positional-file spelling — publishes local content into a
   gist that already exists, and it was an outright **allow**, reachable
   in two allowed steps: `gh gist list` is a read, so it names every gist
@@ -928,7 +935,7 @@ The gate's engines feed that decision:
   `gh gist edit abc123 - < /etc/passwd` keeps its deny. `gh gist delete`
   is untouched and still **denies**.
   **gh's own command ALIASES are resolved to the canonical spelling
-  before any tier runs (#229)** (`classify_gh_aliases.go`). gh finds a
+  before any tier runs** (`classify_gh_aliases.go`). gh finds a
   subcommand by NAME or by cobra alias — `gh gist new` renders
   `gh gist create`'s own USAGE line — while every tier here dispatched by
   name, so an aliased spelling matched none of them and fell through to
@@ -1011,7 +1018,7 @@ The gate's engines feed that decision:
   local-config-only read, while a secret-key `configure get` lands in
   the credential-read ask tier above — token-matched not
   substring-matched) **allow**. **The credential-read decision is
-  whitelist-anchored, not a blacklist (#97).** Under #64/#124 the
+  whitelist-anchored, not a blacklist.** Under the earlier posture the
   credential-read tier was an exact-pair blacklist (`sts
   get-session-token`, `ecr get-login-password`, …) with an ALLOW floor
   underneath it — a `get-*` op the blacklist did not name reached ALLOW
@@ -1026,7 +1033,8 @@ The gate's engines feed that decision:
   `password`/`secret`/`details`, matched as whole hyphen segments) is
   pulled to the credential-read **ask** tier regardless of service —
   a `get-*` is allowed only if it does NOT look credential-shaped. The
-  failure asymmetry is the guide (the #163 role, applied to the floor
+  failure asymmetry is the guide (the two-questions role, applied to the
+  floor
   itself): a benign `get-*` that happens to carry such a segment costs
   one spurious prompt (cheap, the accepted cost on the allow side),
   whereas a missed credential read costs a leak (unacceptable). The
@@ -1037,11 +1045,11 @@ The gate's engines feed that decision:
   list-access-keys`, `codecatalyst list-access-tokens` return
   identifiers, never the secret) and stay ALLOW.
   **Credential MINTS are the same hard-ask tier, on a separate
-  structural signal (#262).** `sts assume-role` and `iam
+  structural signal.** `sts assume-role` and `iam
   create-access-key` return live credentials on stdout exactly as `sts
   get-session-token` does, but they are not `get-*` READS, so neither
   the exact-pair switch nor the `get-*` name signal reaches them: they
-  rode the residual, which #262 moved from ask to defer — the same
+  would otherwise ride the residual, which is a defer — the same
   residual-drop shape as `gh auth token`, and an evaluator-waivable
   defer on a call that hands the session fresh live AWS credentials.
   So a credential-material token under a MINT prefix
@@ -1058,15 +1066,15 @@ The gate's engines feed that decision:
   positive costs one click on a call that was already being withheld,
   while a false negative loses the tier. The gh analog is `gh
   auth token` (prints the active token), which has its own hard-ask arm
-  in `classifyGh`'s `auth` switch (#262). Until then it escalated only
+  in `classifyGh`'s `auth` switch. Without it, it would escalate only
   INCIDENTALLY — noun `auth` is not in `isGhReadOnly`'s known nouns, so
   it fell to the unrecognized-`gh` residual, and that residual was an
-  ASK. When #262 moved the residual to DEFER, an explicit arm was the
+  ASK. With the residual at DEFER, an explicit arm is the
   difference between the credential tier keeping this call and silently
   losing it, with nothing about `gh auth token` itself having changed.
   That is the general shape of a residual-bucket change: enumerate what
   the residual was catching before assuming only the residual moved.
-  `gh auth status` **allows** (#225) without disturbing that:
+  `gh auth status` **allows** without disturbing that:
   status reports the active account and its scopes, and it is
   recognized in `classifyGh`'s dedicated `auth` switch rather than by
   admitting the noun. Admitting it would make every `auth` verb's
@@ -1092,8 +1100,7 @@ The gate's engines feed that decision:
   costs a leak while a spurious escalation costs a click.
   **Every other aws op — including
   ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
-  `cloudformation delete-stack`, `lambda invoke`, …) — defers (#124,
-  rebucketed by #262)**:
+  `cloudformation delete-stack`, `lambda invoke`, …) — defers**:
   the gate cannot prove the op read-only, and an aws mutation carries
   the guest's credentials to a control plane outside the microVM and
   mutates real cloud state the VM cannot roll back. To find the
@@ -1116,15 +1123,15 @@ The gate's engines feed that decision:
   operation token) — a rare last resort, since the global set is
   complete; an unknown flag after both tokens are captured is a harmless
   operation flag. The existing
-  identity rules (#117 `gh auth switch`, #125 `git config user.*`, #120
+  identity rules (`gh auth switch`, `git config user.*`,
   subagent `git reset --hard`, the App-repo naked-`gh` deny) are
   preserved and fire alongside these tiers.
 - **Engine B — path containment** (`engine_b_containment.go`,
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
   both the git-derived root and the target, and blocks worktree escapes
-  (#127) and cross-repo access (#148). Fail-closed on any git
-  subprocess failure or timeout. Refinements (#247): (1) a target
+  and cross-repo access. Fail-closed on any git
+  subprocess failure or timeout. Refinements: (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
   not denied as a cross-repo escape, so the `settings.json` allow-list
   governs the agent's required startup reads of its own global config;
@@ -1132,17 +1139,17 @@ The gate's engines feed that decision:
   symlink-escaped, and genuine sibling repos are still denied. (2) a
   file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
   canonical target is anywhere under a `.git/` directory is denied (the
-  Engine B half of the #125 identity-write rule, broadened from
-  `.git/config` to the whole `.git/` tree in #35 — a hand-edit of
+  Engine B half of the identity-write rule, broadened from
+  `.git/config` to the whole `.git/` tree — a hand-edit of
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
   can inject hooks or corrupt repo state just as a `.git/config` write
   rewrites identity). Reads of `.git/` files are not writes and are
   unaffected. If you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
-  (#127, #148) are **prescriptive** (#30): a write/edit escape names
+  are **prescriptive**: a write/edit escape names
   `<repo-root>/.claude/tmp/` as the scratch destination and warns
   against `.git/`, so an open-ended denial does not induce the model to
-  improvise a bad landing spot. As of #193 they name a **second**
+  improvise a bad landing spot. They name a **second**
   destination alongside it — the harness scratchpad,
   `<system-tmp>/claude-<uid>/` — for a file that must outlive this repo
   or this session, and the read-side denies name that handoff location
@@ -1156,30 +1163,42 @@ The gate's engines feed that decision:
   a placeholder resolves to the primary clone as easily as to the
   agent's own worktree. `scratchDestinations` is the single helper every
   deny that names it calls, and
-  `TestScratchDestinationsNameResolvedRoot_193` guards the property
+  `TestScratchDestinationsNameResolvedRoot` guards the property
   across its call sites (the read-side denies name only the handoff
   location, via `handoffHint`). See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
   for the convention. (3) **reading** a non-`.git/` file that resolves
-  into the primary clone / shared git dir is **contained/defer** (ALLOW
-  on the read-only-utility track), not an ASK (#130): a linked worktree
-  shares tracked content with the primary clone, so reading a file like
-  `plugin.json` there discloses nothing the worktree's own history
-  doesn't already have. This applies to the `Read` tool and to
-  bash-read commands (`cat`, the read-only-utility set, `less`/`more`/
-  pagers via `classifyPathReader`) alike. The `.git/`-tree deny is
-  checked BEFORE this relaxation and survives independently for reads
-  too — `cat <primary-clone>/.git/config` still denies. That deny is
-  reached from the primary-clone branch, so it does not extend to an
-  **in-repo** `.git/` read, which the curated read-utility track
-  allows; see "Gaps left in place deliberately" below. The **write**
-  side is unaffected: Write/Edit/MultiEdit/NotebookEdit and the
-  in-repo-write shell classifier still DENY a target that resolves to
-  the primary clone (#127), and #148 cross-repo reads/writes are
-  unaffected by this carve-out (it only relaxes the primary-clone /
-  common-dir case, not a genuine sibling repo). (4) a leading `~` or
+  into the primary clone / shared git dir **denies**, under
+  `read:worktree-escape` on the file-tool path and
+  `bash-read:worktree-escape` on the operand walk. The primary clone's
+  working files can differ from this worktree's, so such a read returns
+  plausible content from the wrong tree with no error — the failure
+  mode is a wrong answer, not a refusal, which is why prose telling an
+  agent to read its own worktree cannot substitute for the deny. The
+  message names the resolved primary-clone path, the corrected
+  worktree-anchored path, and `git rev-parse --show-toplevel` as the
+  anchor, the same shape the write-side escape carries. The predicate
+  is the worktree cwd alone: no agent-type condition and no
+  `.claude/worktrees/` prefix test, because the staleness hazard is a
+  property of the topology rather than of who is driving. This applies
+  to the `Read` tool and to bash-read commands (`cat`, the
+  read-only-utility set, `less`/`more`/pagers via
+  `classifyPathReader`) alike — every bash read path routes through
+  `containPathOperands`. The `.git/`-tree deny is checked BEFORE it and
+  carries its own reason, naming the identity and executable content
+  git internals disclose. That deny is reached from the primary-clone
+  branch, so it does not extend to an **in-repo** `.git/` read, which
+  the curated read-utility track allows; see "Gaps left in place
+  deliberately" below. The **write** side is unchanged:
+  Write/Edit/MultiEdit/NotebookEdit and the in-repo-write shell
+  classifier DENY a target that resolves to the primary clone under
+  `containment:worktree-escape` / `bash-write:worktree-escape`, so a
+  write-control probe row stays distinguishable from a read deny.
+  Cross-repo reads/writes, the scratchpad carve-outs, and every verdict
+  reached when the event cwd is the primary clone itself are unaffected.
+  (4) a leading `~` or
   `~/...` in any operand is expanded against the real home directory
-  BEFORE the relative-join/canonicalize step (#131 follow-up review),
+  BEFORE the relative-join/canonicalize step,
   mirroring the tilde handling Engine A's `applyCd` already does for
   `cd ~`. Without this, `~/.ssh/id_rsa` is not `filepath.IsAbs` and
   would silently fall through to the relative-join branch, resolving
@@ -1195,7 +1214,7 @@ The gate's engines feed that decision:
   the operand as an unconditional `escapeRepo` — denied, never
   `contained` — genuinely mirroring `applyCd`'s fail-safe posture
   (invalidate rather than guess) rather than merely claiming to. An
-  earlier version of this fix (PR #139 round 3) left `~` as a literal
+  earlier version of this fix left `~` as a literal
   relative segment in this branch instead, which actually resolved as
   `<base>/~/...` and read as `contained` — a live fail-open, caught by
   round-3 review and closed by threading the resolver's
@@ -1203,7 +1222,7 @@ The gate's engines feed that decision:
   `canonicalizeFromResolver` in `engine_b_containment.go`). (5) a
   target whose canonical path lands under the harness's per-uid
   scratchpad root, `<system-tmp>/claude-<uid>/`, is carved out of the
-  `/tmp` deny (#193). The harness provisions that tree and actively
+  `/tmp` deny. The harness provisions that tree and actively
   directs the model to put temporary files there, so treating it as an
   ordinary `/tmp` escape made the gate fight the harness: a hook deny
   beats a `settings.json` allow, leaving the scratchpad unusable from
@@ -1231,7 +1250,7 @@ The gate's engines feed that decision:
   scratchpad carve-out decides: that classifier's terminal for any
   contained-or-carved-out operand is an `allow`, which it already
   returned for an in-repo operand and for the `~/.claude` carve-out
-  (#247). The row is recorded because the table has to describe what
+  The row is recorded because the table has to describe what
   the gate does, not what this carve-out chose. An earlier revision of
   this table gave one verdict per region and was wrong about exactly
   that row.
@@ -1264,7 +1283,7 @@ The gate's engines feed that decision:
   with the standard `scratchpad`/`tasks` layout. The first
   implementation round shipped a single-dash-only
   `(-[A-Za-z0-9]+)+`, faithfully implementing an earlier revision of
-  #193's spec, and thereby excluded every such session — silently
+  the scratchpad spec, and thereby excluded every such session — silently
   reintroducing this issue's own symptom for them. The widening stops
   at the quantifier: the character class stays `[A-Za-z0-9]`, which is
   exactly the alphabet the harness emits.
@@ -1291,7 +1310,7 @@ The gate's engines feed that decision:
   right after the 32-hex segment, so an `ls` of the hash directory
   itself is covered, not only files beneath it — an example that is
   true only because `ls` is on the read-only-utility ALLOW track; it
-  was not until #193's third round, and the claim was false until then.
+  was not always so, and the claim was false until it was.
 
   The version component is **shape**-checked (`major.minor.patch`) and
   deliberately not pinned to the running Claude Code version: the hook
@@ -1329,7 +1348,7 @@ The gate's engines feed that decision:
   mistaken for this bug reappearing. What that arm establishes is only
   that the CARVE-OUT cannot be applied — not that anything escaped —
   which is why it withholds the allow rather than spending a human
-  click (#262). Nothing **below** the root needs a check:
+  click. Nothing **below** the root needs a check:
   canonicalization already resolves those components and produces a
   better verdict than an `Lstat` refusal would — a symlinked
   `scratchpad` -> `~/.ssh` resolves out of the region and earns the
@@ -1342,7 +1361,7 @@ The gate's engines feed that decision:
 
   **Reaching the carve-out from bash.** A carve-out the bash track
   cannot reach is not a carve-out, and gates sat in front of this one
-  until #193's third round. The first was the read-only-utility
+  until a later round. The first was the read-only-utility
   table's missing `ls`, described above. The second was the redirect
   veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
   set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
@@ -1356,13 +1375,14 @@ The gate's engines feed that decision:
   **only** for the session shape: an in-repo destination, the
   bundled-skills tree, the unshaped remainder of the prefix, and `/tmp`
   at large all keep the veto, as do a destination the gate cannot
-  resolve statically (#1), an unresolvable running cwd (#129), and a
+  resolve statically, an unresolvable running cwd, and a
   command whose *other* redirect escapes the region. The lift reaches
   exactly the allow tracks that call `redirectVetoesAllow` — the
   read-only-utility classifier and the in-repo-write classifier.
 
-  **The credentialed tools grade their redirect too** (#225,
-  `credentialedRedirectVerdict`). #193 left `git`/`gh`/`aws` on the
+  **The credentialed tools grade their redirect too**
+  (`credentialedRedirectVerdict`). The scratchpad carve-out left
+  `git`/`gh`/`aws` on the
   ungraded veto, which reproduced the very inconsistency it had just
   removed one track over: `tee .claude/tmp/x.md` allowed while
   `gh pr diff 224 > .claude/tmp/x.md` asked, and the ask fired hardest
@@ -1375,17 +1395,17 @@ The gate's engines feed that decision:
   **escape**, which is what containment decides. So a credentialed
   redirect is graded as a write operand — the same `readClass=false`
   predicate `tee`/`cp` are held to — and **allows** when every
-  destination is contained in this worktree or lands in a #193-blessed
+  destination is contained in this worktree or lands in a scratchpad-blessed
   region. A destination that PROVABLY escapes, or that sits under
-  `.git/`, **denies** (#262) — with the same prescriptive
+  `.git/`, **denies** — with the same prescriptive
   scratch-destination prose the `Write` tool's deny for the identical
-  path carries. Until #262 those asked while `Write` denied: one escape,
+  path carries. An ask here would leave one escape carrying two verdicts,
   one containment predicate, one message, two verdicts decided purely by
   spelling. It was observed in the wild, an `sdlc:theorem-disprover`
   redirecting `git show` output to `/tmp/` prompting the operator when
   the message it was shown would have redirected it perfectly. A
-  destination that merely cannot be pinned — an unresolvable expansion
-  (#1), an invalidated cwd (#129), an unresolvable repo boundary —
+  destination that merely cannot be pinned — an unresolvable expansion,
+  an invalidated cwd, an unresolvable repo boundary —
   **defers** instead: that is an absence of proof rather than a proven
   escape. The deny reason names clobber and escape rather than
   exfiltration. `acli` is untouched: it still gates its read-only
@@ -1477,12 +1497,12 @@ The gate's engines feed that decision:
   working as specified, not a hole the redirect grading opened.
 
   Every other `/tmp` path — including another uid's
-  `/tmp/claude-<other-uid>/` — still earns the ordinary `#148` deny.
+  `/tmp/claude-<other-uid>/` — still earns the ordinary cross-repo deny.
   Neither the carve-out nor the root `defer` short-circuits the operand
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
 
-**An unparseable command is a syntax error, not a decision** (#225). A
+**An unparseable command is a syntax error, not a decision**. A
 parse failure used to **ask**, on the rationale that "an unparseable
 command is often a human-authored one-liner the human can vet". That is
 inverted for a `PreToolUse` hook, which fires on commands the **model**
@@ -1523,7 +1543,7 @@ exits with `stop_reason: "tool_deferred"`, and only a
 `claude -p --resume` from the integration that spawned it makes the
 call run. Nothing resumes a subagent, so the tool use ends with no
 result and the harness tears the agent session down. That is
-issue #271: from Claude Code 2.1.232, whose background-by-default
+the defer wire spelling: from Claude Code 2.1.232, whose background-by-default
 change for non-teammate agent spawns made the path load-bearing,
 every `sdlc` agent run died within a few requests, because the defer
 middle is hit almost immediately.
@@ -1589,7 +1609,8 @@ bubbled up would turn an allow into a fail-closed block.
 
 A Go comment in this package states its invariant **in place** rather
 than pointing the reader at an issue number. Code must be authoritative
-and stand on its own: a comment reading "pre-existing #32 behavior"
+and stand on its own: a comment reading "pre-existing behavior per the
+ticket"
 states no invariant — it makes the reader fetch a ticket to learn the
 rule, and the pointer that prompted this convention was not even
 correct, it named the wrong issue. Provenance needs no help from the
@@ -1602,7 +1623,7 @@ number.
 
 Agent-facing `Reason` text is a different surface, and the text the
 gate emits is behavior rather than documentation: `trackerRefInReason`
-(`TestRemediationReasonsAreActionable_58`) asserts that no
+(`TestRemediationReasonsAreActionable`) asserts that no
 reason-bearing `Reason` carries a bare issue pointer — deny, ask and a
 `deferJudgment` analysis alike. An issue number tells a blocked agent
 nothing about what to do, and tells whoever is tuning the evaluator
@@ -1759,7 +1780,7 @@ status the harness treats as a non-blocking error, and every gated tool
 call proceeds with no adjudication at all while the transcript shows only
 a `PreToolUse:Bash hook error`. That is exactly what happened in a
 claude-vm `linux-arm64` guest before the `linux-arm64` binary existed
-(issue #216). A security gate that cannot run must block, not step aside
+A security gate that cannot run must block, not step aside
 — so an unprovisioned or unrunnable platform is unusable rather than
 silently ungated, and the remedy is to add that platform to the
 cross-compile recipe above and rebuild.

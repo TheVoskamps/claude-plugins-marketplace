@@ -666,9 +666,11 @@ case for nothing.
 
 These kinds of `DISPROVED` report are malformed and never reach a
 verifier: one whose counterexample is not a verbatim quote — the
-canonical instance being a quote taken from a tree other than the PR
-head, such as the primary clone, `main`, or a stale working copy,
-which reads as real prose and matches nothing at the head commit — and
+canonical instance being a quote taken from a ref other than the PR
+head, such as `main` or `origin/<base>`, which reads as real prose and
+matches nothing at the head commit; a filesystem quote from the
+primary clone is not that instance, because the permission-gate denies
+that read — and
 one that asserts file topology without having run a topology command
 (see "Before claiming file-topology issues" below). Re-spawn that one
 disprover with the same brief rather than filing the finding on a

@@ -1,7 +1,6 @@
 package main
 
-// Resolution of `gh`'s own command aliases to their canonical spelling
-// (issue #229).
+// Resolution of `gh`'s own command aliases to their canonical spelling.
 //
 // gh finds a subcommand by matching a token against a command's NAME or any of
 // its cobra aliases, so `gh gist new` runs `gh gist create` — verified by help
@@ -10,7 +9,7 @@ package main
 // Every tier in classifyGh dispatches by name alone, so an alias matched none of
 // them and fell through to the "unrecognized command" residual. That routed a
 // documented respelling past a verdict the gate had already reached:
-// `gh gist create /etc/passwd` earns the #229 containment
+// `gh gist create /etc/passwd` earns the publish-file containment
 // DENY while `gh gist new /etc/passwd` did not, and the ALIASES block that
 // names the respelling sits in the very help output ghFileSpecs was transcribed
 // from.

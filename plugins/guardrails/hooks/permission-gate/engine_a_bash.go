@@ -719,9 +719,9 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// so before this took a node, `for f in $(cat ../sib/.env); do echo x; done`
 	// and `FOO=$(cat ../sib/.env) echo hi` ALLOWed on their remaining parts while
 	// bash ran the substituted command. Hand-listing the positions was tried on
-	// #225 for the sibling process-substitution class and did not converge —
-	// successive review rounds each found one more — so the reach is a property
-	// of the traversal instead.
+	// the sibling process-substitution class and did not converge — successive
+	// review rounds each found one more — so the reach is a property of the
+	// traversal instead.
 	//
 	// The walk STOPS at any nested *syntax.Stmt: the main walk reaches those on
 	// its own (a `for` body, a `case` arm, a substitution's own statements), and a
@@ -743,7 +743,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// ALLOW and cost nothing, but bare `pwd` earns no high-confidence allow of its
 	// own, so descending into $(pwd) turns `cat "$(pwd)/a.txt"`,
 	// `case "$(pwd)" in …` and `FOO=$(pwd) echo hi` from allows into prompts —
-	// #132's own idiom, back to the escalation it was filed to remove. The skip is
+	// the anchor idiom itself, back to the escalation anchors exist to remove.
+	// The skip is
 	// applied uniformly across the allowlist anyway, because "an anchor is not an
 	// ordinary substitution" is one rule and three rules would rot.
 	//
@@ -810,7 +811,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// once (argv, an assignment RHS and its array elements, a `for`/`select`
 	// item list, a `case` subject word and its patterns, a `[[ … ]]` operand, a
 	// redirect target) instead of a hand-listed few. Enumerating the positions by
-	// hand did not converge on #225: each review round found a position the round
+	// hand did not converge: each review round found a position the round
 	// before had missed — first a redirect target, then `for f in <(cmd)`,
 	// `case <(cmd) in` and `x=<(cmd)` — so the reach is now a property of the
 	// traversal rather than of a list someone has to keep complete.
@@ -841,7 +842,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// inexact, and inexactness stops the allow track only where the inexact word
 	// rides a command the walk emits — so a NON-emitting position keeps allowing:
 	// `for f in ${Q:-<(cat ../sib/.env)}; do echo x; done` ALLOWs, here and at
-	// #225's merge base. This is the one measured hole left in either
+	// the merge base this descent landed on. This is the one measured hole left
+	// in either
 	// substitution class, and it is unclosable without a node to hang the descent
 	// on; the `$(…)` spelling of the same shape (`${Q:-$(cmd)}`) IS reported and
 	// IS graded, by descendCmdSubsts.

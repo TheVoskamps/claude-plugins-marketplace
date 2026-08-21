@@ -15,7 +15,7 @@ package main
 //	         documented per-call abstention. The literal "defer" is NOT
 //	         that: Claude Code reads it as "pause this tool call for later
 //	         resumption", which never resolves inside a subagent and kills
-//	         the session (#271). See emitDecision.
+//	         the session. See emitDecision.
 //
 // Exit 2 + stderr remains the FAIL-CLOSED backstop for crash / parse-error /
 // panic / malformed-event paths; it is NOT one of these buckets. See

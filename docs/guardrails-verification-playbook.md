@@ -70,17 +70,21 @@ Two probe-cwd traps fake a whole result table:
   and paste the worktree path, not the primary clone's.
 - Count `../` levels against the scratch repo root, not by feel. A
   path that escapes a worktree root can still resolve back inside the
-  primary clone. Always run `cat <same-path>` as the paired control:
-  the verdict under test must equal `cat`'s, and when both allow, the
-  row is contained rather than missed.
+  primary clone — which is a deny of its own (`read:worktree-escape` /
+  `bash-read:worktree-escape`), not the cross-repo deny the probe was
+  aiming at. Always run `cat <same-path>` as the paired control: the
+  verdict under test must equal `cat`'s, and the reason string must name
+  the rule the row is probing.
 
 ### Escape probes must escape the primary clone
 
 With probe cwd inside `.claude/worktrees/<agent>`,
 `../sibling-repo/.env` resolves to `.claude/worktrees/sibling-repo/…` —
-still inside the primary repository — and the gate allows it. Use
+still inside the primary repository — so the gate denies it as a
+worktree escape rather than as the cross-repo escape the row claims to
+probe. Read the reason string, not just the bucket: both are denies. Use
 `/etc/passwd` or a path above the primary root, and keep
-`cat <escaping-path>` as the control row that must deny.
+`cat <escaping-path>` as the control row that must deny cross-repo.
 
 ### Pick the probe form by the track the program takes
 
@@ -689,8 +693,11 @@ not obstacles to route around — each has a plain spelling that works:
 - `git -C <absolute-path> <subcommand>` is a forbidden form even in a
   subagent. Run bare `git <subcommand>`; the cwd is already the
   worktree root on every call.
-- A write anchored at the *primary clone's* path is denied from inside
-  a worktree, because it resolves outside the agent's own tree.
+- A read or a write anchored at the *primary clone's* path is denied
+  from inside a worktree, because it resolves outside the agent's own
+  tree. The read deny is what stops evidence being gathered from the
+  wrong tree: the primary clone's working files can differ, so the read
+  would return plausible content with no error.
 - BSD `sed -i ''` is denied: the mandatory empty suffix reads as a
   write target that resolves outside the repository, so no in-repo
   spelling gets through. Use the Edit tool, or copy the file and edit
@@ -717,10 +724,10 @@ assignment on a `go build`, `podman run` including a host bind-mount,
 `mkdir -p` and `>` redirects relative to the worktree cwd, and an
 environment prefix on a program the git/gh/aws classifiers never see.
 
-The Edit tool enforces the worktree boundary independently of the gate,
-and reading the primary clone's copy is allowed — which makes it easy
-to Read one path and then fail to Edit it. Anchor every path to the
-worktree root, reads included.
+The Edit tool enforces the worktree boundary independently of the gate.
+Anchor every path to the worktree root, reads included: a primary-clone
+read is denied too, so an unanchored path fails on the Read rather than
+surviving to fail on the Edit.
 
 ## Settle a reach claim by running the classifier, not by reading it
 
@@ -863,7 +870,8 @@ Keep a known-contained read in it: if the probe's working directory
 loses repository context every row reads the residual bucket and the
 table is meaningless. Two traps produce exactly that — a working
 directory that does not exist, and relative levels counted by feel that
-resolve back inside the primary clone.
+resolve back inside the primary clone (a worktree-escape deny, not the
+cross-repo one).
 
 ## A teaching verdict is graded per document, not per element
 
