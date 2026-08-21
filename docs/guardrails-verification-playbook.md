@@ -706,12 +706,26 @@ not obstacles to route around — each has a plain spelling that works:
   This does not make a HOME-redirected experiment impossible: move it
   into a container, where the redirection is the container's business
   and no host git configuration is in play.
+- An inline environment assignment on a `git` command is denied
+  outright — the `HOME=` case above is one instance of it — so
+  `GIT_EDITOR=true git rebase --continue` never runs. `git rebase
+  --continue` accepts no `--no-edit` of its own either, and prints its
+  usage instead. Finish a conflicted rebase by staging the resolution,
+  running `git commit --no-edit`, which reuses the rebased commit's own
+  message, and then `git rebase --continue`, which finds nothing left
+  to commit and opens no editor.
 - A multi-construct one-liner — a `for` loop, an `&&` chain, anything
   carrying a redirect — is refused as too complex to verify it stays
   inside the worktree. Write the script to a file and run
   `bash <script>`, or issue one plain command per call. This bites
   exactly when probing a rebuilt binary against several synthetic
-  events: run one invocation per call.
+  events: run one invocation per call. Produce that file with the
+  Write tool: a `cat > <path> <<'EOF'` heredoc is itself a redirect
+  inside a compound and is refused whatever the path, so the obvious
+  way to write the script trips the same rule. Resolve a merge
+  conflict with Read plus Edit for the same reason. Plain reads are
+  unaffected — `cat`, `sed -n` and `grep` on in-worktree paths run
+  normally.
 - Reads outside the repository are refused for `cat`, `grep` and
   `find`, so a dependency's source under a module cache is unreadable.
   Query it through its own tooling instead — `go doc <import-path>.<Symbol>`
