@@ -1189,7 +1189,9 @@ The gate's engines feed that decision:
   to the `Read` tool and to bash-read commands (`cat`, the
   read-only-utility set, `less`/`more`/pagers via
   `classifyPathReader`) alike — every bash read path routes through
-  `containPathOperands`. The `.git/`-tree deny is checked BEFORE it and
+  `containPathOperands`. It does not reach a read the hook never sees
+  at all; see "Gaps left in place deliberately" below. The
+  `.git/`-tree deny is checked BEFORE it and
   carries its own reason, naming the identity and executable content
   git internals disclose. That deny is reached from the primary-clone
   branch, so it does not extend to an **in-repo** `.git/` read, which
@@ -1491,7 +1493,16 @@ The gate's engines feed that decision:
   `inputRedirectTargets`, so `git status < /etc/passwd` allows, as do
   the `gh`, `aws` and `acli` spellings of the same shape. Extending
   read containment into them is a materially larger blast radius than
-  the carve-out carries, and is not attempted here. Separately, an
+  the carve-out carries, and is not attempted here. It also cannot
+  reach a tool the hook never runs on: `hooks.json`'s `PreToolUse`
+  matcher is `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*`, so
+  a `Grep` or a `Glob` raises no event and earns no verdict, whatever
+  path it is pointed at. That gap is invisible while a primary-clone
+  read is contained and load-bearing once it denies, because the deny
+  then covers `Read` and the bash read tracks rather than every way the
+  harness opens a file. Widening the matcher is a separate change with
+  its own blast radius — every `Grep` and `Glob` in every session would
+  start paying for a gate subprocess. Separately, an
   **in-repo** `.git/` read on the curated read-utility track allows
   (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
   write path and on the primary-clone read branch, not for an ordinary

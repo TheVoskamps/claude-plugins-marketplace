@@ -556,10 +556,10 @@ itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
 `plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin describes it. Two `/docs` surfaces do, each bounded to one
-reader. `docs/guardrails-verification-playbook.md` names verdicts only
-as the *controls a probe needs* — which track terminates in allow and
-which in defer, which probe rows must still deny, which spellings a
+plugin describes it. The `/docs` surfaces that do are each bounded to
+one reader. `docs/guardrails-verification-playbook.md` names verdicts
+only as the *controls a probe needs* — which track terminates in allow
+and which in defer, which probe rows must still deny, which spellings a
 widening already allowed on the base. A verdict change that moves any
 of those control rows updates it; grep it for `deny`, `allow`, `defer`
 and `ask` alongside the README.
@@ -567,11 +567,15 @@ and `ask` alongside the README.
 clone's path" names them for the agent being denied: that a
 primary-clone read comes back as a worktree-escape deny carrying the
 path to use instead, and the routes that still reach the wrong bytes
-with no deny at all — a ref rather than a path, a statically
-unresolvable path, a program the gate has no read table for, and
-`git`'s own subcommands, which it classifies by subcommand shape and
-never for path containment. A verdict change that opens or closes one
-of those routes, or that makes a denied read allow, updates it.
+with no deny at all — a tool `hooks.json`'s matcher does not name, a
+ref rather than a path, a statically unresolvable path, a program the
+gate has no read table for, and `git`'s own subcommands, which it
+classifies by subcommand shape and never for path containment. A
+verdict change that opens or closes one of those routes, or that makes
+a denied read allow, updates it — and so does a change to the
+`PreToolUse` matcher itself, which decides the first route and is
+quoted verbatim there and in the gate README's "Gaps left in place
+deliberately".
 
 The gate README's one in-plugin sibling is
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
@@ -649,7 +653,7 @@ code and check the prose enumerates the same set.
 
 ## Narrow every claude-vm surface-only claim to the layer it measures
 
-Four `plugins/claude-vm` surfaces assert that the guest's Claude
+These `plugins/claude-vm` surfaces assert that the guest's Claude
 configuration comes from the claude-vm configs **only**, because the
 host's `~/.claude/settings.json` is never read:
 
@@ -668,7 +672,7 @@ half of such a sentence is its noun, not its verb: the `settings.json`
 grep that finds these sites keeps returning true statements while the
 subject above them is wrong. Grep the surface wording across
 `plugins/claude-vm/` rather than checking only the files the diff
-touched — two of the four are example YAML files that no test and no
+touched — the example YAML files among them are ones no test and no
 doc pass naturally opens.
 
 ## Sweep every "no read-only mounts" surface when read-only lands

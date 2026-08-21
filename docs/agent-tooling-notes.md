@@ -117,6 +117,12 @@ The deny grades a statically-resolvable path handed to a tool or
 command it knows, so these cases reach the wrong bytes without it
 firing:
 
+- **A tool the hook never runs on.**
+  `plugins/guardrails/hooks/hooks.json` matches
+  `Bash|Read|Write|Edit|MultiEdit|NotebookEdit|mcp__.*`. A tool
+  outside that list — `Grep` and `Glob` among them — raises no
+  `PreToolUse` event for the gate, so whatever path it is pointed at
+  earns no verdict at all, not even a defer.
 - **The wrong ref.** `git show main:<path>` or
   `git show origin/<base>:<path>` extracts bytes from a commit, so no
   containment rule grades it. Evidence comes from `HEAD`, which is
