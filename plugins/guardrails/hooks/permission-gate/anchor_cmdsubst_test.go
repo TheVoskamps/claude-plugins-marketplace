@@ -53,10 +53,10 @@ grep -rn X "$root/plugins/"`
 //
 // This must run from a linked WORKTREE (not a plain repo): a plain repo's
 // .git/ lives directly under its own topLevel, so testContainmentFrom
-// classifies it as merely `contained` (a literal .git/config read there
-// already ALLOWs today, pre-dating and unrelated to the anchor work — see
-// TestPrimaryCloneReadRelaxed for the existing gated case). The .git/
-// deny fires via the escapeWorktree branch, which only diverges from
+// classifies it as merely `contained` (an in-repo .git/config read rides
+// the curated read-utility ALLOW, which the primary-clone read deny does
+// not reach — see TestPrimaryCloneReadDenied for the case that does). The
+// .git/ deny fires via the escapeWorktree branch, which only diverges from
 // `contained` when commonDir sits outside THIS worktree's topLevel — i.e.
 // a linked worktree pointing at a primary clone's shared .git/.
 func TestGitCommonDirAnchorResolvesThenDeniesGitDir(t *testing.T) {

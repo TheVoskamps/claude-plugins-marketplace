@@ -565,12 +565,14 @@ of those control rows updates it; grep it for `deny`, `allow`, `defer`
 and `ask` alongside the README.
 `docs/agent-tooling-notes.md` → "Read the worktree, never the primary
 clone's path" names them for the agent being denied: that a
-primary-clone read comes back as a worktree-escape deny carrying the
-path to use instead, and the routes that still reach the wrong bytes
-with no deny at all — a tool `hooks.json`'s matcher does not name, a
-ref rather than a path, a statically unresolvable path, a program the
-gate has no read table for, and `git`'s own subcommands, which it
-classifies by subcommand shape and never for path containment. A
+primary-clone read comes back as a worktree-escape deny carrying either
+the worktree path to re-read or, where this worktree checks that path
+out nowhere, a ref extraction; and the routes that still reach the
+wrong bytes with no deny at all — a tool `hooks.json`'s matcher does
+not name, a ref rather than a path, a statically unresolvable path, a
+program the gate has no read table for, and `git`'s own subcommands,
+which it classifies by subcommand shape and never for path
+containment. A
 verdict change that opens or closes one of those routes, or that makes
 a denied read allow, updates it — and so does a change to the
 `PreToolUse` matcher itself, which decides the first route and is

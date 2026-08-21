@@ -109,9 +109,16 @@ the *primary clone*, which sits on the default branch.
 
 From a linked worktree the permission-gate denies such a read: a `Read`
 of a primary-clone working file, and a `cat` / `grep` / `head` naming
-one, each come back as a worktree-escape deny whose message carries the
-worktree-anchored path to use instead. So the failure is loud, and the
-fix is the path the message names.
+one, each come back as a worktree-escape deny. So the failure is loud,
+and the message carries the fix — but read which of its two fixes it
+gave you. When this worktree holds a file at the corresponding path,
+the message prescribes that path and you re-read there. When it does
+not — reaching into another agent's worktree under the primary clone's
+`.claude/worktrees/` is how that happens, since this worktree never
+checks that tree out — the message says so and prescribes
+`git show HEAD:<path>`, because the bytes are not on your disk at all.
+Do not hand-build the substituted path yourself: for the second case it
+names a file that does not exist.
 
 The deny grades a statically-resolvable path handed to a tool or
 command it knows, so these cases reach the wrong bytes without it

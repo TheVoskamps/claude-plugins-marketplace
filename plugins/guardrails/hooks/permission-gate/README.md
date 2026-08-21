@@ -1168,9 +1168,9 @@ The gate's engines feed that decision:
   `TestScratchDestinationsNameResolvedRoot` guards the property
   across its call sites. A read-side deny names one destination or
   none: the cross-repo denies name the handoff location via
-  `handoffHint`, the worktree-escape denies prescribe the
-  worktree-anchored path instead, and the `.git/`-tree read deny
-  prescribes nothing beyond the prohibition. See
+  `handoffHint`, the worktree-escape denies prescribe whichever
+  remediation `worktreeReadRemediation` grades as the true one, and the
+  `.git/`-tree read deny prescribes nothing beyond the prohibition. See
   [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
   for the convention. (3) **reading** a non-`.git/` file that resolves
   into the primary clone / shared git dir **denies**, under
@@ -1180,9 +1180,21 @@ The gate's engines feed that decision:
   plausible content from the wrong tree with no error — the failure
   mode is a wrong answer, not a refusal, which is why prose telling an
   agent to read its own worktree cannot substitute for the deny. The
-  message names the resolved primary-clone path, the corrected
-  worktree-anchored path, and `git rev-parse --show-toplevel` as the
-  anchor, the same shape the write-side escape carries. The predicate
+  message always names the resolved primary-clone path, and then takes
+  one of two remediations from `worktreeReadRemediation`, decided by
+  whether this worktree actually holds a file at the substituted path.
+  Where it does, the message prescribes that path and
+  `git rev-parse --show-toplevel` as the anchor, the same shape the
+  write-side escape carries. Where it does not — a target inside
+  another agent's worktree under the primary clone's
+  `.claude/worktrees/`, gitignored and never checked out here, is the
+  case that reaches this — the prefix substitution names a file that
+  does not exist, so the message says the bytes are not on this
+  worktree's disk and prescribes `git show HEAD:<path>` instead. The
+  write-side escape keeps the substitution unconditionally: a write
+  destination need not already exist. `worktreeReadRemediation`'s two
+  branches are pinned by `TestPrimaryCloneReadDenied` and
+  `TestForeignWorktreeReadDenyPrescribesRefExtraction`. The predicate
   is the worktree cwd alone: no agent-type condition and no
   `.claude/worktrees/` prefix test, because the staleness hazard is a
   property of the topology rather than of who is driving. This applies

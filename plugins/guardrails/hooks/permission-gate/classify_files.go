@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -88,7 +89,6 @@ func classifyFileTool(ev *Event) Decision {
 		}
 		switch res {
 		case escapeWorktree:
-			correct := correctWorktreePath(real, rc)
 			if !isMutatingFileTool(ev.ToolName) {
 				// The .git/-tree read deny is checked first and independently of
 				// the working-file deny below: the isUnderGitDir check at the top
@@ -107,15 +107,14 @@ func classifyFileTool(ev *Event) Decision {
 				return deny("read:worktree-escape", fmt.Sprintf(
 					"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 						"The primary clone's working files can differ from this worktree's, so what comes back is "+
-						"plausible content from the wrong tree with no error. Use the worktree-anchored path "+
-						"instead: %s. Anchor every absolute path to $(git rev-parse --show-toplevel).",
-					ev.ToolName, p, real, rc.topLevel, correct))
+						"plausible content from the wrong tree with no error. %s",
+					ev.ToolName, p, real, rc.topLevel, worktreeReadRemediation(real, rc)))
 			}
 			return deny("containment:worktree-escape", fmt.Sprintf(
 				"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 					"Writes and edits must land inside this worktree. Use the worktree-anchored path instead: %s. "+
 					"Anchor every absolute path to $(git rev-parse --show-toplevel). %s",
-				ev.ToolName, p, real, rc.topLevel, correct,
+				ev.ToolName, p, real, rc.topLevel, correctWorktreePath(real, rc),
 				scratchDestinations(rc.topLevel)))
 		case escapeRepo:
 			return deny("containment:cross-repo", fmt.Sprintf(
@@ -304,9 +303,8 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			return deny("bash-read:worktree-escape", fmt.Sprintf(
 				"Blocked: '%s' would read '%s' which resolves to the primary clone / shared git dir (%s), not this "+
 					"worktree (%s). The primary clone's working files can differ from this worktree's, so what comes "+
-					"back is plausible content from the wrong tree with no error. Use the worktree-anchored path "+
-					"instead: %s. Anchor every absolute path to $(git rev-parse --show-toplevel).",
-				prog, p, real, rc.topLevel, correctWorktreePath(real, rc))), false
+					"back is plausible content from the wrong tree with no error. %s",
+				prog, p, real, rc.topLevel, worktreeReadRemediation(real, rc))), false
 		case harnessScratchBadRoot:
 			badRoot = harnessScratchBadRootDefer("bash-read:scratchpad-root",
 				fmt.Sprintf("'%s' operand '%s'", prog, p))
@@ -752,4 +750,31 @@ func correctWorktreePath(real string, rc *repoContext) string {
 		return rc.topLevel + rel
 	}
 	return rc.topLevel + "/<the-intended-relative-path>"
+}
+
+// worktreeReadRemediation returns the sentence a worktree-escape READ deny
+// ends with, naming where the reader should go instead.
+//
+// correctWorktreePath's prefix substitution names a usable file only where
+// this worktree carries the same relative path the primary clone does. A
+// target inside another agent's worktree — the primary clone's
+// .claude/worktrees/<agent>/ tree, which is gitignored and never checked out
+// here — rewrites to a path under THIS worktree's own .claude/worktrees/, and
+// so does any other primary-clone path this worktree does not track.
+// Prescribing one of those sends the reader to a file that does not exist.
+//
+// A read wants bytes that already exist, so existence is what decides which
+// remediation is the true one, and it also covers the cases no path test
+// would enumerate. Where the substitution misses, the bytes are not on this
+// worktree's disk at all and only a ref extraction reaches them.
+func worktreeReadRemediation(real string, rc *repoContext) string {
+	correct := correctWorktreePath(real, rc)
+	if _, err := os.Stat(correct); err == nil {
+		return fmt.Sprintf("Read '%s' instead. Anchor every absolute path to "+
+			"$(git rev-parse --show-toplevel).", correct)
+	}
+	return fmt.Sprintf("This worktree holds no file at the corresponding path ('%s'), so there is no "+
+		"worktree-anchored path to substitute — the bytes are not on this worktree's disk. Extract them "+
+		"from a ref instead: git show HEAD:<path-relative-to-repo-root>, run from this worktree. If no ref "+
+		"carries them, ask the human rather than reaching across the filesystem.", correct)
 }

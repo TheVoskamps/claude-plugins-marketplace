@@ -92,24 +92,35 @@ func TestContainmentWorktreeEscape(t *testing.T) {
 func TestPrimaryCloneReadDenied(t *testing.T) {
 	primary, wt := setupWorktree(t)
 
-	pluginJSON := filepath.Join(primary, "plugins", "guardrails", ".claude-plugin", "plugin.json")
+	relJSON := filepath.Join("plugins", "guardrails", ".claude-plugin", "plugin.json")
+	pluginJSON := filepath.Join(primary, relJSON)
 	if err := os.MkdirAll(filepath.Dir(pluginJSON), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(pluginJSON, []byte(`{"version":"0.9.2"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The worktree carries its own copy of the same tracked path, which is what
+	// makes the prefix substitution name a file the reader can open. Without
+	// this the deny would take the ref-extraction branch instead.
+	wtJSON := filepath.Join(wt, relJSON)
+	if err := os.MkdirAll(filepath.Dir(wtJSON), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wtJSON, []byte(`{"version":"0.9.3"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// bash-read (cat) of a primary-clone working file from a worktree → DENY,
-	// naming the worktree-anchored path the reader should have used.
+	// prescribing the worktree-anchored path the reader should have used.
 	bev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	bd := classifyBash("cat "+pluginJSON, bev)
 	wantBucket(t, bd, BucketDeny, "bash-read of a primary-clone working file")
 	if bd.Operation != "bash-read:worktree-escape" {
 		t.Errorf("bash-read deny must carry the worktree-escape operation; got %q", bd.Operation)
 	}
-	if !strings.Contains(bd.Reason, filepath.Join(wt, "plugins", "guardrails", ".claude-plugin", "plugin.json")) {
-		t.Errorf("bash-read deny must name the corrected worktree path; got %q", bd.Reason)
+	if !strings.Contains(bd.Reason, "Read '"+wtJSON+"' instead") {
+		t.Errorf("bash-read deny must prescribe the corrected worktree path; got %q", bd.Reason)
 	}
 
 	// Read tool on a primary-clone working file → DENY, same shape.
@@ -124,8 +135,8 @@ func TestPrimaryCloneReadDenied(t *testing.T) {
 	if rd.Operation != "read:worktree-escape" {
 		t.Errorf("Read deny must carry the worktree-escape operation; got %q", rd.Operation)
 	}
-	if !strings.Contains(rd.Reason, filepath.Join(wt, "plugins", "guardrails", ".claude-plugin", "plugin.json")) {
-		t.Errorf("Read deny must name the corrected worktree path; got %q", rd.Reason)
+	if !strings.Contains(rd.Reason, "Read '"+wtJSON+"' instead") {
+		t.Errorf("Read deny must prescribe the corrected worktree path; got %q", rd.Reason)
 	}
 
 	// Write / Edit on a primary-clone path DENY on the write side's own
@@ -172,6 +183,46 @@ func TestPrimaryCloneReadDenied(t *testing.T) {
 	siblingBev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	siblingBd := classifyBash("cat "+nm, siblingBev)
 	wantBucket(t, siblingBd, BucketDeny, "cat sibling-repo node_modules must still cross-repo deny")
+}
+
+// A read of a file inside ANOTHER agent's worktree denies like any other
+// primary-clone escape, but its remediation must not be the prefix
+// substitution: <primary>/.claude/worktrees/agent-other/x rewrites to
+// <this-worktree>/.claude/worktrees/agent-other/x, a path this worktree never
+// checks out. The deny prescribes a ref extraction instead, and says so.
+func TestForeignWorktreeReadDenyPrescribesRefExtraction(t *testing.T) {
+	primary, wt := setupWorktree(t)
+
+	other := filepath.Join(primary, ".claude", "worktrees", "agent-cafebabe")
+	target := filepath.Join(other, "plugins", "guardrails", "notes.md")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("other agent's notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	bogus := filepath.Join(wt, ".claude", "worktrees", "agent-cafebabe", "plugins", "guardrails", "notes.md")
+
+	for _, c := range []struct {
+		name string
+		got  Decision
+	}{
+		{"bash-read", classifyBash("cat "+target,
+			&Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"})},
+		{"Read tool", classifyFileTool(&Event{
+			ToolName: "Read", CWD: wt, AgentType: "issue-developer",
+			ToolInput: []byte(`{"file_path":"` + target + `"}`),
+		})},
+	} {
+		wantBucket(t, c.got, BucketDeny, c.name+" of another worktree's file")
+		if strings.Contains(c.got.Reason, "Read '"+bogus+"' instead") {
+			t.Errorf("%s deny must not prescribe the unreachable substituted path; got %q", c.name, c.got.Reason)
+		}
+		if !strings.Contains(c.got.Reason, "git show HEAD:<path-relative-to-repo-root>") {
+			t.Errorf("%s deny must prescribe the ref extraction; got %q", c.name, c.got.Reason)
+		}
+	}
 }
 
 // Every bash read path routes through containPathOperands, so the working-file
@@ -2031,10 +2082,10 @@ func TestContainmentDeniesArePrescriptive(t *testing.T) {
 		t.Errorf("cross-repo bash-read deny must forbid .git/ as a workaround; got %q", bd.Reason)
 	}
 
-	// A bash-read of a non-.git/ file in the primary clone is now
-	// contained/defer, not an ask — the worktree-escape ask no longer
-	// applies to reads. The .git/-tree deny is what still forbids the .git/
-	// workaround for bash-reads of the primary clone.
+	// A bash-read under the primary clone's .git/ tree carries the .git/-tree
+	// reason, not the working-file one: that deny is checked first and names
+	// the git internals it protects, so the .git/ workaround stays shut for
+	// bash-reads of the primary clone.
 	gitCfg := filepath.Join(primary, ".git", "config")
 	bwev := &Event{ToolName: "Bash", CWD: wt, AgentType: "issue-developer"}
 	bwd := classifyBash("cat "+gitCfg, bwev)
@@ -2045,9 +2096,10 @@ func TestContainmentDeniesArePrescriptive(t *testing.T) {
 }
 
 // §10: a symlinked target that points outside the worktree is blocked (both
-// sides canonicalized). Uses a mutating tool (Write): the read side relaxed the
-// primary-clone-read case to contained/defer, but a WRITE resolving through a
-// symlink into the primary clone must still be caught and denied.
+// sides canonicalized). Uses a mutating tool (Write): the write deny names the
+// state another worktree depends on, where the read deny names the staleness
+// hazard, and a WRITE resolving through a symlink into the primary clone must
+// be caught by canonicalization rather than by the read rule.
 func TestContainmentSymlinkEscape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on windows")
