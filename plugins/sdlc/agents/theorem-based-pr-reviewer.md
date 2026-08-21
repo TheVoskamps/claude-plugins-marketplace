@@ -1287,14 +1287,6 @@ surviving or refuted theorem lands in the Verified list and an
 unsettled one under "Theorems that could not be settled", and none of
 them produces a finding.
 
-Report the **generator tier** that ran and whether the rubric or a
-`--generator` override picked it, and the **kind of round** it was, in
-the same vocabulary the Review method section uses. Both callers relay
-those two onward, because either one changes how the rest of the
-report reads: an empty-delta round's verdicts are carried forward
-rather than freshly checked, and a `--full` invocation names the round
-`--full` whatever its delta, per the precedence step 3 states.
-
 The refuted count is the one number that says what the verification
 stage bought this round, so report it even when it is zero.
 
