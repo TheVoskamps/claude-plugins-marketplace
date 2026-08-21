@@ -127,7 +127,7 @@ empty arguments (`--label ""`, `--assignee ""`); skip the flag.
 Apply the standard `issues:` switch from `skills/lib/issue.md`
 ("Tracker dispatch"). Under `issues == Jira`, follow the Jira backend
 path documented there (`skills/lib/issue.md` → "Jira backend" →
-"Create"), which creates the work item via `acli`
+"Create (`/issue-create`)"), which creates the work item via `acli`
 (the `/issues-jira:jira-lib` skill) and resolves type/status/priority/size from
 the `jira:` block the same way the GitHub backend resolves them from
 `github-project:`; it no longer aborts.
