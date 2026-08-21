@@ -250,10 +250,11 @@ whatever `~/.claude/settings.json` holds when it is read.
 `/auto-mode-tools:personalize-auto-mode` writes the same file and
 writes nothing to the state directory, so after it runs the recorded
 `revision` and `prompt-sha256` describe a block that has since been
-rewritten. Do not repair that by having either skill read the other's
-state — the two are independent by design. If the human asks what
-revision their live block is at, say the record is the tuner's own
-history.
+rewritten. Do not repair that: having the personalizer bump the
+revision would claim a critique round it never ran, and having either
+skill read the other's state would end the independence the two are
+built on. If the human asks what revision their live block is at, say
+the record is the tuner's own history.
 
 ### 8. Write the PR body
 
