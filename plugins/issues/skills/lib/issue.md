@@ -159,10 +159,10 @@ The five kinds:
       options: [XS, S, M, L, XL]
   ```
 
-  Writes use the "Label-namespace update" recipe under "GraphQL
-  templates" — note that recipe is a `gh issue edit` invocation, not
-  GraphQL. Reads use the `kind: label` branch of the "Field-value
-  read by kind" recipe.
+  Writes use the "Label-namespace update (`gh issue edit`, not
+  GraphQL)" recipe under "GraphQL templates" — note that recipe is a
+  `gh issue edit` invocation, not GraphQL. Reads use the `kind: label`
+  branch of the "Field-value read by kind" recipe.
 
 - **`kind: skip`** — the slot is explicitly declared as unused. The
   verb warns and exits zero rather than writing anything. No other
@@ -350,15 +350,16 @@ via CLI flag, then — for create-time verbs only — an interactive
 prompt (rung 2), then `fields.<slot>.default` from repo-config. If
 none of those produce a value — or if the slot is `kind: skip` or
 absent from `fields:` entirely — the slot is skipped (warning-and-skip
-per "Graceful degradation" above). The skill no longer hardcodes
-`3` / `Todo` fallbacks; the slot's own repo-config is authoritative.
+per "Graceful degradation when the block is missing" above). The skill
+no longer hardcodes `3` / `Todo` fallbacks; the slot's own repo-config
+is authoritative.
 
 A repo-config-level default only applies when its containing block
 exists. If `github-project:` is absent, the built-in default still
 applies for `--type`, `--assignee`, and `--labels`, but the slot flags
-cannot be set at all (warning-and-skip per "Graceful degradation"
-above) — no prompt either, because there is nothing to prompt
-against.
+cannot be set at all (warning-and-skip per "Graceful degradation when
+the block is missing" above) — no prompt either, because there is
+nothing to prompt against.
 
 ### Interactive prompt rung (create-time slot flags)
 
@@ -395,8 +396,8 @@ Per-slot prompt content, by `fields.<slot>.kind`:
   integer in `[min, max]`. The recommended seed (shown as the
   prefilled / first option) is picked per the per-slot rules below.
 - **`kind: skip` or slot absent** — no prompt. The slot is
-  warning-skipped per "Graceful degradation" exactly as if the flag
-  were passed and the slot were unconfigured.
+  warning-skipped per "Graceful degradation when the block is missing"
+  exactly as if the flag were passed and the slot were unconfigured.
 
 Per-slot recommended-option rules (apply on top of the per-kind
 shape above):
@@ -496,11 +497,11 @@ it as an argument.
 ## GraphQL templates
 
 All GraphQL templates below are GitHub GraphQL v4 (`gh api graphql`).
-The `gh issue edit`-based "Label-namespace update" recipe is included
-in this section for proximity to related write paths but is not
-GraphQL. The field names were confirmed by introspection against the
-live schema. To re-verify any input type, run a query of this shape,
-substituting the input type name in the `__type(name: "...")`
+The "Label-namespace update (`gh issue edit`, not GraphQL)" recipe is
+included in this section for proximity to related write paths but is
+not GraphQL. The field names were confirmed by introspection against
+the live schema. To re-verify any input type, run a query of this
+shape, substituting the input type name in the `__type(name: "...")`
 argument:
 
 ```bash
@@ -517,7 +518,8 @@ The input types this doc relies on, all verified via the query above:
 `RemoveSubIssueInput`, `UpdateProjectV2ItemFieldValueInput`,
 `UpdateIssueIssueTypeInput`, `SetIssueFieldValueInput`, and its nested
 list-member `IssueFieldCreateOrUpdateInput` (the native-issue-field
-write path — see "`setIssueFieldValue` — native issue field").
+write path — see "`setIssueFieldValue` — native issue field
+(single-select)").
 
 Use the templates below verbatim.
 
@@ -932,13 +934,14 @@ The five kinds are read as follows:
   Do not display the `optionId`. If no entry exists, render `(none)`.
 
 - **`kind: label`** — does **not** read from project items at all.
-  Read the issue's labels (the same source as the
-  "Label-namespace update" recipe), filter to labels that both start
-  with `<namespace>` **and** strip to an option name that appears in
-  `<options>`. Label-name matching is case-insensitive against
-  `<options>`, consistent with GitHub's case-insensitive label-name
-  uniqueness. Canonical capitalization for display always comes from
-  the `<options>` list, never from the label as stored on the issue.
+  Read the issue's labels (the same source as the "Label-namespace
+  update (`gh issue edit`, not GraphQL)" recipe), filter to labels
+  that both start with `<namespace>` **and** strip to an option name
+  that appears in `<options>`. Label-name matching is case-insensitive
+  against `<options>`, consistent with GitHub's case-insensitive
+  label-name uniqueness. Canonical capitalization for display always
+  comes from the `<options>` list, never from the label as stored on
+  the issue.
   The display rule depends on how many matched:
   - **zero matches** → render `(none)`
   - **exactly one match** → render the option name (without the
@@ -947,11 +950,11 @@ The five kinds are read as follows:
 
   Read-side is **strictly read-only**: even when more than one
   in-namespace label is set, the read path does not delete extras.
-  Cleaning that up is the write path's job (the
-  "Label-namespace update" recipe enforces the at-most-one invariant
-  the next time the slot is written). Foreign labels in the
-  namespace that are not in `<options>` are ignored for display
-  purposes, the same way the write path leaves them alone.
+  Cleaning that up is the write path's job (the "Label-namespace
+  update (`gh issue edit`, not GraphQL)" recipe enforces the
+  at-most-one invariant the next time the slot is written). Foreign
+  labels in the namespace that are not in `<options>` are ignored for
+  display purposes, the same way the write path leaves them alone.
 
 - **`kind: issue-field`** — does **not** read from project items.
   Native issue fields live on the issue itself, so the value comes
@@ -987,7 +990,7 @@ The five kinds are read as follows:
 
 A slot that is **absent entirely** from `fields:` is also not
 displayed, mirroring the slot-absent / `kind: skip` equivalence
-documented under "Graceful degradation".
+documented under "Graceful degradation when the block is missing".
 
 ## Set-slot dispatcher
 
@@ -1013,10 +1016,11 @@ The verb takes exactly two positional arguments:
 
 1. **Apply tracker dispatch** per "Tracker dispatch" above. Under
    `issues == Jira`, follow the **Jira set-slot path** in the "Jira
-   backend" section ("Metadata setters") instead of the GitHub steps
-   below: the dispatcher structure is identical (require the metadata
-   block, re-read the slot, dispatch on `kind:`, resolve `<value>`,
-   abort-if-missing), but the metadata block is `jira:` instead of
+   backend" section ("Metadata setters (set-status / -priority /
+   -size / -type)") instead of the GitHub steps below: the dispatcher
+   structure is identical (require the metadata block, re-read the
+   slot, dispatch on `kind:`, resolve `<value>`, abort-if-missing),
+   but the metadata block is `jira:` instead of
    `github-project:`, the slot kinds are the Jira kinds (`status`,
    `custom-field`, `label`, `skip`), and the write paths are the
    `acli` templates. Steps 2–4 below describe the GitHub path.
@@ -1026,7 +1030,7 @@ The verb takes exactly two positional arguments:
    catalogue. This is an abort, not a warning-and-skip — without the
    project metadata there is no slot to set. (On the Jira branch the
    parallel requirement is a `jira:` block; absence warns-and-skips the
-   same way per "Graceful degradation".)
+   same way per "Graceful degradation when the block is missing".)
 
 3. **Re-read `github-project.fields.<slot>`** from
    `.claude/rules/repo-config.md`. Do not assume it's already in
@@ -1038,7 +1042,7 @@ The verb takes exactly two positional arguments:
      emit the "Slot not configured" catalogue message and exit
      **zero**. Ignore `<value>` entirely; it is not parsed or
      validated. The two cases are intentionally equivalent (see
-     "Graceful degradation").
+     "Graceful degradation when the block is missing").
 
    - **`kind: number`** — parse `<value>` as a base-10 integer. If it
      does not parse, or is outside the closed interval `[min, max]`
@@ -1124,10 +1128,10 @@ The verb takes exactly two positional arguments:
    that set contains exactly the requested label
    `<namespace><canonical>` and nothing else, print the verb's no-op
    echo and exit zero without calling `gh issue edit`.
-3. Follow the "Label-namespace update" recipe verbatim — compute the
-   add/remove sets, sort alphabetically, invoke `gh issue edit <N>`
-   once with both flags. Foreign-label and multiple-in-namespace
-   rules from that recipe apply.
+3. Follow the "Label-namespace update (`gh issue edit`, not GraphQL)"
+   recipe verbatim — compute the add/remove sets, sort alphabetically,
+   invoke `gh issue edit <N>` once with both flags. Foreign-label and
+   multiple-in-namespace rules from that recipe apply.
 4. Emit the success echo using the canonical capitalization from
    `options` and the concrete label name
    (`<namespace><canonical>`).
@@ -1320,8 +1324,8 @@ list. The kind→write-path mapping:
   singular `--label` flag; that exists only on `workitem create`). The
   add/remove-set computation, alphabetical-sort determinism,
   foreign-label rule, and at-most-one invariant from the GitHub
-  "Label-namespace update" recipe all apply unchanged — only the
-  underlying CLI differs.
+  "Label-namespace update (`gh issue edit`, not GraphQL)" recipe all
+  apply unchanged — only the underlying CLI differs.
 - **issue type** (`/issue-set-type`) — there is no Jira "edit type"
   per-field flag in all `acli` versions; set it via `workitem edit`
   with the type in the JSON payload (or the `--type` flag where the
@@ -1446,7 +1450,7 @@ Wrap variable parts in backticks.
   Emitted as an **abort** when the command **requires** project
   metadata (e.g. `/issue-set-status` with no flags can't proceed) and
   as a **warning-and-skip** when only a subset of flags need it (see
-  "Graceful degradation" above).
+  "Graceful degradation when the block is missing" above).
 
 - **No `issue-types:` map in repo-config**
 

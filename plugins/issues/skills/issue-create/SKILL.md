@@ -79,16 +79,17 @@ canonical read sequence and abort messages for
     map), matched case-insensitively (canonical capitalization from
     the option map).
   - **`kind: skip` or slot absent** — warn-and-skip the flag (per
-    "Graceful degradation" in `skills/lib/issue.md`). The value is
-    not parsed or validated.
+    "Graceful degradation when the block is missing" in
+    `skills/lib/issue.md`). The value is not parsed or validated.
 
   Default resolves via the order in `skills/lib/issue.md`
   ("Default-resolution order"). For create-time slot flags the full
   order is: CLI flag, then an **interactive prompt** (see Step 2 in
-  the execution chain below and the "Interactive prompt rung"
-  section in `skills/lib/issue.md`), then `fields.priority.default`
-  in the repo's `github-project:` block. There is no built-in
-  default — if none of those produce a value, the slot is skipped.
+  the execution chain below and the "Interactive prompt rung
+  (create-time slot flags)" section in `skills/lib/issue.md`), then
+  `fields.priority.default` in the repo's `github-project:` block.
+  There is no built-in default — if none of those produce a value,
+  the slot is skipped.
 - `--size` (optional): a single token whose parse rules depend on
   `fields.size.kind:`. Same kind dispatch as `--priority`:
   - **`kind: number`** — base-10 integer in
@@ -156,19 +157,20 @@ what didn't — do not roll back successful steps.
    `--assignee` still resolve via their defaults (for `--assignee`,
    the user-config rungs then the authenticated GitHub user; both
    user-config files are optional and absence degrades straight to
-   the authenticated user), but the slot
-   flags warn-and-skip per "Graceful degradation" — no prompt either
-   (Step 2 is a no-op for any slot whose `kind:` resolves to `skip` /
-   slot-absent).
+   the authenticated user), but the slot flags warn-and-skip per
+   "Graceful degradation when the block is missing" — no prompt
+   either (Step 2 is a no-op for any slot whose `kind:` resolves to
+   `skip` / slot-absent).
 
 2. **Interactive prompts for slot flags.** For each slot in
    `{priority, size, status}` whose CLI flag was **not** passed in
-   Step 1, run the "Interactive prompt rung" from
-   `skills/lib/issue.md`:
+   Step 1, run the "Interactive prompt rung (create-time slot
+   flags)" from `skills/lib/issue.md`:
 
    - Skip the prompt for any slot whose `fields.<slot>.kind:` is
      `skip` or whose entry is absent from `fields:` — those slots
-     warn-and-skip per "Graceful degradation" without any prompt.
+     warn-and-skip per "Graceful degradation when the block is
+     missing" without any prompt.
    - For `--size`, evaluate the issue body per the "Size evaluation
      heuristic" section below to pick the recommended option, then
      issue a single `AskUserQuestion` for size with that option
@@ -255,7 +257,8 @@ what didn't — do not roll back successful steps.
      lookup from step 5 — it works even when the issue is not on (or
      there is no) project board.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
-     from "Graceful degradation" in `skills/lib/issue.md` and skip.
+     from "Graceful degradation when the block is missing" in
+     `skills/lib/issue.md` and skip.
 
    If the `github-project:` block is missing entirely, emit the same
    warning and skip — there is no slot configuration to dispatch on.
