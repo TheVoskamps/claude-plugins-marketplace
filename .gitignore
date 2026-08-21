@@ -57,6 +57,14 @@
 /**/tmp/
 /**/worktrees/
 
+# Python bytecode caches. Running the plugins' Python leaves these
+# beside the sources, and the sources live under plugins/, which the
+# !/plugins/** whitelist above un-ignores wholesale. So these rules
+# must come AFTER that whitelist — gitignore is last-match-wins, the
+# same trap the public-mirror artifact above is flagged for.
+/**/__pycache__/
+*.py[cod]
+
 # Repo-root CLAUDE override files (sibling to CLAUDE.md)
 /CLAUDE.local.*
 
