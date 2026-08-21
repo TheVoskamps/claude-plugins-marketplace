@@ -118,5 +118,7 @@ Writing nothing there includes the tuner's
 `~/.local/state/auto-mode-tools/provenance.yml`: a rewrite by this
 skill leaves that file naming the revision the tuner last wrote, which
 this rewrite has changed. That is deliberate — bumping the revision
-here would claim a critique round this skill never ran. Say so if the
-human asks what revision their block is at after a rewrite.
+here would claim a critique round this skill never ran, and reaching
+into the state directory to repair the mismatch would end the
+independence this section states. Say so if the human asks what
+revision their block is at after a rewrite.
