@@ -669,10 +669,10 @@ verifier: one whose counterexample is not a verbatim quote — the
 canonical instance being a quote taken from a ref other than the PR
 head, such as `main` or `origin/<base>`, which reads as real prose and
 matches nothing at the head commit; a filesystem quote from the
-primary clone is not that instance, because the permission-gate denies
-that read — and
-one that asserts file topology without having run a topology command
-(see "Before claiming file-topology issues" below). Re-spawn that one
+primary clone is the rarer instance, because the permission-gate
+denies a `Read` or a curated read command naming a primary-clone path
+— and one that asserts file topology without having run a topology
+command (see "Before claiming file-topology issues" below). Re-spawn that one
 disprover with the same brief rather than filing the finding on a
 paraphrase or dropping it silently; if the second run is malformed
 too, the theorem is unsettled — see the disposition table in step 9.

@@ -113,8 +113,9 @@ one, each come back as a worktree-escape deny whose message carries the
 worktree-anchored path to use instead. So the failure is loud, and the
 fix is the path the message names.
 
-Two cases the deny cannot reach, because neither touches the primary
-clone's filesystem:
+The deny grades a statically-resolvable path handed to a tool or
+command it knows, so these cases reach the wrong bytes without it
+firing:
 
 - **The wrong ref.** `git show main:<path>` or
   `git show origin/<base>:<path>` extracts bytes from a commit, so no
@@ -126,6 +127,11 @@ clone's filesystem:
 - **A path the gate cannot resolve statically.** A read behind a
   dynamic path defers rather than denying, so the containment check
   never runs on it.
+- **A program the gate has no read table for.** Containment runs on
+  the `Read` tool and on the curated read commands (`cat`, `grep`,
+  `head`, `sed`, `awk`, `jq`, `find`, the pagers). A `python3 -c`, a
+  `node -e`, or any other unrecognized program reaches the residual
+  defer, so the primary-clone path it opens is never graded.
 
 The tell for a wrong-tree read is a line-number mismatch between
 `grep -n`, which runs from the cwd, and a Read window: if the grep says

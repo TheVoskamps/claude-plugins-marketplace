@@ -22,10 +22,10 @@ import (
 //     half graded rather than absolute). Checked by the caller's gate before
 //     any per-program logic.
 //   - Path operands of a path-bearing utility must pass Engine B containment,
-//     so a `cat ../sibling-repo/node_modules/x` still denies; a target
-//     resolving into the primary clone / shared git dir is treated as
-//     contained rather than escalating, except under `.git/`, which still
-//     denies. Reused from classifyPathReader via containPathOperands.
+//     so a `cat ../sibling-repo/node_modules/x` still denies; so does a
+//     target resolving into the primary clone / shared git dir, whose
+//     working file can differ from this worktree's, and so does one under
+//     `.git/`. Reused from classifyPathReader via containPathOperands.
 //
 // Every utility in the ALLOW set carries a defersForm predicate: it reports
 // whether the specific invocation must DEFER rather than ALLOW. The predicate

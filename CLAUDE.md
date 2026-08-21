@@ -566,8 +566,8 @@ control rows updates it; grep it for `deny`, `allow`, `defer` and
 `plugins/guardrails/rules/scratch-file-location.md`, which describes
 verdicts only where they decide **which destination an agent should
 write a scratch file to** — the containment and `.git/` denies, their
-prescriptive wording, the #225 redirect, the #229 publish read. A
-verdict change that leaves that choice
+prescriptive wording, the credentialed-tool redirect destination, the
+`gh` publish-file read. A verdict change that leaves that choice
 unchanged needs no edit there; one that makes a previously-safe
 destination unsafe — or newly grades a path an agent parks a scratch
 file in — does. `.claude/agent-memory/` is deliberately not on that

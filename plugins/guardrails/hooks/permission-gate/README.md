@@ -1143,8 +1143,10 @@ The gate's engines feed that decision:
   `.git/config` to the whole `.git/` tree — a hand-edit of
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
   can inject hooks or corrupt repo state just as a `.git/config` write
-  rewrites identity). Reads of `.git/` files are not writes and are
-  unaffected. If you need a repo-scoped scratch file, write it under
+  rewrites identity). An **in-repo** `.git/` read is not a write and is
+  unaffected by this refinement; a `.git/` read that resolves into the
+  primary clone denies on the read branch described in (3) below. If
+  you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   are **prescriptive**: a write/edit escape names
   `<repo-root>/.claude/tmp/` as the scratch destination and warns

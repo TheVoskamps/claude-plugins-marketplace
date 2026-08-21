@@ -685,7 +685,8 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 		return harnessScratch, real
 	}
 	// Not under this worktree. Is it in the primary clone / common dir? That
-	// is the cross-worktree write into the shared clone.
+	// is the cross-worktree escape: a write corrupts state another worktree
+	// depends on, and a read returns the primary clone's working file.
 	if rc.primaryClone != "" && pathUnder(real, rc.primaryClone) {
 		return escapeWorktree, real
 	}
