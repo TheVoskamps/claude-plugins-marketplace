@@ -684,13 +684,14 @@ git worktree remove <absolute-path-from-the-listing>
 ```
 
 Remove by the **absolute** path the listing prints, never by a short
-`.claude/worktrees/<name>` form. `git worktree remove` matches its
-argument as a suffix of each registered worktree's path and needs that
-match to be unique, and a `theorem-based-pr-reviewer` worktree carries
-a `.claude/worktrees/` of its own, so the short form can match two
-worktrees and fail with an error that reads as though the worktree
-were already gone. See `docs/agent-tooling-notes.md` → "Remove a
-worktree by the path `git worktree list` prints".
+`.claude/worktrees/<name>` form. `git worktree remove` resolves a short
+argument against your cwd first and falls back to a unique suffix match
+on each registered worktree's path, and a `theorem-based-pr-reviewer`
+worktree carries a `.claude/worktrees/` of its own — so the short form
+can remove a *different* worktree than you meant, or match two and fail
+with an error that reads as though the worktree were already gone. See
+`docs/agent-tooling-notes.md` → "Remove a worktree by the path
+`git worktree list` prints".
 
 The reviewer's own fan-out worktrees are not yours: it removes the
 generator's, every disprover's, and every verifier's itself before it

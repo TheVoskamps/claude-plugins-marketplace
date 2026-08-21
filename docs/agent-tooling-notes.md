@@ -147,21 +147,32 @@ afterwards — say so rather than repairing it.
 
 ## Remove a worktree by the path `git worktree list` prints
 
-`git worktree remove` does **not** resolve its argument against the
-cwd. It matches the argument as a component-aligned **suffix** of each
-registered worktree's absolute path, and the match has to be unique.
-Measured on git 2.55.0, from a cwd several levels below the worktree
-root where the argument existed as no relative path at all:
-`git worktree remove .claude/worktrees/<name>` still removed the
-worktree at `<somewhere>/.claude/worktrees/<name>`. A bare `<name>`
-works the same way. A suffix that starts mid-component does not match
-at all — `obe-align` finds no worktree whose path ends `/probe-align`.
+`git worktree remove` resolves a short argument two ways, in order,
+and both make a short argument a worse instruction than it looks.
+Measured on git 2.55.0 against a repo holding a worktree at
+`<repo>/.claude/worktrees/probe-align` and a second one nested at
+`<repo>/.claude/worktrees/probe-align/.claude/worktrees/probe-align`:
 
-So a short argument is not wrong because of where you stand — it is
-wrong when it is **ambiguous**. This repo nests worktrees under
-`.claude/worktrees/`, and an agent's own worktree carries a further
-`.claude/worktrees/` inside it, so two live worktrees can share a
-trailing component run. When more than one matches, git answers
+1. **Cwd-relative first.** From the outer worktree's own root,
+   `git worktree remove .claude/worktrees/probe-align` removed the
+   **nested** worktree and exited 0. The argument named a registered
+   worktree relative to the cwd, so that one won outright — no
+   ambiguity was reported, and the worktree the caller meant was left
+   in place.
+2. **Component-aligned suffix second, and it must be unique.** From
+   `<repo>/.claude`, where the argument is no relative path at all,
+   the same string removed the one remaining worktree once the nested
+   one was gone. A bare `<name>` works the same way. A suffix that
+   starts mid-component matches nothing — `obe-align` finds no
+   worktree whose path ends `/probe-align`.
+
+So a short argument is wrong two different ways: it can hit a
+**different** worktree than you meant because of where you stand, and
+it can hit none because it is **ambiguous**. This repo nests worktrees
+under `.claude/worktrees/`, and an agent's own worktree carries a
+further `.claude/worktrees/` inside it, so two live worktrees routinely
+share a trailing component run. When the suffix matches more than one,
+git answers
 
 ```text
 fatal: '<arg>' is not a working tree
@@ -172,8 +183,9 @@ names the path but not the reason, so an ambiguous argument reads as
 "the worktree is already gone".
 
 The absolute path `git worktree list` prints is unique by
-construction and works from any cwd, which is the whole reason to take
-the path from the listing rather than composing one:
+construction and names the same worktree from any cwd, so it settles
+on the first arm and never reaches the second. That is the whole
+reason to take the path from the listing rather than composing one:
 
 ```bash
 git worktree list

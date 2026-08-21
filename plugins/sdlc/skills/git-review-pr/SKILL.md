@@ -7,12 +7,11 @@ description: Review a GitHub pull request for quality, security, and best practi
 
 This skill is a thin wrapper around the `sdlc:pr-review-pipeline`
 skill (`skills/pr-review-pipeline/SKILL.md`), which is the single
-source of truth for *what* a review checks and *how* it is reported:
-its inputs, issue-set resolution, generator spawn, disprover fan-out,
-counterexample-verifier fan-out, consequence-class-to-severity
-transcription, verbatim-quote finding format, file-topology
-verification rule, verdict derivation, argued body structure, and the
-single-call review posting. Do not restate or fork that guidance here.
+source of truth for *what* a review checks and *how* it is reported —
+every section of it, deliberately not enumerated here. A list of the
+pipeline's parts written at this distance goes stale as the pipeline
+gains a stage, and reads as its complete set while it does. Do not
+restate or fork that guidance here.
 
 You do **not** run the pipeline in this session. You spawn the
 `sdlc:theorem-based-pr-reviewer` agent, which has the pipeline skill

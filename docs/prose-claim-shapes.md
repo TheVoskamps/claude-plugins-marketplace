@@ -530,3 +530,21 @@ with no bullet are the gap. Widen the list before committing, and
 describe each site by its role ("the per-scope rationale paragraphs
 under it") rather than by quoting the value, or the list itself rots on
 the next change.
+
+## A right remedy carries its mechanism unchecked
+
+"Always pass X, because the tool does Y" is two claims, and only the
+first gets tested. The remedy is what a reader acts on and what every
+restating site copies, so a wrong Y survives every round: the advice
+still works, nobody's run disagrees, and each restatement inherits the
+error verbatim. The tell is a mechanism sentence with no measurement
+beside it, stated in the same commit as the remedy it justifies —
+self-graded by the author of both.
+
+`git worktree remove` was documented as *not* resolving its argument
+against the cwd, matching a unique path suffix instead. Measured, it
+tries the cwd-relative path **first**, and only falls back to the
+suffix match — so a short argument can silently remove a different
+worktree rather than merely failing. "Use the absolute path" was right
+throughout. Run the mechanism, including the case the sentence says
+cannot happen.

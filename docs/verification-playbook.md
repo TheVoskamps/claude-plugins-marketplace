@@ -242,6 +242,51 @@ blocks in their final messages, because `git commit --no-edit` uses
 cleanup=whitespace and keeps `#` lines. That is both commit-message
 noise and a free map of exactly which commits needed resolution.
 
+## Grade a between-rounds delta formula in a throwaway rebase lab
+
+A mechanism that asks "what changed on this PR since I last looked"
+has to survive a rebase, and no amount of reading settles which
+formula does. Build a four-commit lab instead — it takes one Bash call
+and gives you both rebase shapes plus the negative controls.
+
+Stand up a base branch, a PR branch with two commits, then advance the
+base and rebase. Vary one thing to get the second shape: have the PR's
+first commit edit the same line the base's new commit does, and
+resolve the conflict. Record the pre-rebase PR head before you rebase —
+that is the `<prev-head>` a later round would diff against.
+
+Then run the candidate formula and each control over the same pair.
+Measured on git 2.55.0:
+
+| Formula | Clean rebase | Conflict-resolving rebase |
+| --- | --- | --- |
+| `rev-list --right-only --cherry-pick <prev>...<head> ^<base>` | empty | the one PR commit whose patch changed |
+| same, without `^<base>` | every commit the base gained | that PR commit **and** the base's new commit |
+| `git diff <prev>..<head>` | the base's new files, none of them the PR's | the base's added line, with the PR commit's own added line demoted to context |
+
+The controls are the point. A rebase makes everything the base
+gained reachable from the head and unreachable from `<prev-head>`, so
+an unbounded commit walk reports upstream work as though this PR had
+written it, and a two-dot tree diff — a comparison of two *trees*, not
+two commit series — does worse: it can show the upstream line as the
+change and drop the PR's own line out of the patch entirely. Both
+failures are silent and both produce plausible output, which is why a
+formula that looks obviously right still has to be run.
+
+Mechanics the lab needs. Set author and committer through the
+`GIT_AUTHOR_*` / `GIT_COMMITTER_*` environment rather than writing
+`git config user.*`. And spell each range endpoint as a literal SHA in
+the command you run — print the two SHAs in the setup call and paste
+them into the measurement call, rather than interpolating variables
+into the `...` range.
+
+Patch equivalence here is `--cherry-pick`'s patch-id comparison, which
+reads context lines as part of the patch. A commit re-applied over
+changed context is therefore *not* equivalent to its old self and
+stays in the delta even though the change it makes is unchanged. That
+is a known over-report, not a bug to design around — the alternative
+is a mechanism deciding two different patches mean the same thing.
+
 ## Skip the fetch when `origin/<branch>` already matches
 
 `git fetch origin` can stall on SSH (`connect to host github.com port
