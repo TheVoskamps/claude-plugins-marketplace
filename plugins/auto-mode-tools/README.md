@@ -5,9 +5,9 @@ Tools for working on the `autoMode` block of a Claude Code
 tool call against.
 
 The plugin exists because `claude auto-mode critique` sends its
-critique request with `max_tokens` of 4096 (measured on the captured
-request; see *The sink* below), so a large `autoMode` block can never
-receive a complete critique from it — the answer is truncated at that
+critique request with `max_tokens` of 4096, read off the body the sink
+below captured. A large `autoMode` block can therefore never receive a
+complete critique from that command: the answer is truncated at the
 ceiling. `/tune-auto-mode` captures the critique request instead of
 letting it reach the API, and replays it through the current Claude
 Code session, which has no such ceiling.
@@ -47,10 +47,18 @@ dummy value, so no real credential is sent to the local socket.
 
 It prints the base URL on stdout and also writes it to `<dir>/sink-url`,
 then serves until it captures a body into `<dir>/critique-request.json`.
+If no request reaches it for `--timeout` seconds (default 180) it gives
+up, reports that on stderr and exits non-zero, so a critique that never
+started cannot leave the caller waiting on a sink that never returns.
 
 Standard library only, and no syntax newer than Python 3.9, so a stock
-macOS `/usr/bin/python3` runs it with nothing installed. This is the
-first Python in the repo; it adds no lint configuration.
+macOS `/usr/bin/python3` runs it with nothing installed. That matches
+the constraints the repo's existing Python already works under: the
+inline `python3 -c` scripts under `plugins/claude-vm/payload/` (in
+`lib/credential.sh` and `provisioners/podman-mkosi.sh`) target the same
+stock interpreter. What is new here is the first `.py` *file*, not the
+first Python — and it adds no lint configuration, the repo declaring
+none for Python.
 
 ### Why the sink is not a one-request server
 
@@ -78,8 +86,10 @@ releases — so the sink covers both rather than pinning the current one.
 `payload/test/sink-test.py` is stdlib-only and directly executable. It
 drives the real sink over loopback: starts it, POSTs a body, and
 asserts that the body landed in the run directory verbatim and that the
-response parsed as a well-formed stream. It covers the preflight, the
-streaming shape and the non-streaming shape.
+answer it got back is a well-formed Messages-API response of the shape
+the request asked for. It covers the preflight, the streaming shape
+(graded event by event, `message_start` first and `message_stop` last)
+and the non-streaming shape.
 
 ```bash
 /usr/bin/python3 plugins/auto-mode-tools/payload/test/sink-test.py
@@ -220,7 +230,11 @@ notes: |
   Free prose for what the keys above cannot enumerate.
 ```
 
-Two properties of that schema are load-bearing:
+`skills/personalize-auto-mode/SKILL.md` inlines that same block
+verbatim — it is what the skill shows the human when no facts file
+exists — so a schema change edits both copies.
+
+These properties of that schema are load-bearing:
 
 - **`bots` is a list of records, not three parallel lists.** A rule
   matching a bot generally needs its login and its email to agree, and

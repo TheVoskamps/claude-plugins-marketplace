@@ -86,6 +86,14 @@ def _sse_bytes():
 
 
 def _wants_stream(body):
+    """Whether to answer `body` with SSE rather than a JSON message.
+
+    A body that does not decode as UTF-8 JSON cannot be asked, and gets
+    the streaming shape rather than an error: the sink has already
+    captured it, and its only remaining job is to let the caller exit.
+    JSON that is not an object has no `stream` key to carry and gets the
+    JSON message.
+    """
     try:
         parsed = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
