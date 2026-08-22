@@ -188,6 +188,12 @@ Read `.issues/repo-config.md` →
 - Otherwise → ask the user which of the configured options means
   orchestrate-ready, and use their answer.
 
+If `.issues/repo-config.md` is missing, abort with: "This repo has
+no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
+same wording the full reader contract uses for its "File missing"
+case, so the namespace's abort messages stay consistent even though
+this skill doesn't consume the whole contract).
+
 If the repo has no `github-project:` block, or the block has no
 `status` slot, there is nothing to flip: say so plainly, deliver the
 groomed body, and stop rather than inventing a status.
