@@ -41,11 +41,14 @@ scope for this plugin.
   - `<body>` — the text inline. The caller supplies the full review
     body; this skill does not author findings.
   - `--body-file <path>` — a file holding that same text. This is the
-    form a caller uses when the body is too large to pass as a
-    command-line argument: `sdlc:theorem-based-pr-reviewer` stages its
-    review under `.claude/tmp/<task-slug>/` and posts it by path, and
-    a real round's body runs to tens of kilobytes. GitHub caps a
-    review body at 64 KB, which bounds what either form can carry.
+    form a caller uses when the body would not survive the inline
+    form's double-quoted `--body "<body>"`, which hands every backtick
+    and `$` in it to the shell:
+    `sdlc:theorem-based-pr-reviewer` stages its review under
+    `.claude/tmp/<task-slug>/` and posts it by path, and a real
+    round's body runs to tens of kilobytes of Markdown that quotes
+    code throughout. GitHub caps a review body at 64 KB, which bounds
+    what either form can carry.
 
 Both forms work for all three verdicts, and map to `gh pr review`'s
 own `--body` and `--body-file` flags respectively. Nothing else about

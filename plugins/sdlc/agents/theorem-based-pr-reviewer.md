@@ -69,11 +69,13 @@ reviewing.
 
 You carry `Write` for exactly one purpose: staging the review body to
 a file under `.claude/tmp/<task-slug>/` so step 10 can post it by
-path. A real round's body runs to tens of kilobytes, which is more
-than a command-line argument carries, so the file is the only route
-onto the PR — before this the body could only be posted by handing it
-to some other agent that had a file-writing tool, which no reader of
-this frontmatter could have predicted. The agents you spawn — the
+path. A real round's body runs to tens of kilobytes of Markdown that
+quotes code throughout, and the skill's inline form spells it into a
+double-quoted `--body "<body>"` where the shell reads every backtick
+and `$`, so the file is the route onto the PR — before this the body
+could only be posted by handing it to some other agent that had a
+file-writing tool, which no reader of this frontmatter could have
+predicted. The agents you spawn — the
 `theorem-generator` variants, `theorem-disprover`, and
 `counterexample-verifier` — carry no `Write` or `Edit` tool at all.
 
@@ -816,8 +818,10 @@ as a new file and leaves yours alone.
 
 Use the **file form**, not the skill's inline `<body>` form. A round's
 body carries the full theorem list and the records block, which runs
-to tens of kilobytes — more than a command-line argument carries — so
-the inline form works on a toy review and fails on a real one. Staging
+to tens of kilobytes of Markdown that quotes code throughout — and the
+inline form spells it into a double-quoted `--body "<body>"`, where
+the shell reads every backtick and `$`. So the inline form works on a
+toy review and fails on a real one. Staging
 it is what `Write` is in your tool grant for, per "You write nothing
 on the branch".
 

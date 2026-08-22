@@ -39,6 +39,28 @@ checked out in the current worktree — followed by a checkout of the
 ref's contents, because a reset alone does not touch tracked-file
 contents. Re-apply any uncommitted edits afterwards.
 
+## An argv is not what caps a long body — quoting is
+
+`getconf ARG_MAX` is 1048576 here, and a single 80 KB argument reaches
+an `execve`d program intact. So "the body is too large for a
+command-line argument" is the wrong diagnosis for a body of tens of
+kilobytes, and reaching for a file on that reasoning gets the right
+answer for a reason that will not survive a reader who checks it.
+
+What actually breaks an inline body is the shell. A body spelled into
+a double-quoted word — `gh pr review <PR> --approve --body "<body>"` —
+has every backtick and `$` in it read by the shell before `gh` sees a
+byte, and a review or PR body is Markdown that quotes code throughout.
+A 26 KB review body posted on this repo carried backticks on 97 of its
+lines.
+
+So pass a long body by path. `gh`'s body-carrying verbs each take
+`-F`/`--body-file` alongside `-b`/`--body` and reject both at once, so
+the file form needs no quoting at all: stage the text with `Write`
+under `<repo-root>/.claude/tmp/<task-slug>/` and name the path.
+`sdlc:theorem-based-pr-reviewer` posts every review that way, through
+`/github-prs:pr-review-submit --body-file`.
+
 ## `gh pr create` is GraphQL and can fail while REST is healthy
 
 `gh pr create` uses GraphQL for both its already-exists pre-check and

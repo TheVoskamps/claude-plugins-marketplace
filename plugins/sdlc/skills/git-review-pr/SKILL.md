@@ -74,7 +74,8 @@ skill computes.
    exactly as it does in the `/sdlc:orchestrate` flow. The body
    travels as a file — the reviewer stages it under
    `.claude/tmp/<task-slug>/` and passes `--body-file`, because a real
-   round's body is larger than a command-line argument carries. It
+   round's body is tens of kilobytes of Markdown that quotes code
+   throughout, which the inline form would hand to the shell. It
    commits nothing and pushes nothing.
 
    Remove the reviewer agent's worktree when it returns.

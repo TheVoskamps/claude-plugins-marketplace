@@ -140,10 +140,11 @@ three verdicts: inline as the last argument, or as
 `--body-file <path>` naming a file that holds it.
 `sdlc:theorem-based-pr-reviewer` uses the file form — it stages the
 review under `.claude/tmp/<task-slug>/` and posts it by path, because
-a real round's body is larger than a command-line argument carries. In
-the file form the self-review downgrade composes a **new** file
-carrying the `APPROVED` line ahead of the caller's text, leaving the
-caller's own file untouched.
+a real round's body is tens of kilobytes of Markdown that quotes code
+throughout, and the inline form hands every backtick and `$` in it to
+the shell. In the file form the self-review downgrade composes a
+**new** file carrying the `APPROVED` line ahead of the caller's text,
+leaving the caller's own file untouched.
 
 ### `/pr-ready <N>`
 

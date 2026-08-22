@@ -43,7 +43,8 @@ Their sibling [`docs/agent-tooling-notes.md`](docs/agent-tooling-notes.md)
 answers a different question — not how to establish a fact, but how the
 tools themselves behave here: which shell the Bash tool runs, when a
 successful `git fetch` leaves its ref behind, which `gh` verbs are
-GraphQL and can fail while REST is healthy, and the `yq` expressions
+GraphQL and can fail while REST is healthy, what actually caps a long
+`--body` (quoting, not the argument list), and the `yq` expressions
 that return a wrong answer rather than an error.
 
 ## Grade a repo statement an issue contradicts, don't pick a side
@@ -484,8 +485,10 @@ nothing to `.claude/agent-memory/`.
 `theorem-based-pr-reviewer` alone carries `Write`, for one bounded
 purpose: staging its review body under `.claude/tmp/<task-slug>/` so
 `/github-prs:pr-review-submit` can post it by path, which a real
-round's body needs because it exceeds what a command-line argument
-carries (issue #321). That is not a hole in the guarantee, because the
+round's body needs because the inline form spells the body into a
+double-quoted `--body "<body>"`, where the shell reads every backtick
+and `$` in tens of kilobytes of Markdown that quotes code throughout
+(issue #321). That is not a hole in the guarantee, because the
 guarantee is structural rather than behavioral: the guardrails
 permission-gate's `PreToolUse` matcher registers `Write` and denies a
 `file_path` resolving outside the worktree or inside `.git/`,
