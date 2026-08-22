@@ -16,10 +16,12 @@ for the shared schema, the read contract, and the two-scope model.
 ## Scope and the filename collision — read this first
 
 Both user-config files are named `user-config.md`. This skill writes
-**only** the user-global one at `$XDG_CONFIG_HOME/issues/user-config.md`
-(expand `~` to the user's home directory). It never touches a
-repo-level `<repo-root>/.issues/user-config.md` — that is
-`/user-config`'s job. Be unambiguous about scope at every step.
+**only** the user-global one at
+`$XDG_CONFIG_HOME/issues/user-config.md`, resolved as
+`skills/lib/user-config.md` → "Where `$XDG_CONFIG_HOME` resolves"
+defines it. It never touches a repo-level
+`<repo-root>/.issues/user-config.md` — that is `/user-config`'s job.
+Be unambiguous about scope at every step.
 
 `identity-key` is **repo-level only** (a per-repo-per-user binding),
 so this user-global skill does **not** interview for it. Keys here are
@@ -230,8 +232,8 @@ attempt a corrective second write.
 
 Report back:
 
-- The absolute path written (`$XDG_CONFIG_HOME/issues/user-config.md`,
-  expanded).
+- The absolute path written — `$XDG_CONFIG_HOME/issues/user-config.md`
+  with the variable resolved.
 - Which keys were changed, which were preserved (merge summary), and
   the final `schema-version`.
 - A reminder that this file is the **user-global** scope and lives
