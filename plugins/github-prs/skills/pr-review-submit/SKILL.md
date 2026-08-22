@@ -64,9 +64,20 @@ GitHub-only, so there is nothing to branch on.)
 
 ## Execution
 
-Post the review as a single call carrying both verdict and body. The
-verdict picks the flag; the body form picks whether that call ends in
-`--body "<body>"` or `--body-file <path>`:
+Check the body form before posting anything. Exactly one of `<body>`
+and `--body-file <path>` must be present:
+
+- Both supplied — abort with: "Both an inline `<body>` and
+  `--body-file <path>` were supplied. Pass exactly one."
+- Neither supplied — abort with: "No review body was supplied. Pass
+  either an inline `<body>` or `--body-file <path>`."
+
+Either abort posts no review, rather than guessing which form the
+caller meant.
+
+Then post the review as a single call carrying both verdict and body.
+The verdict picks the flag; the body form picks whether that call ends
+in `--body "<body>"` or `--body-file <path>`:
 
 | Verdict | Verdict flag |
 | --- | --- |

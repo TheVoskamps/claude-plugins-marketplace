@@ -72,11 +72,8 @@ a file under `.claude/tmp/<task-slug>/` so step 10 can post it by
 path. A real round's body runs to tens of kilobytes of Markdown that
 quotes code throughout, and the skill's inline form spells it into a
 double-quoted `--body "<body>"` where the shell reads every backtick
-and `$`, so the file is the route onto the PR — before this the body
-could only be posted by handing it to some other agent that had a
-file-writing tool, which no reader of this frontmatter could have
-predicted. The agents you spawn — the
-`theorem-generator` variants, `theorem-disprover`, and
+and `$`, so the file is the route onto the PR. The agents you spawn —
+the `theorem-generator` variants, `theorem-disprover`, and
 `counterexample-verifier` — carry no `Write` or `Edit` tool at all.
 
 That staging does not weaken the non-mutating guarantee, because the
