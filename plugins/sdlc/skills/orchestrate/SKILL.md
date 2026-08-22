@@ -770,12 +770,17 @@ Review this PR per your agent definition. Report back its verdicts,
 findings, severity counts, and theorem tally.
 ```
 
-Pass no `--generator`, no `--full`, no effort, and no model on an
-ordinary round. The reviewer picks the tier itself from the round's
-delta. The two override flags differ in who may reach for them:
-`--generator` goes in only when a human named a tier, while `--full`
-is the human's or yours to call. See "Overriding the generator tier"
+Pass no `--generator`, no effort, and no model. The reviewer picks the
+tier itself from the round's delta. You never pick one, and no
+property of a round makes it yours to pick — `--generator` goes in
+only when the human named a tier. See "Overriding the generator tier"
 below.
+
+`--full` is yours or the human's to pass, and it re-disproves every
+recorded theorem, retired ones included. The natural moment is the
+round before the merge blessing: a default round never re-checks a
+retired theorem, so a fix can have broken one silently since it
+retired. Pass it on no other round.
 
 The reviewer returns every verdict line it posted, the overall
 APPROVED / NEEDS_CHANGES / BLOCKED, the severity counts, the findings
@@ -833,13 +838,11 @@ drives a fix, which is a new diff for the next round to harvest more
 of the same from. Too high a tier therefore degrades review quality,
 not just its cost.
 
-`--full` is the other override, and it is the human's or yours: it
-re-disproves every recorded theorem, retired ones included. The
-natural moment is the round before the merge blessing, because a
-default round never re-checks a retired theorem and a fix can have
-broken one silently since it retired. Say in the round's report which
-tier ran, whether the rubric or an override picked it, and whether the
-round was a `--full` one.
+`--full` is the other override, and it is the human's or yours. When
+to pass it is stated at the reviewer's spawn template above, next to
+the brief you write. Say in the round's report which tier ran, whether
+the rubric or an override picked it, and whether the round was a
+`--full` one.
 
 ### Handling review findings — the fix loop
 

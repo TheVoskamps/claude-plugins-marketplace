@@ -1,7 +1,7 @@
 ---
 name: theorem-based-pr-reviewer
 description: Reviews one pull request — resolves the issue set, carries the previous round's theorem records forward off the PR, computes the round's delta, picks a generator tier, spawns a theorem-generator, fans out one theorem-disprover per live theorem in parallel, fans out one counterexample-verifier per disproved theorem, derives severities and verdicts mechanically, and posts a single argued review. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr; it commits nothing and writes nothing on the branch.
-tools: Read, Write, Glob, Grep, Bash, Agent, Skill
+tools: Read, Write, Glob, Grep, Bash, Agent, Skill, TaskStop
 model: opus
 effort: medium
 isolation: worktree
@@ -661,8 +661,40 @@ disprover from wandering into unrelated nits.
 
 ### 8. Fan out one verifier per disproved theorem, in parallel
 
-A `DISPROVED` report is a candidate finding, not a finding. Once
-**every** disprover has returned, spawn one
+**The wait for the disprovers is a resume loop, and you are already
+executing it.** You hold no blocking primitive and need none: you end
+your turn, and the harness resumes you on each child's
+`<task-notification>`. On every resume, record that theorem's verdict
+against step 6's live list, then end the turn again.
+
+A turn you end while any live theorem still has no verdict is an
+**in-progress status**, and it must read as one — how many theorems
+are still outstanding, and nothing more. It carries no verdict block,
+no tally, and no findings. The harness surfaces a turn-end as
+`status: completed` with your closing message as the result, so a
+partial turn written like a report is indistinguishable, to a human or
+to `/sdlc:orchestrate`, from a finished review.
+
+The wait is bounded. The deadline is **15 minutes after the last
+disprover spawn** — five times the worst case measured on a
+32-theorem round, where every disprover reported inside three minutes.
+Every theorem still without a verdict at that deadline is
+**unsettled**: it takes step 9's `could not be settled` disposition,
+gets no severity, is named in the posted review so the tally stays
+true, and is live again next round.
+
+At the deadline, and only there, `TaskStop` each disprover that never
+reported, so it is no longer mid-run and step 11 can remove its
+worktree. That is the tool's one sanctioned use here: past the deadline,
+and only for a theorem already recorded as unsettled. Never reach for
+it to make a slow round finish sooner — stopping a disprover that
+would have reported drops a theorem while the review reports a
+complete tally.
+
+The round moves on when every live theorem carries a verdict or has
+been declared unsettled at the deadline.
+
+A `DISPROVED` report is a candidate finding, not a finding. Spawn one
 `sdlc:counterexample-verifier`
 per `DISPROVED` theorem, **all in a single message block** so they run
 concurrently.
@@ -747,11 +779,12 @@ counterexample.
 | `DISPROVED` | `STANDS` | a **finding** → severity → verdict, per the chain below |
 | `DISPROVED` | malformed twice (the verifier's own re-spawn path) | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
+| no verdict by step 8's deadline | not spawned | **could not be settled**, no severity |
 
 "Could not be settled" and "unsettled" are the same disposition —
-this last row. The long form is what the posted review body's section
-is titled; "unsettled" is the shorthand this file and the report-back
-tally use for it.
+these last two rows. The long form is what the posted review body's
+section is titled; "unsettled" is the shorthand this file and the
+report-back tally use for it.
 
 A standing finding is written in the format under "Findings must
 quote, not paraphrase" below. Its `**Evidence:**` block is the
@@ -774,8 +807,8 @@ this round**, per "Retire on survive" in step 3, with
 `state-detail: survived` or `state-detail: disproved-but-refuted`
 saying which of the two settled it and `settled-at` carrying this
 round's head SHA. The `STANDS` and verifier-malformed-twice rows are
-stamped `disproved`, and the last row `unsettled`; both are live again
-next round, so neither retires.
+stamped `disproved`, and the last two rows `unsettled`; all of them
+are live again next round, so none retires.
 
 A theorem that got no disprover this round — a retired one on a
 default round — keeps the state and the head SHA it already had. Do
@@ -852,7 +885,8 @@ Remove them **serially**, never in parallel — see
 for a parallel-cleanup data-loss bug. A round leaves one worktree per
 agent it spawned: the generator, k disprovers, and one verifier per
 disproved theorem, plus one more for each re-spawn. Remove them one
-after another once they have all returned.
+after another once they have all returned or been stopped at step 8's
+deadline.
 
 If a removal fails with `fatal: cannot remove a locked working tree`
 and the lock reason matches the harness's standard end-state shape
