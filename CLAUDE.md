@@ -43,7 +43,8 @@ Their sibling [`docs/agent-tooling-notes.md`](docs/agent-tooling-notes.md)
 answers a different question — not how to establish a fact, but how the
 tools themselves behave here: which shell the Bash tool runs, when a
 successful `git fetch` leaves its ref behind, which `gh` verbs are
-GraphQL and can fail while REST is healthy, and the `yq` expressions
+GraphQL and can fail while REST is healthy, what actually caps a long
+`--body` (quoting, not the argument list), and the `yq` expressions
 that return a wrong answer rather than an error.
 
 ## Grade a repo statement an issue contradicts, don't pick a side
@@ -132,6 +133,29 @@ The questions that tempt an agent into one each have a safe answer:
 When a claim looks like it can only be settled by a real publish, stop
 and report that, rather than deciding it is fine because you expect an
 error first.
+
+### The one named exception: the publish path itself is the deliverable
+
+A PR that changes **how a body gets onto GitHub** — the `--body-file`
+route `/github-prs:pr-review-submit` and
+`sdlc:theorem-based-pr-reviewer` post through (issue #321) — may run
+one `gh pr comment --body-file` against a scratch PR, carrying a body
+of the size a real round produces, as its acceptance test.
+
+The two differ in what the invocation is for. The prohibition exists
+because an agent probing a verb's *grammar* can publish by accident,
+against which the gate is not the backstop, per this section's
+opening paragraph. Here nothing is being learned about the verb's
+parsing: the flags, the target and the content are all chosen in
+advance, and what the run establishes is that a body that size
+survives the trip. No synthetic gate replay and no reading of
+`cli/cli`'s source answers that, because the thing under test is the
+round trip.
+
+The exception is bounded to that: one publish, a scratch PR, a body
+the PR's author wrote. It does not license a second run "to be sure",
+a publish against a real PR, or any other verb. Everything else in
+this section stands unchanged.
 
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
@@ -320,10 +344,14 @@ is a cross-file refactor rather than a doc-pass sweep.
 Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
-opening paragraph and repeats the diff-consumer list in its `/pr-diff`
-section, and `plugins/github-prs/skills/pr-diff/SKILL.md` spells that
-same consumer list once more — a surface a `sdlc`-only PR reaches only
-by remembering that adding a diff-reading agent bumps `github-prs`
+opening paragraph, repeats the diff-consumer list in its `/pr-diff`
+section, and names `theorem-based-pr-reviewer` again in its
+`/pr-review-submit` section as the caller that posts by `--body-file`,
+which `plugins/github-prs/skills/pr-review-submit/SKILL.md` names once
+more — as `plugins/github-prs/skills/pr-diff/SKILL.md` spells that same
+diff-consumer list once more. Those are surfaces a `sdlc`-only PR
+reaches only by remembering that adding a diff-reading agent, or
+changing how the reviewer hands a body over, bumps `github-prs`
 too. `plugins/issues/` names no `sdlc` reader of repo-config, and that
 is deliberate: a reader contract states what the file provides, never
 who consumes it, so `skills/lib/repo-config.md` describes each field
@@ -455,21 +483,33 @@ either the reviewer or orchestrate is what would end that.
 spawns are strictly non-mutating on the PR branch: none of
 `theorem-based-pr-reviewer`, `theorem-generator`, `theorem-disprover`,
 or `counterexample-verifier`
-declares `memory:`, and none carries a `Write` or `Edit` tool. A
-review round therefore commits nothing, pushes nothing, and writes
-nothing to `.claude/agent-memory/`.
+declares `memory:`, and none carries an `Edit` tool. A review round
+therefore commits nothing, pushes nothing, and writes nothing to
+`.claude/agent-memory/`.
 
-The theorem list a round carries forward is no exception to that,
+`theorem-based-pr-reviewer` alone carries `Write`, for one bounded
+purpose: staging its review body under `.claude/tmp/<task-slug>/` so
+`/github-prs:pr-review-submit` can post it by path, which a real
+round's body needs because the inline form spells the body into a
+double-quoted `--body "<body>"`, where the shell reads every backtick
+and `$` in tens of kilobytes of Markdown that quotes code throughout
+(issue #321). `.claude/tmp/` is gitignored and the reviewer has no
+commit or push step, so nothing it stages reaches the branch. The
+spawned agents carry no writing tool at all.
+
+The theorem list a round carries forward is no exception either,
 because it never lands on the branch: the reviewer persists the
 records in the **review it posts**, and the next round reads them back
 off the PR. A PR artifact is not a branch write. Do not repair a
-persistence gap by giving review a file to write.
+persistence gap by giving review a file the branch would carry.
 
 That is enforcement, not convention, so keep it structural: do not add
-a `memory:` key or a writing tool to any of those definitions, and do
-not give the reviewer a commit step. A durable lesson learned while
-reviewing lands as a PR against `theorem-generation` (how to state a
-better theorem), `theorem-disprover` (how to establish a fact),
+a `memory:` key to any of those definitions, do not widen the
+reviewer's `Write` past body staging, do not give any spawned agent a
+writing tool, and do not give the reviewer a commit step. A durable
+lesson learned while reviewing lands as a PR against
+`theorem-generation` (how to state a better theorem),
+`theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or
 this file — never as a memory entry on the branch being reviewed.
 

@@ -71,8 +71,12 @@ skill computes.
    then the verifiers in their own throwaway worktrees, derives the
    verdicts, and **posts the review to the PR as a single call** via
    `/github-prs:pr-review-submit`, carrying both verdict and body,
-   exactly as it does in the `/sdlc:orchestrate` flow. It commits
-   nothing and pushes nothing.
+   exactly as it does in the `/sdlc:orchestrate` flow. The body
+   travels as a file — the reviewer stages it under
+   `.claude/tmp/<task-slug>/` and passes `--body-file`, because a real
+   round's body is tens of kilobytes of Markdown that quotes code
+   throughout, which the inline form would hand to the shell. It
+   commits nothing and pushes nothing.
 
    Remove the reviewer agent's worktree when it returns.
 

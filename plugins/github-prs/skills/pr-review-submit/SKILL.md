@@ -1,6 +1,6 @@
 ---
 name: pr-review-submit
-description: Post a single GitHub PR review carrying both a verdict and a body in one call, handling the self-review approve constraint.
+description: Post a single GitHub PR review carrying both a verdict and a body — supplied inline or as a file — in one call, handling the self-review approve constraint.
 ---
 
 # PR Review Submit
@@ -25,6 +25,7 @@ scope for this plugin.
 
 ```text
 /pr-review-submit <pr-number> <verdict> <body>
+/pr-review-submit <pr-number> <verdict> --body-file <path>
 ```
 
 - `<pr-number>` (required): the pull-request number in the current
@@ -35,8 +36,24 @@ scope for this plugin.
   - `request-changes` — the change needs work before merge.
   - `comment` — a verdict-less note (e.g. only Medium/Low findings, no
     approve/block yet).
-- `<body>` (required): the review text. The caller supplies the full
-  review body; this skill does not author findings.
+- The review text, in **exactly one** of the forms below — supplying
+  both, or neither, is an error the skill aborts on rather than
+  guessing:
+  - `<body>` — the text inline. The caller supplies the full review
+    body; this skill does not author findings.
+  - `--body-file <path>` — a file holding that same text. This is the
+    form a caller uses when the body would not survive the inline
+    form's double-quoted `--body "<body>"`, which hands every backtick
+    and `$` in it to the shell:
+    `sdlc:theorem-based-pr-reviewer` stages its review under
+    `.claude/tmp/<task-slug>/` and posts it by path, and a real
+    round's body runs to tens of kilobytes of Markdown that quotes
+    code throughout. GitHub caps a review body at 64 KB, which bounds
+    what either form can carry.
+
+Both forms work for every verdict, and map to `gh pr review`'s
+own `--body` and `--body-file` flags respectively. Nothing else about
+the skill's behavior differs between them.
 
 ## Repo-config
 
@@ -48,24 +65,37 @@ GitHub-only, so there is nothing to branch on.)
 
 ## Execution
 
-Post the review as a single call carrying both verdict and body:
+Check the body form before posting anything. Exactly one of `<body>`
+and `--body-file <path>` must be present:
 
-- **Approve:**
+- Both supplied — abort with: "Both an inline `<body>` and
+  `--body-file <path>` were supplied. Pass exactly one."
+- Neither supplied — abort with: "No review body was supplied. Pass
+  either an inline `<body>` or `--body-file <path>`."
+
+Either abort posts no review, rather than guessing which form the
+caller meant.
+
+Then post the review as a single call carrying both verdict and body.
+The verdict picks the flag; the body form picks whether that call ends
+in `--body "<body>"` or `--body-file <path>`:
+
+| Verdict | Verdict flag |
+| --- | --- |
+| `approve` | `--approve` |
+| `request-changes` | `--request-changes` |
+| `comment` | `--comment` |
+
+- **Inline body:**
 
   ```bash
-  gh pr review <PR> --approve --body "<body>"
+  gh pr review <PR> <verdict-flag> --body "<body>"
   ```
 
-- **Request changes:**
+- **Body file:**
 
   ```bash
-  gh pr review <PR> --request-changes --body "<body>"
-  ```
-
-- **Comment-only:**
-
-  ```bash
-  gh pr review <PR> --comment --body "<body>"
+  gh pr review <PR> <verdict-flag> --body-file <path>
   ```
 
 ### Self-review constraint (author cannot `--approve`)
@@ -73,7 +103,8 @@ Post the review as a single call carrying both verdict and body:
 `gh` blocks `--approve` when the reviewer is the PR author
 (`Can not approve your own pull request`). When the requested verdict
 is `approve` **and** the current `gh` user is the PR's author, do not
-fail — state the approve verdict **inline** via `--comment` instead:
+fail — state the approve verdict **in the body** via `--comment`
+instead:
 
 ```bash
 gh pr review <PR> --comment --body "APPROVED
@@ -81,14 +112,28 @@ gh pr review <PR> --comment --body "APPROVED
 <body>"
 ```
 
+In the `--body-file` form, compose the downgraded body as a **new**
+file rather than editing the caller's — the caller may still need what
+it handed you, and the skill has no mandate to rewrite it. Write it
+under `.claude/tmp/<task-slug>/`, where `<task-slug>` is the calling
+agent's own scratch slug, and create that directory first: the
+caller's `<path>` may sit anywhere, so nothing guarantees it already
+exists, and a bare redirect into a missing directory fails:
+
+```bash
+mkdir -p .claude/tmp/<task-slug>
+{ printf 'APPROVED\n\n'; cat <path>; } > .claude/tmp/<task-slug>/approved-body.md
+gh pr review <PR> --comment --body-file .claude/tmp/<task-slug>/approved-body.md
+```
+
 Prefix the body with an explicit `APPROVED` verdict line so the review
 still carries the verdict a real approval would have. Handling the
 downgrade here is why `sdlc:theorem-based-pr-reviewer` can hand this
-skill an
-`approve` verdict unconditionally: reviewer and author are frequently
-the same identity in the orchestrate flow, so the approve verdict has
-to travel in the comment body.
+skill an `approve` verdict unconditionally: reviewer and author are
+frequently the same identity in the orchestrate flow, so the approve
+verdict has to travel in the comment body.
 
-Report back a single line: the PR number, the verdict actually posted
-(and, if it was downgraded to an inline `--comment` because of the
-self-review constraint, note that).
+Report back a single line: the PR number, the verdict actually posted,
+and which body form carried it (and, if it was downgraded to a
+`--comment` carrying the `APPROVED` line because of the self-review
+constraint, note that).

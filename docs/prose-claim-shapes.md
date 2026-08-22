@@ -586,3 +586,22 @@ stock `/usr/bin/python3`; the mkosi provisioner's blocks run inside
 the Debian build container, on an interpreter that image installs, so
 they are evidence for no constraint macOS imposes. Read each cited
 site for *where it executes*, not for the call it makes.
+
+## A new option steals the word the old prose already used
+
+Adding a second way to do something often needs a name, and the
+obvious name is frequently one the surrounding prose already spends on
+a different axis. Every sentence carrying the old sense then reads
+against the new one, and each is graded true by its author because
+under the old sense it still is.
+
+The tell is a word appearing twice in one document with two referents,
+where the diff introduced only the second. `/pr-review-submit` used
+"inline" for where the *verdict* travels — an `APPROVED` line in the
+body, because `gh` refuses a self-`--approve` — and the `--body-file`
+round gave "inline" a second job naming where the *body* travels. "It
+was downgraded to an inline `--comment`" then described the one path
+that posts from a composed file. The check is to grep the new term
+across every file the feature touches and read each pre-existing hit
+under the new sense; the repair is to re-word the older sense, which
+has somewhere else to go, and leave the new axis the term.
