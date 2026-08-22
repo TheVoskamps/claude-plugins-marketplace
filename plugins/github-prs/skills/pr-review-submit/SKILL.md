@@ -113,9 +113,13 @@ gh pr review <PR> --comment --body "APPROVED
 
 In the `--body-file` form, compose the downgraded body as a **new**
 file rather than editing the caller's — the caller may still need what
-it handed you, and the skill has no mandate to rewrite it:
+it handed you, and the skill has no mandate to rewrite it. Create the
+scratch directory first: the caller's `<path>` may sit anywhere, so
+nothing guarantees `.claude/tmp/<task-slug>/` already exists, and a
+bare redirect into a missing directory fails:
 
 ```bash
+mkdir -p .claude/tmp/<task-slug>
 { printf 'APPROVED\n\n'; cat <path>; } > .claude/tmp/<task-slug>/approved-body.md
 gh pr review <PR> --comment --body-file .claude/tmp/<task-slug>/approved-body.md
 ```
