@@ -79,16 +79,17 @@ canonical read sequence and abort messages for
     map), matched case-insensitively (canonical capitalization from
     the option map).
   - **`kind: skip` or slot absent** — warn-and-skip the flag (per
-    "Graceful degradation" in `skills/lib/issue.md`). The value is
-    not parsed or validated.
+    "Graceful degradation when the block is missing" in
+    `skills/lib/issue.md`). The value is not parsed or validated.
 
   Default resolves via the order in `skills/lib/issue.md`
   ("Default-resolution order"). For create-time slot flags the full
   order is: CLI flag, then an **interactive prompt** (see Step 2 in
-  the execution chain below and the "Interactive prompt rung"
-  section in `skills/lib/issue.md`), then `fields.priority.default`
-  in the repo's `github-project:` block. There is no built-in
-  default — if none of those produce a value, the slot is skipped.
+  the execution chain below and the "Interactive prompt rung
+  (create-time slot flags)" section in `skills/lib/issue.md`), then
+  `fields.priority.default` in the repo's `github-project:` block.
+  There is no built-in default — if none of those produce a value,
+  the slot is skipped.
 - `--size` (optional): a single token whose parse rules depend on
   `fields.size.kind:`. Same kind dispatch as `--priority`:
   - **`kind: number`** — base-10 integer in
@@ -126,7 +127,7 @@ empty arguments (`--label ""`, `--assignee ""`); skip the flag.
 Apply the standard `issues:` switch from `skills/lib/issue.md`
 ("Tracker dispatch"). Under `issues == Jira`, follow the Jira backend
 path documented there (`skills/lib/issue.md` → "Jira backend" →
-"Create"), which creates the work item via `acli`
+"Create (`/issue-create`)"), which creates the work item via `acli`
 (the `/issues-jira:jira-lib` skill) and resolves type/status/priority/size from
 the `jira:` block the same way the GitHub backend resolves them from
 `github-project:`; it no longer aborts.
@@ -141,13 +142,13 @@ what didn't — do not roll back successful steps.
    default-resolution order from `skills/lib/issue.md` to `--type`,
    `--labels`, and `--parent` — i.e. CLI flag, then repo-config
    default, then built-in default where applicable. Resolve
-   `--assignee` through its own four-rung order from the flag spec
-   above (lines 36–57): CLI flag, then `default-assignee` from the
-   **repo-level** user-config, then `default-assignee` from the
+   `--assignee` through its own order from the `--assignee` flag spec
+   under "Invocation" above: CLI flag, then `default-assignee` from
+   the **repo-level** user-config, then `default-assignee` from the
    **user-global** user-config (both read via the canonical sequence
    in `skills/lib/user-config.md`, which this consumer pins to
    user-config schema-version `1`), then the authenticated GitHub
-   user as the final fallback. None of these four flags prompt; their
+   user as the final fallback. None of these flags prompt; their
    resolution is complete after this step. The slot flags
    (`--priority`, `--size`, `--status`) get rung 1 here (CLI flag,
    if passed); the remaining rungs are handled in Step 2 below.
@@ -156,19 +157,20 @@ what didn't — do not roll back successful steps.
    `--assignee` still resolve via their defaults (for `--assignee`,
    the user-config rungs then the authenticated GitHub user; both
    user-config files are optional and absence degrades straight to
-   the authenticated user), but the slot
-   flags warn-and-skip per "Graceful degradation" — no prompt either
-   (Step 2 is a no-op for any slot whose `kind:` resolves to `skip` /
-   slot-absent).
+   the authenticated user), but the slot flags warn-and-skip per
+   "Graceful degradation when the block is missing" — no prompt
+   either (Step 2 is a no-op for any slot whose `kind:` resolves to
+   `skip` / slot-absent).
 
 2. **Interactive prompts for slot flags.** For each slot in
    `{priority, size, status}` whose CLI flag was **not** passed in
-   Step 1, run the "Interactive prompt rung" from
-   `skills/lib/issue.md`:
+   Step 1, run the "Interactive prompt rung (create-time slot
+   flags)" from `skills/lib/issue.md`:
 
    - Skip the prompt for any slot whose `fields.<slot>.kind:` is
      `skip` or whose entry is absent from `fields:` — those slots
-     warn-and-skip per "Graceful degradation" without any prompt.
+     warn-and-skip per "Graceful degradation when the block is
+     missing" without any prompt.
    - For `--size`, evaluate the issue body per the "Size evaluation
      heuristic" section below to pick the recommended option, then
      issue a single `AskUserQuestion` for size with that option
@@ -176,7 +178,7 @@ what didn't — do not roll back successful steps.
    - For `--priority` and `--status`, the recommended option is
      `fields.<slot>.default` from repo-config (if set). Issue one
      `AskUserQuestion` per slot.
-   - The three prompts MAY be combined into a single
+   - The per-slot prompts MAY be combined into a single
      `AskUserQuestion` call when convenient (the harness allows up
      to four questions per call) — the user experience is
      equivalent.
@@ -239,7 +241,8 @@ what didn't — do not roll back successful steps.
      with `fieldId = fields.priority.id` and that `optionId`.
    - **`kind: label`** — resolve the option name against
      `fields.priority.options` (flat list, case-insensitive), then
-     follow the "Label-namespace update" recipe with
+     follow the "Label-namespace update (`gh issue edit`, not
+     GraphQL)" recipe with
      `<namespace> = fields.priority.namespace` and
      `<requested> = <canonical>`. This is a `gh issue edit`
      invocation, not GraphQL.
@@ -247,13 +250,16 @@ what didn't — do not roll back successful steps.
      `fields.priority.options` (case-insensitive), then follow the
      **issue-field write path** from the "Set-slot dispatcher" routine
      in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
-     the `setIssueFieldValue` template with
-     `fieldId = fields.priority.field-id` and the resolved option's
-     node ID. This writes on the issue itself and does **not** depend
-     on the project-item lookup from step 5 — it works even when the
-     issue is not on (or there is no) project board.
+     the "`setIssueFieldValue` — native issue field (single-select)"
+     template with `issueId = <the issue node ID from step 4>`,
+     `fieldId = fields.priority.field-id`, and
+     `optionId = fields.priority.options.<canonical>`. This writes on
+     the issue itself and does **not** depend on the project-item
+     lookup from step 5 — it works even when the issue is not on (or
+     there is no) project board.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
-     from "Graceful degradation" in `skills/lib/issue.md` and skip.
+     from "Graceful degradation when the block is missing" in
+     `skills/lib/issue.md` and skip.
 
    If the `github-project:` block is missing entirely, emit the same
    warning and skip — there is no slot configuration to dispatch on.
@@ -272,19 +278,22 @@ what didn't — do not roll back successful steps.
      single-select-field template with `fieldId = fields.size.id` and
      that `optionId`.
    - **`kind: label`** — resolve the option name against
-     `fields.size.options`, then follow the "Label-namespace update"
-     recipe with `<namespace> = fields.size.namespace`.
+     `fields.size.options`, then follow the "Label-namespace update
+     (`gh issue edit`, not GraphQL)" recipe with
+     `<namespace> = fields.size.namespace`.
    - **`kind: issue-field`** — resolve the option name against
      `fields.size.options` (case-insensitive), then follow the
      **issue-field write path** from the "Set-slot dispatcher" routine
      in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
-     the `setIssueFieldValue` template with
-     `fieldId = fields.size.field-id` and the resolved option's node
-     ID. This writes on the issue itself and does **not** depend on the
-     project-item lookup from step 5 — it works even when the issue is
-     not on (or there is no) project board. GitHub's native `Effort`
-     field is the size analogue here; its options are `High` /
-     `Medium` / `Low`, not the t-shirt buckets.
+     the "`setIssueFieldValue` — native issue field (single-select)"
+     template with `issueId = <the issue node ID from step 4>`,
+     `fieldId = fields.size.field-id`, and
+     `optionId = fields.size.options.<canonical>`. This writes on the
+     issue itself and does **not** depend on the project-item lookup
+     from step 5 — it works even when the issue is not on (or there is
+     no) project board. GitHub's native `Effort` field is the size
+     analogue here; its options are `High` / `Medium` / `Low`, not the
+     t-shirt buckets.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
      and skip.
 
@@ -299,8 +308,8 @@ what didn't — do not roll back successful steps.
     case-insensitive lookup rules ("Name -> ID lookup rules") and
     calls the `updateProjectV2ItemFieldValue` single-select-field
     template with `fieldId = fields.status.id` and that `optionId`.
-    The other three kinds (`number`, `label`, `skip`/absent) follow
-    the same per-kind write paths as in step 8.
+    The remaining kinds (`number`, `label`, `issue-field`, and
+    `skip`/absent) follow the same per-kind write paths as in step 8.
 
     If the `github-project:` block is missing entirely, warn and
     skip as above.
@@ -323,12 +332,12 @@ The buckets named below (`XS` / `S` / `M` / `L` / `XL`) are the
 **conventional** size options for a `kind: label` or
 `kind: single-select` size slot, and the worked examples use them. But
 the heuristic operates on **whatever options the slot actually
-declares** in `fields.size.options` — it does not assume the
-six-bucket t-shirt set. When the `size` slot is backed by a native
-GitHub Issue Field (`kind: issue-field`, e.g. the native `Effort`
-field), the slot's effective option set is the native field's own
-options (`High` / `Medium` / `Low`), and the heuristic ranks and steps
-across **those** three options instead.
+declares** in `fields.size.options` — it does not assume the t-shirt
+set. When the `size` slot is backed by a native GitHub Issue Field
+(`kind: issue-field`, e.g. the native `Effort` field), the slot's
+effective option set is the native field's own options (`High` /
+`Medium` / `Low`), and the heuristic ranks and steps across **those**
+options instead.
 
 To apply the heuristic to any option set, first establish a
 **magnitude order** — the options sorted from least-work to most-work —
@@ -362,7 +371,7 @@ With the magnitude order fixed:
   for `Effort`).
 
 The file-count → t-shirt mapping in signal 2 below is the canonical
-example for the six-bucket set; for any other option set, derive the
+example for the t-shirt set; for any other option set, derive the
 analogous proportional mapping over the magnitude order as described
 above rather than forcing the t-shirt labels.
 
@@ -417,10 +426,10 @@ code or reading files in the repo.
 2. Apply the acceptance-items adjustment (signal 3) in steps. A
    "step" for `kind: single-select` / `kind: label` / `kind: issue-field`
    slots means moving one option along the **magnitude order** (see
-   "The option set is the slot's own" above), clamped to the
-   smallest / largest option. For `kind: number`, a step is one
-   increment along `[min, max]` in equal-thirds buckets (so a slot with
-   `min: 1, max: 9` has steps of 3).
+   "The option set is the slot's own, not a fixed t-shirt set" above),
+   clamped to the smallest / largest option. For `kind: number`, a
+   step is one increment along `[min, max]` in equal-thirds buckets
+   (so a slot with `min: 1, max: 9` has steps of 3).
 3. Apply complexity signals (signal 4) as additional upward steps.
 4. Override to the **least-work option** (the start of the magnitude
    order — `XS` for the t-shirt set, `Low` for `Effort`) if the

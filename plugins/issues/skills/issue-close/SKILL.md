@@ -95,14 +95,15 @@ is not a valid invocation; `gh issue close 42` is.
 
 ## Jira path (`issues: Jira`)
 
-Follow the Jira backend "Close" path in `skills/lib/issue.md` → "Jira
-backend" → "Close". Jira has no separate close verb — closing is a
-transition to the project's done-equivalent status, resolved from the
-`jira:` `status` slot. Concretely:
+Follow the Jira backend close path in `skills/lib/issue.md` → "Jira
+backend" → "Close (`/issue-close`)". Jira has no separate close verb —
+closing is a transition to the project's done-equivalent status,
+resolved from the `jira:` `status` slot. Concretely:
 
 1. Normalize `<issue-number>` to a Jira key (`SET-42`; both `42` and
-   `SET-42` are accepted) per the Jira-backend "Preconditions". Confirm
-   `acli` is present and authenticated first.
+   `SET-42` are accepted) per the Jira-backend "Preconditions (every
+   Jira operation)". Confirm `acli` is present and authenticated
+   first.
 2. Fetch the work item's summary (title) for the report-back via the
    `workitem view` template from the `/issues-jira:jira-lib` skill. Surface any
    non-zero exit verbatim and stop.
@@ -116,9 +117,9 @@ transition to the project's done-equivalent status, resolved from the
    closing-keywords safety-net scan on any `--comment` body.
 
 Do not partially implement on an `acli`-absent or auth failure: handle
-those per the Jira-backend "Preconditions" (the "`acli` not installed"
-catalogue entry, or the `acli jira auth login --web` recovery) rather
-than transitioning.
+those per the Jira-backend "Preconditions (every Jira operation)" (the
+"`acli` not installed" catalogue entry, or the `acli jira auth login
+--web` recovery) rather than transitioning.
 
 ## Hard constraints
 

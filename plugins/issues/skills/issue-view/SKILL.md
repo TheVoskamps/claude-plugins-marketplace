@@ -53,7 +53,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 3. **Resolve per-slot field values by `kind:`.** Iterate the
    `github-project.fields` map in repo-config and, for each slot,
    dispatch on its `kind:` per the "Field-value read by kind" recipe
-   in `skills/lib/issue.md`. There are exactly five cases:
+   in `skills/lib/issue.md`. The cases:
 
    - **`kind: number`** — scan the project item's `fieldValues` for
      the `ProjectV2ItemFieldNumberValue` whose `field.id` matches
@@ -84,24 +84,26 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
        prefix (e.g. `M`, not `size:M`)
      - **more than one match** → `(multiple)` — the read path does
        **not** delete extras; the user runs `/issue-set-<slot>` to
-       converge. The "Label-namespace update" recipe enforces the
-       at-most-one invariant on the next write.
+       converge. The "Label-namespace update (`gh issue edit`, not
+       GraphQL)" recipe enforces the at-most-one invariant on the
+       next write.
    - **`kind: skip`** — the slot is omitted entirely from the output.
      No row, no `(none)` placeholder, no "skipped" notice.
 
    Slots that are **absent entirely** from `fields:` are also omitted
    entirely from the output (the same shape as `kind: skip`, per
-   "Graceful degradation" in `skills/lib/issue.md`).
+   "Graceful degradation when the block is missing" in
+   `skills/lib/issue.md`).
 
    The list of slots, their canonical names, and the row order in
    the output are all derived from `fields:` as read from repo-config.
    This skill hardcodes nothing about which slots exist — a repo that
-   adds e.g. a `priority` slot under any of the five kinds gets a
+   adds e.g. a `priority` slot under any of the kinds gets a
    `priority:` row for free.
 
    If `github-project:` is missing from repo-config, omit the
-   project-fields section entirely per "Graceful degradation" — do
-   not warn; reads degrade quietly.
+   project-fields section entirely per "Graceful degradation when the
+   block is missing" — do not warn; reads degrade quietly.
 
    If the configured project is present but the issue has no item on
    it, render every `kind: number` and `kind: single-select` slot as
@@ -153,9 +155,9 @@ Body:
 ```
 
 The `Priority:`, `Size:`, and `Status:` rows in the block above
-are illustrative — they are the three conceptually-standard slots
-today. The actual rows emitted come from iterating `fields:` in
-repo-config (per step 3) in the order the slots appear in YAML.
+are illustrative — they are the conceptually-standard slots today.
+The actual rows emitted come from iterating `fields:` in repo-config
+(per step 3) in the order the slots appear in YAML.
 `Size:` is positioned adjacent to `Priority:` when both are
 present. Rows for slots that are absent or `kind: skip` are not
 emitted at all.
@@ -163,7 +165,7 @@ emitted at all.
 When a section has no entries, replace its body with a single
 `(none)` line — for the inline fields (`Labels:`, `Assignees:`,
 `Type:`, the per-slot rows, and `Parent:`), that means the value
-column reads `(none)`; for the three list sections (`Sub-issues:`,
+column reads `(none)`; for the list sections (`Sub-issues:`,
 `Blocked by:`, `Blocking:`), that means the section header is
 followed by one `(none)` line at the bullet indent instead of any
 `- #<N>` lines.

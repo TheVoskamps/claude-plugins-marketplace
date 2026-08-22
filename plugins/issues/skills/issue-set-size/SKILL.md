@@ -11,10 +11,11 @@ matching template/recipe.
 See `skills/lib/issue.md` for the shared "Set-slot dispatcher"
 routine, GraphQL templates (number, single-select, and the
 `setIssueFieldValue` native-issue-field template), the
-"Label-namespace update" recipe, the catalogue error wordings, and
-the slot-absent / `kind: skip` equivalence. This file documents only
-what is specific to `/issue-set-size`: the slot name (`size`) and the
-verb-specific echo lines.
+"Label-namespace update (`gh issue edit`, not GraphQL)" recipe, the
+catalogue error wordings, and the slot-absent / `kind: skip`
+equivalence. This file documents only what is specific to
+`/issue-set-size`: the slot name (`size`) and the verb-specific echo
+lines.
 
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
@@ -67,7 +68,7 @@ One fenced example per kind:
   options `High` / `Medium` / `Low`) is the size-slot analogue of the
   native `Priority` field, so a `size` slot backed by Effort uses this
   kind. The slot's effective options are the native field's own
-  (`High` / `Medium` / `Low`) — **not** the six-bucket t-shirt set —
+  (`High` / `Medium` / `Low`) — **not** the t-shirt set —
   so `<value>` must be one of the native field's option names:
 
   ```text
