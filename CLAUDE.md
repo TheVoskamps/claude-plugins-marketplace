@@ -133,6 +133,28 @@ When a claim looks like it can only be settled by a real publish, stop
 and report that, rather than deciding it is fine because you expect an
 error first.
 
+### The one named exception: the publish path itself is the deliverable
+
+A PR that changes **how a body gets onto GitHub** — the `--body-file`
+route `/github-prs:pr-review-submit` and
+`sdlc:theorem-based-pr-reviewer` post through (issue #321) — may run
+one `gh pr comment --body-file` against a scratch PR, carrying a body
+of the size a real round produces, as its acceptance test.
+
+The two differ in what the invocation is for. The prohibition exists
+because an agent probing a verb's *grammar* can publish by accident,
+and the gate escalates a publishing verb to a human click rather than
+denying it. Here nothing is being learned about the verb's parsing:
+the flags, the target and the content are all chosen in advance, and
+what the run establishes is that a body that size survives the trip.
+No synthetic gate replay and no reading of `cli/cli`'s source answers
+that, because the thing under test is the round trip.
+
+The exception is bounded to that: one publish, a scratch PR, a body
+the PR's author wrote. It does not license a second run "to be sure",
+a publish against a real PR, or any other verb. Everything else in
+this section stands unchanged.
+
 ## Sweep orchestrate/SKILL.md when an sdlc agent's contract changes
 
 `plugins/sdlc/README.md` exists, but it is a **pointer** document: it
@@ -455,19 +477,32 @@ either the reviewer or orchestrate is what would end that.
 spawns are strictly non-mutating on the PR branch: none of
 `theorem-based-pr-reviewer`, `theorem-generator`, `theorem-disprover`,
 or `counterexample-verifier`
-declares `memory:`, and none carries a `Write` or `Edit` tool. A
+declares `memory:`, and none carries an `Edit` tool. A
 review round therefore commits nothing, pushes nothing, and writes
 nothing to `.claude/agent-memory/`.
 
-The theorem list a round carries forward is no exception to that,
+`theorem-based-pr-reviewer` alone carries `Write`, for one bounded
+purpose: staging its review body under `.claude/tmp/<task-slug>/` so
+`/github-prs:pr-review-submit` can post it by path, which a real
+round's body needs because it exceeds what a command-line argument
+carries (issue #321). That is not a hole in the guarantee, because the
+guarantee is structural rather than behavioral: the guardrails
+permission-gate's `PreToolUse` matcher registers `Write` and denies a
+`file_path` resolving outside the worktree or inside `.git/`,
+`.claude/tmp/` is gitignored, and the reviewer has no commit or push
+step. The spawned agents carry no writing tool at all.
+
+The theorem list a round carries forward is no exception either,
 because it never lands on the branch: the reviewer persists the
 records in the **review it posts**, and the next round reads them back
 off the PR. A PR artifact is not a branch write. Do not repair a
-persistence gap by giving review a file to write.
+persistence gap by giving review a file the branch would carry.
 
 That is enforcement, not convention, so keep it structural: do not add
-a `memory:` key or a writing tool to any of those definitions, and do
-not give the reviewer a commit step. A durable lesson learned while
+a `memory:` key to any of those definitions, do not widen the
+reviewer's `Write` past body staging, do not give any spawned agent a
+writing tool, and do not give the reviewer a commit step. A durable
+lesson learned while
 reviewing lands as a PR against `theorem-generation` (how to state a
 better theorem), `theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or

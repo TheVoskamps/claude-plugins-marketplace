@@ -1,6 +1,6 @@
 ---
 name: pr-review-submit
-description: Post a single GitHub PR review carrying both a verdict and a body in one call, handling the self-review approve constraint.
+description: Post a single GitHub PR review carrying both a verdict and a body — supplied inline or as a file — in one call, handling the self-review approve constraint.
 ---
 
 # PR Review Submit
@@ -25,6 +25,7 @@ scope for this plugin.
 
 ```text
 /pr-review-submit <pr-number> <verdict> <body>
+/pr-review-submit <pr-number> <verdict> --body-file <path>
 ```
 
 - `<pr-number>` (required): the pull-request number in the current
@@ -35,8 +36,20 @@ scope for this plugin.
   - `request-changes` — the change needs work before merge.
   - `comment` — a verdict-less note (e.g. only Medium/Low findings, no
     approve/block yet).
-- `<body>` (required): the review text. The caller supplies the full
-  review body; this skill does not author findings.
+- The review text, in **exactly one** of two forms — supplying both,
+  or neither, is an error the skill aborts on rather than guessing:
+  - `<body>` — the text inline. The caller supplies the full review
+    body; this skill does not author findings.
+  - `--body-file <path>` — a file holding that same text. This is the
+    form a caller uses when the body is too large to pass as a
+    command-line argument: `sdlc:theorem-based-pr-reviewer` stages its
+    review under `.claude/tmp/<task-slug>/` and posts it by path, and
+    a real round's body runs to tens of kilobytes. GitHub caps a
+    review body at 64 KB, which bounds what either form can carry.
+
+Both forms work for all three verdicts, and map to `gh pr review`'s
+own `--body` and `--body-file` flags respectively. Nothing else about
+the skill's behavior differs between them.
 
 ## Repo-config
 
@@ -48,24 +61,26 @@ GitHub-only, so there is nothing to branch on.)
 
 ## Execution
 
-Post the review as a single call carrying both verdict and body:
+Post the review as a single call carrying both verdict and body. The
+verdict picks the flag; the body form picks whether that call ends in
+`--body "<body>"` or `--body-file <path>`:
 
-- **Approve:**
+| Verdict | Verdict flag |
+| --- | --- |
+| `approve` | `--approve` |
+| `request-changes` | `--request-changes` |
+| `comment` | `--comment` |
+
+- **Inline body:**
 
   ```bash
-  gh pr review <PR> --approve --body "<body>"
+  gh pr review <PR> <verdict-flag> --body "<body>"
   ```
 
-- **Request changes:**
+- **Body file:**
 
   ```bash
-  gh pr review <PR> --request-changes --body "<body>"
-  ```
-
-- **Comment-only:**
-
-  ```bash
-  gh pr review <PR> --comment --body "<body>"
+  gh pr review <PR> <verdict-flag> --body-file <path>
   ```
 
 ### Self-review constraint (author cannot `--approve`)
@@ -81,6 +96,15 @@ gh pr review <PR> --comment --body "APPROVED
 <body>"
 ```
 
+In the `--body-file` form, compose the downgraded body as a **new**
+file rather than editing the caller's — the caller may still need what
+it handed you, and the skill has no mandate to rewrite it:
+
+```bash
+{ printf 'APPROVED\n\n'; cat <path>; } > .claude/tmp/<task-slug>/approved-body.md
+gh pr review <PR> --comment --body-file .claude/tmp/<task-slug>/approved-body.md
+```
+
 Prefix the body with an explicit `APPROVED` verdict line so the review
 still carries the verdict a real approval would have. Handling the
 downgrade here is why `sdlc:theorem-based-pr-reviewer` can hand this
@@ -89,6 +113,6 @@ skill an
 the same identity in the orchestrate flow, so the approve verdict has
 to travel in the comment body.
 
-Report back a single line: the PR number, the verdict actually posted
-(and, if it was downgraded to an inline `--comment` because of the
-self-review constraint, note that).
+Report back a single line: the PR number, the verdict actually posted,
+and which body form carried it (and, if it was downgraded to an inline
+`--comment` because of the self-review constraint, note that).

@@ -1230,7 +1230,8 @@ on the reviewer's severity line and the fixer's report. Fill them per
     your own reading of the diff, never assign a severity, and never
     run
     `gh pr review --approve|--request-changes|--comment` — the
-    pipeline posts through `/github-prs:pr-review-submit`. The one
+    pipeline posts through `/github-prs:pr-review-submit`, handing it
+    a body file the reviewer staged under `.claude/tmp/`. The one
     thing you post on a reviewed PR is a review-adjustments comment
     the human dictated, per "Posting the human's review adjustments as
     a PR comment".

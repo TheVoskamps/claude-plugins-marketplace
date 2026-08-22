@@ -96,7 +96,7 @@ hand-roll a raw `gh pr create`/`gh pr diff`/`gh pr review`.
 | ------- | --------- | -------------------- |
 | `/pr-create <issue>… <branch>` | Open a draft PR for a branch against the right base, closing its own issue set | `gh pr create --draft --base <target>` |
 | `/pr-diff <PR>` | Fetch a PR's full diff | `gh pr diff <PR>` |
-| `/pr-review-submit <PR> ...` | Post a single PR review carrying a verdict | `gh pr review <PR>` |
+| `/pr-review-submit <PR> <verdict> <body>` or `--body-file <path>` | Post a single PR review carrying a verdict, with the body inline or from a file | `gh pr review <PR>` |
 | `/pr-ready <N>` | Mark a draft PR ready for review (draft → ready) | `gh pr ready <N>` |
 | `/pr-draft <N>` | Convert a ready PR back to a draft (ready → draft) | `gh pr ready <N> --undo` |
 | `/pr-link-issue <PR> <issue>…` | Ensure the PR body links & closes every issue in its own set | verify/append the missing `Closes #<issue>` lines in the PR body |
@@ -126,7 +126,7 @@ This is the diff-fetch that `theorem-generator`, `theorem-disprover`,
 `counterexample-verifier`, `issue-fixer`, and `doc-updater` need
 before they read a PR's changes.
 
-### `/pr-review-submit <PR> ...`
+### `/pr-review-submit <PR> <verdict> <body>` / `--body-file <path>`
 
 Posts a **single** pull-request review carrying both a verdict and a
 body in one call. Approving uses `--approve`, requesting changes uses
@@ -134,6 +134,16 @@ body in one call. Approving uses `--approve`, requesting changes uses
 `gh` blocks `--approve` when the reviewer is the PR author, the skill
 states an approve verdict inline via `--comment` in that
 self-review case rather than failing.
+
+The body arrives in exactly one of two forms, and both work for all
+three verdicts: inline as the last argument, or as
+`--body-file <path>` naming a file that holds it.
+`sdlc:theorem-based-pr-reviewer` uses the file form — it stages the
+review under `.claude/tmp/<task-slug>/` and posts it by path, because
+a real round's body is larger than a command-line argument carries. In
+the file form the self-review downgrade composes a **new** file
+carrying the `APPROVED` line ahead of the caller's text, leaving the
+caller's own file untouched.
 
 ### `/pr-ready <N>`
 

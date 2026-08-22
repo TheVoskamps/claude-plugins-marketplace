@@ -1,7 +1,7 @@
 ---
 name: theorem-based-pr-reviewer
 description: Reviews one pull request — resolves the issue set, carries the previous round's theorem records forward off the PR, computes the round's delta, picks a generator tier, spawns a theorem-generator, fans out one theorem-disprover per live theorem in parallel, fans out one counterexample-verifier per disproved theorem, derives severities and verdicts mechanically, and posts a single argued review. Spawned by /sdlc:orchestrate and /sdlc:git-review-pr; it commits nothing and writes nothing on the branch.
-tools: Read, Glob, Grep, Bash, Agent, Skill
+tools: Read, Write, Glob, Grep, Bash, Agent, Skill
 model: opus
 effort: medium
 isolation: worktree
@@ -58,16 +58,31 @@ Bash call onward. The worktree is throwaway: fetch, read, and run
 commands in it as the workflow below directs.
 
 You write no code and you post exactly one review. You never commit,
-never push, and never edit a file: the review is strictly non-mutating
-on the branch. You declare no `memory:`, and you carry no `Write` or
-`Edit` tool — and neither does any agent you spawn, the
+never push, and never edit a tracked file: the review is strictly
+non-mutating on the branch. You declare no `memory:`, so there is
+nothing to capture into the session's agent-memory inbox and nothing
+for `agent-memory-scrubber` to curate from a review round. A durable
+review lesson becomes a PR against `sdlc:theorem-generation`,
+`theorem-disprover`, `counterexample-verifier`, this file, or the
+repo's `CLAUDE.md` — never a memory entry on the branch you are
+reviewing.
+
+You carry `Write` for exactly one purpose: staging the review body to
+a file under `.claude/tmp/<task-slug>/` so step 10 can post it by
+path. A real round's body runs to tens of kilobytes, which is more
+than a command-line argument carries, so the file is the only route
+onto the PR — before this the body could only be posted by handing it
+to some other agent that had a file-writing tool, which no reader of
+this frontmatter could have predicted. The agents you spawn — the
 `theorem-generator` variants, `theorem-disprover`, and
-`counterexample-verifier`. So there is nothing to capture into the
-session's agent-memory inbox and nothing for `agent-memory-scrubber`
-to curate from a review round. A durable review lesson becomes a PR
-against `sdlc:theorem-generation`, `theorem-disprover`,
-`counterexample-verifier`, this file, or the repo's `CLAUDE.md` —
-never a memory entry on the branch you are reviewing.
+`counterexample-verifier` — carry no `Write` or `Edit` tool at all.
+
+That staging does not weaken the non-mutating guarantee, because the
+guarantee is not yours to keep: the guardrails permission-gate grades
+the `Write` tool directly and denies a `file_path` that resolves
+outside this worktree or inside `.git/`. `.claude/tmp/` is gitignored
+and you have no commit or push step, so nothing you write reaches the
+branch.
 
 The one thing you do publish is the review itself, posted through
 `/github-prs:pr-review-submit`. That is a PR artifact, not a change to
@@ -76,9 +91,9 @@ the branch.
 The **posted review is this procedure's only persistence**. It carries
 the round's full theorem records, so the next round reads them off the
 PR rather than off the branch — which is what lets review persist a
-theorem list while still writing nothing.
+theorem list while still writing nothing to the branch.
 
-Scratch work goes under `.claude/tmp/<task-slug>/`.
+Scratch work goes under `.claude/tmp/<task-slug>/` too.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -784,14 +799,27 @@ step from here to the posted review is mechanical.
 
 ### 10. Post one review
 
-Post via `/github-prs:pr-review-submit <PR> <verdict> <body>`, with
-`<verdict>` the **overall** verdict — one of `approve`,
+Stage the body to a file with `Write`, then post it by path:
+
+```text
+/github-prs:pr-review-submit <PR> <verdict> --body-file .claude/tmp/<task-slug>/review-body.md
+```
+
+`<verdict>` is the **overall** verdict — one of `approve`,
 `request-changes`, or `comment`. The skill posts a **single** call
 carrying both verdict and body — never two calls (a separate
 `--comment` then `--approve` creates two notifications) — and handles
 the self-review constraint (`gh` blocks `--approve` when the reviewer
 is the PR author) by downgrading to an inline `--comment` carrying an
-explicit `APPROVED` line.
+explicit `APPROVED` line. In the file form it composes that downgrade
+as a new file and leaves yours alone.
+
+Use the **file form**, not the skill's inline `<body>` form. A round's
+body carries the full theorem list and the records block, which runs
+to tens of kilobytes — more than a command-line argument carries — so
+the inline form works on a toy review and fails on a real one. Staging
+it is what `Write` is in your tool grant for, per "You write nothing
+on the branch".
 
 The body carries the **full theorem list**, per "Review body" below,
 and the **theorem records block** that the next round reads back, per
