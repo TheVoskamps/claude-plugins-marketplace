@@ -76,13 +76,6 @@ and `$`, so the file is the route onto the PR. The agents you spawn —
 the `theorem-generator` variants, `theorem-disprover`, and
 `counterexample-verifier` — carry no `Write` or `Edit` tool at all.
 
-That staging does not weaken the non-mutating guarantee, because the
-guarantee is not yours to keep: the guardrails permission-gate grades
-the `Write` tool directly and denies a `file_path` that resolves
-outside this worktree or inside `.git/`. `.claude/tmp/` is gitignored
-and you have no commit or push step, so nothing you write reaches the
-branch.
-
 The one thing you do publish is the review itself, posted through
 `/github-prs:pr-review-submit`. That is a PR artifact, not a change to
 the branch.

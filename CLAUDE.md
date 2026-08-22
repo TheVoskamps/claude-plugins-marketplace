@@ -144,10 +144,11 @@ of the size a real round produces, as its acceptance test.
 
 The two differ in what the invocation is for. The prohibition exists
 because an agent probing a verb's *grammar* can publish by accident,
-and the gate escalates a publishing verb to a human click rather than
-denying it. Here nothing is being learned about the verb's parsing:
-the flags, the target and the content are all chosen in advance, and
-what the run establishes is that a body that size survives the trip.
+against which the gate is not the backstop, per this section's
+opening paragraph. Here nothing is being learned about the verb's
+parsing: the flags, the target and the content are all chosen in
+advance, and what the run establishes is that a body that size
+survives the trip.
 No synthetic gate replay and no reading of `cli/cli`'s source answers
 that, because the thing under test is the round trip.
 
@@ -492,12 +493,9 @@ purpose: staging its review body under `.claude/tmp/<task-slug>/` so
 round's body needs because the inline form spells the body into a
 double-quoted `--body "<body>"`, where the shell reads every backtick
 and `$` in tens of kilobytes of Markdown that quotes code throughout
-(issue #321). That is not a hole in the guarantee, because the
-guarantee is structural rather than behavioral: the guardrails
-permission-gate's `PreToolUse` matcher registers `Write` and denies a
-`file_path` resolving outside the worktree or inside `.git/`,
-`.claude/tmp/` is gitignored, and the reviewer has no commit or push
-step. The spawned agents carry no writing tool at all.
+(issue #321). `.claude/tmp/` is gitignored and the reviewer has no
+commit or push step, so nothing it stages reaches the branch. The
+spawned agents carry no writing tool at all.
 
 The theorem list a round carries forward is no exception either,
 because it never lands on the branch: the reviewer persists the
@@ -597,20 +595,9 @@ Every classifier-change PR touches `hooks/bin/`, so treating the path
 itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
-`plugins/guardrails/hooks/permission-gate/README.md`, and one other
-plugin describes it.
-`plugins/sdlc/agents/theorem-based-pr-reviewer.md` rests its
-non-mutating guarantee on the gate rather than on a withheld tool: it
-carries `Write` to stage a review body (issue #321), and says the
-`PreToolUse` matcher registers `Write` and that the containment and
-`.git/` denies bound where its `file_path` may land. This file's
-"Review writes nothing, so review lore is a PR" states the same, so a
-change to either deny — or one that drops `Write` from the matcher —
-updates both. Neither spells the matcher string, so the matcher-string
-grep below does not reach them: grep `permission-gate` across
-`plugins/sdlc/` and this file as well. The `/docs` surfaces that
-describe verdicts are each bounded to one reader.
-`docs/guardrails-verification-playbook.md` names verdicts
+`plugins/guardrails/hooks/permission-gate/README.md`, and no other
+plugin describes it. The `/docs` surfaces that do are each bounded to
+one reader. `docs/guardrails-verification-playbook.md` names verdicts
 only as the *controls a probe needs* — which track terminates in allow
 and which in defer, which probe rows must still deny, which spellings a
 widening already allowed on the base. A verdict change that moves any
