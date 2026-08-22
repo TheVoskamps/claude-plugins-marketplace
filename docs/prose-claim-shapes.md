@@ -603,11 +603,12 @@ prose rewrites rather than quotes. Match the paraphrase against the
 target's own parameter declarations field by field, and ask, for each
 required one the paraphrase omits, where the call site would get it.
 
-`/issue-create`'s `kind: issue-field` bullets told the reader to call
-`setIssueFieldValue` with `fieldId` and "the resolved option's node
-ID". That mutation also declares `issueId: ID!` — the issue node ID
-an earlier step looks up — and nests the field and option members
-rather than taking them at the top level, so the described input is
-one the API rejects. The template in the library the bullets pointed
-at spelled all of it correctly throughout, and stays the only place
-that states the shape.
+Two `/issue-create` bullets described a metadata-write mutation this
+way. Each named two of the three variables its template declares,
+omitting the one an earlier step resolves, and rewrote a nested
+member as a top-level one — so a reader who wrote the call from the
+sentence got it rejected by the API. Both bullets pointed at a
+template that was correct throughout, in the library that is the
+single source of truth for that mutation's shape. Reproducing the
+shape here, even to show what the bullets got wrong, would be the
+second copy the repair removed: read it there.
