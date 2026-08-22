@@ -343,10 +343,14 @@ is a cross-file refactor rather than a doc-pass sweep.
 Lower-yield surfaces name the agents and go stale only when a PR
 changes which skill or config field an agent uses:
 `plugins/github-prs/README.md` attributes one PR verb per agent in its
-opening paragraph and repeats the diff-consumer list in its `/pr-diff`
-section, and `plugins/github-prs/skills/pr-diff/SKILL.md` spells that
-same consumer list once more — a surface a `sdlc`-only PR reaches only
-by remembering that adding a diff-reading agent bumps `github-prs`
+opening paragraph, repeats the diff-consumer list in its `/pr-diff`
+section, and names `theorem-based-pr-reviewer` again in its
+`/pr-review-submit` section as the caller that posts by `--body-file`,
+which `plugins/github-prs/skills/pr-review-submit/SKILL.md` names once
+more — as `plugins/github-prs/skills/pr-diff/SKILL.md` spells that same
+diff-consumer list once more. Those are surfaces a `sdlc`-only PR
+reaches only by remembering that adding a diff-reading agent, or
+changing how the reviewer hands a body over, bumps `github-prs`
 too. `plugins/issues/` names no `sdlc` reader of repo-config, and that
 is deliberate: a reader contract states what the file provides, never
 who consumes it, so `skills/lib/repo-config.md` describes each field
@@ -593,9 +597,20 @@ Every classifier-change PR touches `hooks/bin/`, so treating the path
 itself as the trigger would demand a no-op edit on every one of them.
 
 Gate *classifier* behavior is nearly the opposite: it lives in
-`plugins/guardrails/hooks/permission-gate/README.md`, and no other
-plugin describes it. The `/docs` surfaces that do are each bounded to
-one reader. `docs/guardrails-verification-playbook.md` names verdicts
+`plugins/guardrails/hooks/permission-gate/README.md`, and one other
+plugin describes it.
+`plugins/sdlc/agents/theorem-based-pr-reviewer.md` rests its
+non-mutating guarantee on the gate rather than on a withheld tool: it
+carries `Write` to stage a review body (issue #321), and says the
+`PreToolUse` matcher registers `Write` and that the containment and
+`.git/` denies bound where its `file_path` may land. This file's
+"Review writes nothing, so review lore is a PR" states the same, so a
+change to either deny — or one that drops `Write` from the matcher —
+updates both. Neither spells the matcher string, so the matcher-string
+grep below does not reach them: grep `permission-gate` across
+`plugins/sdlc/` and this file as well. The `/docs` surfaces that
+describe verdicts are each bounded to one reader.
+`docs/guardrails-verification-playbook.md` names verdicts
 only as the *controls a probe needs* — which track terminates in allow
 and which in defer, which probe rows must still deny, which spellings a
 widening already allowed on the base. A verdict change that moves any
