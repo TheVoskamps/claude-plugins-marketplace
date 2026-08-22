@@ -148,9 +148,9 @@ against which the gate is not the backstop, per this section's
 opening paragraph. Here nothing is being learned about the verb's
 parsing: the flags, the target and the content are all chosen in
 advance, and what the run establishes is that a body that size
-survives the trip.
-No synthetic gate replay and no reading of `cli/cli`'s source answers
-that, because the thing under test is the round trip.
+survives the trip. No synthetic gate replay and no reading of
+`cli/cli`'s source answers that, because the thing under test is the
+round trip.
 
 The exception is bounded to that: one publish, a scratch PR, a body
 the PR's author wrote. It does not license a second run "to be sure",
@@ -483,9 +483,9 @@ either the reviewer or orchestrate is what would end that.
 spawns are strictly non-mutating on the PR branch: none of
 `theorem-based-pr-reviewer`, `theorem-generator`, `theorem-disprover`,
 or `counterexample-verifier`
-declares `memory:`, and none carries an `Edit` tool. A
-review round therefore commits nothing, pushes nothing, and writes
-nothing to `.claude/agent-memory/`.
+declares `memory:`, and none carries an `Edit` tool. A review round
+therefore commits nothing, pushes nothing, and writes nothing to
+`.claude/agent-memory/`.
 
 `theorem-based-pr-reviewer` alone carries `Write`, for one bounded
 purpose: staging its review body under `.claude/tmp/<task-slug>/` so
@@ -507,9 +507,9 @@ That is enforcement, not convention, so keep it structural: do not add
 a `memory:` key to any of those definitions, do not widen the
 reviewer's `Write` past body staging, do not give any spawned agent a
 writing tool, and do not give the reviewer a commit step. A durable
-lesson learned while
-reviewing lands as a PR against `theorem-generation` (how to state a
-better theorem), `theorem-disprover` (how to establish a fact),
+lesson learned while reviewing lands as a PR against
+`theorem-generation` (how to state a better theorem),
+`theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or
 this file — never as a memory entry on the branch being reviewed.
 

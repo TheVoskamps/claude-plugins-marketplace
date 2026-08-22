@@ -132,7 +132,7 @@ Posts a **single** pull-request review carrying both a verdict and a
 body in one call. Approving uses `--approve`, requesting changes uses
 `--request-changes`, and a verdict-less note uses `--comment`. Because
 `gh` blocks `--approve` when the reviewer is the PR author, the skill
-states an approve verdict inline via `--comment` in that
+states an approve verdict in the review body via `--comment` in that
 self-review case rather than failing.
 
 The body arrives in exactly one of two forms, and both work for all

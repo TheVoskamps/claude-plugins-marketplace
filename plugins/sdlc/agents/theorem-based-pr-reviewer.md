@@ -802,18 +802,17 @@ Stage the body to a file with `Write`, then post it by path:
 carrying both verdict and body — never two calls (a separate
 `--comment` then `--approve` creates two notifications) — and handles
 the self-review constraint (`gh` blocks `--approve` when the reviewer
-is the PR author) by downgrading to an inline `--comment` carrying an
-explicit `APPROVED` line. In the file form it composes that downgrade
-as a new file and leaves yours alone.
+is the PR author) by downgrading to a `--comment` whose body carries
+an explicit `APPROVED` line. It composes that downgraded body as a new
+file and leaves the one you staged alone.
 
 Use the **file form**, not the skill's inline `<body>` form. A round's
 body carries the full theorem list and the records block, which runs
 to tens of kilobytes of Markdown that quotes code throughout — and the
 inline form spells it into a double-quoted `--body "<body>"`, where
 the shell reads every backtick and `$`. So the inline form works on a
-toy review and fails on a real one. Staging
-it is what `Write` is in your tool grant for, per "You write nothing
-on the branch".
+toy review and fails on a real one. Staging it is what `Write` is in
+your tool grant for, per "You write nothing on the branch".
 
 The body carries the **full theorem list**, per "Review body" below,
 and the **theorem records block** that the next round reads back, per

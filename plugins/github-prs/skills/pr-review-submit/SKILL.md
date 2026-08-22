@@ -102,7 +102,8 @@ in `--body "<body>"` or `--body-file <path>`:
 `gh` blocks `--approve` when the reviewer is the PR author
 (`Can not approve your own pull request`). When the requested verdict
 is `approve` **and** the current `gh` user is the PR's author, do not
-fail — state the approve verdict **inline** via `--comment` instead:
+fail — state the approve verdict **in the body** via `--comment`
+instead:
 
 ```bash
 gh pr review <PR> --comment --body "APPROVED
@@ -122,11 +123,11 @@ gh pr review <PR> --comment --body-file .claude/tmp/<task-slug>/approved-body.md
 Prefix the body with an explicit `APPROVED` verdict line so the review
 still carries the verdict a real approval would have. Handling the
 downgrade here is why `sdlc:theorem-based-pr-reviewer` can hand this
-skill an
-`approve` verdict unconditionally: reviewer and author are frequently
-the same identity in the orchestrate flow, so the approve verdict has
-to travel in the comment body.
+skill an `approve` verdict unconditionally: reviewer and author are
+frequently the same identity in the orchestrate flow, so the approve
+verdict has to travel in the comment body.
 
 Report back a single line: the PR number, the verdict actually posted,
-and which body form carried it (and, if it was downgraded to an inline
-`--comment` because of the self-review constraint, note that).
+and which body form carried it (and, if it was downgraded to a
+`--comment` carrying the `APPROVED` line because of the self-review
+constraint, note that).
