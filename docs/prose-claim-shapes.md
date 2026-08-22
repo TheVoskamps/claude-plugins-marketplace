@@ -586,29 +586,3 @@ stock `/usr/bin/python3`; the mkosi provisioner's blocks run inside
 the Debian build container, on an interpreter that image installs, so
 they are evidence for no constraint macOS imposes. Read each cited
 site for *where it executes*, not for the call it makes.
-
-## A paraphrased input list loses the arguments the template requires
-
-"Call the X template with `a = …` and `b = …`" is two claims: that X
-is the right template, and that those are its inputs. A reviewer
-grades the first, and the template itself is usually right — so the
-defect sits entirely in the paraphrase, where a required argument the
-caller has to supply from an earlier step is absent, or a nested
-input is flattened to a name the callee does not take. Nothing greps
-as inconsistent, because both the pointer and its target name the
-same template.
-
-The tell is a template invoked by name with an argument list the
-prose rewrites rather than quotes. Match the paraphrase against the
-target's own parameter declarations field by field, and ask, for each
-required one the paraphrase omits, where the call site would get it.
-
-Two `/issue-create` bullets described a metadata-write mutation this
-way. Each named two of the three variables its template declares,
-omitting the one an earlier step resolves, and rewrote a nested
-member as a top-level one — so a reader who wrote the call from the
-sentence got it rejected by the API. Both bullets pointed at a
-template that was correct throughout, in the library that is the
-single source of truth for that mutation's shape. Reproducing the
-shape here, even to show what the bullets got wrong, would be the
-second copy the repair removed: read it there.
