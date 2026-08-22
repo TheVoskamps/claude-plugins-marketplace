@@ -36,8 +36,9 @@ scope for this plugin.
   - `request-changes` — the change needs work before merge.
   - `comment` — a verdict-less note (e.g. only Medium/Low findings, no
     approve/block yet).
-- The review text, in **exactly one** of two forms — supplying both,
-  or neither, is an error the skill aborts on rather than guessing:
+- The review text, in **exactly one** of the forms below — supplying
+  both, or neither, is an error the skill aborts on rather than
+  guessing:
   - `<body>` — the text inline. The caller supplies the full review
     body; this skill does not author findings.
   - `--body-file <path>` — a file holding that same text. This is the
@@ -50,7 +51,7 @@ scope for this plugin.
     code throughout. GitHub caps a review body at 64 KB, which bounds
     what either form can carry.
 
-Both forms work for all three verdicts, and map to `gh pr review`'s
+Both forms work for every verdict, and map to `gh pr review`'s
 own `--body` and `--body-file` flags respectively. Nothing else about
 the skill's behavior differs between them.
 
@@ -113,10 +114,11 @@ gh pr review <PR> --comment --body "APPROVED
 
 In the `--body-file` form, compose the downgraded body as a **new**
 file rather than editing the caller's — the caller may still need what
-it handed you, and the skill has no mandate to rewrite it. Create the
-scratch directory first: the caller's `<path>` may sit anywhere, so
-nothing guarantees `.claude/tmp/<task-slug>/` already exists, and a
-bare redirect into a missing directory fails:
+it handed you, and the skill has no mandate to rewrite it. Write it
+under `.claude/tmp/<task-slug>/`, where `<task-slug>` is the calling
+agent's own scratch slug, and create that directory first: the
+caller's `<path>` may sit anywhere, so nothing guarantees it already
+exists, and a bare redirect into a missing directory fails:
 
 ```bash
 mkdir -p .claude/tmp/<task-slug>

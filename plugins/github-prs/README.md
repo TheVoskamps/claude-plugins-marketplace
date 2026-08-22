@@ -135,9 +135,9 @@ body in one call. Approving uses `--approve`, requesting changes uses
 states an approve verdict in the review body via `--comment` in that
 self-review case rather than failing.
 
-The body arrives in exactly one of two forms, and both work for all
-three verdicts: inline as the last argument, or as
-`--body-file <path>` naming a file that holds it.
+The body arrives in exactly one form — inline as the last argument, or
+as `--body-file <path>` naming a file that holds it — and either works
+with every verdict.
 `sdlc:theorem-based-pr-reviewer` uses the file form — it stages the
 review under `.claude/tmp/<task-slug>/` and posts it by path, because
 a real round's body is tens of kilobytes of Markdown that quotes code
