@@ -606,7 +606,8 @@ required one the paraphrase omits, where the call site would get it.
 `/issue-create`'s `kind: issue-field` bullets told the reader to call
 `setIssueFieldValue` with `fieldId` and "the resolved option's node
 ID". That mutation also declares `issueId: ID!` — the issue node ID
-an earlier step looks up — and takes the field and option nested in
-an `issueFields:` list as `fieldId` + `singleSelectOptionId`, so the
-described input is one the API rejects. The template in the library
-the bullets pointed at spelled all of it correctly throughout.
+an earlier step looks up — and nests the field and option members
+rather than taking them at the top level, so the described input is
+one the API rejects. The template in the library the bullets pointed
+at spelled all of it correctly throughout, and stays the only place
+that states the shape.

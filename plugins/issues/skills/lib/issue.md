@@ -26,7 +26,7 @@ reading `<repo-root>/.claude/rules/repo-config.md` **following the read
 contract in `skills/lib/repo-config.md`**. This reader requires
 **schema-version 6**. Run that library's canonical read sequence
 (locate the file via `git rev-parse --show-toplevel`, read it, parse
-the front-matter, check `schema-version`, read the six front-matter
+the front-matter, check `schema-version`, read the front-matter
 fields, optionally read the `github-project:` block) and use its abort
 messages verbatim — including the "File missing", "Schema-version
 absent", "Schema-version stale", and "Front-matter incomplete" cases.
