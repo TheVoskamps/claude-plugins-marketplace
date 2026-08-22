@@ -21,7 +21,7 @@ to `/issue-set-type`.
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
 canonical read sequence and abort messages for
-`.claude/rules/repo-config.md`.
+`.issues/repo-config.md`.
 
 ## Invocation
 
@@ -46,7 +46,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 ## Required repo-config
 
 This command **requires** a `github-project.issue-types` map in
-`.claude/rules/repo-config.md`. If the `github-project:` block is
+`.issues/repo-config.md`. If the `github-project:` block is
 absent entirely, abort with the "No `github-project:` block in
 repo-config" error from the catalogue in `skills/lib/issue.md`. If the
 block is present but carries no `issue-types:` map, abort with the

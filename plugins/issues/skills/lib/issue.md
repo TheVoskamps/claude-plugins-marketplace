@@ -22,7 +22,7 @@ it lives in a different plugin/scope and predates
 ## Repo-config parsing
 
 Every `/issue-*` command runs from a repo working tree and starts by
-reading `<repo-root>/.claude/rules/repo-config.md` **following the read
+reading `<repo-root>/.issues/repo-config.md` **following the read
 contract in `skills/lib/repo-config.md`**. This reader requires
 **schema-version 6**. Run that library's canonical read sequence
 (locate the file via `git rev-parse --show-toplevel`, read it, parse
@@ -304,7 +304,7 @@ multi-issue orchestrator:
   "Jira backend" below. The Jira path talks to Jira via the Atlassian
   CLI (`acli`); the `acli` command templates and the auth/discovery
   contract live in the `/issues-jira:jira-lib` skill, and the metadata-resolution
-  rules consume the `jira:` block of `.claude/rules/repo-config.md`
+  rules consume the `jira:` block of `.issues/repo-config.md`
   (schema in `skills/lib/repo-config.md` → "`jira:` block"). Before
   any Jira operation, confirm `acli` is available
   (`command -v acli`) and the session is authenticated
@@ -1033,7 +1033,7 @@ The verb takes exactly two positional arguments:
    same way per "Graceful degradation when the block is missing".)
 
 3. **Re-read `github-project.fields.<slot>`** from
-   `.claude/rules/repo-config.md`. Do not assume it's already in
+   `.issues/repo-config.md`. Do not assume it's already in
    context; verbs in this namespace re-read repo-config every run.
 
 4. **Dispatch on `fields.<slot>.kind`.** The cases:
@@ -1198,7 +1198,7 @@ This keeps the `acli` command surface in one place so a version drift
 is fixed once.
 
 The Jira path resolves metadata against the **`jira:`** block of
-`.claude/rules/repo-config.md` (schema in
+`.issues/repo-config.md` (schema in
 `skills/lib/repo-config.md` → "`jira:` block"), exactly the way the
 GitHub path resolves against `github-project:`. The block is optional
 and degrades gracefully the same way (see "Graceful degradation when

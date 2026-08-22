@@ -26,26 +26,35 @@ There are **two** user-config files. They share this schema, this
 read contract, and the same filename (`user-config.md`), but live
 at different paths and answer different scopes:
 
-- **User-global** — `~/.claude/rules/user-config.md`. Machine-wide
-  settings that apply to every repo this user works in on this
-  machine. Written by `/global-user-config`. Because `~/.claude`
-  is itself a git clone (the mirror of `global-claude-config`),
-  this file is gitignored there so a user's private values never
-  get committed or mirrored — see
-  `rules/repo-is-claude-config-source.md`.
-- **Repo-level (per-repo-per-user)** — `<repo-root>/.claude/rules/user-config.md`.
-  One user's own settings for one repo on one machine, not shared
-  with the team. Written by `/user-config`, which also adds the
-  file to the repo's tracked `.gitignore` so no clone ever commits
-  it. This is where #156's `identity-key` binding lives.
+- **User-global** — `$XDG_CONFIG_HOME/issues/user-config.md`.
+  Machine-wide settings that apply to every repo this user works in
+  on this machine. Written by `/global-user-config`. The file lives
+  outside any git clone, so a user's private values never get
+  committed or mirrored.
+- **Repo-level (per-repo-per-user)** —
+  `<repo-root>/.issues/user-config.md`. One user's own settings for
+  one repo on one machine, not shared with the team. Written by
+  `/user-config`, which also adds the file to the repo's tracked
+  `.gitignore` so no clone ever commits it. This is where #156's
+  `identity-key` binding lives.
+
+### Where `$XDG_CONFIG_HOME` resolves
+
+This is the single definition of the user-global path, and every
+reader and the writer follow it rather than restating the fallback.
+The user-global user-config is at
+`$XDG_CONFIG_HOME/issues/user-config.md`. When `XDG_CONFIG_HOME` is
+unset or empty, `$XDG_CONFIG_HOME` stands for `~/.config`, so the
+path is `~/.config/issues/user-config.md` (expand `~` to the user's
+home directory).
 
 **The filename collision is deliberate but must never be
 ambiguous in a reader.** When this library or any reader refers to
 "the user-config file" it must always say which scope. The two
 canonical phrasings are:
 
-- "the user-global user-config" / "`~/.claude/rules/user-config.md`"
-- "the repo-level user-config" / "`<repo-root>/.claude/rules/user-config.md`"
+- "the user-global user-config" / "`$XDG_CONFIG_HOME/issues/user-config.md`"
+- "the repo-level user-config" / "`<repo-root>/.issues/user-config.md`"
 
 A reader that wants a value checks the **repo-level** file first,
 then falls back to the **user-global** file (repo-level overrides
@@ -152,10 +161,9 @@ consistent errors. Substitute the correct scope name and path
 
 1. **Locate the file.** For the **repo-level** file, find the repo
    root with `git rev-parse --show-toplevel`; the file lives at
-   `<repo-root>/.claude/rules/user-config.md`. For the
-   **user-global** file, the path is `~/.claude/rules/user-config.md`
-   (expand `~` to the user's home directory). Do not assume the
-   caller's cwd is the repo root.
+   `<repo-root>/.issues/user-config.md`. For the **user-global**
+   file, the path is the one "Where `$XDG_CONFIG_HOME` resolves"
+   above defines. Do not assume the caller's cwd is the repo root.
 
 2. **Read the file.** If the file is absent, the reader **degrades
    gracefully** — user-config files are optional. A reader that
@@ -200,11 +208,11 @@ consistent errors. Substitute the correct scope name and path
 When a reader can sensibly look in either scope for the same key,
 the order is **repo-level overrides user-global**:
 
-1. Read the repo-level file (`<repo-root>/.claude/rules/user-config.md`).
+1. Read the repo-level file (`<repo-root>/.issues/user-config.md`).
    If it exists and defines the key, use that value.
 2. Otherwise read the user-global file
-   (`~/.claude/rules/user-config.md`). If it exists and defines the
-   key, use that value.
+   (`$XDG_CONFIG_HOME/issues/user-config.md`). If it exists and
+   defines the key, use that value.
 3. Otherwise the key is unset — degrade per the reader's contract.
 
 Some keys are scope-specific by definition and skip this fallback.
@@ -264,8 +272,8 @@ degrade.
 
 Use these exact wordings so every reader emits the same error.
 Variable parts are wrapped in backticks. `<path>` is the
-scope-appropriate path (`~/.claude/rules/user-config.md` for
-user-global, `<repo-root>/.claude/rules/user-config.md` for
+scope-appropriate path (`$XDG_CONFIG_HOME/issues/user-config.md` for
+user-global, `<repo-root>/.issues/user-config.md` for
 repo-level). `<skill>` is the scope-appropriate writer
 (`/global-user-config` for user-global, `/user-config` for
 repo-level).

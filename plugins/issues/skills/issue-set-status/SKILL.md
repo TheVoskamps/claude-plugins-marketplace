@@ -6,7 +6,7 @@ description: Set the status (single-select field) on a single issue's project bo
 Set the status option on a single issue's entry in the configured
 GitHub Project V2 board. Status is the single-select field whose ID
 is stored under `github-project.fields.status` in
-`.claude/rules/repo-config.md`; option names (e.g. `Todo`,
+`.issues/repo-config.md`; option names (e.g. `Todo`,
 `In Progress`) resolve case-insensitively to option IDs in the
 `options:` map under that block.
 
@@ -18,7 +18,7 @@ to `/issue-set-status`.
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
 canonical read sequence and abort messages for
-`.claude/rules/repo-config.md`.
+`.issues/repo-config.md`.
 
 ## Invocation
 
@@ -43,7 +43,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 ## Required repo-config
 
 This command **requires** a `github-project:` block in
-`.claude/rules/repo-config.md`. If the block is absent, abort with
+`.issues/repo-config.md`. If the block is absent, abort with
 the "No `github-project:` block in repo-config" error from the
 catalogue in `skills/lib/issue.md`. This is an abort, not a
 warning-and-skip — without the option map there is no way to resolve

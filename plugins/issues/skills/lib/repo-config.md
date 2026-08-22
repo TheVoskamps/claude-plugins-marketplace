@@ -1,7 +1,7 @@
 # Repo-config reader contract (`skills/lib/repo-config.md`)
 
 This file is the single source of truth for how readers should
-consume `.claude/rules/repo-config.md`. It is **reference prose**,
+consume `.issues/repo-config.md`. It is **reference prose**,
 not an executable script: a reader follows the patterns documented
 here when it loads the target repo's config. Individual readers
 reference this doc rather than re-deriving the parse rules or abort
@@ -57,7 +57,7 @@ Why a minimum rather than an exact match:
 
 ## What the file looks like
 
-`.claude/rules/repo-config.md` has three parts, in order:
+`.issues/repo-config.md` has three parts, in order:
 
 1. A YAML front-matter block, delimited by `---` on the line above
    and the line below. Contains a fixed set of top-level keys: a
@@ -79,14 +79,14 @@ Why a minimum rather than an exact match:
 
 ## Canonical read sequence
 
-Every reader of `.claude/rules/repo-config.md` follows this exact
+Every reader of `.issues/repo-config.md` follows this exact
 sequence. Each numbered step has a single canonical abort message
 (see "Abort messages" below); use the wording verbatim so the
 namespace presents consistent errors.
 
 1. **Locate the file.** Find the repo root with
    `git rev-parse --show-toplevel`. The file lives at
-   `<repo-root>/.claude/rules/repo-config.md`. Do not assume the
+   `<repo-root>/.issues/repo-config.md`. Do not assume the
    caller's cwd is the repo root.
 
 2. **Read the file.** If the file is absent, abort with the
@@ -187,8 +187,8 @@ Variable parts are wrapped in backticks.
 
 - **File missing**
 
-  > This repo has no `.claude/rules/repo-config.md`. Run
-  > `/repo-config` to create one.
+  > This repo has no `.issues/repo-config.md`. Run `/repo-config`
+  > to create one.
 
   Some readers prefix this with a reader-specific clause
   ("/issue-* commands require it", etc.). The clause is permitted
@@ -197,7 +197,7 @@ Variable parts are wrapped in backticks.
 
 - **Schema-version absent**
 
-  > This repo's `.claude/rules/repo-config.md` predates schema
+  > This repo's `.issues/repo-config.md` predates schema
   > versioning. Run `/repo-config` to migrate.
 
   Triggered when the front-matter has no `schema-version:` key (or
@@ -208,7 +208,7 @@ Variable parts are wrapped in backticks.
 
 - **Schema-version stale**
 
-  > This repo's `.claude/rules/repo-config.md` is at
+  > This repo's `.issues/repo-config.md` is at
   > schema-version `<N>`; this skill requires `<M>`. Run
   > `/repo-config` to migrate.
 
@@ -219,7 +219,7 @@ Variable parts are wrapped in backticks.
 
 - **Front-matter incomplete**
 
-  > This repo's `.claude/rules/repo-config.md` is at
+  > This repo's `.issues/repo-config.md` is at
   > schema-version `<N>` but is missing the canonical field
   > `<field-name>`. Run `/repo-config` to regenerate it.
 
@@ -488,7 +488,7 @@ un-migrated readers already ignore.
 
 ## Conventions for readers
 
-When writing or updating a reader of `.claude/rules/repo-config.md`:
+When writing or updating a reader of `.issues/repo-config.md`:
 
 - Open with a one-line statement of which schema-version the
   reader requires.

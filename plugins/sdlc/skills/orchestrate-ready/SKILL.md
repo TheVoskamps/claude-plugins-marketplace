@@ -180,7 +180,7 @@ Assess the fetched issue against each of these:
 
 ## Status resolution
 
-Read `.claude/rules/repo-config.md` →
+Read `.issues/repo-config.md` →
 `github-project.fields.status.options`:
 
 - A `Ready` option exists → use it.

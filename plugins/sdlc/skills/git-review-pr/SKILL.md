@@ -64,7 +64,7 @@ skill computes.
    only when the user asked for one.
 
    The reviewer reads `issue-link-prefix` from the repo's
-   `.claude/rules/repo-config.md` (for recognizing `References:`
+   `.issues/repo-config.md` (for recognizing `References:`
    trailers), resolves the issue set, carries the previous round's
    theorem records forward off the PR, computes the round's delta,
    picks a generator tier, spawns the generator, the disprovers, and

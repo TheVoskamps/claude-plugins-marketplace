@@ -1,20 +1,20 @@
 ---
 name: user-config
-description: Interactively create or merge-update the repo-level `.claude/rules/user-config.md` (this user, this repo, this machine) and add it to the repo's tracked `.gitignore`.
+description: Interactively create or merge-update the repo-level `.issues/user-config.md` (this user, this repo, this machine) and add it to the repo's tracked `.gitignore`.
 ---
 
 You are running the `/user-config` skill. Your job is to create or
 **merge-update** the **repo-level** user-config file at
-`<repo-root>/.claude/rules/user-config.md` by interviewing the user,
+`<repo-root>/.issues/user-config.md` by interviewing the user,
 and to ensure that file is listed in the repo's tracked `.gitignore`
 so no clone ever commits it.
 
 This file records **one user's own settings for one repo on one
 machine** — private, never committed, not shared with the team. It is
 the per-repo-per-user counterpart to the team-shared, committed
-`.claude/rules/repo-config.md`. See `skills/lib/user-config.md` for
+`.issues/repo-config.md`. See `skills/lib/user-config.md` for
 the schema, the read contract, and the two-scope model. The
-user-global counterpart (`~/.claude/rules/user-config.md`) is written
+user-global counterpart (`$XDG_CONFIG_HOME/issues/user-config.md`) is written
 by the sibling skill `/global-user-config`.
 
 ## Merge, not full-rewrite — read this first
@@ -57,7 +57,7 @@ repository"), abort with:
 
 Treat the path printed by `git rev-parse --show-toplevel` as the
 **repo root** for the rest of the skill — the skill writes
-`<repo-root>/.claude/rules/user-config.md` regardless of which
+`<repo-root>/.issues/user-config.md` regardless of which
 subdirectory the user invoked from. Do **not** string-compare the
 printed path against cwd (symlinks like macOS `/tmp` →
 `/private/tmp` would mis-flag a legitimate repo root).
@@ -72,7 +72,7 @@ neutral phrasing in Step 5.
 
 ## Step 2: Detect existing config and read it for merge
 
-Check whether `<repo-root>/.claude/rules/user-config.md` exists.
+Check whether `<repo-root>/.issues/user-config.md` exists.
 
 - **If it exists**: read the file's full contents into memory. Unlike
   `/repo-config`, you read it **to merge**, not just to display:
@@ -170,31 +170,35 @@ accidentally commits their own private copy.
 Determine the entry to add. The path relative to repo root is:
 
 ```text
-.claude/rules/user-config.md
+.issues/user-config.md
 ```
 
 Read the repo's existing `<repo-root>/.gitignore` (if any):
 
 - **If the entry (or a pattern that already matches it) is present**:
   no `.gitignore` change is needed; note that in the Step 6 preview.
+- **If a stale `.claude/rules/user-config.md` entry is present**: plan
+  to delete that line (and a comment line that exists only to
+  introduce it). The user-config file no longer lives there, so the
+  entry protects nothing and tells the next reader the wrong place to
+  look. Removing it is part of this run's ignore-list change, not a
+  separate offer.
 - **If absent**: plan to append the entry. Match the existing file's
   style — if the repo uses an allow-list / invert pattern (a leading
   `/*` that ignores everything, then `!`-negations), adding a plain
   ignore line still works because last-match-wins, but place it
-  **after** any broad un-ignore of `.claude/` so it is not
+  **after** any broad un-ignore of `.issues/` so it is not
   re-included. The relevant negation depth is whichever `!`-line
   un-ignores the directory that holds the file — in an allow-list
-  repo that re-includes `.claude/rules/` (e.g.
-  `!/.claude/rules/`), the new ignore line must sit **after** that
-  `!/.claude/rules/` negation, not merely after a broader
-  `!/.claude/`. When in doubt, append at the end of the file under a
-  short comment:
+  repo that re-includes `.issues/` (e.g. `!/.issues/`), the new
+  ignore line must sit **after** that `!/.issues/` negation. When in
+  doubt, append at the end of the file under a short comment:
 
   ```text
   # Per-repo-per-user config (private; never committed). Written by
   # /user-config. The entry is public in this tracked .gitignore even
   # though the file contents stay private.
-  .claude/rules/user-config.md
+  .issues/user-config.md
   ```
 
 **Consequence on record (surface this to the user):** the
@@ -223,14 +227,15 @@ Render, for the user to approve:
    changed keys) plus the canonical body template from Step 7. For an
    existing file, also show a short diff summary: which keys this run
    changes, which it preserves untouched.
-2. The **`.gitignore` change** (the exact line to be appended, and to
-   which file — tracked `.gitignore` or `.git/info/exclude` per the
-   Step 5 choice), or "no `.gitignore` change needed" if already
-   covered.
+2. The **`.gitignore` change** (the exact line to be appended, the
+   stale `.claude/rules/user-config.md` line to be deleted if Step 5
+   found one, and to which file — tracked `.gitignore` or
+   `.git/info/exclude` per the Step 5 choice), or "no `.gitignore`
+   change needed" if already covered.
 
 Then ask explicitly:
 
-> Write `.claude/rules/user-config.md` (merged) and update the ignore
+> Write `.issues/user-config.md` (merged) and update the ignore
 > list as shown? (y to proceed, or tell me what to change)
 
 Wait for explicit approval (`y`, `yes`, `go`, `do it`, etc.). If the
@@ -249,14 +254,16 @@ On approval:
    one key — recompute the whole merged front-matter and write it,
    so the version stamp and key order stay consistent.)
 
-   In a brand-new repo `.claude/` and `.claude/rules/` may not exist.
-   The `Write` tool creates missing parents automatically. If your
-   tool path does not, run `mkdir -p .claude/rules` first.
+   In a brand-new repo `.issues/` may not exist. The `Write` tool
+   creates missing parents automatically. If your tool path does not,
+   run `mkdir -p .issues` first.
 
 2. **Update the ignore list** per the Step 5 choice:
    - Tracked `.gitignore`: use `Edit` to append the planned entry (and
      its comment) to `<repo-root>/.gitignore`, or `Write` if the file
-     does not exist yet. Do not reorder or rewrite unrelated lines.
+     does not exist yet, and to delete the stale
+     `.claude/rules/user-config.md` line Step 5 planned. Do not
+     reorder or rewrite unrelated lines.
    - `.git/info/exclude`: append the pattern to
      `<repo-root>/.git/info/exclude`. This is inside `.git/`, which
      is outside the worktree's tracked tree but still under the repo
@@ -280,8 +287,8 @@ The canonical body template:
 Per-repo-per-user config: **this user, this repo, this machine.**
 Private — never committed (the repo's `.gitignore` excludes it). Not
 shared with the team. The team-shared, committed counterpart is
-`.claude/rules/repo-config.md`; the user-global counterpart is
-`~/.claude/rules/user-config.md`.
+`.issues/repo-config.md`; the user-global counterpart is
+`$XDG_CONFIG_HOME/issues/user-config.md`.
 
 Read via the contract in `skills/lib/user-config.md`. Written and
 merge-updated by `/user-config` (this scope) — the file is
@@ -360,7 +367,7 @@ Report back:
   user request.
 - **Never write the file without explicit approval** in Step 6.
 - **Never edit anything outside this repo.** The skill writes at most
-  two files: `<repo-root>/.claude/rules/user-config.md` and the repo's
+  two files: `<repo-root>/.issues/user-config.md` and the repo's
   ignore list (`<repo-root>/.gitignore` or
   `<repo-root>/.git/info/exclude`).
 - **Never run destructive git commands.** This skill does not commit,

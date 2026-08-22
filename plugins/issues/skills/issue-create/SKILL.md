@@ -16,7 +16,7 @@ and error wording. This file documents only what is specific to
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
 canonical read sequence and abort messages for
-`.claude/rules/repo-config.md`.
+`.issues/repo-config.md`.
 
 ## Invocation
 
@@ -44,9 +44,9 @@ canonical read sequence and abort messages for
   contract end-to-end):
   1. The `--assignee` CLI flag, if given.
   2. `default-assignee` from the **repo-level** user-config
-     (`<repo-root>/.claude/rules/user-config.md`), if present.
+     (`<repo-root>/.issues/user-config.md`), if present.
   3. `default-assignee` from the **user-global** user-config
-     (`~/.claude/rules/user-config.md`), if present. (Repo-level
+     (`$XDG_CONFIG_HOME/issues/user-config.md`), if present. (Repo-level
      overrides user-global, per `skills/lib/user-config.md` →
      "Resolution order across the two scopes".)
   4. The authenticated GitHub user (`gh api user --jq '.login'`).

@@ -38,7 +38,7 @@ whatever precedes it.
 
 ## Repo-config
 
-This skill reads two values from `.claude/rules/repo-config.md`
+This skill reads two values from `.issues/repo-config.md`
 **internally** — the caller does not pass them. It reads them with a
 lightweight **inline** parse of just these two front-matter lines,
 not the full reader contract in the `issues` plugin's
@@ -51,11 +51,11 @@ this plugin, or inventing a cross-plugin `Read`, would either
 reproduce the exact coupling issue #143 removed from `sdlc` or simply
 not work; a two-field inline parse avoids both.
 
-If `.claude/rules/repo-config.md` is missing, abort with: "This repo
-has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
-one." (the same wording the full reader contract uses for its
-"File missing" case, so the namespace's abort messages stay
-consistent even though this skill doesn't consume the whole contract).
+If `.issues/repo-config.md` is missing, abort with: "This repo has
+no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
+same wording the full reader contract uses for its "File missing"
+case, so the namespace's abort messages stay consistent even though
+this skill doesn't consume the whole contract).
 
 The values consumed:
 

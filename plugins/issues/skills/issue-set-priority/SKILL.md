@@ -4,7 +4,7 @@ description: Set the priority slot on a single issue, dispatching on the slot's 
 ---
 
 Set the priority slot on a single issue. The slot is read from
-`github-project.fields.priority` in `.claude/rules/repo-config.md`;
+`github-project.fields.priority` in `.issues/repo-config.md`;
 the verb dispatches on its `kind:` discriminator and writes via the
 matching template/recipe.
 
@@ -20,7 +20,7 @@ verb-specific echo lines.
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
 canonical read sequence and abort messages for
-`.claude/rules/repo-config.md`.
+`.issues/repo-config.md`.
 
 ## Slot
 

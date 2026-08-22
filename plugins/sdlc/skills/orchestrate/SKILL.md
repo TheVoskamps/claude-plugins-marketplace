@@ -173,7 +173,7 @@ of the teammate's actual task size.
 Each teammate, at the start of every run, reads `~/.claude/CLAUDE.md`
 (and iteratively each `@~/` include it references — subagents don't
 get those auto-expanded the way the main session does) and then
-re-reads `.claude/rules/repo-config.md` from its own worktree. Trust
+re-reads `.issues/repo-config.md` from its own worktree. Trust
 them to do their own workflow; do not duplicate the agent's own
 runbook in spawn prompts. A spawn prompt is a brief — what to do and
 under what constraints — not a runbook and not a solution. See
@@ -213,7 +213,7 @@ git rev-parse --git-dir
 
 ### Pre-flight: read the per-repo config
 
-Once the primary-clone check passes, read `.claude/rules/repo-config.md`
+Once the primary-clone check passes, read `.issues/repo-config.md`
 with a lightweight **inline** parse of just the fields below — not the
 full six-field reader contract that used to live at
 `plugins/sdlc/skills/lib/repo-config.md`. That duplicate was deleted
@@ -235,11 +235,11 @@ contract:
   transitions" below; both degrade to warn-and-skip when absent, per
   that section.
 
-If `.claude/rules/repo-config.md` is missing, abort with: "This repo
-has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
-one." (the same wording the old six-field contract used for its "File
-missing" case, so the abort wording stays consistent even though this
-skill no longer consumes the whole contract).
+If `.issues/repo-config.md` is missing, abort with: "This repo has
+no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
+same wording the old six-field contract used for its "File missing"
+case, so the abort wording stays consistent even though this skill no
+longer consumes the whole contract).
 
 Throughout the rest of this template, `<link-prefix>` means the
 resolved value above. `<source-branch>`, `<target-branch>`, and
@@ -1470,7 +1470,7 @@ them together:
 
 Both transitions are **gated on a configured status slot**: the repo
 must have `github-project.fields.status` (GitHub) or the Jira `status`
-slot in `.claude/rules/repo-config.md`. If no status slot is
+slot in `.issues/repo-config.md`. If no status slot is
 configured, **warn-and-skip** — emit a one-line note that status
 tracking is not configured and continue the run. Do **not** abort;
 this matches how `/issue-set-status` itself degrades.
