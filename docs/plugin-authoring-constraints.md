@@ -302,6 +302,25 @@ what keeps a standalone run correct. See
 `docs/verification-playbook.md` → "Skip the fetch when
 `origin/<branch>` already matches".
 
+**A fan-out's wait is a resume loop, and it needs a deadline.** The
+spawning agent holds no blocking primitive: it ends its turn, and the
+harness resumes it on each child's `<task-notification>`. A turn ended
+mid-fan-out reaches the caller as `status: completed` with the closing
+message as the result, so a partial turn written like a report is
+indistinguishable from a finished one — every such turn has to read as
+an in-progress status, carrying no verdict, no tally and no findings.
+A child that never returns parks the round forever, so the spawner
+fixes a deadline, gives the unreported work an explicit disposition
+rather than dropping it, and past that deadline `TaskStop`s the child,
+which also releases the worktree the cleanup step has to remove. Size
+the deadline off a measured worst case with room to spare — review's
+is 15 minutes after the last disprover spawn, five times the worst
+case measured on a 32-theorem round. Never reach for `TaskStop` to
+make a slow round finish sooner: stopping a child that would have
+reported drops a result the report then claims to have counted. The
+stop needs the tool in the spawner's own `tools:` frontmatter, which
+the fanned-out agents do not carry.
+
 ### Handing data between agents: a session-scoped inbox
 
 An agent that declares `memory: project` under `isolation: worktree`
