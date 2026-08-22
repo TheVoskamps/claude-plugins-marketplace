@@ -608,12 +608,14 @@ reader does.
 
 The `$XDG_CONFIG_HOME` fallback is the one part that is not
 duplicated. `plugins/issues/skills/lib/user-config.md` → "Where
-`$XDG_CONFIG_HOME` resolves" is the single statement that an unset or
-empty variable means `~/.config`, and no other file in the tree spells
-`~/.config/issues/user-config.md` at all — a consumer that needs the
-resolution rule points at that heading. A second spelling of the
-fallback is the defect, not a helpful expansion: nothing reads either
-copy, so the two go out of step in silence.
+`$XDG_CONFIG_HOME` resolves" is the single definition that an unset
+or empty variable means `~/.config`, and no other file in the tree
+defines the expanded `~/.config/issues/user-config.md` — a consumer
+that needs the resolution rule points at that heading, and the mention
+in this paragraph names the path only to say where it is defined. A
+second spelling of the fallback is the defect, not a helpful
+expansion: nothing reads either copy, so the two go out of step in
+silence.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
