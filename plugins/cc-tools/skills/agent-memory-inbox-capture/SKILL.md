@@ -39,31 +39,35 @@ the invoking agent's own context and working tree.
    unrecoverable. Report that and stop; capture nothing rather than
    writing to a wrongly-named inbox.
 
-2. **Find the entries.** The calling agent's memory tree is
-   `.claude/agent-memory/<plugin>-<agent>/` relative to its cwd:
+2. **Find the entries.** The calling agent's own memory directory is
+   `.claude/agent-memory/<plugin>-<agent>/` relative to its cwd, where
+   `<plugin>-<agent>` is its own name — `sdlc-issue-developer`, say.
+   Take that name from your own identity, never by looking at what the
+   tree happens to hold, and sweep that one directory:
 
    ```bash
-   find .claude/agent-memory -type f -name '*.md'
+   find .claude/agent-memory/<plugin>-<agent> -type f -name '*.md'
    ```
 
-   If the tree is absent, or holds no file other than a `MEMORY.md`,
-   report "nothing to capture" and stop. That is a valid outcome: it
-   means the run learned nothing worth recording.
+   A sibling directory belongs to another agent and is never read. In
+   a repo that gitignores `.claude/agent-memory/` a fresh worktree has
+   none; in a repo that commits the tree the worktree carries every
+   agent's committed entries, and copying those would file another
+   run's lessons under this run's capture.
+
+   If the directory is absent, or holds no file other than a
+   `MEMORY.md`, report "nothing to capture" and stop. That is a valid
+   outcome: it means the run learned nothing worth recording.
 
 3. **Copy each entry file** into the same-named `<plugin>-<agent>/`
    subdirectory of this branch's inbox, creating the directories as
    needed. Copy the file's bytes unchanged, under its own name.
 
-   - **`MEMORY.md` is skipped** in every directory. It is an index for
-     a tree nothing reads back, and the inbox keeps no index of its
-     own.
+   - **`MEMORY.md` is skipped.** It is an index for a tree nothing
+     reads back, and the inbox keeps no index of its own.
    - **A same-named file in the inbox is overwritten.** Two runs of the
      same agent on one branch — a first and a second `issue-fixer`
      round — write the same subdirectory, and the later run saw more.
-   - **Only the calling agent's own subdirectories are copied.** Under
-     `isolation: worktree` the tree holds nothing else, so a foreign
-     subdirectory means you are not where you think you are: report it
-     and copy nothing.
 
 4. **Commit nothing.** This skill never runs `git add`, `git commit`,
    or `git push`, and it never writes inside the repository. The
