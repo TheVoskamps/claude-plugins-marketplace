@@ -688,10 +688,9 @@ reported, so it is no longer mid-run and step 11 can remove its
 worktree. That is the tool's one sanctioned use on this fan-out: past
 the deadline, and only for a theorem already recorded as unsettled.
 The verifier fan-out below carries the same one, and nothing widens
-either. Never reach for
-it to make a slow round finish sooner — stopping a disprover that
-would have reported drops a theorem while the review reports a
-complete tally.
+either. Never reach for it to make a slow round finish sooner —
+stopping a disprover that would have reported drops a theorem while
+the review reports a complete tally.
 
 The round moves on when every live theorem carries a verdict or has
 been declared unsettled at the deadline.
