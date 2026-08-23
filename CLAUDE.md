@@ -582,18 +582,18 @@ The `issues` plugin owns these config paths:
 - `$XDG_CONFIG_HOME/issues/user-config.md` — machine-wide per-user,
   written by `/issues:global-user-config`, outside every git clone.
 
-Neither path is a naming preference, so do not move either back under
-`.claude/`. Claude Code auto-loads every `.claude/rules/*.md` that
-carries no `paths:` frontmatter into context at session start, so a
-repo-config living there was carried by every session in the repo,
-including the ones that never invoke an issue verb — the config is
-reference data a reader fetches when it needs it, not an instruction
-the model has to hold. And the
-user-global file sat inside the `~/.claude` mirror clone, where
-staying uncommitted depended on that clone's own `.gitignore` entry;
-under `$XDG_CONFIG_HOME/issues/` it sits outside that clone instead,
-which is why `/issues:global-user-config` now writes no ignore entry
-at all.
+None of those paths is a naming preference, and each of them replaces
+a `.claude/rules/` path, so do not move any of them back. Claude Code
+auto-loads every `.claude/rules/*.md` that carries no `paths:`
+frontmatter into context at session start, so the repo-level files
+living there were carried by every session in the repo, including the
+ones that never invoke an issue verb — a config is reference data a
+reader fetches when it needs it, not an instruction the model has to
+hold. And the user-global file sat inside the `~/.claude` mirror
+clone, where staying uncommitted depended on that clone's own
+`.gitignore` entry; under `$XDG_CONFIG_HOME/issues/` it sits outside
+that clone instead, which is why `/issues:global-user-config` now
+writes no ignore entry at all.
 
 Nothing factors those out. Plugins are file-sandboxed
 (`docs/plugin-authoring-constraints.md` → "A cross-plugin reference
