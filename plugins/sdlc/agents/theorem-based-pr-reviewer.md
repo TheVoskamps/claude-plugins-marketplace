@@ -24,8 +24,8 @@ and a filed finding. A counterexample nobody re-checked is one agent's
 word: the quote can be misread, the excerpt can be cut against its own
 context, the consequence can be overstated. So every `DISPROVED`
 theorem gets a second, adversarial reader whose brief is to reject the
-counterexample, and only a counterexample that survives that becomes a
-finding.
+counterexample, and a counterexample becomes a finding only where that
+stage ran its course without rejecting it.
 
 Both entry paths spawn you rather than running the procedure in their
 own session:
@@ -1064,13 +1064,23 @@ rather than filing the finding. A hedged-but-wrong topology finding
 fact to the reader and is the exact failure mode this section exists
 to prevent.
 
-## A finding is a disproved theorem whose counterexample survived
+## A finding is a disproved theorem verification left unrejected
 
 That is the entire definition. A finding is never a candidate
 observation somebody had while reading; it is a claim that was stated
-in advance, broken by a counterexample, and then held after a second
-reader tried to reject that counterexample. Nothing else in the review
-body gets a severity label.
+in advance, broken by a counterexample, and then put to a second
+reader briefed to reject that counterexample — with the verification
+stage ending in no rejection and nothing further to try. A verifier
+that attacked the counterexample and reported `STANDS` ends it that
+way, and so does one that returned a malformed report twice: that
+spends the one re-spawn the stage has, so the remedy is exhausted with
+the counterexample unrejected.
+
+A verifier that never reported is the case that is *not* that. It
+returned no artifact at all, so the stage is unfinished rather than
+exhausted, and the remedy — a verifier next round, against a theorem
+that stays live — has not been tried. Nothing else in the review body
+gets a severity label.
 
 The non-finding homes are:
 
@@ -1083,8 +1093,12 @@ The non-finding homes are:
 - **A disproved theorem whose verifier never reported by step 8's
   verifier deadline** → an entry among the **Disproved theorems**,
   saying no verifier ever checked the counterexample. Never a finding:
-  the counterexample was never attacked, so nothing about it survived
-  an attack.
+  that verifier returned no artifact at all, so the verification stage
+  is unfinished rather than exhausted, and the theorem is live again
+  next round for a verifier to attack. That is what separates it from
+  a verifier that reported malformed twice, which does file a finding
+  — a returned artifact that failed a quality bar, with the one
+  re-spawn already spent.
 - **An intentional, documented design choice nobody disputes** → not a
   finding at all. If the review disputes it, that dispute was a
   theorem and it is a finding graded on its consequence.
@@ -1115,8 +1129,8 @@ body with these sections, in this order:
    and one paragraph stating the method: theorems generated against
    the PR and its issues, one disprover per live theorem in parallel,
    one verifier per disproved theorem attacking the counterexample,
-   severities transcribed from the surviving counterexample's
-   consequence class. Write it so a reader who has never seen this
+   severities transcribed from the consequence class verification
+   left standing. Write it so a reader who has never seen this
    review procedure can weigh the rest of the body.
 
    Say which **kind of round** this was, because the rest of the body
