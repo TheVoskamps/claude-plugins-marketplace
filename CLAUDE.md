@@ -630,6 +630,21 @@ second spelling of the fallback is the defect, not a helpful
 expansion: nothing reads either copy, so the two go out of step in
 silence.
 
+Nothing migrates a repo or a machine off the old paths, so treat that
+as the state of things rather than as an oversight to fix in passing.
+`/issues:repo-config`, `/issues:user-config` and
+`/issues:global-user-config` each look only at the new path, so an
+already-configured repo re-runs the interview from built-in defaults
+and the file under `.claude/rules/` stays put — still auto-loaded into
+every session, which is the cost the move exists to remove. The one
+automated cleanup is `/issues:user-config` deleting a stale
+`.claude/rules/user-config.md` line from the repo's `.gitignore`; the
+old files themselves are the operator's to delete. A repo whose
+`.gitignore` is an allow-list needs the edit in the other direction
+too — it ignores the committed `.issues/repo-config.md` until a `!`
+line un-ignores it, and this repo's own `.gitignore` is one such
+allow-list.
+
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
 How the `guardrails` permission-gate is *shipped* — prebuilt, committed
