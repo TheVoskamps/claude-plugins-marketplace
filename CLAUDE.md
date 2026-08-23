@@ -621,14 +621,11 @@ reader does.
 
 The `$XDG_CONFIG_HOME` fallback is the one part that is not
 duplicated. `plugins/issues/skills/lib/user-config.md` → "Where
-`$XDG_CONFIG_HOME` resolves" is the single definition that an unset
-or empty variable means `~/.config`, and no other file in the tree
-defines the expanded `~/.config/issues/user-config.md` — a consumer
-that needs the resolution rule points at that heading, and the mention
-in this paragraph names the path only to say where it is defined. A
-second spelling of the fallback is the defect, not a helpful
-expansion: nothing reads either copy, so the two go out of step in
-silence.
+`$XDG_CONFIG_HOME` resolves" is the single definition of what an
+unset or empty variable resolves to, and a consumer that needs the
+resolution rule points at that heading. A second spelling of the
+fallback is the defect, not a helpful expansion: nothing reads either
+copy, so the two go out of step in silence.
 
 Nothing migrates a repo or a machine off the old paths, so treat that
 as the state of things rather than as an oversight to fix in passing.
@@ -641,8 +638,8 @@ automated cleanup is `/issues:user-config` deleting a stale
 `.claude/rules/user-config.md` line from the repo's `.gitignore`; the
 old files themselves are the operator's to delete. A repo whose
 `.gitignore` is an allow-list needs the edit in the other direction
-too — it ignores the committed `.issues/repo-config.md` until a `!`
-line un-ignores it, and this repo's own `.gitignore` is one such
+too — it would ignore a committed `.issues/repo-config.md` until a
+`!` line un-ignores it, and this repo's own `.gitignore` is one such
 allow-list.
 
 ## Sweep the claude-vm docs when guardrails hook packaging changes

@@ -43,10 +43,11 @@ at different paths and answer different scopes:
 This is the single definition of the user-global path, and every
 reader and the writer follow it rather than restating the fallback.
 The user-global user-config is at
-`$XDG_CONFIG_HOME/issues/user-config.md`. When `XDG_CONFIG_HOME` is
-unset or empty, `$XDG_CONFIG_HOME` stands for `~/.config`, so the
-path is `~/.config/issues/user-config.md` (expand `~` to the user's
-home directory).
+`${XDG_CONFIG_HOME:-$HOME/.config}/issues/user-config.md` — the
+variable when it is set and non-empty, and `$HOME/.config` when it is
+unset or empty. Elsewhere this library and its readers write the path
+in the short form `$XDG_CONFIG_HOME/issues/user-config.md` and point
+here for what the variable resolves to.
 
 **The filename collision is deliberate but must never be
 ambiguous in a reader.** When this library or any reader refers to
