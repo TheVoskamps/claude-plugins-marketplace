@@ -685,8 +685,10 @@ true, and is live again next round.
 
 At the deadline, and only there, `TaskStop` each disprover that never
 reported, so it is no longer mid-run and step 11 can remove its
-worktree. That is the tool's one sanctioned use here: past the deadline,
-and only for a theorem already recorded as unsettled. Never reach for
+worktree. That is the tool's one sanctioned use on this fan-out: past
+the deadline, and only for a theorem already recorded as unsettled.
+The verifier fan-out below carries the same one, and nothing widens
+either. Never reach for
 it to make a slow round finish sooner — stopping a disprover that
 would have reported drops a theorem while the review reports a
 complete tally.
@@ -1078,6 +1080,11 @@ The non-finding homes are:
   **Verified** list, with the offered counterexample and the rejection
   reason on its line. Never a finding, and never silently dropped
   either: a near-miss a human can audit is the point of publishing it.
+- **A disproved theorem whose verifier never reported by step 8's
+  verifier deadline** → an entry among the **Disproved theorems**,
+  saying no verifier ever checked the counterexample. Never a finding:
+  the counterexample was never attacked, so nothing about it survived
+  an attack.
 - **An intentional, documented design choice nobody disputes** → not a
   finding at all. If the review disputes it, that dispute was a
   theorem and it is a finding graded on its consequence.
@@ -1151,12 +1158,16 @@ body with these sections, in this order:
    characterization: "mechanical", "one line", "needs a human ruling",
    or the like. The full evidence narrative is section 4; the finding
    points back at it.
-6. **Verified** — every theorem that produced no finding, one line
-   each: the id, the claim, and what the disprover checked. For a
-   theorem whose counterexample was refuted, the line also carries the
-   offered counterexample and the verifier's rejection reason, worded
-   as what it is — one offered counterexample, rejected, not a proof
-   of the claim. Unnumbered, never counted toward severity.
+6. **Verified** — every theorem that survived, and every theorem whose
+   counterexample the verifier refuted, one line each: the id, the
+   claim, and what the disprover checked. Producing no finding is not
+   the entry criterion — a theorem left unverified at step 8's
+   verifier deadline produces none either, and belongs in section 4.
+   For a theorem whose counterexample was refuted, the line also
+   carries the offered counterexample and the verifier's rejection
+   reason, worded as what it is — one offered counterexample,
+   rejected, not a proof of the claim. Unnumbered, never counted
+   toward severity.
 7. **Theorems that could not be settled**, if any — id and claim, no
    severity.
 8. **Verdict** — the overall verdict from section 1 restated in prose,
