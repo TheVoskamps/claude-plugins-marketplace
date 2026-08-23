@@ -601,7 +601,8 @@ does not resolve"), so a consumer in another plugin cannot follow
 `plugins/issues/skills/lib/repo-config.md` and writes the path out
 instead. `.issues/repo-config.md` is the one that crosses the
 boundary, and it crosses it two ways. Its readers outside `issues`
-inline-parse the one or two front-matter fields they need:
+inline-parse only the front-matter each one needs — a scalar field, a
+status slot, or both — never the whole contract:
 `git-tools`'s `git-branch-create` and `git-issues-from-branch`,
 `github-prs`'s `pr-create`, and `sdlc`'s `theorem-based-pr-reviewer`,
 `orchestrate` and `orchestrate-ready`. Its other mentions read
