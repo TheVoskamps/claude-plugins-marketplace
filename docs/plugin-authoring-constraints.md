@@ -315,11 +315,18 @@ rather than dropping it, and past that deadline `TaskStop`s the child,
 which also releases the worktree the cleanup step has to remove. Size
 the deadline off a measured worst case with room to spare — review's
 is 15 minutes after the last disprover spawn, five times the worst
-case measured on a 32-theorem round. Never reach for `TaskStop` to
-make a slow round finish sooner: stopping a child that would have
-reported drops a result the report then claims to have counted. The
-stop needs the tool in the spawner's own `tools:` frontmatter, which
-the fanned-out agents do not carry.
+case measured on a 32-theorem round. A procedure that fans out twice
+needs a deadline on **each** fan-out: an unbounded second stage parks
+the round exactly as an unbounded first one would, and it is the
+easier one to leave unbounded, because it runs only on the rounds the
+first stage found something in. Where no measurement of the second
+stage exists, reuse the first's rather than deriving a shorter one
+from how much less work the second does — review bounds its verifiers
+at 15 minutes after the last verifier spawn on that reasoning. Never
+reach for `TaskStop` to make a slow round finish sooner: stopping a
+child that would have reported drops a result the report then claims
+to have counted. The stop needs the tool in the spawner's own
+`tools:` frontmatter, which the fanned-out agents do not carry.
 
 ### Handing data between agents: a session-scoped inbox
 
