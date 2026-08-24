@@ -34,8 +34,10 @@ at different paths and answer different scopes:
 - **Repo-level (per-repo-per-user)** —
   `<repo-root>/.issues/user-config.md`. One user's own settings for
   one repo on one machine, not shared with the team. Written by
-  `/user-config`, which also adds the file to the repo's tracked
-  `.gitignore` so no clone ever commits it. This is where #156's
+  `/user-config`, which also adds the file to the repo's ignore list
+  so it is never committed — the tracked `.gitignore` by default, so
+  every clone ignores it, or `.git/info/exclude` when the user is not
+  the repo's owner and declines a tracked edit. This is where #156's
   `identity-key` binding lives.
 
 ### Where `$XDG_CONFIG_HOME` resolves
