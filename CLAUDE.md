@@ -583,11 +583,14 @@ The `issues` plugin owns these config paths:
   written by `/issues:global-user-config`, outside every git clone.
 
 None of those paths is a naming preference, and each of them replaces
-a `.claude/rules/` path, so do not move any of them back. Claude Code
-auto-loads every `.claude/rules/*.md` that carries no `paths:`
-frontmatter into context at session start, so the repo-level files
-living there were carried by every session in the repo, including the
-ones that never invoke an issue verb — a config is reference data a
+a rules path — the two repo-level ones a `.claude/rules/` path, the
+machine-wide one the home-anchored `~/.claude/rules/user-config.md` —
+so do not move any of them back. Claude Code auto-loads every
+`.claude/rules/*.md` that carries no `paths:` frontmatter into the
+context of every session and every subagent, on every turn, so the
+repo-level files living there were carried by every session in the
+repo, including the ones that never invoke an issue verb — a config
+is reference data a
 reader fetches when it needs it, not an instruction the model has to
 hold. And the user-global file sat inside the `~/.claude` mirror
 clone, where staying uncommitted depended on that clone's own
