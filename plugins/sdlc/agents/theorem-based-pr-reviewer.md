@@ -24,8 +24,8 @@ and a filed finding. A counterexample nobody re-checked is one agent's
 word: the quote can be misread, the excerpt can be cut against its own
 context, the consequence can be overstated. So every `DISPROVED`
 theorem gets a second, adversarial reader whose brief is to reject the
-counterexample, and only a counterexample that survives that becomes a
-finding.
+counterexample, and a counterexample becomes a finding only where that
+stage ran its course without rejecting it.
 
 Both entry paths spawn you rather than running the procedure in their
 own session:
@@ -685,11 +685,12 @@ true, and is live again next round.
 
 At the deadline, and only there, `TaskStop` each disprover that never
 reported, so it is no longer mid-run and step 11 can remove its
-worktree. That is the tool's one sanctioned use here: past the deadline,
-and only for a theorem already recorded as unsettled. Never reach for
-it to make a slow round finish sooner — stopping a disprover that
-would have reported drops a theorem while the review reports a
-complete tally.
+worktree. That is the tool's one sanctioned use on this fan-out: past
+the deadline, and only for a theorem already recorded as unsettled.
+The verifier fan-out below carries the same one, and nothing widens
+either. Never reach for it to make a slow round finish sooner —
+stopping a disprover that would have reported drops a theorem while
+the review reports a complete tally.
 
 The round moves on when every live theorem carries a verdict or has
 been declared unsettled at the deadline.
@@ -765,6 +766,38 @@ too, the finding **stands** — resolve toward filing, never toward
 silently dropping a counterexample that carried verbatim evidence, and
 take the consequence class from the disprover's proposal in that case.
 
+**The wait for the verifiers is the same resume loop**, run a second
+time. You end your turn, and the harness resumes you on each
+verifier's `<task-notification>`; on every resume, record that
+theorem's verifier verdict, then end the turn again. A turn you end
+while any verifier is still outstanding is an **in-progress status**
+and must read as one — how many verifiers are still outstanding, and
+nothing more. It carries no verdict block, no tally, and no findings,
+for the reason the disprover wait above gives.
+
+That wait is bounded too. The deadline is **15 minutes after the last
+verifier spawn** — the disprover's measured worst case reused, because
+no verifier measurement exists and a verifier's work is a strict subset
+of a disprover's: it reads one counterexample against one head tree and
+runs no search. A shorter deadline derived from that subset relation
+would be a guess, and what the guess costs when it is wrong is
+`TaskStop`ing a verifier that was about to report, which drops a real
+check.
+
+Every disproved theorem still without a verifier verdict at that
+deadline takes step 9's **disproved, unverified** disposition: no
+finding, no severity, named in the posted review so the tally stays
+true, and live again next round.
+
+At that deadline, and only there, `TaskStop` each verifier that never
+reported, so it is no longer mid-run and step 11 can remove its
+worktree. That is the same single sanctioned use the disprover
+deadline has, extended to the second fan-out and no wider: past the
+deadline, and only for a theorem already recorded unverified.
+
+The round moves on when every disproved theorem carries a verifier
+verdict or has been recorded unverified at the deadline.
+
 ### 9. Derive the disposition of every theorem
 
 This step is a **derivation, not a judgment**. There is no synthesizer
@@ -778,13 +811,29 @@ counterexample.
 | `DISPROVED` | `REFUTED` | **Verified** list, with the offered counterexample and the rejection reason on the line |
 | `DISPROVED` | `STANDS` | a **finding** → severity → verdict, per the chain below |
 | `DISPROVED` | malformed twice (the verifier's own re-spawn path) | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
+| `DISPROVED` | no verdict by step 8's verifier deadline | **disproved, unverified** — no finding, no severity |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
-| no verdict by step 8's deadline | not spawned | **could not be settled**, no severity |
+| no verdict by step 8's disprover deadline | not spawned | **could not be settled**, no severity |
 
 "Could not be settled" and "unsettled" are the same disposition —
-these last two rows. The long form is what the posted review body's
-section is titled; "unsettled" is the shorthand this file and the
-report-back tally use for it.
+the two rows that resolve to it, the disprover-malformed-twice row and
+the disprover-deadline row. The long form is what the posted review
+body's section is titled; "unsettled" is the shorthand this file and
+the report-back tally use for it.
+
+The **disproved, unverified** row resolves like neither of its
+neighbours, and reaching for whichever row is nearest gets it wrong in
+both directions. `disproved` is the truthful state: the disprover did
+settle the claim and produced a verbatim counterexample, and only the
+verification is missing. The verifier-malformed-twice row above it
+resolves toward *filing* the finding, because a malformed report is a
+returned artifact that failed a quality bar twice — the re-spawn remedy
+has been tried and exhausted. A verifier that never returned produced
+no artifact at all, and filing a finding whose counterexample nobody
+checked is the exact outcome the verification stage exists to prevent.
+The unsettled rows below it get the severity outcome right and the
+state wrong: they assert the claim was never settled, and `state` is
+what a human reads to judge the round.
 
 A standing finding is written in the format under "Findings must
 quote, not paraphrase" below. Its `**Evidence:**` block is the
@@ -806,9 +855,10 @@ rows above settle their theorem, so each is stamped `retired` **in
 this round**, per "Retire on survive" in step 3, with
 `state-detail: survived` or `state-detail: disproved-but-refuted`
 saying which of the two settled it and `settled-at` carrying this
-round's head SHA. The `STANDS` and verifier-malformed-twice rows are
-stamped `disproved`, and the last two rows `unsettled`; all of them
-are live again next round, so none retires.
+round's head SHA. The `STANDS`, verifier-malformed-twice and
+verifier-deadline rows are stamped `disproved` — the last of those
+with `state-detail: unverified` — and the two unsettled rows
+`unsettled`; all of them are live again next round, so none retires.
 
 A theorem that got no disprover this round — a retired one on a
 default round — keeps the state and the head SHA it already had. Do
@@ -885,8 +935,8 @@ Remove them **serially**, never in parallel — see
 for a parallel-cleanup data-loss bug. A round leaves one worktree per
 agent it spawned: the generator, k disprovers, and one verifier per
 disproved theorem, plus one more for each re-spawn. Remove them one
-after another once they have all returned or been stopped at step 8's
-deadline.
+after another once they have all returned or been stopped at one of
+step 8's two deadlines.
 
 If a removal fails with `fatal: cannot remove a locked working tree`
 and the lock reason matches the harness's standard end-state shape
@@ -1007,19 +1057,29 @@ diff <path-A> <path-B>          # do two paths have different content?
 A disprover that reports `DISPROVED` on a topology claim without such
 a command has not disproved it. That report is malformed, so it is
 sent back at step 8 before any verifier is spawned; if the second
-report is still unverified, treat the theorem as unsettled rather than
-filing the finding. A hedged-but-wrong topology finding
+report is malformed the same way, treat the theorem as unsettled
+rather than filing the finding. A hedged-but-wrong topology finding
 ("appears to be a separate copy", "likely out of sync") still lands as
 fact to the reader and is the exact failure mode this section exists
 to prevent.
 
-## A finding is a disproved theorem whose counterexample survived
+## A finding is a disproved theorem verification left unrejected
 
 That is the entire definition. A finding is never a candidate
 observation somebody had while reading; it is a claim that was stated
-in advance, broken by a counterexample, and then held after a second
-reader tried to reject that counterexample. Nothing else in the review
-body gets a severity label.
+in advance, broken by a counterexample, and then put to a second
+reader briefed to reject that counterexample — with the verification
+stage ending in no rejection and nothing further to try. A verifier
+that attacked the counterexample and reported `STANDS` ends it that
+way, and so does one that returned a malformed report twice: that
+spends the one re-spawn the stage has, so the remedy is exhausted with
+the counterexample unrejected.
+
+A verifier that never reported is the case that is *not* that. It
+returned no artifact at all, so the stage is unfinished rather than
+exhausted, and the remedy — a verifier next round, against a theorem
+that stays live — has not been tried. Nothing else in the review body
+gets a severity label.
 
 The non-finding homes are:
 
@@ -1029,6 +1089,15 @@ The non-finding homes are:
   **Verified** list, with the offered counterexample and the rejection
   reason on its line. Never a finding, and never silently dropped
   either: a near-miss a human can audit is the point of publishing it.
+- **A disproved theorem whose verifier never reported by step 8's
+  verifier deadline** → an entry among the **Disproved theorems**,
+  saying no verifier ever checked the counterexample. Never a finding:
+  that verifier returned no artifact at all, so the verification stage
+  is unfinished rather than exhausted, and the theorem is live again
+  next round for a verifier to attack. That is what separates it from
+  a verifier that reported malformed twice, which does file a finding
+  — a returned artifact that failed a quality bar, with the one
+  re-spawn already spent.
 - **An intentional, documented design choice nobody disputes** → not a
   finding at all. If the review disputes it, that dispute was a
   theorem and it is a finding graded on its consequence.
@@ -1059,8 +1128,8 @@ body with these sections, in this order:
    and one paragraph stating the method: theorems generated against
    the PR and its issues, one disprover per live theorem in parallel,
    one verifier per disproved theorem attacking the counterexample,
-   severities transcribed from the surviving counterexample's
-   consequence class. Write it so a reader who has never seen this
+   severities transcribed from the consequence class verification
+   left standing. Write it so a reader who has never seen this
    review procedure can weigh the rest of the body.
 
    Say which **kind of round** this was, because the rest of the body
@@ -1077,16 +1146,22 @@ body with these sections, in this order:
    that round back to round-1 behavior.
 3. **Change counts** — files changed, additions, deletions, from
    step 1.
-4. **Disproved theorems** — one entry per standing finding's theorem,
-   in theorem-id order: the theorem's claim, the counterexample
-   narrative built on the disprover's `**Evidence:**` quote copied
-   through verbatim, the consequence reasoning as the verifier
-   confirmed or corrected it, and a closing cross-link `→ Finding N`.
-   This is where the evidence lives. On any entry for which no usable
-   verifier report exists — a verifier malformed twice, whose finding
-   stands anyway — give the consequence as the *disprover* proposed it
-   and say the verifier's report was malformed, so the entry never
-   claims a verifier confirmation that did not happen.
+4. **Disproved theorems** — one entry per disproved theorem, in
+   theorem-id order — every theorem whose counterexample stands, and
+   every theorem whose verifier never reported: the theorem's claim,
+   the counterexample narrative built on the disprover's
+   `**Evidence:**` quote copied through verbatim, the consequence
+   reasoning as the verifier confirmed or corrected it, and a closing
+   cross-link `→ Finding N`. This is where the evidence lives. On any
+   entry for which no usable verifier report exists — a verifier
+   malformed twice, whose finding stands anyway — give the consequence
+   as the *disprover* proposed it and say the verifier's report was
+   malformed, so the entry never claims a verifier confirmation that
+   did not happen. An entry for a theorem whose verifier never
+   reported by step 8's verifier deadline gives the consequence the
+   same way, says no verifier ever checked the counterexample, and
+   carries no `→ Finding N` cross-link at all, because that
+   disposition files no finding.
 5. **Findings** — numbered, terse, and actionable, ranked by severity,
    each in the `**Finding:** / **Evidence:** / **Recommendation:**`
    format, each tagged with the theorem id it came from and the
@@ -1096,12 +1171,16 @@ body with these sections, in this order:
    characterization: "mechanical", "one line", "needs a human ruling",
    or the like. The full evidence narrative is section 4; the finding
    points back at it.
-6. **Verified** — every theorem that produced no finding, one line
-   each: the id, the claim, and what the disprover checked. For a
-   theorem whose counterexample was refuted, the line also carries the
-   offered counterexample and the verifier's rejection reason, worded
-   as what it is — one offered counterexample, rejected, not a proof
-   of the claim. Unnumbered, never counted toward severity.
+6. **Verified** — every theorem that survived, and every theorem whose
+   counterexample the verifier refuted, one line each: the id, the
+   claim, and what the disprover checked. Producing no finding is not
+   the entry criterion — a theorem left unverified at step 8's
+   verifier deadline produces none either, and belongs in section 4.
+   For a theorem whose counterexample was refuted, the line also
+   carries the offered counterexample and the verifier's rejection
+   reason, worded as what it is — one offered counterexample,
+   rejected, not a proof of the claim. Unnumbered, never counted
+   toward severity.
 7. **Theorems that could not be settled**, if any — id and claim, no
    severity.
 8. **Verdict** — the overall verdict from section 1 restated in prose,
@@ -1167,7 +1246,9 @@ owns:
   `disproved-but-refuted`, `subject removed` for a generator
   retirement, or `human-refuted` for a rejected finding an adjustment
   comment retired. On a `disproved` record, `state-detail` names the
-  finding the state produced instead.
+  finding the state produced instead — except on the one whose
+  verifier never reported, where it is `unverified`, because that
+  disposition produces no finding to name.
 - **`settled-at`** — the head SHA the state was established against.
   For a carried-forward retired theorem that is an *older* head than
   this round's, which is exactly the fact a reader needs to judge how
@@ -1338,11 +1419,13 @@ one overall" — plus the overall verdict, plus severity counts
 theorem tally alongside: how many were live this round, how many were
 newly generated, how many carried forward retired, how many disproved,
 how many of those disproved had their counterexample **refuted by
-verification**, how many survived, how many went unsettled. Surviving,
-refuted, and unsettled theorems are never counted toward severity: a
-surviving or refuted theorem lands in the Verified list and an
-unsettled one under "Theorems that could not be settled", and none of
-them produces a finding.
+verification**, how many were left unverified by a verifier that never
+reported, how many survived, how many went unsettled. Surviving,
+refuted, unverified, and unsettled theorems are never counted toward
+severity: a surviving or refuted theorem lands in the Verified list, an
+unverified one among the disproved theorems with no finding hanging off
+it, and an unsettled one under "Theorems that could not be settled",
+and none of them produces a finding.
 
 The refuted count is the one number that says what the verification
 stage bought this round, so report it even when it is zero.

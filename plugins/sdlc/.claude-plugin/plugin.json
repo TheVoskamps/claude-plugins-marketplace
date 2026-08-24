@@ -1,7 +1,7 @@
 {
   "name": "sdlc",
   "description": "End-to-end issue orchestration: the /sdlc:orchestrate-ready grooming skill and the /sdlc:orchestrate flow, plus the issue-developer, issue-fixer, doc-updater, and agent-memory-scrubber agents, and a theorem-based PR review pipeline run by the theorem-based-pr-reviewer agent and built from a theorem-generator (low, medium, high, and xhigh effort tiers), parallel theorem-disprovers, and parallel counterexample-verifiers.",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" },
   "dependencies": ["issues", "git-tools", "github-prs", "cc-tools"]
 }
