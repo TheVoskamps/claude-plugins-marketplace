@@ -571,6 +571,81 @@ second source of truth those contracts exist to prevent — and it
 cannot be a `Read` either way, since plugins are file-sandboxed
 (`docs/plugin-authoring-constraints.md` → "Verified constraints").
 
+## The issues config paths are literals every consumer spells itself
+
+The `issues` plugin owns these config paths:
+
+- `.issues/repo-config.md` — team-shared, committed, written by
+  `/issues:repo-config`.
+- `.issues/user-config.md` — one user's settings for one repo,
+  gitignored, written by `/issues:user-config`.
+- `$XDG_CONFIG_HOME/issues/user-config.md` — machine-wide per-user,
+  written by `/issues:global-user-config`, outside every git clone.
+
+None of those paths is a naming preference, and each of them replaces
+a rules path — the two repo-level ones a `.claude/rules/` path, the
+machine-wide one the home-anchored `~/.claude/rules/user-config.md` —
+so do not move any of them back. Claude Code auto-loads every
+`.claude/rules/*.md` that carries no `paths:` frontmatter into the
+context of every session and every subagent, on every turn, so the
+repo-level files living there were carried by every session in the
+repo, including the ones that never invoke an issue verb — a config
+is reference data a
+reader fetches when it needs it, not an instruction the model has to
+hold. And the user-global file sat inside the `~/.claude` mirror
+clone, where staying uncommitted depended on that clone's own
+`.gitignore` entry; under `$XDG_CONFIG_HOME/issues/` it sits outside
+that clone instead, which is why `/issues:global-user-config` now
+writes no ignore entry at all.
+
+Nothing factors those out. Plugins are file-sandboxed
+(`docs/plugin-authoring-constraints.md` → "A cross-plugin reference
+does not resolve"), so a consumer in another plugin cannot follow
+`plugins/issues/skills/lib/repo-config.md` and writes the path out
+instead. `.issues/repo-config.md` is the one that crosses the
+boundary, and it crosses it two ways. Its readers outside `issues`
+inline-parse only the front-matter each one needs — a scalar field, a
+status slot, or both — never the whole contract:
+`git-tools`'s `git-branch-create` and `git-issues-from-branch`,
+`github-prs`'s `pr-create`, and `sdlc`'s `theorem-based-pr-reviewer`,
+`orchestrate` and `orchestrate-ready`. Its other mentions read
+nothing and are just as breakable: `sdlc`'s `git-review-pr` describes
+what the reviewer reads, `sdlc`'s `doc-updater`, `issue-developer`
+and `issue-fixer` each say they no longer read it themselves, and
+`issues-jira`'s `jira-lib` points at its `jira:` schema. The two
+user-config paths stay inside `issues`.
+
+So a PR that moves or renames a config path edits every plugin that
+spells it and bumps each of their versions, in that one PR. Sweep it
+by grepping the literal — `grep -rn '\.issues/' plugins/` and
+`grep -rn 'XDG_CONFIG_HOME/issues' plugins/` — rather than by opening
+the plugins the diff already touched, since a plugin can name the
+path without reading it and a prose mention goes stale as loudly as a
+reader does.
+
+The `$XDG_CONFIG_HOME` fallback is the one part that is not
+duplicated. `plugins/issues/skills/lib/user-config.md` → "Where
+`$XDG_CONFIG_HOME` resolves" is the single definition of what an
+unset or empty variable resolves to, and a consumer that needs the
+resolution rule points at that heading. A second spelling of the
+fallback is the defect, not a helpful expansion: nothing reads either
+copy, so the two go out of step in silence.
+
+Nothing migrates a repo or a machine off the old paths, so treat that
+as the state of things rather than as an oversight to fix in passing.
+`/issues:repo-config`, `/issues:user-config` and
+`/issues:global-user-config` each look only at the new path, so an
+already-configured repo re-runs the interview from built-in defaults
+and the file under `.claude/rules/` stays put — still auto-loaded into
+every session, which is the cost the move exists to remove. The one
+automated cleanup is `/issues:user-config` deleting a stale
+`.claude/rules/user-config.md` line from the repo's `.gitignore`; the
+old files themselves are the operator's to delete. A repo whose
+`.gitignore` is an allow-list needs the edit in the other direction
+too — it would ignore a committed `.issues/repo-config.md` until a
+`!` line un-ignores it, and this repo's own `.gitignore` is one such
+allow-list.
+
 ## Sweep the claude-vm docs when guardrails hook packaging changes
 
 How the `guardrails` permission-gate is *shipped* — prebuilt, committed

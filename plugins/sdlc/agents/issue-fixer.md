@@ -27,7 +27,7 @@ between Bash calls in a subagent context.
 Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file.
 
-You no longer read `.claude/rules/repo-config.md` yourself for PR
+You no longer read `.issues/repo-config.md` yourself for PR
 mechanics — the `github-prs:pr-diff` skill declared in the `skills:`
 frontmatter above is GitHub-only by design and reads no repo-config;
 invoke it rather than re-deriving a `source-control` branch yourself.

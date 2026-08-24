@@ -13,7 +13,7 @@ to `/issue-close`.
 Read `skills/lib/repo-config.md` for the repo-config read contract;
 this skill requires **schema-version 6** and uses that library's
 canonical read sequence and abort messages for
-`.claude/rules/repo-config.md`.
+`.issues/repo-config.md`.
 
 ## Invocation
 

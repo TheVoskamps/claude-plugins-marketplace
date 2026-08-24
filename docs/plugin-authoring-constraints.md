@@ -141,6 +141,21 @@ closing lines and reports which issues the PR closes, so
 `/sdlc:orchestrate`'s end-of-loop status flip
 each invoke it instead of describing the scan again.
 
+A **path literal** is the residue the remedy leaves behind. Several
+plugins name `.issues/repo-config.md` verbatim, and no mechanism
+extraction removes that: each of those consumers deliberately
+inline-parses only the front-matter fields it needs rather than
+bundling the `issues` plugin's reader contract — the coupling that
+issue #143 removed from `sdlc` — so the path travels with every one of
+those parses, and with the abort message each emits when the file is
+missing. The copies are the design rather than drift, and what keeps
+them in step is a grep over the literal, owned by `CLAUDE.md` → "The
+issues config paths are literals every consumer spells itself" and not
+restated here. Naming that owner is not the sweep rule "Where a newly
+demonstrated fact belongs" forbids below: there the arms differ per
+consumer by design, here every copy is one string and any difference
+is a defect.
+
 ### Sharing an interface across an agent set: one preloaded skill
 
 The session that writes a brief and the agents that receive it are the

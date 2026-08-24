@@ -137,7 +137,7 @@ human adjustments either — those ride PR comments, per step 3.
 
 ## Read repo config first
 
-Read this repo's `.claude/rules/repo-config.md` with a lightweight
+Read this repo's `.issues/repo-config.md` with a lightweight
 **inline** parse of just the front-matter field below — not the full
 reader contract in the `issues` plugin's `skills/lib/repo-config.md`.
 That lib file lives inside the `issues` plugin, and plugins are
@@ -161,11 +161,11 @@ You need only this field from the file:
   `default-pr-target-branch`, or `issue-branch-naming-prefix`
   yourself.
 
-If `.claude/rules/repo-config.md` is missing, abort with: "This repo
-has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
-one." (the same wording the full reader contract uses for its "File
-missing" case, so the namespace's abort messages stay consistent even
-though this review doesn't consume the whole contract).
+If `.issues/repo-config.md` is missing, abort with: "This repo has
+no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
+same wording the full reader contract uses for its "File missing"
+case, so the namespace's abort messages stay consistent even though
+this review doesn't consume the whole contract).
 
 In the rest of this document, `<link-prefix>` means the resolved
 value.

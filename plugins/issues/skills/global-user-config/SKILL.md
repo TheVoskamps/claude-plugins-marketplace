@@ -1,25 +1,27 @@
 ---
 name: global-user-config
-description: Interactively create or merge-update the user-global `~/.claude/rules/user-config.md` (machine-wide; all repos on this machine).
+description: Interactively create or merge-update the user-global `$XDG_CONFIG_HOME/issues/user-config.md` (machine-wide; all repos on this machine).
 ---
 
 You are running the `/global-user-config` skill. Your job is to create
 or **merge-update** the **user-global** user-config file at
-`~/.claude/rules/user-config.md` by interviewing the user.
+`$XDG_CONFIG_HOME/issues/user-config.md` by interviewing the user.
 
 This file records **machine-wide per-user settings** that apply to
 every repo this user works in on this machine. It is the user-global
-counterpart to the repo-level `.claude/rules/user-config.md` written
+counterpart to the repo-level `.issues/user-config.md` written
 by the sibling skill `/user-config`. See `skills/lib/user-config.md`
 for the shared schema, the read contract, and the two-scope model.
 
 ## Scope and the filename collision — read this first
 
 Both user-config files are named `user-config.md`. This skill writes
-**only** the user-global one at `~/.claude/rules/user-config.md`
-(expand `~` to the user's home directory). It never touches a
-repo-level `<repo-root>/.claude/rules/user-config.md` — that is
-`/user-config`'s job. Be unambiguous about scope at every step.
+**only** the user-global one at
+`$XDG_CONFIG_HOME/issues/user-config.md`, resolved as
+`skills/lib/user-config.md` → "Where `$XDG_CONFIG_HOME` resolves"
+defines it. It never touches a repo-level
+`<repo-root>/.issues/user-config.md` — that is `/user-config`'s job.
+Be unambiguous about scope at every step.
 
 `identity-key` is **repo-level only** (a per-repo-per-user binding),
 so this user-global skill does **not** interview for it. Keys here are
@@ -48,29 +50,26 @@ has explicitly approved the proposed content.
 
 ## Step 1: Pre-flight
 
-This skill writes to the user's home directory, not a repo, so there
-is no git-working-tree precondition. Resolve the target path by
-expanding `~`:
+This skill writes under the user's config home, not a repo, so there
+is no git-working-tree precondition. Resolve the target path as
+`skills/lib/user-config.md` → "Where `$XDG_CONFIG_HOME` resolves"
+defines it:
 
 ```text
-~/.claude/rules/user-config.md
+$XDG_CONFIG_HOME/issues/user-config.md
 ```
 
-The directory `~/.claude/rules/` normally exists (it holds the
-deployed global rules). If it does not, the `Write` tool will create
-it.
+The directory may not exist on a machine that has never run this
+skill. The `Write` tool creates it; if your tool path does not, run
+`mkdir -p` on the parent first.
 
-> Note on the mirror clone: `~/.claude` is itself a git clone (the
-> deployed mirror of `global-claude-config`). This file is gitignored
-> there — see `rules/repo-is-claude-config-source.md` — so a user's
-> private values never get committed back to the mirror. This skill
-> does **not** add the `.gitignore` entry; that entry ships with the
-> mirror's `.gitignore` as a deploy-time artifact. This skill only
-> writes the user's values into the (already-ignored) file.
+> The path sits outside every git clone, so a user's private values
+> are never committed or mirrored by construction. There is no
+> `.gitignore` entry to add, and this skill adds none.
 
 ## Step 2: Detect existing config and read it for merge
 
-Check whether `~/.claude/rules/user-config.md` exists.
+Check whether `$XDG_CONFIG_HOME/issues/user-config.md` exists.
 
 - **If it exists**: read its full contents and parse the front-matter
   YAML so you can preserve sibling keys and pre-fill the interview
@@ -150,7 +149,7 @@ which it preserves untouched.
 
 Then ask explicitly:
 
-> Write `~/.claude/rules/user-config.md` (merged) as shown? (y to
+> Write `$XDG_CONFIG_HOME/issues/user-config.md` (merged) as shown? (y to
 > proceed, or tell me what to change)
 
 Wait for explicit approval. If the user asks for changes, loop back
@@ -178,11 +177,9 @@ The canonical body template:
 # User Config (user-global)
 
 Machine-wide per-user config: **this user, all repos, this machine.**
-Private — never committed. Lives inside the `~/.claude` mirror clone
-but is gitignored there (see `rules/repo-is-claude-config-source.md`)
-so values never get committed or mirrored. The per-repo-per-user
-counterpart is `<repo-root>/.claude/rules/user-config.md`
-(written by `/user-config`).
+Private — never committed. Lives outside every git clone, so values
+never get committed or mirrored. The per-repo-per-user counterpart is
+`<repo-root>/.issues/user-config.md` (written by `/user-config`).
 
 Read via the contract in `skills/lib/user-config.md`. Written and
 merge-updated by `/global-user-config` — the file is
@@ -235,12 +232,12 @@ attempt a corrective second write.
 
 Report back:
 
-- The absolute path written (`~/.claude/rules/user-config.md`,
-  expanded).
+- The absolute path written — `$XDG_CONFIG_HOME/issues/user-config.md`
+  with the variable resolved.
 - Which keys were changed, which were preserved (merge summary), and
   the final `schema-version`.
-- A reminder that this file is the **user-global** scope and is
-  gitignored in the mirror clone, so it is never committed.
+- A reminder that this file is the **user-global** scope and lives
+  outside every git clone, so it is never committed.
 
 ---
 
@@ -253,7 +250,7 @@ Report back:
 - **Never offer or write `identity-key`** — that is repo-level only.
   Direct the user to `/user-config` for it.
 - **Never write the file without explicit approval** in Step 5.
-- **Write exactly one file**: `~/.claude/rules/user-config.md`. This
-  skill does not touch any repo, does not edit `.gitignore` (the
-  mirror's `.gitignore` entry is a deploy-time artifact, not this
-  skill's job), and does not run git commands.
+- **Write exactly one file**:
+  `$XDG_CONFIG_HOME/issues/user-config.md`. This skill does not touch
+  any repo, does not edit `.gitignore` (the path is in no clone), and
+  does not run git commands.

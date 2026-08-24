@@ -35,7 +35,7 @@ between Bash calls in a subagent context.
 Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file.
 
-You no longer read `.claude/rules/repo-config.md` yourself for branch
+You no longer read `.issues/repo-config.md` yourself for branch
 or PR mechanics — the `git-tools:git-branch-create` and
 `github-prs:pr-create` skills declared in the `skills:` frontmatter
 above read the config values they need internally

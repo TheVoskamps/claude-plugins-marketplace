@@ -134,7 +134,7 @@ name→identifier maps are frequently **name→name** (an identity map
 that still pins the canonical spelling and the closed option set for
 the abort-if-missing contract), and only the custom-field slots carry
 a genuinely opaque `field-id:`. See the `jira:` schema in
-`.claude/rules/repo-config.md` and the `/issues:repo-config` skill for
+`.issues/repo-config.md` and the `/issues:repo-config` skill for
 the exact block shape.
 
 ## Discovery primitives (for `/repo-config`)

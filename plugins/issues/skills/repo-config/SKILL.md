@@ -1,10 +1,10 @@
 ---
 name: repo-config
-description: Interactively create or fully rewrite `.claude/rules/repo-config.md` by interviewing the user about VCS, issue tracker, and (for GitHub repos) the associated Project V2 board.
+description: Interactively create or fully rewrite `.issues/repo-config.md` by interviewing the user about VCS, issue tracker, and (for GitHub repos) the associated Project V2 board.
 ---
 
 You are running the `/repo-config` skill. Your job is to create the
-**target repo's** `.claude/rules/repo-config.md` from scratch, or to
+**target repo's** `.issues/repo-config.md` from scratch, or to
 fully rewrite it when it already exists, by interviewing the user.
 Every `/issue-*` skill reads this file, as does any other skill or
 agent that needs the repo's VCS, tracker, branch, or project-board
@@ -48,7 +48,7 @@ Do not continue past this step on failure.
 
 Treat the path printed by `git rev-parse --show-toplevel` as the
 **repo root** for the rest of the skill — the skill writes
-`<repo-root>/.claude/rules/repo-config.md` regardless of which
+`<repo-root>/.issues/repo-config.md` regardless of which
 subdirectory of the worktree the user invoked the command from. Do
 **not** string-compare the printed path against the user's current
 working directory: `git rev-parse --show-toplevel` returns a real
@@ -59,7 +59,7 @@ would mis-flag a legitimate repo as "not a repo root".
 
 ## Step 2: Detect existing config
 
-Check whether `.claude/rules/repo-config.md` already exists in the
+Check whether `.issues/repo-config.md` already exists in the
 target repo (relative to the repo root from Step 1).
 
 `/repo-config` is a **full-rewrite** tool: the final write in Step 5
@@ -128,14 +128,14 @@ the user actually wanted to inspect, not overwrite — confirm intent
 with a single overwrite prompt.
 
 1. Display the **full current contents** of
-   `.claude/rules/repo-config.md` to the user — front-matter and
+   `.issues/repo-config.md` to the user — front-matter and
    body, byte-for-byte as read from disk. Do not paraphrase or
    summarize; the user is deciding whether to discard the real file.
 2. Ask via `AskUserQuestion`: "This will replace
-   `.claude/rules/repo-config.md` with a fresh file built from your
+   `.issues/repo-config.md` with a fresh file built from your
    answers — continue?" with options `Yes` and `No`.
 3. **On `No`**: end the skill cleanly. Report that the file was
-   left unchanged at `<repo-root>/.claude/rules/repo-config.md`.
+   left unchanged at `<repo-root>/.issues/repo-config.md`.
    Do **not** enter the interview. Do **not** write or edit
    anything. Skip Steps 3 through 6.
 4. **On `Yes`**: continue into Step 3. Each interview question
@@ -1093,7 +1093,7 @@ Compose the preview in the same order Step 5 will write it:
 
 Then ask explicitly for approval, e.g.:
 
-> Write `.claude/rules/repo-config.md` with the content above? (y
+> Write `.issues/repo-config.md` with the content above? (y
 > to proceed, or tell me what to change)
 
 Wait for explicit approval (`y`, `yes`, `go`, `do it`, etc.) before
@@ -1116,12 +1116,11 @@ values carried over from the previous file as recommended defaults
 (Step 2). The carry-over influences the interview, not the write
 mechanism: the write always emits a fresh full file.
 
-In a brand-new repo `.claude/` and `.claude/rules/` may not exist
-yet. The Claude Code `Write` tool creates missing parent directories
-automatically, so calling `Write` on `.claude/rules/repo-config.md`
-when neither directory exists is safe. If you are using a different
-tool path that does not auto-create parents, run
-`mkdir -p .claude/rules` first.
+In a brand-new repo `.issues/` may not exist yet. The Claude Code
+`Write` tool creates missing parent directories automatically, so
+calling `Write` on `.issues/repo-config.md` when the directory does
+not exist is safe. If you are using a different tool path that does
+not auto-create parents, run `mkdir -p .issues` first.
 
 Compose the file in this order:
 
@@ -1206,7 +1205,7 @@ After the file is written, report back:
   into the new file — the carry-over feeds the interview, the write is
   always a fresh full file built from this run's answers.
 - **Never edit anything outside the target repo.** The skill writes
-  exactly one file: `<repo-root>/.claude/rules/repo-config.md`.
+  exactly one file: `<repo-root>/.issues/repo-config.md`.
 - **Never run destructive git commands.** This skill does not
   commit, push, branch, reset, or otherwise change git state. The
   user commits the new file themselves.

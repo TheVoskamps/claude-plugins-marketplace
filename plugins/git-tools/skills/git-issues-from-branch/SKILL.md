@@ -48,7 +48,7 @@ not exist locally or on the remote.
 
 ## Repo-config
 
-This skill reads one value from `.claude/rules/repo-config.md`
+This skill reads one value from `.issues/repo-config.md`
 **internally** — the caller does not pass it. It reads it with a
 lightweight **inline** parse of just that front-matter line, not the
 full reader contract in the `issues` plugin's
@@ -60,11 +60,11 @@ file-sandboxed"). It is the same inline read
 `git-tools:git-branch-create` performs on the same field, which is
 what keeps the two halves of the round trip agreeing.
 
-If `.claude/rules/repo-config.md` is missing, abort with: "This repo
-has no `.claude/rules/repo-config.md`. Run `/repo-config` to create
-one." (the same wording the full reader contract uses for its
-"File missing" case, so the namespace's abort messages stay
-consistent even though this skill doesn't consume the whole contract).
+If `.issues/repo-config.md` is missing, abort with: "This repo has
+no `.issues/repo-config.md`. Run `/repo-config` to create one." (the
+same wording the full reader contract uses for its "File missing"
+case, so the namespace's abort messages stay consistent even though
+this skill doesn't consume the whole contract).
 
 The value consumed:
 
