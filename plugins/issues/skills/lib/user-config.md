@@ -46,8 +46,10 @@ The user-global user-config is at
 `${XDG_CONFIG_HOME:-$HOME/.config}/issues/user-config.md` — the
 variable when it is set and non-empty, and `$HOME/.config` when it is
 unset or empty. Elsewhere this library and its readers write the path
-in the short form `$XDG_CONFIG_HOME/issues/user-config.md` and point
-here for what the variable resolves to.
+in the short form `$XDG_CONFIG_HOME/issues/user-config.md`. That short
+form is not a second definition: this heading is where the variable's
+resolution lives, so a use that needs to spell the resolution out
+points here rather than restating the fallback.
 
 **The filename collision is deliberate but must never be
 ambiguous in a reader.** When this library or any reader refers to
