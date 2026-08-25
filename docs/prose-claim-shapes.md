@@ -18,7 +18,7 @@ makes it go stale — and when *reading* such a sentence, treat it as a
 weaker warrant than a per-member one and re-verify the member you are
 about to act on.
 
-Two siblings of the same shape:
+Siblings of the same shape:
 
 - **"Each of these is handled the same way."** A sentence covering
   several members with one mechanism usually survives as a *point*
@@ -216,7 +216,7 @@ author as the rule. The classes that go wrong:
 
 Stripping issue references from a package's comments produces defects
 a line-based grep cannot see, because the damage straddles the
-comment's wrapping. Two classes:
+comment's wrapping. The classes:
 
 - **The substitution leaves a hole.** The reference was a noun-phrase
   head, so deleting it strands an article or duplicates the noun, with
@@ -368,11 +368,12 @@ the named exception by reading it.
 ## Prefer de-specifying to widening an exception
 
 A finding of the shape "these lines restate value V, contradicting the
-file's own claim to restate nothing of the kind" offers two repairs:
-drop V from the prose, or widen the claim to name the exception. Prefer
-dropping it whenever the sentence survives without V, because widening
-buys a permanent obligation — every future change to V must find and
-update the exempted sites — where de-specifying ends the obligation.
+file's own claim to restate nothing of the kind" offers a choice of
+repairs: drop V from the prose, or widen the claim to name the
+exception. Prefer dropping it whenever the sentence survives without
+V, because widening buys a permanent obligation — every future change
+to V must find and update the exempted sites — where de-specifying
+ends the obligation.
 
 The value's owner keeps spelling it; every describer points there. Then
 grep the literal repo-wide and expect exactly the owner back. Sibling
@@ -605,3 +606,24 @@ that posts from a composed file. The check is to grep the new term
 across every file the feature touches and read each pre-existing hit
 under the new sense; the repair is to re-word the older sense, which
 has somewhere else to go, and leave the new axis the term.
+
+## A platform refusal is scoped to the case that surfaced it
+
+A constraint met while exercising one member of a fixed option set
+gets written against that member, and everything downstream inherits
+the scope: the section heading names it, the handling covers it alone,
+and the caller is told the one case is handled. Nothing reads as
+wrong, because the platform does refuse that member — the siblings it
+refuses on the same grounds simply have no prose, and the code path
+they take fails where the documented one does not.
+
+The tell is a constraint named after one *value* of an enumeration the
+same file lists in full a few lines above.
+`/pr-review-submit` documented "the self-review approve constraint"
+and downgraded an `approve` verdict to a `--comment`, while GitHub
+refuses `request_changes` from a PR's own author on the same grounds
+and the skill had nothing to say about it. The check is to take the
+constraint back to its source — the platform's rule, not the case that
+surfaced it — and ask it of every member of the enumeration, then
+scope the prose to whatever that answers rather than to the value in
+front of you.
