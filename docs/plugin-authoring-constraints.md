@@ -365,18 +365,24 @@ sandboxing constraints above out of the picture. Package the two
 halves as skills in the plugin that owns the format: a **writer** the
 producing agents invoke at end of run, and a **curator** the consuming
 agent invokes, with the path layout and the grading rules in
-separate `skills/lib/` files (constraint 1). The curator reads both;
-the writer grades nothing, so it reads only the layout. Consumers in
-another plugin invoke the skills by namespaced name and add a
-`dependencies` edge; they cannot read those lib files (constraint 3).
+separate `skills/lib/` files (constraint 1). Split the judgment by
+what each half can still see: the writer is the last stage holding the
+run in context, so it drops the entries that mean nothing outside it —
+a question no rubric can answer, which is why it reads only the
+layout. The curator reads entry files stripped of that context, and
+both lib files, to decide which survivors are worth publishing.
+Consumers in another plugin invoke the skills by namespaced name and
+add a `dependencies` edge; they cannot read those lib files
+(constraint 3).
 
 `cc-tools`'s agent-memory inbox is the worked instance:
-`/cc-tools:agent-memory-inbox-capture` copies an agent's entries into
-an inbox keyed by branch and by writing agent — the path is stated
-once, in `plugins/cc-tools/skills/lib/agent-memory-inbox.md`, and
-nowhere else — and `/cc-tools:agent-memory-inbox-cleanup` grades every
-captured entry transfer-or-delete, then commits the transfers into
-`CLAUDE.md` or `docs/`. `sdlc`'s `issue-developer`, `issue-fixer`, and
+`/cc-tools:agent-memory-inbox-capture` copies the entries that outlive
+the run into an inbox keyed by branch and by writing agent — the path
+is stated once, in
+`plugins/cc-tools/skills/lib/agent-memory-inbox.md`, and nowhere else
+— and `/cc-tools:agent-memory-inbox-cleanup` grades every captured
+entry transfer-or-delete, then commits the resulting `CLAUDE.md` and
+`docs/` changes. `sdlc`'s `issue-developer`, `issue-fixer`, and
 `doc-updater` call the writer; `agent-memory-scrubber` calls the
 curator.
 
