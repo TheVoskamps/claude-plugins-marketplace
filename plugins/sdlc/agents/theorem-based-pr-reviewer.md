@@ -1035,17 +1035,13 @@ step from here to the posted review is mechanical.
 Stage the body to a file with `Write`, then post it by path:
 
 ```text
-/github-prs:pr-review-submit <PR> <verdict> --body-file .claude/tmp/<task-slug>/review-body.md
+/github-prs:pr-review-submit <PR> --verdict <approve|request_changes|comment> --body-file .claude/tmp/<task-slug>/review-body.md
 ```
 
-`<verdict>` is the **overall** verdict — one of `approve`,
-`request-changes`, or `comment`. The skill posts a **single** call
-carrying both verdict and body — never two calls (a separate
-`--comment` then `--approve` creates two notifications) — and handles
-the self-review constraint (`gh` blocks `--approve` when the reviewer
-is the PR author) by downgrading to a `--comment` whose body carries
-an explicit `APPROVED` line. It composes that downgraded body as a new
-file and leaves the one you staged alone.
+Pass the **overall** verdict, unconditionally. What GitHub accepts
+from you, and how the verdict travels when it refuses your flag, is
+the skill's to own — see `/github-prs:pr-review-submit`. It leaves the
+file you staged alone.
 
 Use the **file form**, not the skill's inline `<body>` form. A round's
 body carries the full theorem list and the records block, which runs
@@ -1581,7 +1577,7 @@ issues "Per-issue verdicts, one overall" above gives a line to — not a
 separate judgment call:
 
 - Any open Critical, High, or Medium finding tagged to that issue →
-  `request-changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
+  `request_changes` (report `NEEDS_CHANGES`, or `BLOCKED` if the fix
   is outside the issue's scope and needs human decision).
 - Only Low findings, or no findings at all → `approve`.
 
