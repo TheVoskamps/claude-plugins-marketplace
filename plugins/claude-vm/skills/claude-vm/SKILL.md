@@ -1117,11 +1117,14 @@ above), `gpg` (`brew install gnupg`, for the host-side verified claude
 cache — see "Verified claude cache" in the payload README), a sha256
 tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
 actual VM boot — `vfkit` and `tinyproxy` (for the bundled default
-`proxy.cmd`). A launch that has to **build** the guest image additionally
-needs `podman`, for the bundled podman-mkosi provisioner; it does **not**
-need a started podman machine, because the launcher inits and starts one
-itself and stops it again at end of run if it was the one that started it
-(see "The launcher manages the podman machine" below). On a clean host:
+`proxy.cmd`). A launch that has to **build** the guest image is the only
+one that runs `podman`, for the bundled podman-mkosi provisioner; the
+podman *formula* is a requirement of every launch regardless, because
+that is where `gvproxy` comes from (next paragraph). What a build does
+**not** need is a started podman machine: the launcher inits and starts
+one itself and stops it again at end of run if it was the one that
+started it (see "The launcher manages the podman machine" below). On a
+clean host:
 `brew install yq git gnupg vfkit podman tinyproxy`.
 
 `gvproxy` is **not** a separate install and need not be on PATH: it
@@ -1206,11 +1209,13 @@ build-needing one inits/starts, builds, and stops again.
 
 ## The launcher manages the podman machine
 
-`podman` is deliberately **not** among the pieces the dependency
-preflight checks, because only a launch that **builds** the guest image
-needs it. A warm-cache launch — the image on disk already stamps the
-pinned version — boots it with vfkit and never invokes podman at all, so
-it neither gates on a started machine nor starts one.
+The dependency preflight deliberately checks neither the `podman` binary
+nor any machine state, because only a launch that **builds** the guest
+image runs podman. A warm-cache launch — the image on disk already stamps
+the pinned version — boots it with vfkit and invokes podman not once, so
+it neither gates on a started machine nor starts one. (The preflight does
+check `gvproxy`, which resolves out of podman's Homebrew formula, so a
+host with no podman installed at all still fails there.)
 
 On the build path the launcher brings podman up itself rather than
 printing two commands and refusing, since claude-vm is meant to be one

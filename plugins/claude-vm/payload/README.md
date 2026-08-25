@@ -1304,9 +1304,9 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 `serial-getty@hvc1` login program (so claude becomes the interactive
 `hvc1` console session — issue #88) and an unlocked passwordless root
 (`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
-Requires `podman`; the launcher brings the podman machine up itself (see
-*The launcher manages the podman machine* below) rather than requiring a
-started one. Override with
+Requires `podman`, but not a started podman machine: the launcher brings
+one up itself for the build and stops it again afterwards (see *The
+launcher manages the podman machine* below). Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`. The provisioner renders
 the bake `packages:` into a `mkosi.conf.d` `Packages=` drop-in and each
@@ -1316,50 +1316,6 @@ which has network), so mkosi's apt can install packages served by third-party
 repos. That keyring-fetch + sources-write step is a reusable unit the
 boot-time-install slice (issue #106) reuses against the guest's live
 `/etc/apt`.
-
-### The launcher manages the podman machine
-
-claude-vm is one command that runs claude in a micro-VM, and people pull the
-plugin onto a fresh host where podman has never been initialized. So the
-launcher does the podman bring-up itself (issue #215) instead of printing
-`podman machine init` / `podman machine start` and refusing.
-
-**Only a launch that BUILDS the image touches podman.** The warm-cache
-path — the image on disk already stamps the pinned version — boots it with
-vfkit and never invokes podman, so `claude_vm_preflight_toolchain` checks
-nothing about podman and the bring-up lives inside `claude-vm.sh`'s
-build-or-reuse branch. A launch that needs no build on a host with no podman
-machine, or no podman at all, is not gated and starts nothing.
-
-The decision is keyed on `podman machine list`, not on a failed `podman
-info`, so each state gets the action it needs rather than one
-undifferentiated "not running":
-
-| Machine state | What `claude_vm_ensure_podman_machine` does |
-| --- | --- |
-| none listed | `podman machine init`, then `podman machine start` |
-| listed, stopped | `podman machine start` |
-| listed, running | nothing — left exactly as found |
-
-`claude_vm_stop_podman_machine` then stops it at end of run **iff this run
-started it**: a machine found running is left running, because the operator
-may be using it. An init'd machine is stopped, not removed — init downloads
-and provisions a VM image and is the expensive half, so the next build
-reuses it.
-
-There is **no config surface** for any of this: it is launcher plumbing, not
-policy. Every init/start/stop is logged to stderr as it happens — the same
-never-silent rule the derived-egress additions follow — and those log lines
-are its only trace.
-
-The teardown rides the launcher's **trap chain**, and that chain is the part
-a later change breaks silently. Exactly one trap is live at a time and each
-installation REPLACES the previous, so every duty is carried forward by
-hand: the build branch arms `claude_vm_stop_podman_machine` the moment a
-machine may have been started, the narrow interim credential trap replaces
-it and repeats the call, and `cleanup()` replaces that and repeats it again.
-A new link that omits the call strands a machine this run brought up, and
-nothing else in the launcher would notice.
 
 An `apt_sources` entry's `repo` is a raw apt one-line source string
 and may already carry its own `[options]` block (e.g. an operator-authored
@@ -1844,6 +1800,54 @@ Because the `hvc1` console is a byte pipe that needs a real controlling
 TTY on the host, launch `claude-vm` from a real terminal (not a pipe).
 The console carries no live window-resize channel, so the launcher seeds
 the guest tty geometry once from the host's `stty size` at launch.
+
+### The launcher manages the podman machine
+
+claude-vm is one command that runs claude in a micro-VM, and people pull the
+plugin onto a fresh host where podman has never been initialized. So the
+launcher does the podman bring-up itself (issue #215) instead of printing
+`podman machine init` / `podman machine start` and refusing.
+
+**Only a launch that BUILDS the image invokes podman.** The warm-cache
+path — the image on disk already stamps the pinned version — boots it with
+vfkit and runs no podman command at all, so `claude_vm_preflight_toolchain`
+checks neither the podman binary nor any machine state, and the bring-up
+lives inside `claude-vm.sh`'s build-or-reuse branch. A launch that needs no
+build is gated on nothing podman-related and starts no machine, including on
+a host that has none. Podman's Homebrew *formula* is still a de facto
+requirement of every launch, because `claude_vm_resolve_gvproxy` finds
+`gvproxy` inside it and the preflight does check that — but nothing on the
+warm-cache path executes `podman`.
+
+The decision is keyed on `podman machine list`, not on a failed `podman
+info`, so each state gets the action it needs rather than one
+undifferentiated "not running":
+
+| Machine state | What `claude_vm_ensure_podman_machine` does |
+| --- | --- |
+| none listed | `podman machine init`, then `podman machine start` |
+| listed, stopped | `podman machine start` |
+| listed, running | nothing — left exactly as found |
+
+`claude_vm_stop_podman_machine` then stops it at end of run **iff this run
+started it**: a machine found running is left running, because the operator
+may be using it. An init'd machine is stopped, not removed — init downloads
+and provisions a VM image and is the expensive half, so the next build
+reuses it.
+
+There is **no config surface** for any of this: it is launcher plumbing, not
+policy. Every init/start/stop is logged to stderr as it happens — the same
+never-silent rule the derived-egress additions follow — and those log lines
+are its only trace.
+
+The teardown rides the launcher's **trap chain**, and that chain is the part
+a later change breaks silently. Exactly one trap is live at a time and each
+installation REPLACES the previous, so every duty is carried forward by
+hand: the build branch arms `claude_vm_stop_podman_machine` the moment a
+machine may have been started, the narrow interim credential trap replaces
+it and repeats the call, and `cleanup()` replaces that and repeats it again.
+A new link that omits the call strands a machine this run brought up, and
+nothing else in the launcher would notice.
 
 ## Forward proxy (`proxy/tinyproxy-launch.sh`)
 

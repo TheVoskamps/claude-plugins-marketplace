@@ -549,9 +549,11 @@ fi
 # tinyproxy check is included only when the bundled default proxy is in
 # use; a custom proxy.cmd owns its own dependencies.
 #
-# podman is NOT among the pieces checked here (issue #215). It is needed only
-# by a launch that builds the guest image, and that branch brings up its own
-# podman machine -- see the build-or-reuse block below.
+# The podman binary and its machine state are NOT among the pieces checked
+# here (issue #215). Only a launch that builds the guest image runs podman,
+# and that branch brings up its own machine -- see the build-or-reuse block
+# below. The gvproxy check is not an exception to that: gvproxy ships in
+# podman's Homebrew formula, so every launch does need podman INSTALLED.
 # ---------------------------------------------------------------------
 if [ "$PROXY_CMD" = "$DEFAULT_PROXY_CMD" ]; then
   PREFLIGHT_PROXY_MODE="default-proxy"

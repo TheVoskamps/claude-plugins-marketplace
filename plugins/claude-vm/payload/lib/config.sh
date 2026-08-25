@@ -362,13 +362,15 @@ claude_vm_mktemp() {
 #                 An explicit custom proxy.cmd owns its own dependencies,
 #                 so skip the tinyproxy check then.
 #
-# podman is deliberately NOT checked here (issue #215). Only a launch that
-# actually BUILDS the guest image needs it; a warm-cache launch boots the
-# already-built image with vfkit and never invokes podman at all, so gating
-# every launch on a started podman machine failed launches that had no use
-# for one. The podman binary check and the machine bring-up moved to
-# claude_vm_ensure_podman_machine below, which the launcher calls on the
-# build path only.
+# The podman BINARY and the podman MACHINE STATE are deliberately NOT
+# checked here (issue #215). Only a launch that actually BUILDS the guest
+# image runs podman; a warm-cache launch boots the already-built image with
+# vfkit and invokes podman not once, so gating every launch on a started
+# podman machine failed launches that had no use for one. Both checks moved
+# to claude_vm_ensure_podman_machine below, which the launcher calls on the
+# build path only. The gvproxy check above still reaches podman's install
+# indirectly -- gvproxy ships in its Homebrew formula -- so this is not a
+# claim that podman is absent from the preflight altogether.
 #
 # Args:
 #   $1 -- "default-proxy" to include the tinyproxy check, anything else
