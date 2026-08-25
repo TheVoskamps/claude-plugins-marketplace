@@ -1035,13 +1035,17 @@ step from here to the posted review is mechanical.
 Stage the body to a file with `Write`, then post it by path:
 
 ```text
-/github-prs:pr-review-submit <PR> --verdict <approve|request_changes|comment> --body-file .claude/tmp/<task-slug>/review-body.md
+/github-prs:pr-review-submit <PR> --verdict <approve|request_changes> --body-file .claude/tmp/<task-slug>/review-body.md
 ```
 
-Pass the **overall** verdict, unconditionally. What GitHub accepts
-from you, and how the verdict travels when it refuses your flag, is
-the skill's to own — see `/github-prs:pr-review-submit`. It leaves the
-file you staged alone.
+Pass the **overall** verdict, unconditionally, in the skill's own
+spelling rather than the verdict block's label: an overall APPROVED
+goes as `approve`, and NEEDS_CHANGES and BLOCKED alike as
+`request_changes`. "Verdict follows from findings" derives no third
+label, so the skill's `comment` verdict never arises here. What GitHub
+accepts from you, and how the verdict travels when it refuses your
+flag, is the skill's to own — see `/github-prs:pr-review-submit`. It
+leaves the file you staged alone.
 
 Use the **file form**, not the skill's inline `<body>` form. A round's
 body carries the full theorem list and the records block, which runs
@@ -1489,7 +1493,8 @@ The overall verdict is the **worst** of the verdict lines in the
 block, in the order APPROVED < NEEDS_CHANGES < BLOCKED. It is a
 derivation, not a separate judgment: one line at NEEDS_CHANGES makes
 the whole PR NEEDS_CHANGES, because the PR merges as one unit. The
-overall verdict is what `/github-prs:pr-review-submit` receives.
+overall verdict is what `/github-prs:pr-review-submit` receives, in
+the spelling step 10 maps this block's label to.
 
 A finding that spans members — a shared helper both depend on, or the
 single version bump the batch shares — is graded once and tagged to
