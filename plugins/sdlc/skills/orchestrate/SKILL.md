@@ -956,7 +956,7 @@ parameter.
 ### Before `/pr-ready`: curate the PR's agent memory
 
 `agent-memory-scrubber` runs after every memory-declaring teammate and
-before Phase 3's `/github-prs:pr-ready` call, so the transfers it lands
+before Phase 3's `/github-prs:pr-ready` call, so the changes it lands
 are part of what the human blesses. Spawn it once the PR's review loop
 has settled — APPROVED, or the review-round cap reached — and no
 further branch work is queued.
@@ -968,8 +968,8 @@ that moment every agent that writes memory (`issue-developer`,
 `counterexample-verifier` write none) has captured into the session's
 inbox for this branch, so the scrubber's pass grades the whole run's
 entries. Nothing about that capture is on the branch: the inbox lives
-under the harness scratchpad, and the only thing the scrubber commits
-is the `CLAUDE.md` and `docs/` transfers it decides on.
+under the harness scratchpad, and the scrubber's commit carries
+`CLAUDE.md` and `docs/` changes and nothing else.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running after every memory-declaring teammate — not a budget, and not

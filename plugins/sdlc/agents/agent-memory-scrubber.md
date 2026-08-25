@@ -106,16 +106,14 @@ persist between Bash calls in a subagent context.
 
 ## Output
 
-Pass the skill's per-entry lines through as it wrote them rather than
-summarizing — they are the record of a destructive operation, and the
-human reviews them. Add:
+Pass the skill's per-entry and per-cut lines through as it wrote them
+rather than summarizing — they are the record of a destructive
+operation, and the human reviews them. Add:
 
 - Where transfers landed (`CLAUDE.md`, or which `docs/*.md`).
 - The verified commit SHA, or the reason the skill staged nothing.
 - Any entry the skill deleted without citing a delete case. Those are
-  the deletions a human most wants to see: the skill's verdict turns on
-  whether the entry states a constraint the repo should carry, so an
-  entry that states none is deleted even when no delete case fits it.
+  the deletions a human most wants to see.
 
 ## End-of-run cleanup
 
