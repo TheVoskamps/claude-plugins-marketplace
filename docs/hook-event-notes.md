@@ -1,5 +1,9 @@
 # Hook event notes (verified)
 
+**Who reads this and when:** any agent writing or changing a hook in
+this marketplace, or asserting how the harness treats one. Read it
+before the hook's contract is designed.
+
 Durable, doc-verified notes on how individual Claude Code hook
 **events** behave, discovered while building this marketplace's hook
 plugins. Confirmed against the official hooks docs

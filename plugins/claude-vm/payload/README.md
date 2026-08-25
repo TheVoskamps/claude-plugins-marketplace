@@ -1327,8 +1327,8 @@ has to carry meanwhile.
 Enforced read-only, at the hypervisor boundary (a read-only block device, so
 guest root is irrelevant), is tracked as **issue #233**. Its config surface
 need not be spelled `mode:`, and whatever it is spelled, every surface listed
-in the root `CLAUDE.md`'s *no read-only mounts* sweep says today that no such
-key exists.
+in `docs/plugin-claude-vm.md` → "Sort every read-only mention into one of two
+classes" says today that no such key exists.
 
 *Where the `ro` on a built-in share comes from.* claude-vm's own shares —
 `runconfig`, `claudebin`, `claudecreds` — are described throughout this

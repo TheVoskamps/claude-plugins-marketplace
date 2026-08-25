@@ -41,10 +41,8 @@ of its own. The frontmatter keys spelled here hold for a whole class —
 `isolation: worktree` on every agent, `user-invocable: false` on the
 skills that are not user verbs — so a PR changing either key edits
 this file. And the sequencing of `/sdlc:orchestrate-ready` in front of
-`/sdlc:orchestrate` is stated here and nowhere else in the plugin, so
-a PR that changes how the two relate edits it here — and the repo's
-`CLAUDE.md`, which records that this file owns the statement and
-therefore states it too, with it.
+`/sdlc:orchestrate` is stated here and nowhere else, so a PR that
+changes how the two relate edits it here.
 
 ## Skills
 
@@ -106,8 +104,8 @@ here.
 The generator definitions are skeletons over
 `skills/theorem-generation/SKILL.md`, byte-identical apart from the
 frontmatter lines naming the definition and its tier, so picking a
-tier is picking which definition to spawn. The
-repo's `CLAUDE.md` → "The generator skeletons are copies of one file"
+tier is picking which definition to spawn.
+`docs/plugin-sdlc.md` → "The generator skeletons are copies of one file"
 carries the invariant and the `diff` check that enforces it.
 
 Which agents write memory, and which write nothing at all, is stated
@@ -116,10 +114,10 @@ the writers capture the entries that outlive their run into a
 session-scoped inbox under the harness scratchpad, and
 `agent-memory-scrubber` transfers the durable ones into `CLAUDE.md` or
 `docs/`, cuts from those files what no longer earns its place, and
-deletes the rest. The
-repo's `CLAUDE.md` → "Review writes nothing, so review lore is a PR"
-says how the review side's silence is enforced and where a review
-lesson lands instead.
+deletes the rest.
+`docs/plugin-sdlc.md` → "Review writes nothing on the branch it
+reviews" says how the review side's silence is enforced and where a
+review lesson lands instead.
 
 ## Dependencies
 

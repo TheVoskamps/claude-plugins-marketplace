@@ -1,5 +1,10 @@
 # Prose claim shapes that go false quietly
 
+**Who reads this and when:** any agent grading prose — a reviewer, a
+doc-updater, an author re-reading their own diff. Read it before the
+grade, and add to it when a round turns up a new shape that fits the
+scope test in the next paragraph.
+
 A sentence in a README, a code comment or a skill file is a claim, and
 no test fails when one rots. The shapes below are the ones that rot
 without looking wrong, collected from rounds where the behavior was

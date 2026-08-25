@@ -1,5 +1,9 @@
 # claude-vm verification playbook
 
+**Who reads this and when:** any agent about to assert what a claude-vm
+launch, image build or guest does, or reviewing a PR that changes one.
+Read it before the assertion.
+
 How to establish a fact about `plugins/claude-vm` without booting a
 guest: probe the real hypervisor, the real kernel, the real image
 build, and the real launcher, each in the cheapest harness that still
