@@ -63,7 +63,7 @@ under `agents/` owns:
   it leaves nothing on the branch
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch in a fresh `isolation: worktree` worktree. When it
-  returns, every transfer it decided on is a pushed commit on the
+  returns, every change that pass decided on is a pushed commit on the
   branch and the inbox is empty
 
 Review **is** a teammate spawn: `theorem-based-pr-reviewer` carries
@@ -997,9 +997,9 @@ Curation is destructive, so it is agent-owned work: the orchestrator
 never deletes, transfers, or rewrites memory entries itself, and never
 invokes `/cc-tools:agent-memory-inbox-cleanup` directly (see "Never do
 work an agent owns" under Hard Constraints). The scrubber's per-entry
-lines are the record of those deletions and transfers, so pass them
-through to the human as it wrote them, per "Report-consumption
-principle".
+and per-cut lines are the record of what it deleted, transferred, and
+cut from a destination file, so pass them through to the human as it
+wrote them, per "Report-consumption principle".
 
 **agent-memory-scrubber spawn prompt** — give it PR number and branch
 name:
@@ -1008,8 +1008,9 @@ name:
 PR <PR_N> has settled its review loop. Branch: <branch-name>
 
 Curate the PR's agent memory per your agent definition. Report back
-what was transferred and what was deleted, where transfers landed,
-and the commit SHA you pushed — or, if nothing was staged, why.
+what was transferred, what was deleted, and what was cut from a
+destination file, where transfers landed, and the commit SHA you
+pushed — or, if nothing was staged, why.
 ```
 
 Remove its worktree after it returns, the same way as any other

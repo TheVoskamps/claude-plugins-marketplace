@@ -156,9 +156,10 @@ the SHA you pushed and let it check.
 
 ## Output
 
-Report one line per entry, grouped by verdict, and always a `Commit:`
-line — the field the caller branches on, so it is present on every
-path including the ones where there is no SHA to give:
+Report one line per entry, grouped by verdict, one per section you cut
+from a destination file, and always a `Commit:` line — the field the
+caller branches on, so it is present on every path including the ones
+where there is no SHA to give:
 
 ```text
 ## Agent memory curation
@@ -187,6 +188,6 @@ delete cites no case — there is none to cite — so it says so in those
 words instead, which is the whole record a human gets of an entry
 nothing else grades.
 
-The per-entry lines are the record of a destructive operation. Report
-all of them — those are what a human reads to tell curation from data
-loss.
+The per-entry and per-cut lines are the record of a destructive
+operation. Report all of them — those are what a human reads to tell
+curation from data loss.

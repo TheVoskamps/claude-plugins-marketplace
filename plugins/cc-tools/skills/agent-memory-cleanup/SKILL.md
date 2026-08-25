@@ -297,7 +297,8 @@ commit.
 
 ## Output
 
-Report one line per entry, grouped by verdict:
+Report one line per entry, grouped by verdict, and one per section you
+cut from a destination file:
 
 ```text
 ## Agent memory curation
@@ -327,7 +328,8 @@ with a clean tree, and never report `none` when a commit was in fact
 made. In interactive mode, `git diff --stat` plus "review and commit
 when you're happy".
 
-The per-entry lines are the record of a destructive operation. Report
+The per-entry and per-cut lines are the record of a destructive
+operation. Report
 all of them, including the entries you persisted only because you
 could not substantiate a scrub — those are the ones a human most wants
 to see.
