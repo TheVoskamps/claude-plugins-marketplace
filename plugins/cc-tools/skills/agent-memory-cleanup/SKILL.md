@@ -22,7 +22,9 @@ someone else to apply.
 
 Read `skills/lib/agent-memory-grading.md` for the grading rubric — what
 counts as durable, the evidence a delete must produce, how a transfer
-is phrased, and which file it lands in. That contract is shared with
+is phrased, which file it lands in, and the standard that file is held
+to once you have written into it, which includes deleting what no
+longer earns its place, whoever wrote it. That contract is shared with
 `/cc-tools:agent-memory-inbox-cleanup` and is not restated here; what
 this skill states is its own third verdict, `persist`, which that
 sibling does not have.
@@ -44,7 +46,7 @@ The argument also selects the mode:
 
 | Argument | Mode | Transfers | Result |
 | --- | --- | --- | --- |
-| PR number | autonomous | applied without asking | committed and pushed onto the PR branch, or left untouched with "no changes to curate" when every verdict was persist |
+| PR number | autonomous | applied without asking | committed and pushed onto the PR branch, or left untouched when the pass changed nothing |
 | none | interactive | confirmed with you one at a time | left uncommitted in the working tree |
 
 Deletions are not confirmed in either mode. Autonomous mode therefore
@@ -82,8 +84,8 @@ With no argument, work on the current checkout as it stands. Do not
 switch branches and do not fetch.
 
 Either way the target is `.claude/agent-memory/` at the repo root. If
-it is absent or empty, report "no agent memory to curate" and stop —
-that is a valid outcome, not a failure.
+it is absent or empty, report that there was nothing to grade and stop
+— that is a valid outcome, not a failure.
 
 ### Read the entries, and the surfaces that grade them
 
@@ -222,31 +224,27 @@ defect to chase.
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
 every memory path you deleted or edited, plus `CLAUDE.md` and each
-`docs/*.md` you wrote a transfer into. Never `git add -A`, and never a
-directory-wide add.
+`docs/*.md` you changed, whether you wrote a constraint into it or cut
+one out of it. Never `git add -A`, and never a directory-wide add.
 
 ```bash
 git add <each path you changed>
 git diff --cached --name-only
 ```
 
-If that output is empty — every verdict this run was persist, so
-nothing was staged — there is nothing to commit. Report "no changes to
-curate" and stop here; do not run `git commit`, and do not report a
-commit SHA. The previous tip of the branch is not your commit, and
-claiming it would misattribute someone else's work as this run's
-output. This is a valid outcome, not a failure — distinct from the "no
-agent memory to curate" case above (an absent or empty directory):
-here entries existed and were graded, they just all happened to be
-persist.
+If that output is empty there is nothing to commit. Report the no-op
+and stop here; do not run `git commit`, and do not report a commit SHA.
+The previous tip of the branch is not your commit, and claiming it
+would misattribute someone else's work as this run's output. This is a
+valid outcome, not a failure — distinct from the absent-or-empty
+directory above: here entries existed and were graded, they just left
+the tree unchanged.
 
 Use `git diff --cached --name-only` here, not `git status --porcelain`
 — the latter also reports untracked or unstaged changes elsewhere in
 the worktree, so an unrelated stray file would make its output
 non-empty even when nothing was actually staged, falsely skipping this
 no-op path and falling through to `git commit` with an empty index.
-`git diff --cached --name-only` reports only what is staged, which is
-the exact question this check is asking.
 
 Otherwise, commit and push:
 
@@ -299,7 +297,8 @@ commit.
 
 ## Output
 
-Report one line per entry, grouped by verdict:
+Report one line per entry, grouped by verdict, and one per section you
+cut from a destination file:
 
 ```text
 ## Agent memory curation
@@ -313,20 +312,24 @@ Transferred (N):
 Persisted (N):
   - <agent>/<file> — <why it has no code home>
 
+Cut from <destination> (N):
+  - <section> — <why it no longer earns its place>
+
 Indexes fixed: <agent>/MEMORY.md, ...
 Wikilinks repaired: <count>
 ```
 
-Then the tail for the mode you ran in: in autonomous mode, either "no
-changes to curate" when every verdict was persist and nothing was
-staged, or the commit SHA once the post-push check above has confirmed
-both that it matches `origin/<headRefName>` and that `git status
---porcelain` is empty — never report a SHA you have not verified
-landed on the remote with a clean tree, and never report the no-op
-line when a commit was in fact made; in interactive mode,
-`git diff --stat` plus "review and commit when you're happy".
+Then the tail for the mode you ran in. In autonomous mode, a `Commit:`
+line carrying either the SHA — once the post-push check above has
+confirmed both that it matches `origin/<headRefName>` and that
+`git status --porcelain` is empty — or `none` and why nothing was
+staged. Never report a SHA you have not verified landed on the remote
+with a clean tree, and never report `none` when a commit was in fact
+made. In interactive mode, `git diff --stat` plus "review and commit
+when you're happy".
 
-The per-entry lines are the record of a destructive operation. Report
+The per-entry and per-cut lines are the record of a destructive
+operation. Report
 all of them, including the entries you persisted only because you
 could not substantiate a scrub — those are the ones a human most wants
 to see.

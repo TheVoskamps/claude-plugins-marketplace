@@ -17,7 +17,9 @@ you neither transfer nor delete is simply lost — grade every one.
 Read `skills/lib/agent-memory-inbox.md` for the inbox path and its
 `<plugin>-<agent>/` layout, and `skills/lib/agent-memory-grading.md`
 for the grading rubric: what counts as durable, the evidence a delete
-must produce, how a transfer is phrased, and which file it lands in.
+must produce, how a transfer is phrased, which file it lands in, and
+the standard that file is held to once you have written into it — which
+includes deleting what no longer earns its place, whoever wrote it.
 This skill restates neither.
 
 ## Invocation
@@ -38,30 +40,22 @@ Two, and no more:
 | **transfer** | the constraint is written into `CLAUDE.md` or a `docs/*.md`, and the inbox entry is deleted |
 | **delete** | the inbox entry is deleted and nothing is written |
 
-There is no third verdict that keeps an entry where it is. The sibling
-`/cc-tools:agent-memory-cleanup` has one — `persist` — because it
-curates a `.claude/agent-memory/` tree that agents read back on a later
-run. The inbox has no such reader, so "keep it in the inbox" would mean
-"discard it at the end of the session with extra steps".
+There is no third verdict that keeps an entry where it is — nothing
+reads the inbox back, so keeping an entry there discards it at the end
+of the session with extra steps. Two consequences the rubric leaves to
+each calling skill follow:
 
-That difference decides two outcomes the rubric leaves to each skill.
-
-An entry the rubric grades under "Entries with no code home" has
-nowhere here to be kept, so it transfers into `CLAUDE.md`, where the
-sibling skill would have left it in the tree.
-
-And the verdict turns on the surviving bar rather than on the delete
-bar. `transfer` iff the entry states a present-tense constraint this
-repo should carry — durable lore per the rubric's "What counts as
-durable", or an entry with no code home per the class beside it.
-Everything else is `delete`. The rubric's delete cases each describe an
-entry that fails that bar, so they remain the shapes to look for, and
-their evidence bar remains what you produce in the report when you cite
-one. What does not carry over is the rubric's unsubstantiated-delete
-fallback: it hands the entry to a keep-in-place verdict, and this skill
-has none. An entry that is neither a citable delete case nor a statable
-constraint is deleted, because writing it into `CLAUDE.md` would put
-prose the repo should not carry into the one file every agent reads.
+- An entry the rubric grades under "Entries with no code home"
+  transfers into `CLAUDE.md`, having nowhere here to be kept.
+- The verdict turns on the surviving bar, not the delete bar.
+  `transfer` iff the entry states a present-tense constraint this repo
+  should carry — the rubric's "What counts as durable" or the class
+  beside it. Everything else is `delete`, including an entry you cannot
+  pin to a delete case: the rubric's fallback for that is a
+  keep-in-place verdict this skill does not have, and publishing into
+  the one file every agent reads is the wrong way to resolve a doubt.
+  The delete cases remain the shapes to look for, and their evidence
+  bar remains what you produce in the report when you cite one.
 
 ## Execution
 
@@ -92,8 +86,8 @@ find <inbox path for this branch> -type f -name '*.md'
 ```
 
 An inbox directory that is **absent or empty is not a failure**: it
-means no agent wrote a memory this run. Report "no agent memory to
-curate" and stop.
+means no agent wrote a memory this run, or none survived capture's
+session-scope filter. Report that there was nothing to grade and stop.
 
 Otherwise read every entry in full, plus the surfaces the rubric grades
 against.
@@ -118,8 +112,9 @@ cannot take back.
 
 ### Land the transfers
 
-Stage by explicit path — `CLAUDE.md` and each `docs/*.md` you wrote
-into. Never `git add -A`, and never a directory-wide add. Nothing under
+Stage by explicit path — `CLAUDE.md` and each `docs/*.md` you changed,
+whether you wrote a constraint into it or cut one out of it. Never
+`git add -A`, and never a directory-wide add. Nothing under
 `.claude/agent-memory/` is ever staged: the memory tree is not part of
 this flow.
 
@@ -128,13 +123,12 @@ git add <each path you changed>
 git diff --cached --name-only
 ```
 
-If that output is empty — every verdict was delete, so nothing was
-written — there is nothing to commit. Report "no changes to curate" and
-stop: do not run `git commit`, and do not report a commit SHA. The
-previous tip of the branch is not your commit, and claiming it would
-misattribute someone else's work as this run's output. This is a valid
-outcome, distinct from the "no agent memory to curate" case above —
-here entries existed and were graded, they just all graded delete.
+If that output is empty, there is nothing to commit: do not run
+`git commit`, and do not report a commit SHA. The previous tip of the
+branch is not your commit, and claiming it would misattribute someone
+else's work as this run's output. This is a valid outcome, distinct
+from the empty-inbox case above — here entries existed and were graded,
+they just left the tree unchanged.
 
 Use `git diff --cached --name-only`, not `git status --porcelain`: the
 latter also reports untracked and unstaged changes elsewhere in the
@@ -162,7 +156,10 @@ the SHA you pushed and let it check.
 
 ## Output
 
-Report one line per entry, grouped by verdict:
+Report one line per entry, grouped by verdict, one per section you cut
+from a destination file, and always a `Commit:` line — the field the
+caller branches on, so it is present on every path including the ones
+where there is no SHA to give:
 
 ```text
 ## Agent memory curation
@@ -174,13 +171,15 @@ Deleted (N):
   - <plugin>-<agent>/<file> — <the delete case, and the check that substantiated it>
   - <plugin>-<agent>/<file> — no citable delete case; states no constraint the repo should carry
 
+Cut from <destination> (N):
+  - <section> — <why it no longer earns its place>
+
 Inbox: emptied
+Commit: <SHA> | none — <why nothing was staged>
 ```
 
-Then the tail: the commit SHA you pushed, or "no changes to curate"
-when every verdict was delete and nothing was staged. Where the inbox
-was absent or empty, the whole report is the single line "no agent
-memory to curate".
+Where the inbox was absent or empty, the report is that one fact plus
+`Commit: none`.
 
 The two delete lines above are the two shapes a deletion takes, and
 every deleted entry is reported as one of them. A delete that cites a
@@ -189,6 +188,6 @@ delete cites no case — there is none to cite — so it says so in those
 words instead, which is the whole record a human gets of an entry
 nothing else grades.
 
-The per-entry lines are the record of a destructive operation. Report
-all of them — those are what a human reads to tell curation from data
-loss.
+The per-entry and per-cut lines are the record of a destructive
+operation. Report all of them — those are what a human reads to tell
+curation from data loss.

@@ -63,7 +63,7 @@ under `agents/` owns:
   it leaves nothing on the branch
 - `agent-memory-scrubber` — curates the run's agent-memory inbox for
   the branch in a fresh `isolation: worktree` worktree. When it
-  returns, every transfer it decided on is a pushed commit on the
+  returns, every change that pass decided on is a pushed commit on the
   branch and the inbox is empty
 
 Review **is** a teammate spawn: `theorem-based-pr-reviewer` carries
@@ -956,7 +956,7 @@ parameter.
 ### Before `/pr-ready`: curate the PR's agent memory
 
 `agent-memory-scrubber` runs after every memory-declaring teammate and
-before Phase 3's `/github-prs:pr-ready` call, so the transfers it lands
+before Phase 3's `/github-prs:pr-ready` call, so the changes it lands
 are part of what the human blesses. Spawn it once the PR's review loop
 has settled — APPROVED, or the review-round cap reached — and no
 further branch work is queued.
@@ -968,8 +968,8 @@ that moment every agent that writes memory (`issue-developer`,
 `counterexample-verifier` write none) has captured into the session's
 inbox for this branch, so the scrubber's pass grades the whole run's
 entries. Nothing about that capture is on the branch: the inbox lives
-under the harness scratchpad, and the only thing the scrubber commits
-is the `CLAUDE.md` and `docs/` transfers it decides on.
+under the harness scratchpad, and the scrubber's commit carries
+`CLAUDE.md` and `docs/` changes and nothing else.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running after every memory-declaring teammate — not a budget, and not
@@ -983,9 +983,9 @@ to you — a failed one it does report, stopping before its cleanup — so
 a spawn is the only evidence you have that entries may be waiting. That over-approximates
 — a round that wrote no entry triggers a scrubber spawn that finds
 nothing — and the cost of the over-approximation is one spawn that
-reports "no agent memory to curate" and commits nothing, against the
-cost of the under-approximation, which is a round's entries dying with
-the session. A late `issue-fixer` round after a re-review, or the
+finds an empty inbox and commits nothing, against the cost of the
+under-approximation, which is a round's entries dying with the
+session. A late `issue-fixer` round after a re-review, or the
 `doc-updater` pass that follows it, each captures into the inbox the
 scrubber already emptied; the inbox is session-ephemeral, so entries
 left there when the session ends are lost. Re-running is the correct
@@ -997,9 +997,9 @@ Curation is destructive, so it is agent-owned work: the orchestrator
 never deletes, transfers, or rewrites memory entries itself, and never
 invokes `/cc-tools:agent-memory-inbox-cleanup` directly (see "Never do
 work an agent owns" under Hard Constraints). The scrubber's per-entry
-lines are the record of those deletions and transfers, so pass them
-through to the human as it wrote them, per "Report-consumption
-principle".
+and per-cut lines are the record of what it deleted, transferred, and
+cut from a destination file, so pass them through to the human as it
+wrote them, per "Report-consumption principle".
 
 **agent-memory-scrubber spawn prompt** — give it PR number and branch
 name:
@@ -1008,10 +1008,9 @@ name:
 PR <PR_N> has settled its review loop. Branch: <branch-name>
 
 Curate the PR's agent memory per your agent definition. Report back
-what was transferred and what was deleted, where transfers landed,
-and the commit SHA you pushed — or, if nothing was staged, the no-op
-outcome you got instead ("no agent memory to curate" or "no changes
-to curate").
+what was transferred, what was deleted, and what was cut from a
+destination file, where transfers landed, and the commit SHA you
+pushed — or, if nothing was staged, why.
 ```
 
 Remove its worktree after it returns, the same way as any other

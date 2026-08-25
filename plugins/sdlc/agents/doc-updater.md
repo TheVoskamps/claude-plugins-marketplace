@@ -92,10 +92,24 @@ Before writing anything, read what already exists:
 
 4. Read the changed code itself if needed to understand the "what" and "why".
 
+## The standard every file you touch is held to
+
+Markdown whose reader is a model — `CLAUDE.md`, rules files,
+`SKILL.md` bodies, agent definitions — is governed by
+`~/.claude/docs/rules/claude-code-markdown-instructions-style.md`.
+That file is on-demand and nothing expands it for you, so editing any
+of those is the trigger to go and read it. It is not restated here.
+
+Apply it to what is **already** in a file you touch, not only to the
+prose you are adding, and delete what fails. That standing is yours
+because you are the only stage that reads these files with the change
+in hand. A section whose condition has gone is a deletion, not a
+rewording — including one you did not write.
+
 ## Writing Style
 
-These rules govern every file you write or edit — Markdown and doc
-comments alike:
+These conventions have no home in the global guide and govern every
+file you write or edit, Markdown and doc comments alike:
 
 - **Name things semantically, never by sequence.** No "Phase 1",
   "Step 3", or "Part 2" as the name of a phase, section, or step —
@@ -113,8 +127,7 @@ comments alike:
 When a file you edit already contains these defects, fix every
 instance in that file, not just the ones your change touches — one
 sweep now is cheaper than one review round-trip per instance later.
-This sweep is the single exception to the surgical-edits rule in
-"What NOT to Do"; it never extends to general reformatting.
+It never extends to general reformatting.
 
 ## Prose that describes the code is a claim to verify
 
@@ -146,100 +159,38 @@ report-back rather than fixing it.
 
 ## What to Update
 
-### CLAUDE.md (AI context file)
+Your reach is every doc surface the diff can invalidate: the root and
+nested `CLAUDE.md`, README files, `/docs`, repo-level `.claude/rules/`
+and `.claude/skills/**/SKILL.md` (plus any profile-tier copies of
+those), and doc comments in the source itself. Which of them the change
+reaches is a judgment from the diff, not a checklist.
 
-CLAUDE.md is read by AI agents to understand the project. Update it when:
+Weight the work toward what saves a future run from rediscovery: the
+constraints the change embodies, the decisions and the why behind them,
+the gotchas that cost this PR time, and the invariants spanning modules
+— what an agent cannot cheaply recover from the code alone. A README
+serves a human discovering the code; the rest serve agents reading
+before they touch it.
 
-- New commands, scripts, or tools are added or renamed
-- Build/test/lint/deploy steps change
-- Architecture or service topology changes
-- New conventions are established (naming, patterns, file locations)
-- Dependencies that affect how agents should work are added/removed
-- Environment variables or configuration requirements change
-
-CLAUDE.md should be terse and factual. No fluff. Agents don't need
-motivation or background — they need commands and constraints. Format:
-
-- Use short bullet lists or code blocks for commands
-- Include the exact commands to run, not descriptions of them
-- Prefer "Run: `npm test`" over "You can run the tests using npm"
-
-### README.md files
-
-README files are for humans discovering or onboarding to the code. Update
-when:
-
-- Public APIs, interfaces, or CLI flags change
-- Installation or setup steps change
-- Examples in the README would now produce different output or behavior
-- New features are significant enough to document
-- Deprecated functionality is called out in the README
-
-Don't rewrite sections that weren't touched by the code change. Surgical
-edits only — preserve existing voice and structure.
-
-### /docs files
-
-/docs serves humans and, just as much, future runs of the
-orchestrator and its agents — they read it before touching the code.
-Weight updates toward what saves a future run from rediscovery:
-constraints the change embodies, decisions and the why behind them,
-gotchas that cost this PR time, and invariants that span modules —
-the things an agent cannot cheaply recover from the code alone.
-
-Update any doc file that references the changed code. Common cases:
-
-- Architecture docs when service boundaries or data flows change
-- API reference docs when endpoints, payloads, or error codes change
-- Configuration guides when new env vars or options are added
-- Runbooks when operational procedures change
-- Constraint and decision records when the PR embodies a decision a
-  future agent run could unknowingly violate
-
-### Repo-level .claude/ documentation
-
-Update repo-level `.claude/` files when code changes invalidate them:
-
-- `.claude/rules/*.md` — engineering rules referenced by CLAUDE.md
-- `.claude/skills/**/SKILL.md` — skill definitions
-- `profiles/*/.claude/rules/*.md` and
-  `profiles/*/.claude/skills/**/SKILL.md` — profile-tier copies
-
-Don't reformat or rewrite these files unless the code change actually
-contradicts what they say. They are not a fallback for "general
-cleanup".
-
-### In-code documentation (TSDoc or equivalent)
-
-Source files document themselves in the language's standard
-doc-comment form: TSDoc/JSDoc for TypeScript and JavaScript,
-docstrings for Python, `///` doc comments for Rust, doc comments for
-Go. For each source file in the PR diff:
-
-- Update any existing doc comment the change made wrong — a changed
-  contract, parameter, return shape, error behavior, or side effect.
-- Add a doc comment to a new exported or public symbol only when its
-  behavior is not evident from its name and signature.
-
-Never document code that is easy to understand. A doc comment earns
-its place by stating what the code cannot say itself: contracts,
-invariants, units, side effects, error behavior, and why. A comment
-that restates the name or signature (`/** Gets the user. */` on
-`getUser()`) is noise — when a changed symbol carries one, delete it
-rather than updating it.
-
-Only touch files that are in the PR diff. Never sweep the repo for
-missing doc comments.
+Doc comments follow the language's standard form — TSDoc/JSDoc,
+docstrings, `///`, whichever the file already uses. Update one the
+change made wrong. Add one to a new public symbol only when its
+behavior is not evident from its name and signature: a comment earns
+its place by stating what the code cannot say itself, so when a changed
+symbol carries one that only restates its own name, delete it rather
+than updating it. Only touch source files in the PR diff, and never
+sweep the repo for missing doc comments.
 
 ## What NOT to Do
 
 - Do not add documentation for code that didn't change
-- Do not reformat or rewrite sections unrelated to the change (the
-  "Writing Style" sweep is the one exception)
+- Do not reformat or restructure prose the change does not reach.
+  Deleting a section the retention test fails is not this, and neither
+  is the "Writing Style" sweep — both act on content, where reformatting
+  acts on its appearance
 - Do not add padding, preamble, or "as of this update" language
 - Do not document internal implementation details unless they're already
   documented (i.e., already surfaced to the reader)
-- Do not remove documentation without being certain it's obsolete
 - Do not create new documentation files unless the change clearly warrants
   a new standalone doc and no existing file is a good home for it
 
@@ -261,8 +212,9 @@ index.
 ## Output
 
 If discovery turned up no doc impact — nothing in the diff makes a
-doc, rule, or doc comment wrong, and no new symbol needs one — there
-is nothing to stage. Skip the doc commit entirely, still capture your
+doc, rule, or doc comment wrong, no new symbol needs one, and nothing
+in the files you read fails the retention test — there is nothing to
+stage. Skip the doc commit entirely, still capture your
 agent memory into the session inbox — the capture step below applies on
 this path too, and it pushes nothing — still run the end-of-run
 cleanup, and say so in your report-back. A no-op pass is a normal
@@ -297,13 +249,14 @@ Otherwise, after making all edits:
    /cc-tools:agent-memory-inbox-capture
    ```
 
-   That copies your entries into the session's inbox for this branch,
-   where the scrubber grades them. Nothing about your memory is
-   committed, pushed, or `git add`ed: `.claude/agent-memory/` never
-   enters a commit, so it is not part of step 5's push. The capture is
-   raw — do not prune or curate it, and do not touch another agent's
-   entries (see "Agent memory is not yours to curate" above). If you
-   wrote no entries, the skill reports "nothing to capture".
+   That copies the entries that outlive this run into the session's
+   inbox for this branch, where the scrubber grades them; the skill
+   applies its own session-scope filter and reports what it dropped.
+   Nothing about your memory is committed, pushed, or `git add`ed:
+   `.claude/agent-memory/` never enters a commit, so it is not part of
+   step 5's push. Do not curate the capture yourself, and do not touch
+   another agent's entries (see "Agent memory is not yours to curate"
+   above).
 5. Push the doc commit(s) to the same branch so they appear on the
    same PR.
 6. Report back a summary: which files changed, what sections or doc

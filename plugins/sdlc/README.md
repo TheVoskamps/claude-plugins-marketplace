@@ -111,9 +111,11 @@ carries the invariant and the `diff` check that enforces it.
 
 Which agents write memory, and which write nothing at all, is stated
 in `skills/orchestrate/SKILL.md`. No agent memory reaches a commit:
-the writers capture their entries into a session-scoped inbox under
-the harness scratchpad, and `agent-memory-scrubber` transfers the
-durable ones into `CLAUDE.md` or `docs/` and deletes the rest. The
+the writers capture the entries that outlive their run into a
+session-scoped inbox under the harness scratchpad, and
+`agent-memory-scrubber` transfers the durable ones into `CLAUDE.md` or
+`docs/`, cuts from those files what no longer earns its place, and
+deletes the rest. The
 repo's `CLAUDE.md` → "Review writes nothing, so review lore is a PR"
 says how the review side's silence is enforced and where a review
 lesson lands instead.
