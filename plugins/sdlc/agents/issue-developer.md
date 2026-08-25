@@ -212,17 +212,17 @@ owns — but never a finding, a location, or an implementation shape
     /cc-tools:agent-memory-inbox-capture
     ```
 
-    That copies your entries into the session's inbox for this branch,
-    where `agent-memory-scrubber` grades them and transfers the durable
-    ones into `CLAUDE.md` or `docs/` — for when it runs, see the
-    `/sdlc:orchestrate` skill → "Before `/pr-ready`: curate the PR's
-    agent memory". Nothing about your memory is committed, pushed, or
-    `git add`ed: `.claude/agent-memory/` never enters a commit. Do not
-    prune or curate your own entries here either — the capture is raw,
-    and grading belongs to the curator. If you wrote no entries, the
-    skill reports "nothing to capture" and there is nothing more to do.
-    If the capture fails, stop and report it rather than proceeding to
-    cleanup — the worktree removal is what makes the loss permanent.
+    That copies the entries that outlive this run into the session's
+    inbox for this branch, where `agent-memory-scrubber` grades them and
+    transfers the durable ones into `CLAUDE.md` or `docs/` — for when it
+    runs, see the `/sdlc:orchestrate` skill → "Before `/pr-ready`:
+    curate the PR's agent memory". The skill applies its own
+    session-scope filter and reports what it dropped, so do not curate
+    your own entries here. Nothing about your memory is committed,
+    pushed, or `git add`ed: `.claude/agent-memory/` never enters a
+    commit. If the capture fails, stop and report it rather than
+    proceeding to cleanup — the worktree removal is what makes the loss
+    permanent.
 
 12. End-of-run cleanup — release the branch claim so subsequent
     subagents (`doc-updater`, `issue-fixer`) can check out the same

@@ -516,12 +516,14 @@ this file — never as a memory entry on the branch being reviewed.
 No `sdlc` agent commits agent memory at all. `issue-developer`,
 `issue-fixer` and `doc-updater` declare `memory: project`, and their
 end-of-run step invokes `/cc-tools:agent-memory-inbox-capture`, which
-copies their entries into a session-scoped inbox under the harness
-scratchpad. `agent-memory-scrubber` runs after all of them, invokes
+copies the entries that outlive the run into a session-scoped inbox
+under the harness scratchpad and drops the rest.
+`agent-memory-scrubber` runs after all of them, invokes
 `/cc-tools:agent-memory-inbox-cleanup`, and commits only the
-`CLAUDE.md` and `docs/` transfers it decides on. Nothing under
+`CLAUDE.md` and `docs/` changes it decides on. Nothing under
 `.claude/agent-memory/` is ever staged, and the inbox dies with the
-session — an entry the scrubber does not transfer is gone.
+session — an entry capture drops, or one the scrubber does not
+transfer, is gone.
 
 That roster of memory-declaring agents is therefore `issue-developer`,
 `issue-fixer`, `doc-updater` and nothing else.
@@ -531,37 +533,25 @@ curate the PR's agent memory", and the capture-then-curate sentences
 later in that same frontmatter-baseline paragraph refer back to it as
 "those three" — a count, not names, so no agent-name grep reaches that
 back-reference and it goes stale in silence. A PR that changes which
-agents declare `memory:` therefore sweeps every one of those sites plus
-the scrubber's own "You persist no memory of your own" section.
+agents declare `memory:` therefore sweeps every one of those sites.
 `grep -rn 'memory: project' plugins/sdlc/` finds the frontmatter one;
 the curation restatement names the agents without the key, so grep the
 agent names too, and read the frontmatter-baseline paragraph to its end
 rather than expecting a grep to surface the back-reference.
 
-## The memory hand-off's strings cross a plugin boundary
+## The memory hand-off crosses a plugin boundary by contract, not by string
 
-The capture-then-curate flow above is owned by `cc-tools` and driven
-by `sdlc`, so a change inside `plugins/cc-tools/skills/` falsifies
-prose in a plugin the diff never opens — and such a PR bumps both
-plugins' versions. What `sdlc` quotes is each skill's **no-op
-output**, which no test pins:
+The capture-then-curate flow above is owned by `cc-tools` and driven by
+`sdlc`, so a PR touching either side bumps both plugins' versions. No
+`sdlc` file quotes a `cc-tools` skill's prose: `agent-memory-scrubber`
+branches its landed-on-the-PR gate on the `Commit:` field the cleanup
+skill's report carries, never on a sentence around it. Re-introducing a
+quoted no-op line as a branch condition is the coupling this shape
+removes — nothing tests such a string, so a reword in one plugin
+silently breaks a gate in another.
 
-- `/cc-tools:agent-memory-inbox-capture` reports "nothing to capture"
-  when the run wrote no entry, and `issue-developer`, `issue-fixer`,
-  and `doc-updater` each tell their reader so at their capture step.
-- `/cc-tools:agent-memory-inbox-cleanup` reports "no agent memory to
-  curate" (the inbox was absent or empty) or "no changes to curate"
-  (every verdict was delete). `agent-memory-scrubber` branches its
-  landed-on-the-PR hard gate on both, and
-  `plugins/sdlc/skills/orchestrate/SKILL.md` names both in the
-  scrubber's spawn prompt.
-
-Renaming either skill, or rewording any of those no-op lines,
-therefore sweeps every one of those files.
-`grep -rn 'nothing to capture\|to curate' plugins/` finds them.
-
-The contracts under `plugins/cc-tools/skills/lib/` go the other way,
-and the discipline is to keep it that way. The inbox path and
+The contracts under `plugins/cc-tools/skills/lib/` go the same way, and
+the discipline is to keep it that way. The inbox path and
 layout live only in `agent-memory-inbox.md`, and the grading rubric
 only in `agent-memory-grading.md`; no file outside `cc-tools` spells
 the inbox path, and the `sdlc` side says only that the entries go to

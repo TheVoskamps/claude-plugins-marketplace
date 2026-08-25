@@ -983,9 +983,9 @@ to you — a failed one it does report, stopping before its cleanup — so
 a spawn is the only evidence you have that entries may be waiting. That over-approximates
 — a round that wrote no entry triggers a scrubber spawn that finds
 nothing — and the cost of the over-approximation is one spawn that
-reports "no agent memory to curate" and commits nothing, against the
-cost of the under-approximation, which is a round's entries dying with
-the session. A late `issue-fixer` round after a re-review, or the
+finds an empty inbox and commits nothing, against the cost of the
+under-approximation, which is a round's entries dying with the
+session. A late `issue-fixer` round after a re-review, or the
 `doc-updater` pass that follows it, each captures into the inbox the
 scrubber already emptied; the inbox is session-ephemeral, so entries
 left there when the session ends are lost. Re-running is the correct
@@ -1009,9 +1009,7 @@ PR <PR_N> has settled its review loop. Branch: <branch-name>
 
 Curate the PR's agent memory per your agent definition. Report back
 what was transferred and what was deleted, where transfers landed,
-and the commit SHA you pushed — or, if nothing was staged, the no-op
-outcome you got instead ("no agent memory to curate" or "no changes
-to curate").
+and the commit SHA you pushed — or, if nothing was staged, why.
 ```
 
 Remove its worktree after it returns, the same way as any other

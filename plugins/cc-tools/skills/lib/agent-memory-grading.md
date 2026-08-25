@@ -3,8 +3,8 @@
 This file is the single source of truth for **how a memory entry is
 graded**: what makes an entry durable, what separates that from an
 entry with no code home, what evidence a delete has to produce, how a
-transfer is phrased, and which file it lands in. It is reference prose,
-not an executable script.
+transfer is phrased, which file it lands in, and the standard that file
+is held to afterwards. It is reference prose, not an executable script.
 
 `/cc-tools:agent-memory-cleanup` and
 `/cc-tools:agent-memory-inbox-cleanup` both read this contract, and
@@ -110,6 +110,16 @@ Add to the section that already covers the surrounding subject rather
 than opening a new one, and correct a statement already there when the
 entry contradicts it — a transfer may repair prose as well as extend
 it.
+
+## A transfer is a doc edit, and holds the whole file to standard
+
+The destination is markdown whose reader is a model, so
+`~/.claude/docs/rules/claude-code-markdown-instructions-style.md`
+governs the edit — it is on-demand, nothing expands it for you, and
+this is the trigger to go and read it. Apply what it says to the
+sections already in the destination as well as to the prose you are
+adding, and delete what fails. Everything the guide argues for is left
+there rather than repeated here.
 
 ## How a transfer is phrased
 
