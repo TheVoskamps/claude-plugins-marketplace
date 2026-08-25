@@ -61,8 +61,9 @@ exists to prevent.
 `claude_vm_merge_config` ends by pruning empty structures, which is what
 stops a consumer conflating "configured empty" with "never touched". The
 consequence is that a merged document cannot answer "did the operator
-write this key?" — three separate routes erase the key in exactly the
-spellings a gate exists to catch:
+write this key?" — separate routes erase the key in exactly the
+spellings a gate exists to catch, and no one of them is the whole
+story:
 
 - a key in `CLAUDE_VM_LIST_KEYS` whose merged value is an empty list;
 - any key written `key: {}`, wherever it sits — the prune descends into
@@ -81,7 +82,7 @@ unrelated keys. A fallback *reader* treating a pruned key as
 unconfigured is fine.
 
 Grep `payload/` for `has(`, `!= null` and `== null` and grade every hit
-against all three routes. Pin the difference by driving
+against every route above. Pin the difference by driving
 `claude_vm_merge_config` in the launcher's own argument shape — a
 hand-written fixture kept two such batteries green for four rounds while
 the launcher was letting bad configs through.
@@ -162,7 +163,7 @@ validator, which never sees those paths.
 
 ## Sweep the far-away surfaces on a launcher or schema change
 
-Three classes of surface sit far from the diff that falsifies them:
+These classes of surface sit far from the diff that falsifies them:
 
 - **Ordering notes.** The boot launcher is one long heredoc and each
   phase states its own position as "first thing after X, before Y", so

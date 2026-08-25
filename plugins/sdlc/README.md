@@ -104,9 +104,9 @@ here.
 The generator definitions are skeletons over
 `skills/theorem-generation/SKILL.md`, byte-identical apart from the
 frontmatter lines naming the definition and its tier, so picking a
-tier is picking which definition to spawn.
-`docs/plugin-sdlc.md` → "The generator skeletons are copies of one file"
-carries the invariant and the `diff` check that enforces it.
+tier is picking which definition to spawn. `docs/plugin-sdlc.md` →
+"The generator skeletons are copies of one file" carries the invariant
+and the `diff` check that enforces it.
 
 Which agents write memory, and which write nothing at all, is stated
 in `skills/orchestrate/SKILL.md`. No agent memory reaches a commit:
@@ -114,10 +114,9 @@ the writers capture the entries that outlive their run into a
 session-scoped inbox under the harness scratchpad, and
 `agent-memory-scrubber` transfers the durable ones into `CLAUDE.md` or
 `docs/`, cuts from those files what no longer earns its place, and
-deletes the rest.
-`docs/plugin-sdlc.md` → "Review writes nothing on the branch it
-reviews" says how the review side's silence is enforced and where a
-review lesson lands instead.
+deletes the rest. `docs/plugin-sdlc.md` → "Review writes nothing on
+the branch it reviews" says how the review side's silence is enforced
+and where a review lesson lands instead.
 
 ## Dependencies
 

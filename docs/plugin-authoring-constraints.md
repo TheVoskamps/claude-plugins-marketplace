@@ -153,9 +153,8 @@ them in step is a grep over the literal, owned by
 `docs/plugin-issues.md` → "The config paths are literals every consumer
 spells itself" and not restated here. Naming that owner is not the
 sweep rule "Where a newly demonstrated fact belongs" forbids below:
-there the arms differ per
-consumer by design, here every copy is one string and any difference
-is a defect.
+there the arms differ per consumer by design, here every copy is one
+string and any difference is a defect.
 
 ### Sharing an interface across an agent set: one preloaded skill
 

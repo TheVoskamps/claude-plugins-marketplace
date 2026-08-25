@@ -5,7 +5,7 @@ consume one of the issue plugin's config paths. Read it before the edit.
 
 ## The config paths are literals every consumer spells itself
 
-The plugin owns three paths:
+The plugin owns these paths:
 
 - `.issues/repo-config.md` — team-shared, committed.
 - `.issues/user-config.md` — one user, one repo, gitignored.
@@ -30,7 +30,7 @@ grepping the literal — `grep -rn '\.issues/' plugins/` and
 `grep -rn 'XDG_CONFIG_HOME/issues' plugins/` — not by opening the
 plugins the diff already touched.
 
-Two things are deliberately *not* duplicated, and adding a copy is the
+These are deliberately *not* duplicated, and adding a copy is the
 defect rather than a helpful expansion:
 
 - **Who reads repo-config.** A reader contract states what a file

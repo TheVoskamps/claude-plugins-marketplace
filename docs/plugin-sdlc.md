@@ -24,8 +24,8 @@ repair pointers elsewhere; never let a second file restate the fact.
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
-Two owners are worth stating because the obvious guess is wrong. The
-review procedure is an **agent** (`theorem-based-pr-reviewer`), not a
+Some owners are worth spelling out, because the obvious guess is wrong.
+The review procedure is an **agent** (`theorem-based-pr-reviewer`), not a
 skill, so both `/sdlc:orchestrate` and `/sdlc:git-review-pr` reach it by
 spawning it, and a change to what a review does touches the reviewer,
 both callers, and — when it changes which agents a round spawns —
@@ -59,8 +59,10 @@ sweep rather than recalling it:
   stale in silence. Read the paragraph, don't trust the grep.
 
 Surfaces outside `plugins/sdlc/` that a contract change reaches:
-`plugins/github-prs/README.md` and its `pr-diff` / `pr-review-submit`
-skills attribute PR verbs to named `sdlc` agents.
+`plugins/github-prs/README.md` and its `pr-diff`, `pr-review-submit`
+and `pr-closing-issues` skills each attribute a PR verb to a named
+`sdlc` agent, so settle that list by grepping the agent names across
+`plugins/github-prs/` rather than opening the files named here.
 `plugins/issues/` deliberately names no `sdlc` reader of repo-config —
 a reader contract states what a file provides, never who consumes it —
 so do not add one back.

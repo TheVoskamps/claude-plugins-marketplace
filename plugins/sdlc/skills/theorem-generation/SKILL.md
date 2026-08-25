@@ -256,9 +256,9 @@ others.
 
 A rule becomes a theorem only when the diff **plausibly engages it**.
 This mirrors the test "Codebase consistency" above applies to the
-repo's sweep sections: touching a file a rule could apply
-to is not the trigger, and treating it as one turns every diff into
-one vacuously-true theorem per rule.
+repo's sweep sections: touching a file a rule could apply to is not
+the trigger, and treating it as one turns every diff into one
+vacuously-true theorem per rule.
 
 ## The emission bar: falsifiability, then stakes
 
