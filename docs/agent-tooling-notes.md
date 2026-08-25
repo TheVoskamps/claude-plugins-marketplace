@@ -86,6 +86,24 @@ same reason a commit message goes through `git commit -F <file>` here.
 Verify draft-ness and the closing line by re-reading the created PR
 rather than trusting the create's own output.
 
+## `gh pr review` is GraphQL too, and its refusals are not in the source
+
+`gh pr review` does not use the REST reviews endpoint either:
+`api.AddReview` in `api/queries_pr_review.go` builds an
+`AddPullRequestReviewInput` and calls `client.Mutate`, so every failure
+arrives as a GraphQL error, rendered in gh's
+`GraphQL: <message> (<path>)` shape rather than as a bare API message.
+
+Documentation here quotes GitHub's self-review refusals ("Can not
+approve your own pull request" and its request-changes sibling)
+verbatim, and `pr review` publishes, so those strings are never settled
+by running one. Read the mutation path in `cli/cli` at the tag
+`gh --version` reports —
+`gh api "repos/cli/cli/contents/<path>?ref=<tag>" --jq .content` piped
+through `base64 -d` — and then say plainly that the server-side message
+text itself is not establishable from that source: the client sends the
+mutation, and the wording comes back from GitHub.
+
 ## `yq` traps in the mikefarah build
 
 **`unique` does not sort.** It removes duplicates while preserving
