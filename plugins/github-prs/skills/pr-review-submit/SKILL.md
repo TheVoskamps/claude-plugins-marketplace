@@ -83,9 +83,9 @@ must be present, and exactly one of `<body>` and `--body-file <path>`:
 Every abort posts no review, rather than guessing what the caller
 meant.
 
-The verdict then decides three things at once — the `gh` flag, the
-line the body opens with, and the GitHub review state the call
-creates. The verdict-line column holds unconditionally; the review
+The verdict then decides, at once, the `gh` flag, the line the body
+opens with, and the GitHub review state the call creates. The
+verdict-line column holds unconditionally; the review
 state is what it says here only when the flag goes through, and the
 self-review constraint below — the one case that replaces the flag —
 lands `commented` instead:
