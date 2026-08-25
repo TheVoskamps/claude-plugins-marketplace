@@ -33,20 +33,24 @@
 !/docs/
 !/docs/**
 
-# Per-repo config for /issue-address and friends. Lives in the
-# *nested* .claude/ (this repo's root IS ~/.claude, so .claude/ here
-# is the per-repo config for using ~/.claude on itself). Each parent
-# must be un-ignored before the file becomes visible to git.
-!/.claude/
-!/.claude/rules/
-!/.claude/rules/repo-config.md
+# Per-repo config for the /issues:* verbs. The team-shared file is
+# tracked; the per-user one never is. Each parent must be un-ignored
+# before the file becomes visible to git.
+!/.issues/
+!/.issues/repo-config.md
+# Belt-and-braces: the negation above un-ignores only repo-config.md,
+# so user-config.md is already ignored. Spell it anyway, so a later
+# broadening of the .issues/ whitelist cannot make a private file
+# git-add-able. Must stay AFTER !/.issues/ — last-match-wins.
+/.issues/user-config.md
 
 # Agent memory is local-only and never committed. Agents that declare
 # `memory: project` keep writing here; none of it is repo content, so
 # none of it is reviewed, swept as a doc surface, or evidence for a
 # claim about this repo. A lesson worth keeping past the run that
-# learned it lands in CLAUDE.md or /docs instead. This rule sits after
-# the !/.claude/ whitelist above so last-match-wins makes it effective.
+# learned it lands in CLAUDE.md or /docs instead. Nothing under
+# .claude/ is whitelisted, so the leading /* already covers this; the
+# rule stays as belt-and-braces.
 /.claude/agent-memory/
 
 # Always ignore local/temp/backup/lock files anywhere under .claude/,
