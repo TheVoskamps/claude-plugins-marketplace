@@ -57,10 +57,10 @@ instructions at the top of that file. Then read the repo's own
 indexes whose trigger this PR's diff hits and the README of every
 plugin the diff touches: each sweep section in them names a fact that
 several surfaces mirror, so together they tell you where a *changed*
-fact leaves a stale restatement behind. Which of
-those sections warrants a theorem is decided in "Codebase consistency"
-below, and the test is narrow — the diff must change the mirrored
-fact, not merely touch a file the section mentions.
+fact leaves a stale restatement behind. Which of those sections
+warrants a theorem is decided in "Codebase consistency" below, and the
+test is narrow — the diff must change the mirrored fact, not merely
+touch a file the section mentions.
 
 ## Inputs
 

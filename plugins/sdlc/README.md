@@ -26,7 +26,7 @@ the fact.
 | What a brief parameter and a consequence class mean | `skills/theorem-agents-interface/SKILL.md` |
 | An agent's `model:` and `effort:` | that agent's frontmatter |
 
-Two owners are worth spelling out, because the obvious guess is wrong.
+Some owners are worth spelling out, because the obvious guess is wrong.
 The review procedure is an **agent**, not a skill, so both
 `/sdlc:orchestrate` and `/sdlc:git-review-pr` reach it by spawning it,
 and a change to what a review does touches the reviewer, both callers,

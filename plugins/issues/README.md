@@ -7,7 +7,7 @@ value in the repo's config. The skills under `skills/` are the roster;
 
 ## The config paths are literals every consumer spells itself
 
-This plugin owns three paths:
+This plugin owns these paths:
 
 - `.issues/repo-config.md` — team-shared, committed, written by
   `/issues:repo-config`.
@@ -36,7 +36,7 @@ their versions, in one PR. Sweep by grepping the literal —
 `grep -rn 'XDG_CONFIG_HOME/issues' plugins/` — not by opening the
 plugins the diff already touched.
 
-Two things are deliberately *not* duplicated, and adding a copy is the
+These are deliberately *not* duplicated, and adding a copy is the
 defect rather than a helpful expansion:
 
 - **Who reads repo-config.** A reader contract states what a file

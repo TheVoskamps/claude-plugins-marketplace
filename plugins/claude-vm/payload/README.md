@@ -389,7 +389,7 @@ templates rather than referencing this file, the skill or the
 and misses the wizards — and the miss is live rather than cosmetic, because a
 wizard instructs the model to write a config verbatim. A key sitting in the
 boot template when it belongs in the bake one, or an entry shape the launcher
-now rejects, makes the wizard produce a config that aborts the launch. Three
+now rejects, makes the wizard produce a config that aborts the launch. These
 classes land there and nowhere else: a **key placement** change (the key
 table's bake/boot column, the template, and the placement bullet under "Hard
 constraints"); a **new load-time gate**, even with no key change, and one that
@@ -969,8 +969,8 @@ merged tier is present in one of that tier's two raw files by construction.
 launcher's own argument shape and pins both halves of each prune route.
 
 So grade every existing gate rather than only the one a change touches: grep
-`payload/` for `has(`, `!= null` and `== null`, and check each hit against all
-three prune routes above — not just against `CLAUDE_VM_LIST_KEYS`, and not by
+`payload/` for `has(`, `!= null` and `== null`, and check each hit against
+every prune route above — not just against `CLAUDE_VM_LIST_KEYS`, and not by
 the document the gate happens to read. Adding a key to `CLAUDE_VM_LIST_KEYS`
 silently disarms any `has()` presence gate on it, with nothing to error. And
 pin the verdict by driving `claude_vm_merge_config` in the launcher's own
@@ -1182,12 +1182,12 @@ the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
-*Two surfaces a boot-launcher insertion falsifies from far away.* The
-launcher is one long heredoc, so both sit hundreds of lines from any
-insertion point. Each phase's block comment states its own position as
+*Surfaces a boot-launcher insertion falsifies from far away.* The
+launcher is one long heredoc, so each of these sits hundreds of lines from
+any insertion point. Each phase's block comment states its own position as
 "first thing after X, before Y", so a step inserted between two phases
 silently falsifies the note on the one that **follows** it: grep `ORDERING:`
-after any insertion, not only the block the insertion lands in. And four
+after any insertion, not only the block the insertion lands in. And several
 headers enumerate what the transient `claudecreds` share carries —
 `claude-vm.sh`'s run.env `CLAUDECREDS_TAG` comment, its `CREDS_DIR=` header
 several hundred lines earlier, `build-guest-image.sh`'s `CLAUDECREDS_MNT=`
@@ -1402,11 +1402,11 @@ need not be spelled `mode:`, and whatever it is spelled, every surface that
 says today no such key exists has to stop saying it. Derive that set by
 grepping both `read-only` and `RO` across `plugins/claude-vm/` and sorting
 every hit into one of two classes — this paragraph's, and the built-in shares'
-below — rather than fixing the files the diff happens to touch. Three shapes
-of hit are the ones a file-by-file pass misses: a restatement one line long
-and a file away from the code it governs (`claude-vm.sh` carries the rule in
-its extra-mount block *and* again at its `claude_vm_check_mounts` call site);
-an operator-facing surface no test opens (`config-boot.example.yml`'s boxed
+below — rather than fixing the files the diff happens to touch. The shapes of
+hit a file-by-file pass misses are: a restatement one line long and a file
+away from the code it governs (`claude-vm.sh` carries the rule in its
+extra-mount block *and* again at its `claude_vm_check_mounts` call site); an
+operator-facing surface no test opens (`config-boot.example.yml`'s boxed
 warning, and the config wizard under `skills/`); and evidence rather than
 prose — `test/config-test.sh` pins the abort in every spelling, and
 [`docs/claude-vm-verification-playbook.md`](../../../docs/claude-vm-verification-playbook.md),
@@ -1657,8 +1657,8 @@ two a given step reads. A third class is neither: the apt paragraphs'
 "hard-secure all-baked config" really is about image bytes, and editing those
 is churn — grep the exact phrase before classing a hit there, since the
 marketplace sibling in `provisioners/podman-mkosi.sh` is spelled
-"all-bake-declared". This gate is itself described in three places, one of
-which never names the helper, so sweep it by grepping the **criterion
+"all-bake-declared". This gate is itself described in several places, one
+of which never names the helper, so sweep it by grepping the **criterion
 wording** rather than `claude_vm_boot_marketplace_egress_needed`; and when the
 per-entry policy gains a skip path, count the paths in the code and check the
 prose enumerates the same set.
