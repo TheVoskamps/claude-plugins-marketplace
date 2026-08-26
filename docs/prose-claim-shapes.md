@@ -358,6 +358,23 @@ establish the target's absence by listing the directory rather than by
 failing to read it, and finish with a repo-wide grep for the dangling
 name — the fix is done when it returns nothing.
 
+## A relocated rule keeps its prose pointers in code comments
+
+Moving a rule out of an instruction file into a plugin README or a
+`/docs` file leaves two kinds of citation behind, and one sweep finds
+only the first. The markdown pointers spell the `` `CLAUDE.md` →
+"Heading" `` form, so a grep of that syntax returns every one; the
+survivors sit in code comments and name the rule in prose — "see the
+bash-3.2 rule in `CLAUDE.md`" — where no arrow grep reaches and nothing
+tests a comment. A repo-wide grep for the dangling name does not
+recover them either, because nothing dangles by name: the file is still
+there, and its name returns every legitimate citation alongside the
+stale one.
+
+Grep the relocated rule's subject words — `bash 3.2`, `read-only`,
+`fixer-brief` — across non-markdown files as well as markdown, and
+repoint each hit in whatever pointer form its own file already uses.
+
 ## Propagating a clause falsifies the rule that describes it
 
 When a finding says to propagate a clause to its siblings, the sweep
