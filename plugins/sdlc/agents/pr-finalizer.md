@@ -67,9 +67,12 @@ rather than your caller's to summarize into a brief.
 ## Workflow
 
 1. **Read the PR's current body**, and keep it as the base your
-   amendment appends to:
+   amendment appends to. Create the scratch directory first — a bare
+   redirect into a missing directory fails, and nothing has created
+   this one in a fresh worktree:
 
    ```bash
+   mkdir -p .claude/tmp/<task-slug>
    gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body.md
    ```
 
@@ -120,20 +123,28 @@ rather than your caller's to summarize into a brief.
    ```
 
 7. **Verify the amendment landed and cost nothing.** Re-read the body
-   and confirm that it now carries your section and that every closing
-   line the base body held is still present, unchanged:
+   and confirm that the base you saved in step 1 is still a byte-exact
+   **prefix** of it, and that your section follows. Compare the bytes
+   rather than hunting for the closing lines: an append leaves the
+   whole base intact, so the prefix test settles the closing keywords
+   along with everything else — and applying the closing-keyword
+   syntax belongs to `/github-prs:pr-closing-issues`, which you carry
+   no `Skill` tool to invoke:
 
    ```bash
-   gh pr view <PR> --json body -q .body
+   gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body-after.md
+   head -c "$(wc -c < .claude/tmp/<task-slug>/body.md)" \
+     .claude/tmp/<task-slug>/body-after.md \
+     | diff - .claude/tmp/<task-slug>/body.md
    ```
 
-   If a closing line is missing, you have overwritten the body rather
-   than appended to it: restore the base you saved in step 1 and
-   report the failure rather than trying again on top of a damaged
-   body.
+   An empty `diff` is the pass. Any difference means you have
+   overwritten the body rather than appended to it: restore the base
+   you saved in step 1 and report the failure rather than trying again
+   on top of a damaged body.
 
 8. **Report back**: what you appended, in outline, and whether the
-   closing lines verified intact. Name anything you found that the
+   base body verified intact. Name anything you found that the
    section could not settle from the PR alone.
 
 ## The section you append
