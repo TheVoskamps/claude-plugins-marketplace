@@ -967,7 +967,7 @@ member)**:
    `theorem-based-pr-reviewer` knows to skip it rather than read it as
    a human adjustment, and how `pr-finalizer` finds the briefs at the
    end of the run — so a PR that changes it sweeps every file
-   `git grep -n 'sdlc:fixer-brief'` returns, the repo's `CLAUDE.md`
+   `git grep -n 'sdlc:fixer-brief'` returns, this plugin's `README.md`
    included:
 
    ```text

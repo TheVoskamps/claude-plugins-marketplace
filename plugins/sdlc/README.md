@@ -69,7 +69,10 @@ the agent names across that plugin rather than by recalling which files
 carried them last time.
 `plugins/issues/` deliberately names no `sdlc` reader of its
 repo-config, for the reason `plugins/issues/README.md` gives — do not
-add one back.
+add one back. The root `README.md`'s `sdlc` bullet enumerates the
+agents by shorthand and spells no skill name, so an agent added or
+removed edits it while a renamed skill or a changed contract leaves it
+alone.
 
 ## A spawn template and its receiving agent are one change
 
@@ -89,6 +92,22 @@ justified once, in SKILL.md's "Spawn-prompt principle" and
 "Report-consumption principle"; every other mention is a pointer, and
 what follows a pointer is that site's application of the rule, never
 the rule restated.
+
+The **fixer brief** is the one brief that travels on the PR rather
+than in a spawn prompt: `skills/orchestrate/SKILL.md` posts it as a
+comment whose first line is the literal marker
+`<!-- sdlc:fixer-brief -->`, and every other spelling is a reader that
+must agree with it — `agents/issue-fixer.md` requires it before doing
+anything, `agents/theorem-based-pr-reviewer.md` skips a comment
+carrying it rather than reading it as a human adjustment, and
+`agents/pr-finalizer.md` collects the briefs by it at the end of the
+run. Nothing tests the string, so a reword in one file silently
+strands the fixer or mints theorems for findings the review already
+filed: sweep it with `git grep -n 'sdlc:fixer-brief'` and grade every
+hit. That channel is also what makes `issue-fixer`'s `## Inputs` the
+PR number and nothing else — narrowness as load-bearing as
+`issue-developer`'s, so re-adding the issue set, the branch name, or
+the findings to either end falsifies the other.
 
 SKILL.md's `Phase 1` / `Phase 2` / `Phase 3` headings stay as they
 are. They read as sequence names, but they are load-bearing across the
@@ -200,10 +219,13 @@ value — which is what keeps a model change a one-file edit.
 
 `theorem-based-pr-reviewer` and the agents it spawns are non-mutating:
 none declares `memory:`, none carries `Edit`, and the reviewer's
-`Write` is bounded to staging its review body under
-`.claude/tmp/<task-slug>/` so `/github-prs:pr-review-submit` can post
-it by path. Keep that structural — no `memory:` key, no widened
-`Write`, no commit step, no writing tool on a spawned agent. A round's
+`Write` is bounded to two files under `.claude/tmp/<task-slug>/`: its
+review body, which `/github-prs:pr-review-submit` posts by path, and
+one round state file holding each fan-out's clock anchor, deadline
+instant and spawn/return log — the facts a resumed turn cannot
+remember. Keep that structural — no `memory:` key, no `Write` past
+those two files, no file that outlives the round, no commit step, no
+writing tool on a spawned agent. A round's
 theorem list is no exception: the reviewer persists records in the
 **review it posts** and the next round reads them back off the PR, and
 a PR artifact is not a branch write. Never repair a persistence gap by
@@ -214,6 +236,23 @@ So a durable lesson learned while reviewing lands as a PR — against
 `theorem-disprover` (how to establish a fact),
 `counterexample-verifier` (how to reject a bad counterexample), or the
 repo's `CLAUDE.md` — never as a memory entry.
+
+### The PR body is frozen for the loop's duration
+
+`CLAUDE.md`'s rule that a PR description is a doc surface is bounded
+here: the body is written once when the PR opens and amended once,
+after the loop ends, by `pr-finalizer`, which is the only agent that
+edits one. `agents/issue-fixer.md` and `agents/doc-updater.md` each
+carry the prohibition, because the general rule would otherwise send
+them at exactly that surface.
+
+The reason is what a round reads: this PR's commits and the comments
+posted since the last review, both append-only and timestamped. A body
+changes with no commit, no comment and no timestamp, so a mid-loop edit
+yields a round whose delta is empty, carrying every verdict forward and
+re-reporting the finding the edit just fixed until the round cap runs
+out. Never repair that by teaching the reviewer to diff the body — the
+freeze removes the input rather than adding a detector for it.
 
 ### Agent memory never reaches a commit
 

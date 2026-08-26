@@ -81,8 +81,8 @@ from its issue.
 
    The marker is spelled here, in `sdlc:orchestrate` → "Handling
    review findings — the fix loop" which writes it, in every other
-   `sdlc` file that reads it, and in the repo's `CLAUDE.md`. A change
-   to the literal sweeps all of them:
+   `sdlc` file that reads it, and in this plugin's `README.md`. A
+   change to the literal sweeps all of them:
    `git grep -n 'sdlc:fixer-brief'`.
 
    The brief carries the findings, the issue set the PR closes, and

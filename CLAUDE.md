@@ -119,13 +119,13 @@ support.
 
 ## The PR description is a doc surface
 
-A PR body goes stale for the same reasons a README does, and nothing
-tests it, so a hand-listed count or an unjustified "the list is closed
-because …" survives there longest. Read it with
-`gh pr view <N> --json body -q .body`, edit a scratch copy, and pass it
-back with `--body-file`. Two constraints bound that work and only two:
-the closing keyword survives byte for byte — never add, remove or
-retarget one — and nothing else on the PR is in scope.
+A PR body goes stale like a README, nothing tests it, and a hand-listed
+count or an unjustified "the list is closed because …" survives there
+longest. Read it with `gh pr view <N> --json body -q .body`, edit a
+scratch copy, pass it back with `--body-file`. Three bounds, and only
+three: the closing keyword survives byte for byte, nothing else on the
+PR is in scope, and no edit lands during a `/sdlc:orchestrate` loop —
+there the body is frozen, and `pr-finalizer` amends it once at the end.
 
 ## The rebase automation can move a PR branch mid-session
 
