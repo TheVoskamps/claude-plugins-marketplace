@@ -101,11 +101,12 @@ That read settles the route and never the message text, because the
 client sends the mutation and the wording comes back from GitHub. The
 self-review refusals `/github-prs:pr-review-submit` quotes verbatim are
 that wording, and they are real: a self-directed `request_changes`
-comes back HTTP 422 carrying `Can not request changes on your own pull
-request`, which `gh` surfaces as `Review Can not request changes on
-your own pull request (addPullRequestReview)`, and its `approve`
-sibling is the same refusal on the other event, worded `Can not
-approve your own pull request`. Posting a review is
+surfaces as `Review Can not request changes on your own pull request
+(addPullRequestReview)`, observed on a real round here, and its
+`approve` sibling is the same refusal on the other event, worded `Can
+not approve your own pull request`. Match a refusal on that surfaced
+text rather than on a status code: the route above puts the failure in
+the mutation's errors, not in a transport status. Posting a review is
 ordinary work in this repo rather than a probe of the verb, so a
 refusal a real round hits is where such a string is established — do
 not label one unsourceable.
