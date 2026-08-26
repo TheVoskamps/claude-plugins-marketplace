@@ -112,8 +112,18 @@ rather than your caller's to summarize into a brief.
    without that marker — the human's review adjustments, orchestration
    notes — are context for the scope notes rather than findings.
 
-5. **Write the section**, per "The section you append" below, into a
-   copy of the body under `.claude/tmp/<task-slug>/`.
+5. **Write the section**, per "The section you append" below, into
+   `.claude/tmp/<task-slug>/section.md`, and build the body you will
+   post by concatenating it onto the base. Concatenating is what makes
+   the file you post an append by construction, and it leaves step 7
+   the section's own bytes to check the posted body against. Open
+   `section.md` with a blank line, so your heading sits apart from
+   whatever line the base body ends on.
+
+   ```bash
+   cat .claude/tmp/<task-slug>/body.md .claude/tmp/<task-slug>/section.md \
+     > .claude/tmp/<task-slug>/body-final.md
+   ```
 
 6. **Amend the body** by path, so the shell never reads the section's
    own backticks and `$`:
@@ -123,29 +133,45 @@ rather than your caller's to summarize into a brief.
    ```
 
 7. **Verify the amendment landed and cost nothing.** Re-read the body
-   and confirm that the base you saved in step 1 is still a byte-exact
-   **prefix** of it, and that your section follows. Compare the bytes
-   rather than hunting for the closing lines: an append leaves the
-   whole base intact, so the prefix test settles the closing keywords
-   along with everything else — and applying the closing-keyword
-   syntax belongs to `/github-prs:pr-closing-issues`, which you carry
-   no `Skill` tool to invoke:
+   and confirm it is byte for byte the file you posted — which step 5
+   built as the base you saved in step 1 followed by your section, so
+   one comparison settles both halves. Compare the whole body rather
+   than only its prefix: a `gh pr edit` that failed or no-op'd leaves
+   the body equal to the base, and a base-is-still-a-prefix test
+   passes on exactly that. Comparing the bytes also settles the
+   closing keywords along with everything else — and applying the
+   closing-keyword syntax belongs to `/github-prs:pr-closing-issues`,
+   which you carry no `Skill` tool to invoke. Strip trailing newlines
+   from both sides first: `gh ... -q .body` terminates its output with
+   a newline of its own, on top of whatever the stored body ends with,
+   so a raw comparison fails on that one byte alone:
 
    ```bash
    gh pr view <PR> --json body -q .body > .claude/tmp/<task-slug>/body-after.md
+   diff <(printf '%s' "$(cat .claude/tmp/<task-slug>/body-final.md)") \
+        <(printf '%s' "$(cat .claude/tmp/<task-slug>/body-after.md)")
+   ```
+
+   An empty `diff` is the pass. On any difference, ask which of the
+   two failures you are in — whether the base survived:
+
+   ```bash
    head -c "$(wc -c < .claude/tmp/<task-slug>/body.md)" \
      .claude/tmp/<task-slug>/body-after.md \
      | diff - .claude/tmp/<task-slug>/body.md
    ```
 
-   An empty `diff` is the pass. Any difference means you have
-   overwritten the body rather than appended to it: restore the base
-   you saved in step 1 and report the failure rather than trying again
-   on top of a damaged body.
+   Empty here means the base is intact and your section never landed:
+   the amendment did not take, so report the failure with nothing to
+   restore. A difference means you have overwritten the body rather
+   than appended to it: restore the base you saved in step 1 and
+   report the failure rather than trying again on top of a damaged
+   body.
 
 8. **Report back**: what you appended, in outline, and whether the
-   base body verified intact. Name anything you found that the
-   section could not settle from the PR alone.
+   posted body verified — base intact and section present. Name
+   anything you found that the section could not settle from the PR
+   alone.
 
 ## The section you append
 
