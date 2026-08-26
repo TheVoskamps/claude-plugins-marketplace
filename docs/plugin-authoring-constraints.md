@@ -352,6 +352,21 @@ requires a verdict per child, with no record of which children
 returned, will have one supplied. State that a verdict's only
 admissible source is a received `<task-notification>`, and give the
 disposition table a row for the child that has not reported.
+
+**That state file is append-only, and the procedure has to say so.**
+Create it once, then extend it one record per line with a shell
+append (`>>`), and revise no line already written. A whole-file write
+and a tail edit are the same failure in different spellings: both
+reconstruct the file from what the agent remembers, and what it
+remembers is exactly what the turn boundary destroyed. For the same
+reason, anything that changes as the round runs — which children are
+still outstanding — is derived from the records on each read rather
+than stored, since a stored copy is a line that must be revised to
+stay true. A review round that rewrote its file left returned
+children uncrossed-off beside a return log that contradicted the
+stored set, and waited out its budget on work that had already
+reported (issue #351).
+
 `theorem-based-pr-reviewer` carries both — the anchors at each of its
 two spawn points, and the state file under `.claude/tmp/`
 (issue #344). A procedure that
