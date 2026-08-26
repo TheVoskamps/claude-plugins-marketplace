@@ -599,7 +599,7 @@ under the old sense it still is.
 The tell is a word appearing twice in one document with two referents,
 where the diff introduced only the second. `/pr-review-submit` used
 "inline" for where the *verdict* travels — an `APPROVED` line in the
-body, because `gh` refuses a self-`--approve` — and the `--body-file`
+body, because GitHub refuses a self-`--approve` — and the `--body-file`
 round gave "inline" a second job naming where the *body* travels. "It
 was downgraded to an inline `--comment`" then described the one path
 that posts from a composed file. The check is to grep the new term
