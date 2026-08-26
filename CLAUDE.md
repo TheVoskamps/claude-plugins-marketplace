@@ -103,11 +103,10 @@ DO carry an H1. They lint clean, and a new one you write must too.
 ## Never invoke a GitHub publishing verb
 
 A `gh` verb that publishes — `gist create`, `gist edit`, `release
-create`, `release upload`, `pr create`, `pr review`, `issue create`,
-`pr comment`, `issue comment` — is never run to establish behavior, in
-any spelling, for any reason. Not with `--help`, not with an invalid
-flag value, not with a nonexistent path, not "because it will obviously
-error first".
+create`, `release upload`, `pr create`, `issue create`, `pr comment`,
+`issue comment` — is never run to establish behavior, in any spelling,
+for any reason. Not with `--help`, not with an invalid flag value, not
+with a nonexistent path, not "because it will obviously error first".
 Every abort story of the shape "the operand is absent" or "stdin is
 empty" is exactly the story that fails: `gh gist create -pd <path>`
 looks like it must abort on a missing `-d` value, but `-d` eats the

@@ -86,23 +86,28 @@ same reason a commit message goes through `git commit -F <file>` here.
 Verify draft-ness and the closing line by re-reading the created PR
 rather than trusting the create's own output.
 
-## `gh pr review` is GraphQL too, and its refusals are not in the source
+## `gh pr review` is GraphQL too, and its refusals are the server's words
 
 `gh pr review` does not use the REST reviews endpoint either:
 `api.AddReview` in `api/queries_pr_review.go` builds an
 `AddPullRequestReviewInput` and calls `client.Mutate`, so every failure
-arrives as a GraphQL error, rendered in gh's
-`GraphQL: <message> (<path>)` shape rather than as a bare API message.
-
-Documentation here quotes GitHub's self-review refusals ("Can not
-approve your own pull request" and its request-changes sibling)
-verbatim, and `pr review` publishes, so those strings are never settled
-by running one. Read the mutation path in `cli/cli` at the tag
+arrives as an error on the `addPullRequestReview` mutation rather than
+as a bare REST API message. Read that path in `cli/cli` at the tag
 `gh --version` reports —
 `gh api "repos/cli/cli/contents/<path>?ref=<tag>" --jq .content` piped
-through `base64 -d` — and then say plainly that the server-side message
-text itself is not establishable from that source: the client sends the
-mutation, and the wording comes back from GitHub.
+through `base64 -d`.
+
+That read settles the route and never the message text, because the
+client sends the mutation and the wording comes back from GitHub. The
+self-review refusals `/github-prs:pr-review-submit` quotes verbatim are
+that wording, and they are real: a self-directed `request_changes`
+comes back HTTP 422 carrying `Can not request changes on your own pull
+request`, which `gh` surfaces as `Review Can not request changes on
+your own pull request (addPullRequestReview)`, and its `approve`
+sibling is the same refusal on the other event. Posting a review is
+ordinary work in this repo rather than a probe of the verb, so a
+refusal a real round hits is where such a string is established — do
+not label one unsourceable.
 
 ## `yq` traps in the mikefarah build
 
