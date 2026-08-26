@@ -264,6 +264,25 @@ states what a generator puts in each record field and the reviewer's
 reviewer transcribing a record into a brief between them. So renaming
 or redefining a class sweeps those surfaces as well.
 
+Two of the orchestrator's briefs no longer travel in a spawn prompt at
+all, and each has its own sweep. The **fixer brief** is a PR comment
+whose first line is the literal marker `<!-- sdlc:fixer-brief -->`.
+`skills/orchestrate/SKILL.md` writes it; every other spelling is a
+reader that must agree with it — `agents/issue-fixer.md` requires it
+before doing anything, `agents/theorem-based-pr-reviewer.md` skips a
+comment carrying it rather than reading it as a human adjustment, and
+`agents/pr-finalizer.md` collects the briefs by it at the end of the
+run. Nothing tests the
+string, so a reword in one file silently strands the fixer or mints
+theorems for findings the review already filed — sweep it with
+`grep -rn 'sdlc:fixer-brief' plugins/sdlc/` and grade every hit, never
+a remembered list of readers.
+The same PR-comment channel is what makes `issue-fixer`'s `## Inputs`
+the PR number and nothing else; that narrowness is load-bearing the
+way `issue-developer`'s is, so re-adding the issue set, the branch
+name, or the findings to either the Inputs list or the spawn template
+falsifies the other end.
+
 On any widening of the orchestrator's teammate spawn templates, the
 receiving side is the half that stays stale, and the half to check is
 the bullet *list* under that agent's `## Inputs`, not the prose around
@@ -487,15 +506,21 @@ declares `memory:`, and none carries an `Edit` tool. A review round
 therefore commits nothing, pushes nothing, and writes nothing to
 `.claude/agent-memory/`.
 
-`theorem-based-pr-reviewer` alone carries `Write`, for one bounded
-purpose: staging its review body under `.claude/tmp/<task-slug>/` so
-`/github-prs:pr-review-submit` can post it by path, which a real
-round's body needs because the inline form spells the body into a
-double-quoted `--body "<body>"`, where the shell reads every backtick
-and `$` in tens of kilobytes of Markdown that quotes code throughout
-(issue #321). `.claude/tmp/` is gitignored and the reviewer has no
-commit or push step, so nothing it stages reaches the branch. The
-spawned agents carry no writing tool at all.
+`theorem-based-pr-reviewer` alone carries `Write`, for two bounded
+purposes, both under `.claude/tmp/<task-slug>/`. It stages its review
+body there so `/github-prs:pr-review-submit` can post it by path,
+which a real round's body needs because the inline form spells the
+body into a double-quoted `--body "<body>"`, where the shell reads
+every backtick and `$` in tens of kilobytes of Markdown that quotes
+code throughout (issue #321). And it writes one **round state file**
+per round, holding each fan-out's wall-clock anchor and deadline
+instant plus a spawn/return log — the thing a resume loop needs and
+cannot remember, since every fan-out wait ends the turn (issue #344).
+`.claude/tmp/` is gitignored and the reviewer has no
+commit or push step, so nothing it writes reaches the branch. The
+spawned agents carry no writing tool at all. Widening that grant past
+those two purposes, or letting either file outlive the round, is what
+this bound exists to stop.
 
 The theorem list a round carries forward is no exception either,
 because it never lands on the branch: the reviewer persists the
@@ -505,8 +530,8 @@ persistence gap by giving review a file the branch would carry.
 
 That is enforcement, not convention, so keep it structural: do not add
 a `memory:` key to any of those definitions, do not widen the
-reviewer's `Write` past body staging, do not give any spawned agent a
-writing tool, and do not give the reviewer a commit step. A durable
+reviewer's `Write` past those two files, do not give any spawned agent
+a writing tool, and do not give the reviewer a commit step. A durable
 lesson learned while reviewing lands as a PR against
 `theorem-generation` (how to state a better theorem),
 `theorem-disprover` (how to establish a fact),
@@ -1203,10 +1228,30 @@ because …" survives there longest. Read it with
 `gh pr view <N> --json body -q .body`, edit a scratch copy, and pass it
 back with `--body-file`.
 
-Two constraints bound that work, and only two. The closing keyword
+Two constraints bound that work. The closing keyword
 survives byte for byte — never add, remove, or retarget one. And
 nothing else on the PR is in scope: no comments, no reviews, no
 labels, no other PR or issue.
+
+**When** that work happens is the third, and it is a scheduling rule
+rather than a scope one: **outside a running `/sdlc:orchestrate` loop
+only**. For the duration of a loop the body is frozen — written once
+at PR creation and amended once, after the loop ends, by the
+`pr-finalizer` agent, which is the only agent that edits a body at
+all. `issue-fixer` and `doc-updater` each state the prohibition in
+their own definitions, because they are the agents the general rule
+above would otherwise send at exactly that surface.
+
+The freeze is not about the body mattering less. The review round's
+other inputs — this PR's commits, and the comments posted since the
+last review — are append-only and timestamped, and the body is
+neither: it changes with no commit, no comment and no timestamp. So a
+mid-loop body edit produces a round whose delta is empty, which
+carries every verdict forward unchanged and re-reports the finding the
+edit just fixed, round after round until the cap runs out
+(issue #344). Repairing that by teaching the reviewer to diff the body is the
+fix that was rejected: the freeze removes the input instead of adding
+a detector for it.
 
 ## A rebase can absorb an identical version bump
 

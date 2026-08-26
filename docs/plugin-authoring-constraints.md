@@ -332,7 +332,31 @@ the deadline off a measured worst case with room to spare, and state
 the figure and the run it was measured on where the deadline itself
 lives, so a re-measurement is one edit — review sizes its disprover
 deadline that way, and carries both in
-`plugins/sdlc/agents/theorem-based-pr-reviewer.md`. A procedure that
+`plugins/sdlc/agents/theorem-based-pr-reviewer.md`.
+
+**A deadline needs a clock anchor written down, or it cannot be
+evaluated.** The resume that has to answer "has the deadline passed?"
+is a different turn from the spawn, and nothing about a resumed turn
+tells the agent how long it has been waiting. A stated figure with no
+recorded anchor therefore leaves the agent guessing, and both guesses
+are failures: "not yet" ends the turn indefinitely, and "yes" takes
+the deadline arm over children that may still be running. So the
+procedure must instruct the spawner to (a) run a clock command at the
+spawn point and record the reading, (b) compute and record the
+deadline instant from it, and (c) read the clock again and compare
+explicitly on **every** resume, before deciding whether to end the
+turn. None of that survives in context alone, so it goes in a state
+file the spawner writes — which is also where the per-child spawn and
+return log belongs, since "which children reported" is the other fact
+a resume cannot remember. That log is what makes a **received**
+verdict distinguishable from an inferred one: a procedure that
+requires a verdict per child, with no record of which children
+returned, will have one supplied. State that a verdict's only
+admissible source is a received `<task-notification>`, and give the
+disposition table a row for the child that has not reported.
+`theorem-based-pr-reviewer` carries both — the anchors at each of its
+two spawn points, and the state file under `.claude/tmp/`
+(issue #344). A procedure that
 fans out twice needs a deadline on **each** fan-out: an unbounded
 second stage parks the round exactly as an unbounded first one would,
 and it is the easier one to leave unbounded, because it runs only on

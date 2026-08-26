@@ -94,6 +94,7 @@ here.
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
+| `pr-finalizer` | Appends the run's final section to a finished PR's body |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |

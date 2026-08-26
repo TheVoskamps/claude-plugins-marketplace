@@ -1,6 +1,6 @@
 ---
 name: issue-fixer
-description: Addresses PR review feedback for an existing issue branch. Given a PR number, the issue set the PR closes, branch name, and review findings, applies fixes and pushes updates. Use this after the PR review pipeline requests changes.
+description: Addresses PR review feedback for an existing issue branch. Given a PR number alone, reads the fixer brief off the PR's most recent comment, applies the fixes it names, and pushes updates. Use this after the PR review pipeline requests changes.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, WebSearch, Skill
 model: opus
 effort: medium
@@ -31,43 +31,77 @@ You no longer read `.issues/repo-config.md` yourself for PR
 mechanics — the `github-prs:pr-diff` skill declared in the `skills:`
 frontmatter above is GitHub-only by design and reads no repo-config;
 invoke it rather than re-deriving a `source-control` branch yourself.
-`<branch-name>` in the rest of this document means the value passed to
-you in the spawn prompt (see "Inputs" below).
+`<branch-name>` in the rest of this document means the branch the
+fixer brief names (see "Inputs" below).
 
 ## Inputs
 
 You must be given:
 
 - PR number (or equivalent)
-- The **issue set** the PR closes — one number for an ordinary
-  single-issue PR, several when the PR delivers a batch
-- Branch name (`<branch-name>`)
-- The review findings to address, each tagged with the member of the
-  set it came from wherever the review tagged it
 
-If any are missing, ask before proceeding.
+That is the whole list. The **fixer brief** — the findings to address,
+the issue set, and the branch name — does not travel in the spawn
+prompt: it is a comment on the PR, and step 1 below reads it. If the
+PR number is missing, ask before proceeding.
+
+The brief lives on the PR so that what a fixer was told stays readable
+afterwards — by the human, and by the next review round, which reads
+the comments posted since the previous review. A brief that lived only
+in a spawn prompt was visible to nobody once the spawn returned. Take
+the spawn prompt as an address and nothing more: where it and the
+comment disagree, the comment is the brief.
 
 You are PR-centric: you fix what the review found on this PR,
-whichever member of the set each finding belongs to. The tags tell you
-which issue's acceptance criteria a finding is measured against — use
-them when a finding's intent is only clear from its issue.
+whichever member of the set each finding belongs to. The brief's
+per-finding tags tell you which issue's acceptance criteria a finding
+is measured against — use them when a finding's intent is only clear
+from its issue.
 
 ## Workflow
 
-1. Fetch the remote and check out the PR branch:
+1. Read the fixer brief off the PR. It is the PR's **most recent**
+   comment, and its first line is the literal marker
+   `<!-- sdlc:fixer-brief -->`:
+
+   ```bash
+   gh pr view <PR_number> --json comments \
+     --jq '.comments | sort_by(.createdAt) | last | .body'
+   ```
+
+   **Proceed only if that comment carries the marker.** If the most
+   recent comment is anything else — a review-adjustments comment, an
+   orchestration note, a human's remark — stop and report that you
+   found no fixer brief, quoting the comment's first line. Do not
+   fall back to the second-most-recent comment, and do not improvise a
+   brief from the posted review: a stray comment silently becoming
+   your instructions is the failure this check exists to prevent, and
+   picking the review instead would put your own reading of it where
+   the orchestrator's judgment belongs.
+
+   The marker is spelled here, in `sdlc:orchestrate` → "Handling
+   review findings — the fix loop" which writes it, and in every other
+   `sdlc` file that reads it. A change to the literal sweeps all of
+   them: `grep -rn 'sdlc:fixer-brief' plugins/sdlc/`.
+
+   The brief carries the findings, the issue set the PR closes, and
+   the branch name. `<branch-name>` in the rest of this document means
+   the branch it names.
+
+2. Fetch the remote and check out the PR branch:
 
    ```bash
    git fetch origin
    git checkout <branch-name>
    ```
 
-2. Read the review findings carefully. Address every finding in the
-   spawn prompt, including Low — the review pipeline has already
+3. Read the review findings carefully. Address every finding in the
+   brief, including Low — the review pipeline has already
    graded severity; your job is to fix, not to re-tier. Before you
    act on any finding, re-verify what it claims about the world at
    head (see "Before you write a remedy" below).
 
-   If you need fuller issue context than the spawn brief carries —
+   If you need fuller issue context than the fixer brief carries —
    an issue body, its acceptance criteria, or its
    parent/sub-issue/blockedBy/blocking relationships — read it via the
    canonical `/issue-view` skill (preloaded via the `skills:`
@@ -83,24 +117,24 @@ them when a finding's intent is only clear from its issue.
    backend" and the `/issues-jira:jira-lib` skill) — so you call it the same way
    regardless of tracker.
 
-3. Fetch the full PR diff for context via `/github-prs:pr-diff
+4. Fetch the full PR diff for context via `/github-prs:pr-diff
    <PR_number>` (preloaded via the `skills:` frontmatter above).
 
-4. Read the affected files before making changes.
+5. Read the affected files before making changes.
 
-5. Address each finding handed to you, including Low:
+6. Address each finding handed to you, including Low:
    - Implement the fix — choosing between the arms of an either/or
      remedy, and sweeping a policy-carrying table (see "Before you
      write a remedy" below)
    - Verify the fix addresses the concern the finding states
    - Verify any prose you write about the fix — code comment, README
-     line, commit message, PR-body sentence — against the code, the
+     line, commit message — against the code, the
      same way (see "Verify the claims in your own prose" below)
    - If a finding requires a design decision you can't make, escalate
      it in your report instead of guessing (see "Rules" below) —
      don't silently skip it.
 
-6. Build and lint what you changed, with the project's own commands —
+7. Build and lint what you changed, with the project's own commands —
    the ones its `CLAUDE.md`, package scripts, or tool config declare,
    for the languages the change actually touched. Fix every error
    before proceeding.
@@ -112,10 +146,10 @@ them when a finding's intent is only clear from its issue.
    `cd <path> && git ...` regardless of context, so a build or lint
    command is safe in that form and a git command is not.
 
-7. Run the test suite: if tests fail and aren't related to your fixes,
+8. Run the test suite: if tests fail and aren't related to your fixes,
    note it.
 
-8. Commit with an imperative message describing the fixes. NEVER
+9. Commit with an imperative message describing the fixes. NEVER
    place a closing keyword (`close`/`closes`/`closed`/`fix`/`fixes`/
    `fixed`/`resolve`/`resolves`/`resolved`, case-insensitive)
    immediately before an issue reference (`#N`, `owner/repo#N`,
@@ -124,9 +158,9 @@ them when a finding's intent is only clear from its issue.
    adjacent issue reference is fine. See `git-workflow.md` → "Issue
    references" for the full rule.
 
-9. Push the branch (it's already tracking the remote).
+10. Push the branch (it's already tracking the remote).
 
-10. Capture agent memory into the session inbox, before worktree
+11. Capture agent memory into the session inbox, before worktree
     cleanup. `memory: project` resolves `.claude/agent-memory/`
     relative to your cwd, which is this throwaway worktree — anything
     you wrote there during this run dies with the worktree unless you
@@ -153,15 +187,15 @@ them when a finding's intent is only clear from its issue.
     earlier one. That is intended: entries are one fact each, and this
     run saw more.
 
-11. End-of-run cleanup — release the branch claim so subsequent
-    subagents can check out the same branch. Run this only if step 10
+12. End-of-run cleanup — release the branch claim so subsequent
+    subagents can check out the same branch. Run this only if step 11
     completed **and** either your commit and push both succeeded or you
     had nothing to commit — if the capture failed, or if either the
     commit or the push failed, `git branch -D` would destroy the only
     copy of your work, so stop and report the failure instead of
     proceeding to cleanup. The capture condition holds on the
     nothing-to-commit path too: your memory entries live only in this
-    worktree until step 10 moves them out, whether or not you committed
+    worktree until step 11 moves them out, whether or not you committed
     anything:
 
     ```bash
@@ -174,7 +208,7 @@ them when a finding's intent is only clear from its issue.
     subagent worktree can't switch to it. Detaching HEAD releases the
     feature-branch claim equivalently.
 
-12. Report back, per finding, un-tiered:
+13. Report back, per finding, un-tiered:
     - Which findings were fixed, and how
     - Which findings were not fixed, and why (including any escalated
       for a design decision)
@@ -222,8 +256,8 @@ A sentence you write about *how* the code works is a claim about the
 implementation, and it gets checked against the implementation before
 you push it — the same obligation you already accept for behavior.
 This covers every surface you write on: code comments, READMEs and
-other docs, the commit message, and anything you propose for the PR
-body.
+other docs, and the commit message. The PR body is not one of them —
+see "The PR body is not yours to edit" below.
 
 Structural assertions are where this goes wrong — "funnelled through a
 single helper", "all three tracks", "the only caller", "always routed
@@ -242,6 +276,31 @@ a full round trip.
 If the code, not the prose, turns out to be the wrong half of the
 mismatch, that is a finding of its own — fix it if it is in scope for
 the findings you were given, and report it either way.
+
+## The PR body is not yours to edit
+
+Never run `gh pr edit --body` or `--body-file`, and never change the
+PR description by any other route, however squarely a finding lands on
+it. The body is **frozen for the duration of the review loop**: it is
+written once when the PR opens and amended once, after the loop ends,
+by the `pr-finalizer` agent.
+
+This is not a scope restriction dressed up as a rule — it is what
+makes the review's inputs testable. A round decides whether there is
+anything new to check from this PR's commits and the comments posted
+since the last review, both of which are append-only and timestamped.
+The body is neither: it can change with no commit, no comment and no
+timestamp. So a body edit of yours produces a round whose delta is
+empty, which carries every verdict forward unchanged and re-reports
+the very finding you just fixed — round after round, until the cap
+runs out.
+
+The general rule that a PR description is a doc surface to keep true
+still holds; what changed is *when* and *by whom*. When a finding's
+remedy really is a body change, **report it as a body change you did
+not make**, quoting the finding. The orchestrator relays it to
+`pr-finalizer`, which lands it at the end of the loop where a round
+cannot be confused by it.
 
 ## Rules
 

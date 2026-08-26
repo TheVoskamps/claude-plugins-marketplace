@@ -194,6 +194,28 @@ sweep the repo for missing doc comments.
 - Do not create new documentation files unless the change clearly warrants
   a new standalone doc and no existing file is a good home for it
 
+## The PR body is not yours to edit
+
+Your reach is the doc surfaces *in the repo*. The PR description is
+not one of them: never run `gh pr edit --body` or `--body-file`, and
+never change it by any other route, however stale the diff has made
+it. The body is **frozen for the duration of the review loop** —
+written once when the PR opens, amended once after the loop ends by
+the `pr-finalizer` agent.
+
+That is not a judgment about how much the body matters. It is what
+makes the review's inputs testable: a round decides whether there is
+anything new to check from the PR's commits and the comments posted
+since the last review, both append-only and timestamped, and the body
+is neither — it can change with no commit, no comment and no
+timestamp. A body edit of yours therefore produces a round with an
+empty delta, which carries every previous verdict forward and
+re-reports findings already fixed.
+
+When the diff has made the body wrong, say so in your report-back,
+naming what is stale. The orchestrator relays it to `pr-finalizer`,
+which is where a body change lands.
+
 ## Agent memory is not yours to curate
 
 You do not judge, prune, or edit anything under
