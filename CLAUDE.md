@@ -77,23 +77,28 @@ only what the repo statement was worth.
 ## MD041 on a SKILL.md is convention, not debt
 
 `npx markdownlint-cli2` reports
-`MD041/first-line-heading/first-line-h1` on essentially every
-`plugins/*/skills/**/SKILL.md`, always at the first prose line after
-the YAML frontmatter. Leave it alone. A `SKILL.md` body is a *prompt*
-the model reads, not a document, so it opens with an instruction ("You
-are running the `/foo` skill…") rather than an H1, and MD041 is the
-only error class those files produce — a rule that fires uniformly and
-alone, in a tree whose Markdown is otherwise spotless, is a tolerated
-convention.
+`MD041/first-line-heading/first-line-h1` on a
+`plugins/*/skills/**/SKILL.md` whose body opens with an instruction
+("You are running the `/foo` skill…") rather than an H1, always at the
+first prose line after the YAML frontmatter. Leave it alone. A
+`SKILL.md` body is a *prompt* the model reads, not a document, so an
+instruction opening is legitimate, and MD041 is the only error class
+those files produce — a rule that fires alone, in a tree whose
+Markdown is otherwise spotless, is a tolerated convention. Both
+openings are in use and the split runs within a plugin as well as
+between plugins, so a changed-files run reporting zero MD041 is as
+ordinary a result as one inheriting a hit: run the linter rather than
+predicting either from the convention.
 
 The global "Leave Markdown clean" rule would otherwise push you into
 adding an H1 to a skill file, which changes the prompt payload the
-model receives and, swept per "sweep the class", churns every skill
-file in every plugin. Don't. When you edit a `SKILL.md`, verify you
-introduced **no new** error classes — re-lint the base and compare
-counts, rather than reading the raw total as debt you inherited — and
-say in the PR body that the remaining MD041 hits are pre-existing and
-why. Changing the convention is a repo-wide decision, not a doc-pass
+model receives and, swept per "sweep the class", churns every
+instruction-opening skill file in the tree. Don't. When you edit a
+`SKILL.md`, verify you introduced **no new** error classes — re-lint
+the base and compare counts, rather than reading the raw total as debt
+you inherited — and say in the PR body what the run reported and why
+any MD041 hit in it is pre-existing. Changing the convention is a
+repo-wide decision, not a doc-pass
 sweep — the same carve-out shape as the `Phase 1` / `Phase 2` headings
 below.
 
