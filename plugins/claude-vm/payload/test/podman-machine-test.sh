@@ -3,9 +3,9 @@
 # podman-machine-test.sh -- the launcher's own podman machine management
 # (issue #215).
 #
-# Two things are under test, and they need different harnesses:
+# What is under test splits by the harness each half needs:
 #
-#   1. The three helpers in lib/config.sh -- claude_vm_podman_machine_probe,
+#   1. The helpers in lib/config.sh -- claude_vm_podman_machine_probe,
 #      claude_vm_ensure_podman_machine, claude_vm_stop_podman_machine --
 #      driven against a stub `podman` on PATH that keeps real state, so an
 #      init/start/stop sequence is observable as a sequence rather than as

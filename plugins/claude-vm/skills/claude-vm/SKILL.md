@@ -1119,8 +1119,9 @@ tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
 actual VM boot — `vfkit` and `tinyproxy` (for the bundled default
 `proxy.cmd`). A launch that has to **build** the guest image is the only
 one that runs `podman`, for the bundled podman-mkosi provisioner; the
-podman *formula* is a requirement of every launch regardless, because
-that is where `gvproxy` comes from (next paragraph). What a build does
+podman *formula* is in practice a requirement of every launch regardless,
+because that is where `gvproxy` normally comes from (next paragraph). What
+a build does
 **not** need is a started podman machine: the launcher inits and starts
 one itself and stops it again at end of run if it was the one that
 started it (see "The launcher manages the podman machine" below). On a
@@ -1214,8 +1215,8 @@ nor any machine state, because only a launch that **builds** the guest
 image runs podman. A warm-cache launch — the image on disk already stamps
 the pinned version — boots it with vfkit and invokes podman not once, so
 it neither gates on a started machine nor starts one. (The preflight does
-check `gvproxy`, which resolves out of podman's Homebrew formula, so a
-host with no podman installed at all still fails there.)
+check `gvproxy`, which normally resolves out of podman's Homebrew formula,
+so a host with neither podman nor an on-PATH `gvproxy` still fails there.)
 
 On the build path the launcher brings podman up itself rather than
 printing two commands and refusing, since claude-vm is meant to be one

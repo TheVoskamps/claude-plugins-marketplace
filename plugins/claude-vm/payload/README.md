@@ -1304,9 +1304,12 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 `serial-getty@hvc1` login program (so claude becomes the interactive
 `hvc1` console session — issue #88) and an unlocked passwordless root
 (`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
-Requires `podman`, but not a started podman machine: the launcher brings
-one up itself for the build and stops it again afterwards (see *The
-launcher manages the podman machine* below). Override with
+Requires `podman`, but a launch through `claude-vm.sh` needs no started
+podman machine: the launcher brings one up itself for the build and stops
+it again afterwards (see *The launcher manages the podman machine* below).
+A direct `build-guest-image.sh` invocation reaches none of that and does
+need a machine already started — which is why this provisioner keeps its
+own `podman info` check. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`. The provisioner renders
 the bake `packages:` into a `mkosi.conf.d` `Packages=` drop-in and each
@@ -1815,9 +1818,12 @@ checks neither the podman binary nor any machine state, and the bring-up
 lives inside `claude-vm.sh`'s build-or-reuse branch. A launch that needs no
 build is gated on nothing podman-related and starts no machine, including on
 a host that has none. Podman's Homebrew *formula* is still a de facto
-requirement of every launch, because `claude_vm_resolve_gvproxy` finds
-`gvproxy` inside it and the preflight does check that — but nothing on the
-warm-cache path executes `podman`.
+requirement of every launch, because the preflight does check `gvproxy` and
+`claude_vm_resolve_gvproxy` falls back to finding it inside that formula —
+de facto rather than absolute, since that resolver honours an on-PATH
+`gvproxy` first, so a host carrying one some other way needs no podman at
+all for a warm-cache launch. Either way nothing on the warm-cache path
+executes `podman`.
 
 The decision is keyed on `podman machine list`, not on a failed `podman
 info`, so each state gets the action it needs rather than one

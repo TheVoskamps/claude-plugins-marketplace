@@ -538,7 +538,11 @@ is one line in a PR, not a test plan handed to the human.
 The podman machine is usually stopped and must be started explicitly,
 and its start does not always produce a working container network.
 Verify egress with the socket probe above before concluding anything
-about your own diff, and stop the machine again when done.
+about your own diff, and stop the machine again when done. That is on
+you only because you are driving the build directly: run through
+`claude-vm.sh` instead and the launcher does its own init/start and
+stops the machine again at end of run (issue #215), so a machine-state
+change on that path is the launcher's, not a leak of yours to chase.
 
 Drive the build with `build-guest-image.sh --output <path>`, exporting
 the same environment the launcher does. Derive the JSON blobs with the

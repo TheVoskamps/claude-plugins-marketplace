@@ -552,8 +552,10 @@ fi
 # The podman binary and its machine state are NOT among the pieces checked
 # here (issue #215). Only a launch that builds the guest image runs podman,
 # and that branch brings up its own machine -- see the build-or-reuse block
-# below. The gvproxy check is not an exception to that: gvproxy ships in
-# podman's Homebrew formula, so every launch does need podman INSTALLED.
+# below. The gvproxy check is the near-exception to that: gvproxy ships in
+# podman's Homebrew formula, so in practice every launch needs podman
+# INSTALLED -- but claude_vm_resolve_gvproxy takes an on-PATH gvproxy first,
+# so a host carrying one some other way passes this preflight with no podman.
 # ---------------------------------------------------------------------
 if [ "$PROXY_CMD" = "$DEFAULT_PROXY_CMD" ]; then
   PREFLIGHT_PROXY_MODE="default-proxy"
