@@ -1845,6 +1845,20 @@ may be using it. An init'd machine is stopped, not removed — init downloads
 and provisions a VM image and is the expensive half, so the next build
 reuses it.
 
+"This run started it" is recorded **before** each `podman machine start`,
+never after it, in both the post-init branch and the already-listed-stopped
+one. `podman machine start` can bring the machine up and still exit
+non-zero — a SIGINT landing on it, or a post-boot step of its own failing —
+and an assignment placed after the call is skipped on exactly that path, so
+the teardown finds nothing recorded, returns immediately on its
+`[ -n "$name" ] || return 0` arm, and the machine stays up with no trace.
+Recording first costs at most a `podman machine stop` against a machine that
+never came up, which warns; recording last costs a leaked VM, which is
+silent. `podman-machine-test.sh`'s `start-fails-after-up` stub marker is the
+case that pins it — the machine is flipped running and *then* the command
+exits non-zero, which is a different seam from the `info-broken` cases,
+where `start` succeeds and a later step fails.
+
 There is **no config surface** for any of this: it is launcher plumbing, not
 policy. Every init/start/stop is logged to stderr as it happens — the same
 never-silent rule the derived-egress additions follow — and those log lines
@@ -1863,9 +1877,10 @@ The teardown rides the launcher's **trap chain**, and that chain is the part
 a later change breaks silently. Exactly one trap is live at a time and each
 installation REPLACES the previous, so every duty is carried forward by
 hand: the build branch arms `claude_vm_stop_podman_machine` *before* it
-calls the bring-up — the bring-up records the machine it started and can
-still fail afterwards, on its own `podman info` confirmation, so arming
-after the call would exit with that machine still running — the narrow
+calls the bring-up — the bring-up records the machine it started before
+starting it and can fail at any point after that, on the `start` call
+itself or on its own `podman info` confirmation, so arming after the call
+would exit with that machine still running — the narrow
 interim credential trap replaces
 it and repeats the call, and `cleanup()` replaces that and repeats it again.
 A new link that omits the call strands a machine this run brought up, and
@@ -2247,9 +2262,14 @@ block is sliced out of `claude-vm.sh` by marker and **run** — with a stub
 The warm cases assert podman is invoked *zero* times, including on a host
 with no machine at all; the cold cases assert the init/start/build/stop
 sequence, that a machine found running is still running at the end, and that
-a bring-up which starts a machine and then fails its own `podman info`
-confirmation still stops it — which only holds while the trap is armed
-*before* the bring-up call rather than after it.
+a bring-up leaving a machine up behind a failure still stops it. That last
+one is two cases at two different seams: `start` succeeds and the `podman
+info` confirmation fails, which holds only while the trap is armed *before*
+the bring-up call rather than after it, and `start` itself brings the
+machine up and then exits non-zero, which additionally holds only while the
+record is written before that call. The helper battery pins the same two
+seams one level down, on what `CLAUDE_VM_PODMAN_MACHINE_STARTED` is left
+holding.
 Grepping the source for the call would have passed on a block whose
 condition was inverted. What no stub reaches is a real `podman machine
 init` on a real host — that is `host-acceptance.sh`'s territory and, for the

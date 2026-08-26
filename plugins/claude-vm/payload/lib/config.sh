@@ -482,6 +482,15 @@ sys.stdout.write("%s\t%s\n" % (name, "true" if chosen.get("Running") is True els
 # provisions a VM image and is the expensive half, so the next build reuses
 # it.
 #
+# The name is recorded in CLAUDE_VM_PODMAN_MACHINE_STARTED BEFORE each
+# `podman machine start`, never after it. `start` can bring the machine up
+# and still exit non-zero -- a SIGINT landing on it, or a post-boot step of
+# its own failing -- and an assignment placed after the call is skipped on
+# exactly that path, leaving the teardown with nothing recorded while the
+# machine stays up. The cost of recording first is a `podman machine stop`
+# against a machine that never came up, which warns; the cost of recording
+# last is a leaked VM, which is silent.
+#
 # Every action is logged to stderr as it happens -- the same never-silent
 # rule the derived-egress additions follow. There is no config surface: this
 # is launcher plumbing, not policy, and the log lines are its only trace.
@@ -517,11 +526,11 @@ claude_vm_ensure_podman_machine() {
       return 1
     fi
     echo "claude-vm: starting the freshly-initialized podman machine ($name)." >&2
+    CLAUDE_VM_PODMAN_MACHINE_STARTED="$name"
     if ! podman machine start "$name" >&2; then
       echo "claude-vm: 'podman machine start $name' failed after init; cannot build the guest image." >&2
       return 1
     fi
-    CLAUDE_VM_PODMAN_MACHINE_STARTED="$name"
   else
     name="$(printf '%s' "$probe" | cut -f1)"
     running="$(printf '%s' "$probe" | cut -f2)"
@@ -529,11 +538,11 @@ claude_vm_ensure_podman_machine() {
       echo "claude-vm: podman machine ($name) is already running; leaving it as found." >&2
     else
       echo "claude-vm: podman machine ($name) is stopped; starting it." >&2
+      CLAUDE_VM_PODMAN_MACHINE_STARTED="$name"
       if ! podman machine start "$name" >&2; then
         echo "claude-vm: 'podman machine start $name' failed; cannot build the guest image." >&2
         return 1
       fi
-      CLAUDE_VM_PODMAN_MACHINE_STARTED="$name"
     fi
   fi
 

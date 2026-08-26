@@ -73,6 +73,9 @@ assert_eq() {
 #                the plugin avoids)
 #   log          one line per invocation, the argv joined by spaces
 #   info-broken  present => `podman info` fails even with a running machine
+#   start-fails-after-up
+#                present => `machine start` brings the machine up and THEN
+#                exits non-zero
 # ---------------------------------------------------------------------
 STUB_BIN="$WORK/stubbin"
 mkdir -p "$STUB_BIN"
@@ -128,7 +131,15 @@ case "${1:-}" in
         echo "podman-machine-default:false:true" >> "$D/machines"
         exit 0
         ;;
-      start) set_running "${3:-}" true;  exit 0 ;;
+      start)
+        # The machine comes up FIRST, then the exit code is decided:
+        # `start-fails-after-up` present => the machine is running and the
+        # command still exits non-zero, which is what a SIGINT landing on
+        # `podman machine start` leaves behind.
+        set_running "${3:-}" true
+        [ -e "$D/start-fails-after-up" ] && exit 1
+        exit 0
+        ;;
       stop)  set_running "${3:-}" false; exit 0 ;;
     esac
     exit 1
@@ -253,6 +264,24 @@ D="$(new_case ensure-broken-after-start 'solo:false:true')"
 touch "$D/info-broken"
 assert_eq "ensure: a machine started here that then fails 'podman info' stays recorded" \
   "rc:1 started:solo" "$(run_ensure "$D")"
+
+# `podman machine start` itself brings the machine up and THEN exits
+# non-zero -- the shape a SIGINT landing mid-start produces. Distinct from
+# the two cases above, which both have `start` succeeding and a later step
+# failing: here the failing call is the one whose success the record used to
+# be conditioned on, so the record only survives because it is written
+# BEFORE the call.
+D="$(new_case ensure-start-fails-after-up 'solo:false:true')"
+touch "$D/start-fails-after-up"
+assert_eq "ensure: a start that brings the machine up and then fails stays recorded" \
+  "rc:1 started:solo" "$(run_ensure "$D")"
+
+# The same seam on the init path, which has its own start call and its own
+# assignment.
+D="$(new_case ensure-init-start-fails-after-up)"
+touch "$D/start-fails-after-up"
+assert_eq "ensure: after an init, a start that comes up and then fails stays recorded" \
+  "rc:1 started:podman-machine-default" "$(run_ensure "$D")"
 
 # podman missing entirely: the build cannot proceed, and the message must
 # name podman. PATH is emptied of the stub AND of the host's own podman.
@@ -402,6 +431,19 @@ EOF
     "0" "$(run_block "$D" "")"
   assert_eq "scoping: a machine started by a bring-up that then fails is still stopped" \
     "machine list --format json;machine start solo;info;machine stop solo;" \
+    "$(stub_log "$D")"
+
+  # The end-to-end shape of the case above: `start` leaves the machine
+  # running and exits non-zero, the block takes its `|| exit 1` arm, and the
+  # trap must still find a recorded name to stop. There is no `info` in the
+  # expected log -- the bring-up returns before its confirmation -- which is
+  # what distinguishes this from cold-broken-after-start.
+  D="$(new_case cold-start-fails-after-up 'solo:false:true')"
+  touch "$D/start-fails-after-up"
+  assert_eq "scoping: a start that fails after bringing the machine up does not build" \
+    "0" "$(run_block "$D" "")"
+  assert_eq "scoping: a machine left running by a failed start is still stopped" \
+    "machine list --format json;machine start solo;machine stop solo;" \
     "$(stub_log "$D")"
 
   D="$(new_case cold-running 'solo:true:true')"
