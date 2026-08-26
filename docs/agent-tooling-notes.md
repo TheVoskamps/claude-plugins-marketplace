@@ -101,15 +101,20 @@ That read settles the route and never the message text, because the
 client sends the mutation and the wording comes back from GitHub. The
 self-review refusals `/github-prs:pr-review-submit` quotes verbatim are
 that wording, and they are real: a self-directed `request_changes`
-surfaces as `Review Can not request changes on your own pull request
-(addPullRequestReview)`, observed on a real round here, and its
-`approve` sibling is the same refusal on the other event, worded `Can
-not approve your own pull request`. Match a refusal on that surfaced
-text rather than on a status code: the route above puts the failure in
-the mutation's errors, not in a transport status. Posting a review is
-ordinary work in this repo rather than a probe of the verb, so a
-refusal a real round hits is where such a string is established — do
-not label one unsourceable.
+surfaces in full as `failed to create review: GraphQL: Review Can not
+request changes on your own pull request (addPullRequestReview)`,
+observed on a real round here, and its `approve` sibling is the same
+refusal on the other event, worded `Can not approve your own pull
+request` — that core wording only, since no round here has surfaced
+the whole line it arrives in. Match a refusal on the core wording
+rather than on the whole line or on a status code: `gh` wraps it in
+the prefix and the mutation-name suffix above, which the `approve`
+line is unmeasured on, and the route above puts the failure in the
+mutation's errors, not in a transport status, so no status code is
+established here at all. Posting a review is ordinary work in this
+repo rather than a probe of the verb, so a refusal a real round hits
+is where such a string is established — do not label one
+unsourceable.
 
 ## `yq` traps in the mikefarah build
 
