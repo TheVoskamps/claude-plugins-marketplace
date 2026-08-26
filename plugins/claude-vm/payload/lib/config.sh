@@ -1902,8 +1902,9 @@ claude_vm_check_plugin_key_placement() {
 # claude_vm_resolve_boot_env emits files, then copy, then set, and the guest
 # sources the bake file before the boot one, so a later assignment simply
 # overwrites an earlier one when the file is sourced under `set -a`. That needs
-# no associative array and therefore no bash 4 (see the bash-3.2 rule in
-# CLAUDE.md -- these run as config-load guards).
+# no associative array and therefore no bash 4 -- see payload/README.md ->
+# *A guard must survive the oldest bash that can reach it*; these run as
+# config-load guards.
 
 # The sub-keys of `env:` that a BAKE file may not carry. Data, so a future
 # host-sourced sub-key joins the gate by being listed once.
