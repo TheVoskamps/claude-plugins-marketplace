@@ -1206,7 +1206,8 @@ run stays diagnosable.
 machine management (issue #215) against a stateful stub podman, and — by
 slicing the build-or-reuse block out of `claude-vm.sh` and running it —
 the scoping: a warm-cache launch invokes podman zero times, a
-build-needing one inits/starts, builds, and stops again.
+build-needing one inits/starts, builds, and stops again — including when
+the bring-up starts a machine and then fails its own confirmation.
 
 ## The launcher manages the podman machine
 

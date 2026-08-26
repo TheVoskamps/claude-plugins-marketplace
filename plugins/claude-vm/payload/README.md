@@ -82,7 +82,11 @@ payload/
                         # against a stateful stub podman, plus the SCOPING --
                         # the build-or-reuse block sliced out of claude-vm.sh
                         # and run, so a warm-cache launch is observed
-                        # invoking podman zero times
+                        # invoking podman zero times and a build-needing one
+                        # is observed running the init/start/build/stop
+                        # sequence -- leaving a machine it found running
+                        # alone, and stopping the one it started even when
+                        # the bring-up then fails
     host-acceptance.sh  # self-contained on-host acceptance test (build +
                         # boot + egress confinement); host-gated, skips
                         # when a required binary is absent, but starts a
@@ -1858,8 +1862,11 @@ fixed, and only one of them would have a faithful stub behind it.
 The teardown rides the launcher's **trap chain**, and that chain is the part
 a later change breaks silently. Exactly one trap is live at a time and each
 installation REPLACES the previous, so every duty is carried forward by
-hand: the build branch arms `claude_vm_stop_podman_machine` the moment a
-machine may have been started, the narrow interim credential trap replaces
+hand: the build branch arms `claude_vm_stop_podman_machine` *before* it
+calls the bring-up — the bring-up records the machine it started and can
+still fail afterwards, on its own `podman info` confirmation, so arming
+after the call would exit with that machine still running — the narrow
+interim credential trap replaces
 it and repeats the call, and `cleanup()` replaces that and repeats it again.
 A new link that omits the call strands a machine this run brought up, and
 nothing else in the launcher would notice.
@@ -2239,7 +2246,10 @@ block is sliced out of `claude-vm.sh` by marker and **run** — with a stub
 `build-guest-image.sh` and a scratch image — for the warm and cold paths.
 The warm cases assert podman is invoked *zero* times, including on a host
 with no machine at all; the cold cases assert the init/start/build/stop
-sequence, and that a machine found running is still running at the end.
+sequence, that a machine found running is still running at the end, and that
+a bring-up which starts a machine and then fails its own `podman info`
+confirmation still stops it — which only holds while the trap is armed
+*before* the bring-up call rather than after it.
 Grepping the source for the call would have passed on a block whose
 condition was inverted. What no stub reaches is a real `podman machine
 init` on a real host — that is `host-acceptance.sh`'s territory and, for the

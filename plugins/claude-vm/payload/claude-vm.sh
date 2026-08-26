@@ -666,15 +666,20 @@ fi
 # about podman, and the machine bring-up lives here, inside the build branch.
 if [ "$HAVE_VERSION" != "$PINNED_VERSION" ]; then
   echo "claude-vm: guest image missing or version-mismatched (have='${HAVE_VERSION:-none}', want='$PINNED_VERSION'); building..." >&2
+  # FIRST link in the trap chain (see the trap NOTE near the top of this
+  # file). Armed BEFORE the bring-up call, not after it: the bring-up records
+  # the machine it started and can still fail afterwards (its own `podman
+  # info` confirmation returns 1 on a machine podman cannot use), and a
+  # Ctrl-C can land mid-`init`. Arming after the call would exit both paths
+  # with the machine this run started still running -- the leak issue #215
+  # exists to close. The handler no-ops until a machine is recorded, so
+  # arming early costs nothing. The narrow interim trap armed later, and
+  # cleanup() after it, each REPLACE this trap and each carry the same
+  # claude_vm_stop_podman_machine call forward -- a replacement that dropped
+  # it would leak the machine.
+  trap 'claude_vm_stop_podman_machine' EXIT INT TERM
   claude_vm_ensure_podman_machine \
     || { echo "claude-vm: cannot bring up a podman runtime for the image build; see the messages above." >&2; exit 1; }
-  # FIRST link in the trap chain (see the trap NOTE near the top of this
-  # file). Armed the moment a machine may have been started, so a Ctrl-C or a
-  # failed build during the multi-minute build still stops what this run
-  # started. The narrow interim trap armed later, and cleanup() after it, each
-  # REPLACE this trap and each carry the same claude_vm_stop_podman_machine
-  # call forward -- a replacement that dropped it would leak the machine.
-  trap 'claude_vm_stop_podman_machine' EXIT INT TERM
   mkdir -p "$(dirname "$GUEST_IMAGE")"
   "$SCRIPT_DIR/build-guest-image.sh" --output "$GUEST_IMAGE"
 fi

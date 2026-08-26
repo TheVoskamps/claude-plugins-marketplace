@@ -245,6 +245,15 @@ touch "$D/info-broken"
 assert_eq "ensure: a running machine podman cannot use is a failure, not a silent pass" \
   "rc:1 started:" "$(run_ensure "$D")"
 
+# Started, THEN failed its own confirmation. The bring-up records the machine
+# before running `podman info`, so this is the one failing path that still
+# leaves a machine this run started -- the record must survive the failure or
+# the teardown has nothing to act on.
+D="$(new_case ensure-broken-after-start 'solo:false:true')"
+touch "$D/info-broken"
+assert_eq "ensure: a machine started here that then fails 'podman info' stays recorded" \
+  "rc:1 started:solo" "$(run_ensure "$D")"
+
 # podman missing entirely: the build cannot proceed, and the message must
 # name podman. PATH is emptied of the stub AND of the host's own podman.
 OUT="$(
@@ -380,6 +389,18 @@ EOF
   D="$(new_case cold-stopped 'solo:false:true')"
   assert_eq "scoping: a missing-image launch builds" "1" "$(run_block "$D" "")"
   assert_eq "scoping: a stopped machine is started for the build and stopped after it" \
+    "machine list --format json;machine start solo;info;machine stop solo;" \
+    "$(stub_log "$D")"
+
+  # The bring-up fails AFTER starting the machine, so the block aborts on its
+  # `|| exit 1` arm. The stop still has to happen, which it only does if the
+  # trap was armed BEFORE the bring-up call: armed after it, this case ends
+  # with `solo` running and nothing left to stop it.
+  D="$(new_case cold-broken-after-start 'solo:false:true')"
+  touch "$D/info-broken"
+  assert_eq "scoping: a bring-up that fails its confirmation does not build" \
+    "0" "$(run_block "$D" "")"
+  assert_eq "scoping: a machine started by a bring-up that then fails is still stopped" \
     "machine list --format json;machine start solo;info;machine stop solo;" \
     "$(stub_log "$D")"
 
