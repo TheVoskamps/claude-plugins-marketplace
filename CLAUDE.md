@@ -146,14 +146,14 @@ plugins have none. These kernels are what a README cannot supply,
 because each has to be in front of you before you know you needed it:
 
 - **`sdlc`** — an agent's contract is two-sided: changing what an
-  agent does edits `skills/orchestrate/SKILL.md` too, not just the
-  agent file.
+  agent does edits the orchestrator skill that briefs it too, not just
+  the agent file.
 - **`claude-vm`** — every script must run under bash 3.2, and a gate
   asking whether the operator wrote a key reads the raw config file,
   never the merged one.
 - **`guardrails`** — the gate ships as committed binaries, so
-  changing how it is packaged sweeps `plugins/claude-vm/` and bumps
-  both plugins.
+  changing how it is packaged sweeps the `claude-vm` surfaces that
+  mirror that shape and bumps both plugins.
 - **`issues`** — every consumer spells a config path as a literal, so
   moving one edits every plugin that spells it.
 - **`github-setup`** — the App's starter permission set is restated
