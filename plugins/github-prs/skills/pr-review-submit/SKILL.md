@@ -132,11 +132,13 @@ body form picks whether that call ends in `--body "<body>"` or
 
 ### Self-review constraint (an author may post only a comment)
 
-`gh` blocks **both** verdict flags when the reviewer is the PR author:
+`gh` blocks **both** verdict flags when the reviewer is the PR author.
+The refusal is GitHub's, returned on the `addPullRequestReview`
+mutation and surfaced by `gh` around this text:
 
 ```text
-Review Can not approve your own pull request
-Review Can not request changes on your own pull request
+Can not approve your own pull request
+Can not request changes on your own pull request
 ```
 
 Only `COMMENT` is open to an author. So when the current `gh` user is
