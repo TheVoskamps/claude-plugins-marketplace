@@ -104,7 +104,8 @@ that wording, and they are real: a self-directed `request_changes`
 comes back HTTP 422 carrying `Can not request changes on your own pull
 request`, which `gh` surfaces as `Review Can not request changes on
 your own pull request (addPullRequestReview)`, and its `approve`
-sibling is the same refusal on the other event. Posting a review is
+sibling is the same refusal on the other event, worded `Can not
+approve your own pull request`. Posting a review is
 ordinary work in this repo rather than a probe of the verb, so a
 refusal a real round hits is where such a string is established — do
 not label one unsourceable.

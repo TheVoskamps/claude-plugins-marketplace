@@ -72,7 +72,8 @@ must be present, and exactly one of `<body>` and `--body-file <path>`:
 - No `--verdict` — abort with: "No `--verdict` was supplied. Pass
   exactly one of `approve`, `request_changes`, or `comment`."
 - More than one `--verdict` — abort with: "`--verdict` was supplied
-  more than once. Pass exactly one."
+  more than once, as `<first value>` and `<second value>`. Pass exactly
+  one of `approve`, `request_changes`, or `comment`."
 - A `--verdict` value outside the three — abort with: "`<value>` is
   not a verdict. Pass `approve`, `request_changes`, or `comment`."
 - Both body forms supplied — abort with: "Both an inline `<body>` and
@@ -141,8 +142,24 @@ Can not approve your own pull request
 Can not request changes on your own pull request
 ```
 
-Only `COMMENT` is open to an author. So when the current `gh` user is
-the PR's author, `approve` and `request_changes` alike post with
+Only `COMMENT` is open to an author. Settle which case you are in
+**before** posting, rather than posting a flag and reading the refusal
+back — the failed call leaves nothing on the PR, so a caller that
+learns of the block from the error has posted no review at all. Read
+the authenticated login and the PR's author:
+
+```bash
+gh api user --jq .login
+gh pr view <PR> --json author -q .author.login
+```
+
+Each returns a bare login string, and the reviewer is the author when
+those two strings are equal. The comparison is plain equality and
+nothing more: the identity acting here is an ordinary GitHub user
+account, so there is no `[bot]` suffix or other App-installation shape
+to normalize away.
+
+When they are equal, `approve` and `request_changes` alike post with
 `--comment` in place of their own flag — everything else about the
 call, the verdict line included, is unchanged, which is what carries
 the verdict a blocked flag would have carried. `comment` already uses
