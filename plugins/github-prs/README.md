@@ -130,7 +130,7 @@ before they read a PR's changes.
 
 Posts a **single** pull-request review carrying both a verdict and a
 body in one call. The verdict is `approve`, `request_changes`, or
-`comment` — GitHub's own three review actions — and the body opens
+`comment` — GitHub's own review actions — and the body opens
 with the matching verdict word on every post. Because `gh` blocks both
 verdict flags when the reviewer is the PR author, leaving an author
 only a comment, the skill posts those two via `--comment` in that

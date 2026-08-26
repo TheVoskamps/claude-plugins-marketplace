@@ -31,7 +31,7 @@ scope for this plugin.
 - `<pr-number>` (required): the pull-request number in the current
   repo, with or without a leading `#`.
 - `--verdict <value>` (required, exactly once): one of `approve`,
-  `request_changes`, or `comment`. These are GitHub's own three review
+  `request_changes`, or `comment`. These are GitHub's own review
   actions, in the skill's spelling; nothing else is a verdict here.
   - `approve` — the change is good to merge.
   - `request_changes` — the change needs work before merge.
@@ -74,7 +74,7 @@ must be present, and exactly one of `<body>` and `--body-file <path>`:
 - More than one `--verdict` — abort with: "`--verdict` was supplied
   more than once, as `<first value>` and `<second value>`. Pass exactly
   one of `approve`, `request_changes`, or `comment`."
-- A `--verdict` value outside the three — abort with: "`<value>` is
+- A `--verdict` value outside those — abort with: "`<value>` is
   not a verdict. Pass `approve`, `request_changes`, or `comment`."
 - Both body forms supplied — abort with: "Both an inline `<body>` and
   `--body-file <path>` were supplied. Pass exactly one."
