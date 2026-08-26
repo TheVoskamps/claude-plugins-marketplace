@@ -264,9 +264,9 @@ states what a generator puts in each record field and the reviewer's
 reviewer transcribing a record into a brief between them. So renaming
 or redefining a class sweeps those surfaces as well.
 
-Two of the orchestrator's briefs no longer travel in a spawn prompt at
-all, and each has its own sweep. The **fixer brief** is a PR comment
-whose first line is the literal marker `<!-- sdlc:fixer-brief -->`.
+The orchestrator's **fixer brief** no longer travels in a spawn prompt
+at all, and it has a sweep of its own. It is a PR comment whose first
+line is the literal marker `<!-- sdlc:fixer-brief -->`.
 `skills/orchestrate/SKILL.md` writes it; every other spelling is a
 reader that must agree with it — `agents/issue-fixer.md` requires it
 before doing anything, `agents/theorem-based-pr-reviewer.md` skips a
@@ -274,9 +274,9 @@ comment carrying it rather than reading it as a human adjustment, and
 `agents/pr-finalizer.md` collects the briefs by it at the end of the
 run. Nothing tests the
 string, so a reword in one file silently strands the fixer or mints
-theorems for findings the review already filed — sweep it with
-`grep -rn 'sdlc:fixer-brief' plugins/sdlc/` and grade every hit, never
-a remembered list of readers.
+theorems for findings the review already filed — sweep it repo-wide
+with `git grep -n 'sdlc:fixer-brief'` and grade every hit, this file's
+own mentions included; a grep confined to `plugins/sdlc/` misses them.
 The same PR-comment channel is what makes `issue-fixer`'s `## Inputs`
 the PR number and nothing else; that narrowness is load-bearing the
 way `issue-developer`'s is, so re-adding the issue set, the branch
@@ -384,10 +384,11 @@ the orchestrator for is unrelated to repo-config and stays:
 and does not read that library, and `skills/issue-create/SKILL.md`
 sizes an issue off the "Files affected" section the orchestrator's
 analysis produces. The root `README.md`'s `sdlc` bullet names the
-agents by shorthand only and spells no skill name, so it has nothing
-to falsify: per `docs/plugin-authoring-constraints.md`, the root
-roster registers the *plugin*, so a skill added, removed or renamed
-leaves that bullet alone, and so does an agent's contract changing.
+agents by shorthand only and spells no skill name, so per
+`docs/plugin-authoring-constraints.md` — the root roster registers the
+*plugin* — a skill added, removed or renamed leaves that bullet alone,
+as does an agent's contract change; an agent added or removed does
+edit it, because the shorthand list enumerates them.
 `docs/plugin-migration-plan.md` mentions the agents but is a frozen
 historical plan — never edit it.
 
@@ -1228,12 +1229,11 @@ because …" survives there longest. Read it with
 `gh pr view <N> --json body -q .body`, edit a scratch copy, and pass it
 back with `--body-file`.
 
-Two constraints bound that work. The closing keyword
-survives byte for byte — never add, remove, or retarget one. And
-nothing else on the PR is in scope: no comments, no reviews, no
-labels, no other PR or issue.
+Scope bounds that work. The closing keyword survives byte for byte —
+never add, remove, or retarget one. And nothing else on the PR is in
+scope: no comments, no reviews, no labels, no other PR or issue.
 
-**When** that work happens is the third, and it is a scheduling rule
+**When** that work happens bounds it too, and that is a scheduling rule
 rather than a scope one: **outside a running `/sdlc:orchestrate` loop
 only**. For the duration of a loop the body is frozen — written once
 at PR creation and amended once, after the loop ends, by the

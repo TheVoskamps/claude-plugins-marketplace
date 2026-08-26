@@ -297,22 +297,26 @@ gh pr view <PR> --json reviews \
   --jq '.reviews | sort_by(.submittedAt) | last | {submittedAt, body}'
 ```
 
-A round's inputs are three **append-only** channels, each carrying a
+A round's inputs are **append-only** channels, each carrying a
 timestamp you can cut against: this PR's own commits since the
 previous round's head SHA, the PR comments posted since the previous
 review's `submittedAt`, and that review's own theorem records block.
 
 **The PR body is not one of them.** It can change with no commit, no
-comment and no timestamp, so nothing here diffs it: you read it once,
-at step 2, for the closing-issue parse, and never again. That is safe
-rather than a gap, because the body is **frozen for the duration of an
-orchestrate loop** — written once at PR creation, amended once by
-`pr-finalizer` after the loop ends, and edited by no `issue-fixer` and
-no `doc-updater` in between. Everything in flight travels as a PR
-comment instead. Do not re-add the body as a delta source: detecting
-body edits is the mechanism this design replaced, and a round that
-diffed the body would fan out on `pr-finalizer`'s amendment after the
-loop it belongs to had already finished.
+comment and no timestamp, so nothing here diffs it: step 1 fetches it
+once, step 2 uses that copy — for the deferral check that tells an
+explained non-delivery from a silent one, and for the `References:`
+trailers — and nothing after step 2 reads it again. The closing-issue
+parse never touches your copy at all: `/github-prs:pr-closing-issues`
+fetches the body itself. That is safe rather than a gap, because the
+body is **frozen for the duration of an orchestrate loop** — written
+once at PR creation, amended once by `pr-finalizer` after the loop
+ends, and edited by no `issue-fixer` and no `doc-updater` in between.
+Everything in flight travels as a PR comment instead. Do not re-add
+the body as a delta source: detecting body edits is the mechanism this
+design replaced, and a round that diffed the body would fan out on
+`pr-finalizer`'s amendment after the loop it belongs to had already
+finished.
 
 Read the following, in this order.
 

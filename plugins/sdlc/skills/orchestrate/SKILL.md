@@ -853,11 +853,16 @@ the rubric or an override picked it, and whether the round was a
 
 ### The PR body is frozen for the loop
 
-From the moment `issue-developer` opens the PR until the loop ends,
-**nothing edits the PR body**. Not you, not `issue-fixer`, not
-`doc-updater`. `pr-finalizer` appends one final section after the loop
-is over (see "End-of-loop lifecycle transitions"), and that is the
-whole exception.
+The freeze closes as soon as the PR is linked to its issues.
+`issue-developer` writes the body when the PR opens, and your one
+`/github-prs:pr-link-issue` call appends whatever closing lines it is
+missing immediately after (see "After each issue-developer reports
+back: link the PR to its issues") — both of those land before the
+first review round exists to be confused by them. From there until
+the loop ends, **nothing edits the PR body**. Not you, not
+`issue-fixer`, not `doc-updater`. `pr-finalizer` appends one final
+section after the loop is over (see "End-of-loop lifecycle
+transitions"), and that is the whole exception.
 
 The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
@@ -865,7 +870,7 @@ so a finding whose fix was a body edit used to produce a delta of
 nothing: every later round was empty-delta, carried its verdicts
 forward, and re-reported the fixed finding until the round cap ran
 out. With the body frozen there is no such edit to miss, which is why
-the reviewer reads the body once for its closing-issue parse and never
+the reviewer reads the body once at the start of a round and never
 diffs it.
 
 So everything in flight travels as a **PR comment** — the human's
@@ -962,7 +967,8 @@ member)**:
    `theorem-based-pr-reviewer` knows to skip it rather than read it as
    a human adjustment, and how `pr-finalizer` finds the briefs at the
    end of the run — so a PR that changes it sweeps every file
-   `grep -rn 'sdlc:fixer-brief' plugins/sdlc/` returns:
+   `git grep -n 'sdlc:fixer-brief'` returns, the repo's `CLAUDE.md`
+   included:
 
    ```text
    <!-- sdlc:fixer-brief -->
@@ -1391,12 +1397,14 @@ on the reviewer's severity line and the fixer's report. Fill them per
     thing you post on a reviewed PR is a review-adjustments comment
     the human dictated, per "Posting the human's review adjustments as
     a PR comment".
-  - **Editing a PR body** — owned by `pr-finalizer`, and by it alone.
-    The body is frozen for the whole loop (see "The PR body is frozen
-    for the loop"), and the one amendment it gets is the final section
-    the finalizer appends in Phase 3. The orchestrator never runs
+  - **Editing a PR body** — owned by `pr-finalizer`. The body is
+    frozen for the whole loop (see "The PR body is frozen for the
+    loop"), and the one amendment it gets is the final section the
+    finalizer appends in Phase 3. The orchestrator never runs
     `gh pr edit --body` / `--body-file`, and never briefs another
-    teammate to.
+    teammate to. Your `/github-prs:pr-link-issue` call is not the
+    exception it looks like: it writes closing lines and nothing else,
+    and it runs before the first review round.
   - **Merge-conflict resolution** — owned by `issue-fixer`. The
     orchestrator never runs `git rebase`, `git merge`, or hand-edits
     conflict markers in the primary clone.
