@@ -65,6 +65,11 @@ under `agents/` owns:
   the branch in a fresh `isolation: worktree` worktree. When it
   returns, every change that pass decided on is a pushed commit on the
   branch and the inbox is empty
+- `pr-finalizer` — appends the run's final section to the PR body in a
+  fresh `isolation: worktree` worktree, once the loop is over. When it
+  returns, the PR body carries that section and nothing else about the
+  PR has moved: it makes no merge decision, spawns no agent, and flips
+  no status. It is the **only** agent that edits a PR body
 
 Review **is** a teammate spawn: `theorem-based-pr-reviewer` carries
 the review procedure and spawns the generator and both fan-outs from
@@ -77,8 +82,8 @@ starts the subagent inside it. You don't manage worktree paths and you
 never pass them in spawn prompts. They also share a hardened
 frontmatter baseline, with `memory: project` on `issue-developer`,
 `issue-fixer`, and `doc-updater` only — `agent-memory-scrubber`,
-`theorem-based-pr-reviewer`, `theorem-generator` and its variants,
-`theorem-disprover`, and
+`pr-finalizer`, `theorem-based-pr-reviewer`, `theorem-generator` and
+its variants, `theorem-disprover`, and
 `counterexample-verifier` each declare none. Because `memory: project`
 resolves `.claude/agent-memory/` relative to each agent's own cwd — its
 throwaway worktree, not the primary clone — that tree starts empty on
@@ -500,17 +505,18 @@ Do not:
   change should match the siblings already there.
 - **Carve away scope the agent needs.** Over-specification subtracts
   as well as adds, and the subtraction leaves no trace in the output.
-  The PR description is where this bites: `issue-developer` authors it
-  and verifies its claims, and no later agent's definition puts it
-  back in scope — neither `issue-fixer`'s nor `doc-updater`'s — so
-  keeping it true across the fix loop is scope a brief has to grant. A
-  standing "do NOT edit the PR body" aimed at `doc-updater` in the
-  same brief block withholds it again, round after round, from the one
-  agent whose job is stale documentation. When a scope constraint is
-  genuinely needed,
-  state the constraint rather than the prohibition — *"do not add,
-  remove, or retarget a closing keyword; touch nothing outside the
-  description"* protects what matters and leaves the agent its remit.
+  A prohibition aimed at one surface routinely lands on the whole
+  remit next to it — *"don't touch the rules files"* in a brief whose
+  task is a rules-file defect — and the agent comes back having done
+  less than its definition already permitted, with nothing in the
+  report saying why. When a scope constraint is genuinely needed,
+  state the constraint rather than the prohibition: *"change what the
+  rule requires, not which files it governs"* protects what matters
+  and leaves the agent its remit. A prohibition that is already in the
+  agent's own definition needs no brief line at all — the PR body is
+  the case, frozen for the loop by `issue-fixer`'s and `doc-updater`'s
+  definitions rather than by anything you write (see "The PR body is
+  frozen for the loop").
 - **Carry a brief forward.** Write each one from the task, never by
   editing its predecessor. Adding a constraint feels free and removing
   one feels risky, so an edited brief's constraint block only ever
@@ -673,7 +679,8 @@ Cleanup of each subagent's worktree directory happens in this phase too,
 for a parallel-cleanup data-loss bug.
 
 After each subagent you spawned (issue-developer, doc-updater,
-issue-fixer, agent-memory-scrubber, theorem-based-pr-reviewer)
+issue-fixer, agent-memory-scrubber, pr-finalizer,
+theorem-based-pr-reviewer)
 returns, run `git worktree list`
 to find the subagent's worktree (it will be the most recently added
 one matching the worktree-naming pattern; cross-check by branch or
@@ -844,6 +851,40 @@ the brief you write. Say in the round's report which tier ran, whether
 the rubric or an override picked it, and whether the round was a
 `--full` one.
 
+### The PR body is frozen for the loop
+
+The freeze closes as soon as the PR is linked to its issues.
+`issue-developer` writes the body when the PR opens, and your one
+`/github-prs:pr-link-issue` call appends whatever closing lines it is
+missing immediately after (see "After each issue-developer reports
+back: link the PR to its issues") — both of those land before the
+first review round exists to be confused by them. From there until
+the loop ends, **nothing edits the PR body**. Not you, not
+`issue-fixer`, not `doc-updater`. `pr-finalizer` appends one final
+section after the loop is over (see "End-of-loop lifecycle
+transitions"), and that is the whole exception.
+
+The freeze is what makes the review's inputs testable. The body is the
+one input that can change with no commit, no comment and no timestamp,
+so a finding whose fix is a body edit contributes nothing to any
+round's delta: every later round is empty-delta, carries its verdicts
+forward, and re-reports the fixed finding until the round cap runs
+out. With the body frozen there is no such edit to miss, which is why
+the reviewer reads the body once at the start of a round and never
+diffs it.
+
+So everything in flight travels as a **PR comment** — the human's
+review adjustments you relay (see "Posting the human's review
+adjustments as a PR comment") and the fixer brief you write (see
+"Handling review findings — the fix loop"). A comment is append-only
+and carries a timestamp the next round can cut against; a body edit is
+neither.
+
+A finding whose remedy really is a PR-body change is not lost by this.
+Relay it to `pr-finalizer` as part of what the final section has to
+settle, and say so in the round's report — the fix lands once, at the
+end, rather than mid-loop where nothing can see it.
+
 ### Handling review findings — the fix loop
 
 The reviewer reports a verdict per issue the PR closes — plus one for
@@ -856,6 +897,46 @@ measured against; carry those tags into the fixer's brief rather than
 flattening them.
 
 When `theorem-based-pr-reviewer` reports back:
+
+**If the report carries no verdict block**: the reviewer returned
+mid-round rather than finishing one. Its report is an **in-progress
+status** — outstanding disprover or verifier counts and nothing more,
+carrying no verdict line, no tally and no findings — and the harness
+surfaces it as `status: completed` with that closing message as the
+result, so it is indistinguishable from a finished review unless you
+check for the verdict block. Check on every return; this is not an
+escalation, because the reviewer is not stopping to ask you anything.
+
+1. **Confirm it against the PR.** A round that returned mid-fan-out
+   posted no review, so read the PR rather than the report:
+
+   ```bash
+   gh pr view <PR> --json reviews \
+     --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
+   ```
+
+   If a review *was* posted, the report and the PR disagree, and that
+   discrepancy is itself a finding — name both versions per
+   "Report-consumption principle" and give it a **Needs Your
+   Attention** row rather than acting on either.
+
+2. **Spawn no `issue-fixer`.** There are no findings to fix: an
+   in-progress status carries none by construction, and briefing a
+   fixer from a partial round would put your own reading of the round
+   into the fix.
+
+3. **Re-spawn the reviewer** over the same PR with the same
+   parameters. Nothing else in the loop changes — no doc-updater pass,
+   because no commits landed, and no adjustment comment, because the
+   human has nothing to adjust yet.
+
+4. **The round does not count against the review-round cap**
+   (Hard Constraints → "Max review rounds per PR"). It produced no
+   review, and charging the budget for a harness failure burns the
+   loop's headroom on it. Count it in the round's report instead, so
+   the human can see a PR that keeps returning mid-round rather than
+   converging — after two such returns on one PR, raise it as a
+   **Needs Your Attention** row rather than re-spawning indefinitely.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member. Do not spawn the fixer — no loop
@@ -871,10 +952,26 @@ member)**:
 1. If the review notes a Design Decision, or a deviation from the
    design, or a mismatch between an issue's title and the summary,
    stop, and bring this up to the human for review and a decision.
-2. Spawn an `issue-fixer` with the review feedback, the PR number, the
-   issue set the PR closes, and the branch name:
+2. **Post the fix instructions as a PR comment**, then spawn an
+   `issue-fixer` with the PR number and nothing else.
+
+   The comment is the authoritative brief. Write it after you have
+   judged the reviewer's report and consulted the human wherever the
+   report needed a human decision — that judgment is step 1 above and
+   "Report-consumption principle", and it happens before the comment
+   is written, not inside the fixer.
+
+   The comment's **first line is the marker**
+   `<!-- sdlc:fixer-brief -->`, on a line of its own. That literal is
+   how `issue-fixer` recognizes the comment as its instructions, how
+   `theorem-based-pr-reviewer` knows to skip it rather than read it as
+   a human adjustment, and how `pr-finalizer` finds the briefs at the
+   end of the run — so a PR that changes it sweeps every file
+   `git grep -n 'sdlc:fixer-brief'` returns, the repo's `CLAUDE.md`
+   included:
 
    ```text
+   <!-- sdlc:fixer-brief -->
    PR <PR_N> for issues <link-prefix><issue_N1>,
    <link-prefix><issue_N2>, … received review feedback.
    Branch: <branch-name>
@@ -887,6 +984,27 @@ member)**:
    Address per your agent definition. Report back what you fixed and
    what you didn't.
    ```
+
+   Post it, and post nothing else on the PR until the fixer has run:
+   `issue-fixer` reads the PR's **most recent** comment and stops if
+   that comment is not a fixer brief, so a review-adjustments comment
+   or an orchestration note landing between the two sends it home
+   empty-handed. Post the adjustments comment first, then the brief.
+
+   The spawn prompt then restates none of it:
+
+   ```text
+   PR <PR_N> has a fixer brief waiting on it.
+
+   Address it per your agent definition. Report back what you fixed
+   and what you didn't.
+   ```
+
+   Putting the brief on the PR rather than in the spawn prompt is what
+   makes it readable afterwards — by the human, and by the next review
+   round, which reads the comments posted since the previous review.
+   A spawn prompt reaches neither: it is visible to nobody once the
+   spawn returns.
 
 3. After issue-fixer returns, remove its worktree
    (`git worktree remove ...`, or unlock-then-remove if the harness
@@ -953,6 +1071,11 @@ override rewrites that finding's severity, and a missed defect mints a
 new theorem that gets a disprover. None of it travels as a spawn
 parameter.
 
+Post this comment **before** the round's fixer brief, never after.
+`issue-fixer` reads the PR's most recent comment and stops when it is
+not a fixer brief, so an adjustments comment posted on top of one
+strands the fixer — see "Handling review findings — the fix loop".
+
 ### Before `/pr-ready`: curate the PR's agent memory
 
 `agent-memory-scrubber` runs after every memory-declaring teammate and
@@ -963,11 +1086,14 @@ further branch work is queued.
 
 Running after every memory-declaring teammate is the whole point: by
 that moment every agent that writes memory (`issue-developer`,
-`issue-fixer`, `doc-updater` — `theorem-based-pr-reviewer`,
+`issue-fixer`, `doc-updater` — `pr-finalizer`,
+`theorem-based-pr-reviewer`,
 `theorem-generator`, `theorem-disprover` and
 `counterexample-verifier` write none) has captured into the session's
 inbox for this branch, so the scrubber's pass grades the whole run's
-entries. Nothing about that capture is on the branch: the inbox lives
+entries. `pr-finalizer` running after the scrubber is therefore not a
+re-trigger: it captures nothing, and it puts no commit on the branch
+either. Nothing about that capture is on the branch: the inbox lives
 under the harness scratchpad, and the scrubber's commit carries
 `CLAUDE.md` and `docs/` changes and nothing else.
 
@@ -1094,9 +1220,40 @@ after every memory-declaring teammate ran (Phase 2, "Before
 curated before the human sees it. Phase 3 is where the human
 confirms — per PR — that the loop is done and the PR is good enough to
 move forward. On that end-of-loop confirmation for a given PR, and
-only then, the orchestrator performs these transitions:
+only then, the orchestrator performs these transitions, in this order:
 
-1. **Flip the PR draft → ready:**
+1. **Spawn `pr-finalizer` to amend the PR body.** The body has been
+   frozen since the developer wrote it (see "The PR body is frozen for
+   the loop"), so it still describes the PR as first opened. The
+   finalizer appends one section summarising the review rounds, the
+   changes made in response, and any scope notes the run settled.
+
+   The amendment lands **before** the flips below, so the status flip
+   stays the run's single "done" signal and there is no window in
+   which the PR is ready for review carrying no final note.
+
+   Spawn it after the memory scrub and after any final `issue-fixer`
+   round — those put commits on the branch, and a summary written
+   before them would describe a PR that no longer exists. Give it the
+   PR number, the branch name, and the scope notes the run settled
+   that the reviewer's own posted reviews do not carry:
+
+   ```text
+   PR <PR_N> has finished its review loop. Branch: <branch-name>
+
+   Scope notes this run settled, for the final section:
+   <the deferrals, dropped members, and rulings the human made that
+   the posted reviews do not carry — or "none">
+
+   Append the final section per your agent definition. Report back
+   what you appended.
+   ```
+
+   It reads the PR's own reviews and commits for the rest; that is its
+   job, not yours to summarize into the brief. Remove its worktree
+   after it returns, the same way as any other teammate's.
+
+2. **Flip the PR draft → ready:**
 
    ```text
    /github-prs:pr-ready <PR>
@@ -1119,7 +1276,7 @@ only then, the orchestrator performs these transitions:
    when the session ends, so flipping the PR ready over it discards
    it.
 
-2. **Set every issue the PR closes to In Review.** The authoritative
+3. **Set every issue the PR closes to In Review.** The authoritative
    list of those issues is what `/github-prs:pr-closing-issues <PR>`
    reports — the one skill that reads a PR body's closing lines. Ask
    it rather than reusing the batch's planned membership: neither
@@ -1135,10 +1292,13 @@ only then, the orchestrator performs these transitions:
    They flip together, because they ship together. Gated on a
    configured status slot — see "Issue-status transitions" below.
 
-Neither transition merges the PR; the human still owns the merge. If
+None of the three merges the PR; the human still owns the merge. If
 the human ends the loop without blessing a PR (e.g. it lands in "Needs
 Your Attention"), leave that PR draft and its issues In Progress — do
-not flip it to ready or them to In Review.
+not flip it to ready or them to In Review, and do not spawn
+`pr-finalizer` either: the loop has not ended, so there is no final
+section to write and the body stays frozen for whatever round comes
+next.
 
 ### Summary
 
@@ -1237,6 +1397,14 @@ on the reviewer's severity line and the fixer's report. Fill them per
     thing you post on a reviewed PR is a review-adjustments comment
     the human dictated, per "Posting the human's review adjustments as
     a PR comment".
+  - **Editing a PR body** — owned by `pr-finalizer`. The body is
+    frozen for the whole loop (see "The PR body is frozen for the
+    loop"), and the one amendment it gets is the final section the
+    finalizer appends in Phase 3. The orchestrator never runs
+    `gh pr edit --body` / `--body-file`, and never briefs another
+    teammate to. Your `/github-prs:pr-link-issue` call is not the
+    exception it looks like: it writes closing lines and nothing else,
+    and it runs before the first review round.
   - **Merge-conflict resolution** — owned by `issue-fixer`. The
     orchestrator never runs `git rebase`, `git merge`, or hand-edits
     conflict markers in the primary clone.
@@ -1316,11 +1484,15 @@ on the reviewer's severity line and the fixer's report. Fill them per
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A
-  round is one `theorem-based-pr-reviewer` spawn at any generator
-  tier — everything inside that spawn is one round, however many
+  round is one `theorem-based-pr-reviewer` spawn **that posted a
+  review** — everything inside that spawn is one round, however many
   `theorem-disprover` and `counterexample-verifier` agents its
-  fan-outs spawned; the `doc-updater` pass that precedes each one is
-  not a review and never counts against the cap.
+  fan-outs spawned, at whatever generator tier; the `doc-updater` pass
+  that precedes each one is not a review and never counts against the
+  cap. A spawn that returned an in-progress status posted nothing and
+  does not count either (see "Handling review findings — the fix
+  loop"): charging the budget for a harness failure spends the loop's
+  headroom on rounds that checked nothing.
 
 ### What the orchestrator IS allowed to do
 
@@ -1364,7 +1536,12 @@ itself:
   is always the review pipeline's job. The review-adjustments comment
   under "Posting the human's review adjustments as a PR comment" is
   the same bucket: you relay what the human dictated, you do not grade
-  anything. PR comments (`gh pr comment`)
+  anything. So is the **fixer brief** under "Handling review findings
+  — the fix loop": the findings in it are the pipeline's, and writing
+  them onto the PR rather than into a spawn prompt is how the fixer
+  and the next round both reach them. Commenting is not editing —
+  the PR *body* is `pr-finalizer`'s alone. PR comments
+  (`gh pr comment`)
   have no
   `/issue-*` equivalent, so raw `gh` stays the tool here — but
   commenting on an *issue* goes through `/issue-comment <N>`, per
@@ -1440,13 +1617,18 @@ draft-first lifecycle:
    teammate, re-spawned whenever a memory-declaring teammate was
    spawned after the scrubber last ran (see "Before `/pr-ready`: curate
    the PR's agent memory"). Nothing in that sequence flips the PR to
-   ready.
-4. **Ready at end-of-loop, on human confirmation only.** In Phase 3,
-   when the human confirms a PR is good enough to end the loop, the
-   orchestrator calls `/github-prs:pr-ready <PR>` (see "End-of-loop
-   lifecycle transitions"). This is the single point where the PR
-   becomes mergeable, and even then the human — never the orchestrator
-   — performs the merge.
+   ready, and nothing in it edits the PR body either (see "The PR body
+   is frozen for the loop").
+4. **Finalized, then ready at end-of-loop, on human confirmation
+   only.** In Phase 3, when the human confirms a PR is good enough to
+   end the loop, the orchestrator spawns `pr-finalizer` to append the
+   run's final section to the body, and only then calls
+   `/github-prs:pr-ready <PR>` (see "End-of-loop lifecycle
+   transitions"). That order is what keeps the PR from being ready for
+   review for a window in which its body has no final note. The
+   `/pr-ready` call is the single point where the PR becomes
+   mergeable, and even then the human — never the orchestrator —
+   performs the merge.
 
 The draft state is the enforcement mechanism behind the "Never merge a
 PR" Hard Constraint: it makes "unmergeable until the human blesses it"

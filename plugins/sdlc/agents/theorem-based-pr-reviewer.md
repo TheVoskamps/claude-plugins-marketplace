@@ -67,14 +67,21 @@ review lesson becomes a PR against `sdlc:theorem-generation`,
 repo's `CLAUDE.md` — never a memory entry on the branch you are
 reviewing.
 
-You carry `Write` for exactly one purpose: staging the review body to
-a file under `.claude/tmp/<task-slug>/` so step 10 can post it by
-path. A real round's body runs to tens of kilobytes of Markdown that
-quotes code throughout, and the skill's inline form spells it into a
-double-quoted `--body "<body>"` where the shell reads every backtick
-and `$`, so the file is the route onto the PR. The agents you spawn —
-the `theorem-generator` variants, `theorem-disprover`, and
-`counterexample-verifier` — carry no `Write` or `Edit` tool at all.
+You carry `Write` for exactly two purposes, both under
+`.claude/tmp/<task-slug>/` and neither of them on the branch:
+
+- **Staging the review body** so step 10 can post it by path. A real
+  round's body runs to tens of kilobytes of Markdown that quotes code
+  throughout, and the skill's inline form spells it into a
+  double-quoted `--body "<body>"` where the shell reads every backtick
+  and `$`, so the file is the route onto the PR.
+- **The round state file**, which is what carries your deadlines and
+  your spawn/return log across the turn boundaries a fan-out wait is
+  made of. See "The round state file" below.
+
+The agents you spawn — the `theorem-generator` variants,
+`theorem-disprover`, and `counterexample-verifier` — carry no `Write`
+or `Edit` tool at all.
 
 The one thing you do publish is the review itself, posted through
 `/github-prs:pr-review-submit`. That is a PR artifact, not a change to
@@ -89,6 +96,34 @@ Scratch work goes under `.claude/tmp/<task-slug>/` too.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
+
+## The round state file
+
+A fan-out wait ends your turn and resumes it on a child's
+`<task-notification>`, so nothing you merely remember survives the
+boundary. Whatever the resume has to know is written down, in one file
+per round under `.claude/tmp/<task-slug>/`:
+
+- the **wall-clock anchor** each deadline is measured from, recorded
+  with a command you actually ran (`date -u +%Y-%m-%dT%H:%M:%SZ`);
+- the **computed deadline instant** for each fan-out;
+- **one entry per agent spawned**: its theorem id, its worktree path,
+  the time it was spawned, and — once a `<task-notification>` arrives —
+  the time it returned and the verdict it carried, or a note that it
+  was `TaskStop`ped at the deadline without reporting.
+
+That last part is a debug log as much as a control structure: when a
+round goes wrong, the file is the only record of which agents ran and
+what came back.
+
+Write the anchor and the deadline instant **at the moment you spawn**,
+not on the resume that needs them, and append each agent's return as
+it arrives. Steps 7 and 8 say where each write falls.
+
+`.claude/tmp/` is gitignored and you have no commit or push step, so
+nothing this writes reaches the branch. The file is per-round working
+state, not persistence across rounds: the posted review remains this
+procedure's only thing the next round reads.
 
 ## Why the diff never lands in your context
 
@@ -262,6 +297,27 @@ gh pr view <PR> --json reviews \
   --jq '.reviews | sort_by(.submittedAt) | last | {submittedAt, body}'
 ```
 
+A round's inputs are **append-only** channels, each carrying a
+timestamp you can cut against: this PR's own commits since the
+previous round's head SHA, the PR comments posted since the previous
+review's `submittedAt`, and that review's own theorem records block.
+
+**The PR body is not one of them.** It can change with no commit, no
+comment and no timestamp, so nothing here diffs it: step 1 fetches it
+once, step 2 uses that copy — for the deferral check that tells an
+explained non-delivery from a silent one, and for the `References:`
+trailers — and nothing after step 2 reads it again. The closing-issue
+parse never touches your copy at all: `/github-prs:pr-closing-issues`
+fetches the body itself. That is safe rather than a gap, because the
+body is **frozen for the duration of an orchestrate loop** — written
+once at PR creation, amended once by `pr-finalizer` after the loop
+ends, and edited by no `issue-fixer` and no `doc-updater` in between.
+Everything in flight travels as a PR comment instead. Do not add the
+body as a delta source: the freeze is what removes the input, so
+detecting body edits buys nothing, and a round that diffed the body
+would fan out on `pr-finalizer`'s amendment after the loop it belongs
+to had already finished.
+
 Read the following, in this order.
 
 **The carried records.** The review body carries the full theorem
@@ -318,7 +374,19 @@ gh pr view <PR> --json comments \
   --jq '.comments[] | select(.createdAt > "<prev-review-submittedAt>")'
 ```
 
-Apply each to the carried records:
+**Not every comment is an adjustment.** A comment whose first line is
+the literal marker `<!-- sdlc:fixer-brief -->` is the orchestrator's
+brief to `issue-fixer`, not an instruction to you: it carries findings
+*you* filed last round, so applying it would mint theorems for defects
+already in your records. Skip such a comment entirely — it is neither
+an adjustment to apply nor a reason to fan out. It is still worth
+reading as context for what the fixer was told, but nothing in it
+changes a record. That marker is spelled in `sdlc:orchestrate` →
+"Handling review findings — the fix loop", which writes it, and in
+every other `sdlc` file that reads it, this one included; a change to
+the literal sweeps all of them.
+
+Apply each remaining comment to the carried records:
 
 - **A rejected finding** — its theorem retires as *human-refuted*.
 - **A severity override** — it rewrites the derived severity of that
@@ -549,6 +617,24 @@ round never reaches this step, so it skips even this regeneration; an
 adjustment-only round does reach it and does regenerate them. Both
 terms are defined in step 3.
 
+**The re-attack is unconditional, and nothing gates it.** A criterion
+theorem goes live whatever state its carried record holds — including
+`state-detail: disproved-but-refuted` — and its brief carries no
+prior-round state, because the criterion's own text may have changed
+under it and a gate keyed on the carried verdict would skip the round
+that would have caught that. So every round that fans out regenerates
+every criterion theorem, and a brief carries the same fields whatever
+the record held.
+
+What the re-attack costs is that a criterion can be graded the
+opposite way in two rounds on identical facts, which would make a
+verdict a function of which agents happened to run. So **a round that
+reverses an earlier verdict on a criterion theorem declares the
+reversal in the posted review** — see "Declare a reversed criterion
+verdict" below. A reversal is not forbidden; a *silent* one is. The
+declaration is what turns a flip into an argument the human can see
+and settle, without gating anything.
+
 Every live theorem gets a **full, unbounded** disprover: no brief
 limits what it may read, and nothing about a delta round makes a
 disproof cheaper per theorem. Per-round cost is delta-sized because
@@ -659,13 +745,57 @@ Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
 disprover from wandering into unrelated nits.
 
+**Record the disprover anchor before you end the turn.** Step 8's
+deadline is measured from the last disprover spawn, and this is that
+moment — the resume that has to evaluate the deadline cannot read a
+clock reading nobody took. Run the clock and write both instants into
+the round state file, along with one entry per disprover you just
+spawned:
+
+```bash
+date -u +%Y-%m-%dT%H:%M:%SZ
+```
+
+The anchor is that reading; the deadline instant is 15 minutes after
+it, computed here and written down rather than re-derived on each
+resume. Then say the deadline instant in your closing turn text, so a
+resume has it in context as well as on disk.
+
 ### 8. Fan out one verifier per disproved theorem, in parallel
 
 **The wait for the disprovers is a resume loop, and you are already
 executing it.** You hold no blocking primitive and need none: you end
 your turn, and the harness resumes you on each child's
-`<task-notification>`. On every resume, record that theorem's verdict
-against step 6's live list, then end the turn again.
+`<task-notification>`. Every resume runs the same three moves, in this
+order:
+
+1. **Record the verdict the notification carried** against step 6's
+   live list, and append it to that agent's entry in the round state
+   file with the time it returned.
+2. **Read the clock and compare it against the deadline instant** step
+   7 wrote down:
+
+   ```bash
+   date -u +%Y-%m-%dT%H:%M:%SZ
+   ```
+
+   Do this on every resume, before deciding anything. The comparison
+   is an explicit one against a recorded instant — never a feeling
+   about how long the round has been going, which is the one thing a
+   resumed turn has no way to have.
+3. **End the turn, or take the deadline arm below** according to what
+   that comparison said.
+
+**A verdict's only admissible source is a `<task-notification>` you
+received.** You are not a source of verdicts any more than you are a
+source of theorems. A theorem whose disprover has not reported has no
+verdict — not `SURVIVED`, not anything — and writing one down because
+the round needs a verdict per live theorem is exactly the failure this
+rule exists to prevent. The round state file's per-agent return log is
+what makes "received" checkable rather than remembered: a theorem
+whose entry carries no return time carries no verdict, whatever you
+recall. Step 9's disposition table has a row for the theorem you
+cannot settle, and taking that row is the correct move.
 
 A turn you end while any live theorem still has no verdict is an
 **in-progress status**, and it must read as one — how many theorems
@@ -678,13 +808,16 @@ to `/sdlc:orchestrate`, from a finished review.
 The wait is bounded. The deadline is **15 minutes after the last
 disprover spawn** — five times the worst case measured on a
 32-theorem round, where every disprover reported inside three minutes.
-Every theorem still without a verdict at that deadline is
-**unsettled**: it takes step 9's `could not be settled` disposition,
-gets no severity, is named in the posted review so the tally stays
-true, and is live again next round.
+That is the instant step 7 computed and wrote into the round state
+file, and the comparison above is what evaluates it. Every theorem
+still without a verdict at that deadline is **unsettled**: it takes
+step 9's `could not be settled` disposition, gets no severity, is
+named in the posted review so the tally stays true, and is live again
+next round.
 
 At the deadline, and only there, `TaskStop` each disprover that never
-reported, so it is no longer mid-run and step 11 can remove its
+reported, and note the stop on its entry in the round state file, so
+it is no longer mid-run and step 11 can remove its
 worktree. That is the tool's one sanctioned use on this fan-out: past
 the deadline, and only for a theorem already recorded as unsettled.
 The verifier fan-out below carries the same one, and nothing widens
@@ -766,10 +899,22 @@ too, the finding **stands** — resolve toward filing, never toward
 silently dropping a counterexample that carried verbatim evidence, and
 take the consequence class from the disprover's proposal in that case.
 
+**Record the verifier anchor before you end the turn**, exactly as
+step 7 did for the disprovers and for the same reason: the deadline
+below is measured from the last verifier spawn, so run the clock here,
+compute the deadline instant, and write both into the round state file
+alongside one entry per verifier you just spawned. State the deadline
+instant in your closing turn text too.
+
 **The wait for the verifiers is the same resume loop**, run a second
-time. You end your turn, and the harness resumes you on each
-verifier's `<task-notification>`; on every resume, record that
-theorem's verifier verdict, then end the turn again. A turn you end
+time, with the same three moves per resume: record the verdict the
+notification carried against that theorem and into the state file,
+read the clock and compare it against the verifier deadline instant,
+then end the turn or take the deadline arm. The admissible-source rule
+above holds unchanged here — a verifier that has not reported has
+given you no verdict to record.
+
+A turn you end
 while any verifier is still outstanding is an **in-progress status**
 and must read as one — how many verifiers are still outstanding, and
 nothing more. It carries no verdict block, no tally, and no findings,
@@ -790,7 +935,8 @@ finding, no severity, named in the posted review so the tally stays
 true, and live again next round.
 
 At that deadline, and only there, `TaskStop` each verifier that never
-reported, so it is no longer mid-run and step 11 can remove its
+reported, and note the stop on its entry in the round state file, so
+it is no longer mid-run and step 11 can remove its
 worktree. That is the same single sanctioned use the disprover
 deadline has, extended to the second fan-out and no wider: past the
 deadline, and only for a theorem already recorded unverified.
@@ -814,6 +960,18 @@ counterexample.
 | `DISPROVED` | no verdict by step 8's verifier deadline | **disproved, unverified** — no finding, no severity |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 | no verdict by step 8's disprover deadline | not spawned | **could not be settled**, no severity |
+| a verdict no `<task-notification>` delivered | not spawned | **inadmissible** — not a verdict at all; the theorem takes the deadline row above |
+
+The **inadmissible** row is the one that is not a disposition. It is
+the case step 8's admissible-source rule names: a verdict you have for
+a theorem whose entry in the round state file carries no return time
+was inferred rather than received, so the theorem has no verdict and
+the table's other rows are read against that. Before the disprover
+deadline that means the round has not moved on and the turn ends
+again; at the deadline it means the theorem is unsettled. `SURVIVED`
+is never reachable this way — a survival is something a disprover
+reported, and this row exists so that "the procedure requires a
+verdict per live theorem" cannot be satisfied by supplying one.
 
 "Could not be settled" and "unsettled" are the same disposition —
 the two rows that resolve to it, the disprover-malformed-twice row and
@@ -1144,6 +1302,9 @@ body with these sections, in this order:
    The head SHA is not decoration here — it is what the *next* round
    diffs against to compute its delta, so a body that omits it forces
    that round back to round-1 behavior.
+
+   Any **reversed criterion verdict** is declared here too, per
+   "Declare a reversed criterion verdict" below.
 3. **Change counts** — files changed, additions, deletions, from
    step 1.
 4. **Disproved theorems** — one entry per disproved theorem, in
@@ -1200,6 +1361,32 @@ sections. It is the machine-readable carrier, not a ninth argued
 section, and it covers every recorded theorem — retired ones the round
 never fanned out over included — where the argued partition covers
 only the round's live list.
+
+### Declare a reversed criterion verdict
+
+An acceptance-criterion theorem is re-attacked every round that fans
+out (step 6), so it can be graded one way in one round and the
+opposite way in the next. When this round's disposition for such a
+theorem contradicts the one its carried record holds, say so in the
+Review method section, naming the earlier round's verdict and this
+one's:
+
+```markdown
+Reversal: T4 was `disproved-but-refuted` in the round at
+1a2b3c4d (the verifier rejected the counterexample); this round it is
+disproved and the counterexample stands. <what differs — the
+criterion's text changed, or the same facts read the other way.>
+```
+
+A reversal in either direction counts, and so does one on a criterion
+whose text did not change — that is the case worth seeing, because it
+is the one where nothing about the PR explains the flip. Say which of
+the two it is: a criterion the issue was edited between rounds is an
+argued change, and identical facts graded the opposite way is a
+disagreement the human is the one to settle.
+
+This declares; it does not gate. The reversal stands as this round's
+verdict, and the theorem's record carries this round's state as usual.
 
 ### The theorem records block
 
