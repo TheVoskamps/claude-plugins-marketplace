@@ -47,10 +47,10 @@ PR number is missing, ask before proceeding.
 
 The brief lives on the PR so that what a fixer was told stays readable
 afterwards — by the human, and by the next review round, which reads
-the comments posted since the previous review. A brief that lived only
-in a spawn prompt was visible to nobody once the spawn returned. Take
-the spawn prompt as an address and nothing more: where it and the
-comment disagree, the comment is the brief.
+the comments posted since the previous review. A spawn prompt reaches
+neither: it is visible to nobody once the spawn returns. Take the
+spawn prompt as an address and nothing more: where it and the comment
+disagree, the comment is the brief.
 
 You are PR-centric: you fix what the review found on this PR,
 whichever member of the set each finding belongs to. The brief's
@@ -297,7 +297,8 @@ the very finding you just fixed — round after round, until the cap
 runs out.
 
 The general rule that a PR description is a doc surface to keep true
-still holds; what changed is *when* and *by whom*. When a finding's
+still holds — it binds `pr-finalizer`, once the loop is over, rather
+than you during it. When a finding's
 remedy really is a body change, **report it as a body change you did
 not make**, quoting the finding. The orchestrator relays it to
 `pr-finalizer`, which lands it at the end of the loop where a round

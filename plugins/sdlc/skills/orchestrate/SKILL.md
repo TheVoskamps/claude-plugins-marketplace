@@ -866,9 +866,9 @@ transitions"), and that is the whole exception.
 
 The freeze is what makes the review's inputs testable. The body is the
 one input that can change with no commit, no comment and no timestamp,
-so a finding whose fix was a body edit used to produce a delta of
-nothing: every later round was empty-delta, carried its verdicts
-forward, and re-reported the fixed finding until the round cap ran
+so a finding whose fix is a body edit contributes nothing to any
+round's delta: every later round is empty-delta, carries its verdicts
+forward, and re-reports the fixed finding until the round cap runs
 out. With the body frozen there is no such edit to miss, which is why
 the reviewer reads the body once at the start of a round and never
 diffs it.
@@ -1003,8 +1003,8 @@ member)**:
    Putting the brief on the PR rather than in the spawn prompt is what
    makes it readable afterwards — by the human, and by the next review
    round, which reads the comments posted since the previous review.
-   A brief that lived only in a spawn prompt was visible to nobody
-   once the spawn returned.
+   A spawn prompt reaches neither: it is visible to nobody once the
+   spawn returns.
 
 3. After issue-fixer returns, remove its worktree
    (`git worktree remove ...`, or unlock-then-remove if the harness

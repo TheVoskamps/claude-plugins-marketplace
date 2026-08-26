@@ -264,8 +264,8 @@ states what a generator puts in each record field and the reviewer's
 reviewer transcribing a record into a brief between them. So renaming
 or redefining a class sweeps those surfaces as well.
 
-The orchestrator's **fixer brief** no longer travels in a spawn prompt
-at all, and it has a sweep of its own. It is a PR comment whose first
+The orchestrator's **fixer brief** travels on the PR, never in a spawn
+prompt, and it has a sweep of its own. It is a comment whose first
 line is the literal marker `<!-- sdlc:fixer-brief -->`.
 `skills/orchestrate/SKILL.md` writes it; every other spelling is a
 reader that must agree with it — `agents/issue-fixer.md` requires it
@@ -1249,9 +1249,9 @@ neither: it changes with no commit, no comment and no timestamp. So a
 mid-loop body edit produces a round whose delta is empty, which
 carries every verdict forward unchanged and re-reports the finding the
 edit just fixed, round after round until the cap runs out
-(issue #344). Repairing that by teaching the reviewer to diff the body is the
-fix that was rejected: the freeze removes the input instead of adding
-a detector for it.
+(issue #344). Do not repair that by teaching the reviewer to diff the
+body: the freeze removes the input rather than adding a detector for
+it.
 
 ## A rebase can absorb an identical version bump
 

@@ -312,11 +312,11 @@ fetches the body itself. That is safe rather than a gap, because the
 body is **frozen for the duration of an orchestrate loop** — written
 once at PR creation, amended once by `pr-finalizer` after the loop
 ends, and edited by no `issue-fixer` and no `doc-updater` in between.
-Everything in flight travels as a PR comment instead. Do not re-add
-the body as a delta source: detecting body edits is the mechanism this
-design replaced, and a round that diffed the body would fan out on
-`pr-finalizer`'s amendment after the loop it belongs to had already
-finished.
+Everything in flight travels as a PR comment instead. Do not add the
+body as a delta source: the freeze is what removes the input, so
+detecting body edits buys nothing, and a round that diffed the body
+would fan out on `pr-finalizer`'s amendment after the loop it belongs
+to had already finished.
 
 Read the following, in this order.
 
@@ -617,13 +617,14 @@ round never reaches this step, so it skips even this regeneration; an
 adjustment-only round does reach it and does regenerate them. Both
 terms are defined in step 3.
 
-**The re-attack is kept, and nothing gates it.** A criterion theorem
-goes live whatever state its carried record holds — including
+**The re-attack is unconditional, and nothing gates it.** A criterion
+theorem goes live whatever state its carried record holds — including
 `state-detail: disproved-but-refuted` — and its brief carries no
 prior-round state, because the criterion's own text may have changed
-under it and a gate keyed on the old verdict would skip the round that
-would have caught that. Nothing about the regeneration is conditional,
-so no round is skipped and no brief vocabulary changes.
+under it and a gate keyed on the carried verdict would skip the round
+that would have caught that. So every round that fans out regenerates
+every criterion theorem, and a brief carries the same fields whatever
+the record held.
 
 What the re-attack costs is that a criterion can be graded the
 opposite way in two rounds on identical facts, which would make a
