@@ -219,17 +219,17 @@ value — which is what keeps a model change a one-file edit.
 
 `theorem-based-pr-reviewer` and the agents it spawns are non-mutating:
 none declares `memory:`, none carries `Edit`, and the reviewer's
-`Write` is bounded to two files under `.claude/tmp/<task-slug>/`: its
-review body, which `/github-prs:pr-review-submit` posts by path, and
-one round state file holding each fan-out's clock anchor, deadline
-instant and spawn/return log — the facts a resumed turn cannot
-remember. Keep that structural — no `memory:` key, no `Write` past
-those two files, no file that outlives the round, no commit step, no
-writing tool on a spawned agent. A round's
-theorem list is no exception: the reviewer persists records in the
-**review it posts** and the next round reads them back off the PR, and
-a PR artifact is not a branch write. Never repair a persistence gap by
-giving review a file the branch would carry.
+`Write` is confined to `.claude/tmp/<task-slug>/`. Two of the things it
+writes there are contract rather than scratch: its review body, which
+`/github-prs:pr-review-submit` posts by path, and one round state file
+holding each fan-out's clock anchor, deadline instant and spawn/return
+log — the facts a resumed turn cannot remember. Keep that structural —
+no `memory:` key, no `Write` outside that directory, no file that
+outlives the round, no commit step, no writing tool on a spawned agent.
+A round's theorem list is no exception: the reviewer persists records
+in the **review it posts** and the next round reads them back off the
+PR, and a PR artifact is not a branch write. Never repair a persistence
+gap by giving review a file the branch would carry.
 
 So a durable lesson learned while reviewing lands as a PR — against
 `theorem-generation` (how to state a better theorem),

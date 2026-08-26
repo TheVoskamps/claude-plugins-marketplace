@@ -140,9 +140,9 @@ states, so a conflicted PR never self-heals and is yours to rebase.
 ## Read a plugin's README before you edit the plugin
 
 Before your first edit to a plugin, read the README inside its tree —
-where its maintainer guidance lives: which file owns which statement,
-what a change there sweeps, and the measurement behind each rule. Not
-every plugin has one. These kernels are what a README cannot supply,
+which file owns which statement, what a change there sweeps, and the
+measurement behind each rule. It may sit deep in that tree, and some
+plugins have none. These kernels are what a README cannot supply,
 because each has to be in front of you before you know you needed it:
 
 - **`sdlc`** — an agent's contract is two-sided: changing what an
