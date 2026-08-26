@@ -664,6 +664,13 @@ fi
 # and never invokes podman, so it must neither gate on a started machine nor
 # start one. The launcher's dependency preflight above therefore says nothing
 # about podman, and the machine bring-up lives here, inside the build branch.
+#
+# test/podman-machine-test.sh slices this block out and RUNS it, anchoring on
+# the literal `HAVE_VERSION=""` line above, and stopping at the first `fi`
+# after the `--output "$GUEST_IMAGE"` line below. Renaming HAVE_VERSION empties
+# the slice, which the test reports as moved markers; moving the build
+# invocation instead lets the slice run past this block, which surfaces as
+# unrelated assertion failures. Update its awk when you edit either line.
 if [ "$HAVE_VERSION" != "$PINNED_VERSION" ]; then
   echo "claude-vm: guest image missing or version-mismatched (have='${HAVE_VERSION:-none}', want='$PINNED_VERSION'); building..." >&2
   # FIRST link in the trap chain (see the trap NOTE near the top of this
