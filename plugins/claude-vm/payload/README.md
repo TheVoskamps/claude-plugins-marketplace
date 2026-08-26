@@ -89,7 +89,7 @@ payload/
                         # stopped/absent podman machine itself
     machine-name-resolution-test.sh
                         # regression test for the podman machine-name
-                        # probe (issue #57); host-gated on jq
+                        # probe (issue #57); host-gated on python3 + jq
 ```
 
 ## Entry point (`bin/claude-vm`)
@@ -1840,6 +1840,15 @@ policy. Every init/start/stop is logged to stderr as it happens — the same
 never-silent rule the derived-egress additions follow — and those log lines
 are its only trace.
 
+`claude_vm_podman_machine_probe` is the **one** probe for this on either
+side of the seam. `host-acceptance.sh` runs its own bring-up (it also
+`rm`s a machine it init'd, which the launcher deliberately does not) but
+resolves the target machine through the same helper, and
+`machine-name-resolution-test.sh` drives that helper against a stub that
+renders both the JSON and the marked `{{.Name}}` template. A second probe
+in either file is a second place issue #57's default-marker trap has to be
+fixed, and only one of them would have a faithful stub behind it.
+
 The teardown rides the launcher's **trap chain**, and that chain is the part
 a later change breaks silently. Exactly one trap is live at a time and each
 installation REPLACES the previous, so every duty is carried forward by
@@ -2245,7 +2254,7 @@ manifest, aborts on a checksum mismatch, **rejects a valid signature made
 by an unexpected (unpinned) key**, and serves a warm boot with no network.
 Criterion (d) skips cleanly when `gpg` is absent. It is host-gated,
 split by cause: it skips cleanly (exit 0) when a required *binary* is
-absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `jq`) — the test
+absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `python3`) — the test
 cannot install software for you — mirroring how `config-test.sh` skips
 when `yq` is absent. A podman binary present with only its *machine*
 stopped or absent is **not** a skip: the test brings the machine up
@@ -2255,12 +2264,14 @@ the test attempted (`podman machine init`/`start`) **fails**, that is a
 real failure, not a skip — the runtime it chose to provision did not
 come up, so the test exits **non-zero** rather than green-exiting with
 nothing proven. Requires `gvproxy` (resolved from podman's libexec),
-`vfkit`, `podman`, `tinyproxy`, `curl`, and `jq` to actually run; `jq`
-parses `podman machine list --format json` to resolve the target
-machine's name structurally (the `{{.Name}}` Go template appends a `*`
-default-marker that would corrupt the name — issue #57). A podman
-machine is started by the test when needed rather than required up
-front.
+`vfkit`, `podman`, `tinyproxy`, `curl`, and `python3` to actually run.
+It resolves its target machine through the launcher's own
+`claude_vm_podman_machine_probe` rather than a probe of its own, so the
+`--format json` read that keeps the `{{.Name}}` Go template's `*`
+default-marker out of the name (issue #57) is guarded in one place; that
+helper parses with `python3`, which is where this test's `python3` gate
+comes from. A podman machine is started by the test when needed rather
+than required up front.
 
 Diagnostics (build, boot, proxy logs and the `podman machine`
 init/start stderr, plus a pass/fail summary) are written to a stable,

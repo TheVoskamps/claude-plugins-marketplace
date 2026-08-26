@@ -184,6 +184,13 @@ assert_eq "probe: prefers the default-flagged machine over the first listed" \
 # WITHOUT the trailing '*' marker `podman machine list`'s Go template appends
 # to it (issue #57): a name carrying that marker resolves to no machine on
 # every later start/stop.
+#
+# This case pins only that the helper does not itself mangle the name it was
+# handed: THIS stub answers `machine list` with JSON whatever `--format`
+# asks for, so it cannot render the marker and a helper that switched back
+# to the Go template would still pass here. The #57 regression proper is
+# machine-name-resolution-test.sh's, whose stub renders both forms
+# faithfully and drives this same helper.
 D="$(new_case probe-marker 'podman-machine-default:false:true')"
 OUT="$(PATH="$STUB_BIN:$PATH" PODMAN_STUB_DIR="$D" claude_vm_podman_machine_probe | cut -f1)"
 assert_eq "probe: the default machine's name carries no '*' marker" \
