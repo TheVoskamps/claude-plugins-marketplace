@@ -137,6 +137,28 @@ work onto the new tip rather than resetting — a worktree must never
 reset away commits it has not pushed. The sweep skips conflicted
 states, so a conflicted PR never self-heals and is yours to rebase.
 
+## Read a plugin's README before you edit the plugin
+
+Before your first edit to a plugin, read the README inside its tree —
+where its maintainer guidance lives: which file owns which statement,
+what a change there sweeps, and the measurement behind each rule. Not
+every plugin has one. These kernels are what a README cannot supply,
+because each has to be in front of you before you know you needed it:
+
+- **`sdlc`** — an agent's contract is two-sided: changing what an
+  agent does edits `skills/orchestrate/SKILL.md` too, not just the
+  agent file.
+- **`claude-vm`** — every script must run under bash 3.2, and a gate
+  asking whether the operator wrote a key reads the raw config file,
+  never the merged one.
+- **`guardrails`** — the gate ships as committed binaries, so
+  changing how it is packaged sweeps `plugins/claude-vm/` and bumps
+  both plugins.
+- **`issues`** — every consumer spells a config path as a literal, so
+  moving one edits every plugin that spells it.
+- **`github-setup`** — the App's starter permission set is restated
+  as a literal list in several files and rendered in one.
+
 ## Read on demand
 
 These files carry what does not apply on every turn. Read the matching
@@ -176,25 +198,3 @@ is the thing to fix.
   — read before adding a plugin, or a file one plugin expects another to
   reach. Kernel: plugins are file-sandboxed, so a cross-plugin `Read`
   does not resolve; skill invocation is what crosses instead.
-- [`docs/plugin-sdlc.md`](docs/plugin-sdlc.md) — read before editing
-  anything under `plugins/sdlc/`. Kernel: every fact has one owner, so a
-  contract change repairs pointers rather than being restated, and
-  review writes nothing on the branch it reviews.
-- [`docs/plugin-claude-vm.md`](docs/plugin-claude-vm.md) — read before
-  editing anything under `plugins/claude-vm/`. Kernel: write for bash
-  3.2, never split a TSV record with a tab-IFS `read`, and ask the raw
-  config file — never the merged one — whether the operator wrote a key.
-- [`docs/plugin-guardrails.md`](docs/plugin-guardrails.md) — read before
-  changing how the permission gate is packaged or what verdict it
-  returns. Kernel: a packaging-shape change sweeps `plugins/claude-vm/`
-  and bumps both plugins; a rebuild in place sweeps nothing.
-- [`docs/plugin-issues.md`](docs/plugin-issues.md) — read before moving,
-  renaming or newly consuming an issues config path. Kernel: every
-  consumer spells the path itself, so a move edits every plugin that
-  spells it.
-- [`plugins/github-setup/README.md`](plugins/github-setup/README.md) →
-  "Sweep every App-permission surface when the starter set changes" —
-  read before editing any `plugins/github-setup/` file that names a
-  permission scope. Kernel: the starter set is restated as a literal
-  list in several files and rendered in one, and widening it has a
-  converge-time consequence.

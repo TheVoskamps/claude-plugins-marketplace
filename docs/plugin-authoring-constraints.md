@@ -150,8 +150,8 @@ issue #143 removed from `sdlc` — so the path travels with every one of
 those parses, and with the abort message each emits when the file is
 missing. The copies are the design rather than drift, and what keeps
 them in step is a grep over the literal, owned by
-`docs/plugin-issues.md` → "The config paths are literals every consumer
-spells itself" and not restated here. Naming that owner is not the
+`plugins/issues/README.md` → "The config paths are literals every
+consumer spells itself" and not restated here. Naming that owner is not the
 sweep rule "Where a newly demonstrated fact belongs" forbids below:
 there the arms differ per consumer by design, here every copy is one
 string and any difference is a defect.
@@ -216,7 +216,7 @@ which definition to spawn.
 `theorem-generator-high`, and
 `theorem-generator-xhigh` are skeletons over
 `plugins/sdlc/skills/theorem-generation/SKILL.md`. What keeps the
-pattern honest is enforced by `docs/plugin-sdlc.md` →
+pattern honest is enforced by `plugins/sdlc/README.md` →
 "The generator skeletons are copies of one file":
 
 - **The skill is tier-blind.** It carries no tier parameter and never
@@ -506,7 +506,8 @@ fact:
   since nothing else cross-references the plugin list by name.
 - **A fact about working inside one plugin's tree** — which file owns
   which statement, what a change there sweeps — belongs in that
-  plugin's `docs/plugin-<name>.md`, indexed from `CLAUDE.md`, not here.
+  plugin's own README, not here and not in a second file under
+  `docs/`.
 
 Two surfaces a skill-extraction round leaves behind: the consumer
 plugin's README does not mention the `dependencies` edge its

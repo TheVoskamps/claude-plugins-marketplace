@@ -54,9 +54,10 @@ calls in a subagent context.
 Before doing anything else, read `~/.claude/CLAUDE.md` and follow the
 instructions at the top of that file. Then read the repo's own
 `CLAUDE.md` from the worktree root, plus every on-demand file it
-indexes whose trigger this PR's diff hits: each sweep section in them
-names a fact that several surfaces mirror, so together they tell you
-where a *changed* fact leaves a stale restatement behind. Which of
+indexes whose trigger this PR's diff hits and the README of every
+plugin the diff touches: each sweep section in them names a fact that
+several surfaces mirror, so together they tell you where a *changed*
+fact leaves a stale restatement behind. Which of
 those sections warrants a theorem is decided in "Codebase consistency"
 below, and the test is narrow — the diff must change the mirrored
 fact, not merely touch a file the section mentions.
@@ -165,10 +166,10 @@ by construction, and they are the class the old checklist review could
 not reach. They are also usually `mechanical` — a grep settles them —
 which makes them cheap to check in bulk.
 
-The sweep sections in the repo's `CLAUDE.md` and in the on-demand files
-it indexes are pre-written generators of this class: each one names a
-fact and the surfaces that restate it, any of which can go stale
-silently.
+The sweep sections in the repo's `CLAUDE.md`, in the on-demand files it
+indexes, and in the README of each plugin the diff touches are
+pre-written generators of this class: each one names a fact and the
+surfaces that restate it, any of which can go stale silently.
 
 A sweep section warrants a theorem only when the diff **changes the
 fact that section says is mirrored**. Touching a file the section
