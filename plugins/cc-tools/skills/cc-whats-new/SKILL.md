@@ -13,24 +13,42 @@ here touches is noise, and noise is what this skill exists to remove.
 
 ## State file
 
-`${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/whats-new.json` holds the
-watermark:
+`${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/whats-new.md` holds the
+watermark — Markdown with YAML front-matter, the shape every
+skill-read config on this machine uses, so a human can open it and a
+model parses it with the front-matter reader it already has:
 
-```json
-{ "lastRun": "YYYY-MM-DD", "lastVersion": "2.1.119" }
+```markdown
+---
+schema-version: 1
+last-run: YYYY-MM-DD
+last-version: 2.1.119
+---
+
+# cc-whats-new watermark
+
+Written by `/cc-tools:cc-whats-new`. Editing `last-run` by hand
+re-opens the window; `--since` does the same for one run.
 ```
 
-`lastVersion` is what filters the CHANGELOG, which carries version
-headings and no dates; `lastRun` is what filters the issue search,
+`last-version` is what filters the CHANGELOG, which carries version
+headings and no dates; `last-run` is what filters the issue search,
 which is dated and versionless. Both are needed — neither substitutes
 for the other.
 
-Read it first. If the file or its directory is absent, this is a first
-run: report that, use the 30 days before today as the window, and say
-in the report that the CHANGELOG section is capped at 30 entries rather
-than complete.
+Read it first, requiring `schema-version: 1`. A file whose
+front-matter is absent or malformed, or whose `schema-version` is
+lower, is not a watermark to guess at: report the path and the version
+found and stop, so a hand-edit that broke the file is not silently
+overwritten. A **higher** version reads fine — take the two keys and
+ignore the rest.
 
-`--since YYYY-MM-DD` in `$ARGUMENTS` overrides `lastRun` for this run
+If the file or its directory is absent, this is a first run: report
+that, use the 30 days before today as the window, and say in the
+report that the CHANGELOG section is capped at 30 entries rather than
+complete.
+
+`--since YYYY-MM-DD` in `$ARGUMENTS` overrides `last-run` for this run
 and leaves the file's own watermark to be advanced as usual.
 
 ## Execution rules
@@ -65,8 +83,8 @@ the absolute path.
 
 3. **Fetch the CHANGELOG** with WebFetch from
    `https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`,
-   asking for every entry above `lastVersion`. Version headings are
-   descending, so stop at the first heading that is `lastVersion` or
+   asking for every entry above `last-version`. Version headings are
+   descending, so stop at the first heading that is `last-version` or
    lower. On a first run, take the newest 30 entries.
 
 4. **Match each entry against the profile.** Keep an entry when it
@@ -79,7 +97,7 @@ the absolute path.
    states, bounded by the watermark:
 
    ```bash
-   gh search issues --repo anthropics/claude-code --limit 20 --json number,title,state,closedAt,updatedAt "<topic> updated:>=<lastRun>"
+   gh search issues --repo anthropics/claude-code --limit 20 --json number,title,state,closedAt,updatedAt "<topic> updated:>=<last-run>"
    ```
 
    Search the topics from the profile that step 4 matched, plus any
@@ -96,7 +114,7 @@ the absolute path.
 ## Report format
 
 ```text
-Since <lastVersion> (<lastRun>) — now <version>, <today>.
+Since <last-version> (<last-run>) — now <version>, <today>.
 
 ## Affects your setup
 
