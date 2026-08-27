@@ -358,11 +358,17 @@ claude_vm_mktemp() {
 # Checks (in order):
 #   - gvproxy   : resolved via claude_vm_resolve_gvproxy (not bare PATH).
 #   - vfkit     : on PATH.
-#   - podman    : on PATH (the default provisioner needs it).
-#   - podman machine: initialized AND running (`podman info` succeeds).
 #   - tinyproxy : on PATH, ONLY when the bundled default proxy is in use.
 #                 An explicit custom proxy.cmd owns its own dependencies,
 #                 so skip the tinyproxy check then.
+#
+# podman is deliberately NOT checked here (issue #215). Only a launch that
+# actually BUILDS the guest image needs it; a warm-cache launch boots the
+# already-built image with vfkit and never invokes podman at all, so gating
+# every launch on a started podman machine failed launches that had no use
+# for one. The podman binary check and the machine bring-up moved to
+# claude_vm_ensure_podman_machine below, which the launcher calls on the
+# build path only.
 #
 # Args:
 #   $1 -- "default-proxy" to include the tinyproxy check, anything else
@@ -386,19 +392,6 @@ claude_vm_preflight_toolchain() {
     missing=1
   fi
 
-  if ! command -v podman >/dev/null 2>&1; then
-    echo "claude-vm: 'podman' not found on PATH. Install it ('brew install podman')." >&2
-    missing=1
-  elif ! podman info >/dev/null 2>&1; then
-    # podman is installed but no machine is initialized/running. On macOS
-    # podman needs a started Linux VM (it supplies the kernel the default
-    # provisioner builds inside). Probe it; a clear message beats an
-    # opaque mid-build failure.
-    echo "claude-vm: podman machine is not running ('podman info' failed)." >&2
-    echo "  Start it: 'podman machine init' (first time) then 'podman machine start'." >&2
-    missing=1
-  fi
-
   if [ "$proxy_mode" = "default-proxy" ] && ! command -v tinyproxy >/dev/null 2>&1; then
     echo "claude-vm: 'tinyproxy' not found on PATH (required by the bundled default proxy)." >&2
     echo "  Install it ('brew install tinyproxy'), or set proxy.cmd to your own forward proxy." >&2
@@ -406,6 +399,172 @@ claude_vm_preflight_toolchain() {
   fi
 
   [ "$missing" -eq 0 ]
+}
+
+# The machine claude_vm_ensure_podman_machine STARTED on this run, empty
+# when it started none (no machine was needed, or the one it found was
+# already running). claude_vm_stop_podman_machine reads it to undo exactly
+# what this run did and nothing more: a machine found running is left
+# running, so a launch never stops a machine the operator is using for
+# something else. Assigned at source time so `set -u` holds in the launcher
+# and in the tests.
+CLAUDE_VM_PODMAN_MACHINE_STARTED=""
+
+# Resolve the podman machine this host would use: the default-flagged one
+# if there is one, else the first listed. Prints "<name>\t<running>" on one
+# line, or NOTHING when the host has no machine at all. Always returns 0 --
+# "no machine" is a state the caller acts on, not an error.
+#
+# Read from `--format json`, NOT the `{{.Name}}` Go template: podman renders
+# the DEFAULT machine's `{{.Name}}` with a trailing `*` default-marker
+# (e.g. `podman-machine-default*`), unconditionally and regardless of what
+# else the template asks for, and that marker would be captured into the
+# name -- making every later `podman machine start/stop "<name>"` target a
+# machine that does not exist by that literal name (issue #57 found this in
+# test/host-acceptance.sh, whose probe this mirrors). The JSON `Name` is
+# unmarked and `Running`/`Default` are real booleans, so selecting the
+# default is a structural read rather than a column match.
+#
+# The parse is python3, not jq: python3 is already a hard launcher
+# dependency (the Keychain and identity-seed selections in lib/credential.sh
+# need it) and jq is optional everywhere else in this plugin, so requiring
+# jq here would add a dependency to the build path for one JSON read.
+claude_vm_podman_machine_probe() {
+  local json
+  json="$(podman machine list --format json 2>/dev/null)" || return 0
+  [ -n "$json" ] || return 0
+  printf '%s' "$json" | python3 -c '
+import json, sys
+
+try:
+    machines = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+if not isinstance(machines, list):
+    sys.exit(0)
+chosen = None
+for m in machines:
+    if isinstance(m, dict) and m.get("Default") is True:
+        chosen = m
+        break
+if chosen is None:
+    for m in machines:
+        if isinstance(m, dict):
+            chosen = m
+            break
+if chosen is None:
+    sys.exit(0)
+name = chosen.get("Name")
+if not isinstance(name, str) or not name:
+    sys.exit(0)
+sys.stdout.write("%s\t%s\n" % (name, "true" if chosen.get("Running") is True else "false"))
+' 2>/dev/null
+}
+
+# Bring the podman machine up so the guest-image build has a runtime, and
+# record whether this run had to start it (issue #215).
+#
+# Called ONLY on the build path. claude-vm's whole point is one command that
+# runs claude in a micro-VM, so the launcher does the init/start itself
+# rather than printing the two commands and refusing -- but only for a
+# launch that actually needs podman, and it leaves the host as it found it.
+#
+# The decision is keyed on `podman machine list` (via the probe above), not
+# on a failed `podman info`, so each state gets the action it needs rather
+# than one undifferentiated "not running":
+#   - no machine listed  -> `podman machine init` then `podman machine start`
+#   - machine stopped    -> `podman machine start`
+#   - machine running    -> nothing; leave it exactly as found
+#
+# An init'd machine is STOPPED at end of run, not removed: init downloads and
+# provisions a VM image and is the expensive half, so the next build reuses
+# it.
+#
+# Every action is logged to stderr as it happens -- the same never-silent
+# rule the derived-egress additions follow. There is no config surface: this
+# is launcher plumbing, not policy, and the log lines are its only trace.
+#
+# Returns 0 when podman is usable for the build, 1 otherwise (after printing
+# what failed).
+claude_vm_ensure_podman_machine() {
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "claude-vm: 'podman' not found on PATH; the guest image build needs it." >&2
+    echo "  Install it ('brew install podman')." >&2
+    return 1
+  fi
+
+  local probe name running
+  probe="$(claude_vm_podman_machine_probe)"
+
+  if [ -z "$probe" ]; then
+    echo "claude-vm: no podman machine on this host; running 'podman machine init'." >&2
+    echo "claude-vm: this is HEAVY on a first run -- it downloads and provisions a Linux VM." >&2
+    # Invoked bare (no --cpus/--memory). The resolved cpus/mem config sizes
+    # the GUEST vfkit boots; this machine is the BUILD HOST the image is
+    # produced inside, so honoring the guest's sizing here would conflate
+    # two different VMs.
+    if ! podman machine init >&2; then
+      echo "claude-vm: 'podman machine init' failed; cannot build the guest image." >&2
+      return 1
+    fi
+    # Re-probe rather than assuming the default name: init picks it, and the
+    # name is what every later start/stop must target.
+    name="$(claude_vm_podman_machine_probe | cut -f1)"
+    if [ -z "$name" ]; then
+      echo "claude-vm: 'podman machine init' succeeded but no machine is listed; cannot build the guest image." >&2
+      return 1
+    fi
+    echo "claude-vm: starting the freshly-initialized podman machine ($name)." >&2
+    if ! podman machine start "$name" >&2; then
+      echo "claude-vm: 'podman machine start $name' failed after init; cannot build the guest image." >&2
+      return 1
+    fi
+    CLAUDE_VM_PODMAN_MACHINE_STARTED="$name"
+  else
+    name="$(printf '%s' "$probe" | cut -f1)"
+    running="$(printf '%s' "$probe" | cut -f2)"
+    if [ "$running" = "true" ]; then
+      echo "claude-vm: podman machine ($name) is already running; leaving it as found." >&2
+    else
+      echo "claude-vm: podman machine ($name) is stopped; starting it." >&2
+      if ! podman machine start "$name" >&2; then
+        echo "claude-vm: 'podman machine start $name' failed; cannot build the guest image." >&2
+        return 1
+      fi
+      CLAUDE_VM_PODMAN_MACHINE_STARTED="$name"
+    fi
+  fi
+
+  # The machine being up is not the same as podman being usable -- a machine
+  # can be running while the connection is broken. Confirm before handing the
+  # build a runtime it cannot use, so the failure names its cause here rather
+  # than surfacing as an opaque mkosi error minutes later.
+  if ! podman info >/dev/null 2>&1; then
+    echo "claude-vm: podman machine ($name) is running but 'podman info' still fails." >&2
+    echo "  podman is unusable for a non-machine-state reason; cannot build the guest image." >&2
+    return 1
+  fi
+  return 0
+}
+
+# Undo exactly what claude_vm_ensure_podman_machine did: stop the machine iff
+# this run started it. A machine that was already running when the launcher
+# looked is left running (issue #215) -- the operator may be using it.
+#
+# Idempotent: the recorded name is cleared BEFORE the stop, so a second call
+# (a signal trap firing ahead of the EXIT trap) is a no-op even when the stop
+# itself failed. A failed stop WARNS rather than passing silently: it leaves
+# a machine running that this run brought up, which the operator must be able
+# to see.
+claude_vm_stop_podman_machine() {
+  local name="${CLAUDE_VM_PODMAN_MACHINE_STARTED:-}"
+  [ -n "$name" ] || return 0
+  CLAUDE_VM_PODMAN_MACHINE_STARTED=""
+  echo "claude-vm: stopping the podman machine this run started ($name)." >&2
+  if ! podman machine stop "$name" >&2; then
+    echo "claude-vm: WARNING: 'podman machine stop $name' failed; the machine may still be running." >&2
+  fi
+  return 0
 }
 
 # The full set of list keys that UNION (global ++ repo, de-duplicated)

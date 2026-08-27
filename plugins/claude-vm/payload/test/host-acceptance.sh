@@ -121,15 +121,15 @@ gate_fail() {
 
 command -v curl >/dev/null 2>&1 || gate_skip "curl not available;"
 
-# Binary presence only -- NOT machine running state. We mirror the
-# preflight's binary checks here so a stopped/absent machine does not
-# turn into a SKIP. The preflight's combined "default-proxy" run is
-# intentionally NOT used as the gate, because it ALSO probes 'podman
-# info' and would conflate a stopped machine (which we want to start,
-# below) with a missing binary (which we SKIP on). We therefore re-run
-# the same per-binary checks the preflight does, minus the 'podman info'
-# machine probe. gvproxy ships in podman's libexec rather than on PATH,
-# so it uses the resolver; the rest are plain PATH lookups.
+# Binary presence only -- NOT machine running state, so a stopped or
+# absent machine does not turn into a SKIP; this test brings one up
+# itself, below. The preflight's combined "default-proxy" run is
+# intentionally NOT used as the gate: it checks only the pieces EVERY
+# launch needs and says nothing about podman (issue #215 moved the podman
+# checks onto the build path), while this test builds an image and so
+# needs the podman binary too. The checks are therefore spelled out here
+# rather than delegated. gvproxy ships in podman's libexec rather than on
+# PATH, so it uses the resolver; the rest are plain PATH lookups.
 claude_vm_resolve_gvproxy >/dev/null 2>&1 || \
   gate_skip "gvproxy not resolvable (install podman);"
 for bin in vfkit podman tinyproxy; do

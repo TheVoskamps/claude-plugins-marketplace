@@ -53,13 +53,17 @@
 # Usage:
 #   claude-vm.sh <repo-path> [claude args...]
 #
-# Requires: yq, git, gvproxy, vfkit, podman (with a started machine),
-# and a forward proxy (proxy.cmd; the bundled default needs tinyproxy).
-# gvproxy is resolved from podman's libexec, not required on PATH (it
+# Requires: yq, git, gvproxy, vfkit, and a forward proxy (proxy.cmd; the
+# bundled default needs tinyproxy). A launch that has to BUILD the guest
+# image additionally needs podman; the launcher inits/starts the podman
+# machine itself when the build needs one, and stops it again at end of run
+# if it was the one that started it. A warm-cache launch never invokes
+# podman. gvproxy is resolved from podman's libexec, not required on PATH (it
 # ships inside the podman formula and is off PATH after a stock
-# 'brew install podman'). A dependency preflight checks all of these up
-# front. A real boot needs macOS virtualization tooling; this script is
-# structured so the config-resolution half is exercisable without it.
+# 'brew install podman'). A dependency preflight checks the always-needed
+# pieces up front. A real boot needs macOS virtualization tooling; this
+# script is structured so the config-resolution half is exercisable
+# without it.
 
 set -euo pipefail
 
@@ -133,6 +137,13 @@ claude_vm_detect_legacy_config "repo ($(basename "$REPO_SRC"))" "$REPO_LEGACY_CO
 # `trap cleanup EXIT INT TERM` REPLACES it once the full run state exists. Do
 # NOT add yet another `trap ... EXIT` here -- a later trap installation would
 # replace whatever was set, leaking this file on every run.
+#
+# There is exactly ONE trap live at a time, and each installation REPLACES the
+# previous one, so every duty must be carried forward by hand. In build order
+# the chain is: the image-build branch's `claude_vm_stop_podman_machine` trap
+# (issue #215), the narrow interim credential trap, then cleanup(). Each later
+# link repeats the machine stop; a new link that omits it strands a podman
+# machine this run started.
 # Two per-tier documents, each in its FILE schema (issue #179): bake files
 # merge into MERGED_BAKE, boot files into MERGED_BOOT. There is no combined
 # cross-tier document and no schema translation -- bake consumers read
@@ -537,6 +548,10 @@ fi
 # "gvproxy socket never appeared" when gvproxy is merely off PATH). The
 # tinyproxy check is included only when the bundled default proxy is in
 # use; a custom proxy.cmd owns its own dependencies.
+#
+# podman is NOT among the pieces checked here (issue #215). It is needed only
+# by a launch that builds the guest image, and that branch brings up its own
+# podman machine -- see the build-or-reuse block below.
 # ---------------------------------------------------------------------
 if [ "$PROXY_CMD" = "$DEFAULT_PROXY_CMD" ]; then
   PREFLIGHT_PROXY_MODE="default-proxy"
@@ -636,19 +651,29 @@ CLAUDE_VERSION_RESOLVED="$(claude_cache_resolve_version "$CLAUDE_VERSION" 2>/dev
 # ---------------------------------------------------------------------
 export CLAUDE_VM_GUEST_CLAUDE_BIN="$CLAUDE_BIN_HOST"
 PINNED_VERSION="$("$SCRIPT_DIR/build-guest-image.sh" --print-version)"
-ensure_guest_image() {
-  local img="$1" want="$2" have=""
-  if [ -f "$img" ] && [ -f "$img.version" ]; then
-    have="$(cat "$img.version" 2>/dev/null || true)"
-  fi
-  if [ "$have" = "$want" ]; then
-    return 0
-  fi
-  echo "claude-vm: guest image missing or version-mismatched (have='${have:-none}', want='$want'); building..." >&2
-  mkdir -p "$(dirname "$img")"
-  "$SCRIPT_DIR/build-guest-image.sh" --output "$img"
-}
-ensure_guest_image "$GUEST_IMAGE" "$PINNED_VERSION"
+HAVE_VERSION=""
+if [ -f "$GUEST_IMAGE" ] && [ -f "$GUEST_IMAGE.version" ]; then
+  HAVE_VERSION="$(cat "$GUEST_IMAGE.version" 2>/dev/null || true)"
+fi
+# podman is needed by THIS BRANCH ONLY (issue #215). A warm-cache launch --
+# the image on disk already stamps the pinned version -- boots it with vfkit
+# and never invokes podman, so it must neither gate on a started machine nor
+# start one. The launcher's dependency preflight above therefore says nothing
+# about podman, and the machine bring-up lives here, inside the build branch.
+if [ "$HAVE_VERSION" != "$PINNED_VERSION" ]; then
+  echo "claude-vm: guest image missing or version-mismatched (have='${HAVE_VERSION:-none}', want='$PINNED_VERSION'); building..." >&2
+  claude_vm_ensure_podman_machine \
+    || { echo "claude-vm: cannot bring up a podman runtime for the image build; see the messages above." >&2; exit 1; }
+  # FIRST link in the trap chain (see the trap NOTE near the top of this
+  # file). Armed the moment a machine may have been started, so a Ctrl-C or a
+  # failed build during the multi-minute build still stops what this run
+  # started. The narrow interim trap armed later, and cleanup() after it, each
+  # REPLACE this trap and each carry the same claude_vm_stop_podman_machine
+  # call forward -- a replacement that dropped it would leak the machine.
+  trap 'claude_vm_stop_podman_machine' EXIT INT TERM
+  mkdir -p "$(dirname "$GUEST_IMAGE")"
+  "$SCRIPT_DIR/build-guest-image.sh" --output "$GUEST_IMAGE"
+fi
 
 # ---------------------------------------------------------------------
 # Run directory + repo mount strategy
@@ -899,7 +924,10 @@ SEC_STDERR="$RUN/.security.stderr"
 # each rm is a no-op
 # under `set -u` even if the trap fires before they are set. RAW_CREDENTIAL is
 # included so a signal during the selection window does not leak the FULL blob.
-trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED_BAKE:-}" "${MERGED_BOOT:-}"' EXIT INT TERM
+# It also carries claude_vm_stop_podman_machine forward from the build-path trap
+# it replaces (issue #215): that call is a no-op unless this run started a podman
+# machine, and dropping it here would strand a machine this run brought up.
+trap 'rm -rf "${CREDS_DIR:-}"; rm -f "${RAW_CREDENTIAL:-}" "${MERGED_BAKE:-}" "${MERGED_BOOT:-}"; claude_vm_stop_podman_machine' EXIT INT TERM
 # Run with `set +e` around just this call so a non-zero exit does not trip
 # `set -e` before we have inspected the code. Capture stderr to a file (not
 # /dev/null) so an unexpected error can be surfaced verbatim below. The FULL
@@ -2039,6 +2067,11 @@ cleanup() {
   if [ -n "${MOUNT_WRAP_TMPDIR:-}" ]; then
     rm -rf "$MOUNT_WRAP_TMPDIR"
   fi
+  # Last link in the trap chain that started at the image-build branch (issue
+  # #215): stop the podman machine iff THIS run started it for the build. A
+  # no-op on a warm-cache launch, which never invoked podman at all, and on a
+  # launch that found the machine already running.
+  claude_vm_stop_podman_machine
   echo "claude-vm: egress capture retained at: $PCAP" >&2
   if [ -n "${GUEST_CONSOLE_LOG:-}" ]; then
     echo "claude-vm: guest console log retained at: $GUEST_CONSOLE_LOG" >&2
@@ -2166,7 +2199,7 @@ CLAUDE_BIN_DIR="$(dirname "$CLAUDE_BIN_HOST")"
 # their config dir on a case-sensitive HFS+ or exFAT volume), fall back to a
 # plain full copy with a warning -- correctness (a per-run image) over speed.
 # The .version sidecar is NOT cloned: the clone is throwaway and the base's
-# version was already checked by ensure_guest_image above.
+# version was already checked by the build-or-reuse block above.
 # ---------------------------------------------------------------------
 if cp -c "$GUEST_IMAGE" "$GUEST_IMAGE_CLONE" 2>/dev/null; then
   CLONE_CREATED=1
