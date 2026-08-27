@@ -95,14 +95,17 @@ are. They read as sequence names, but they are load-bearing across the
 file's report templates and a Hard Constraint, so renaming them is a
 cross-file refactor rather than a doc-pass sweep.
 
-What this file *does* own is the roster itself: which skills and which
-agents the plugin ships, plus the `dependencies` edges and the
-cross-plugin skills those edges cover. A PR that adds, removes, or
-renames a skill or an agent updates the matching table below, and so
+What this file *does* own is the roster itself: which skills, which
+agents and which executables the plugin ships, plus the `dependencies`
+edges and the cross-plugin skills those edges cover. A PR that adds,
+removes, or renames a skill or an agent updates the matching table
+below, and so
 does one that changes a user verb's argument shape — the Skill column
 spells that shape, and a human reading a roster rather than a skill
-file has nowhere else to find it. A PR that changes which cross-plugin
-skill this plugin invokes updates "Dependencies" at the end.
+file has nowhere else to find it. The executables are rostered in prose
+rather than a table, and "Executables" states its own trigger. A PR
+that changes which cross-plugin skill this plugin invokes updates
+"Dependencies" at the end.
 
 Not everything below is a roster entry, and what is not has a trigger
 of its own. The frontmatter keys spelled here hold for a whole class —
@@ -138,16 +141,6 @@ glosses it grades its own theorem-less findings by, and preloads
 `agent-result-persist-interface`, which the disprover and the verifier
 preload too. No generator does: a generator writes no result record.
 
-## Executables
-
-The plugin ships exactly one, `bin/sdlc-agent-result-persist`, and
-`skills/agent-result-persist-interface/SKILL.md` owns its whole
-contract — modes, flags, the path it composes, the record grammar, and
-the bare-command spelling its permission rule keys on. This entry is
-the roster line, not a second copy of any of that. What is only here is
-the count: a PR that adds a second executable names it in the sentence
-above, and one that removes this one removes this section.
-
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
 edit it" above. Why a fan-out procedure lives in one agent rather than
@@ -160,6 +153,16 @@ and `/sdlc:orchestrate` does not invoke it — the user runs it first,
 per issue, and runs the orchestrator once the issues are ready. What
 it assesses an issue against, and why it is interactive rather than an
 agent, is owned by `skills/orchestrate-ready/SKILL.md`.
+
+## Executables
+
+The plugin ships exactly one, `bin/sdlc-agent-result-persist`, and
+`skills/agent-result-persist-interface/SKILL.md` owns its whole
+contract — modes, flags, the path it composes, the record grammar, and
+the bare-command spelling its permission rule keys on. This entry is
+the roster line, not a second copy of any of that. What is only here is
+the count: a PR that adds a second executable names it in the sentence
+above, and one that removes this one removes this section.
 
 ## Agents
 

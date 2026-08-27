@@ -38,9 +38,13 @@ sdlc-agent-result-persist --mode <mode> \
   --pr <n> --round <n> --agent <name> [mode-specific flags]
 ```
 
-Spell the command exactly as written. It has a permission rule of its
-own, and a spelling that does not match it byte for byte turns a
-child's final act into a prompt nobody is there to answer.
+Spell the command exactly as written. The rule that lets it run
+unattended is keyed on that bare spelling —
+`Bash(sdlc-agent-result-persist:*)` — and it lives in the caller's own
+settings rather than in this plugin, which ships no permission rules at
+all. A spelling that does not match it byte for byte, or a machine
+where the rule was never added, turns a child's final act into a prompt
+nobody is there to answer.
 
 ## The identifying flags
 
