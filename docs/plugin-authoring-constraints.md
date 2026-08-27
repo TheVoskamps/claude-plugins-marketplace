@@ -215,9 +215,7 @@ which definition to spawn.
 `theorem-generator`, `theorem-generator-medium`,
 `theorem-generator-high`, and
 `theorem-generator-xhigh` are skeletons over
-`plugins/sdlc/skills/theorem-generation/SKILL.md`. What keeps the
-pattern honest is enforced by `plugins/sdlc/README.md` →
-"The generator skeletons are copies of one file":
+`plugins/sdlc/skills/theorem-generation/SKILL.md`.
 
 - **The skill is tier-blind.** It carries no tier parameter and never
   asks which variant is running it, so the variants cannot diverge in
