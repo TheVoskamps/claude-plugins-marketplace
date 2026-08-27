@@ -17,7 +17,7 @@ the fact.
 
 | Fact | Owner |
 | --- | --- |
-| Which skills and agents the plugin ships, and its `dependencies` edges | this file |
+| Which skills, agents and executables the plugin ships, and its `dependencies` edges | this file |
 | What one agent does | that agent's own file under `agents/` |
 | What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
@@ -145,8 +145,8 @@ The plugin ships exactly one, `bin/sdlc-agent-result-persist`, and
 contract — modes, flags, the path it composes, the record grammar, and
 the bare-command spelling its permission rule keys on. This entry is
 the roster line, not a second copy of any of that. What is only here is
-the count: a PR that adds a second executable adds a line above, and
-one that removes this one removes this section.
+the count: a PR that adds a second executable names it in the sentence
+above, and one that removes this one removes this section.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you

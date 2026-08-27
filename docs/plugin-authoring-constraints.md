@@ -344,14 +344,40 @@ spawn point and record the reading, (b) compute and record the
 deadline instant from it, and (c) read the clock again and compare
 explicitly on **every** resume, before deciding whether to end the
 turn. None of that survives in context alone, so it goes in a state
-file the spawner writes — which is also where the per-child spawn and
-return log belongs, since "which children reported" is the other fact
-a resume cannot remember. That log is what makes a **received**
-verdict distinguishable from an inferred one: a procedure that
-requires a verdict per child, with no record of which children
-returned, will have one supplied. State that a verdict's only
-admissible source is a received `<task-notification>`, and give the
-disposition table a row for the child that has not reported.
+file — which is also where the per-child spawn and return log belongs,
+since "which children reported" is the other fact a resume cannot
+remember. That log is what makes a **received** verdict
+distinguishable from an inferred one: a procedure that requires a
+verdict per child, with no record of which children returned, will
+have one supplied. State that a verdict's only admissible source is a
+`return` record in that file, and give the disposition table a row for
+the child that has not reported.
+
+**A notification is a wake-up, not evidence — so each child records
+its own result.** A `<task-notification>` the harness never delivers
+takes its child's result with it, and the spawner then waits out its
+deadline on an agent that finished: a spawner that writes the return
+log from what its notifications carried can only record the results it
+was told about. Have each child append its own record as its final act
+instead, and have the spawner derive which children returned, what
+each returned, and which are still outstanding from the file on every
+resume rather than from what it recalls being told. One surviving
+notification then carries the round past every result whose own
+notification was lost. What the pattern does not cover is a fan-out
+none of whose notifications arrive, which leaves a turn nothing
+resumes; no record a child writes can wake the spawner.
+
+That splits the file's writers across worktrees, which decides both
+where it lives and how it is reached. It goes under the session
+scratchpad — outside every repository, so a child's `isolation:
+worktree` tree being thrown away does not take the record with it (see
+"Handing data between agents: a session-scoped inbox" below). And the
+path is composed by a small executable the plugin ships under `bin/`
+(constraint 7), which every writer and the reader call by bare name
+with the same identifying flags, so no agent ever holds a path string
+to mistype or to carry across a turn boundary. Key one file per
+fan-out rather than sectioning one file, so neither fan-out can answer
+for the other.
 
 **That state file is append-only, and the procedure has to say so.**
 Create it once, then extend it one record per line with a shell
@@ -368,10 +394,12 @@ stored set, and waited out its budget on work that had already
 reported (issue #351).
 
 `theorem-based-pr-reviewer` carries both — the anchors at each of its
-two spawn points, and the state file under `.claude/tmp/`
-(issue #344). A procedure that
-fans out twice needs a deadline on **each** fan-out: an unbounded
-second stage parks the round exactly as an unbounded first one would,
+two spawn points, and one state file per fan-out under the session
+scratchpad, written through the `sdlc-agent-result-persist` executable
+by the disprovers and verifiers themselves (issues #344, #354). A
+procedure that fans out twice needs a deadline on **each** fan-out: an
+unbounded second stage parks the round exactly as an unbounded first
+one would,
 and it is the easier one to leave unbounded, because it runs only on
 the rounds the first stage found something in. Where no measurement
 of the second stage exists, reuse the first's rather than deriving a
