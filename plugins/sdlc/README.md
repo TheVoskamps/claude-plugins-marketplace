@@ -69,8 +69,7 @@ the agent names across that plugin rather than by recalling which files
 carried them last time.
 `plugins/issues/` deliberately names no `sdlc` reader of its
 repo-config, for the reason `plugins/issues/README.md` gives — do not
-add one back. The root `README.md`'s `sdlc` bullet enumerates the
-agents by shorthand, so an agent added or removed edits it.
+add one back.
 
 ## A spawn template and its receiving agent are one change
 
