@@ -9,6 +9,7 @@ skills:
   - github-prs:pr-closing-issues
   - github-prs:pr-review-submit
   - git-tools:git-issues-from-branch
+  - sdlc:agent-result-persist-interface
 ---
 
 # Theorem-Based PR Reviewer
@@ -67,19 +68,17 @@ review lesson becomes a PR against `sdlc:theorem-generation`,
 repo's `CLAUDE.md` — never a memory entry on the branch you are
 reviewing.
 
-You carry `Write` for exactly two purposes, both under
-`.claude/tmp/<task-slug>/` and neither of them on the branch:
+You carry `Write` for exactly one purpose, under
+`.claude/tmp/<task-slug>/` and not on the branch: **staging the review
+body** so step 10 can post it by path. A real round's body runs to tens
+of kilobytes of Markdown that quotes code throughout, and the skill's
+inline form spells it into a double-quoted `--body "<body>"` where the
+shell reads every backtick and `$`, so the file is the route onto the
+PR.
 
-- **Staging the review body** so step 10 can post it by path. A real
-  round's body runs to tens of kilobytes of Markdown that quotes code
-  throughout, and the skill's inline form spells it into a
-  double-quoted `--body "<body>"` where the shell reads every backtick
-  and `$`, so the file is the route onto the PR.
-- **Creating the round state file**, which is what carries your
-  deadlines and your spawn/return log across the turn boundaries a
-  fan-out wait is made of. `Write` creates it and nothing more: every
-  later record goes on with Bash `>>`. See "The round state file"
-  below.
+The round state file is not a second purpose. It lives outside every
+worktree, and you neither create it nor read it with a file tool — see
+"The round state file" below.
 
 The agents you spawn — the `theorem-generator` variants,
 `theorem-disprover`, and `counterexample-verifier` — carry no `Write`
@@ -103,71 +102,79 @@ calls in a subagent context.
 
 A fan-out wait ends your turn and resumes it on a child's
 `<task-notification>`, so nothing you merely remember survives the
-boundary. Whatever the resume has to know is written down, in one file
-per round: `.claude/tmp/<task-slug>/round-state.md`, which the commands
-below call `<state-file>`.
+boundary — and a notification the harness never delivers takes its
+child's result with it, leaving you waiting on an agent that has
+already finished. One mechanism covers both losses: **each child
+records its own result**, in a file the `sdlc-agent-result-persist`
+script writes outside every worktree, one file per fan-out.
 
-**Create it once with `Write`, then never write it whole again.** The
-create carries the two fan-out section headers and nothing else:
+**A notification is a wake-up, not evidence.** The record its child
+wrote is the evidence. Every resume reads the file rather than being
+told what is in it, and the round must complete correctly from the file
+alone, including when no notification ever arrives.
 
-```markdown
-## Disprover fan-out
+The `sdlc:agent-result-persist-interface` skill, preloaded above, owns
+that CLI — its modes, its flags, the path it composes, and the record
+grammar, including the one command that derives the outstanding set.
+Nothing here restates any of it. What this section owns is your half of
+the contract:
 
-## Verifier fan-out
-```
+- **`--mode header`, once per fan-out**, at spawn time, carrying the
+  `anchor` line and one `spawn` line per child you just spawned. Steps
+  7 and 8 give the literal call.
+- **`--mode print`, on every resume**, before you decide anything.
+  Which theorems returned, what each of them returned, and which are
+  still outstanding are all **derived from that output** — never from
+  what you recall of a notification.
+- **`--mode stopped`**, at the deadline arm, for a child you
+  `TaskStop`. Appending a record is not rewriting the file; the
+  invariant is that no line is ever revised, not that you never write.
+- **Never a rewrite, and never a path.** You do not create this file
+  with `Write`, you do not reach for `Edit` — you declare no `Edit`
+  tool — and you never hold its path. Rewriting the file means
+  reconstructing it from what you remember, and what you remember is
+  exactly what the turn boundary destroyed: a round that did so left
+  returned disprovers uncrossed-off and waited out its budget on
+  theorems that had already reported (issue #351).
 
-Every mutation after that is an **append**, run as Bash `>>`. A
-whole-file rewrite is not an available option here — it is the defect
-this file exists to prevent. Rewriting the file means reconstructing it
-from what you remember, and what you remember is exactly what the turn
-boundary destroyed: a round that did so left returned disprovers
-uncrossed-off and waited out its budget on theorems that had already
-reported (issue #351). So after the create, do not call `Write` on this
-file again, and do not reach for `Edit` — you declare no `Edit` tool,
-and an append spelled as a tail rewrite races the file's own growth.
-`>>` is the only shape that is a genuine append.
+The `anchor` line's two instants are yours to compute and pass in, not
+the script's to derive: the 15-minute window is review policy. The
+script stamps every record it writes itself, so a `return` time is when
+the child recorded its result rather than when you read it.
 
-**One record per line, and no line is ever revised in place.** The
-grammar is four record kinds, whitespace-separated:
-
-```text
-anchor  <stage> <anchor-instant> <deadline-instant>
-spawn   <stage> <theorem-id> <iso-time>
-return  <stage> <theorem-id> <iso-time> <verdict>
-stopped <stage> <theorem-id> <iso-time>
-```
-
-`<stage>` is `disprover` or `verifier`, so one file carries both
-fan-outs without either being able to answer for the other. Every time
-is a `date -u +%Y-%m-%dT%H:%M:%SZ` reading of a command you actually
-ran.
-
-**The outstanding set is derived, never stored.** It is a stage's
-`spawn` ids minus that stage's `return` and `stopped` ids, which one
-command answers:
+**The identifying values** go on every call in every mode, and you
+resolve them once, at the top of the round:
 
 ```bash
-awk '$2=="<stage>" && $1=="spawn"{s[$3]=1}
-     $2=="<stage>" && ($1=="return"||$1=="stopped"){delete s[$3]}
-     END{for(t in s) print t}' <state-file>
+gh repo view --json owner,name --jq '.owner.login + " " + .name'
+gh pr view <PR> --json reviews --jq '.reviews | length'
 ```
 
-Never write an `outstanding:` list into the file. Maintaining one means
-revising a line already written, which is what put a stale outstanding
-set beside a return log that contradicted it; a derived set cannot go
-stale.
+The first gives `--owner` and `--repo`. `--pr` is the PR under review.
+`--round` is that review count **plus one** — the reviews already on
+the PR are the rounds already posted, so a first round is `1`. The
+number only has to be unique within a PR: it separates one round's
+records from the next, and step 3's "most recent PR Review" is what
+decides which round is previous.
+
+`--scratchpad` is the harness's per-session scratchpad directory, named
+in your own context. Pass it verbatim; never hand-build a lookalike
+path.
+
+A resume needs all six again to make its `--mode print` call, so re-run
+the two commands rather than trusting a remembered value — the same
+guard the file itself exists for. They answer the same across a round:
+the repository does not move, and your own review lands only at step
+10, so the count the round started from is the count it ends on.
 
 The spawn/return log is a debug record as much as a control structure:
 when a round goes wrong, the file is the only record of which agents
-ran and what came back.
+ran and what came back — and it outlives the worktrees step 11 removes.
 
-Steps 7 and 8 give the literal append command for each record kind, at
-the moment it is written.
-
-`.claude/tmp/` is gitignored and you have no commit or push step, so
-nothing this writes reaches the branch. The file is per-round working
-state, not persistence across rounds: the posted review remains this
-procedure's only thing the next round reads.
+The file is outside every repository and you have no commit or push
+step, so nothing this writes reaches the branch. It is per-round
+working state, not persistence across rounds: the posted review remains
+this procedure's only thing the next round reads.
 
 ## Why the diff never lands in your context
 
@@ -768,12 +775,23 @@ Each disprover's brief is one theorem and nothing more:
 --issues <the member(s) the theorem is tagged to>
 --class <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
+--scratchpad <the session scratchpad directory>
+--owner <owner>
+--repo <repo>
+--round <this round's number>
 
 Try to disprove this one claim per your agent definition. Report
 DISPROVED with a verbatim-quoted counterexample, a consequence
 statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
+
+The last four, together with the `--pr` at the top, are what let the
+disprover record its own result where you can read it back: they are
+five of the six identifying values, passed to `--mode header` below
+unchanged. The sixth is `--agent`, which the disprover supplies itself
+because it knows its own fan-out's name — so every child of this
+fan-out writes the one file you read. See "The round state file" above.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into every agent you
@@ -789,23 +807,32 @@ Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
 disprover from wandering into unrelated nits.
 
-**Record the disprover anchor before you end the turn.** Step 8's
-deadline is measured from the last disprover spawn, and this is that
-moment — the resume that has to evaluate the deadline cannot read a
-clock reading nobody took. The anchor is the clock reading here; the
-deadline instant is 15 minutes after it, computed here and written down
-rather than re-derived on each resume. Run this, with your own live
-list's ids in place of `T1 T4 T9`:
+**Create the disprover fan-out's state file before you end the turn.**
+Step 8's deadline is measured from the last disprover spawn, and this
+is that moment — the resume that has to evaluate the deadline cannot
+read a clock reading nobody took. The anchor is the clock reading here;
+the deadline instant is 15 minutes after it, computed here and written
+down rather than re-derived on each resume. Run this, with your own
+live list's ids in place of `T1 T4 T9`:
 
 ```bash
 ANCHOR=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DEADLINE=$(date -u -v+15M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
   || date -u -d '+15 minutes' +%Y-%m-%dT%H:%M:%SZ)
-printf 'anchor disprover %s %s\n' "$ANCHOR" "$DEADLINE" >> <state-file>
+HEADER="anchor $ANCHOR $DEADLINE"
 for T in T1 T4 T9; do
-  printf 'spawn disprover %s %s\n' "$T" "$ANCHOR" >> <state-file>
+  HEADER="$HEADER
+spawn $T $ANCHOR"
 done
+sdlc-agent-result-persist --mode header \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
+  --header "$HEADER"
 ```
+
+This is the one `--mode header` call for this fan-out, and it refuses
+to run a second time against the file it created — the records already
+there are results no notification can be asked to redeliver.
 
 Both `date` spellings are there because only one of them exists on a
 given host: `-v+15M` is BSD/macOS, `-d` is GNU. Then say the deadline
@@ -818,31 +845,36 @@ well as on disk.
 executing it.** You hold no blocking primitive and need none: you end
 your turn, and the harness resumes you on each child's
 `<task-notification>`. Every resume runs the same three moves, in this
-order:
+order, and runs them over **every** outstanding child rather than the
+one that woke you — so one surviving notification carries the round
+past every result whose own notification was lost. What the mechanism
+does not cover is a fan-out none of whose notifications arrive, which
+leaves a turn nothing resumes: that is the harness's to fix, and no
+record a child writes can wake you.
 
-1. **Append the verdict the notification carried** to the round state
-   file, as one `return` line, before anything else in the resume:
+1. **Read the fan-out's state file**, before anything else in the
+   resume:
 
    ```bash
-   printf 'return disprover %s %s %s\n' \
-     T7 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" SURVIVED >> <state-file>
+   sdlc-agent-result-persist --mode print \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR_N> --round <this round's number> --agent theorem-disprover
    ```
 
-   Substitute the theorem id the notification is for and the verdict it
-   carried. Append one line per notification, on the resume that
-   receives it — an unappended return is a return that did not happen,
-   because the derivation in "The round state file" reads the file and
-   not your recollection, and the next resume has no recollection to
-   read. Never revise an earlier line, and never rewrite the file to
-   bring it up to date.
-2. **Read the clock and compare it against the deadline instant** step
-   7 appended:
+   You write nothing here. Each disprover appended its own `return`
+   record as its final act, so the file already carries every result
+   that exists — including one whose `<task-notification>` never
+   reached you.
+2. **Derive the round's position from that output**, then read the
+   clock and compare it against the `anchor` line's deadline instant:
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ
-   grep '^anchor disprover ' <state-file>
    ```
 
+   Which theorems returned, what each returned, and which are still
+   outstanding all come from the records — the outstanding set by the
+   derivation the `sdlc:agent-result-persist-interface` skill states.
    Do this on every resume, before deciding anything. The comparison
    is an explicit one against a recorded instant — never a feeling
    about how long the round has been going, which is the one thing a
@@ -850,16 +882,19 @@ order:
 3. **End the turn, or take the deadline arm below** according to what
    that comparison said.
 
-**A verdict's only admissible source is a `<task-notification>` you
-received.** You are not a source of verdicts any more than you are a
-source of theorems. A theorem whose disprover has not reported has no
-verdict — not `SURVIVED`, not anything — and writing one down because
-the round needs a verdict per live theorem is exactly the failure this
-rule exists to prevent. The round state file's `return` lines are what
-make "received" checkable rather than remembered: a theorem with no
-`return` line for this stage carries no verdict, whatever you recall.
-Step 9's disposition table has a row for the theorem you cannot settle,
-and taking that row is the correct move.
+**A verdict's only admissible source is a `return` record in the
+fan-out's state file.** A `<task-notification>` is a wake-up, not
+evidence: it tells you to look, and the file is what you look at. That
+inverts nothing about your own standing — you are not a source of
+verdicts any more than you are a source of theorems. A theorem whose
+disprover recorded nothing has no verdict — not `SURVIVED`, not
+anything — and writing one down because the round needs a verdict per
+live theorem is exactly the failure this rule exists to prevent. The
+`return` records are what make a verdict checkable rather than
+remembered: a theorem with no `return` record in this fan-out's file
+carries no verdict, whatever you recall of a notification. Step 9's
+disposition table has a row for the theorem you cannot settle, and
+taking that row is the correct move.
 
 A turn you end while any live theorem still has no verdict is an
 **in-progress status**, and it must read as one — how many theorems
@@ -872,8 +907,8 @@ to `/sdlc:orchestrate`, from a finished review.
 The wait is bounded. The deadline is **15 minutes after the last
 disprover spawn** — five times the worst case measured on a
 32-theorem round, where every disprover reported inside three minutes.
-That is the instant step 7 computed and wrote into the round state
-file, and the comparison above is what evaluates it. Every theorem
+That is the instant step 7 computed and put in this fan-out's `anchor`
+record, and the comparison above is what evaluates it. Every theorem
 still without a verdict at that deadline is **unsettled**: it takes
 step 9's `could not be settled` disposition, gets no severity, is
 named in the posted review so the tally stays true, and is live again
@@ -884,11 +919,18 @@ reported, and append its stop, so it is no longer mid-run and step 11
 can remove its worktree:
 
 ```bash
-printf 'stopped disprover %s %s\n' \
-  T7 "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> <state-file>
+sdlc-agent-result-persist --mode stopped \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
+  --theorem T7
 ```
 
-That is the tool's one sanctioned use on this fan-out: past
+A stop is its own record kind, never a `return` carrying a `STOPPED`
+result: a `return` is a verdict, and spelling a stop as one would
+manufacture the very verdict the admissible-source rule above bars you
+from inventing.
+
+That is `TaskStop`'s one sanctioned use on this fan-out: past
 the deadline, and only for a theorem already recorded as unsettled.
 The verifier fan-out below carries the same one, and nothing widens
 either. Never reach for it to make a slow round finish sooner —
@@ -901,7 +943,9 @@ been declared unsettled at the deadline.
 A `DISPROVED` report is a candidate finding, not a finding. Spawn one
 `sdlc:counterexample-verifier`
 per `DISPROVED` theorem, **all in a single message block** so they run
-concurrently.
+concurrently. Which theorems those are is read off the disprover
+fan-out's `return` records — the ones whose result is `DISPROVED` —
+not off your recollection of which notifications carried one.
 
 `SURVIVED` theorems spawn no verifier. There is no counterexample to
 attack, and verifying survivals would double the cost of the common
@@ -921,6 +965,15 @@ paraphrase or dropping it silently; if the second run is malformed
 too, the theorem is unsettled — see the disposition table in step 9.
 Spawning a verifier against a malformed report would waste the check
 on evidence that has already failed a cheaper one.
+
+A `DISPROVED` report you never received at all takes the same remedy. A
+record carries a result token, not a report, so the lost-notification
+case this file exists to make visible leaves you with a theorem the
+records settle as `DISPROVED` and no counterexample to hand a verifier
+— and inventing one is out of the question. Re-spawn that one
+disprover with the same brief; its second run appends a second `return`
+record rather than replacing the first, and if that run leaves you
+without a report too, the theorem is unsettled.
 
 Route the model exactly as step 7 did, by the theorem's class:
 `model: haiku` on the `Agent` call for a `mechanical` theorem, no
@@ -944,6 +997,10 @@ Each verifier's brief is one counterexample and nothing more:
 --class <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
+--scratchpad <the session scratchpad directory>
+--owner <owner>
+--repo <repo>
+--round <this round's number>
 
 Try to refute this one counterexample per your agent definition.
 Report REFUTED with the rejection reason, or STANDS with a confirmed
@@ -969,32 +1026,42 @@ too, the finding **stands** — resolve toward filing, never toward
 silently dropping a counterexample that carried verbatim evidence, and
 take the consequence class from the disprover's proposal in that case.
 
-**Record the verifier anchor before you end the turn**, exactly as
-step 7 did for the disprovers and for the same reason: the deadline
-below is measured from the last verifier spawn. Run the same commands
-with the other stage word, over the theorems you just spawned verifiers
-for:
+**Create the verifier fan-out's state file before you end the turn**,
+exactly as step 7 did for the disprovers and for the same reason: the
+deadline below is measured from the last verifier spawn. Run the same
+commands with the other `--agent` value, over the theorems you just
+spawned verifiers for:
 
 ```bash
 ANCHOR=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DEADLINE=$(date -u -v+15M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
   || date -u -d '+15 minutes' +%Y-%m-%dT%H:%M:%SZ)
-printf 'anchor verifier %s %s\n' "$ANCHOR" "$DEADLINE" >> <state-file>
+HEADER="anchor $ANCHOR $DEADLINE"
 for T in T4 T7; do
-  printf 'spawn verifier %s %s\n' "$T" "$ANCHOR" >> <state-file>
+  HEADER="$HEADER
+spawn $T $ANCHOR"
 done
+sdlc-agent-result-persist --mode header \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> \
+  --agent counterexample-verifier --header "$HEADER"
 ```
+
+`--agent` is what keys the file, so this is a **second file** beside
+the disprovers', not a second section of theirs: one round, two
+fan-outs, two files, and neither able to answer for the other.
 
 State the deadline instant in your closing turn text too.
 
 **The wait for the verifiers is the same resume loop**, run a second
 time, with the same three moves per resume and the same literal
-commands under `verifier` rather than `disprover`: append a `return`
-line for the verdict the notification carried, read the clock and
-compare it against `grep '^anchor verifier ' <state-file>`, then end
-the turn or take the deadline arm. The admissible-source rule above
-holds unchanged here — a verifier that has not reported has given you
-no verdict to record.
+commands under `--agent counterexample-verifier` rather than
+`--agent theorem-disprover`: read the file with `--mode print`, derive
+which verifiers have returned and what they returned, read the clock
+and compare it against that file's own `anchor` line, then end the turn
+or take the deadline arm. The admissible-source rule above holds
+unchanged here — a verifier with no `return` record has given you no
+verdict.
 
 A turn you end
 while any verifier is still outstanding is an **in-progress status**
@@ -1017,8 +1084,9 @@ finding, no severity, named in the posted review so the tally stays
 true, and live again next round.
 
 At that deadline, and only there, `TaskStop` each verifier that never
-reported, and append its stop as a `stopped verifier <id> <time>` line,
-so it is no longer mid-run and step 11 can remove its
+reported, and append its stop with `--mode stopped` against this
+fan-out's `--agent counterexample-verifier`, so it is no longer mid-run
+and step 11 can remove its
 worktree. That is the same single sanctioned use the disprover
 deadline has, extended to the second fan-out and no wider: past the
 deadline, and only for a theorem already recorded unverified.
@@ -1042,12 +1110,12 @@ counterexample.
 | `DISPROVED` | no verdict by step 8's verifier deadline | **disproved, unverified** — no finding, no severity |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 | no verdict by step 8's disprover deadline | not spawned | **could not be settled**, no severity |
-| a verdict no `<task-notification>` delivered | not spawned | **inadmissible** — not a verdict at all; the theorem takes the deadline row above |
+| a verdict carried by no `return` record | not spawned | **inadmissible** — not a verdict at all; the theorem takes the deadline row above |
 
 The **inadmissible** row is the one that is not a disposition. It is
 the case step 8's admissible-source rule names: a verdict you have for
-a theorem carrying no `return` line in the round state file was
-inferred rather than received, so the theorem has no verdict and
+a theorem carrying no `return` record in this fan-out's state file was
+inferred rather than recorded, so the theorem has no verdict and
 the table's other rows are read against that. Before the disprover
 deadline that means the round has not moved on and the turn ends
 again; at the deadline it means the theorem is unsettled. `SURVIVED`

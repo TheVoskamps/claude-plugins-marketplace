@@ -121,9 +121,11 @@ changes how the two relate edits it here.
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, path and record grammar | preloaded into the reviewer, the disprover, and the verifier |
 
-`theorem-generation` and
-`theorem-agents-interface` carry no leading slash here because they
+`theorem-generation`,
+`theorem-agents-interface` and `agent-result-persist-interface` carry
+no leading slash here because they
 are not user verbs — each declares `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
 `theorem-generation` is preloaded into each
@@ -132,7 +134,19 @@ frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
 `counterexample-verifier` — the same way. `theorem-based-pr-reviewer`
 reads `theorem-agents-interface` by name as well, for the class
-glosses it grades its own theorem-less findings by.
+glosses it grades its own theorem-less findings by, and preloads
+`agent-result-persist-interface`, which the disprover and the verifier
+preload too. No generator does: a generator writes no result record.
+
+## Executables
+
+The plugin ships exactly one, `bin/sdlc-agent-result-persist`, and
+`skills/agent-result-persist-interface/SKILL.md` owns its whole
+contract — modes, flags, the path it composes, the record grammar, and
+the bare-command spelling its permission rule keys on. This entry is
+the roster line, not a second copy of any of that. What is only here is
+the count: a PR that adds a second executable adds a line above, and
+one that removes this one removes this section.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you

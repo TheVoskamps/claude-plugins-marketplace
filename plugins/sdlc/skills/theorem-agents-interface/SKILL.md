@@ -97,6 +97,23 @@ them as well.
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
+- `--scratchpad <dir>` — the harness's per-session scratchpad
+  directory, as the reviewer's own context names it. Passed verbatim;
+  an agent never hand-builds a lookalike path, because the uid in
+  `/tmp/claude-<uid>/` varies per machine and the session segment is
+  not a child's to compute.
+- `--owner <owner>` — the repository owner.
+- `--repo <repo>` — the repository name. Owner and repo travel as two
+  parameters rather than one `owner/name` token, for the reason
+  `sdlc:agent-result-persist-interface` gives.
+- `--round <n>` — the review round, as the reviewer numbers it.
+
+Those four say nothing about the claim, and no generator receives any
+of them. They go to a **disprover** and a **verifier**, which pass them
+straight back — alongside `--pr`, and alongside their own fan-out name,
+which the brief does not carry — to `sdlc-agent-result-persist`, so
+that a result survives a `<task-notification>` that is never delivered.
+What the script does with them is that skill's to state.
 
 ## The consequence classes
 
