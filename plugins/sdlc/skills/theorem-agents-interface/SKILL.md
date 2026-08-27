@@ -21,9 +21,12 @@ The reviewer reads this file too, rather than only writing against it:
 its step 2 findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
 its own table. It reaches this skill by name rather than by preload —
-its frontmatter declares only the skills it invokes as workflow steps,
-and the glosses are wanted on the one branch that raises a
-theorem-less finding.
+its frontmatter is reserved for what every round needs, which is the
+skills it invokes as workflow steps plus
+`sdlc:agent-result-persist-interface`, the CLI contract it writes and
+reads each fan-out's record file through. The glosses here are wanted
+only on the one branch that raises a theorem-less finding, and one
+rare branch does not earn a preload.
 
 The reviewer's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by

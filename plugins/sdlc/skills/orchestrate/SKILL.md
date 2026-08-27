@@ -930,6 +930,13 @@ escalation, because the reviewer is not stopping to ask you anything.
    because no commits landed, and no adjustment comment, because the
    human has nothing to adjust yet.
 
+   Until #358 lands, that re-spawn does not pick the stalled round up:
+   the reviewer computes the same round number, finds its record file
+   already there, reports an in-progress status naming it, and stops.
+   So expect a second in-progress return and take step 4's escalation
+   rather than reading the repeat as a reviewer defect — the refusal is
+   deliberate, and #358 is what turns the re-spawn into a resume.
+
 4. **The round does not count against the review-round cap**
    (Hard Constraints → "Max review rounds per PR"). It produced no
    review, and charging the budget for a harness failure burns the

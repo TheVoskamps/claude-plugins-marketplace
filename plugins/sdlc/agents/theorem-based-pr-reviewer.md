@@ -121,7 +121,8 @@ the contract:
 
 - **`--mode header`, once per fan-out**, at spawn time, carrying the
   `anchor` line and one `spawn` line per child you just spawned. Steps
-  7 and 8 give the literal call.
+  7 and 8 give the literal call. A non-zero exit ends your run — see
+  "When `--mode header` is refused" below.
 - **`--mode print`, on every resume**, before you decide anything.
   Which theorems returned, what each of them returned, and which are
   still outstanding are all **derived from that output** — never from
@@ -175,6 +176,30 @@ The file is outside every repository and you have no commit or push
 step, so nothing this writes reaches the branch. It is per-round
 working state, not persistence across rounds: the posted review remains
 this procedure's only thing the next round reads.
+
+### When `--mode header` is refused
+
+The call exits non-zero when this fan-out's file already exists, which
+means this round has been started before: `--round` is the PR's
+posted-review count plus one, and a reviewer that ended without posting
+leaves that count where it was, so a re-spawn computes the same number
+and lands on the same file.
+
+**Report an in-progress status naming this fan-out and this round as
+already started, and stop.** Do not re-run the call, do not vary
+`--round` to reach a fresh file, and do not spawn the fan-out anyway.
+The records already in that file are results no child can be asked to
+produce a second time, and a second file under a bumped number would
+strand every one of them.
+
+Stopping there abandons a round the earlier attempt had partly settled,
+where before this file existed a re-spawn would have restarted it from
+nothing — so for that one case recovery is worse than it was, and
+knowingly so. #358 is where it is resolved, and it resolves it by
+making recovery a **resume** from these records rather than a restart
+over them, which is why the refusal is correct and stays. Implement no
+part of that resume here: reporting and stopping is your whole defined
+behavior on this branch until #358 lands.
 
 ## Why the diff never lands in your context
 
