@@ -10,26 +10,19 @@ The marketplace currently ships these plugins (one entry each in
 
 - **`issues`** — GitHub issue tracking verbs and repo/user config.
 - **`issues-jira`** — optional Jira backend for the issue verbs.
-- **`sdlc`** — issue grooming and orchestration, the
-  developer/fixer/doc/memory-scrubber/PR-finalizer agents, and a
+- **`sdlc`** — issue grooming and end-to-end orchestration, with a
   theorem-based PR review pipeline.
-- **`github-prs`** — GitHub PR-operations skills: create, diff, and
-  review-submit a PR; flip a PR draft/ready; link a PR to the issues
-  it closes via one closing keyword each in the PR body; and report
-  which issues a PR body closes. GitHub-only by design.
-- **`github-setup`** — GitHub repo provisioning (App identity, PR
-  automation, branch protection, public mirror, history scrubbing,
-  private-to-public promotion).
-- **`git-tools`** — create the correctly-named issue branch, for one
-  issue or a batch of them, off the right base; recover the issue set
-  back out of a branch name and reconcile a claimed issue list against
-  it; clean up merged branches and stale worktrees; and generate unit
-  tests.
-- **`cc-tools`** — Claude Code meta-skills: load all global rules,
-  track Claude Code feature/bug watchlist status, curate a repo's
-  `.claude/agent-memory/` in one acting pass, and route a session's
-  agent memory through a scratchpad inbox — capture on the writer side,
-  transfer-or-delete into `CLAUDE.md` and docs on the curator side.
+- **`github-prs`** — GitHub pull-request operations, from opening and
+  diffing a PR through reviewing it and linking it to the issues it
+  closes. GitHub-only by design.
+- **`github-setup`** — GitHub repo provisioning: identity, PR
+  automation, security and protection posture, and the move from
+  private to public.
+- **`git-tools`** — git-side helpers for the issue-branch lifecycle,
+  plus unit-test generation.
+- **`cc-tools`** — Claude Code meta-skills: global rules, feature/bug
+  watchlist status, and agent-memory curation from a session's
+  scratchpad inbox into `CLAUDE.md` and docs.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity.
@@ -53,14 +46,10 @@ The marketplace currently ships these plugins (one entry each in
 - **`show-agent-calls`** — `PreToolUse` (matcher `Agent|Task`) hook
   that surfaces the agent type, parameters, and full prompt for every
   subagent spawn, without `--verbose`.
-- **`writing-tools`** — writing and text-editing helpers: mask
-  inappropriate language (profanity, slurs, strong insults) in
-  provided text or a file with asterisks, character-for-character.
+- **`writing-tools`** — writing and text-editing helpers, including
+  masking inappropriate language character-for-character.
 - **`auto-mode-tools`** — tune and personalize the Claude Code auto
-  mode classifier config: capture the `claude auto-mode critique`
-  prompt through a loopback sink and run the critique loop in the
-  current session, which has no 4K-token answer ceiling, and rewrite
-  an existing `autoMode` block against this machine's facts.
+  mode classifier config against this machine's facts.
 
 ## Add this marketplace
 

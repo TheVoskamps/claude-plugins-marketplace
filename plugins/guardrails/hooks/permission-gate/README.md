@@ -1665,6 +1665,46 @@ must not be runtime-editable. **Changing policy means editing the Go
 source, re-running the test suite, rebuilding every committed binary,
 and recommitting them.**
 
+It also means sweeping the surfaces that describe a verdict. Classifier
+behavior is owned here and by no other plugin, and each `/docs` surface
+that names a verdict is bounded to one reader — so sweep by grepping
+what each names rather than by opening the files this list happens to
+mention:
+
+- [`docs/guardrails-verification-playbook.md`](../../../../docs/guardrails-verification-playbook.md)
+  names verdicts as the **controls a probe needs**. A verdict change
+  that moves a control row updates it; grep it for `deny`, `allow`,
+  `defer` and `ask`.
+- [`docs/agent-tooling-notes.md`](../../../../docs/agent-tooling-notes.md)
+  names them **for the agent being denied**: what a primary-clone read
+  comes back as, and the routes that reach the wrong bytes with no deny
+  at all. A change that opens or closes one of those routes updates it
+  — and so does a change to the `PreToolUse` matcher, which is quoted
+  verbatim there and twice in this file, so sweep it by grepping the
+  matcher string.
+- [`docs/verification-playbook.md`](../../../../docs/verification-playbook.md)
+  names one verdict only, to keep a lint-baselining technique runnable.
+- [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
+  names verdicts only where they decide **which destination a scratch
+  file goes to**. A verdict change that leaves that choice unchanged
+  needs no edit there.
+
+`.claude/agent-memory/` is deliberately absent from that list: the tree
+is gitignored, lives only in a throwaway worktree, and the session
+inbox its entries reach dies with the session, so nothing there
+survives to be falsified. Such a note reaches the repo only once a
+curator transfers it into `CLAUDE.md` or `/docs` — grep those for the
+gate's own message fragments ("not all static literals", "resolves
+outside the current repository", "cannot resolve statically") whenever
+a verdict changes.
+
+What a verdict looks like **on the wire** is a different axis, owned by
+`docs/hook-event-notes.md`, which this file already points at where it
+explains why a defer omits `permissionDecision` rather than spelling
+it. A rebucketing PR touches none of it; a PR that changes how a
+bucket is spelled on stdout touches that file, this one, and the
+playbook's probe-reading note together.
+
 ## Build / test / cross-compile
 
 ```sh
@@ -1719,6 +1759,17 @@ Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`:
 `darwin-arm64` for this machine, `linux-amd64` for WSL2, `linux-arm64`
 for claude-vm guests (Debian on Apple Silicon). `hooks/hooks.json`
 selects the matching one per platform via `uname`.
+
+That *shape* — prebuilt binaries, `uname` selection, nothing built at
+load time — decides what a claude-vm bake file's `packages:` list must
+contain, so it is mirrored in `plugins/claude-vm/`'s payload README,
+its bake example, and its skill. A PR that changes the shape (the set
+of `<goos>-<goarch>` directories, the selection or fail-closed logic in
+`hooks/hooks.json`, or the build recipe above) updates those surfaces
+and bumps both plugins' versions. Rebuilding the committed binaries in
+place mirrors nothing and fires no claude-vm sweep: every
+classifier-change PR touches `hooks/bin/`, so treating the path itself
+as the trigger would demand a no-op edit on every one of them.
 
 ## Registration
 

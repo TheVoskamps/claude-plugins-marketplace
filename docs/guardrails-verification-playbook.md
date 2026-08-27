@@ -1,5 +1,9 @@
 # Guardrails verification playbook
 
+**Who reads this and when:** any agent about to assert what the
+permission gate does, or reviewing a PR that changes it. Read it before
+the assertion, not after a reviewer asks for evidence.
+
 How to establish a fact about the `guardrails` permission gate: whether
 a committed binary carries the source it claims to, and whether a
 classifier change does what its PR says it does.

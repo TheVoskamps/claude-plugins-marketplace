@@ -211,6 +211,17 @@ guest deliberately runs its own posture (the host lists govern Claude
 *outside* the VM; inside, one may run a different, riskier posture). The
 non-policy layer that *does* cross the seam is the host's working rules —
 see *Host working rules seeded into the guest* below.
+That sentence names the two layers it actually measures rather than "the
+Claude surface" as a whole, and every restatement of it does the same — in
+`config-boot.example.yml`'s permissions block, `config-bake.example.yml`'s
+marketplaces/plugins block, `claude-vm.sh`'s settings-render call site and
+`lib/config.sh`'s rendered-document key list. A change that seeds further
+host `~/.claude` content into the guest widens the seam and must re-narrow
+every one of them, because the false half of such a sentence is its **noun**:
+the `settings.json` grep that finds these sites keeps returning true
+statements while the subject above them is wrong. Grep the surface wording
+across `plugins/claude-vm/`, not only the files the diff touched — the example
+YAML is a file no test and no doc pass naturally opens.
 The rendered file's keys are: `permissions` (`allow`/`ask`/`deny` verbatim from
 `claude.permissions.*`, plus `defaultMode` from `claude.permission_mode`,
 default `bypassPermissions`; only `bypassPermissions`/`default` are accepted,
@@ -369,6 +380,29 @@ issue #103 — the guest-capability lists like `packages` and
 `claude.permissions.allow`, including keys nested two levels deep) are
 unioned and de-duplicated. See the `claude-vm` skill
 (`skills/claude-vm/SKILL.md`) for the full schema and semantics.
+
+*Any schema or validation change sweeps both config wizards.*
+`skills/claude-vm-config-global/SKILL.md` and
+`skills/claude-vm-config-repo/SKILL.md` duplicate the key tables and the YAML
+templates rather than referencing this file, the skill or the
+`config-*.example.yml` pair, so a doc pass over those three covers the schema
+and misses the wizards — and the miss is live rather than cosmetic, because a
+wizard instructs the model to write a config verbatim. A key sitting in the
+boot template when it belongs in the bake one, or an entry shape the launcher
+now rejects, makes the wizard produce a config that aborts the launch. These
+classes land there and nowhere else: a **key placement** change (the key
+table's bake/boot column, the template, and the placement bullet under "Hard
+constraints"); a **new load-time gate**, even with no key change, and one that
+runs over the merged global+repo lists belongs in the per-repo wizard too,
+since a per-repo entry can collide with a global one the wizard has just
+shown the operator; and a **behavioral caveat about a value a wizard offers**,
+such as proposing a single file as a `source:` — the wizard is what talks the
+operator into the entry. Grep both for `sibling slice` and
+`schema + merge only` on the same trigger: a key described there as having no
+consumer yet keeps that description after it gains one. The helper list below
+goes stale on the same trigger, as do the summary comments that enumerate a
+validator's cases or the launcher's phases from elsewhere in the same file
+while the function's own header gets updated.
 
 It also carries the pure helpers the launcher builds the guest's `claude`
 argv, settings, image identity, and plugin manifests from:
@@ -574,6 +608,17 @@ argv, settings, image identity, and plugin manifests from:
     `0` having mounted nothing, so `boot_mount_phase`'s success arm would log
     a mount that never happened. `--bind`, `-o` and `-r` fail loudly instead,
     and an interior or trailing dash (`a-b`) is ordinary and still passes.
+
+  That list is what the arms are derived from, so it is also the grading
+  instrument: code that gives the tag a **new** position — a filename,
+  another argv slot, a shell-interpolated string — is graded against it and
+  adds an arm when the new position rejects something the existing ones
+  accept, rather than being assumed safe because the charset check passed.
+  Adding an arm sweeps the surfaces that restate the rejection set:
+  `lib/config.sh`'s block comment, `claude-vm.sh`'s
+  `claude_vm_check_mounts` call-site comment — which enumerates the whole
+  set in one paragraph, a file away from the check itself —
+  `config-boot.example.yml`'s `tag:` bullet, and both config wizards.
 
   The `source` half of that device string has the same shape and one live
   case: a **directory** source is what vfkit shares, so the operator's path
@@ -923,6 +968,15 @@ merged tier is present in one of that tier's two raw files by construction.
 `config-test.sh` drives every case through `claude_vm_merge_config` in the
 launcher's own argument shape and pins both halves of each prune route.
 
+So grade every existing gate rather than only the one a change touches: grep
+`payload/` for `has(`, `!= null` and `== null`, and check each hit against
+every prune route above — not just against `CLAUDE_VM_LIST_KEYS`, and not by
+the document the gate happens to read. Adding a key to `CLAUDE_VM_LIST_KEYS`
+silently disarms any `has()` presence gate on it, with nothing to error. And
+pin the verdict by driving `claude_vm_merge_config` in the launcher's own
+argument shape: both batteries above were green on hand-written fixtures for
+several review rounds while the launcher was letting the config through.
+
 *Two carriers, one per tier.* `run.env` is neither, and stays entirely
 launcher-owned — it is deliberately a non-secret channel, as the boot launcher
 itself asserts, and it rides the `runconfig` share, which is not shredded.
@@ -1128,6 +1182,24 @@ the `hvc1` console (issue #88). The launcher builds the image on demand
 when the configured image is missing or version-mismatched. No image
 artifact is committed.
 
+*Surfaces a boot-launcher insertion falsifies from far away.* The
+launcher is one long heredoc, so each of these sits hundreds of lines from
+any insertion point. Each phase's block comment states its own position as
+"first thing after X, before Y", so a step inserted between two phases
+silently falsifies the note on the one that **follows** it: grep `ORDERING:`
+after any insertion, not only the block the insertion lands in. And several
+headers enumerate what the transient `claudecreds` share carries —
+`claude-vm.sh`'s run.env `CLAUDECREDS_TAG` comment, its `CREDS_DIR=` header
+several hundred lines earlier, `build-guest-image.sh`'s `CLAUDECREDS_MNT=`
+header, and `test/host-acceptance.sh`'s share-topology block, which a
+code-only sweep never opens — of which only the first sits next to a change
+that adds an entry. Most of them also assert what the launcher *does* with
+each entry and the mode it lands with, and that clause covers only the single
+files the launcher `chmod`s, so an entry the guest merely sources, or copies
+without a `chmod`, is narrowed rather than appended to. Re-run
+`test/boot-launcher-test.sh` on any launcher edit, including a comment-only
+one: it parses the emitted script.
+
 **Baked packages + whole-file image identity (issue #105, redesigned by #106,
 re-redesigned by #179).** Unlike `claude`, a **bake** file's `packages:` (apt
 packages) and `apt_sources:` (third-party apt repos) ARE baked into the image,
@@ -1326,9 +1398,20 @@ loop to delete when the replacement lands — not a field every `mounts` reader
 has to carry meanwhile.
 Enforced read-only, at the hypervisor boundary (a read-only block device, so
 guest root is irrelevant), is tracked as **issue #233**. Its config surface
-need not be spelled `mode:`, and whatever it is spelled, every surface listed
-in the root `CLAUDE.md`'s *no read-only mounts* sweep says today that no such
-key exists.
+need not be spelled `mode:`, and whatever it is spelled, every surface that
+says today no such key exists has to stop saying it. Derive that set by
+grepping both `read-only` and `RO` across `plugins/claude-vm/` and sorting
+every hit into one of two classes — this paragraph's, and the built-in shares'
+below — rather than fixing the files the diff happens to touch. The shapes of
+hit a file-by-file pass misses are: a restatement one line long and a file
+away from the code it governs (`claude-vm.sh` carries the rule in its
+extra-mount block *and* again at its `claude_vm_check_mounts` call site); an
+operator-facing surface no test opens (`config-boot.example.yml`'s boxed
+warning, and the config wizard under `skills/`); and evidence rather than
+prose — `test/config-test.sh` pins the abort in every spelling, and
+[`docs/claude-vm-verification-playbook.md`](../../../docs/claude-vm-verification-playbook.md),
+which carries the vfkit and kernel measurements the impossibility claim rests
+on.
 
 *Where the `ro` on a built-in share comes from.* claude-vm's own shares —
 `runconfig`, `claudebin`, `claudecreds` — are described throughout this
@@ -1562,6 +1645,23 @@ configured. That middle test reads the *declaration*, not the image: since
 issue #226 the build only *tries* to pre-register a boot-declared
 marketplace and the host cannot know whether it succeeded, so the gate
 derives the host either way.
+
+That distinction is a rule about prose as well as about code, and flattening
+the two introduces errors. Before rewording any "baked" / "already carries"
+sentence, check which side of the host/guest seam the code it describes sits
+on. Host-side tests read a bake **declaration**, so they say "bake-declared",
+never "already baked into the image". Guest-side steps — `boot_plugin_phase`
+shelling out to `claude plugin marketplace list` — genuinely read the image,
+so state wording is correct there and must survive a sweep; say which of the
+two a given step reads. A third class is neither: the apt paragraphs'
+"hard-secure all-baked config" really is about image bytes, and editing those
+is churn — grep the exact phrase before classing a hit there, since the
+marketplace sibling in `provisioners/podman-mkosi.sh` is spelled
+"all-bake-declared". This gate is itself described in several places, one
+of which never names the helper, so sweep it by grepping the **criterion
+wording** rather than `claude_vm_boot_marketplace_egress_needed`; and when the
+per-entry policy gains a skip path, count the paths in the code and check the
+prose enumerates the same set.
 Everything bake-declared + `update_at_boot: false` + `auto` therefore derives
 **nothing** — and the guest still has working plugins, because the baked ones
 need no marketplace at all. Every derived addition is logged. A marketplace

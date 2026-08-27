@@ -1,15 +1,15 @@
 # Plugin authoring constraints (verified)
 
+**Who reads this and when:** any agent adding a plugin, or adding a
+file one plugin expects another to reach. Read it before designing the
+change, not after the sandbox refuses the read.
+
 Durable, doc-verified facts about how the Claude Code plugin system
 behaves, plus the patterns this marketplace uses to work within them.
 Confirmed against the Claude Code docs (`plugins-reference.md`,
 `plugins.md`, `skills.md`) — line cites are from the versions read while
 building this marketplace; treat them as pointers, re-verify if a doc
 revision moves them.
-
-This is reference material for **authoring plugins**, distinct from any
-one migration. For the specific repackaging of the `~/.claude` skills,
-see [`plugin-migration-plan.md`](./plugin-migration-plan.md).
 
 ## Verified constraints
 
@@ -149,12 +149,12 @@ bundling the `issues` plugin's reader contract — the coupling that
 issue #143 removed from `sdlc` — so the path travels with every one of
 those parses, and with the abort message each emits when the file is
 missing. The copies are the design rather than drift, and what keeps
-them in step is a grep over the literal, owned by `CLAUDE.md` → "The
-issues config paths are literals every consumer spells itself" and not
-restated here. Naming that owner is not the sweep rule "Where a newly
-demonstrated fact belongs" forbids below: there the arms differ per
-consumer by design, here every copy is one string and any difference
-is a defect.
+them in step is a grep over the literal, owned by
+`plugins/issues/README.md` → "The config paths are literals every
+consumer spells itself" and not restated here. Naming that owner is not the
+sweep rule "Where a newly demonstrated fact belongs" forbids below:
+there the arms differ per consumer by design, here every copy is one
+string and any difference is a defect.
 
 ### Sharing an interface across an agent set: one preloaded skill
 
@@ -215,9 +215,7 @@ which definition to spawn.
 `theorem-generator`, `theorem-generator-medium`,
 `theorem-generator-high`, and
 `theorem-generator-xhigh` are skeletons over
-`plugins/sdlc/skills/theorem-generation/SKILL.md`. What keeps the
-pattern honest is enforced by the repo's `CLAUDE.md` →
-"The generator skeletons are copies of one file":
+`plugins/sdlc/skills/theorem-generation/SKILL.md`.
 
 - **The skill is tier-blind.** It carries no tier parameter and never
   asks which variant is running it, so the variants cannot diverge in
@@ -504,9 +502,10 @@ fact:
 - **A new plugin's roster bullet** belongs in the root `README.md`.
   That is the one doc that reliably goes stale when a plugin is added,
   since nothing else cross-references the plugin list by name.
-- **Nothing** belongs in `docs/plugin-migration-plan.md`. It is a
-  frozen historical planning record whose table predates several
-  shipped plugins; adding to it documents a plan, not a roster.
+- **A fact about working inside one plugin's tree** — which file owns
+  which statement, what a change there sweeps — belongs in that
+  plugin's own README, not here and not in a second file under
+  `docs/`.
 
 Two surfaces a skill-extraction round leaves behind: the consumer
 plugin's README does not mention the `dependencies` edge its

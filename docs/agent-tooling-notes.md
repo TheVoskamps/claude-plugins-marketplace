@@ -1,5 +1,9 @@
 # Agent tooling notes
 
+**Who reads this and when:** any agent whose command here succeeded but
+whose result surprised it, or who is about to assert what a tool did.
+Read it before forming a hypothesis about the tool.
+
 How the tools an agent reaches for in this repo actually behave, where
 that differs from the obvious expectation. These are not verification
 techniques — `docs/verification-playbook.md` and its two siblings own

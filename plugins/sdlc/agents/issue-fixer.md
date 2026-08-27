@@ -80,10 +80,9 @@ from its issue.
    the orchestrator's judgment belongs.
 
    The marker is spelled here, in `sdlc:orchestrate` → "Handling
-   review findings — the fix loop" which writes it, in every other
-   `sdlc` file that reads it, and in the repo's `CLAUDE.md`. A change
-   to the literal sweeps all of them:
-   `git grep -n 'sdlc:fixer-brief'`.
+   review findings — the fix loop" which writes it, and in every other
+   `sdlc` file that reads it. A change to the literal sweeps all of
+   them: `git grep -n 'sdlc:fixer-brief'`.
 
    The brief carries the findings, the issue set the PR closes, and
    the branch name. `<branch-name>` in the rest of this document means

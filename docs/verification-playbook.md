@@ -1,5 +1,9 @@
 # Verification playbook
 
+**Who reads this and when:** any agent about to claim a change was
+verified, in any domain. Read it before running the measurement, since
+its subject is what makes a measurement mean anything.
+
 Cross-domain techniques for settling a claim about a change: how to
 build a harness that isolates the thing under test, how to baseline so
 a measurement means something, and how to prove a rebase or a lint
