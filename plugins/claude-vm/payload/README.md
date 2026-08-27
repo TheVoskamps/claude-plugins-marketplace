@@ -76,13 +76,24 @@ payload/
                         # (issue #105 real-build follow-up); stubs podman
                         # at the container handoff, asserts on the literal
                         # generated mkosi.conf / build-in-container.sh
+    podman-machine-test.sh
+                        # the launcher's own podman machine management
+                        # (issue #215): the probe/bring-up/teardown helpers
+                        # against a stateful stub podman, plus the SCOPING --
+                        # the build-or-reuse block sliced out of claude-vm.sh
+                        # and run, so a warm-cache launch is observed
+                        # invoking podman zero times and a build-needing one
+                        # is observed running the init/start/build/stop
+                        # sequence -- leaving a machine it found running
+                        # alone, and stopping the one it started even when
+                        # the bring-up then fails
     host-acceptance.sh  # self-contained on-host acceptance test (build +
                         # boot + egress confinement); host-gated, skips
                         # when a required binary is absent, but starts a
                         # stopped/absent podman machine itself
     machine-name-resolution-test.sh
                         # regression test for the podman machine-name
-                        # probe (issue #57); host-gated on jq
+                        # probe (issue #57); host-gated on python3 + jq
 ```
 
 ## Entry point (`bin/claude-vm`)
@@ -798,6 +809,21 @@ argv, settings, image identity, and plugin manifests from:
   since #226 the build only *tries* to pre-register a boot-declared
   marketplace, and the host cannot know whether it succeeded, so the gate
   derives egress for one even when the image turns out to carry it.
+- `claude_vm_podman_machine_probe` / `claude_vm_ensure_podman_machine` /
+  `claude_vm_stop_podman_machine` — the **podman machine** helpers
+  (issue #215). The probe resolves the host's target machine (the
+  default-flagged one, else the first listed) and its running state as one
+  `<name>\t<running>` line, or nothing when the host has no machine; it
+  reads `--format json` rather than the `{{.Name}}` Go template, which
+  appends a `*` default-marker that no later `start`/`stop` can resolve
+  (issue #57), and parses it with python3 rather than jq, which is optional
+  everywhere else in this plugin. `claude_vm_ensure_podman_machine` is the
+  build path's whole gate: podman on PATH, then init/start/nothing per the
+  probed state, then a `podman info` confirmation that the runtime is
+  actually usable. `claude_vm_stop_podman_machine` undoes exactly what the
+  bring-up did, and is idempotent (it clears the recorded name before the
+  stop) because it is called from every link of the trap chain. See *The
+  launcher manages the podman machine* below.
 
 *Splitting a TSV record back apart (issue #226).* The helpers above emit
 multi-field records through yq's `@tsv` over a fixed-length array, so every
@@ -1282,7 +1308,12 @@ EFI-bootable Debian guest with the boot launcher wired as the autologin
 `serial-getty@hvc1` login program (so claude becomes the interactive
 `hvc1` console session — issue #88) and an unlocked passwordless root
 (`RootPassword=hashed:`). vfkit boots it with `--bootloader efi`.
-Requires `podman` with a started podman machine. Override with
+Requires `podman`, but a launch through `claude-vm.sh` needs no started
+podman machine: the launcher brings one up itself for the build and stops
+it again afterwards (see *The launcher manages the podman machine* below).
+A direct `build-guest-image.sh` invocation reaches none of that and does
+need a machine already started — which is why this provisioner keeps its
+own `podman info` check. Override with
 `CLAUDE_VM_IMAGE_PROVISIONER` set to a script taking
 `<boot-launcher-path> <output-image-path>`. The provisioner renders
 the bake `packages:` into a `mkosi.conf.d` `Packages=` drop-in and each
@@ -1777,6 +1808,84 @@ TTY on the host, launch `claude-vm` from a real terminal (not a pipe).
 The console carries no live window-resize channel, so the launcher seeds
 the guest tty geometry once from the host's `stty size` at launch.
 
+### The launcher manages the podman machine
+
+claude-vm is one command that runs claude in a micro-VM, and people pull the
+plugin onto a fresh host where podman has never been initialized. So the
+launcher does the podman bring-up itself (issue #215) instead of printing
+`podman machine init` / `podman machine start` and refusing.
+
+**Only a launch that BUILDS the image invokes podman.** The warm-cache
+path — the image on disk already stamps the pinned version — boots it with
+vfkit and runs no podman command at all, so `claude_vm_preflight_toolchain`
+checks neither the podman binary nor any machine state, and the bring-up
+lives inside `claude-vm.sh`'s build-or-reuse branch. A launch that needs no
+build is gated on nothing podman-related and starts no machine, including on
+a host that has none. Podman's Homebrew *formula* is still a de facto
+requirement of every launch, because the preflight does check `gvproxy` and
+`claude_vm_resolve_gvproxy` falls back to finding it inside that formula —
+de facto rather than absolute, since that resolver honours an on-PATH
+`gvproxy` first, so a host carrying one some other way needs no podman at
+all for a warm-cache launch. Either way nothing on the warm-cache path
+executes `podman`.
+
+The decision is keyed on `podman machine list`, not on a failed `podman
+info`, so each state gets the action it needs rather than one
+undifferentiated "not running":
+
+| Machine state | What `claude_vm_ensure_podman_machine` does |
+| --- | --- |
+| none listed | `podman machine init`, then `podman machine start` |
+| listed, stopped | `podman machine start` |
+| listed, running | nothing — left exactly as found |
+
+`claude_vm_stop_podman_machine` then stops it at end of run **iff this run
+started it**: a machine found running is left running, because the operator
+may be using it. An init'd machine is stopped, not removed — init downloads
+and provisions a VM image and is the expensive half, so the next build
+reuses it.
+
+"This run started it" is recorded **before** each `podman machine start`,
+never after it, in both the post-init branch and the already-listed-stopped
+one. `podman machine start` can bring the machine up and still exit
+non-zero — a SIGINT landing on it, or a post-boot step of its own failing —
+and an assignment placed after the call is skipped on exactly that path, so
+the teardown finds nothing recorded, returns immediately on its
+`[ -n "$name" ] || return 0` arm, and the machine stays up with no trace.
+Recording first costs at most a `podman machine stop` against a machine that
+never came up, which warns; recording last costs a leaked VM, which is
+silent. `podman-machine-test.sh`'s `start-fails-after-up` stub marker is the
+case that pins it — the machine is flipped running and *then* the command
+exits non-zero, which is a different seam from the `info-broken` cases,
+where `start` succeeds and a later step fails.
+
+There is **no config surface** for any of this: it is launcher plumbing, not
+policy. Every init/start/stop is logged to stderr as it happens — the same
+never-silent rule the derived-egress additions follow — and those log lines
+are its only trace.
+
+`claude_vm_podman_machine_probe` is the **one** probe for this on either
+side of the seam. `host-acceptance.sh` runs its own bring-up (it also
+`rm`s a machine it init'd, which the launcher deliberately does not) but
+resolves the target machine through the same helper, and
+`machine-name-resolution-test.sh` drives that helper against a stub that
+renders both the JSON and the marked `{{.Name}}` template. A second probe
+in either file is a second place issue #57's default-marker trap has to be
+fixed, and only one of them would have a faithful stub behind it.
+
+The teardown rides the launcher's **trap chain**, and that chain is the part
+a later change breaks silently. Exactly one trap is live at a time and each
+installation REPLACES the previous, so every duty is carried forward by
+hand: the build branch arms `claude_vm_stop_podman_machine` *before* it
+calls the bring-up — the bring-up records the machine it started before
+starting it and can fail at any point after that, on the `start` call
+itself or on its own `podman info` confirmation, so arming after the call
+would exit with that machine still running — the narrow
+interim credential trap replaces
+it and repeats the call, and `cleanup()` replaces that and repeats it again.
+A new link that omits the call strands a machine this run brought up, and
+nothing else in the launcher would notice.
+
 ## Forward proxy (`proxy/tinyproxy-launch.sh`)
 
 The default `proxy.cmd`. When `proxy.cmd` is unset in both config layers,
@@ -1902,6 +2011,7 @@ replacement.
 "${CLAUDE_PLUGIN_ROOT}/payload/test/bin-config-check-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/claude-cache-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/podman-mkosi-test.sh"
+"${CLAUDE_PLUGIN_ROOT}/payload/test/podman-machine-test.sh"
 "${CLAUDE_PLUGIN_ROOT}/payload/test/host-acceptance.sh"
 ```
 
@@ -2136,6 +2246,35 @@ stubbed to record its argv, pinning that an entry with a `key_url` but no
 rebuilt from the same captured lines. It does not run a real `mkosi build` (no
 container, no network); that gap is covered by `host-acceptance.sh`.
 
+`podman-machine-test.sh` covers the launcher's own podman machine
+management (issue #215) against a **stateful** stub podman: `machine init`
+creates a machine, `machine start`/`stop` flip its running flag, and
+`machine list` renders the current state, because a stateless stub that
+always answers the same list would pass a bring-up that never re-probed for
+the name init chose. It asserts the whole invocation SEQUENCE per starting
+state, not one call at a time, so "starts a stopped machine" cannot pass on
+a run that also issued a needless init.
+
+Its scoping cases are not helper cases at all: only a launch that builds may
+touch podman, and that is a property of the launcher, so the build-or-reuse
+block is sliced out of `claude-vm.sh` by marker and **run** — with a stub
+`build-guest-image.sh` and a scratch image — for the warm and cold paths.
+The warm cases assert podman is invoked *zero* times, including on a host
+with no machine at all; the cold cases assert the init/start/build/stop
+sequence, that a machine found running is still running at the end, and that
+a bring-up leaving a machine up behind a failure still stops it. That last
+one is two cases at two different seams: `start` succeeds and the `podman
+info` confirmation fails, which holds only while the trap is armed *before*
+the bring-up call rather than after it, and `start` itself brings the
+machine up and then exits non-zero, which additionally holds only while the
+record is written before that call. The helper battery pins the same two
+seams one level down, on what `CLAUDE_VM_PODMAN_MACHINE_STARTED` is left
+holding.
+Grepping the source for the call would have passed on a block whose
+condition was inverted. What no stub reaches is a real `podman machine
+init` on a real host — that is `host-acceptance.sh`'s territory and, for the
+fresh-host criterion, a human's.
+
 `host-acceptance.sh` is the self-contained on-host acceptance test for
 the bootable runtime. It runs the acceptance criteria end-to-end with no
 manual choreography: (a) the default provisioner builds a raw EFI image
@@ -2151,7 +2290,7 @@ manifest, aborts on a checksum mismatch, **rejects a valid signature made
 by an unexpected (unpinned) key**, and serves a warm boot with no network.
 Criterion (d) skips cleanly when `gpg` is absent. It is host-gated,
 split by cause: it skips cleanly (exit 0) when a required *binary* is
-absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `jq`) — the test
+absent (`gvproxy`, `vfkit`, `podman`, `tinyproxy`, `curl`, `python3`) — the test
 cannot install software for you — mirroring how `config-test.sh` skips
 when `yq` is absent. A podman binary present with only its *machine*
 stopped or absent is **not** a skip: the test brings the machine up
@@ -2161,12 +2300,14 @@ the test attempted (`podman machine init`/`start`) **fails**, that is a
 real failure, not a skip — the runtime it chose to provision did not
 come up, so the test exits **non-zero** rather than green-exiting with
 nothing proven. Requires `gvproxy` (resolved from podman's libexec),
-`vfkit`, `podman`, `tinyproxy`, `curl`, and `jq` to actually run; `jq`
-parses `podman machine list --format json` to resolve the target
-machine's name structurally (the `{{.Name}}` Go template appends a `*`
-default-marker that would corrupt the name — issue #57). A podman
-machine is started by the test when needed rather than required up
-front.
+`vfkit`, `podman`, `tinyproxy`, `curl`, and `python3` to actually run.
+It resolves its target machine through the launcher's own
+`claude_vm_podman_machine_probe` rather than a probe of its own, so the
+`--format json` read that keeps the `{{.Name}}` Go template's `*`
+default-marker out of the name (issue #57) is guarded in one place; that
+helper parses with `python3`, which is where this test's `python3` gate
+comes from. A podman machine is started by the test when needed rather
+than required up front.
 
 Diagnostics (build, boot, proxy logs and the `podman machine`
 init/start stderr, plus a pass/fail summary) are written to a stable,

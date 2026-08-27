@@ -2,14 +2,18 @@
 #
 # machine-name-resolution-test.sh -- regression test for issue #57.
 #
-# host-acceptance.sh resolves the podman machine name, running-state, and
-# default-flag from 'podman machine list --format json'. It must NOT use
-# the '{{.Name}}' Go template, because podman renders the DEFAULT
-# machine's '{{.Name}}' with a trailing '*' default-marker (e.g.
-# 'podman-machine-default*'). Capturing that marker into MACHINE_NAME
-# breaks every later 'podman machine start/stop/rm "$MACHINE_NAME"' --
-# the marked name resolves to no machine, so a stopped default machine
-# can never be started (issue #57).
+# claude_vm_podman_machine_probe (lib/config.sh) resolves the podman
+# machine name and running-state from 'podman machine list --format
+# json'. It must NOT use the '{{.Name}}' Go template, because podman
+# renders the DEFAULT machine's '{{.Name}}' with a trailing '*'
+# default-marker (e.g. 'podman-machine-default*'). Capturing that marker
+# into the resolved name breaks every later 'podman machine
+# start/stop/rm "<name>"' -- the marked name resolves to no machine, so a
+# stopped default machine can never be started (issue #57).
+#
+# That helper is the ONE probe: the launcher's build-path bring-up
+# (issue #215) and host-acceptance.sh's own bring-up both call it, so
+# this test guards both by driving it directly.
 #
 # WHY A FAITHFUL STUB: issues #54 and #56 reviewed host-acceptance.sh
 # with throwaway stubbed-podmans that emitted CLEAN machine names with no
@@ -31,10 +35,21 @@
 #
 #   plugins/claude-vm/payload/test/machine-name-resolution-test.sh
 #
-# Requires: jq. Skips with a clear message if absent (same gating model
-# as host-acceptance.sh, which itself requires jq to run).
+# Requires: python3 (the helper under test parses the JSON with it) and
+# jq (the STUB renders its Go-template answer with it -- the stub's own
+# dependency, not the helper's). Skips with a clear message if either is
+# absent, the same gating model as host-acceptance.sh.
 
 set -uo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/config.sh
+. "$TEST_DIR/../lib/config.sh"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "SKIP: python3 not available; machine-name-resolution test skipped." >&2
+  exit 0
+fi
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "SKIP: jq not available; machine-name-resolution test skipped." >&2
@@ -111,19 +126,19 @@ STUB_EOF
 chmod +x "$STUB"
 
 # resolve_from_stub <fixture-json-file>
-# Runs the SAME resolution pipeline host-acceptance.sh uses against the
-# stub, and echoes "<name>\t<running>" (empty when no machine).
+# Runs the REAL helper -- claude_vm_podman_machine_probe, the one probe
+# both the launcher and host-acceptance.sh call -- against the stub, and
+# echoes "<name>\t<running>" (empty when no machine). Driving the helper
+# rather than a copy of its pipeline is what keeps this fixture honest:
+# a copy would keep passing after the helper drifted.
 resolve_from_stub() {
   local fixture="$1"
-  STUB_FIXTURE="$fixture" PATH="$WORK:$PATH" bash -c '
-    machine_probe="$(podman machine list --format json 2>/dev/null \
-      | jq -r "(map(select(.Default==true)) + .)[0]
-               | select(. != null)
-               | \"\(.Name)\t\(.Running)\t\(.Default)\"" 2>/dev/null)"
-    name="$(printf "%s" "$machine_probe" | cut -f1)"
-    running="$(printf "%s" "$machine_probe" | cut -f2)"
-    printf "%s\t%s" "$name" "$running"
-  '
+  local probe
+  probe="$(STUB_FIXTURE="$fixture" PATH="$WORK:$PATH" \
+    claude_vm_podman_machine_probe)"
+  printf '%s\t%s' \
+    "$(printf '%s' "$probe" | cut -f1)" \
+    "$(printf '%s' "$probe" | cut -f2)"
 }
 
 # Same pipeline, but the OLD '{{.Name}}'-template form, used ONLY to

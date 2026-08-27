@@ -61,8 +61,9 @@
 # read.)
 #
 # Requires (to actually run, not skip): gvproxy (resolved from podman
-# libexec), vfkit, podman, tinyproxy, curl. A podman machine is started
-# by the test when absent/stopped, rather than required up front.
+# libexec), vfkit, podman, tinyproxy, curl, python3 (the shared machine
+# probe parses podman's JSON with it). A podman machine is started by
+# the test when absent/stopped, rather than required up front.
 
 set -uo pipefail
 
@@ -121,31 +122,31 @@ gate_fail() {
 
 command -v curl >/dev/null 2>&1 || gate_skip "curl not available;"
 
-# Binary presence only -- NOT machine running state. We mirror the
-# preflight's binary checks here so a stopped/absent machine does not
-# turn into a SKIP. The preflight's combined "default-proxy" run is
-# intentionally NOT used as the gate, because it ALSO probes 'podman
-# info' and would conflate a stopped machine (which we want to start,
-# below) with a missing binary (which we SKIP on). We therefore re-run
-# the same per-binary checks the preflight does, minus the 'podman info'
-# machine probe. gvproxy ships in podman's libexec rather than on PATH,
-# so it uses the resolver; the rest are plain PATH lookups.
+# Binary presence only -- NOT machine running state, so a stopped or
+# absent machine does not turn into a SKIP; this test brings one up
+# itself, below. The preflight's combined "default-proxy" run is
+# intentionally NOT used as the gate: it checks only the pieces EVERY
+# launch needs and says nothing about podman (issue #215 moved the podman
+# checks onto the build path), while this test builds an image and so
+# needs the podman binary too. The checks are therefore spelled out here
+# rather than delegated. gvproxy ships in podman's libexec rather than on
+# PATH, so it uses the resolver; the rest are plain PATH lookups.
 claude_vm_resolve_gvproxy >/dev/null 2>&1 || \
   gate_skip "gvproxy not resolvable (install podman);"
 for bin in vfkit podman tinyproxy; do
   command -v "$bin" >/dev/null 2>&1 || gate_skip "$bin not available;"
 done
 
-# jq parses 'podman machine list --format json' below. The JSON form is
-# the ONLY reliable source for the machine name: podman renders the
-# DEFAULT machine's '{{.Name}}' Go-template field with a trailing '*'
-# default-marker (e.g. 'podman-machine-default*'), and that marker would
-# be captured into MACHINE_NAME and break every subsequent 'podman
-# machine start/stop/rm "$MACHINE_NAME"' (issue #57). The JSON 'Name' is
-# unmarked and 'Running'/'Default' are real booleans. jq is missing
-# software the test will not install, so -- like the binaries above -- an
-# absent jq is a SKIP, not a FAIL.
-command -v jq >/dev/null 2>&1 || gate_skip "jq not available;"
+# python3 parses 'podman machine list --format json' below, inside
+# claude_vm_podman_machine_probe (sourced from lib/config.sh above) --
+# this test resolves its target machine through that shared helper rather
+# than through a probe of its own, so the issue-#57 default-marker trap
+# is guarded in ONE place. python3 is a hard launcher dependency (the
+# Keychain and identity-seed selections in lib/credential.sh need it), so
+# a host without it cannot run the launcher this test exercises at all;
+# it is nonetheless missing software the test will not install, so -- like
+# the binaries above -- an absent python3 is a SKIP, not a FAIL.
+command -v python3 >/dev/null 2>&1 || gate_skip "python3 not available;"
 
 # MACHINE_ACTION records what (if anything) this test did to the podman
 # machine, so cleanup can undo EXACTLY that and nothing more:
@@ -236,25 +237,17 @@ if ! podman info >/dev/null 2>&1; then
   # machine, not on whatever the implicit "default machine" of a bare
   # 'podman machine start' happens to be.
   #
-  # We read from '--format json', NOT the '{{.Name}}'-based Go template,
-  # because podman renders the DEFAULT machine's '{{.Name}}' with a
-  # trailing '*' default-marker (e.g. 'podman-machine-default*'). That
-  # marker is emitted UNCONDITIONALLY by a bare '{{.Name}}' -- it is not
-  # contingent on '{{.Default}}' being in the template -- so the old
-  # template+cut probe captured 'podman-machine-default*' into
-  # MACHINE_NAME, and every later 'podman machine start/stop/rm
-  # "$MACHINE_NAME"' then targeted a machine that does not exist by that
-  # literal name. On a host whose default machine is stopped, the test
-  # could never start it (issue #57). The JSON 'Name' is unmarked and
-  # 'Running'/'Default' are real booleans, so selecting the default is a
-  # STRUCTURAL read ('.Default==true') rather than a brittle tab-column
-  # match. jq emits "<name>\t<running>\t<default>" for the chosen
-  # machine: the default-flagged machine if one exists, else the
-  # first/sole machine; empty when no machine exists.
-  machine_probe="$(podman machine list --format json 2>/dev/null \
-    | jq -r '(map(select(.Default==true)) + .)[0]
-             | select(. != null)
-             | "\(.Name)\t\(.Running)\t\(.Default)"' 2>/dev/null)"
+  # The resolution itself is claude_vm_podman_machine_probe's, not this
+  # test's: the launcher resolves its build-path machine the same way
+  # (issue #215), so both sides read '--format json' through one helper
+  # rather than each carrying a probe to be fixed twice. Why the JSON
+  # and not the '{{.Name}}' Go template is in that helper's header --
+  # a bare '{{.Name}}' appends a '*' default-marker that every later
+  # 'podman machine start/stop/rm "$MACHINE_NAME"' then fails to resolve
+  # (issue #57). It prints "<name>\t<running>" for the chosen machine:
+  # the default-flagged one if there is one, else the first/sole machine;
+  # empty when no machine exists.
+  machine_probe="$(claude_vm_podman_machine_probe)"
 
   TARGET_RUNNING=""
   if [ -n "$machine_probe" ]; then
@@ -281,16 +274,11 @@ if ! podman info >/dev/null 2>&1; then
       gate_fail "'podman machine init' failed (see $MACHINE_LOG);"
     fi
     MACHINE_ACTION="init"
-    # Capture the freshly-initialized machine's name from JSON, NOT from
-    # the '{{.Name}}' Go template: a bare '{{.Name}}' appends a '*'
-    # default-marker to the default machine's name (issue #57), and the
-    # machine 'init' just created IS the default, so the template would
-    # hand back 'podman-machine-default*' -- a name no later 'podman
-    # machine start/stop/rm' can resolve. The JSON 'Name' is unmarked.
-    # Prefer the default-flagged machine, falling back to the first.
-    MACHINE_NAME="$(podman machine list --format json 2>/dev/null \
-      | jq -r '(map(select(.Default==true)) + .)[0]
-               | select(. != null) | .Name' 2>/dev/null)"
+    # Re-probe for the freshly-initialized machine's name rather than
+    # assuming the default one: 'init' picks it, and it is what teardown
+    # must target. Same shared helper as above, so the unmarked JSON
+    # 'Name' (issue #57) is read the one way.
+    MACHINE_NAME="$(claude_vm_podman_machine_probe | cut -f1)"
     echo "host-acceptance: starting the freshly-initialized podman machine ($MACHINE_NAME)." >&2
     if ! podman machine start "$MACHINE_NAME" >>"$MACHINE_LOG" 2>&1; then
       # init succeeded but start failed: the runtime is unusable. Tear down

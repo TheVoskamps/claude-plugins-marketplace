@@ -538,7 +538,11 @@ is one line in a PR, not a test plan handed to the human.
 The podman machine is usually stopped and must be started explicitly,
 and its start does not always produce a working container network.
 Verify egress with the socket probe above before concluding anything
-about your own diff, and stop the machine again when done.
+about your own diff, and stop the machine again when done. That is on
+you only because you are driving the build directly: run through
+`claude-vm.sh` instead and the launcher does its own init/start and
+stops the machine again at end of run (issue #215), so a machine-state
+change on that path is the launcher's, not a leak of yours to chase.
 
 Drive the build with `build-guest-image.sh --output <path>`, exporting
 the same environment the launcher does. Derive the JSON blobs with the
@@ -589,10 +593,18 @@ script the provisioner writes. A real end-to-end build finds failures
 those tests had no chance to catch.
 
 The cheap harness that does reach them: put a stub `podman` on PATH in
-repo-local scratch that answers the preflight with success and, on
-`run`, captures the bind-mount source paths and copies the generated
-recipe out. That runs the provisioner's real code path and hands you
-the literal artifacts to inspect, without a real build.
+repo-local scratch that answers the provisioner's own `command -v
+podman` / `podman info` check with success and, on `run`, captures the
+bind-mount source paths and copies the generated recipe out. That runs
+the provisioner's real code path and hands you the literal artifacts to
+inspect, without a real build. Say "the provisioner's check", not "the
+preflight": the launcher's dependency preflight names podman nowhere
+since issue #215, so a stub built to satisfy *it* would answer nothing
+the provisioner asks. Drive the same harness through `claude-vm.sh`
+rather than the provisioner and the stub needs the machine surface too
+— `machine list --format json`, `machine init`, `machine start`,
+`machine stop` — because the build path brings a machine up before it
+reaches the provisioner.
 
 The suite's real-boot acceptance run is not coverage for every guest
 change either: it attaches only the built-in shares and never writes a

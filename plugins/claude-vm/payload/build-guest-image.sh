@@ -24,6 +24,13 @@
 #   - `--output <path>`  : build the image at <path> and stamp
 #                          <path>.version with the pinned version.
 #
+# On that path the podman machine the default provisioner needs is already
+# up: the launcher inits/starts one before it calls this, and stops it again
+# at end of run if it was the one that started it (issue #215). A DIRECT
+# invocation reaches none of that and needs a machine already started --
+# provisioners/podman-mkosi.sh's own `podman info` check is what aborts the
+# build otherwise.
+#
 # No image artifact is committed to the repo, and there is no
 # publish-prebuilt-image path -- every machine builds (or rebuilds on
 # version mismatch) its own image locally.

@@ -46,7 +46,10 @@
 #     build. Build container and guest distro are decoupled.
 #
 # This provisioner does a real image build and therefore requires podman
-# (with a started podman machine) on the host. It is the default, but
+# (with a started podman machine) on the host. Launched through claude-vm.sh
+# the machine is already up: the launcher inits/starts one for a build and
+# stops it again afterwards (issue #215). The checks below stay for a direct
+# invocation, which nothing brings a machine up for. It is the default, but
 # CLAUDE_VM_IMAGE_PROVISIONER still overrides it: build-guest-image.sh
 # prefers an explicit override and falls back to this script.
 

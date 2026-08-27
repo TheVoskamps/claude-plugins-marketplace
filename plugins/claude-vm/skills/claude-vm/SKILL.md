@@ -1116,10 +1116,16 @@ the `claudeAiOauth` key from the Keychain blob — see "Authentication"
 above), `gpg` (`brew install gnupg`, for the host-side verified claude
 cache — see "Verified claude cache" in the payload README), a sha256
 tool (`shasum` / `sha256sum`, both stock on macOS/Linux), and — for an
-actual VM boot — `vfkit`, `podman` (with a
-started podman machine, for the bundled podman-mkosi provisioner that
-builds the guest image), and `tinyproxy` (for the bundled default
-`proxy.cmd`). On a clean host:
+actual VM boot — `vfkit` and `tinyproxy` (for the bundled default
+`proxy.cmd`). A launch that has to **build** the guest image is the only
+one that runs `podman`, for the bundled podman-mkosi provisioner; the
+podman *formula* is in practice a requirement of every launch regardless,
+because that is where `gvproxy` normally comes from (next paragraph). What
+a build does
+**not** need is a started podman machine: the launcher inits and starts
+one itself and stops it again at end of run if it was the one that
+started it (see "The launcher manages the podman machine" below). On a
+clean host:
 `brew install yq git gnupg vfkit podman tinyproxy`.
 
 `gvproxy` is **not** a separate install and need not be on PATH: it
@@ -1152,12 +1158,11 @@ selection (`python3`) remain as defense-in-depth.
 
 After the trust-path preflight, and still before any build/boot work,
 the launcher runs a **dependency preflight** that checks the VM
-toolchain up front (gvproxy resolvable, `vfkit`/`podman` on PATH,
-podman machine running, and — only when the bundled default proxy is in
-use — `tinyproxy`). It fails fast with one actionable remediation line
-per missing piece rather than dying deep in the boot sequence. A custom
-`proxy.cmd` owns its own dependencies, so the `tinyproxy` check is
-skipped then.
+toolchain up front (gvproxy resolvable, `vfkit` on PATH, and — only when
+the bundled default proxy is in use — `tinyproxy`). It fails fast with
+one actionable remediation line per missing piece rather than dying deep
+in the boot sequence. A custom `proxy.cmd` owns its own dependencies, so
+the `tinyproxy` check is skipped then.
 
 The config-resolution half (layering, scalar/list resolution) is
 exercisable without the virtualization stack; see
@@ -1196,3 +1201,37 @@ rather than green-exiting with nothing proven. Diagnostics (including
 the machine init/start stderr) are retained under
 `${XDG_CONFIG_HOME:-$HOME/.config}/claude-vm/logs/<run-id>/` so a failed
 run stays diagnosable.
+
+`payload/test/podman-machine-test.sh` covers the launcher's own podman
+machine management (issue #215) against a stateful stub podman, and — by
+slicing the build-or-reuse block out of `claude-vm.sh` and running it —
+the scoping: a warm-cache launch invokes podman zero times, a
+build-needing one inits/starts, builds, and stops again — including when
+the bring-up leaves a machine up behind a failure, whether `podman
+machine start` itself exits non-zero after bringing it up or the
+confirmation that follows fails.
+
+## The launcher manages the podman machine
+
+The dependency preflight deliberately checks neither the `podman` binary
+nor any machine state, because only a launch that **builds** the guest
+image runs podman. A warm-cache launch — the image on disk already stamps
+the pinned version — boots it with vfkit and invokes podman not once, so
+it neither gates on a started machine nor starts one. (The preflight does
+check `gvproxy`, which normally resolves out of podman's Homebrew formula,
+so a host with neither podman nor an on-PATH `gvproxy` still fails there.)
+
+On the build path the launcher brings podman up itself rather than
+printing two commands and refusing, since claude-vm is meant to be one
+command on a fresh host where podman has never been initialized. The
+decision reads `podman machine list`: no machine listed gets a `podman
+machine init` then a `podman machine start`; a listed-but-stopped machine
+gets a `start`; a running machine is left exactly as found. At end of run
+the launcher stops the machine **iff it was the one that started it** — a
+machine found running is left running, and an init'd machine is stopped
+rather than removed, so the next build reuses it.
+
+There is no config surface for any of this: it is launcher plumbing, not
+policy. Every init/start/stop is logged to stderr as it happens, and
+those log lines are its only trace. See the payload README's "The
+launcher manages the podman machine" section for the mechanic.
