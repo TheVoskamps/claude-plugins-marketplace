@@ -70,7 +70,15 @@ revision moves them.
    ships-vs-per-machine split). The `claude-vm` plugin's `bin/claude-vm`
    preflight launcher (issue #51) is a second instance of the same
    pattern: it runs as the bare `claude-vm` command and forwards to
-   `payload/claude-vm.sh`.
+   `payload/claude-vm.sh`. `sdlc`'s `bin/sdlc-agent-result-persist`
+   (issue #354) is a third, and the one a **subagent** runs: a
+   fanned-out child calls it by bare name from its own worktree. An
+   executable on that path needs an allow rule keyed on that bare
+   spelling, and no plugin in this marketplace ships permission rules —
+   the rule lives in the caller's own settings, or a child's unattended
+   call becomes a prompt nobody is there to answer. See
+   `plugins/sdlc/skills/agent-result-persist-interface/SKILL.md` →
+   "Invocation".
 
 ## Patterns this marketplace uses
 
@@ -380,8 +388,8 @@ fan-out rather than sectioning one file, so neither fan-out can answer
 for the other.
 
 **That state file is append-only, and the procedure has to say so.**
-Create it once, then extend it one record per line with a shell
-append (`>>`), and revise no line already written. A whole-file write
+Create it once, then extend it one record per line with an append,
+and revise no line already written. A whole-file write
 and a tail edit are the same failure in different spellings: both
 reconstruct the file from what the agent remembers, and what it
 remembers is exactly what the turn boundary destroyed. For the same
