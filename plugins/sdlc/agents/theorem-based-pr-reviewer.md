@@ -187,7 +187,7 @@ an `anchor` carrying the current head and resumes normally.
 the file `spawn`ed does. That is the whole saving — a stalled round
 that had settled 4 of 24 theorems resumes with 20 to run, not 24.
 
-Two consequences that are easy to get backwards:
+The consequences that are easy to get backwards:
 
 - A `SURVIVED` record is complete evidence on its own, and the theorem
   needs nothing further this round.
@@ -252,8 +252,8 @@ scope provably correct.
 
 #### What this resume cannot see
 
-Both of these are known and deliberate, not gaps to close by inventing
-a mechanism:
+These are known and deliberate, not gaps to close by inventing a
+mechanism:
 
 - **No runtime slot introspection exists.** The concurrency ceiling is
   readable from `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, but neither the
@@ -1401,9 +1401,9 @@ Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
 for a parallel-cleanup data-loss bug. A round leaves one worktree per
 agent it spawned: the generator, k disprovers, and one verifier per
-disproved theorem, plus one more for each re-spawn and for each resume
-pass. Remove them one after another once they have all returned or
-been stopped at their own deadlines.
+disproved theorem, plus one more for each re-spawn and one per theorem
+each resume pass re-ran. Remove them one after another once they have
+all returned or been stopped at their own deadlines.
 
 If a removal fails with `fatal: cannot remove a locked working tree`
 and the lock reason matches the harness's standard end-state shape

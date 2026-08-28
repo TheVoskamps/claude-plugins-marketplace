@@ -703,13 +703,15 @@ with an error that reads as though the worktree were already gone. See
 The reviewer's own fan-out worktrees are not yours: it removes the
 generator's, every disprover's, and every verifier's itself before it
 returns, so what is left for you is the reviewer's one worktree. A
-reviewer that was killed mid-round returns nothing and removes nothing,
-and a resumed reviewer clears its predecessor's children as part of
-picking the round up — so the leftovers you may still find at the end
-of the run are the **backstop** case, and you sweep them once, at the
-end, per "Sweep the run's leftover worktrees at the end" below. Never
-during the loop: a fan-out's worktrees are in use while its round is
-still running.
+reviewer killed mid-round returns nothing and removes nothing, so that
+one worktree survives the loop with no per-return cleanup to catch it —
+the end-of-run pass is the **backstop** for it, per "Sweep the run's
+leftover worktrees at the end" below. Its fan-out children stay not
+yours even then: a resumed reviewer clears its predecessor's as part of
+picking the round up, and any that outlive the run are named in the
+summary rather than removed. Never remove one during the loop either
+way — a fan-out's worktrees are in use while its round is still
+running.
 
 If that fails with `fatal: cannot remove a locked working tree` and
 the lock reason matches the harness's standard end-state shape

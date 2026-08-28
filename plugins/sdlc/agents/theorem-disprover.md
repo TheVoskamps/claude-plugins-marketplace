@@ -155,7 +155,7 @@ calls in a subagent context.
      --agent-id "$(basename "$PWD" | sed 's/^agent-//')"
    ```
 
-   Every value comes straight from your brief except three: `--agent
+   Every value comes straight from your brief except these: `--agent
    theorem-disprover` is your own fan-out's name, which you never vary,
    `--agent-id` is the same id step 1 derived, and `--result` is the
    verdict you just reached. The preloaded

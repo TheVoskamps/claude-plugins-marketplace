@@ -196,7 +196,7 @@ calls in a subagent context.
      --agent-id "$(basename "$PWD" | sed 's/^agent-//')"
    ```
 
-   Every value comes straight from your brief except three: `--agent
+   Every value comes straight from your brief except these: `--agent
    counterexample-verifier` is your own fan-out's name, which you never
    vary — the disprover's name would file your verdict in their file —
    `--agent-id` is the same id step 1 derived, and `--result` is the

@@ -430,8 +430,8 @@ the same work — which means a fresh instance routinely arrives at a
 round an earlier one partly settled. Have it detect that from the file
 rather than from a parameter: a flag is a second source of truth, and
 where the two disagree the file wins anyway. It then keeps every child
-the file records as settled and re-spawns only the rest. Two bounds
-keep the retry loop from running away — take another pass only while
+the file records as settled and re-spawns only the rest. Bounds keep
+the retry loop from running away — take another pass only while
 the last one settled something new, with a hard cap on passes whatever
 happens, and count the children spawned across all passes against
 `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`, which is a **session** cap, so
