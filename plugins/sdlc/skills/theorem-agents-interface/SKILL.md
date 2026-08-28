@@ -21,9 +21,9 @@ The reviewer reads this file too, rather than only writing against it:
 its step 2 findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
 its own table. It reaches this skill by name rather than by preload —
-its frontmatter declares only the skills it invokes as workflow steps,
-and the glosses are wanted on the one branch that raises a
-theorem-less finding.
+its frontmatter is reserved for what every round needs, and the glosses
+here are wanted only on the one branch that raises a theorem-less
+finding.
 
 The reviewer's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by
@@ -97,6 +97,17 @@ them as well.
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
+- `--scratchpad <dir>` — the harness's per-session scratchpad
+  directory, as the reviewer's own context names it. Passed verbatim;
+  an agent never hand-builds a lookalike path.
+- `--owner <owner>` — the repository owner.
+- `--repo <repo>` — the repository name, separate from the owner.
+- `--round <n>` — the review round, as the reviewer numbers it.
+
+Those four say nothing about the claim, and no generator receives any
+of them. A disprover and a verifier pass them straight back — alongside
+`--pr` and their own fan-out name — to `sdlc-agent-result-persist`, per
+`sdlc:agent-result-persist-interface`.
 
 ## The consequence classes
 

@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# Persist one theorem-review fan-out's records to a file outside every
+# worktree, so a lost <task-notification> cannot lose a child's result.
+#
+# The path is composed here and nowhere else: every caller passes the
+# same identifying flags in every mode, so no agent ever holds a path
+# string to mistype or to carry across a turn boundary.
+#
+# The contract this implements — modes, flags, path, line grammar — is
+# plugins/sdlc/skills/agent-result-persist-interface/SKILL.md.
+set -euo pipefail
+
+readonly PROGRAM=${0##*/}
+
+die() {
+  printf '%s: %s\n' "$PROGRAM" "$1" >&2
+  exit 2
+}
+
+usage() {
+  cat <<EOF
+usage: $PROGRAM --mode header|detail|stopped|print
+                --scratchpad <dir> --owner <owner> --repo <repo>
+                --pr <n> --round <n> --agent <name>
+                [--header <text>] [--theorem <id>] [--result <token>]
+EOF
+}
+
+mode=
+scratchpad=
+owner=
+repo=
+pr=
+round=
+agent=
+header=
+theorem=
+result=
+
+while [ "$#" -gt 0 ]; do
+  flag=$1
+  case "$flag" in
+    --mode|--scratchpad|--owner|--repo|--pr|--round|--agent|--header|--theorem|--result)
+      [ "$#" -ge 2 ] || die "$flag needs a value"
+      value=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: $flag"
+      ;;
+  esac
+  case "$flag" in
+    --mode)       mode=$value ;;
+    --scratchpad) scratchpad=$value ;;
+    --owner)      owner=$value ;;
+    --repo)       repo=$value ;;
+    --pr)         pr=$value ;;
+    --round)      round=$value ;;
+    --agent)      agent=$value ;;
+    --header)     header=$value ;;
+    --theorem)    theorem=$value ;;
+    --result)     result=$value ;;
+  esac
+done
+
+case "$mode" in
+  header|detail|stopped|print) ;;
+  '') die "--mode is required" ;;
+  *)  die "unknown --mode: $mode" ;;
+esac
+
+[ -n "$scratchpad" ] || die "--scratchpad is required"
+
+# A / in an identifying value would silently add a directory level to
+# the composed path, which is why owner and repo stay separate flags
+# rather than arriving as one owner/name token.
+for pair in "owner:$owner" "repo:$repo" "agent:$agent"; do
+  name=${pair%%:*}
+  given=${pair#*:}
+  [ -n "$given" ] || die "--$name is required"
+  case "$given" in
+    *[!A-Za-z0-9._-]*) die "--$name must not contain a path separator or whitespace: $given" ;;
+  esac
+done
+
+for pair in "pr:$pr" "round:$round"; do
+  name=${pair%%:*}
+  given=${pair#*:}
+  [ -n "$given" ] || die "--$name is required"
+  case "$given" in
+    *[!0-9]*) die "--$name must be a number: $given" ;;
+  esac
+done
+
+# Every column of every record is whitespace-separated, so a theorem id
+# or a result carrying whitespace would shift the columns of that line
+# and desynchronise the reader's derivation from the writer's intent.
+if [ "$mode" = detail ] || [ "$mode" = stopped ]; then
+  [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
+  case "$theorem" in
+    *[!A-Za-z0-9._-]*) die "--theorem must be a single token: $theorem" ;;
+  esac
+fi
+
+if [ "$mode" = detail ]; then
+  [ -n "$result" ] || die "--result is required in --mode detail"
+  case "$result" in
+    *[!A-Za-z0-9._-]*) die "--result must be a single token: $result" ;;
+  esac
+fi
+
+if [ "$mode" = header ]; then
+  [ -n "$header" ] || die "--header is required in --mode header"
+fi
+
+readonly file="$scratchpad/sdlc/theorem-based-pr-reviewer-$owner-$repo-pr$pr-round$round-$agent"
+
+now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+case "$mode" in
+  header)
+    mkdir -p "$(dirname "$file")"
+    # The only truncating write in the script, and it refuses to be one:
+    # every record already in the file is a result no notification can
+    # be asked to redeliver.
+    [ ! -e "$file" ] || die "$file already exists; --mode header runs once per fan-out"
+    printf '%s\n' "$header" > "$file"
+    ;;
+  detail)
+    # Deliberately creates the file when it is absent rather than
+    # failing: an unwritten result is the loss this script exists to
+    # prevent, and a header that never ran is the reviewer's defect to
+    # see in the records, not the child's result to discard.
+    mkdir -p "$(dirname "$file")"
+    printf 'return %s %s %s\n' "$theorem" "$(now)" "$result" >> "$file"
+    ;;
+  stopped)
+    mkdir -p "$(dirname "$file")"
+    printf 'stopped %s %s\n' "$theorem" "$(now)" >> "$file"
+    ;;
+  print)
+    [ -e "$file" ] || die "no result file at $file"
+    cat -- "$file"
+    ;;
+esac

@@ -70,7 +70,10 @@ revision moves them.
    ships-vs-per-machine split). The `claude-vm` plugin's `bin/claude-vm`
    preflight launcher (issue #51) is a second instance of the same
    pattern: it runs as the bare `claude-vm` command and forwards to
-   `payload/claude-vm.sh`.
+   `payload/claude-vm.sh`. A bare-name call needs an allow rule keyed
+   on that spelling in the caller's own settings — no plugin here ships
+   permission rules — or an unattended call becomes a prompt nobody is
+   there to answer.
 
 ## Patterns this marketplace uses
 
@@ -344,19 +347,25 @@ spawn point and record the reading, (b) compute and record the
 deadline instant from it, and (c) read the clock again and compare
 explicitly on **every** resume, before deciding whether to end the
 turn. None of that survives in context alone, so it goes in a state
-file the spawner writes — which is also where the per-child spawn and
-return log belongs, since "which children reported" is the other fact
-a resume cannot remember. That log is what makes a **received**
-verdict distinguishable from an inferred one: a procedure that
-requires a verdict per child, with no record of which children
-returned, will have one supplied. State that a verdict's only
-admissible source is a received `<task-notification>`, and give the
-disposition table a row for the child that has not reported.
+file — which is also where the per-child spawn and return log belongs,
+since "which children reported" is the other fact a resume cannot
+remember. That log is what makes a **received** verdict
+distinguishable from an inferred one: a procedure that requires a
+verdict per child, with no record of which children returned, will
+have one supplied. State that a verdict's only admissible source is a
+`return` record in that file, and give the disposition table a row for
+the child that has not reported.
+
+A notification the harness never delivers takes its child's result with
+it, so have each child append its own record, put the file under the
+session scratchpad where no worktree cleanup reaches it, and compose
+its path in a `bin/` executable (constraint 7) that every writer and
+the reader call by bare name.
 
 **That state file is append-only, and the procedure has to say so.**
-Create it once, then extend it one record per line with a shell
-append (`>>`), and revise no line already written. A whole-file write
-and a tail edit are the same failure in different spellings: both
+Create it once, then extend it one record per line with an append, and
+revise no line already written. A whole-file write and a tail edit are
+the same failure in different spellings: both
 reconstruct the file from what the agent remembers, and what it
 remembers is exactly what the turn boundary destroyed. For the same
 reason, anything that changes as the round runs — which children are
@@ -368,12 +377,13 @@ stored set, and waited out its budget on work that had already
 reported (issue #351).
 
 `theorem-based-pr-reviewer` carries both — the anchors at each of its
-two spawn points, and the state file under `.claude/tmp/`
-(issue #344). A procedure that
-fans out twice needs a deadline on **each** fan-out: an unbounded
-second stage parks the round exactly as an unbounded first one would,
-and it is the easier one to leave unbounded, because it runs only on
-the rounds the first stage found something in. Where no measurement
+two spawn points, and one state file per fan-out under the session
+scratchpad, written by the disprovers and verifiers themselves
+(issue #344). A
+procedure that fans out twice needs a deadline on **each** fan-out: an
+unbounded second stage parks the round exactly as an unbounded first
+one would, and it is the easier one to leave unbounded, because it
+runs only on the rounds the first stage found something in. Where no measurement
 of the second stage exists, reuse the first's rather than deriving a
 shorter one from how much less work the second does — review bounds
 its verifiers on that reasoning, with the same figure its disprovers

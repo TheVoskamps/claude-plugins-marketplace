@@ -898,14 +898,26 @@ flattening them.
 
 When `theorem-based-pr-reviewer` reports back:
 
-**If the report carries no verdict block**: the reviewer returned
-mid-round rather than finishing one. Its report is an **in-progress
-status** — outstanding disprover or verifier counts and nothing more,
-carrying no verdict line, no tally and no findings — and the harness
-surfaces it as `status: completed` with that closing message as the
-result, so it is indistinguishable from a finished review unless you
-check for the verdict block. Check on every return; this is not an
+**If the report carries no verdict block**: the reviewer did not
+finish a round. The harness surfaces every one of these as
+`status: completed` with the closing message as the result, so a
+verdictless return is indistinguishable from a finished review unless
+you check for the verdict block. Check on every return; this is not an
 escalation, because the reviewer is not stopping to ask you anything.
+
+Two different reports arrive this way and they take opposite
+responses, so read what the report **says** before you act on it:
+
+- **An in-progress status** — outstanding disprover or verifier
+  counts, or a named fan-out and round the reviewer reports as already
+  started. A round is under way; follow the four steps below.
+- **A broken header call** — the report names a
+  `sdlc-agent-result-persist --mode header` call the reviewer could
+  not repair and quotes the script's message verbatim. No round is
+  under way, so follow "A broken header call" below instead. Never
+  read one as an in-progress status: a re-spawn composes the same call
+  and fails the same way, and step 4's escalation would then tell the
+  human the PR keeps returning mid-round.
 
 1. **Confirm it against the PR.** A round that returned mid-fan-out
    posted no review, so read the PR rather than the report:
@@ -930,6 +942,11 @@ escalation, because the reviewer is not stopping to ask you anything.
    because no commits landed, and no adjustment comment, because the
    human has nothing to adjust yet.
 
+   Until #358 lands, that re-spawn does not pick the stalled round up:
+   the reviewer finds this round's record file already there and stops.
+   Expect a second in-progress return and take step 4's escalation
+   rather than reading the repeat as a reviewer defect.
+
 4. **The round does not count against the review-round cap**
    (Hard Constraints → "Max review rounds per PR"). It produced no
    review, and charging the budget for a harness failure burns the
@@ -937,6 +954,14 @@ escalation, because the reviewer is not stopping to ask you anything.
    the human can see a PR that keeps returning mid-round rather than
    converging — after two such returns on one PR, raise it as a
    **Needs Your Attention** row rather than re-spawning indefinitely.
+
+**A broken header call.** This is a defect to surface, not a round to
+retry. Spawn no `issue-fixer` and re-spawn no reviewer; raise it as a
+**Needs Your Attention** row on the first return, quoting the script's
+message verbatim per "Report-consumption principle", since that message
+is the only evidence of which value the reviewer could not resolve. It
+does not count against the review-round cap, for the same reason a
+mid-round return does not: it produced no review.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member. Do not spawn the fixer — no loop
@@ -1487,10 +1512,11 @@ on the reviewer's severity line and the fixer's report. Fill them per
   `theorem-disprover` and `counterexample-verifier` agents its
   fan-outs spawned, at whatever generator tier; the `doc-updater` pass
   that precedes each one is not a review and never counts against the
-  cap. A spawn that returned an in-progress status posted nothing and
-  does not count either (see "Handling review findings — the fix
-  loop"): charging the budget for a harness failure spends the loop's
-  headroom on rounds that checked nothing.
+  cap. A spawn that returned without a verdict block posted nothing
+  and does not count either — an in-progress status or a broken header
+  call alike (see "Handling review findings — the fix loop"):
+  charging the budget for a spawn that checked nothing spends the
+  loop's headroom on it.
 
 ### What the orchestrator IS allowed to do
 

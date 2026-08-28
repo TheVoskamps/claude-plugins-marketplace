@@ -7,6 +7,7 @@ effort: medium
 isolation: worktree
 skills:
   - sdlc:theorem-agents-interface
+  - sdlc:agent-result-persist-interface
   - github-prs:pr-diff
 ---
 
@@ -36,10 +37,14 @@ instructions at the top of that file.
 Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
-(optional), `--theorem`, `--claim`, `--issues`, `--class`, and
-`--pointers`.
+(optional), `--theorem`, `--claim`, `--issues`, `--class`,
+`--pointers`, `--scratchpad`, `--owner`, `--repo`, and `--round`.
 
 Without `--branch` you have no branch to settle the claim against.
+
+The last four carry nothing about the claim; step 4 passes them back
+unchanged. Without them you can still settle the claim but cannot
+record the result — say so in your report rather than guessing at one.
 
 If the brief carries two claims, or none, stop and say so rather than
 inventing the missing one.
@@ -56,6 +61,10 @@ You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, and you carry no `Write` or `Edit` tool: the
 review pipeline is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
+
+Recording your result in step 4 is not an exception: it appends one
+line to a file **outside every repository**, through a script you run
+with Bash rather than a file tool.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -118,7 +127,26 @@ calls in a subagent context.
    facts by running commands, not by reasoning about what the code
    probably does. See "Establishing a fact" below.
 
-4. **Report** in one of the formats below. Nothing else.
+4. **Record your verdict**, as your final act before reporting:
+
+   ```bash
+   sdlc-agent-result-persist --mode detail \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --agent theorem-disprover \
+     --theorem <theorem> --result <SURVIVED|DISPROVED>
+   ```
+
+   Every value comes straight from your brief except two: `--agent
+   theorem-disprover` is your own fan-out's name, which you never vary,
+   and `--result` is the verdict you just reached. The preloaded
+   `sdlc:agent-result-persist-interface` skill owns the rest.
+
+   This is the reviewer's only evidence that you ran, since your report
+   reaches it as a `<task-notification>` the harness may never deliver.
+   So run it whichever verdict you reached, and run it before you
+   report — a turn that ends first records nothing.
+
+5. **Report** in one of the formats below. Nothing else.
 
 ## Establishing a fact
 

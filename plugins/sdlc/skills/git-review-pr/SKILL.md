@@ -90,6 +90,12 @@ skill computes.
    posted, and offer to re-spawn the reviewer on the same PR; do not
    present the partial text as a review outcome.
 
+   A verdictless return that instead reports a
+   `sdlc-agent-result-persist --mode header` call the reviewer could
+   not repair is a different report: no fan-out ran, and a re-spawn
+   composes the same call again. Quote the script's message verbatim
+   to the user and offer no re-spawn.
+
 4. **Relay the reviewer's verdicts and findings** back to the user:
    the overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every
    per-issue verdict (a PR may deliver a batch of several), plus the

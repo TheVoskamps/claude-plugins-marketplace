@@ -17,7 +17,7 @@ the fact.
 
 | Fact | Owner |
 | --- | --- |
-| Which skills and agents the plugin ships, and its `dependencies` edges | this file |
+| Which skills, agents and executables the plugin ships, and its `dependencies` edges | this file |
 | What one agent does | that agent's own file under `agents/` |
 | What a review checks and how it is reported | `agents/theorem-based-pr-reviewer.md` |
 | Which generator tier a round gets | `agents/theorem-based-pr-reviewer.md` |
@@ -95,14 +95,15 @@ are. They read as sequence names, but they are load-bearing across the
 file's report templates and a Hard Constraint, so renaming them is a
 cross-file refactor rather than a doc-pass sweep.
 
-What this file *does* own is the roster itself: which skills and which
-agents the plugin ships, plus the `dependencies` edges and the
-cross-plugin skills those edges cover. A PR that adds, removes, or
-renames a skill or an agent updates the matching table below, and so
-does one that changes a user verb's argument shape — the Skill column
-spells that shape, and a human reading a roster rather than a skill
-file has nowhere else to find it. A PR that changes which cross-plugin
-skill this plugin invokes updates "Dependencies" at the end.
+What this file *does* own is the roster itself: which skills, which
+agents and which executables the plugin ships, plus the `dependencies`
+edges and the cross-plugin skills those edges cover. A PR that adds,
+removes, or renames a skill or an agent updates the matching table
+below, and so does one that changes a user verb's argument shape — the
+Skill column spells that shape, and a human reading a roster rather
+than a skill file has nowhere else to find it. A PR that changes which
+cross-plugin skill this plugin invokes updates "Dependencies" at the
+end.
 
 Not everything below is a roster entry, and what is not has a trigger
 of its own. The frontmatter keys spelled here hold for a whole class —
@@ -121,10 +122,11 @@ changes how the two relate edits it here.
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, path and record grammar | preloaded into the reviewer, the disprover, and the verifier |
 
-`theorem-generation` and
-`theorem-agents-interface` carry no leading slash here because they
-are not user verbs — each declares `user-invocable: false`, which
+`theorem-generation`, `theorem-agents-interface` and
+`agent-result-persist-interface` carry no leading slash here because
+they are not user verbs — each declares `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
 `theorem-generation` is preloaded into each
 `theorem-generator` variant through that agent's `skills:`
@@ -146,6 +148,13 @@ and `/sdlc:orchestrate` does not invoke it — the user runs it first,
 per issue, and runs the orchestrator once the issues are ready. What
 it assesses an issue against, and why it is interactive rather than an
 agent, is owned by `skills/orchestrate-ready/SKILL.md`.
+
+## Executables
+
+The plugin ships exactly one, `bin/sdlc-agent-result-persist`, whose
+whole contract is owned by
+`skills/agent-result-persist-interface/SKILL.md`. A PR that adds or
+removes an executable edits this count.
 
 ## Agents
 

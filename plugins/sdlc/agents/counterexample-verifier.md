@@ -7,6 +7,7 @@ effort: medium
 isolation: worktree
 skills:
   - sdlc:theorem-agents-interface
+  - sdlc:agent-result-persist-interface
   - github-prs:pr-diff
 ---
 
@@ -57,12 +58,18 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--class`,
-`--pointers`, and `--counterexample`.
+`--pointers`, `--counterexample`, `--scratchpad`, `--owner`, `--repo`,
+and `--round`.
 
 Without `--branch` you have no tree to check the quote against.
 
 `--counterexample` is the one parameter only you receive: it is the
 thing you attack.
+
+`--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
+counterexample; step 4 passes them back unchanged. Without them you can
+still settle the counterexample but cannot record the result — say so
+in your report rather than guessing at one.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.
@@ -78,6 +85,10 @@ You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, and you carry no `Write` or `Edit` tool: the
 review pipeline is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
+
+Recording your result in step 4 is not an exception: it appends one
+line to a file **outside every repository**, through a script you run
+with Bash rather than a file tool.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -157,7 +168,27 @@ calls in a subagent context.
      counterexample: an inflated consequence is a `STANDS` with your
      corrected wording, not a `REFUTED`.
 
-4. **Report** in one of the formats below. Nothing else.
+4. **Record your verdict**, as your final act before reporting:
+
+   ```bash
+   sdlc-agent-result-persist --mode detail \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --agent counterexample-verifier \
+     --theorem <theorem> --result <STANDS|REFUTED>
+   ```
+
+   Every value comes straight from your brief except two: `--agent
+   counterexample-verifier` is your own fan-out's name, which you never
+   vary — the disprover's name would file your verdict in their file —
+   and `--result` is the verdict you just reached. The preloaded
+   `sdlc:agent-result-persist-interface` skill owns the rest.
+
+   This is the reviewer's only evidence that you ran, since your report
+   reaches it as a `<task-notification>` the harness may never deliver.
+   So run it whichever verdict you reached, and run it before you
+   report — a turn that ends first records nothing.
+
+5. **Report** in one of the formats below. Nothing else.
 
 ## Establishing a fact
 
