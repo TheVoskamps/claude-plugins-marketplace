@@ -121,8 +121,9 @@ the contract:
 
 - **`--mode header`, once per fan-out**, at spawn time, carrying the
   `anchor` line and one `spawn` line per child you just spawned. Steps
-  7 and 8 give the literal call. A non-zero exit ends your run — see
-  "When `--mode header` is refused" below.
+  7 and 8 give the literal call. A non-zero exit stops the fan-out
+  there — see "When `--mode header` fails" below, which branches on the
+  message rather than on the status.
 - **`--mode print`, on every resume**, before you decide anything.
   Which theorems returned, what each of them returned, and which are
   still outstanding are all **derived from that output** — never from
@@ -177,10 +178,14 @@ step, so nothing this writes reaches the branch. It is per-round
 working state, not persistence across rounds: the posted review remains
 this procedure's only thing the next round reads.
 
-### When `--mode header` is refused
+### When `--mode header` fails
 
-The call exits non-zero when this fan-out's file already exists, which
-means this round has been started before: `--round` is the PR's
+A call the script **refuses** and a call it **rejects as malformed**
+both exit non-zero, so the status tells you only that the fan-out did
+not start. Read the message and branch on it.
+
+**The message says the file already exists.** That is the refusal, and
+it means this round has been started before: `--round` is the PR's
 posted-review count plus one, and a reviewer that ended without posting
 leaves that count where it was, so a re-spawn computes the same number
 and lands on the same file.
@@ -200,6 +205,22 @@ making recovery a **resume** from these records rather than a restart
 over them, which is why the refusal is correct and stays. Implement no
 part of that resume here: reporting and stopping is your whole defined
 behavior on this branch until #358 lands.
+
+**The message names a flag.** Then the call you just built is
+malformed — a missing value, a `--pr` or `--round` that is not a
+number, a value carrying a path separator — and that is a defect in
+your own call rather than evidence about the round: the script wrote
+nothing, and no fan-out of yours is under way. An empty `--scratchpad`
+is the one to expect, since that value is named in your own context and
+there is nothing to fall back on when it is not. Repair the flag the
+message names and make the call again; when you cannot repair it,
+report the failure with the message verbatim and stop.
+
+**Never report a malformed call as an in-progress status.** It is the
+misdiagnosis this whole branch exists to prevent: it would tell your
+caller that a round is already running, and send it to the escalation
+for a stalled fan-out, while the actual fault — a call you composed
+wrongly — goes unreported.
 
 ## Why the diff never lands in your context
 
