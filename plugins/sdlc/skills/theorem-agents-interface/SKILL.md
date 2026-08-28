@@ -106,8 +106,11 @@ them as well.
 
 Those four say nothing about the claim, and no generator receives any
 of them. A disprover and a verifier pass them straight back — alongside
-`--pr` and their own fan-out name — to `sdlc-agent-result-persist`, per
-`sdlc:agent-result-persist-interface`.
+`--pr`, their own fan-out name, and the agent id they derive from their
+own worktree — to `sdlc-agent-result-persist`, per
+`sdlc:agent-result-persist-interface`. The agent id is the one value
+in that call no brief carries: a re-spawned child would otherwise be
+indistinguishable from the one it replaced.
 
 ## The consequence classes
 

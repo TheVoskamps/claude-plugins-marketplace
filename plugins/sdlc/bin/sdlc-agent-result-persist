@@ -19,10 +19,11 @@ die() {
 
 usage() {
   cat <<EOF
-usage: $PROGRAM --mode header|detail|stopped|print
+usage: $PROGRAM --mode header|enter|detail|stopped|print
                 --scratchpad <dir> --owner <owner> --repo <repo>
                 --pr <n> --round <n> --agent <name>
-                [--header <text>] [--theorem <id>] [--result <token>]
+                [--header <text>] [--theorem <id>] [--agent-id <id>]
+                [--result <token>]
 EOF
 }
 
@@ -33,6 +34,7 @@ repo=
 pr=
 round=
 agent=
+agent_id=
 header=
 theorem=
 result=
@@ -40,7 +42,7 @@ result=
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--scratchpad|--owner|--repo|--pr|--round|--agent|--header|--theorem|--result)
+    --mode|--scratchpad|--owner|--repo|--pr|--round|--agent|--agent-id|--header|--theorem|--result)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -61,6 +63,7 @@ while [ "$#" -gt 0 ]; do
     --pr)         pr=$value ;;
     --round)      round=$value ;;
     --agent)      agent=$value ;;
+    --agent-id)   agent_id=$value ;;
     --header)     header=$value ;;
     --theorem)    theorem=$value ;;
     --result)     result=$value ;;
@@ -68,7 +71,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  header|detail|stopped|print) ;;
+  header|enter|detail|stopped|print) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
@@ -99,10 +102,19 @@ done
 # Every column of every record is whitespace-separated, so a theorem id
 # or a result carrying whitespace would shift the columns of that line
 # and desynchronise the reader's derivation from the writer's intent.
-if [ "$mode" = detail ] || [ "$mode" = stopped ]; then
+if [ "$mode" = enter ] || [ "$mode" = detail ] || [ "$mode" = stopped ]; then
   [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
   case "$theorem" in
     *[!A-Za-z0-9._-]*) die "--theorem must be a single token: $theorem" ;;
+  esac
+fi
+
+# The agent id names which child wrote the record, so a re-spawned
+# theorem's second child is told apart from the first one.
+if [ "$mode" = enter ] || [ "$mode" = detail ]; then
+  [ -n "$agent_id" ] || die "--agent-id is required in --mode $mode"
+  case "$agent_id" in
+    *[!A-Za-z0-9._-]*) die "--agent-id must be a single token: $agent_id" ;;
   esac
 fi
 
@@ -129,8 +141,25 @@ case "$mode" in
     # The only truncating write in the script, and it refuses to be one:
     # every record already in the file is a result no notification can
     # be asked to redeliver.
-    [ ! -e "$file" ] || die "$file already exists; --mode header runs once per fan-out"
+    if [ -e "$file" ]; then
+      # Unless the two headers anchor different head commits. The records
+      # then describe a tree that no longer exists, so they answer for
+      # nothing the new round will ask — but they are still the evidence
+      # of what the voided round did, so the file is set aside rather
+      # than overwritten.
+      old_head=$(head -n 1 -- "$file" | awk '$1=="anchor"{print $3}')
+      new_head=$(printf '%s\n' "$header" | head -n 1 | awk '$1=="anchor"{print $3}')
+      if [ -n "$old_head" ] && [ -n "$new_head" ] && [ "$old_head" != "$new_head" ]; then
+        mv -- "$file" "$file.voided-$(date -u +%Y%m%dT%H%M%SZ)"
+      else
+        die "$file already exists; --mode header runs once per fan-out"
+      fi
+    fi
     printf '%s\n' "$header" > "$file"
+    ;;
+  enter)
+    mkdir -p "$(dirname "$file")"
+    printf 'enter %s %s %s\n' "$theorem" "$(now)" "$agent_id" >> "$file"
     ;;
   detail)
     # Deliberately creates the file when it is absent rather than
@@ -138,7 +167,7 @@ case "$mode" in
     # prevent, and a header that never ran is the reviewer's defect to
     # see in the records, not the child's result to discard.
     mkdir -p "$(dirname "$file")"
-    printf 'return %s %s %s\n' "$theorem" "$(now)" "$result" >> "$file"
+    printf 'return %s %s %s %s\n' "$theorem" "$(now)" "$agent_id" "$result" >> "$file"
     ;;
   stopped)
     mkdir -p "$(dirname "$file")"

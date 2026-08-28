@@ -702,7 +702,14 @@ with an error that reads as though the worktree were already gone. See
 
 The reviewer's own fan-out worktrees are not yours: it removes the
 generator's, every disprover's, and every verifier's itself before it
-returns, so what is left for you is the reviewer's one worktree.
+returns, so what is left for you is the reviewer's one worktree. A
+reviewer that was killed mid-round returns nothing and removes nothing,
+and a resumed reviewer clears its predecessor's children as part of
+picking the round up — so the leftovers you may still find at the end
+of the run are the **backstop** case, and you sweep them once, at the
+end, per "Sweep the run's leftover worktrees at the end" below. Never
+during the loop: a fan-out's worktrees are in use while its round is
+still running.
 
 If that fails with `fatal: cannot remove a locked working tree` and
 the lock reason matches the harness's standard end-state shape
@@ -909,15 +916,15 @@ Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
 
 - **An in-progress status** — outstanding disprover or verifier
-  counts, or a named fan-out and round the reviewer reports as already
-  started. A round is under way; follow the four steps below.
-- **A broken header call** — the report names a
-  `sdlc-agent-result-persist --mode header` call the reviewer could
-  not repair and quotes the script's message verbatim. No round is
-  under way, so follow "A broken header call" below instead. Never
-  read one as an in-progress status: a re-spawn composes the same call
-  and fails the same way, and step 4's escalation would then tell the
-  human the PR keeps returning mid-round.
+  counts, and on a reviewer that had already exhausted its own resume
+  loop, which exit it took. A round is under way; follow the four
+  steps below.
+- **A broken call** — the report names a `sdlc-agent-result-persist`
+  call the reviewer could not repair and quotes the script's message
+  verbatim. No round is under way, so follow "A broken call" below
+  instead. Never read one as an in-progress status: a re-spawn composes
+  the same call and fails the same way, and step 4's escalation would
+  then tell the human the PR keeps returning mid-round.
 
 1. **Confirm it against the PR.** A round that returned mid-fan-out
    posted no review, so read the PR rather than the report:
@@ -942,10 +949,13 @@ responses, so read what the report **says** before you act on it:
    because no commits landed, and no adjustment comment, because the
    human has nothing to adjust yet.
 
-   Until #358 lands, that re-spawn does not pick the stalled round up:
-   the reviewer finds this round's record file already there and stops.
-   Expect a second in-progress return and take step 4's escalation
-   rather than reading the repeat as a reviewer defect.
+   That re-spawn **resumes** the stalled round rather than starting it
+   over: the reviewer finds this round's state files, keeps every
+   theorem already settled in them, and re-runs only the rest (see the
+   `sdlc:theorem-based-pr-reviewer` agent → "Resume a started round;
+   never restart it"). So a second in-progress return means the round
+   is still making no progress on what it has left, not that the
+   re-spawn threw the first attempt away.
 
 4. **The round does not count against the review-round cap**
    (Hard Constraints → "Max review rounds per PR"). It produced no
@@ -955,7 +965,7 @@ responses, so read what the report **says** before you act on it:
    converging — after two such returns on one PR, raise it as a
    **Needs Your Attention** row rather than re-spawning indefinitely.
 
-**A broken header call.** This is a defect to surface, not a round to
+**A broken call.** This is a defect to surface, not a round to
 retry. Spawn no `issue-fixer` and re-spawn no reviewer; raise it as a
 **Needs Your Attention** row on the first return, quoting the script's
 message verbatim per "Report-consumption principle", since that message
@@ -1324,6 +1334,26 @@ not flip it to ready or them to In Review, and do not spawn
 section to write and the body stays frozen for whatever round comes
 next.
 
+### Sweep the run's leftover worktrees at the end
+
+Once every review loop has settled and before you write the summary,
+run `git worktree list` once and remove any worktree still registered
+for a teammate **you** spawned this run. Normally there is none: each
+is removed as its teammate returns. The case that leaves one is a
+teammate killed mid-run — it returns nothing, so the per-return cleanup
+never fires — and this pass is the backstop for exactly that.
+
+Scope it to your own spawns, by the same absolute-path,
+serial, no-`--force` rules the per-return cleanup uses. A worktree you
+did not spawn is not yours to remove, however stale it looks:
+`.claude/worktrees/` is shared with every other session running against
+this repo. A killed reviewer's own generator, disprover and verifier
+worktrees are in that category — a resumed reviewer clears them as part
+of picking the round up, and any that outlive the run go in the summary
+by path rather than being removed here.
+`/git-tools:git-cleanup-branches-and-worktrees` is the whole-repo sweep
+for those, and running it is the human's call.
+
 ### Summary
 
 Once all waves are complete and all review loops have settled, deliver
@@ -1352,8 +1382,11 @@ a summary:
 ### Worktrees Cleaned
 N worktrees cleaned (each subagent you spawned had its worktree
 removed after it returned, serially within each wave to avoid
-Anthropic issue #48927). The reviewer's generator, disprover and
-verifier worktrees are not in N — it removes those itself.
+Anthropic issue #48927, plus whatever the end-of-run sweep found).
+The reviewer's generator, disprover and verifier worktrees are not in
+N — it removes those itself. Name here, by absolute path, any such
+worktree a killed reviewer left behind, since removing one is not
+yours.
 
 All ready-for-review PRs are open and awaiting your approval.
 Nothing has been merged.

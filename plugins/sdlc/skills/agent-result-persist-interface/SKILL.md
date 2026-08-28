@@ -12,7 +12,14 @@ never delivers cannot take its child's result with it. A notification
 is a wake-up; a record in this file is the evidence.
 `sdlc:theorem-based-pr-reviewer` creates a fan-out's file and reads it
 back; `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
-append their own result to it as their final act.
+append their own entry and their own result to it.
+
+The file is also what a **resumed** round picks itself up from: a
+reviewer re-spawned over a round that already has one keeps every
+theorem the file says is settled and re-runs only the rest, rather
+than starting the round over. `sdlc:theorem-based-pr-reviewer` → "The
+round state file" owns that procedure; this file owns the record
+grammar it reads.
 
 ## Invocation
 
@@ -21,6 +28,12 @@ sdlc-agent-result-persist --mode <mode> \
   --scratchpad <dir> --owner <owner> --repo <repo> \
   --pr <n> --round <n> --agent <name> [mode-specific flags]
 ```
+
+A child derives its own `--agent-id` from its cwd: every theorem agent
+runs `isolation: worktree`, and the harness names that worktree
+directory `agent-<agent-id>`, carrying the same token `TaskStop`
+accepts. `basename "$PWD"` with the `agent-` prefix stripped is the id,
+and no harness affordance beyond that is needed.
 
 Spell the command as a bare name, never by path: the rule that lets a
 child run it unattended — `Bash(sdlc-agent-result-persist:*)` — is
@@ -58,15 +71,32 @@ path string to mistype, and none to carry across a turn boundary:
 ## The modes
 
 - **`header`** — creates the file and writes `--header <text>` to it
-  verbatim. The reviewer's one call per fan-out, at spawn time. It
-  **refuses a file that already exists**, exiting non-zero and writing
-  nothing: every record already there is a result no notification can
-  be asked to redeliver.
+  verbatim. The reviewer's one call per fan-out, on a **fresh** round
+  only. It **refuses a file that already exists**, exiting non-zero and
+  writing nothing: every record already there is a result no
+  notification can be asked to redeliver. The reviewer calls `print`
+  first and reaches `header` only where that failed, so the refusal is
+  a backstop rather than the resume path.
+
+  **One case is not a refusal**: the existing file's `anchor` and the
+  incoming header both name a head SHA, and the two differ. The records
+  then describe a tree that no longer exists and answer nothing the new
+  round will ask, so the old file is renamed to
+  `<file>.voided-<instant>` — kept as the evidence of what the voided
+  round did — and the new header is written in its place. Nothing is
+  deleted, and a header carrying no parseable `anchor` head SHA is
+  refused as usual rather than guessed at.
+- **`enter`** — appends one `enter` record for `--theorem <id>`
+  carrying `--agent-id <id>`. A child's first act, before it does any
+  work. It is what makes the child's deadline measurable: `Agent()`
+  calls beyond the harness's concurrency ceiling queue, so a child
+  spawned at the round anchor may not begin for many minutes, and a
+  child with no `enter` record has not started at all.
 - **`detail`** — appends one `return` record for `--theorem <id>`
-  carrying `--result <token>`. A child's final act. `--result` takes
-  any single token; the vocabulary is each agent's own and the script
-  grades it no further. Creates the file when it is absent rather than
-  discarding the result.
+  carrying `--agent-id <id>` and `--result <token>`. A child's final
+  act. `--result` takes any single token; the vocabulary is each
+  agent's own and the script grades it no further. Creates the file
+  when it is absent rather than discarding the result.
 - **`stopped`** — appends one `stopped` record for `--theorem <id>`.
   The reviewer's, at the deadline arm, for a child it `TaskStop`s. A
   stop is its own record kind, never a `return` carrying a `STOPPED`
@@ -75,8 +105,8 @@ path string to mistype, and none to carry across a turn boundary:
 - **`print`** — writes the file to stdout. Exits non-zero when the file
   does not exist, which means the fan-out's `header` call never ran.
 
-The script stamps each `return` and `stopped` time itself: the writer
-owns when the record was made.
+The script stamps each `enter`, `return` and `stopped` time itself: the
+writer owns when the record was made.
 
 A refusal and a malformed call both exit non-zero, so the status says
 only that the call did nothing. The message says which.
@@ -87,15 +117,32 @@ One record per line, whitespace-separated columns, appended, and **no
 line is ever revised in place**:
 
 ```text
-anchor  <anchor-instant> <deadline-instant>
+anchor  <anchor-instant> <head-sha>
 spawn   <theorem-id> <iso-time>
-return  <theorem-id> <iso-time> <result>
+enter   <theorem-id> <iso-time> <agent-id>
+return  <theorem-id> <iso-time> <agent-id> <result>
 stopped <theorem-id> <iso-time>
 ```
 
 Every instant is `date -u +%Y-%m-%dT%H:%M:%SZ`. There is no stage
-column: `--agent` keys the file. The script rejects a theorem id or a
-result carrying whitespace, which would shift its own line's columns.
+column: `--agent` keys the file. The script rejects a theorem id, an
+agent id or a result carrying whitespace, which would shift its own
+line's columns.
+
+**Two lifecycles share the file, and the split is what keeps the
+vocabulary from drifting the next time a kind is added.** `spawn` and
+`stopped` are the reviewer's view of a child — it asked for one, and it
+cut one off. `enter` and `return` are the child's own — it began, and
+it finished. A reviewer therefore never writes an `enter` and a child
+never writes a `spawn`.
+
+The `anchor` line is the reviewer's, written into `--mode header`. Its
+`<head-sha>` is the head commit the round's theorems were generated
+against, and it is what a resume compares against `origin/<branch>`
+before trusting a single record: a scheduled sweep force-rebases open
+PR branches and can fire mid-round, and verdicts from two trees must
+never be mixed. There is no round-level deadline instant — deadlines
+are per child, measured from that child's own `enter` record.
 
 **The outstanding set is derived, never stored.** It is the `spawn` ids
 minus the `return` and `stopped` ids, which one command answers over
@@ -109,3 +156,19 @@ awk '$1=="spawn"{s[$2]=1}
 
 A stored `outstanding:` list would be a line that must be revised to
 stay true; a derived set cannot go stale.
+
+**First `return` wins.** A theorem can end up with two `return`
+records: a child written off as lost reports late, or a resume
+re-spawned one and both children finished. Both are legitimate
+readings of the same tree, so the reader takes the **first** record for
+a theorem and ignores the rest. The duplicate stays in the file and is
+worth reporting as a diagnostic — it is evidence that a child believed
+dead was alive, which is exactly what a stalled-round post-mortem
+needs. The rule lives in the reader, so no line is ever revised and
+concurrent appends cannot collide.
+
+`enter` resolves the other way: the **last** `enter` for a theorem
+names the child running it now, because a re-spawn's whole point is
+that the earlier child is no longer the one being waited on. Measuring
+a re-spawned child's deadline from its predecessor's `enter` would
+declare it overdue the moment it started.

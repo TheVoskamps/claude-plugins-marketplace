@@ -42,9 +42,10 @@ it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 
 Without `--branch` you have no branch to settle the claim against.
 
-The last four carry nothing about the claim; step 4 passes them back
-unchanged. Without them you can still settle the claim but cannot
-record the result — say so in your report rather than guessing at one.
+The last four carry nothing about the claim; steps 1 and 5 pass them
+back unchanged. Without them you can still settle the claim but cannot
+record that you started or what you found — say so in your report
+rather than guessing at one.
 
 If the brief carries two claims, or none, stop and say so rather than
 inventing the missing one.
@@ -62,16 +63,33 @@ declare no `memory:`, and you carry no `Write` or `Edit` tool: the
 review pipeline is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
 
-Recording your result in step 4 is not an exception: it appends one
-line to a file **outside every repository**, through a script you run
-with Bash rather than a file tool.
+The records you append in steps 1 and 5 are not an exception: each
+appends one line to a file **outside every repository**, through a
+script you run with Bash rather than a file tool.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
 
 ## Workflow
 
-1. **Check out the PR's head commit first, detached.**
+1. **Record that you started, before you do anything else.** Your id is
+   your own worktree directory's name with the `agent-` prefix
+   stripped, which is the token `TaskStop` takes:
+
+   ```bash
+   sdlc-agent-result-persist --mode enter \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --agent theorem-disprover \
+     --theorem <theorem> --agent-id "$(basename "$PWD" | sed 's/^agent-//')"
+   ```
+
+   Your spawn and your start are minutes apart whenever the harness
+   queues you behind its concurrency ceiling, and the reviewer's
+   deadline for you runs from this record rather than from the spawn —
+   so a turn that starts work first can be cut off for time it never
+   had.
+
+2. **Check out the PR's head commit first, detached.**
 
    Check whether you need to fetch at all before you fetch:
 
@@ -120,25 +138,27 @@ calls in a subagent context.
    `origin/<branch>` claims no branch, gives you the identical tree,
    and leaves nothing to release when you return.
 
-2. **Fetch the diff** via `/github-prs:pr-diff <PR>` if your claim
+3. **Fetch the diff** via `/github-prs:pr-diff <PR>` if your claim
    needs it. A claim about the surrounding codebase often does not.
 
-3. **Try to break the claim**, starting from `--pointers`. Establish
+4. **Try to break the claim**, starting from `--pointers`. Establish
    facts by running commands, not by reasoning about what the code
    probably does. See "Establishing a fact" below.
 
-4. **Record your verdict**, as your final act before reporting:
+5. **Record your verdict**, as your final act before reporting:
 
    ```bash
    sdlc-agent-result-persist --mode detail \
      --scratchpad <scratchpad> --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --agent theorem-disprover \
-     --theorem <theorem> --result <SURVIVED|DISPROVED>
+     --theorem <theorem> --result <SURVIVED|DISPROVED> \
+     --agent-id "$(basename "$PWD" | sed 's/^agent-//')"
    ```
 
-   Every value comes straight from your brief except two: `--agent
+   Every value comes straight from your brief except three: `--agent
    theorem-disprover` is your own fan-out's name, which you never vary,
-   and `--result` is the verdict you just reached. The preloaded
+   `--agent-id` is the same id step 1 derived, and `--result` is the
+   verdict you just reached. The preloaded
    `sdlc:agent-result-persist-interface` skill owns the rest.
 
    This is the reviewer's only evidence that you ran, since your report
@@ -146,7 +166,7 @@ calls in a subagent context.
    So run it whichever verdict you reached, and run it before you
    report — a turn that ends first records nothing.
 
-5. **Report** in one of the formats below. Nothing else.
+6. **Report** in one of the formats below. Nothing else.
 
 ## Establishing a fact
 
@@ -167,7 +187,7 @@ These are the ways a check goes wrong often enough to be worth naming:
   the fork point — fabricates a counterexample that a rebase
   dissolves.
 - **Extract evidence bytes from `HEAD`, never another ref.**
-  `git show HEAD:<path>` after the detached checkout of step 1 is the
+  `git show HEAD:<path>` after the detached checkout of step 2 is the
   PR head; `git show main:<path>` or `git show origin/<base>:<path>`
   returns the base's bytes and fabricates a counterexample out of
   content the branch already changed. The `EVIDENCE` quote of a
@@ -270,7 +290,7 @@ stopped.
 
 ## End-of-run cleanup
 
-There is none. Your checkout in step 1 is detached, so you hold no
+There is none. Your checkout in step 2 is detached, so you hold no
 branch claim and there is nothing to release — and you never commit,
 so there is nothing to guard either. Return your verdict and stop. The
 pipeline that spawned you removes the worktree directory itself.

@@ -67,9 +67,10 @@ Without `--branch` you have no tree to check the quote against.
 thing you attack.
 
 `--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
-counterexample; step 4 passes them back unchanged. Without them you can
-still settle the counterexample but cannot record the result — say so
-in your report rather than guessing at one.
+counterexample; steps 1 and 5 pass them back unchanged. Without them
+you can still settle the counterexample but cannot record that you
+started or what you found — say so in your report rather than guessing
+at one.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.
@@ -86,16 +87,33 @@ declare no `memory:`, and you carry no `Write` or `Edit` tool: the
 review pipeline is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
 
-Recording your result in step 4 is not an exception: it appends one
-line to a file **outside every repository**, through a script you run
-with Bash rather than a file tool.
+The records you append in steps 1 and 5 are not an exception: each
+appends one line to a file **outside every repository**, through a
+script you run with Bash rather than a file tool.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
 
 ## Workflow
 
-1. **Check out the PR's head commit first, detached.**
+1. **Record that you started, before you do anything else.** Your id is
+   your own worktree directory's name with the `agent-` prefix
+   stripped, which is the token `TaskStop` takes:
+
+   ```bash
+   sdlc-agent-result-persist --mode enter \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --agent counterexample-verifier \
+     --theorem <theorem> --agent-id "$(basename "$PWD" | sed 's/^agent-//')"
+   ```
+
+   Your spawn and your start are minutes apart whenever the harness
+   queues you behind its concurrency ceiling, and the reviewer's
+   deadline for you runs from this record rather than from the spawn —
+   so a turn that starts work first can be cut off for time it never
+   had.
+
+2. **Check out the PR's head commit first, detached.**
 
    Check whether you need to fetch at all before you fetch:
 
@@ -139,11 +157,11 @@ calls in a subagent context.
    `fatal: '<branch>' is already used by worktree at '…'` (exit 128)
    in every verifier but the first.
 
-2. **Fetch the diff** via `/github-prs:pr-diff <PR>` if the
+3. **Fetch the diff** via `/github-prs:pr-diff <PR>` if the
    counterexample's consequence turns on what the PR changed. A quote
    check against the head tree usually does not need it.
 
-3. **Attack the counterexample** along these axes, in this
+4. **Attack the counterexample** along these axes, in this
    order. A quote that does not exist, or that does not contradict the
    claim, is a `REFUTED` and you can stop there. An overstated
    consequence is not — you correct it, per that axis's own bullet:
@@ -168,19 +186,21 @@ calls in a subagent context.
      counterexample: an inflated consequence is a `STANDS` with your
      corrected wording, not a `REFUTED`.
 
-4. **Record your verdict**, as your final act before reporting:
+5. **Record your verdict**, as your final act before reporting:
 
    ```bash
    sdlc-agent-result-persist --mode detail \
      --scratchpad <scratchpad> --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --agent counterexample-verifier \
-     --theorem <theorem> --result <STANDS|REFUTED>
+     --theorem <theorem> --result <STANDS|REFUTED> \
+     --agent-id "$(basename "$PWD" | sed 's/^agent-//')"
    ```
 
-   Every value comes straight from your brief except two: `--agent
+   Every value comes straight from your brief except three: `--agent
    counterexample-verifier` is your own fan-out's name, which you never
    vary — the disprover's name would file your verdict in their file —
-   and `--result` is the verdict you just reached. The preloaded
+   `--agent-id` is the same id step 1 derived, and `--result` is the
+   verdict you just reached. The preloaded
    `sdlc:agent-result-persist-interface` skill owns the rest.
 
    This is the reviewer's only evidence that you ran, since your report
@@ -188,7 +208,7 @@ calls in a subagent context.
    So run it whichever verdict you reached, and run it before you
    report — a turn that ends first records nothing.
 
-5. **Report** in one of the formats below. Nothing else.
+6. **Report** in one of the formats below. Nothing else.
 
 ## Establishing a fact
 
@@ -196,7 +216,7 @@ You are checking somebody else's check, so the ways a check goes wrong
 are your subject matter. These are the ones that decide verifications:
 
 - **Extract evidence bytes from `HEAD`, never another ref.**
-  `git show HEAD:<path>` after the detached checkout of step 1 is the
+  `git show HEAD:<path>` after the detached checkout of step 2 is the
   PR head; `git show main:<path>` or `git show origin/<base>:<path>`
   returns the base's bytes, which is how a real counterexample gets
   `REFUTED`. Your byte-for-byte check of a `DISPROVED` report's
@@ -289,7 +309,7 @@ pipeline already holds the disprover's copy and publishes that one.
 
 ## End-of-run cleanup
 
-There is none. Your checkout in step 1 is detached, so you hold no
+There is none. Your checkout in step 2 is detached, so you hold no
 branch claim and there is nothing to release — and you never commit,
 so there is nothing to guard either. Return your verdict and stop. The
 pipeline that spawned you removes the worktree directory itself.
