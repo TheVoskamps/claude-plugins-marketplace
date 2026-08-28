@@ -150,7 +150,7 @@ work.
 
 ## Why this location
 
-`/**/tmp/` is **already gitignored repo-wide** (see the repo's
+`tmp/` is **already gitignored repo-wide** (see the repo's
 `.gitignore`), so `<repo-root>/.claude/tmp/` is an untracked, in-repo
 location:
 
@@ -173,7 +173,7 @@ location:
   failed run leaves its sandbox where it can be examined, rather than
   in a system temp dir outside the boundary.
 
-No new `.gitignore` line is required; the `/**/tmp/` rule already
+No new `.gitignore` line is required; the unanchored `tmp/` rule already
 covers `.claude/tmp/` at any depth. Verify with:
 
 ```sh
