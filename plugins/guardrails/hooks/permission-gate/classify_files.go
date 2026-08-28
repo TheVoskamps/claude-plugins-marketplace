@@ -22,14 +22,16 @@ import (
 // in-worktree path defers (the normal pipeline / settings.json denyRead etc.
 // still apply).
 //
-// The one path to an outright ALLOW here is the harness scratchpad
-// carve-out: when EVERY target of the call lands in an allow-eligible region
-// of the harness prefix (a session-shaped scratchpad directory for any tool;
-// the bundled-skills tree for a READ — see scratchAllowEligible), the call is
-// allowed rather than deferred, because a defer would still lose to a `/tmp`
-// deny entry in settings.json. A call that mixes such a target with any other
-// kind falls back to the ordinary defer, so the allow never rides along with a
-// path the gate has not blessed on its own terms.
+// Two carve-outs reach an outright ALLOW here, and both require EVERY target of
+// the call to ride one: the harness scratchpad (a session-shaped scratchpad
+// directory for any tool; the bundled-skills tree for a READ — see
+// scratchAllowEligible), and the operator-configured ~/.config listing (see
+// xdg_config_carveout.go). Both allow rather than defer because a defer would
+// still lose to a `/tmp` or `~/.config` deny entry in settings.json, and a
+// PreToolUse deny is what the ~/.config case is repairing in the first place. A
+// call that mixes such a target with any other kind falls back to the ordinary
+// defer, so the allow never rides along with a path the gate has not blessed on
+// its own terms.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -53,15 +55,25 @@ func classifyFileTool(ev *Event) Decision {
 				"in-bounds.", ev.ToolName, err))
 	}
 
-	// allScratch stays true only while EVERY target so far is an allow-eligible
-	// harness-prefix path — the sole ground for an outright ALLOW here.
-	// Eligibility is read/write-graded for the bundled-skills tree, so the
-	// call's class is computed once here from isMutatingFileTool, the same
-	// predicate the .git/-tree rule below already uses. badRoot records a
-	// scratchpad-root DEFER without short-circuiting the walk, so a genuine
-	// escape later in the same call still outranks it.
+	// allCarved stays true only while EVERY target so far rides one of the two
+	// ALLOW carve-outs — the sole ground for an outright ALLOW here. Eligibility
+	// is read/write-graded for the bundled-skills tree and for the ~/.config
+	// listing, so the call's class is computed once here from
+	// isMutatingFileTool, the same predicate the .git/-tree rule below already
+	// uses. badRoot records a scratchpad-root DEFER without short-circuiting the
+	// walk, so a genuine escape later in the same call still outranks it.
+	//
+	// The ~/.config carve-out is consulted per target and outranks the
+	// containment verdict for that target, because a listed path is allowed
+	// wherever it lands. It does NOT outrank the `.git/`-tree deny above, which
+	// is checked first and stays absolute. sawXDG and sawScratch record which
+	// carve-outs the ALLOW terminal actually rode, so its reason names those and
+	// no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
-	allScratch := true
+	carve := loadXDGConfigCarveOut()
+	sawXDG := false
+	sawScratch := false
+	allCarved := true
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range paths {
@@ -84,8 +96,23 @@ func classifyFileTool(ev *Event) Decision {
 		}
 
 		res, real := testContainment(p, rc)
-		if !scratchAllowEligible(res, readClass) {
-			allScratch = false
+		if carve.allows(p, ev.CWD, readClass) {
+			// A path the operator listed under ~/.config. It is allow-eligible
+			// for THIS call's class (allow-write covers reads and writes alike;
+			// allow-read alone covers only a read, so a write to such a path
+			// falls through to the verdict it has today), and the escape switch
+			// below is skipped entirely — resolving outside the repo is exactly
+			// the condition the listing exists to override. A listed path is
+			// allowed wherever it lands, which is why this is not conditioned on
+			// the containment result: the whole point is that the gate does not
+			// look at where the path resolves to.
+			sawXDG = true
+			continue
+		}
+		if scratchAllowEligible(res, readClass) {
+			sawScratch = true
+		} else {
+			allCarved = false
 		}
 		switch res {
 		case escapeWorktree:
@@ -154,10 +181,8 @@ func classifyFileTool(ev *Event) Decision {
 	if haveBadRoot {
 		return badRoot
 	}
-	if allScratch {
-		return allow(fmt.Sprintf(
-			"%s targets only harness-owned regions under %s/ that are designated safe by construction (%s)",
-			ev.ToolName, harnessScratchDisplay(), eligibleScratchRegions(readClass)))
+	if allCarved {
+		return allow(carveOutAllowReason(ev.ToolName, readClass, sawScratch, sawXDG))
 	}
 	// All targets are inside this worktree — defer to the normal pipeline
 	// (settings.json denyRead, ask lists, etc. still apply).
@@ -697,6 +722,25 @@ func eligibleScratchRegions(readClass bool) string {
 		regions += ", or the bundled-skills tree"
 	}
 	return regions
+}
+
+// carveOutAllowReason names, in the file-tool ALLOW reason, exactly the
+// carve-outs this call's targets actually rode — never both when only one was
+// involved, so a reason cannot advertise a region the call never touched. The
+// scratchpad-only wording is the one this terminal has always emitted; the
+// other two arms exist because the ~/.config listing joined it.
+func carveOutAllowReason(toolName string, readClass bool, sawScratch bool, sawXDG bool) string {
+	scratch := fmt.Sprintf("harness-owned regions under %s/ that are designated safe by construction (%s)",
+		harnessScratchDisplay(), eligibleScratchRegions(readClass))
+	listed := fmt.Sprintf("paths the operator listed in %s", xdgCarveOutConfigPath())
+	switch {
+	case sawScratch && sawXDG:
+		return fmt.Sprintf("%s targets only %s, and %s", toolName, scratch, listed)
+	case sawXDG:
+		return fmt.Sprintf("%s targets only %s", toolName, listed)
+	default:
+		return fmt.Sprintf("%s targets only %s", toolName, scratch)
+	}
 }
 
 // isMutatingFileTool reports whether the tool writes/edits files (as opposed to

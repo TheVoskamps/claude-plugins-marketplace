@@ -1530,6 +1530,106 @@ The gate's engines feed that decision:
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
 
+  (6) a **file-tool** target under `$HOME/.config` that matches a glob
+  the operator listed in `~/.config/guardrails/config.yml` is
+  **allowed** (`xdg_config_carveout.go`).
+  [`docs/config-file-conventions.md`](../../../../docs/config-file-conventions.md)
+  puts every per-user plugin config under
+  `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/`, and containment
+  canonicalizes both sides before it decides. On a machine whose
+  `~/.config` is a symlink into a dotfiles repo, that resolution lands
+  every such config inside **another git repo**, so the cross-repo deny
+  fired on the whole convention this marketplace documents —
+  `/cc-tools:cc-whats-new` could not read its own watermark and
+  `/issues:global-user-config` could not write its own file, on that
+  machine only, invisibly everywhere else. A `permissions.allow` entry
+  cannot repair it: a PreToolUse `deny` outranks `settings.json`.
+
+  **The gate carries no knowledge of which plugins exist.** There are no
+  shipped default entries; a machine that wants the carve-out writes the
+  file, in the shape `docs/config-file-conventions.md` prescribes, with
+  two lists of globs **relative to `~/.config`**:
+
+  ```yaml
+  schema-version: 1
+  allow-read:
+    - macos-setup/**
+    - gh/config.yml
+    - git/ignore
+  allow-write:
+    - issues/**
+    - cc-tools/**
+  ```
+
+  `allow-write` **implies** `allow-read`: a path writable but not
+  readable is a half-configured state rather than an intent —
+  `/issues:global-user-config` merge-updates its file and so must read
+  before it writes. A read-only entry stays expressible by listing it
+  under `allow-read` alone; a **write** to such a path does not allow
+  and keeps the verdict it has today. The glob grammar is `**` for zero
+  or more whole path segments plus `path.Match` per segment, so `*` and
+  `?` do not cross a separator.
+
+  **Absent, unreadable, malformed, or stamped below `schema-version: 1`
+  → both lists empty → today's behaviour**, on every path. The carve-out
+  fails closed, and the gate is its only reader, so none of those is an
+  error reported anywhere — it is simply an empty list. That is a named
+  exception to `docs/config-file-conventions.md`'s abort-on-malformed
+  rule, recorded there: a `PreToolUse` hook has no channel to abort
+  into, and failing the hook over a broken config would be strictly
+  worse than the behaviour the operator had before writing it. The file
+  is read in Go with `gopkg.in/yaml.v3` on each invocation — not a tool
+  call, so the carve-out does not gate its own config, and the process
+  is fresh per event, so nothing is cached.
+
+  **No symlink resolution, on either side.** The check runs on the path
+  as written: the target is made absolute and lexically `Clean`ed, the
+  `$HOME/.config` prefix is stripped, and the remainder is matched.
+  `~/.config`, `~/.config/<name>` and `~/.config/<name>/<file>` may each
+  be a symlink pointing anywhere and the verdict is unchanged — a listed
+  path is allowed wherever it lands, including inside another git repo.
+  That is a deliberate departure from the `~/.claude` carve-out, which
+  canonicalizes both sides, and it is the point of the fix rather than
+  an oversight. **The accepted consequence:** a symlink under a listed
+  path that points into a sibling repo is allowed. Because the match is
+  on a lexically-cleaned path, `~/.config/../../<sibling-repo>/x` cannot
+  match whatever the globs say — the cleaning removes the `..` segments
+  and the result no longer carries the root prefix — and a glob
+  containing `..` is dead for the same reason.
+
+  **`$HOME/.config` literally, not `$XDG_CONFIG_HOME`.** The carve-out
+  root is that one spelling. Deriving it from an environment variable
+  would let whatever set that variable relocate the carve-out, which is
+  the same reason `harnessScratchDir` is a fixed literal. A machine that
+  relocates `$XDG_CONFIG_HOME` therefore gets no carve-out at all, which
+  is the fail-closed direction.
+
+  **`allow`, not `defer`.** A defer only removes the gate's veto and
+  hands the call to the ordinary permission rules, which nothing here
+  establishes would permit it — the same broken outcome by a different
+  route. The `.git/`-tree deny still outranks the carve-out: it is
+  checked first in the operand walk and a listed path under a `.git/`
+  segment still denies. And the ALLOW terminal requires **every** target
+  of the call to ride a carve-out, so a call mixing a listed path with
+  an ordinary in-repo one falls back to the ordinary defer.
+
+  **Scope: the file-tool track only** (`Read`, `Write`, `Edit`,
+  `MultiEdit`, `NotebookEdit`). The bash engine is untouched, so a `cat`
+  of a listed config path is **still denied**. That is a deliberate gap,
+  not an oversight: the bash engine denies plain outside-repo paths the
+  `Read` classifier defers on (`jq ~/.zshrc` is blocked, and `~/.zshrc`
+  is not under the symlink at all), which is a separate asymmetry and,
+  if it is a fault, a separate issue. The config file is hand-written —
+  no `/guardrails:*` skill creates or merge-updates it, and this section
+  is the only documentation of its schema. The fix does not make the
+  gate symlink-aware in general: a symlink from inside the repo out to a
+  sibling repo is still denied, which is intended. It changes nothing
+  about how the gate is packaged, so the `claude-vm` surfaces that
+  mirror that shape are untouched. Adding YAML parsing introduces the
+  module's **second** dependency (`gopkg.in/yaml.v3`, alongside
+  `mvdan.cc/sh/v3`) into a security binary; that is accepted rather than
+  hand-rolling a parser.
+
 **An unparseable command is a syntax error, not a decision**. A
 parse failure used to **ask**, on the rationale that "an unparseable
 command is often a human-authored one-liner the human can vet". That is
