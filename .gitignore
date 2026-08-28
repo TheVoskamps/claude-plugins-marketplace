@@ -95,6 +95,11 @@ worktrees/
 /.config/mise/config.toml
 /.config/mise/conf.d/
 
+# Per-repo config for the /issues:* verbs. The team-shared
+# repo-config.md is tracked; the per-user file is one user's own
+# settings and must never reach GitHub.
+/.issues/user-config.md
+
 # Claude config — ignore the directory, then un-ignore the shareable
 # parts. New Claude-generated dirs (cache, sessions, projects, todos,
 # agent-memory, ...) stay ignored by default; add one here explicitly
