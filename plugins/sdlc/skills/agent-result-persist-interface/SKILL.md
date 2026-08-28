@@ -162,25 +162,33 @@ awk '$1=="spawn"{s[$2]=1}
 **Whether an outstanding theorem has a child in flight is a second
 question, and it is keyed on the child rather than on the theorem.** A
 theorem is in flight when its **last** `enter` carries an agent id that
-no `return` of that theorem carries:
+no `return` of that theorem carries, and no `stopped` record follows
+that `enter`:
 
 ```bash
-awk '$1=="enter"{child[$2]=$4}
+awk '$1=="enter"{child[$2]=$4; gone[$2]=0}
+     $1=="stopped"{gone[$2]=1}
      $1=="return"{done[$2" "$4]=1}
-     END{for(t in child) if(!((t" "child[t]) in done)) print t}'
+     END{for(t in child) if(!gone[t] && !((t" "child[t]) in done)) print t}'
 ```
 
 That is the question a deadline arm asks — an outstanding theorem with
 no child in flight has nothing to be overdue — and the one a re-spawn
 asks before adding to its spawn count.
 
-`stopped` subtracts from neither set. It records that the reviewer cut
-a child off, which leaves the theorem outstanding and re-spawnable; the
-`enter` record, not this one, is what names that child's worktree for
-cleanup. A derivation that subtracted it would report a theorem stopped at a
-deadline and re-spawned in a resume pass as finished while its fresh
-child was still working, because a resume appends no new `spawn`
-record.
+`stopped` kills the **child**, not the **theorem**, so it subtracts
+from in-flight but not from outstanding. That child is gone, and a
+derivation that left it in flight would report the theorem overdue on
+every later resume and take the deadline arm against a child already
+written off — reachable whenever a stopped child is never re-spawned,
+which is what the resume-pass loop's no-progress exit, its hard stop,
+and an exhausted spawn budget each leave behind. The theorem itself
+stays outstanding and re-spawnable, and a derivation that subtracted it
+from *that* set would report a theorem stopped at a deadline and
+re-spawned in a resume pass as finished while its fresh child was still
+working, because a resume appends no new `spawn` record. The `enter`
+record, not this one, is what names the stopped child's worktree for
+cleanup.
 
 A stored `outstanding:` list would be a line that must be revised to
 stay true; a derived set cannot go stale.

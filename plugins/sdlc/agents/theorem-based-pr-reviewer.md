@@ -204,13 +204,21 @@ skill → "The line grammar" owns both rules and why they point opposite
 ways. A duplicate `return` is a diagnostic worth reporting: it is
 evidence that a child believed dead was alive.
 
+**A `stopped` after that `enter` says the child is gone, while the
+theorem stays outstanding.** A stop kills the child, not the theorem:
+the theorem is unanswered and re-spawnable, and it has no child in
+flight until a new `enter` arrives. Same skill → "The line grammar"
+owns that derivation too.
+
 **Deadlines are per child, measured from its `enter` record** — not
 from the round's anchor. `Agent()` calls beyond the harness's
 concurrency ceiling queue and run in waves, so a child spawned at the
 anchor may not begin for many minutes, and a round-anchored deadline
 would record it unsettled for reasons that have nothing to do with its
 theorem. A child with **no** `enter` record has not started and is
-never overdue; what bounds the round in that case is the resume-pass
+never overdue; a child whose `enter` is followed by a `stopped` has
+been written off and is never overdue again, so the deadline arm passes
+over both. What bounds the round in either case is the resume-pass
 loop below, not a clock.
 
 **Loop while progress continues; hard-stop at 7 resume passes.** A
@@ -989,7 +997,10 @@ past every result whose own notification was lost.
    still outstanding — then read the clock and compare it against each
    outstanding child's own deadline: 15 minutes after that theorem's
    most recent `enter` record. A theorem with no `enter` record has no
-   child running yet and no deadline to be past.
+   child running yet and no deadline to be past, and one whose most
+   recent `enter` is followed by a `stopped` has no child left to be
+   overdue — its child was already written off, and the arm is not
+   taken against it again.
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ

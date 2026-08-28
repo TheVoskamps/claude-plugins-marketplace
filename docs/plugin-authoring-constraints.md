@@ -359,6 +359,16 @@ nor the queue depth is exposed to an agent, so starvation is observable
 only as absence of progress. Give the state file a start record per
 child; a child that has none has not begun and is never overdue.
 
+**A written-off child stops being overdue too.** The record the deadline
+arm writes when it gives up on a child ends that child, not the work it
+was doing: the work stays unfinished and re-spawnable, but nothing is
+running it. A derivation that still counted that child as in flight
+would re-take the deadline arm against it on every later resume, which
+is reachable the moment a written-off child is never re-spawned — the
+end of the retry loop below, whichever bound it hits. So key "is
+something running this?" on the child, and let the write-off record
+subtract from it while leaving the work outstanding.
+
 None of that survives in context alone, so it goes in a state
 file — which is also where the per-child spawn and return log belongs,
 since "which children reported" is the other fact a resume cannot
