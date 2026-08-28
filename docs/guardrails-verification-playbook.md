@@ -63,7 +63,7 @@ no-repo-context residual, not the `ask` a stale note may expect, so
 such a note reads as a probe failure rather than the setup mistake
 it is.
 
-Two probe-cwd traps fake a whole result table:
+These probe-cwd traps each fake a whole result table:
 
 - A cwd that does not **exist** resolves no repo context, so every row
   — including the control — comes back `defer` and the table looks
@@ -94,18 +94,39 @@ probe. Read the reason string, not just the bucket: both are denies. Use
 
 The read tracks have different terminals for the same containment
 verdict: the read-only-utility track *allows* any operand that is
-contained or carved out, while the pager/dumper track (`less`, `more`,
-`od`, `xxd`) *defers*. A probe whose track already produces the bucket
-you expect proves nothing about the carve-out under review. Read the
-program's classifier arm first, then pick a probe whose verdict can
-actually change.
+contained or lands in a carve-out the bash engine honors, while the
+pager/dumper track (`less`, `more`, `od`, `xxd`) *defers*. A probe whose
+track already produces the bucket you expect proves nothing about the
+carve-out under review. Read the program's classifier arm first, then
+pick a probe whose verdict can actually change. Check first whether the
+carve-out reaches the bash engine at all: a file-tool-only one moves no
+bash verdict in either direction, so every bash probe of it is vacuous.
 
-Two related facts older notes get backwards: `ls` **is** on the
+Related facts older notes get backwards: `ls` **is** on the
 read-only-utility allow track, so it grades a path rather than
 deferring on every one; and a redirect target **is** graded —
 destinations land in `sc.redirectTargets` and are decided by
 `redirectVetoesAllow`. Neither `ls <path>` nor `cmd > <path>` is a
 vacuous probe.
+
+### A `$HOME`-rooted rule is settled by `go test`, not by a replay
+
+The `~/.config` carve-out and the `~/.claude` one are rooted at the real
+home directory, and a worktree-isolated agent can build no fixture for
+either: the gate refuses a command that sets `HOME`, and refuses a
+`mkdir` of a fake `~/.config` outside the repo root — and a fake home
+under the harness scratchpad only moves the baseline, since a path there
+defers on the scratchpad carve-out rather than earning the deny the rule
+under test is meant to overturn. So a synthetic
+replay can exercise these rules only against whatever the driving
+machine's own home directory holds.
+
+Settle them in the package tests instead, where `t.Setenv("HOME", …)`
+over a `t.TempDir()` builds the fixture the replay cannot
+(`xdg_config_carveout_test.go` is the worked example). Replay still
+earns its place as the negative control: the unconfigured machine you
+are running on denies the very reads the carve-out is for, and that
+verdict is real evidence.
 
 ## Prove which source a committed binary came from
 
@@ -165,7 +186,7 @@ the latest commit.
 
 ## Adjudicate a "comments only, no behavior change" round
 
-Two commands, and they are decisive rather than suggestive:
+These commands are decisive rather than suggestive:
 
 1. Non-comment lines changed must be zero:
 
@@ -396,7 +417,7 @@ bundled row in both field orders. The check walks the document's
 fields, so a probe that always puts the redirectable verb first cannot
 tell a whole-document rule from a first-match one.
 
-Two traps in running the query itself:
+Traps in running the query itself:
 
 - **`__Type.inputFields` may be used at most twice per document.** A
   third alias fails the whole query with
@@ -505,7 +526,7 @@ So grade the derivation, not the total: a PR that states a width and
 its composition is reproducible, and one that states a bare count is
 not.
 
-Three more replays are cheap once the rig exists:
+More replays are cheap once the rig exists:
 
 - **Last-reviewed tip to current tip**, bounding what the rounds since
   the last review changed. Anything moving beyond the directed change
@@ -824,13 +845,20 @@ format error. Cross-check both directions.
 The gate has two bash read tracks with different terminals for the same
 containment verdict: the curated read-only utilities (`cat`, `head`,
 `grep`) terminate in **allow** for any operand that is contained or
-lands in any carve-out, while the path-reader track (`less`, `more`,
-`od`) terminates in **defer**.
+lands in a carve-out the bash engine honors, while the path-reader track
+(`less`, `more`, `od`) terminates in **defer**.
 
 So an assertion that `cat <new-carve-out-path>` allows passes
-identically before and after the carve-out exists. Probe a new read
+identically before and after such a carve-out exists. Probe a new read
 carve-out with a path-reader utility or the file-read tool, or the
 negate-check leaves every `cat` assertion green while proving nothing.
+
+A carve-out scoped to the **file-tool track alone** — the
+operator-configured `~/.config` listing is one — inverts the trap
+without escaping it: `cat` of a listed path **denies** before and after,
+because the bash engine never consults the listing. There the file-read
+tool is the only probe that moves, and a bash row belongs in the table
+only as the control that pins the asymmetry.
 
 ## Measure which AST node a construct hangs off
 
@@ -938,7 +966,7 @@ URL, and containment can never catch that, because containment bounds
 which file, and a contained file is exactly where "the bytes stay on
 the machine" fails.
 
-Two follow-ons. A screen that decided a branch you are making
+Follow-ons. A screen that decided a branch you are making
 unconditional is **dead, not repurposable** — a walk that reported a
 flag being *named* cannot describe the value it carried, so reusing it
 to sharpen the message produces a false sentence. And negative-control

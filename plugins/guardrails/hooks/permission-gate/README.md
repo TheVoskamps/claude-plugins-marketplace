@@ -1607,9 +1607,16 @@ The gate's engines feed that decision:
   **`allow`, not `defer`.** A defer only removes the gate's veto and
   hands the call to the ordinary permission rules, which nothing here
   establishes would permit it — the same broken outcome by a different
-  route. The `.git/`-tree deny still outranks the carve-out: it is
-  checked first in the operand walk and a listed path under a `.git/`
-  segment still denies. And the ALLOW terminal requires **every** target
+  route. The `.git/`-tree deny outranks the carve-out on the **write**
+  side: that check sits at the top of the operand walk and is gated on a
+  mutating tool, so a `Write`/`Edit` of a listed path under a `.git/`
+  segment still denies. A **read** of one is **allowed** — the read-side
+  `.git/` deny lives in the worktree-escape arm the carve-out's
+  `continue` skips, and an out-of-repo `.git/` read otherwise earns the
+  ordinary cross-repo deny — so a glob wide enough to cover a `.git/`
+  segment hands out that tree's contents to a reader. List the plugin
+  directories the convention actually puts a config in, not `**`. And
+  the ALLOW terminal requires **every** target
   of the call to ride a carve-out, so a call mixing a listed path with
   an ordinary in-repo one falls back to the ordinary defer.
 

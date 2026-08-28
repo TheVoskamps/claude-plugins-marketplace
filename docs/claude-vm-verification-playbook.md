@@ -22,7 +22,7 @@ vfkit --bootloader "linux,kernel=/nonexistent/vmlinuz,initrd=/nonexistent/initrd
       --device "virtio-fs,sharedDir=/tmp/nx,mountTag=probe,readOnly=true" 2>&1 | tail -1
 ```
 
-Three traps:
+Traps:
 
 - **`--bootloader` is validated before `--device`.** Without one, every
   probe dies on `empty option list in --bootloader command line
@@ -551,7 +551,13 @@ over merged documents; the bake files' own schema has `packages:` as a
 flat list, with no `.packages.bake` normalization on that path.
 
 **Getting a real linux-arm64 claude binary.** The host's cache under
-`~/.config/claude-vm/` is unreadable from a worktree-isolated agent.
+`~/.config/claude-vm/` is unreadable from a worktree-isolated agent
+unless this machine's operator listed `claude-vm/**` in the permission
+gate's `~/.config` carve-out (see
+[`docs/config-file-conventions.md`](config-file-conventions.md) →
+"The permission gate reads `$HOME/.config` literally"); the gate ships
+no default entries, so assume it is unreadable until a `Read` says
+otherwise.
 Fetch one into repo scratch through the product's own verified path
 instead, setting `CLAUDE_VM_CACHE_DIR` under `.claude/tmp/<slug>/` and
 sourcing `lib/claude-cache.sh` to call `claude_cache_ensure`. The

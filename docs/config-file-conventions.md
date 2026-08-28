@@ -34,14 +34,17 @@ environment variable would let whatever set that variable relocate it.
 So on a machine that relocates `$XDG_CONFIG_HOME`, the config a plugin
 writes is still at the path this document prescribes, and is still
 correct — but it is unreachable from a tool-mediated read or write,
-because no carve-out covers it. A `bash` reader outside the tool
-sandbox (claude-vm's, say) is unaffected. See
+because no carve-out covers it. A reader that is not a tool call at all
+— a script running inside a claude-vm guest, say — is unaffected. The
+**Bash tool** is not one of those: the carve-out reaches the file-tool
+track only, so a skill that reads its own config with `cat` or `grep` is
+denied on every machine, carve-out or not, and must use `Read`. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema and scope limits.
 
 ## The format is YAML, or Markdown when a human must read prose too
 
-Two formats are in use, and neither is JSON:
+The formats in use, and none of them is JSON:
 
 - **YAML** (`*.yml`) — the default. `~/.config/claude-vm/config-*.yml`
   and `~/.config/auto-mode-tools/facts.yml` are this shape. It is what

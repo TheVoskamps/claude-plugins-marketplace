@@ -65,10 +65,15 @@ func classifyFileTool(ev *Event) Decision {
 	//
 	// The ~/.config carve-out is consulted per target and outranks the
 	// containment verdict for that target, because a listed path is allowed
-	// wherever it lands. It does NOT outrank the `.git/`-tree deny above, which
-	// is checked first and stays absolute. sawXDG and sawScratch record which
-	// carve-outs the ALLOW terminal actually rode, so its reason names those and
-	// no others.
+	// wherever it lands. It does not outrank the `.git/`-tree deny above on the
+	// WRITE side: that check runs first in the walk and is gated on a mutating
+	// tool, so an Edit of a listed path under a `.git/` segment still denies. A
+	// READ of one reaches no `.git/` rule at all — the read-side `.git/` deny
+	// sits in the escapeWorktree arm below, which the carve-out's continue
+	// skips, and an out-of-repo `.git/` read otherwise earns the ordinary
+	// cross-repo deny. A glob wide enough to cover a `.git/` segment therefore
+	// hands out its contents. sawXDG and sawScratch record which carve-outs the
+	// ALLOW terminal actually rode, so its reason names those and no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
 	carve := loadXDGConfigCarveOut()
 	sawXDG := false
@@ -163,7 +168,7 @@ func classifyFileTool(ev *Event) Decision {
 		case harnessScratchBundled:
 			// The harness's bundled-skills tree. A READ is eligible for
 			// the ALLOW terminal (scratchAllowEligible said so above); a WRITE
-			// already cleared allScratch, so it lands on the ordinary DEFER —
+			// already cleared allCarved, so it lands on the ordinary DEFER —
 			// the content is harness-installed and rewriting it is not this
 			// gate's to bless, but neither is it an escape to deny.
 		case claudeConfig, harnessScratch:
