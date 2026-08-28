@@ -342,11 +342,24 @@ tells the agent how long it has been waiting. A stated figure with no
 recorded anchor therefore leaves the agent guessing, and both guesses
 are failures: "not yet" ends the turn indefinitely, and "yes" takes
 the deadline arm over children that may still be running. So the
-procedure must instruct the spawner to (a) run a clock command at the
-spawn point and record the reading, (b) compute and record the
-deadline instant from it, and (c) read the clock again and compare
-explicitly on **every** resume, before deciding whether to end the
-turn. None of that survives in context alone, so it goes in a state
+procedure must instruct (a) each child to record the instant it
+**started**, as its first act, (b) the spawner to measure that child's
+deadline from that child's own record, and (c) the spawner to read the
+clock again and compare explicitly on **every** resume, before
+deciding whether to end the turn.
+
+**Measure from the child's start, not from the spawn.** `Agent()` calls
+beyond the harness's concurrency ceiling queue and run in waves, so a
+child spawned at the round's anchor may not begin for many minutes. A
+deadline anchored on the spawn therefore cuts a queued child off for
+time it never had, and no runtime introspection distinguishes the two
+cases: the ceiling is readable from
+`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, but neither the slots in use
+nor the queue depth is exposed to an agent, so starvation is observable
+only as absence of progress. Give the state file a start record per
+child; a child that has none has not begun and is never overdue.
+
+None of that survives in context alone, so it goes in a state
 file — which is also where the per-child spawn and return log belongs,
 since "which children reported" is the other fact a resume cannot
 remember. That log is what makes a **received** verdict
@@ -376,10 +389,10 @@ children uncrossed-off beside a return log that contradicted the
 stored set, and waited out its budget on work that had already
 reported (issue #351).
 
-`theorem-based-pr-reviewer` carries both — the anchors at each of its
+`theorem-based-pr-reviewer` carries both — the anchor at each of its
 two spawn points, and one state file per fan-out under the session
-scratchpad, written by the disprovers and verifiers themselves
-(issue #344). A
+scratchpad, whose start and result records the disprovers and
+verifiers write themselves (issue #344). A
 procedure that fans out twice needs a deadline on **each** fan-out: an
 unbounded second stage parks the round exactly as an unbounded first
 one would, and it is the easier one to leave unbounded, because it
@@ -391,6 +404,40 @@ get. Never reach for `TaskStop` to make a slow round finish sooner:
 stopping a child that would have reported drops a result the report
 then claims to have counted. The stop needs the tool in the spawner's
 own `tools:` frontmatter, which the fanned-out agents do not carry.
+
+**The state file also makes the spawner resumable, and the procedure
+has to say resume rather than restart.** A spawner killed mid-round
+returns nothing, so its caller's only remedy is to spawn it again over
+the same work — which means a fresh instance routinely arrives at a
+round an earlier one partly settled. Have it detect that from the file
+rather than from a parameter: a flag is a second source of truth, and
+where the two disagree the file wins anyway. It then keeps every child
+the file records as settled and re-spawns only the rest. Two bounds
+keep the retry loop from running away — take another pass only while
+the last one settled something new, with a hard cap on passes whatever
+happens, and count the children spawned across all passes against
+`CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`, which is a **session** cap, so
+exhausting it kills the session rather than the round.
+
+**A resumed round must check that the tree its records describe still
+exists.** Records made against one commit answer nothing about another,
+and a scheduled sweep force-rebases open PR branches mid-round
+(`CLAUDE.md` → "The rebase automation can move a PR branch
+mid-session"). So write the commit into the state file's anchor and
+compare it before trusting a single record. Where the two differ the
+round is void: set the stale file aside under a new name rather than
+deleting it — it is the only evidence of what the voided round did —
+and let the create call write a fresh header in its place, which is
+what stops the next instance voiding the same round again.
+
+**A predecessor's children may be cleaned up but never stopped.**
+`.claude/worktrees/` is shared with every other session running against
+the repo, so `TaskStop` on an id the instance did not spawn reaches
+into work that is not its own, while removing the worktrees the
+round's own state file names is scoped by the file and safe. Expect a
+child written off as lost to report anyway, leaving one theorem with
+two result records: the reader takes the first and keeps the duplicate
+as a diagnostic, which is what lets no line ever be revised.
 
 ### Handing data between agents: a session-scoped inbox
 

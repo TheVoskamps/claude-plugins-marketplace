@@ -1546,8 +1546,9 @@ on the reviewer's severity line and the fixer's report. Fill them per
   fan-outs spawned, at whatever generator tier; the `doc-updater` pass
   that precedes each one is not a review and never counts against the
   cap. A spawn that returned without a verdict block posted nothing
-  and does not count either — an in-progress status or a broken header
-  call alike (see "Handling review findings — the fix loop"):
+  and does not count either — an in-progress status or a broken
+  `sdlc-agent-result-persist` call alike (see "Handling review
+  findings — the fix loop"):
   charging the budget for a spawn that checked nothing spends the
   loop's headroom on it.
 

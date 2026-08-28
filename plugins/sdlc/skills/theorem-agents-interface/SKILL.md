@@ -53,8 +53,8 @@ them as well.
   there is nothing to fetch.
 - `--fetched yes` — optional. The reviewer fetched `origin` in its own
   session immediately before spawning the agent, so the shared ref
-  store is already current. The agent's own step 1 decides from this
-  and `--head-sha` whether to fetch at all.
+  store is already current. The agent's own checkout step decides from
+  this and `--head-sha` whether to fetch at all.
 - `--theorem T<k>` — the theorem's handle, from the generator's
   record. Reports are filed under it.
 - `--claim <text>` — the generator's claim, verbatim from its record:
