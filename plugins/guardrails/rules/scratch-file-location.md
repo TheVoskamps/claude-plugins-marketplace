@@ -150,8 +150,9 @@ work.
 
 ## Why this location
 
-`<repo-root>/.claude/tmp/` is **already gitignored** (see the repo's
-`.gitignore`), so it is an untracked, in-repo location:
+`/**/tmp/` is **already gitignored repo-wide** (see the repo's
+`.gitignore`), so `<repo-root>/.claude/tmp/` is an untracked, in-repo
+location:
 
 - **In-repo** → the permission-gate's containment check treats it as
   `contained`, so the write is allowed (it defers to the normal
@@ -172,9 +173,8 @@ work.
   failed run leaves its sandbox where it can be examined, rather than
   in a system temp dir outside the boundary.
 
-No new `.gitignore` line is required: the `/.claude/*` block ignores
-everything under `.claude/` that is not explicitly un-ignored, and
-`.claude/tmp/` is not. Verify with:
+No new `.gitignore` line is required; the `/**/tmp/` rule already
+covers `.claude/tmp/` at any depth. Verify with:
 
 ```sh
 git check-ignore -v .claude/tmp/x
