@@ -1315,9 +1315,9 @@ The gate's engines feed that decision:
 
   The **bundled-skills shape** covers the harness-managed, non-session
   sibling living under the same prefix,
-  `bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...`. It is
-  the one carve-out whose verdict is **read/write-graded**: a read is
-  `allow` (reading a bundled skill is what the tree is for), a write is
+  `bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...`. Its
+  verdict is **read/write-graded**: a read is `allow` (reading a bundled
+  skill is what the tree is for), a write is
   `defer` (the content is harness-installed, so the gate has no
   positive grounds to bless a rewrite — but neither is it an escape to
   deny; the classifier decides). The grading uses the read/write
@@ -1380,9 +1380,10 @@ The gate's engines feed that decision:
   mismatch surfaces on its own. A symlink pointing *within* the region
   is cross-session handoff working as intended, and is allowed.
 
-  **Reaching the carve-out from bash.** A carve-out the bash track
-  cannot reach is not a carve-out, and gates sat in front of this one
-  until a later round. The first was the read-only-utility
+  **Reaching the carve-out from bash.** A carve-out whose point is to
+  be a *destination* the model writes to is worthless if the bash track
+  cannot reach it, and gates sat in front of this one until a later
+  round. The first was the read-only-utility
   table's missing `ls`, described above. The second was the redirect
   veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
   set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
@@ -1614,25 +1615,26 @@ The gate's engines feed that decision:
   under a `.git/` segment denies at the top of the operand walk, before
   the listing is consulted. A `Read` of one denies inside the carve-out
   arm itself, which is the only place such a read could otherwise reach
-  an ALLOW — an unlisted `.git/` read is already denied by containment,
-  so the check is stated where the listing overrides it rather than
-  hoisted to the top of the walk, where it would also change the verdict
-  for paths the listing never mentions. Either way a glob wide enough to
-  cover a `.git/` segment hands out nothing. List the plugin
-  directories the convention actually puts a config in, not `**`, all
-  the same — a wide glob still opens whatever else lives under
-  `~/.config`. And
-  the ALLOW terminal requires **every** target
-  of the call to ride a carve-out, so a call mixing a listed path with
-  an ordinary in-repo one falls back to the ordinary defer.
+  an ALLOW — an unlisted `.git/` read under `~/.config` is already
+  denied by containment, so the check is stated where the listing
+  overrides it rather than hoisted to the top of the walk, where it
+  would flip an **in-repo** `.git/` read from the defer it earns today
+  to a deny. Either way a glob wide enough to cover a `.git/` segment
+  hands out nothing. List the plugin directories the convention actually
+  puts a config in, not `**`, all the same — a wide glob still opens
+  whatever else lives under `~/.config`. And the ALLOW terminal requires
+  **every** target of the call to ride a carve-out, so a call mixing a
+  listed path with an ordinary in-repo one falls back to the ordinary
+  defer.
 
   **Scope: the file-tool track only** (`Read`, `Write`, `Edit`,
   `MultiEdit`, `NotebookEdit`). The bash engine is untouched, so a `cat`
   of a listed config path is **still denied**. That is a deliberate gap,
-  not an oversight: the bash engine denies plain outside-repo paths the
-  `Read` classifier defers on (`jq ~/.zshrc` is blocked, and `~/.zshrc`
-  is not under the symlink at all), which is a separate asymmetry and,
-  if it is a fault, a separate issue. The config file is hand-written —
+  not an oversight: an outside-repo path denies on both tracks alike
+  (`Read /Users/<u>/.zshrc` and `jq /Users/<u>/.zshrc` both deny today),
+  so the listing is what makes the two disagree, and only for a path an
+  operator listed. Widening it to the bash engine is a separate change
+  with its own blast radius. The config file is hand-written —
   no `/guardrails:*` skill creates or merge-updates it, and this section
   is the only documentation of its schema. The fix does not make the
   gate symlink-aware in general: a symlink from inside the repo out to a

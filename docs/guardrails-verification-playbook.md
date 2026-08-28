@@ -113,13 +113,16 @@ vacuous probe.
 
 The `~/.config` carve-out and the `~/.claude` one are rooted at the real
 home directory, and a worktree-isolated agent can build no fixture for
-either: the gate refuses a command that sets `HOME`, and refuses a
-`mkdir` of a fake `~/.config` outside the repo root — and a fake home
-under the harness scratchpad only moves the baseline, since a path there
-defers on the scratchpad carve-out rather than earning the deny the rule
-under test is meant to overturn. So a synthetic
-replay can exercise these rules only against whatever the driving
-machine's own home directory holds.
+either. Pointing the gate at a fake home is not the obstacle: a
+`HOME=<dir>` prefix on the replay command is allowed, and the binary
+resolves the root from its own process environment. The obstacle is that
+every directory such an agent may create is one the gate already
+blesses — under the repo root a path is contained, under the harness
+scratchpad it is carved out — so a listed path inside the fake home
+never earns the deny the rule under test is meant to overturn, and the
+probe has no baseline. A synthetic replay can therefore exercise these
+rules only against whatever the driving machine's own home directory
+holds.
 
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
@@ -496,7 +499,7 @@ the compiled maps.
 **Dump the cross from the package itself.** `git archive HEAD` the
 package into `.claude/tmp/`, drop in a `zz_dump_test.go` that unions
 the nouns and verbs out of every table the classifier dispatches on,
-and write `<tool> <noun> <verb>` lines to `$CROSS_OUT`. Two things make
+and write `<tool> <noun> <verb>` lines to `$CROSS_OUT`. What makes
 it honest: function-local literals have to be restated, so assert every
 restated member back through the real predicate in the same test, plus
 a non-member, or you are grading your own transcription; and report the
@@ -913,10 +916,9 @@ Build one row list covering the fix, its mirror and unrelated controls,
 and replay it through both the base and rebuilt binaries in one table.
 Keep a known-contained read in it: if the probe's working directory
 loses repository context every row reads the residual bucket and the
-table is meaningless. Two traps produce exactly that — a working
-directory that does not exist, and relative levels counted by feel that
-resolve back inside the primary clone (a worktree-escape deny, not the
-cross-repo one).
+table is meaningless. That happens when the working directory does not
+exist, and when relative levels counted by feel resolve back inside the
+primary clone (a worktree-escape deny, not the cross-repo one).
 
 ## A teaching verdict is graded per document, not per element
 

@@ -44,7 +44,7 @@ for the carve-out's schema and scope limits.
 
 ## The format is YAML, or Markdown when a human must read prose too
 
-The formats in use, and none of them is JSON:
+The formats in use, none of them JSON:
 
 - **YAML** (`*.yml`) — the default. `~/.config/claude-vm/config-*.yml`
   and `~/.config/auto-mode-tools/facts.yml` are this shape. It is what

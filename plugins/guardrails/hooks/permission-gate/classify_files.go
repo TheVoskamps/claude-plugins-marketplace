@@ -22,16 +22,16 @@ import (
 // in-worktree path defers (the normal pipeline / settings.json denyRead etc.
 // still apply).
 //
-// Two carve-outs reach an outright ALLOW here, and both require EVERY target of
+// The carve-outs reaching an outright ALLOW here each require EVERY target of
 // the call to ride one: the harness scratchpad (a session-shaped scratchpad
 // directory for any tool; the bundled-skills tree for a READ — see
 // scratchAllowEligible), and the operator-configured ~/.config listing (see
-// xdg_config_carveout.go). Both allow rather than defer because a defer would
+// xdg_config_carveout.go). They allow rather than defer because a defer would
 // still lose to a `/tmp` or `~/.config` deny entry in settings.json, and a
 // PreToolUse deny is what the ~/.config case is repairing in the first place. A
 // call that mixes such a target with any other kind falls back to the ordinary
 // defer, so the allow never rides along with a path the gate has not blessed on
-// its own terms. Neither carve-out opens the `.git/` tree: a write there denies
+// its own terms. No carve-out opens the `.git/` tree: a write there denies
 // at the top of the walk, and a listed path under a `.git/` segment denies
 // inside the carve-out arm itself rather than riding its ALLOW.
 func classifyFileTool(ev *Event) Decision {
@@ -114,9 +114,9 @@ func classifyFileTool(ev *Event) Decision {
 			// One exception, and it is the only place the listing is overridden:
 			// a `.git/` segment. The listing is the sole way a path under one
 			// could reach an ALLOW — a write already denied at the top of the
-			// walk, and an unlisted read denies on containment — so the deny is
-			// re-stated here rather than widened to every target, which would
-			// move verdicts this carve-out has no business moving.
+			// walk, and an unlisted read under ~/.config denies on containment —
+			// so the deny is re-stated here rather than widened to every target,
+			// which would flip an in-repo `.git/` read from its defer to a deny.
 			if isUnderGitDir(canonicalize(p), rc) {
 				return gitTreeReadDeny(ev.ToolName, p)
 			}
