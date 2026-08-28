@@ -12,9 +12,6 @@
 .DS_Store
 __MACOSX/
 
-# Git repo metadata
-.git/
-
 # macOS system files
 .AppleDouble
 .LSOverride
