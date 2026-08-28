@@ -17,9 +17,8 @@ import (
 // depends on, while a read returns the primary clone's working file, which can
 // differ from this worktree's — plausible content from the wrong tree, with no
 // error to signal it. A target under `.git/` denies on its own grounds, ahead
-// of both, for reads as well as writes and wherever it lands. Cross-repo
-// escapes (a genuine sibling repo) are still denied for both reads and writes.
-// Apart from the `.git/` tree, the hook only DENIES on a proven escape; an
+// of both. Cross-repo escapes (a genuine sibling repo) are still denied for
+// both reads and writes. The hook only DENIES on a proven escape; an
 // in-worktree path defers (the normal pipeline / settings.json denyRead etc.
 // still apply).
 //
@@ -32,8 +31,9 @@ import (
 // PreToolUse deny is what the ~/.config case is repairing in the first place. A
 // call that mixes such a target with any other kind falls back to the ordinary
 // defer, so the allow never rides along with a path the gate has not blessed on
-// its own terms. Neither carve-out reaches a target under `.git/`: that deny is
-// tested first, so no listed glob and no scratchpad region opens that tree.
+// its own terms. Neither carve-out opens the `.git/` tree: a write there denies
+// at the top of the walk, and a listed path under a `.git/` segment denies
+// inside the carve-out arm itself rather than riding its ALLOW.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -61,18 +61,18 @@ func classifyFileTool(ev *Event) Decision {
 	// ALLOW carve-outs — the sole ground for an outright ALLOW here. Eligibility
 	// is read/write-graded for the bundled-skills tree and for the ~/.config
 	// listing, so the call's class is computed once here from
-	// isMutatingFileTool, the same predicate the .git/-tree rule below uses to
-	// pick its reason. badRoot records a scratchpad-root DEFER without
-	// short-circuiting the walk, so a genuine escape later in the same call
-	// still outranks it.
+	// isMutatingFileTool, the same predicate the .git/-tree rule below already
+	// uses. badRoot records a scratchpad-root DEFER without short-circuiting the
+	// walk, so a genuine escape later in the same call still outranks it.
 	//
 	// The ~/.config carve-out is consulted per target and outranks the
 	// containment verdict for that target, because a listed path is allowed
-	// wherever it lands. It never outranks the `.git/`-tree deny: that check
-	// runs first in the walk, ungated by tool class, so a glob wide enough to
-	// cover a `.git/` segment still hands out nothing. sawXDG and sawScratch
-	// record which carve-outs the ALLOW terminal actually rode, so its reason
-	// names those and no others.
+	// wherever it lands. It never outranks a `.git/` segment: a WRITE to one
+	// denies at the top of the walk before the listing is consulted, and a READ
+	// of one denies inside the carve-out arm, so a glob wide enough to cover a
+	// `.git/` segment hands out nothing. sawXDG and sawScratch record which
+	// carve-outs the ALLOW terminal actually rode, so its reason names those and
+	// no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
 	carve := loadXDGConfigCarveOut()
 	sawXDG := false
@@ -81,28 +81,16 @@ func classifyFileTool(ev *Event) Decision {
 	var badRoot Decision
 	haveBadRoot := false
 	for _, p := range paths {
-		// Any file tool whose canonicalized target is anywhere under a `.git/`
-		// directory denies, on both halves of the tree's own grounds: a write can
-		// rewrite committer identity (`.git/config`), inject commit/push hooks
-		// (`.git/hooks/pre-commit`), or corrupt repo state, and a read discloses
-		// that same identity and executable content. Git's own commands own that
-		// tree, so neither half has a legitimate caller.
-		//
-		// The deny is independent of containment and of every carve-out below,
-		// which is what makes it hold wherever the path lands: an in-worktree
-		// `.git/` target would otherwise be `contained` and defer, and an operator
-		// glob covering a `.git/` segment under ~/.config would otherwise ride the
-		// carve-out's ALLOW. Only the reason differs by tool class — the write
-		// message prescribes a scratch destination, which a read has no use for.
-		if isUnderGitDir(canonicalize(p), rc) {
-			if readClass {
-				return deny("read:.git tree", fmt.Sprintf(
-					"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
-						"hooks, etc.) are gated for their own reasons: they disclose identity and executable "+
-						"content, which no shared-content argument covers. Do not work around this by reading "+
-						"or writing under .git/.",
-					ev.ToolName, p))
-			}
+		// Write half, broadened to the whole tree: a file-mutating tool whose
+		// canonicalized target is anywhere under a `.git/` directory is a direct
+		// write to the git internals tree. This is denied independently of
+		// containment — an in-worktree `.git/` write would otherwise be
+		// `contained` and defer. There is no legitimate reason for an agent to
+		// hand-edit `.git/`: git's own commands own that tree, and a direct write
+		// can rewrite committer identity (`.git/config`), inject commit/push
+		// hooks (`.git/hooks/pre-commit`), or corrupt repo state. Reads of `.git/`
+		// files are not mutations, so this is gated on a mutating tool.
+		if isMutatingFileTool(ev.ToolName) && isUnderGitDir(canonicalize(p), rc) {
 			return deny("write:.git tree", fmt.Sprintf(
 				"Blocked: %s target '%s' is inside a .git/ directory. Directly editing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
@@ -122,6 +110,16 @@ func classifyFileTool(ev *Event) Decision {
 			// allowed wherever it lands, which is why this is not conditioned on
 			// the containment result: the whole point is that the gate does not
 			// look at where the path resolves to.
+			//
+			// One exception, and it is the only place the listing is overridden:
+			// a `.git/` segment. The listing is the sole way a path under one
+			// could reach an ALLOW — a write already denied at the top of the
+			// walk, and an unlisted read denies on containment — so the deny is
+			// re-stated here rather than widened to every target, which would
+			// move verdicts this carve-out has no business moving.
+			if isUnderGitDir(canonicalize(p), rc) {
+				return gitTreeReadDeny(ev.ToolName, p)
+			}
 			sawXDG = true
 			continue
 		}
@@ -133,8 +131,15 @@ func classifyFileTool(ev *Event) Decision {
 		switch res {
 		case escapeWorktree:
 			if readClass {
-				// A `.git/` target never reaches here: the top of the walk denies
-				// it for every tool class, ahead of containment.
+				// The .git/-tree read deny is checked first and independently of
+				// the working-file deny below: the isUnderGitDir check at the top
+				// of the loop is gated to mutating tools, so the read case is
+				// re-checked here. Its message names the git internals it protects
+				// (config and hooks disclose identity and executable content),
+				// which the working-file deny's staleness reasoning does not cover.
+				if isUnderGitDir(real, rc) {
+					return gitTreeReadDeny(ev.ToolName, p)
+				}
 				return deny("read:worktree-escape", fmt.Sprintf(
 					"Blocked: %s target '%s' resolves to the primary clone / shared git dir (%s), not this worktree (%s). "+
 						"The primary clone's working files can differ from this worktree's, so what comes back is "+
@@ -747,10 +752,22 @@ func carveOutAllowReason(toolName string, readClass bool, sawScratch bool, sawXD
 	}
 }
 
+// gitTreeReadDeny is the read half of the .git/-tree rule. It has two call
+// sites — the worktree-escape arm, where an unlisted read lands, and the
+// ~/.config carve-out arm, where a listed one does — so the message lives here
+// rather than being spelled at each.
+func gitTreeReadDeny(toolName string, p string) Decision {
+	return deny("read:.git tree", fmt.Sprintf(
+		"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
+			"hooks, etc.) are gated for their own reasons: they disclose identity and executable "+
+			"content, which no shared-content argument covers. Do not work around this by reading "+
+			"or writing under .git/.",
+		toolName, p))
+}
+
 // isMutatingFileTool reports whether the tool writes/edits files (as opposed to
-// Read, which only reads). It grades a call's class, not whether a rule fires:
-// the `.git/`-tree deny holds for every file tool and consults this only to
-// pick which reason it carries.
+// Read, which only reads). The .git/config write rule applies only to
+// mutating tools — reading .git/config is not an identity write.
 func isMutatingFileTool(name string) bool {
 	switch name {
 	case "Write", "Edit", "MultiEdit", "NotebookEdit":

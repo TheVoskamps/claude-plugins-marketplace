@@ -220,11 +220,12 @@ func TestXDGConfigCarveOutDoesNotRideAlong(t *testing.T) {
 	}
 }
 
-// A `.git/` segment under a listed path denies for every file tool, so no
-// listing hands out a git internals tree. The glob is deliberately wide enough
-// to match anything under the root, and the sibling non-`.git/` read is the
-// negative control that the deny is the `.git/` rule rather than a missing
-// listing.
+// A `.git/` segment under a listed path denies for read and write alike, so no
+// listing hands out a git internals tree — the write on the top-of-walk rule,
+// the read inside the carve-out arm, which is the only place a listed path
+// could otherwise reach an ALLOW. The glob is deliberately wide enough to match
+// anything under the root, and the sibling non-`.git/` read is the negative
+// control that the deny is the `.git/` rule rather than a missing listing.
 func TestXDGConfigCarveOutDoesNotOpenGitTree(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

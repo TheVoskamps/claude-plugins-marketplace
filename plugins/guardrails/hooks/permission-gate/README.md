@@ -1137,26 +1137,17 @@ The gate's engines feed that decision:
   governs the agent's required startup reads of its own global config;
   the carve-out is canonicalized on both sides so it cannot be
   symlink-escaped, and genuine sibling repos are still denied. (2) a
-  **file tool** (Read/Write/Edit/MultiEdit/NotebookEdit) whose
+  file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
   canonical target is anywhere under a `.git/` directory is denied (the
   Engine B half of the identity-write rule, broadened from
   `.git/config` to the whole `.git/` tree — a hand-edit of
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
   can inject hooks or corrupt repo state just as a `.git/config` write
-  rewrites identity — and broadened again from the mutating tools to
-  every file tool, because a read of that tree discloses the same
-  identity and executable content and git's own commands are what an
-  agent should be reaching for either way). The check sits at the top of
-  the operand walk, ahead of containment and ahead of every carve-out,
-  so an **in-repo** `.git/` target denies where containment alone would
-  call it `contained`, and a `~/.config` path the operator listed denies
-  where the carve-out alone would allow it. The two halves carry
-  different reasons — `write:.git tree` names the identity and hook
-  risk and prescribes a scratch destination, `read:.git tree` names the
-  identity and executable content a read discloses and prescribes
-  nothing beyond the prohibition. The **bash** engine is unchanged and
-  keeps its own gap for an in-repo `.git/` read; see "Gaps left in place
-  deliberately" below. If
+  rewrites identity). An **in-repo** `.git/` read is not a write and is
+  unaffected by this refinement; a `.git/` read that resolves into the
+  primary clone denies on the read branch described in (3) below, and a
+  `.git/` read the operator's `~/.config` listing would otherwise allow
+  denies inside that carve-out's own arm. If
   you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   are **prescriptive**: a write/edit escape names
@@ -1216,11 +1207,9 @@ The gate's engines feed that decision:
   at all; see "Gaps left in place deliberately" below. The
   `.git/`-tree deny is checked BEFORE it and
   carries its own reason, naming the identity and executable content
-  git internals disclose. On the file-tool track that deny is reached
-  from the top of the walk, so it covers an **in-repo** `.git/` read
-  too; on the bash operand walk it is still reached from the
-  primary-clone branch, so the curated read-utility track allows an
-  in-repo one — see "Gaps left in place
+  git internals disclose. That deny is reached from the primary-clone
+  branch, so it does not extend to an **in-repo** `.git/` read, which
+  the curated read-utility track allows; see "Gaps left in place
   deliberately" below. The **write** side is unchanged:
   Write/Edit/MultiEdit/NotebookEdit and the in-repo-write shell
   classifier DENY a target that resolves to the primary clone under
@@ -1529,13 +1518,9 @@ The gate's engines feed that decision:
   its own blast radius — every `Grep` and `Glob` in every session would
   start paying for a gate subprocess. Separately, an
   **in-repo** `.git/` read on the curated read-utility track allows
-  (`cat <repo-root>/.git/config`): on the bash tracks `isUnderGitDir` is
-  consulted on the write path and on the primary-clone read branch, not
-  for an ordinary contained read. The file-tool track no longer carries
-  that gap — `Read <repo-root>/.git/config` denies — so the two tracks
-  disagree on this one shape; closing it in the bash engine is a
-  separate change with its own blast radius across the read-utility
-  table. Both gaps predate the input-redirect grading, and
+  (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
+  write path and on the primary-clone read branch, not for an ordinary
+  contained read. Both gaps predate the input-redirect grading, and
   each holds identically for its operand and redirect spellings —
   `cat < <repo-root>/.git/config` allows exactly as
   `cat <repo-root>/.git/config` does. That is the equivalence rule
@@ -1625,10 +1610,15 @@ The gate's engines feed that decision:
   hands the call to the ordinary permission rules, which nothing here
   establishes would permit it — the same broken outcome by a different
   route. The `.git/`-tree deny outranks the carve-out on **both**
-  sides: that check sits at the top of the operand walk, ungated by tool
-  class, so a `Read` as well as a `Write`/`Edit` of a listed path under
-  a `.git/` segment denies, and a glob wide enough to cover a `.git/`
-  segment hands out nothing. List the plugin
+  sides, by two different routes. A `Write`/`Edit` of a listed path
+  under a `.git/` segment denies at the top of the operand walk, before
+  the listing is consulted. A `Read` of one denies inside the carve-out
+  arm itself, which is the only place such a read could otherwise reach
+  an ALLOW — an unlisted `.git/` read is already denied by containment,
+  so the check is stated where the listing overrides it rather than
+  hoisted to the top of the walk, where it would also change the verdict
+  for paths the listing never mentions. Either way a glob wide enough to
+  cover a `.git/` segment hands out nothing. List the plugin
   directories the convention actually puts a config in, not `**`, all
   the same — a wide glob still opens whatever else lives under
   `~/.config`. And

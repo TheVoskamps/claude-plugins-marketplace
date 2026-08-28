@@ -1905,10 +1905,10 @@ func TestHarnessBundledSkillsShapeMissDefers(t *testing.T) {
 	}
 }
 
-// §10 + the .git/-tree rule, broadened to the whole tree: a direct file-tool
-// call whose target resolves to ANYWHERE under .git/ is denied (the
+// §10 + the .git/-tree write rule, broadened to the whole tree: a direct file-tool
+// Write/Edit whose target resolves to ANYWHERE under .git/ is denied (the
 // Engine B half of the write criterion, generalized to the whole .git/
-// tree, and to reads as well as writes on this track).
+// tree). Reads of .git/ files are not mutations and stay allowed/deferred.
 func TestGitTreeWriteDenied(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -1967,19 +1967,16 @@ func TestGitTreeWriteDenied(t *testing.T) {
 	}
 	wantBucket(t, classifyFileTool(subEv), BucketDeny, "Edit submodule .git/config")
 
-	// A READ of an in-repo .git/config denies too, under the read reason: the
-	// rule is ungated by tool class on this track, so containment never gets to
-	// call the target `contained`.
+	// A READ of .git/config is not an identity write → must not be denied by
+	// the .git/ rule (it is in-repo, so it defers).
 	rev := &Event{
 		ToolName:  "Read",
 		CWD:       canonicalize(repo),
 		AgentType: "issue-developer",
 		ToolInput: []byte(`{"file_path":"` + cfg + `"}`),
 	}
-	rd := classifyFileTool(rev)
-	wantBucket(t, rd, BucketDeny, "Read of an in-repo .git/config")
-	if !containsSubstr(rd.Operation, "read:.git tree") {
-		t.Errorf(".git/config read deny should be the .git-tree rule; got op %q (%s)", rd.Operation, rd.Reason)
+	if rd := classifyFileTool(rev); rd.Bucket == BucketDeny {
+		t.Errorf("Read of .git/config must not DENY as a .git/-tree write; got %q (%s)", rd.Bucket, rd.Reason)
 	}
 
 	// A normal in-worktree Write (no .git/ segment) is unaffected → defers.
