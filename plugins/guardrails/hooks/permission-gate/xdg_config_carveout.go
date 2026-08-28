@@ -230,8 +230,8 @@ func matchAnyConfigGlob(globs []string, rem string) bool {
 
 // matchConfigGlob matches a slash-separated remainder against one glob.
 //
-// The grammar is the familiar one the issue's own example config is written in:
-// `**` matches zero or more whole path segments (`cc-tools/**` covers
+// The grammar is the one the README's carve-out section documents to the
+// operator: `**` matches zero or more whole path segments (`cc-tools/**` covers
 // `cc-tools/` and everything beneath it), and every other segment is matched by
 // path.Match, whose `*` and `?` stop at a separator. Go's standard library has
 // no `**`, and filepath.Match on the whole path would let `*` cross separators,

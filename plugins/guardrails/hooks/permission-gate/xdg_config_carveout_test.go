@@ -64,7 +64,7 @@ func writeXDGCarveOutConfig(t *testing.T, home string, body string) {
 	}
 }
 
-// carveOutConfig is the example configuration from the issue: one read-only
+// carveOutConfig exercises each entry shape the grammar offers: one read-only
 // entry spelled as an exact file, one read-only subtree, and one writable
 // subtree.
 const carveOutConfig = `schema-version: 1
@@ -218,6 +218,34 @@ func TestXDGConfigCarveOutDoesNotRideAlong(t *testing.T) {
 	if d.Bucket == BucketAllow {
 		t.Errorf("a mixed call must not ALLOW; got %q (%s)", d.Bucket, d.Reason)
 	}
+}
+
+// A `.git/` segment under a listed path denies for every file tool, so no
+// listing hands out a git internals tree. The glob is deliberately wide enough
+// to match anything under the root, and the sibling non-`.git/` read is the
+// negative control that the deny is the `.git/` rule rather than a missing
+// listing.
+func TestXDGConfigCarveOutDoesNotOpenGitTree(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := xdgFixture(t, base, "repo")
+	writeXDGCarveOutConfig(t, home, "schema-version: 1\nallow-write:\n  - '**'\n")
+
+	target := filepath.Join(home, ".config", "cc-tools", ".git", "config")
+	for _, tc := range []struct{ tool, op string }{
+		{"Read", "read:.git tree"},
+		{"Write", "write:.git tree"},
+	} {
+		d := fileToolVerdict(t, tc.tool, repo, target)
+		wantBucket(t, d, BucketDeny, tc.tool+" of a listed path under .git/")
+		if !containsSubstr(d.Operation, tc.op) {
+			t.Errorf("%s under .git/ should deny as %q; got op %q (%s)", tc.tool, tc.op, d.Operation, d.Reason)
+		}
+	}
+
+	d := fileToolVerdict(t, "Read", repo, filepath.Join(home, ".config", "cc-tools", "whats-new.md"))
+	wantBucket(t, d, BucketAllow, "read of a listed path with no .git/ segment")
 }
 
 // The glob grammar: `**` spans whole segments, a plain `*` does not cross a
