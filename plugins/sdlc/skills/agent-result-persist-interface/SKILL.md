@@ -76,7 +76,9 @@ path string to mistype, and none to carry across a turn boundary:
   writing nothing: every record already there is a result no
   notification can be asked to redeliver. The reviewer calls `print`
   first and reaches `header` only where that failed, so the refusal is
-  a backstop rather than the resume path.
+  a backstop rather than the resume path — one a child starting in
+  between can still trip, which sends the reviewer back to `print`
+  rather than ending its round.
 
   **One case is not a refusal**: the existing file's `anchor` and the
   incoming header both name a head SHA, and the two differ. The records
@@ -144,15 +146,39 @@ PR branches and can fire mid-round, and verdicts from two trees must
 never be mixed. There is no round-level deadline instant — deadlines
 are per child, measured from that child's own `enter` record.
 
-**The outstanding set is derived, never stored.** It is the `spawn` ids
-minus the `return` and `stopped` ids, which one command answers over
+**The outstanding set is derived, never stored.** A theorem is
+**settled** once it carries any `return` record, and the outstanding
+set is the `spawn` ids minus those, which one command answers over
 `--mode print` output:
 
 ```bash
 awk '$1=="spawn"{s[$2]=1}
-     ($1=="return"||$1=="stopped"){delete s[$2]}
+     $1=="return"{delete s[$2]}
      END{for(t in s) print t}'
 ```
+
+**Whether an outstanding theorem has a child in flight is a second
+question, and it is keyed on the child rather than on the theorem.** A
+theorem is in flight when its **last** `enter` carries an agent id that
+no `return` of that theorem carries:
+
+```bash
+awk '$1=="enter"{child[$2]=$4}
+     $1=="return"{done[$2" "$4]=1}
+     END{for(t in child) if(!((t" "child[t]) in done)) print t}'
+```
+
+That is the question a deadline arm asks — an outstanding theorem with
+no child in flight has nothing to be overdue — and the one a re-spawn
+asks before adding to its spawn count.
+
+`stopped` subtracts from neither set. It records that the reviewer cut
+a child off, which leaves the theorem outstanding and re-spawnable, and
+it is what keeps that child's worktree findable for cleanup. A
+derivation that subtracted it would report a theorem stopped at a
+deadline and re-spawned in a resume pass as finished while its fresh
+child was still working, because a resume appends no new `spawn`
+record.
 
 A stored `outstanding:` list would be a line that must be revised to
 stay true; a derived set cannot go stale.

@@ -107,9 +107,11 @@ the round must complete correctly from the file alone. The preloaded
 `sdlc:agent-result-persist-interface` skill owns that CLI.
 
 Your half of the contract is `--mode print` **before you create
-anything**, one `--mode header` call per fan-out only where that print
-found no file (steps 7 and 8 give it), `--mode print` again on every
-resume before you decide anything, and `--mode stopped` at a child's
+anything**, one `--mode header` call per fan-out — only where that
+print found no file, and always **before that fan-out's spawns**, since
+a child that starts first creates the file itself (steps 7 and 8 give
+it) — `--mode print` again on every resume before you decide anything,
+and `--mode stopped` at a child's
 deadline. You never create this file with `Write`, never reach for
 `Edit` — you declare no `Edit` tool — and never hold its path.
 Reconstructing it from what you remember is what once left returned
@@ -153,7 +155,7 @@ fan-out's `--mode header` call, run `--mode print` for that fan-out:
   Resume it, per the rest of this section.
 - **It fails saying there is no result file** — this is a fresh
   fan-out. Make the `--mode header` call the fan-out's own step gives.
-- **It fails naming a flag** — see "When a call names a flag" below.
+- **It fails naming a flag** — see "When a call fails" below.
 
 No parameter tells you which of those you are in. A flag would be a
 second source of truth that can disagree with the file, and when it
@@ -175,10 +177,10 @@ fire mid-round (see `CLAUDE.md` → "The rebase automation can move a PR
 branch mid-session"). Then make the `--mode header` call for the fresh
 round as though the file had not been there: a head SHA that differs
 from the stale file's `anchor` is the one case the script does not
-refuse — it sets the stale file aside under a `.voided-<instant>` name
-and writes the new header. That is what keeps the void from repeating:
-the next instance to arrive reads an `anchor` carrying the current head
-and resumes normally.
+refuse, and the preloaded `sdlc:agent-result-persist-interface` skill →
+"The modes" owns what it does with the stale file. Making that call is
+what keeps the void from repeating — the next instance to arrive reads
+an `anchor` carrying the current head and resumes normally.
 
 **Keep what is settled, re-run the rest.** A theorem whose id carries a
 `return` record is settled and gets no new child. Every other theorem
@@ -259,10 +261,23 @@ a mechanism:
   agents were dead or merely unreachable is unverified, and treating
   the theorem as re-runnable assumes the former.
 
-### When a call names a flag
+### When a call fails
 
 A refusal and a malformed call both exit non-zero, so read the message
-rather than the status. When the message names a flag, the call you
+rather than the status.
+
+**The message says the file already exists.** Something created it
+between your `--mode print` and this call — a child writes its own
+`enter` record as its first act, so any child already running writes
+the file the moment it starts. The fan-out you were treating as fresh
+has records after all, which is the resume case rather than a failure:
+run `--mode print` again and take the resume branch above on what it
+prints. **Do not report an in-progress status and stop here.** A round
+you can read the records of is a round you can carry, and stopping
+throws away everything an earlier instance settled — the very loss the
+resume exists to prevent.
+
+**The message names a flag.** The call you
 built is malformed, so the script wrote nothing and no fan-out of yours
 is under way — an empty `--scratchpad` is the one to expect. Repair the
 flag and call again; when you cannot, report the failure with the
@@ -324,8 +339,8 @@ reader contract in the `issues` plugin's `skills/lib/repo-config.md`.
 That lib file lives inside the `issues` plugin, and plugins are
 file-sandboxed (a bare `Read` from an `sdlc` file cannot resolve a
 path inside another plugin's directory — see
-`docs/plugin-authoring-constraints.md` → "Plugins are
-file-sandboxed"). `sdlc` no longer bundles its own copy of that lib
+`docs/plugin-authoring-constraints.md` → "A cross-plugin reference
+does not resolve"). `sdlc` no longer bundles its own copy of that lib
 (`plugins/sdlc/skills/lib/repo-config.md` was deleted), so do not
 attempt to `Read` it by any bare or qualified path.
 
@@ -843,7 +858,38 @@ against the `<headRefOid>` above, then subtract every theorem carrying
 a `return` record from the list you are about to spawn. On "no result
 file", this is a fresh fan-out and the whole live list is spawned.
 
-Then spawn one `sdlc:theorem-disprover` per theorem still to run,
+**On a fresh fan-out, create its state file before you spawn
+anything.** That order is not a preference: a child's first act is its
+own `enter` record, which creates the file when it is not there, and
+`--mode header` refuses a file that already exists — so one child that
+starts before your turn ends is enough to make the header call fail on
+a fan-out that really was fresh. The file is also what a resumed
+instance picks the round up from, and one that never got written leaves
+the round with nothing to resume. The anchor is the clock reading here
+and the head SHA is `<headRefOid>`; a child's own deadline comes from
+its `enter` record rather than from anything written here. Run this,
+with your own live list's ids in place of `T1 T4 T9`:
+
+```bash
+ANCHOR=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+HEADER="anchor $ANCHOR <headRefOid>"
+for T in T1 T4 T9; do
+  HEADER="$HEADER
+spawn $T $ANCHOR"
+done
+sdlc-agent-result-persist --mode header \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
+  --header "$HEADER"
+```
+
+On a **resume**, the file already exists and this call is not made at
+all — the print above is what told you so, and `--mode header` would
+refuse the file anyway. The theorems you re-spawned already carry their
+`spawn` records from the original call, so nothing is appended for
+them.
+
+Only then spawn one `sdlc:theorem-disprover` per theorem still to run,
 **all in a single message block** so they run concurrently. One
 disprover per theorem is the starting point; if missed counterexamples
 show up in practice, N disprovers per theorem is a one-line change
@@ -896,8 +942,8 @@ you checked. Nothing else.
 ```
 
 The last four, with the `--pr` at the top, are five of the six
-identifying values, passed unchanged to the `--mode header` call below;
-the disprover supplies the sixth, `--agent`, itself. Pass them
+identifying values, the same five the `--mode header` call above
+carried; the disprover supplies the sixth, `--agent`, itself. Pass them
 unchanged or its result lands in a file you never read.
 
 What each parameter means is owned by the
@@ -913,33 +959,6 @@ fetch and the dishonest claim costs the whole round.
 Never merge two theorems into one brief, and never add a theorem of
 your own to a brief. The one-theorem contract is what keeps a
 disprover from wandering into unrelated nits.
-
-**On a fresh fan-out, create its state file before you end the turn.**
-The file is what a resumed instance picks the round up from, and one
-that never got written leaves the round with nothing to resume. The
-anchor is the clock reading here and the head SHA is `<headRefOid>`;
-a child's own deadline comes from its `enter` record rather than from
-anything written here. Run this, with your own live list's ids in place
-of `T1 T4 T9`:
-
-```bash
-ANCHOR=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-HEADER="anchor $ANCHOR <headRefOid>"
-for T in T1 T4 T9; do
-  HEADER="$HEADER
-spawn $T $ANCHOR"
-done
-sdlc-agent-result-persist --mode header \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
-  --header "$HEADER"
-```
-
-On a **resume**, the file already exists and this call is not made at
-all — the print above is what told you so, and `--mode header` would
-refuse the file anyway. The theorems you re-spawned already carry their
-`spawn` records from the original call, so nothing is appended for
-them.
 
 Then say in your closing turn text which theorems you are waiting on,
 so a resume has that in context as well as on disk.
@@ -1047,12 +1066,11 @@ and the same three moves per turn govern the new wait. The round moves
 on with them unsettled only when that loop exits: a pass that settled
 nothing new, the seventh pass, or your spawn budget.
 
-A `DISPROVED` report is a candidate finding, not a finding. Spawn one
-`sdlc:counterexample-verifier`
-per `DISPROVED` theorem, **all in a single message block** so they run
-concurrently. Which theorems those are is read off the disprover
-fan-out's `return` records — the ones whose result is `DISPROVED` —
-not off your recollection of which notifications carried one.
+A `DISPROVED` report is a candidate finding, not a finding. Each
+`DISPROVED` theorem gets one `sdlc:counterexample-verifier`. Which
+theorems those are is read off the disprover fan-out's `return`
+records — the ones whose result is `DISPROVED` — not off your
+recollection of which notifications carried one.
 
 `SURVIVED` theorems spawn no verifier. There is no counterexample to
 attack, and verifying survivals would double the cost of the common
@@ -1130,14 +1148,17 @@ too, the finding **stands** — resolve toward filing, never toward
 silently dropping a counterexample that carried verbatim evidence, and
 take the consequence class from the disprover's proposal in that case.
 
-**Read this fan-out's state file before you create one**, exactly as
-step 7 did for the disprovers and for the same reason: a resumed round
-may have stalled in this stage rather than that one. Run `--mode print`
-under `--agent counterexample-verifier`; on records, subtract every
-theorem carrying a `return` record from the verifiers you are about to
-spawn, and make no `--mode header` call. On "no result file", spawn the
-lot and create the file before you end the turn, with the same commands
-step 7 used and the other `--agent` value:
+**Read this fan-out's state file before you create one, and create it
+before you spawn anything** — exactly as step 7 did for the disprovers
+and for both of its reasons: a resumed round may have stalled in this
+stage rather than that one, and a verifier that starts before your turn
+ends writes its own `enter` record first, which leaves `--mode header`
+refusing a file that was genuinely fresh when you decided to make it.
+Run `--mode print` under `--agent counterexample-verifier`; on records,
+subtract every theorem carrying a `return` record from the verifiers
+you are about to spawn, and make no `--mode header` call. On "no result
+file", create the file now, with the same commands step 7 used and the
+other `--agent` value:
 
 ```bash
 ANCHOR=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -1156,6 +1177,9 @@ sdlc-agent-result-persist --mode header \
 disprovers', neither able to answer for the other. Both carry the same
 head SHA, and a resume checks it against `origin/<headRefName>` in
 either file it reads.
+
+Only then spawn the verifiers, **all in a single message block** so
+they run concurrently.
 
 State which verifiers you are waiting on in your closing turn text too.
 

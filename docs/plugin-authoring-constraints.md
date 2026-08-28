@@ -389,6 +389,14 @@ children uncrossed-off beside a return log that contradicted the
 stored set, and waited out its budget on work that had already
 reported (issue #351).
 
+**Say where the create happens, and put it before the spawns** — not
+merely before the turn ends. Once a child's first act is its own start
+record, a child that starts while the spawner's turn is still running
+creates the file itself, and a create call that refuses an existing
+file then fails on a fan-out that really was fresh. Give the procedure
+the recovery as well: a refusal there means records exist, which is the
+resume case, so it re-reads the file rather than ending the round.
+
 `theorem-based-pr-reviewer` carries both — the anchor at each of its
 two spawn points, and one state file per fan-out under the session
 scratchpad, whose start and result records the disprovers and

@@ -225,12 +225,12 @@ full six-field reader contract that used to live at
 (issue #143): `sdlc` no longer bundles its own copy of the `issues`
 plugin's reader contract, and a bare cross-plugin reference to
 `skills/lib/repo-config.md` cannot resolve it either — plugins are
-file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
-are file-sandboxed"). This is deliberate, not a gap: the orchestrator
-no longer does branch/PR mechanics itself — the branch and the draft
-PR both exist by the time `issue-developer` returns — so the
-orchestrator only ever needed these things out of the old six-field
-contract:
+file-sandboxed (see `docs/plugin-authoring-constraints.md` → "A
+cross-plugin reference does not resolve"). This is deliberate, not a
+gap: the orchestrator no longer does branch/PR mechanics itself — the
+branch and the draft PR both exist by the time `issue-developer`
+returns — so the orchestrator only ever needed these things out of the
+old six-field contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — used in spawn-prompt templates (`<link-prefix>101`) and the
@@ -791,10 +791,7 @@ only when the human named a tier. See "Overriding the generator tier"
 below.
 
 `--full` is yours or the human's to pass, and it re-disproves every
-recorded theorem, retired ones included. The natural moment is the
-round before the merge blessing: a default round never re-checks a
-retired theorem, so a fix can have broken one silently since it
-retired. Pass it on no other round.
+recorded theorem, retired ones included.
 
 The reviewer returns every verdict line it posted, the overall
 APPROVED / NEEDS_CHANGES / BLOCKED, the severity counts, the findings
@@ -852,11 +849,9 @@ drives a fix, which is a new diff for the next round to harvest more
 of the same from. Too high a tier therefore degrades review quality,
 not just its cost.
 
-`--full` is the other override, and it is the human's or yours. When
-to pass it is stated at the reviewer's spawn template above, next to
-the brief you write. Say in the round's report which tier ran, whether
-the rubric or an override picked it, and whether the round was a
-`--full` one.
+`--full` is the other override, and it is the human's or yours. Say in
+the round's report which tier ran, whether the rubric or an override
+picked it, and whether the round was a `--full` one.
 
 ### The PR body is frozen for the loop
 
