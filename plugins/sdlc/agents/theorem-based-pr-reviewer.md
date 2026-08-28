@@ -1039,10 +1039,12 @@ is live again next round — unless a resume pass re-spawns it first, per
 child gets its own fresh deadline from its own `enter`.
 
 At a child's deadline, and only there, `TaskStop` that disprover if
-**you** spawned it, and append its stop either way, so the theorem is
-recorded unsettled and step 11 can remove its worktree. A predecessor
-instance's child is never yours to stop — you record the stop and leave
-it alone:
+**you** spawned it, so it is no longer mid-run and step 11 can remove
+its worktree. Append its stop either way — that record is this round's
+evidence that the child was written off, and step 11 finds the worktree
+from the child's `enter` record whether it was stopped or not. A
+predecessor instance's child is never yours to stop — you record the
+stop and leave it alone:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
@@ -1216,10 +1218,10 @@ disposition: no finding, no severity, named in the posted review so the
 tally stays true, and live again next round.
 
 At a verifier's deadline, and only there, `TaskStop` it if **you**
-spawned it, and append its stop with `--mode stopped` against this
-fan-out's `--agent counterexample-verifier`, so it is no longer mid-run
-and step 11 can remove its
-worktree. That is the same single sanctioned use the disprover
+spawned it, so it is no longer mid-run and step 11 can remove its
+worktree, and append its stop either way with `--mode stopped` against
+this fan-out's `--agent counterexample-verifier`. That is the same
+single sanctioned use the disprover
 deadline has, extended to the second fan-out and no wider: past that
 child's own deadline, and only for a theorem already recorded
 unverified.
@@ -1244,22 +1246,23 @@ counterexample.
 | `DISPROVED` | no verdict once step 8's resume-pass loop exits | **disproved, unverified** — no finding, no severity |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 | no verdict once step 8's resume-pass loop exits | not spawned | **could not be settled**, no severity |
-| a verdict carried by no `return` record | not spawned | **inadmissible** — not a verdict at all; the theorem takes the deadline row above |
+| a verdict carried by no `return` record | not spawned | **inadmissible** — not a verdict at all; the theorem takes the no-disprover-verdict row above |
 
 The **inadmissible** row is the one that is not a disposition. It is
 the case step 8's admissible-source rule names: a verdict you have for
 a theorem carrying no `return` record in this fan-out's state file was
 inferred rather than recorded, so the theorem has no verdict and
-the table's other rows are read against that. Before the disprover
-deadline that means the round has not moved on and the turn ends
-again; at the deadline it means the theorem is unsettled. `SURVIVED`
+the table's other rows are read against that. While step 8's
+resume-pass loop is still running that means the round has not moved
+on and the turn ends again; once it exits the theorem is unsettled.
+`SURVIVED`
 is never reachable this way — a survival is something a disprover
 reported, and this row exists so that "the procedure requires a
 verdict per live theorem" cannot be satisfied by supplying one.
 
 "Could not be settled" and "unsettled" are the same disposition —
 the two rows that resolve to it, the disprover-malformed-twice row and
-the disprover-deadline row. The long form is what the posted review
+the no-disprover-verdict row. The long form is what the posted review
 body's section is titled; "unsettled" is the shorthand this file and
 the report-back tally use for it.
 
@@ -1298,7 +1301,7 @@ this round**, per "Retire on survive" in step 3, with
 `state-detail: survived` or `state-detail: disproved-but-refuted`
 saying which of the two settled it and `settled-at` carrying this
 round's head SHA. The `STANDS`, verifier-malformed-twice and
-verifier-deadline rows are stamped `disproved` — the last of those
+no-verifier-verdict rows are stamped `disproved` — the last of those
 with `state-detail: unverified` — and the two unsettled rows
 `unsettled`; all of them are live again next round, so none retires.
 

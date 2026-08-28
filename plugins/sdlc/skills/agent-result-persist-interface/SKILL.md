@@ -100,8 +100,10 @@ path string to mistype, and none to carry across a turn boundary:
   agent's own and the script grades it no further. Creates the file
   when it is absent rather than discarding the result.
 - **`stopped`** — appends one `stopped` record for `--theorem <id>`.
-  The reviewer's, at the deadline arm, for a child it `TaskStop`s. A
-  stop is its own record kind, never a `return` carrying a `STOPPED`
+  The reviewer's, at a child's deadline. It writes one whether or not
+  it `TaskStop`ped that child — a predecessor instance's child is never
+  its to stop, and the record is what says the child was written off
+  either way. A stop is its own record kind, never a `return` carrying a `STOPPED`
   result — a `return` is a verdict, and the reviewer is not a source of
   verdicts.
 - **`print`** — writes the file to stdout. Exits non-zero when the file
@@ -173,9 +175,9 @@ no child in flight has nothing to be overdue — and the one a re-spawn
 asks before adding to its spawn count.
 
 `stopped` subtracts from neither set. It records that the reviewer cut
-a child off, which leaves the theorem outstanding and re-spawnable, and
-it is what keeps that child's worktree findable for cleanup. A
-derivation that subtracted it would report a theorem stopped at a
+a child off, which leaves the theorem outstanding and re-spawnable; the
+`enter` record, not this one, is what names that child's worktree for
+cleanup. A derivation that subtracted it would report a theorem stopped at a
 deadline and re-spawned in a resume pass as finished while its fresh
 child was still working, because a resume appends no new `spawn`
 record.

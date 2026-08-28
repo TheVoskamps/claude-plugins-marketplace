@@ -82,15 +82,19 @@ skill computes.
 
 3. **Check for a verdict block before relaying anything.** A reviewer
    that returns mid-fan-out reports an **in-progress status** —
-   outstanding disprover or verifier counts and nothing more, with no
-   verdict line, no tally and no findings — and the harness surfaces
+   outstanding disprover or verifier counts, plus which exit its own
+   resume loop took when it ran one — with no verdict line, no tally
+   and no findings, and the harness surfaces
    that as `status: completed` with the closing message as the result,
    so it reads like a finished review unless you look. On such a
    return, tell the user the round did not finish, say no review was
    posted, and offer to re-spawn the reviewer on the same PR — that
    re-spawn resumes the stalled round from its state files rather than
    starting it over, so the theorems already settled stay settled. Do
-   not present the partial text as a review outcome.
+   not present the partial text as a review outcome. Relay the loop
+   exit with the offer: a reviewer that stopped because a pass settled
+   nothing new is telling the user another spawn is unlikely to settle
+   anything either.
 
    A verdictless return that instead reports a
    `sdlc-agent-result-persist` call the reviewer could not repair is a
