@@ -1,5 +1,5 @@
 # Ordinary blocklist: a path is tracked unless a pattern below ignores
-# it. Two things to know before adding a pattern:
+# it. Before adding a pattern:
 #
 #   1. gitignore is last-match-wins, so a pattern that re-ignores
 #      something must sit BELOW the un-ignore it overrides. Getting
@@ -85,9 +85,9 @@ worktrees/
 /.tool-versions
 
 # The mise.toml at the repo root is the ONE tracked config form and is
-# deliberately NOT ignored. Every path below is either machine-local or
-# a non-canonical location we do not use; shutting them out is what
-# keeps there being exactly one mise config to read.
+# deliberately NOT ignored. Every mise path in this block is either
+# machine-local or a non-canonical location we do not use; shutting
+# them out is what keeps there being exactly one mise config to read.
 /mise.local.toml
 /mise/config.toml
 /.mise/config.toml
