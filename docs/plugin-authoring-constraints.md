@@ -70,15 +70,10 @@ revision moves them.
    ships-vs-per-machine split). The `claude-vm` plugin's `bin/claude-vm`
    preflight launcher (issue #51) is a second instance of the same
    pattern: it runs as the bare `claude-vm` command and forwards to
-   `payload/claude-vm.sh`. `sdlc`'s `bin/sdlc-agent-result-persist`
-   (issue #354) is a third, and the one a **subagent** runs: a
-   fanned-out child calls it by bare name from its own worktree. An
-   executable on that path needs an allow rule keyed on that bare
-   spelling, and no plugin in this marketplace ships permission rules —
-   the rule lives in the caller's own settings, or a child's unattended
-   call becomes a prompt nobody is there to answer. See
-   `plugins/sdlc/skills/agent-result-persist-interface/SKILL.md` →
-   "Invocation".
+   `payload/claude-vm.sh`. A bare-name call needs an allow rule keyed
+   on that spelling in the caller's own settings — no plugin here ships
+   permission rules — or an unattended call becomes a prompt nobody is
+   there to answer.
 
 ## Patterns this marketplace uses
 
@@ -361,36 +356,16 @@ have one supplied. State that a verdict's only admissible source is a
 `return` record in that file, and give the disposition table a row for
 the child that has not reported.
 
-**A notification is a wake-up, not evidence — so each child records
-its own result.** A `<task-notification>` the harness never delivers
-takes its child's result with it, and the spawner then waits out its
-deadline on an agent that finished: a spawner that writes the return
-log from what its notifications carried can only record the results it
-was told about. Have each child append its own record as its final act
-instead, and have the spawner derive which children returned, what
-each returned, and which are still outstanding from the file on every
-resume rather than from what it recalls being told. One surviving
-notification then carries the round past every result whose own
-notification was lost. What the pattern does not cover is a fan-out
-none of whose notifications arrive, which leaves a turn nothing
-resumes; no record a child writes can wake the spawner.
-
-That splits the file's writers across worktrees, which decides both
-where it lives and how it is reached. It goes under the session
-scratchpad — outside every repository, so a child's `isolation:
-worktree` tree being thrown away does not take the record with it (see
-"Handing data between agents: a session-scoped inbox" below). And the
-path is composed by a small executable the plugin ships under `bin/`
-(constraint 7), which every writer and the reader call by bare name
-with the same identifying flags, so no agent ever holds a path string
-to mistype or to carry across a turn boundary. Key one file per
-fan-out rather than sectioning one file, so neither fan-out can answer
-for the other.
+A notification the harness never delivers takes its child's result with
+it, so have each child append its own record, put the file under the
+session scratchpad where no worktree cleanup reaches it, and compose
+its path in a `bin/` executable (constraint 7) that every writer and
+the reader call by bare name.
 
 **That state file is append-only, and the procedure has to say so.**
-Create it once, then extend it one record per line with an append,
-and revise no line already written. A whole-file write
-and a tail edit are the same failure in different spellings: both
+Create it once, then extend it one record per line with an append, and
+revise no line already written. A whole-file write and a tail edit are
+the same failure in different spellings: both
 reconstruct the file from what the agent remembers, and what it
 remembers is exactly what the turn boundary destroyed. For the same
 reason, anything that changes as the round runs — which children are
@@ -403,13 +378,12 @@ reported (issue #351).
 
 `theorem-based-pr-reviewer` carries both — the anchors at each of its
 two spawn points, and one state file per fan-out under the session
-scratchpad, written through the `sdlc-agent-result-persist` executable
-by the disprovers and verifiers themselves (issues #344, #354). A
+scratchpad, written by the disprovers and verifiers themselves
+(issue #344). A
 procedure that fans out twice needs a deadline on **each** fan-out: an
 unbounded second stage parks the round exactly as an unbounded first
-one would,
-and it is the easier one to leave unbounded, because it runs only on
-the rounds the first stage found something in. Where no measurement
+one would, and it is the easier one to leave unbounded, because it
+runs only on the rounds the first stage found something in. Where no measurement
 of the second stage exists, reuse the first's rather than deriving a
 shorter one from how much less work the second does — review bounds
 its verifiers on that reasoning, with the same figure its disprovers

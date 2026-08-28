@@ -909,23 +909,15 @@ Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
 
 - **An in-progress status** — outstanding disprover or verifier
-  counts and nothing more, or a named fan-out and round the reviewer
-  reports as already started. A round is under way; follow the four
-  steps below.
+  counts, or a named fan-out and round the reviewer reports as already
+  started. A round is under way; follow the four steps below.
 - **A broken header call** — the report names a
   `sdlc-agent-result-persist --mode header` call the reviewer could
-  not repair and quotes the script's message verbatim (see
-  `agents/theorem-based-pr-reviewer.md` → "When `--mode header`
-  fails", which owns both halves of this distinction). No round is
-  under way: the script wrote nothing and no fan-out was spawned.
-  Follow "A broken header call" below instead.
-
-Do not read a broken header call as an in-progress status. Re-spawning
-on one buys nothing — the re-spawn composes the same call from the
-same context gap and fails the same way — and the second verdictless
-return then reaches step 4's escalation, which tells the human the PR
-keeps returning mid-round when the actual fault is a call the reviewer
-could not build.
+  not repair and quotes the script's message verbatim. No round is
+  under way, so follow "A broken header call" below instead. Never
+  read one as an in-progress status: a re-spawn composes the same call
+  and fails the same way, and step 4's escalation would then tell the
+  human the PR keeps returning mid-round.
 
 1. **Confirm it against the PR.** A round that returned mid-fan-out
    posted no review, so read the PR rather than the report:
@@ -951,11 +943,9 @@ could not build.
    human has nothing to adjust yet.
 
    Until #358 lands, that re-spawn does not pick the stalled round up:
-   the reviewer computes the same round number, finds its record file
-   already there, reports an in-progress status naming it, and stops.
-   So expect a second in-progress return and take step 4's escalation
-   rather than reading the repeat as a reviewer defect — the refusal is
-   deliberate, and #358 is what turns the re-spawn into a resume.
+   the reviewer finds this round's record file already there and stops.
+   Expect a second in-progress return and take step 4's escalation
+   rather than reading the repeat as a reviewer defect.
 
 4. **The round does not count against the review-round cap**
    (Hard Constraints → "Max review rounds per PR"). It produced no
@@ -966,20 +956,12 @@ could not build.
    **Needs Your Attention** row rather than re-spawning indefinitely.
 
 **A broken header call.** This is a defect to surface, not a round to
-retry.
-
-1. **Spawn no `issue-fixer` and re-spawn no reviewer.** The report
-   carries no findings, and the fault is in the call the reviewer
-   composed rather than in the PR or in the round.
-2. **Raise it as a Needs Your Attention row on the first return**,
-   quoting the script's message verbatim as the reviewer reported it
-   and naming the flag it faults, per "Report-consumption principle".
-   The message is what tells the human which value the reviewer could
-   not resolve — an empty `--scratchpad` is the one to expect — and
-   paraphrasing it removes the only evidence there is.
-3. **The round does not count against the review-round cap**
-   (Hard Constraints → "Max review rounds per PR"), for the same
-   reason a mid-round return does not: it produced no review.
+retry. Spawn no `issue-fixer` and re-spawn no reviewer; raise it as a
+**Needs Your Attention** row on the first return, quoting the script's
+message verbatim per "Report-consumption principle", since that message
+is the only evidence of which value the reviewer could not resolve. It
+does not count against the review-round cap, for the same reason a
+mid-round return does not: it produced no review.
 
 **If APPROVED with Low findings**: List the Lows in the final report
 for human decision, tagged by member. Do not spawn the fixer — no loop

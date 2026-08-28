@@ -649,22 +649,3 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
-
-## An inserted section retargets the pointers around it
-
-A pointer that names its referent by position — "that table", "the
-list above", "absent from it" — is anchored to a neighbour rather than
-to a name, so a heading dropped between the two silently repoints it.
-No grep finds this: the words did not change, the named referent still
-exists elsewhere in the file, and the new section reads correctly on
-its own. The tell is a diff that inserts a heading into the middle of a
-document rather than appending one.
-
-`plugins/sdlc/README.md` gained an "Executables" section between the
-Skills table and the paragraph saying the review procedure "is absent
-from that table", which then pointed at a section holding no table.
-Read the paragraphs on both sides of every heading a diff inserts and
-resolve each positional pointer against the *result*, not the file you
-remember. The repair is usually to move the new section clear of the
-prose that belongs to the old one — the adjacency was carrying the
-meaning — rather than to reword the pointer.

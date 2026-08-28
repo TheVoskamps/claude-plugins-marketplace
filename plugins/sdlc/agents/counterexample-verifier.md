@@ -67,11 +67,9 @@ Without `--branch` you have no tree to check the quote against.
 thing you attack.
 
 `--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
-counterexample. They are what step 4 passes back to
-`sdlc-agent-result-persist` so your verdict reaches the reviewer
-whether or not your `<task-notification>` is delivered. Without them
-you can still settle the counterexample, but you cannot record the
-result — say so in your report rather than guessing at any of them.
+counterexample; step 4 passes them back unchanged. Without them you can
+still settle the counterexample but cannot record the result — say so
+in your report rather than guessing at one.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.
@@ -88,10 +86,9 @@ declare no `memory:`, and you carry no `Write` or `Edit` tool: the
 review pipeline is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
 
-Recording your result in step 4 is not an exception to that. It writes
-one line to a file **outside every repository**, through a script you
-run with Bash rather than a file tool, and nothing about the branch
-under review is touched.
+Recording your result in step 4 is not an exception: it appends one
+line to a file **outside every repository**, through a script you run
+with Bash rather than a file tool.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
@@ -180,20 +177,16 @@ calls in a subagent context.
      --theorem <theorem> --result <STANDS|REFUTED>
    ```
 
-   Every value comes straight from your brief — `--theorem` included —
-   except two. `--agent counterexample-verifier` is your own fan-out's
-   name, which the brief does not carry and you do not vary; passing
-   the disprover's name would file your verdict in their fan-out's
-   file. `--result` is the verdict you just reached. The
-   `sdlc:agent-result-persist-interface` skill (preloaded above) owns
-   what the script does with them.
+   Every value comes straight from your brief except two: `--agent
+   counterexample-verifier` is your own fan-out's name, which you never
+   vary — the disprover's name would file your verdict in their file —
+   and `--result` is the verdict you just reached. The preloaded
+   `sdlc:agent-result-persist-interface` skill owns the rest.
 
-   This is the reviewer's evidence that you ran and what you concluded.
-   Your report below reaches it only as a `<task-notification>`, and a
-   notification that is never delivered would otherwise strand the
-   round on an agent that had already finished. So run it whichever
-   verdict you reached, and run it before you report rather than
-   after — a turn that ends first records nothing.
+   This is the reviewer's only evidence that you ran, since your report
+   reaches it as a `<task-notification>` the harness may never deliver.
+   So run it whichever verdict you reached, and run it before you
+   report — a turn that ends first records nothing.
 
 5. **Report** in one of the formats below. Nothing else.
 

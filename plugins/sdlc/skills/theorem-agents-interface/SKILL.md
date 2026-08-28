@@ -21,12 +21,9 @@ The reviewer reads this file too, rather than only writing against it:
 its step 2 findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
 its own table. It reaches this skill by name rather than by preload —
-its frontmatter is reserved for what every round needs, which is the
-skills it invokes as workflow steps plus
-`sdlc:agent-result-persist-interface`, the CLI contract it writes and
-reads each fan-out's record file through. The glosses here are wanted
-only on the one branch that raises a theorem-less finding, and one
-rare branch does not earn a preload.
+its frontmatter is reserved for what every round needs, and the glosses
+here are wanted only on the one branch that raises a theorem-less
+finding.
 
 The reviewer's *own* inputs — the flags `/sdlc:orchestrate` and
 `/sdlc:git-review-pr` pass to it — are a different interface, owned by
@@ -102,21 +99,15 @@ them as well.
   verifier is checking for.
 - `--scratchpad <dir>` — the harness's per-session scratchpad
   directory, as the reviewer's own context names it. Passed verbatim;
-  an agent never hand-builds a lookalike path, because the uid in
-  `/tmp/claude-<uid>/` varies per machine and the session segment is
-  not a child's to compute.
+  an agent never hand-builds a lookalike path.
 - `--owner <owner>` — the repository owner.
-- `--repo <repo>` — the repository name. Owner and repo travel as two
-  parameters rather than one `owner/name` token, for the reason
-  `sdlc:agent-result-persist-interface` gives.
+- `--repo <repo>` — the repository name, separate from the owner.
 - `--round <n>` — the review round, as the reviewer numbers it.
 
 Those four say nothing about the claim, and no generator receives any
-of them. They go to a **disprover** and a **verifier**, which pass them
-straight back — alongside `--pr`, and alongside their own fan-out name,
-which the brief does not carry — to `sdlc-agent-result-persist`, so
-that a result survives a `<task-notification>` that is never delivered.
-What the script does with them is that skill's to state.
+of them. A disprover and a verifier pass them straight back — alongside
+`--pr` and their own fan-out name — to `sdlc-agent-result-persist`, per
+`sdlc:agent-result-persist-interface`.
 
 ## The consequence classes
 

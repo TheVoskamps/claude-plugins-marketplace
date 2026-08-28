@@ -99,13 +99,11 @@ What this file *does* own is the roster itself: which skills, which
 agents and which executables the plugin ships, plus the `dependencies`
 edges and the cross-plugin skills those edges cover. A PR that adds,
 removes, or renames a skill or an agent updates the matching table
-below, and so
-does one that changes a user verb's argument shape — the Skill column
-spells that shape, and a human reading a roster rather than a skill
-file has nowhere else to find it. The executables are rostered in prose
-rather than a table, and "Executables" states its own trigger. A PR
-that changes which cross-plugin skill this plugin invokes updates
-"Dependencies" at the end.
+below, and so does one that changes a user verb's argument shape — the
+Skill column spells that shape, and a human reading a roster rather
+than a skill file has nowhere else to find it. A PR that changes which
+cross-plugin skill this plugin invokes updates "Dependencies" at the
+end.
 
 Not everything below is a roster entry, and what is not has a trigger
 of its own. The frontmatter keys spelled here hold for a whole class —
@@ -126,10 +124,9 @@ changes how the two relate edits it here.
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, path and record grammar | preloaded into the reviewer, the disprover, and the verifier |
 
-`theorem-generation`,
-`theorem-agents-interface` and `agent-result-persist-interface` carry
-no leading slash here because they
-are not user verbs — each declares `user-invocable: false`, which
+`theorem-generation`, `theorem-agents-interface` and
+`agent-result-persist-interface` carry no leading slash here because
+they are not user verbs — each declares `user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
 `theorem-generation` is preloaded into each
 `theorem-generator` variant through that agent's `skills:`
@@ -137,9 +134,7 @@ frontmatter, and `theorem-agents-interface` into every theorem agent
 — the generator variants, `theorem-disprover`, and
 `counterexample-verifier` — the same way. `theorem-based-pr-reviewer`
 reads `theorem-agents-interface` by name as well, for the class
-glosses it grades its own theorem-less findings by, and preloads
-`agent-result-persist-interface`, which the disprover and the verifier
-preload too. No generator does: a generator writes no result record.
+glosses it grades its own theorem-less findings by.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
@@ -156,13 +151,10 @@ agent, is owned by `skills/orchestrate-ready/SKILL.md`.
 
 ## Executables
 
-The plugin ships exactly one, `bin/sdlc-agent-result-persist`, and
-`skills/agent-result-persist-interface/SKILL.md` owns its whole
-contract — modes, flags, the path it composes, the record grammar, and
-the bare-command spelling its permission rule keys on. This entry is
-the roster line, not a second copy of any of that. What is only here is
-the count: a PR that adds a second executable names it in the sentence
-above, and one that removes this one removes this section.
+The plugin ships exactly one, `bin/sdlc-agent-result-persist`, whose
+whole contract is owned by
+`skills/agent-result-persist-interface/SKILL.md`. A PR that adds or
+removes an executable edits this count.
 
 ## Agents
 

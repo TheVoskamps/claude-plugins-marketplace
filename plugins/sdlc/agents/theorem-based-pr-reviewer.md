@@ -76,10 +76,6 @@ inline form spells it into a double-quoted `--body "<body>"` where the
 shell reads every backtick and `$`, so the file is the route onto the
 PR.
 
-The round state file is not a second purpose. It lives outside every
-worktree, and you neither create it nor read it with a file tool — see
-"The round state file" below.
-
 The agents you spawn — the `theorem-generator` variants,
 `theorem-disprover`, and `counterexample-verifier` — carry no `Write`
 or `Edit` tool at all.
@@ -104,123 +100,62 @@ A fan-out wait ends your turn and resumes it on a child's
 `<task-notification>`, so nothing you merely remember survives the
 boundary — and a notification the harness never delivers takes its
 child's result with it, leaving you waiting on an agent that has
-already finished. One mechanism covers both losses: **each child
-records its own result**, in a file the `sdlc-agent-result-persist`
-script writes outside every worktree, one file per fan-out.
+already finished. So **each child records its own result**, through
+`sdlc-agent-result-persist`, in one file per fan-out outside every
+worktree. A notification is a wake-up; the file is the evidence, and
+the round must complete correctly from the file alone. The preloaded
+`sdlc:agent-result-persist-interface` skill owns that CLI.
 
-**A notification is a wake-up, not evidence.** The record its child
-wrote is the evidence. Every resume reads the file rather than being
-told what is in it, and the round must complete correctly from the file
-alone, including when no notification ever arrives.
+Your half of the contract is one `--mode header` call per fan-out at
+spawn time (steps 7 and 8 give it), `--mode print` on every resume
+before you decide anything, and `--mode stopped` at the deadline arm.
+You never create this file with `Write`, never reach for `Edit` — you
+declare no `Edit` tool — and never hold its path. Reconstructing it
+from what you remember is what once left returned disprovers
+uncrossed-off and burned a round's budget on theorems that had already
+reported (issue #351). The `anchor` line's two instants are yours to
+compute and pass in: the 15-minute window is review policy.
 
-The `sdlc:agent-result-persist-interface` skill, preloaded above, owns
-that CLI — its modes, its flags, the path it composes, and the record
-grammar, including the one command that derives the outstanding set.
-Nothing here restates any of it. What this section owns is your half of
-the contract:
-
-- **`--mode header`, once per fan-out**, at spawn time, carrying the
-  `anchor` line and one `spawn` line per child you just spawned. Steps
-  7 and 8 give the literal call. A non-zero exit stops the fan-out
-  there — see "When `--mode header` fails" below, which branches on the
-  message rather than on the status.
-- **`--mode print`, on every resume**, before you decide anything.
-  Which theorems returned, what each of them returned, and which are
-  still outstanding are all **derived from that output** — never from
-  what you recall of a notification.
-- **`--mode stopped`**, at the deadline arm, for a child you
-  `TaskStop`. Appending a record is not rewriting the file; the
-  invariant is that no line is ever revised, not that you never write.
-- **Never a rewrite, and never a path.** You do not create this file
-  with `Write`, you do not reach for `Edit` — you declare no `Edit`
-  tool — and you never hold its path. Rewriting the file means
-  reconstructing it from what you remember, and what you remember is
-  exactly what the turn boundary destroyed: a round that did so left
-  returned disprovers uncrossed-off and waited out its budget on
-  theorems that had already reported (issue #351).
-
-The `anchor` line's two instants are yours to compute and pass in, not
-the script's to derive: the 15-minute window is review policy. The
-script stamps every record it writes itself, so a `return` time is when
-the child recorded its result rather than when you read it.
-
-**The identifying values** go on every call in every mode, and you
-resolve them once, at the top of the round:
+**Resolve the six identifying values at the top of the round, and again
+on every resume** rather than trusting a remembered one:
 
 ```bash
 gh repo view --json owner,name --jq '.owner.login + " " + .name'
 gh pr view <PR> --json reviews --jq '.reviews | length'
 ```
 
-The first gives `--owner` and `--repo`. `--pr` is the PR under review.
-`--round` is that review count **plus one** — the reviews already on
-the PR are the rounds already posted, so a first round is `1`. The
-number only has to be unique within a PR: it separates one round's
-records from the next, and step 3's "most recent PR Review" is what
-decides which round is previous.
-
-`--scratchpad` is the harness's per-session scratchpad directory, named
-in your own context. Pass it verbatim; never hand-build a lookalike
-path.
-
-A resume needs all six again to make its `--mode print` call, so re-run
-the two commands rather than trusting a remembered value — the same
-guard the file itself exists for. They answer the same across a round:
-the repository does not move, and your own review lands only at step
-10, so the count the round started from is the count it ends on.
-
-The spawn/return log is a debug record as much as a control structure:
-when a round goes wrong, the file is the only record of which agents
-ran and what came back — and it outlives the worktrees step 11 removes.
+The first gives `--owner` and `--repo`; `--pr` is the PR under review;
+`--round` is that review count **plus one**, so a first round is `1`.
+Your own review lands only at step 10, so the count holds across the
+round. `--scratchpad` is the harness's per-session scratchpad
+directory, named in your own context and passed verbatim.
 
 The file is outside every repository and you have no commit or push
 step, so nothing this writes reaches the branch. It is per-round
-working state, not persistence across rounds: the posted review remains
-this procedure's only thing the next round reads.
+working state that outlives the worktrees step 11 removes; the posted
+review remains this procedure's only thing the next round reads.
 
 ### When `--mode header` fails
 
-A call the script **refuses** and a call it **rejects as malformed**
-both exit non-zero, so the status tells you only that the fan-out did
-not start. Read the message and branch on it.
+A refusal and a malformed call both exit non-zero, so read the message
+rather than the status.
 
-**The message says the file already exists.** That is the refusal, and
-it means this round has been started before: `--round` is the PR's
-posted-review count plus one, and a reviewer that ended without posting
-leaves that count where it was, so a re-spawn computes the same number
-and lands on the same file.
+**The message says the file already exists.** This round was started
+before, and the records in that file are results no child can be asked
+to produce again. Report an in-progress status naming this fan-out and
+this round as already started, and stop — do not re-run the call, do
+not vary `--round`, do not spawn the fan-out anyway. That abandons a
+round an earlier attempt had partly settled, knowingly: #358 turns the
+recovery into a **resume** from these records, and until it lands,
+reporting and stopping is your whole defined behavior here.
 
-**Report an in-progress status naming this fan-out and this round as
-already started, and stop.** Do not re-run the call, do not vary
-`--round` to reach a fresh file, and do not spawn the fan-out anyway.
-The records already in that file are results no child can be asked to
-produce a second time, and a second file under a bumped number would
-strand every one of them.
-
-Stopping there abandons a round the earlier attempt had partly settled,
-where before this file existed a re-spawn would have restarted it from
-nothing — so for that one case recovery is worse than it was, and
-knowingly so. #358 is where it is resolved, and it resolves it by
-making recovery a **resume** from these records rather than a restart
-over them, which is why the refusal is correct and stays. Implement no
-part of that resume here: reporting and stopping is your whole defined
-behavior on this branch until #358 lands.
-
-**The message names a flag.** Then the call you just built is
-malformed — a missing value, a `--pr` or `--round` that is not a
-number, a value carrying a path separator — and that is a defect in
-your own call rather than evidence about the round: the script wrote
-nothing, and no fan-out of yours is under way. An empty `--scratchpad`
-is the one to expect, since that value is named in your own context and
-there is nothing to fall back on when it is not. Repair the flag the
-message names and make the call again; when you cannot repair it,
-report the failure with the message verbatim and stop.
-
-**Never report a malformed call as an in-progress status.** It is the
-misdiagnosis this whole branch exists to prevent: it would tell your
-caller that a round is already running, and send it to the escalation
-for a stalled fan-out, while the actual fault — a call you composed
-wrongly — goes unreported.
+**The message names a flag.** The call you built is malformed, so the
+script wrote nothing and no fan-out of yours is under way — an empty
+`--scratchpad` is the one to expect. Repair the flag and call again;
+when you cannot, report the failure with the message verbatim and stop.
+**Never report a malformed call as an in-progress status**: it would
+send your caller to the escalation for a stalled fan-out while the
+actual fault, a call you composed wrongly, goes unreported.
 
 ## Why the diff never lands in your context
 
@@ -832,12 +767,10 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-The last four, together with the `--pr` at the top, are what let the
-disprover record its own result where you can read it back: they are
-five of the six identifying values, passed to `--mode header` below
-unchanged. The sixth is `--agent`, which the disprover supplies itself
-because it knows its own fan-out's name — so every child of this
-fan-out writes the one file you read. See "The round state file" above.
+The last four, with the `--pr` at the top, are five of the six
+identifying values, passed unchanged to the `--mode header` call below;
+the disprover supplies the sixth, `--agent`, itself. Pass them
+unchanged or its result lands in a file you never read.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into every agent you
@@ -876,10 +809,6 @@ sdlc-agent-result-persist --mode header \
   --header "$HEADER"
 ```
 
-This is the one `--mode header` call for this fan-out, and it refuses
-to run a second time against the file it created — the records already
-there are results no notification can be asked to redeliver.
-
 Both `date` spellings are there because only one of them exists on a
 given host: `-v+15M` is BSD/macOS, `-d` is GNU. Then say the deadline
 instant in your closing turn text, so a resume has it in context as
@@ -893,10 +822,7 @@ your turn, and the harness resumes you on each child's
 `<task-notification>`. Every resume runs the same three moves, in this
 order, and runs them over **every** outstanding child rather than the
 one that woke you — so one surviving notification carries the round
-past every result whose own notification was lost. What the mechanism
-does not cover is a fan-out none of whose notifications arrive, which
-leaves a turn nothing resumes: that is the harness's to fix, and no
-record a child writes can wake you.
+past every result whose own notification was lost.
 
 1. **Read the fan-out's state file**, before anything else in the
    resume:
@@ -907,20 +833,17 @@ record a child writes can wake you.
      --pr <PR_N> --round <this round's number> --agent theorem-disprover
    ```
 
-   You write nothing here. Each disprover appended its own `return`
-   record as its final act, so the file already carries every result
-   that exists — including one whose `<task-notification>` never
-   reached you.
-2. **Derive the round's position from that output**, then read the
-   clock and compare it against the `anchor` line's deadline instant:
+   You write nothing here: each disprover appended its own `return`
+   record, so the file already carries every result that exists.
+2. **Derive the round's position from that output** — which theorems
+   returned, what each returned, and which are still outstanding — then
+   read the clock and compare it against the `anchor` line's deadline
+   instant:
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ
    ```
 
-   Which theorems returned, what each returned, and which are still
-   outstanding all come from the records — the outstanding set by the
-   derivation the `sdlc:agent-result-persist-interface` skill states.
    Do this on every resume, before deciding anything. The comparison
    is an explicit one against a recorded instant — never a feeling
    about how long the round has been going, which is the one thing a
@@ -930,9 +853,9 @@ record a child writes can wake you.
 
 **A verdict's only admissible source is a `return` record in the
 fan-out's state file.** A `<task-notification>` is a wake-up, not
-evidence: it tells you to look, and the file is what you look at. That
-inverts nothing about your own standing — you are not a source of
-verdicts any more than you are a source of theorems. A theorem whose
+evidence: it tells you to look, and the file is what you look at. You
+are not a source of verdicts any more than you are a source of
+theorems. A theorem whose
 disprover recorded nothing has no verdict — not `SURVIVED`, not
 anything — and writing one down because the round needs a verdict per
 live theorem is exactly the failure this rule exists to prevent. The
@@ -971,11 +894,6 @@ sdlc-agent-result-persist --mode stopped \
   --theorem T7
 ```
 
-A stop is its own record kind, never a `return` carrying a `STOPPED`
-result: a `return` is a verdict, and spelling a stop as one would
-manufacture the very verdict the admissible-source rule above bars you
-from inventing.
-
 That is `TaskStop`'s one sanctioned use on this fan-out: past
 the deadline, and only for a theorem already recorded as unsettled.
 The verifier fan-out below carries the same one, and nothing widens
@@ -1012,14 +930,11 @@ too, the theorem is unsettled — see the disposition table in step 9.
 Spawning a verifier against a malformed report would waste the check
 on evidence that has already failed a cheaper one.
 
-A `DISPROVED` report you never received at all takes the same remedy. A
-record carries a result token, not a report, so the lost-notification
-case this file exists to make visible leaves you with a theorem the
-records settle as `DISPROVED` and no counterexample to hand a verifier
-— and inventing one is out of the question. Re-spawn that one
-disprover with the same brief; its second run appends a second `return`
-record rather than replacing the first, and if that run leaves you
-without a report too, the theorem is unsettled.
+A record carries a result token, not a report, so a `DISPROVED` record
+whose notification never reached you leaves no counterexample to hand a
+verifier. Take the same remedy — re-spawn that one disprover with the
+same brief, and if that run leaves you without a report too, the
+theorem is unsettled.
 
 Route the model exactly as step 7 did, by the theorem's class:
 `model: haiku` on the `Agent` call for a `mechanical` theorem, no
@@ -1093,9 +1008,8 @@ sdlc-agent-result-persist --mode header \
   --agent counterexample-verifier --header "$HEADER"
 ```
 
-`--agent` is what keys the file, so this is a **second file** beside
-the disprovers', not a second section of theirs: one round, two
-fan-outs, two files, and neither able to answer for the other.
+`--agent` keys the file, so this is a **second file** beside the
+disprovers', neither able to answer for the other.
 
 State the deadline instant in your closing turn text too.
 
