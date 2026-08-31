@@ -1537,13 +1537,15 @@ The gate's engines feed that decision:
   `cat <repo-root>/.git/config` does. That is the equivalence rule
   working as specified, not a hole the redirect grading opened.
 
-  Two consequences of that same scoping, both measured against
+  Consequences of that same scoping, each measured against
   `origin/main` and unchanged by the carve-out work. A bash read of a
   `.git/` path inside the scratchpad allows
-  (`cat <scratchpad>/x/.git/config`), because the track's terminal for a
-  contained read is already an ALLOW — the carve-out grants nothing
-  extra there, which is why the file-tool `.git/` deny is not mirrored
-  onto it. And a redirect writing into one allows
+  (`cat <scratchpad>/x/.git/config`), because that track's terminal for
+  any operand it does not grade as an escape is already an ALLOW —
+  `cat /tmp/claude-<uid>/other/.git/config` allows too, out in the
+  unshaped remainder the carve-out never reached. The carve-out grants
+  nothing extra there, which is why the file-tool `.git/` deny is not
+  mirrored onto it. And a redirect writing into one allows
   (`echo x > <scratchpad>/x/.git/f`) where the argv spelling of the same
   write denies (`tee <scratchpad>/x/.git/f`), because
   `redirectVetoesAllow` grades its destination through

@@ -92,10 +92,11 @@ probe. Read the reason string, not just the bucket: both are denies. Use
 
 ### Pick the probe form by the track the program takes
 
-The read tracks have different terminals for the same containment
-verdict: the read-only-utility track *allows* any operand that is
-contained or lands in a carve-out the bash engine honors, while the
-pager/dumper track (`less`, `more`, `od`, `xxd`) *defers*. A probe whose
+The read tracks diverge on a merely **contained** operand: the
+read-only-utility track *allows* it, while the pager/dumper track
+(`less`, `more`, `od`, `xxd`) *defers*. An operand landing in a
+carve-out the bash engine honors *allows* on both tracks —
+`less <scratchpad>/f` and `cat <scratchpad>/f` alike. A probe whose
 track already produces the bucket you expect proves nothing about the
 carve-out under review. Read the program's classifier arm first, then
 pick a probe whose verdict can actually change. Check first whether the
@@ -113,7 +114,7 @@ vacuous probe.
 
 The `~/.config` carve-out and the `~/.claude` one are rooted at the real
 home directory, and a worktree-isolated agent can build no fixture for
-either. Two obstacles, each decisive on its own.
+either. Each obstacle below is decisive on its own.
 
 **A `HOME=<dir>` prefix is refused** — not by the gate, but by the
 harness's worktree-isolation guard, which answers "this command sets
@@ -861,16 +862,19 @@ format error. Cross-check both directions.
 
 ## `cat` already allows, so probe a read carve-out with something else
 
-The gate has two bash read tracks with different terminals for the same
-containment verdict: the curated read-only utilities (`cat`, `head`,
-`grep`) terminate in **allow** for any operand that is contained or
-lands in a carve-out the bash engine honors, while the path-reader track
-(`less`, `more`, `od`) terminates in **defer**.
+The gate has two bash read tracks with different terminals for a merely
+**contained** operand: the curated read-only utilities (`cat`, `head`,
+`grep`) terminate in **allow**, while the path-reader track (`less`,
+`more`, `od`, `xxd`) terminates in **defer**. A carve-out the bash
+engine honors lifts the path-reader track to **allow** as well, so the
+two tracks agree there.
 
-So an assertion that `cat <new-carve-out-path>` allows passes
-identically before and after such a carve-out exists. Probe a new read
-carve-out with a path-reader utility or the file-read tool, or the
-negate-check leaves every `cat` assertion green while proving nothing.
+So an assertion that `cat <path>` allows proves nothing about a
+carve-out carved inside a region that was already contained: the row
+was green before the carve-out existed. Probe that carve-out with a
+path-reader utility or the file-read tool, whose contained terminal is
+a defer, or the negate-check leaves every `cat` assertion green while
+proving nothing.
 
 A carve-out scoped to the **file-tool track alone** — the
 operator-configured `~/.config` listing is one — inverts the trap

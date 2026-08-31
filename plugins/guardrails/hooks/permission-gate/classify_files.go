@@ -779,10 +779,13 @@ func carveOutAllowReason(toolName string, readClass bool, sawScratch bool, sawXD
 	}
 }
 
-// gitTreeReadDeny is the read half of the .git/-tree rule. It has one call site
-// per arm a `.git/` read can reach — the worktree-escape arm, and the two
-// carve-out arms that would otherwise hand the read an ALLOW — so the message
-// lives here rather than being spelled at each.
+// gitTreeReadDeny is the read half of the .git/-tree rule as classifyFileTool
+// applies it. It has one call site per arm a file-tool `.git/` read can reach —
+// the worktree-escape arm, and the two carve-out arms that would otherwise hand
+// the read an ALLOW — so the message lives here rather than being spelled at
+// each. The bash read track's own `.git/` deny (containPathOperands, under
+// `bash-read:.git tree`) is a separate message naming the command rather than
+// the tool, and does not come through here.
 func gitTreeReadDeny(toolName string, p string) Decision {
 	return deny("read:.git tree", fmt.Sprintf(
 		"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+

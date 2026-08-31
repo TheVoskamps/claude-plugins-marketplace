@@ -38,7 +38,11 @@ because no carve-out covers it. A reader that is not a tool call at all
 — a script running inside a claude-vm guest, say — is unaffected. The
 **Bash tool** is not one of those: the carve-out reaches the file-tool
 track only, so a skill that reads its own config with `cat` or `grep` is
-denied on every machine, carve-out or not, and must use `Read`. See
+denied on every machine, carve-out or not. `Read` is the only spelling a
+listing can reach, and it reaches it only for a path that machine's
+operator actually listed — on an unconfigured machine the `Read` denies
+too, and a skill has to survive that rather than assume the file is
+readable. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema and scope limits.
 
