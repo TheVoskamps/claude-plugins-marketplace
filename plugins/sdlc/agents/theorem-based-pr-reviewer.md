@@ -106,17 +106,18 @@ worktree. A notification is a wake-up; the file is the evidence, and
 the round must complete correctly from the file alone. The preloaded
 `sdlc:agent-result-persist-interface` skill owns that CLI.
 
-Your half of the contract is four calls, each a single append: a
-`--mode header` call per fan-out writing that fan-out's `anchor` line,
-one `--mode spawn` call per child you spawn, `--mode print` on every
-resume before you decide anything, and `--mode stopped` at a child's
-deadline. The header call is **idempotent** — it writes the anchor when
-none is there, no-ops on one naming the same head SHA, and voids the
-file on one naming a different head — so no ordering between it and a
-child's own first record matters, and you make it without knowing which
-of you wrote first. You never create this file with `Write`, never
-reach for `Edit` — you declare no `Edit` tool — and never hold its
-path.
+Your half of the contract is four calls: a `--mode header` call per
+fan-out writing that fan-out's `anchor` line, one `--mode spawn` call
+per child you spawn, `--mode print` on every resume before you decide
+anything, and `--mode stopped` at a child's deadline. `print` reads;
+each of the other three appends a single line and rewrites nothing
+already in the file. The header call is **idempotent** — it writes the
+anchor when none is there, no-ops on one naming the same head SHA, and
+voids the file on one naming a different head — so no ordering between
+it and a child's own first record matters, and you make it without
+knowing which of you wrote first. You never create this file with
+`Write`, never reach for `Edit` — you declare no `Edit` tool — and
+never hold its path.
 Reconstructing it from what you remember is what once left returned
 disprovers uncrossed-off and burned a round's budget on theorems that
 had already reported (issue #351). The `anchor` line's instant and head
@@ -921,11 +922,11 @@ sdlc-agent-result-persist --mode spawn \
 
 That record is per **child**, not per theorem, so a re-spawn in a later
 pass writes its own and a theorem carries one per attempt. Every child
-this file has you spawn gets one — the fan-out here, each re-spawn a
-resume pass makes, and the single recovery spawn "Fan out the
-verifiers" defines — because a child with a `spawn` record and no
-`enter` is one that never started, and a child with neither was never
-asked for. One disprover per theorem is the starting point; if missed
+this file has you spawn gets one, wherever it has you spawn it —
+because a child with a `spawn` record and no `enter` is one that never
+started, and a child with neither was never asked for. The re-spawns
+"Fan out the verifiers" defines are children too, however narrow their
+purpose. One disprover per theorem is the starting point; if missed
 counterexamples show up in practice, N disprovers per theorem is a
 one-line change here.
 
