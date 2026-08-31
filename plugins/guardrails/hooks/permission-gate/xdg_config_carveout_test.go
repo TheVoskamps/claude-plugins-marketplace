@@ -140,10 +140,17 @@ func TestXDGConfigCarveOutWriteImpliesRead(t *testing.T) {
 
 // A path under ~/.config that matches neither list keeps the verdict it has
 // today, and so does every path once the config file is absent or malformed.
-// The carve-out fails closed on each of those.
+// The carve-out fails closed on each of those, for a WRITE as much as for a
+// read. Both classes are pinned because they reach the allow by different
+// routes — a read can ride either list, a write only allow-write — so a config
+// state that yields empty lists has to be shown to close both. The three
+// config states that spell `allow-write` are exactly the ones that would hand
+// out the write if the state were honoured, which is what makes them the write
+// half's negative controls rather than a duplicate of the read half.
 func TestXDGConfigCarveOutFailsClosed(t *testing.T) {
 	cases := []struct {
-		name   string
+		name string
+		// config is the operator file's body; "" writes no file at all.
 		config string
 		rel    string
 	}{
@@ -151,29 +158,24 @@ func TestXDGConfigCarveOutFailsClosed(t *testing.T) {
 		{"malformed yaml", "schema-version: 1\nallow-read: [unclosed\n", "cc-tools/whats-new.md"},
 		{"no schema stamp", "allow-write:\n  - cc-tools/**\n", "cc-tools/whats-new.md"},
 		{"older schema stamp", "schema-version: 0\nallow-write:\n  - cc-tools/**\n", "cc-tools/whats-new.md"},
+		{"absent config file", "", "cc-tools/whats-new.md"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			base := t.TempDir()
-			repo := filepath.Join(base, "repo")
-			gitInit(t, repo)
-			home := xdgFixture(t, base, "repo")
-			writeXDGCarveOutConfig(t, home, tc.config)
+		for _, tool := range []string{"Read", "Write"} {
+			t.Run(tc.name+"/"+tool, func(t *testing.T) {
+				base := t.TempDir()
+				repo := filepath.Join(base, "repo")
+				gitInit(t, repo)
+				home := xdgFixture(t, base, "repo")
+				if tc.config != "" {
+					writeXDGCarveOutConfig(t, home, tc.config)
+				}
 
-			d := fileToolVerdict(t, "Read", repo, filepath.Join(home, ".config", tc.rel))
-			wantBucket(t, d, BucketDeny, tc.name)
-		})
+				d := fileToolVerdict(t, tool, repo, filepath.Join(home, ".config", tc.rel))
+				wantBucket(t, d, BucketDeny, tool+" — "+tc.name)
+			})
+		}
 	}
-
-	t.Run("absent config file", func(t *testing.T) {
-		base := t.TempDir()
-		repo := filepath.Join(base, "repo")
-		gitInit(t, repo)
-		home := xdgFixture(t, base, "repo")
-
-		d := fileToolVerdict(t, "Read", repo, filepath.Join(home, ".config", "cc-tools", "whats-new.md"))
-		wantBucket(t, d, BucketDeny, "absent config file")
-	})
 }
 
 // A `..` walk out of ~/.config cannot match, whatever the globs say: the
