@@ -604,16 +604,18 @@ func scratchAllowEligible(res containmentResult, readClass bool) bool {
 // `cp <src> <scratchpad>/f`, the same write to the same region spelled through
 // argv, both allow via containWriteOperands. The redirect's stated rationale is
 // exfiltration / clobber risk, which is precisely what the session scratchpad
-// is designated safe against by construction; two spellings of one write cannot
-// have two verdicts, so the veto lifts for that destination and stays intact for
-// every other one (an in-repo file, a sibling repo, the bundled-skills tree, the
-// unshaped remainder of the prefix, /tmp at large).
+// is designated safe against by construction, so refusing the redirect while
+// allowing the argv spelling of the same write bought nothing; the veto lifts
+// for that destination and stays intact for every other one (an in-repo file, a
+// sibling repo, the bundled-skills tree, the unshaped remainder of the prefix,
+// /tmp at large).
 //
 // The lift is deliberately narrow, and fails closed on every axis:
 //
 //   - The destination is graded through scratchAllowEligible as a WRITE operand
 //     (readClass=false), the same predicate the three operand tracks use, so a
-//     redirect can never reach a region a `tee` to the same path could not.
+//     redirect can only reach a REGION those tracks grade as write-eligible
+//     too.
 //   - Any unresolved expansion anywhere in the command (including in the
 //     redirect word itself, which sets hasUnknownExpansion) keeps the veto: a
 //     destination the gate cannot pin statically is not a destination it can
@@ -622,6 +624,18 @@ func scratchAllowEligible(res containmentResult, readClass bool) bool {
 //     destination cannot then be resolved at all.
 //   - EVERY real-file destination must qualify: `cmd > <scratchpad>/f 2> ../x`
 //     still vetoes on the second one.
+//
+// Region eligibility is the whole of what this function grades, and it is less
+// than the operand tracks grade: containWriteOperands also runs isUnderGitDir,
+// which nothing here mirrors. So inside the carve-out the two spellings still
+// diverge — `echo x > <scratchpad>/w/.git/f` allows where
+// `tee <scratchpad>/w/.git/f` denies on the .git/ write rule, while both
+// spellings to a plain file beside it allow. That stands deliberately: the
+// write lands in a throwaway scratch .git/ nothing reads, and README.md records
+// it under the carve-out's "Gaps left in place deliberately". It is also a
+// standing constraint on this helper — a rule the operand tracks apply OUTSIDE
+// containment does not reach a redirect unless it is restated here, so a region
+// added to scratchAllowEligible carries such rules on the argv spelling only.
 func redirectVetoesAllow(sc simpleCommand, ev *Event) bool {
 	if !sc.hasRedirectToFile {
 		return false
