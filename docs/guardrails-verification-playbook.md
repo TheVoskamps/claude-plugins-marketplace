@@ -113,16 +113,28 @@ vacuous probe.
 
 The `~/.config` carve-out and the `~/.claude` one are rooted at the real
 home directory, and a worktree-isolated agent can build no fixture for
-either. Pointing the gate at a fake home is not the obstacle: a
-`HOME=<dir>` prefix on the replay command is allowed, and the binary
-resolves the root from its own process environment. The obstacle is that
-every directory such an agent may create is one the gate already
-blesses — under the repo root a path is contained, under the harness
-scratchpad it is carved out — so a listed path inside the fake home
-never earns the deny the rule under test is meant to overturn, and the
-probe has no baseline. A synthetic replay can therefore exercise these
-rules only against whatever the driving machine's own home directory
-holds.
+either. Two obstacles, each decisive on its own.
+
+**A `HOME=<dir>` prefix is refused** — not by the gate, but by the
+harness's worktree-isolation guard, which answers "this command sets
+HOME, injecting git configuration whose effect on where git writes can't
+be verified". It is not scoped to `git`: the refusal is measured on
+`/usr/bin/env` and on the gate binary itself reading a synthetic event,
+with the fake home inside the worktree both times. Its message opens
+"This agent is isolated in the worktree", so it reads as
+isolation-conditional, and a probe of this form run from a main session
+is no evidence about the subagent that needs the answer. Another
+environment assignment on the same command is not refused (`FOO=bar` on
+the same `/usr/bin/env` runs), so this is a rule about `HOME`, not about
+env prefixes.
+
+**A fake home would have no baseline anyway.** Every directory such an
+agent may create is one the gate already blesses: under the repo root a
+path is contained (DEFER), under the harness scratchpad it is carved out
+(ALLOW), and a `mkdir` elsewhere under `/tmp` denies. So a listed path
+inside a fake home never earns the deny the rule under test is meant to
+overturn. A synthetic replay can therefore exercise these rules only
+against whatever the driving machine's own home directory holds.
 
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
@@ -729,13 +741,16 @@ not obstacles to route around — each has a plain spelling that works:
   write target that resolves outside the repository, so no in-repo
   spelling gets through. Use the Edit tool, or copy the file and edit
   the copy — `cp` itself is fine.
-- Setting `HOME=` inline is refused, since a redirected HOME changes
-  where git reads configuration and therefore where git might write.
-  This does not make a HOME-redirected experiment impossible: move it
-  into a container, where the redirection is the container's business
-  and no host git configuration is in play.
+- Setting `HOME=` inline is refused on ANY command, not just a git one,
+  since a redirected HOME changes where git reads configuration and
+  therefore where git might write — see "A `$HOME`-rooted rule is
+  settled by `go test`" above for the measured rows. This does not make
+  a HOME-redirected experiment impossible: move it into a container,
+  where the redirection is the container's business and no host git
+  configuration is in play.
 - An inline environment assignment on a `git` command is denied
-  outright — the `HOME=` case above is one instance of it — so
+  outright — a narrower rule than the `HOME=` one above, reaching every
+  variable rather than every command — so
   `GIT_EDITOR=true git rebase --continue` never runs. `git rebase
   --continue` accepts no `--no-edit` of its own either, and prints its
   usage instead. Finish a conflicted rebase by staging the resolution,
@@ -763,7 +778,8 @@ Forms that look like they should be refused and are not, so no
 workaround is warranted: a leading `GOOS=`/`GOARCH=`/`CGO_ENABLED=`
 assignment on a `go build`, `podman run` including a host bind-mount,
 `mkdir -p` and `>` redirects relative to the worktree cwd, and an
-environment prefix on a program the git/gh/aws classifiers never see.
+environment prefix naming anything but `HOME` on a program the
+git/gh/aws classifiers never see.
 
 The Edit tool enforces the worktree boundary independently of the gate.
 Anchor every path to the worktree root, reads included: a primary-clone

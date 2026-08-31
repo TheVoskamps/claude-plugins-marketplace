@@ -1146,8 +1146,10 @@ The gate's engines feed that decision:
   rewrites identity). An **in-repo** `.git/` read is not a write and is
   unaffected by this refinement; a `.git/` read that resolves into the
   primary clone denies on the read branch described in (3) below, and a
-  `.git/` read the operator's `~/.config` listing would otherwise allow
-  denies inside that carve-out's own arm. If
+  `.git/` read either file-tool carve-out would otherwise turn into an
+  ALLOW — one the operator's `~/.config` listing covers, or one in an
+  allow-eligible region of the harness scratchpad — denies inside that
+  carve-out's own arm. If
   you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   are **prescriptive**: a write/edit escape names
@@ -1265,6 +1267,13 @@ The gate's engines feed that decision:
   | under the prefix, remainder matches neither | `defer` | `allow` | `defer` |
   | the `claude-<uid>` root is not a plain, this-uid-owned directory | `defer` | `defer` | `defer` |
   | anything else under `/tmp` | `deny` | `deny` | `deny` |
+
+  Every cell reads "for a target the `.git/`-tree rule does not already
+  claim". On the **file-tool** track that rule outranks the region: a
+  `Write`/`Edit` under a `.git/` segment denies at the top of the walk,
+  and a `Read` of one denies inside the arm that would otherwise have
+  carried it to the ALLOW. The bash tracks are deliberately not mirrored
+  onto it — see "Gaps left in place deliberately" below.
 
   The curated read-utility column's `allow` on the unshaped-remainder
   row is **pre-existing behavior of that track**, not something the
@@ -1520,12 +1529,27 @@ The gate's engines feed that decision:
   start paying for a gate subprocess. Separately, an
   **in-repo** `.git/` read on the curated read-utility track allows
   (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
-  write path and on the primary-clone read branch, not for an ordinary
-  contained read. Both gaps predate the input-redirect grading, and
+  write path, on the primary-clone read branch and in the two file-tool
+  carve-out arms, not for an ordinary contained read. Both gaps predate
+  the input-redirect grading, and
   each holds identically for its operand and redirect spellings —
   `cat < <repo-root>/.git/config` allows exactly as
   `cat <repo-root>/.git/config` does. That is the equivalence rule
   working as specified, not a hole the redirect grading opened.
+
+  Two consequences of that same scoping, both measured against
+  `origin/main` and unchanged by the carve-out work. A bash read of a
+  `.git/` path inside the scratchpad allows
+  (`cat <scratchpad>/x/.git/config`), because the track's terminal for a
+  contained read is already an ALLOW — the carve-out grants nothing
+  extra there, which is why the file-tool `.git/` deny is not mirrored
+  onto it. And a redirect writing into one allows
+  (`echo x > <scratchpad>/x/.git/f`) where the argv spelling of the same
+  write denies (`tee <scratchpad>/x/.git/f`), because
+  `redirectVetoesAllow` grades its destination through
+  `scratchAllowEligible` alone and never through `isUnderGitDir`.
+  Closing either is a bash-engine change reaching three classifiers, and
+  is not attempted here.
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary cross-repo deny.

@@ -31,9 +31,10 @@ import (
 // PreToolUse deny is what the ~/.config case is repairing in the first place. A
 // call that mixes such a target with any other kind falls back to the ordinary
 // defer, so the allow never rides along with a path the gate has not blessed on
-// its own terms. No carve-out opens the `.git/` tree: a write there denies
-// at the top of the walk, and a listed path under a `.git/` segment denies
-// inside the carve-out arm itself rather than riding its ALLOW.
+// its own terms. Neither carve-out opens the `.git/` tree: a write there denies
+// at the top of the walk, and a read that would otherwise ride a carve-out's
+// ALLOW denies inside that carve-out's own arm — the listed-path arm for a
+// `~/.config` target, the allow-eligible-region arm for a scratchpad one.
 func classifyFileTool(ev *Event) Decision {
 	paths, err := ev.filePaths()
 	if err != nil {
@@ -67,10 +68,12 @@ func classifyFileTool(ev *Event) Decision {
 	//
 	// The ~/.config carve-out is consulted per target and outranks the
 	// containment verdict for that target, because a listed path is allowed
-	// wherever it lands. It never outranks a `.git/` segment: a WRITE to one
-	// denies at the top of the walk before the listing is consulted, and a READ
-	// of one denies inside the carve-out arm, so a glob wide enough to cover a
-	// `.git/` segment hands out nothing. sawXDG and sawScratch record which
+	// wherever it lands. Neither it nor the scratchpad carve-out outranks a
+	// `.git/` segment: a WRITE to one denies at the top of the walk before
+	// either carve-out is consulted, and a READ of one denies in whichever
+	// carve-out arm would have carried it, so a glob wide enough to cover a
+	// `.git/` segment hands out nothing and neither does a `.git/` directory
+	// somebody created inside the scratchpad. sawXDG and sawScratch record which
 	// carve-outs the ALLOW terminal actually rode, so its reason names those and
 	// no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
@@ -124,6 +127,16 @@ func classifyFileTool(ev *Event) Decision {
 			continue
 		}
 		if scratchAllowEligible(res, readClass) {
+			// The scratchpad half of the same `.git/` exception, and the same
+			// reasoning: eligibility for the ALLOW terminal is the sole thing
+			// that could carry a `.git/` target here past the deny it would
+			// otherwise earn (a target under the harness prefix is outside the
+			// worktree, so without the carve-out it is an escape). Restating the
+			// deny here rather than at the top of the walk keeps an in-repo
+			// `.git/` read on its defer.
+			if isUnderGitDir(real, rc) {
+				return gitTreeReadDeny(ev.ToolName, p)
+			}
 			sawScratch = true
 		} else {
 			allCarved = false
@@ -752,10 +765,10 @@ func carveOutAllowReason(toolName string, readClass bool, sawScratch bool, sawXD
 	}
 }
 
-// gitTreeReadDeny is the read half of the .git/-tree rule. It has two call
-// sites — the worktree-escape arm, where an unlisted read lands, and the
-// ~/.config carve-out arm, where a listed one does — so the message lives here
-// rather than being spelled at each.
+// gitTreeReadDeny is the read half of the .git/-tree rule. It has one call site
+// per arm a `.git/` read can reach — the worktree-escape arm, and the two
+// carve-out arms that would otherwise hand the read an ALLOW — so the message
+// lives here rather than being spelled at each.
 func gitTreeReadDeny(toolName string, p string) Decision {
 	return deny("read:.git tree", fmt.Sprintf(
 		"Blocked: %s target '%s' is inside a .git/ directory. Reads of .git/ internals (config, "+
