@@ -359,6 +359,15 @@ nor the queue depth is exposed to an agent, so starvation is observable
 only as absence of progress. Give the state file a start record per
 child; a child that has none has not begun and is never overdue.
 
+**A child names itself from its own cwd, so the record needs no
+handle passed in.** The harness names an `isolation: worktree`
+worktree `agent-<id>` — the same shape its stale worktree locks read
+back as `claude agent agent-<hash> (pid NNNN)` — so `basename "$PWD"`
+with that prefix stripped is a child's own id, and one record can be
+told from the record of the child that replaced it. Inventing a
+spawner-assigned handle instead puts a second source of truth in a
+brief that the file would then have to agree with.
+
 **A written-off child stops being overdue too.** The record the deadline
 arm writes when it gives up on a child ends that child, not the work it
 was doing: the work stays unfinished and re-spawnable, but nothing is

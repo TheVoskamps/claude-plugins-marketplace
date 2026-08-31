@@ -107,7 +107,9 @@ path string to mistype, and none to carry across a turn boundary:
   result — a `return` is a verdict, and the reviewer is not a source of
   verdicts.
 - **`print`** — writes the file to stdout. Exits non-zero when the file
-  does not exist, which means the fan-out's `header` call never ran.
+  does not exist, which means neither the fan-out's `header` call nor
+  any child's `enter` has run — the fresh-fan-out case the reviewer
+  branches on before creating anything.
 
 The script stamps each `enter`, `return` and `stopped` time itself: the
 writer owns when the record was made.

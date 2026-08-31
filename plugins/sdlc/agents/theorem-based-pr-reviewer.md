@@ -828,18 +828,18 @@ theorem's retirement and a `--full` run, a fix can silently break the
 retired claim, and `--full` is the bounded-cost check for that, priced
 once instead of every round.
 
-The natural moment is the round before the merge blessing. The
-orchestrator or the human names it; a default round never runs it.
-**No rule here forces a `--full` round**, deliberately: whether one
-becomes mandatory before a merge blessing is a policy decision to take
-with measured burn data, not a default to assume. A `--full` round
+The orchestrator or the human passes it; a default round never runs
+one. **No rule here forces a `--full` round**, deliberately: whether
+one becomes mandatory before a merge blessing is a policy decision to
+take with measured burn data, not a default to assume — and which
+round precedes that blessing is not knowable at the moment the flag
+would be passed, so no rule could name it either. A `--full` round
 says so in its Review method section.
 
-That leaves a stated gap rather than a hidden one: between a theorem's
-retirement and a `--full` run, a fix can break the retired claim and
-nothing notices. Retirement is what makes a round delta-priced, and
-`--full` is what bounds the risk; a design that re-disproved
-everything every round would have no gap and no saving either.
+The gap that leaves is stated rather than hidden. Retirement is what
+makes a round delta-priced, and `--full` is what bounds the risk; a
+design that re-disproved everything every round would have no gap and
+no saving either.
 
 ### 7. Fan out one disprover per live theorem, in parallel
 
@@ -1075,8 +1075,9 @@ sdlc-agent-result-persist --mode stopped \
   --theorem T7
 ```
 
-That is `TaskStop`'s one sanctioned use on this fan-out: past
-the deadline, and only for a theorem already recorded as unsettled.
+That is `TaskStop`'s one sanctioned use on this fan-out: past that
+child's own deadline, and only for a theorem already recorded as
+unsettled.
 The verifier fan-out below carries the same one, and nothing widens
 either. Never reach for it to make a slow round finish sooner —
 stopping a disprover that would have reported drops a theorem while
