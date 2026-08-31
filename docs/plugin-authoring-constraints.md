@@ -193,7 +193,7 @@ involved — unlike the cross-plugin case above, where the sandbox
 consumers invoke by name. The agents that receive a brief get the
 skill by preload rather than by invoking it; the agent that *writes*
 the briefs — the reviewer, which wants only the class glosses it
-grades step 2's findings by — reaches it by name instead, since one
+grades its own issue-set findings by — reaches it by name instead, since one
 rare branch does not earn a preload. The skill is still
 machinery rather than a user verb, so it takes `user-invocable: false`
 (constraint 4) the same way.
@@ -395,8 +395,8 @@ its path in a `bin/` executable (constraint 7) that every writer and
 the reader call by bare name.
 
 **That state file is append-only, and the procedure has to say so.**
-Create it once, then extend it one record per line with an append, and
-revise no line already written. A whole-file write and a tail edit are
+Extend it one record per line with an append, and revise no line
+already written. A whole-file write and a tail edit are
 the same failure in different spellings: both
 reconstruct the file from what the agent remembers, and what it
 remembers is exactly what the turn boundary destroyed. For the same
@@ -408,13 +408,18 @@ children uncrossed-off beside a return log that contradicted the
 stored set, and waited out its budget on work that had already
 reported (issue #351).
 
-**Say where the create happens, and put it before the spawns** — not
-merely before the turn ends. Once a child's first act is its own start
-record, a child that starts while the spawner's turn is still running
-creates the file itself, and a create call that refuses an existing
-file then fails on a fan-out that really was fresh. Give the procedure
-the recovery as well: a refusal there means records exist, which is the
-resume case, so it re-reads the file rather than ending the round.
+**Make every record kind a single append, the spawner's own included.**
+Once a child's first act is its own start record, the file has two
+writers whose order nothing controls, so a batch write that creates the
+file fails on a fan-out that really was fresh, and every ordering
+requirement written to prevent that is one more rule to get wrong. Give
+the spawner the same append the children get — one record when it asks
+for a child, one when it writes one off — and make the header that
+carries the round's anchor idempotent: write the anchor when none is
+there, no-op on one naming the same commit, void the file on one naming
+a different commit. Then no procedure needs to say who writes first,
+and a child spawned later in the round records itself as readily as one
+spawned in the first fan-out.
 
 `theorem-based-pr-reviewer` carries both — the anchor at each of its
 two spawn points, and one state file per fan-out under the session

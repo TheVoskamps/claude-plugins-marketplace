@@ -19,7 +19,7 @@ die() {
 
 usage() {
   cat <<EOF
-usage: $PROGRAM --mode header|enter|detail|stopped|print
+usage: $PROGRAM --mode header|spawn|enter|detail|stopped|print
                 --scratchpad <dir> --owner <owner> --repo <repo>
                 --pr <n> --round <n> --agent <name>
                 [--header <text>] [--theorem <id>] [--agent-id <id>]
@@ -71,7 +71,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  header|enter|detail|stopped|print) ;;
+  header|spawn|enter|detail|stopped|print) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
@@ -102,7 +102,7 @@ done
 # Every column of every record is whitespace-separated, so a theorem id
 # or a result carrying whitespace would shift the columns of that line
 # and desynchronise the reader's derivation from the writer's intent.
-if [ "$mode" = enter ] || [ "$mode" = detail ] || [ "$mode" = stopped ]; then
+if [ "$mode" = spawn ] || [ "$mode" = enter ] || [ "$mode" = detail ] || [ "$mode" = stopped ]; then
   [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
   case "$theorem" in
     *[!A-Za-z0-9._-]*) die "--theorem must be a single token: $theorem" ;;
@@ -138,24 +138,41 @@ now() {
 case "$mode" in
   header)
     mkdir -p "$(dirname "$file")"
-    # The only truncating write in the script, and it refuses to be one:
-    # every record already in the file is a result no notification can
-    # be asked to redeliver.
+    # The header is the anchor line and nothing else: every other record
+    # arrives as its own append, so a multi-line header is a caller still
+    # writing the batch shape this mode no longer has.
+    newline='
+'
+    case "$header" in
+      *"$newline"*) die "--header must be a single anchor line: $header" ;;
+    esac
+    new_head=$(printf '%s\n' "$header" | awk '$1=="anchor"{print $3}')
+    [ -n "$new_head" ] || die "--header must be an anchor line naming a head SHA: $header"
+    # Idempotent: the anchor is one line, and every other line in the
+    # file is some other actor's append. So the write is keyed on
+    # whether an anchor is already there, and never on whether the file
+    # is — a child's own enter record creates it whenever the child
+    # starts first.
+    old_head=
     if [ -e "$file" ]; then
-      # Unless the two headers anchor different head commits. The records
-      # then describe a tree that no longer exists, so they answer for
-      # nothing the new round will ask — but they are still the evidence
-      # of what the voided round did, so the file is set aside rather
-      # than overwritten.
-      old_head=$(head -n 1 -- "$file" | awk '$1=="anchor"{print $3}')
-      new_head=$(printf '%s\n' "$header" | head -n 1 | awk '$1=="anchor"{print $3}')
-      if [ -n "$old_head" ] && [ -n "$new_head" ] && [ "$old_head" != "$new_head" ]; then
-        mv -- "$file" "$file.voided-$(date -u +%Y%m%dT%H%M%SZ)"
-      else
-        die "$file already exists; --mode header runs once per fan-out"
-      fi
+      old_head=$(awk '$1=="anchor"{print $3; exit}' "$file")
     fi
-    printf '%s\n' "$header" > "$file"
+    if [ -z "$old_head" ]; then
+      printf '%s\n' "$header" >> "$file"
+    elif [ "$old_head" != "$new_head" ]; then
+      # A different head means the records describe a tree that no
+      # longer exists, so they answer for nothing the new round will ask
+      # — but they are still the evidence of what the voided round did,
+      # so the file is set aside rather than overwritten.
+      mv -- "$file" "$file.voided-$(date -u +%Y%m%dT%H%M%SZ)"
+      printf '%s\n' "$header" > "$file"
+    fi
+    # An anchor already naming this head is this same round's: the call
+    # writes nothing and says so by exiting zero.
+    ;;
+  spawn)
+    mkdir -p "$(dirname "$file")"
+    printf 'spawn %s %s\n' "$theorem" "$(now)" >> "$file"
     ;;
   enter)
     mkdir -p "$(dirname "$file")"

@@ -10,9 +10,12 @@ user-invocable: false
 file outside every worktree, so a `<task-notification>` the harness
 never delivers cannot take its child's result with it. A notification
 is a wake-up; a record in this file is the evidence.
-`sdlc:theorem-based-pr-reviewer` creates a fan-out's file and reads it
-back; `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
-append their own entry and their own result to it.
+`sdlc:theorem-based-pr-reviewer` anchors a fan-out's file, appends a
+record per child it spawns, and reads the file back;
+`sdlc:theorem-disprover` and `sdlc:counterexample-verifier` append
+their own entry and their own result to it. **Every record kind is a
+single atomic append**, so no two writers can be ordered wrongly and
+no call has to know what the file already holds.
 
 The file is also what a **resumed** round picks itself up from: a
 reviewer re-spawned over a round that already has one keeps every
@@ -73,24 +76,31 @@ path string to mistype, and none to carry across a turn boundary:
 
 ## The modes
 
-- **`header`** — creates the file and writes `--header <text>` to it
-  verbatim. The reviewer's one call per fan-out, on a **fresh** round
-  only. It **refuses a file that already exists**, exiting non-zero and
-  writing nothing: every record already there is a result no
-  notification can be asked to redeliver. The reviewer calls `print`
-  first and reaches `header` only where that failed, so the refusal is
-  a backstop rather than the resume path — one a child starting in
-  between can still trip, which sends the reviewer back to `print`
-  rather than ending its round.
+- **`header`** — writes the `anchor` line `--header <text>` carries,
+  and nothing else. The call is **idempotent**, which is what lets the
+  reviewer make it without knowing whether a child has already written:
 
-  **One case is not a refusal**: the existing file's `anchor` and the
-  incoming header both name a head SHA, and the two differ. The records
-  then describe a tree that no longer exists and answer nothing the new
-  round will ask, so the old file is renamed to
-  `<file>.voided-<instant>` — kept as the evidence of what the voided
-  round did — and the new header is written in its place. Nothing is
-  deleted, and a header carrying no parseable `anchor` head SHA is
-  refused as usual rather than guessed at.
+  - **No `anchor` in the file** — the line is appended, creating the
+    file when it is absent. A child that started first has already
+    created it with its own `enter` record, so the anchor is not
+    necessarily the first line and no reader may assume it is.
+  - **An `anchor` naming the same head SHA** — this same round's, so
+    the call writes nothing and exits zero.
+  - **An `anchor` naming a different head SHA** — the records describe
+    a tree that no longer exists and answer nothing the new round will
+    ask, so the old file is renamed to `<file>.voided-<instant>` —
+    kept as the evidence of what the voided round did — and the new
+    anchor is written in its place. Nothing is deleted.
+
+  A `--header` that is not a single `anchor` line naming a head SHA is
+  refused rather than guessed at — a multi-line one is a caller still
+  batching records the other modes now append. Those are the mode's
+  only refusals: the write never truncates a file other actors have
+  appended to, so no ordering between the reviewer's call and its
+  children's matters.
+- **`spawn`** — appends one `spawn` record for `--theorem <id>`. The
+  reviewer's, each time it spawns a child for that theorem — the first
+  fan-out and every re-spawn alike, one call per child.
 - **`enter`** — appends one `enter` record for `--theorem <id>`
   carrying `--agent-id <id>`. A child's first act, before it does any
   work. It is what makes the child's deadline measurable: `Agent()`
@@ -112,10 +122,10 @@ path string to mistype, and none to carry across a turn boundary:
 - **`print`** — writes the file to stdout. Exits non-zero when the file
   does not exist, which means neither the fan-out's `header` call nor
   any child's `enter` has run — the fresh-fan-out case the reviewer
-  branches on before creating anything.
+  branches on before spawning anything.
 
-The script stamps each `enter`, `return` and `stopped` time itself: the
-writer owns when the record was made.
+The script stamps each `spawn`, `enter`, `return` and `stopped` time
+itself: the writer owns when the record was made.
 
 A refusal and a malformed call both exit non-zero, so the status says
 only that the call did nothing. The message says which.
@@ -144,6 +154,13 @@ vocabulary from drifting the next time a kind is added.** `spawn` and
 cut one off. `enter` and `return` are the child's own — it began, and
 it finished. A reviewer therefore never writes an `enter` and a child
 never writes a `spawn`.
+
+A `spawn` record is written per child rather than per theorem, so a
+theorem re-spawned in a later pass carries one for each attempt. That
+is what makes a child that never started distinguishable from one that
+started and vanished — the first question a non-reporting child raises.
+The derivations below read `spawn` as a set of theorem ids, so the
+repeats change nothing they answer.
 
 The `anchor` line is the reviewer's, written into `--mode header`. Its
 `<head-sha>` is the head commit the round's theorems were generated
@@ -191,11 +208,9 @@ written off — reachable whenever a stopped child is never re-spawned,
 which is what the resume-pass loop's no-progress exit, its hard stop,
 and an exhausted spawn budget each leave behind. The theorem itself
 stays outstanding and re-spawnable, and a derivation that subtracted it
-from *that* set would report a theorem stopped at a deadline and
-re-spawned in a resume pass as finished while its fresh child was still
-working, because a resume appends no new `spawn` record. The `enter`
-record, not this one, is what names the stopped child's worktree for
-cleanup.
+from *that* set would report an unanswered theorem as settled, which is
+what a `return` record and nothing else means. The `enter` record, not
+this one, is what names the stopped child's worktree for cleanup.
 
 A stored `outstanding:` list would be a line that must be revised to
 stay true; a derived set cannot go stale.
