@@ -1529,7 +1529,7 @@ The gate's engines feed that decision:
   start paying for a gate subprocess. Separately, an
   **in-repo** `.git/` read on the curated read-utility track allows
   (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
-  write path, on the primary-clone read branch and in the two file-tool
+  write path, on the primary-clone read branch and in the file-tool
   carve-out arms, not for an ordinary contained read. Both gaps predate
   the input-redirect grading, and
   each holds identically for its operand and redirect spellings —
@@ -1550,8 +1550,8 @@ The gate's engines feed that decision:
   write denies (`tee <scratchpad>/x/.git/f`), because
   `redirectVetoesAllow` grades its destination through
   `scratchAllowEligible` alone and never through `isUnderGitDir`.
-  Closing either is a bash-engine change reaching three classifiers, and
-  is not attempted here.
+  Closing either is a bash-engine change with a blast radius of its own,
+  and is not attempted here.
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary cross-repo deny.
@@ -1577,7 +1577,7 @@ The gate's engines feed that decision:
   **The gate carries no knowledge of which plugins exist.** There are no
   shipped default entries; a machine that wants the carve-out writes the
   file, in the shape `docs/config-file-conventions.md` prescribes, with
-  two lists of globs **relative to `~/.config`**:
+  lists of globs **relative to `~/.config`**:
 
   ```yaml
   schema-version: 1
@@ -1637,7 +1637,7 @@ The gate's engines feed that decision:
   hands the call to the ordinary permission rules, which nothing here
   establishes would permit it — the same broken outcome by a different
   route. The `.git/`-tree deny outranks the carve-out on **both**
-  sides, by two different routes. A `Write`/`Edit` of a listed path
+  sides, by a different route each. A `Write`/`Edit` of a listed path
   under a `.git/` segment denies at the top of the operand walk, before
   the listing is consulted. A `Read` of one denies inside the carve-out
   arm itself, which is the only place such a read could otherwise reach
@@ -1666,10 +1666,9 @@ The gate's engines feed that decision:
   gate symlink-aware in general: a symlink from inside the repo out to a
   sibling repo is still denied, which is intended. It changes nothing
   about how the gate is packaged, so the `claude-vm` surfaces that
-  mirror that shape are untouched. Adding YAML parsing introduces the
-  module's **second** dependency (`gopkg.in/yaml.v3`, alongside
-  `mvdan.cc/sh/v3`) into a security binary; that is accepted rather than
-  hand-rolling a parser.
+  mirror that shape are untouched. Adding YAML parsing pulls a further
+  dependency (`gopkg.in/yaml.v3`, alongside `mvdan.cc/sh/v3`) into a
+  security binary; that is accepted rather than hand-rolling a parser.
 
 **An unparseable command is a syntax error, not a decision**. A
 parse failure used to **ask**, on the rationale that "an unparseable
