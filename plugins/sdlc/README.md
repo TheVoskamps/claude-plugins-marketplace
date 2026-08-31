@@ -54,11 +54,12 @@ rather than recalling it:
   each pointer against the heading **line**, joining a wrapped quote
   back across its line breaks first. A pointer that quotes only the
   readable half of a subtitled heading still greps to a hit.
-- A renumbered workflow step in `agents/theorem-based-pr-reviewer.md`:
-  its headings are numbered, so inserting one renames every later
-  heading without the diff touching it. Grep `→ "` for a leading digit
-  repo-wide, then read that agent's body end to end — it also refers to
-  its own steps by bare number, which no heading grep reaches.
+- A renamed workflow section in `agents/theorem-based-pr-reviewer.md`:
+  its headings are named rather than numbered, precisely so that
+  inserting one renames nothing, but a rename is still a cross-file
+  sweep. Grep the quoted heading repo-wide, then read that agent's body
+  end to end — it refers to its own sections by name throughout, and a
+  reference wrapped across two lines survives a single-line grep.
 - A changed count or roster: a back-reference like "those three" goes
   stale in silence. Read the paragraph; don't trust the grep.
 

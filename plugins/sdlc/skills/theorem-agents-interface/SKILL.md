@@ -18,7 +18,7 @@ skeletons hold no instructions of their own. The meaning of a
 parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
-its step 2 findings come from no theorem, so it grades them by the
+its issue-set findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
 its own table. It reaches this skill by name rather than by preload —
 its frontmatter is reserved for what every round needs, and the glosses
@@ -77,8 +77,9 @@ them as well.
   theorem with its id, claim, issues, class, pointers, the state it
   held, and the head SHA it was settled against. Only a generator
   receives it, and only on the **delta-round brief**, which
-  `sdlc:theorem-based-pr-reviewer` → "5. Spawn the theorem generator"
-  writes and its step 3 decides the rounds for — more than one round
+  `sdlc:theorem-based-pr-reviewer` → "Spawn the theorem generator"
+  writes and its "Carry the previous round's theorems forward" decides
+  the rounds for — more than one round
   kind sends that brief, so read the round taxonomy there rather than
   inferring it from this parameter. It is what the generator
   must not re-emit — a carried theorem is already recorded, so
@@ -86,7 +87,7 @@ them as well.
 - `--delta-commits <oid…>` — the round's change, as the list of this
   PR's **own** commits that have no patch-equivalent commit in the head
   the previous round reviewed. `sdlc:theorem-based-pr-reviewer` →
-  "3. Carry the previous round's theorems forward" computes it and
+  "Carry the previous round's theorems forward" computes it and
   bounds it to the PR's own commits, so a rebase that advanced the base
   cannot put the base branch's commits in it. Paired with `--carried-records`, and
   present on the same brief. A clean rebase leaves the list **empty**,

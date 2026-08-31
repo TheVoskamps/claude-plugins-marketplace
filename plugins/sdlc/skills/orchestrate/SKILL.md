@@ -828,7 +828,7 @@ round it ran.
 
 You do not pick a tier. The rubric lives in the reviewer, next to the
 delta it reads (see the `sdlc:theorem-based-pr-reviewer` agent →
-"4. Pick the generator tier"), and it routes between `theorem-generator` (low) and
+"Pick the generator tier"), and it routes between `theorem-generator` (low) and
 `theorem-generator-medium` (medium) and nowhere else.
 
 `--generator` is a human-override channel, and you pass it only when

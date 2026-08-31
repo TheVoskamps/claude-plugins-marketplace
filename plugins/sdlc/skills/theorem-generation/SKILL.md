@@ -11,8 +11,7 @@ It is **tier-invariant**: it carries no tier parameter and never asks
 which generator is running it. The generator's reasoning tier lives
 solely in the spawned agent's frontmatter `effort:`, and the reviewer
 picks a tier by naming which definition to spawn (see the
-`sdlc:theorem-based-pr-reviewer` agent → "4. Pick the generator
-tier").
+`sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier").
 
 Your entire output is a **theorem list**. You do not review, you do
 not grade, you do not file findings, and you never post to the PR.
@@ -433,7 +432,7 @@ T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
 class: semantic
-pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, step 7
+pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, "Fan out the disprovers"
 ```
 
 Field rules:

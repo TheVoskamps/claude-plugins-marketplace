@@ -28,7 +28,7 @@ Your reasoning tier is the `effort:` in the frontmatter above. The
 generation skill is tier-blind and never asks which generator is
 running it — the reviewer picks a tier by spawning one of the
 generator variants (see the `sdlc:theorem-based-pr-reviewer` agent →
-"4. Pick the generator tier").
+"Pick the generator tier").
 
 ## You persist no memory
 
