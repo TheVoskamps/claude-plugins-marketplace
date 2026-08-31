@@ -16,10 +16,13 @@ append their own entry and their own result to it.
 
 The file is also what a **resumed** round picks itself up from: a
 reviewer re-spawned over a round that already has one keeps every
-theorem the file says is settled and re-runs only the rest, rather
-than starting the round over. `sdlc:theorem-based-pr-reviewer` → "The
-round state file" owns that procedure; this file owns the record
-grammar it reads.
+theorem the file says is settled and re-attacks only the rest, rather
+than starting the round over. A settled theorem can still be spawned
+for once, to recover a report a notification lost — a record carries a
+result token and never the child's narrative — and that spawn cannot
+move the verdict, per "First `return` wins" below.
+`sdlc:theorem-based-pr-reviewer` → "The round state file" owns that
+procedure; this file owns the record grammar it reads.
 
 ## Invocation
 

@@ -204,8 +204,9 @@ The consequences that are easy to get backwards:
   not a re-attack of the round, and one spawn per theorem rather than a
   fan-out. The verdict is not at risk: first-`return`-wins already fixed
   it, so the recovery child's own `return` is the ignored duplicate, and
-  what the spawn retrieves is the counterexample prose no record
-  carries.
+  what the spawn is for is the counterexample prose no record carries.
+  It may fail to retrieve it — a recovery child that reaches `SURVIVED`
+  produces no such prose — and step 8 owns where the theorem goes then.
 
 **A theorem's current child is its last `enter`, and its verdict is its
 first `return`.** The preloaded `sdlc:agent-result-persist-interface`
@@ -1119,8 +1120,17 @@ on evidence that has already failed a cheaper one.
 A record carries a result token, not a report, so a `DISPROVED` record
 whose notification never reached you leaves no counterexample to hand a
 verifier. Take the same remedy — re-spawn that one disprover with the
-same brief, and if that run leaves you without a report too, the
-theorem is unsettled.
+same brief.
+
+**That recovery can disagree, and a disagreeing one recovers nothing.**
+The recovery child re-runs the same attack and is free to reach
+`SURVIVED`, whose report shape carries no `COUNTEREXAMPLE` and no
+`EVIDENCE` field — so there is no prose to recover, while the recorded
+verdict stays `DISPROVED` under first-`return`-wins. Do not spawn a
+third: the theorem takes step 9's **disproved, unverified**
+disposition, which is where a run that returned no report at all lands
+too. Both leave the same state — a settled `DISPROVED` verdict with no
+counterexample for a verifier to check.
 
 Route the model exactly as step 7 did, by the theorem's class:
 `model: haiku` on the `Agent` call for a `mechanical` theorem, no
@@ -1303,6 +1313,14 @@ checked is the exact outcome the verification stage exists to prevent.
 The unsettled rows below it get the severity outcome right and the
 state wrong: they assert the claim was never settled, and `state` is
 what a human reads to judge the round.
+
+The row has a second way in, from step 8's lost-report case: a
+`DISPROVED` record whose report never reached you and whose recovery
+spawn returned nothing usable — no report, or a `SURVIVED` one carrying
+no counterexample. No verifier is spawned there, because there is
+nothing to hand one. `disproved` is still the truthful state — the
+first `return` settled the claim — and what is missing is the
+counterexample as well as the verification, which the entry says.
 
 A standing finding is written in the format under "Findings must
 quote, not paraphrase" below. Its `**Evidence:**` block is the
@@ -1652,7 +1670,12 @@ body with these sections, in this order:
    gives the consequence the
    same way, says no verifier ever checked the counterexample, and
    carries no `→ Finding N` cross-link at all, because that
-   disposition files no finding.
+   disposition files no finding. A theorem that reached that
+   disposition by step 8's lost-report case has no disprover report
+   either, so its entry carries the claim, the recorded `DISPROVED`
+   verdict, and the statement that the counterexample was never
+   recovered — never an invented narrative or quote in place of the one
+   that was lost.
 5. **Findings** — numbered, terse, and actionable, ranked by severity,
    each in the `**Finding:** / **Evidence:** / **Recommendation:**`
    format, each tagged with the theorem id it came from and the

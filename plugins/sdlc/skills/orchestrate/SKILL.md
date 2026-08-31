@@ -948,9 +948,11 @@ responses, so read what the report **says** before you act on it:
 
    That re-spawn **resumes** the stalled round rather than starting it
    over: the reviewer finds this round's state files, keeps every
-   theorem already settled in them, and re-runs only the rest (see the
-   `sdlc:theorem-based-pr-reviewer` agent → "Resume a started round;
-   never restart it"). So a second in-progress return means the round
+   theorem already settled in them, and re-attacks only the rest (see
+   the `sdlc:theorem-based-pr-reviewer` agent → "Resume a started round;
+   never restart it", which also names the one spawn a settled theorem
+   still gets and why it cannot move that theorem's verdict). So a
+   second in-progress return means the round
    is still making no progress on what it has left, not that the
    re-spawn threw the first attempt away.
 

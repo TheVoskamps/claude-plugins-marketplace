@@ -439,7 +439,12 @@ the same work — which means a fresh instance routinely arrives at a
 round an earlier one partly settled. Have it detect that from the file
 rather than from a parameter: a flag is a second source of truth, and
 where the two disagree the file wins anyway. It then keeps every child
-the file records as settled and re-spawns only the rest. Bounds keep
+the file records as settled and re-runs only the rest — with one
+exception that follows from what a record is: a record carries a result
+token and never the child's narrative, so recovering a report a
+notification lost means spawning again for an item already settled.
+Say that the recovery cannot move the recorded result, or the exception
+reads as a licence to re-decide. Bounds keep
 the retry loop from running away — take another pass only while
 the last one settled something new, with a hard cap on passes whatever
 happens, and count the children spawned across all passes against
