@@ -183,9 +183,14 @@ what keeps the void from repeating — the next instance to arrive reads
 an `anchor` carrying the current head and resumes normally.
 
 **Keep what is settled, re-run the rest.** A theorem whose id carries a
-`return` record is settled and gets no new child. Every other theorem
-the file `spawn`ed does. That is the whole saving — a stalled round
-that had settled 4 of 24 theorems resumes with 20 to run, not 24.
+`return` record is settled: it is never **re-attacked**, and its verdict
+is fixed at that first `return`. Every other theorem the file `spawn`ed
+gets a new child. That is the whole saving — a stalled round that had
+settled 4 of 24 theorems resumes with 20 to run, not 24.
+
+Settled bars a re-attack rather than every spawn. Recovering a **lost
+report** is the one permitted exception, below, and it cannot change a
+verdict.
 
 The consequences that are easy to get backwards:
 
@@ -195,8 +200,12 @@ The consequences that are easy to get backwards:
   counterexample, and step 8 needs one to brief a verifier. Where the
   report did not reach you, step 8's existing remedy applies unchanged:
   re-spawn that **one** disprover with the same brief to recover the
-  report. That is a recovery of a lost artifact, not a re-attack of the
-  round, and it is one spawn per theorem rather than a fan-out.
+  report. That is the exception above — a recovery of a lost artifact,
+  not a re-attack of the round, and one spawn per theorem rather than a
+  fan-out. The verdict is not at risk: first-`return`-wins already fixed
+  it, so the recovery child's own `return` is the ignored duplicate, and
+  what the spawn retrieves is the counterexample prose no record
+  carries.
 
 **A theorem's current child is its last `enter`, and its verdict is its
 first `return`.** The preloaded `sdlc:agent-result-persist-interface`
@@ -1029,8 +1038,10 @@ taking that row is the correct move.
 
 A turn you end while any live theorem still has no verdict is an
 **in-progress status**, and it must read as one — how many theorems
-are still outstanding, and nothing more. It carries no verdict block,
-no tally, and no findings. The harness surfaces a turn-end as
+are still outstanding, plus which resume-pass loop exit you took once
+one has fired (per "Resume a started round; never restart it" above),
+and nothing more. It carries no verdict block, no tally, and no findings. The
+harness surfaces a turn-end as
 `status: completed` with your closing message as the result, so a
 partial turn written like a report is indistinguishable, to a human or
 to `/sdlc:orchestrate`, from a finished review.
@@ -1210,9 +1221,10 @@ spawn budget with the disprover stage.
 
 A turn you end
 while any verifier is still outstanding is an **in-progress status**
-and must read as one — how many verifiers are still outstanding, and
-nothing more. It carries no verdict block, no tally, and no findings,
-for the reason the disprover wait above gives.
+and must read as one, on the same terms the disprover wait above sets:
+how many verifiers are still outstanding and which resume-pass loop
+exit you took, and no verdict block, no tally and no findings, for the
+reason that wait gives.
 
 That wait is bounded too. A verifier's deadline is **15 minutes after
 its own `enter` record** — the disprover's measured worst case reused,

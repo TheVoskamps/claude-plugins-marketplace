@@ -145,8 +145,10 @@ The `anchor` line is the reviewer's, written into `--mode header`. Its
 against, and it is what a resume compares against `origin/<branch>`
 before trusting a single record: a scheduled sweep force-rebases open
 PR branches and can fire mid-round, and verdicts from two trees must
-never be mixed. There is no round-level deadline instant — deadlines
-are per child, measured from that child's own `enter` record.
+never be mixed. The line carries no deadline instant: what a child's
+deadline is measured from is the reviewer's, owned by
+`sdlc:theorem-based-pr-reviewer` → "Resume a started round; never
+restart it".
 
 **The outstanding set is derived, never stored.** A theorem is
 **settled** once it carries any `return` record, and the outstanding

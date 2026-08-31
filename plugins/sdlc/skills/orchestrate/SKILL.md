@@ -670,8 +670,8 @@ of those rounds needs the doc pass before its re-review.
 
 The doc pass is cheap in the common case and never costs a review
 round: a round with no doc impact returns without a doc commit, and
-the review-round cap (Hard Constraints → "Max review rounds per PR")
-counts reviewer spawns only, at whatever tier the pipeline picked.
+the review-round cap (see "Hard Constraints" below) counts reviewer
+spawns only, at whatever tier the pipeline picked.
 
 Cleanup of each subagent's worktree directory happens in this phase too,
 **serially within the wave** — never in parallel. See
@@ -955,10 +955,10 @@ responses, so read what the report **says** before you act on it:
    re-spawn threw the first attempt away.
 
 4. **The round does not count against the review-round cap**
-   (Hard Constraints → "Max review rounds per PR"). It produced no
-   review, and charging the budget for a harness failure burns the
-   loop's headroom on it. Count it in the round's report instead, so
-   the human can see a PR that keeps returning mid-round rather than
+   (see "Hard Constraints" below). It produced no review, and charging
+   the budget for a harness failure burns the loop's headroom on it.
+   Count it in the round's report instead, so the human can see a PR
+   that keeps returning mid-round rather than
    converging — after two such returns on one PR, raise it as a
    **Needs Your Attention** row rather than re-spawning indefinitely.
 
@@ -1064,7 +1064,7 @@ member)**:
    human caught is a reason to ask the human for a `--generator`
    override, per "Overriding the generator tier".
 6. Repeat this loop until APPROVED or until the review-round cap
-   (Hard Constraints → "Max review rounds per PR") is reached.
+   (see "Hard Constraints" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
