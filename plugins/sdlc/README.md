@@ -157,6 +157,36 @@ whole contract is owned by
 `skills/agent-result-persist-interface/SKILL.md`. A PR that adds or
 removes an executable edits this count.
 
+## Files it writes
+
+Everything this plugin persists is written by
+`bin/sdlc-agent-result-persist` under the harness's per-session
+scratchpad, outside every repository — a review round writes nothing to
+the branch it reviews. A PR that adds or removes one of these edits this
+list, the same convention "Executables" above sets.
+
+| File | Written by | What it holds |
+| ------- | ------------ | --------------- |
+| `<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>` | every mode but `print` | the round log: one line per `anchor`, `spawn`, `enter`, `leave`, `return` and `stopped` |
+| `<that path>-<theorem>-<agent>` | `--mode leave` | one child's full report, staged as `.partial-<pid>` and renamed into place |
+| `<that path>.voided-<instant>` and `<that path>.voided-<instant>-<theorem>-<agent>` | `--mode anchor`, on a head SHA that differs from the log's | the log and every result file of a round whose branch moved under it, set aside rather than overwritten |
+
+The `enter` record also carries a fourth path,
+`~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
+— the harness's own transcript of that child. The script **composes**
+that path and writes nothing there; recording it is what lets a
+post-mortem reach a child's transcript after its worktree is gone.
+
+**Nothing ever removes any of it, and that is deliberate.** There is no
+cleanup mode, no expiry, and no sweep: a round log outlives the
+worktrees of every child it names, and the voided copies outlive the
+round they describe. That accumulation is the debugging trail — a
+stalled or voided round is diagnosed from these files and from nothing
+else, since the reviewer holds no state across a turn. Deleting on a
+schedule would throw away the evidence at exactly the moment it is
+wanted, so the growth is left for the session scratchpad's own lifetime
+to bound.
+
 ## Agents
 
 Every agent declares `isolation: worktree`, so the harness creates a

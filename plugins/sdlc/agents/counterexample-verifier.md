@@ -290,9 +290,9 @@ failed, and the command output or quoted text that shows it>
 offered counterexample, so it is what tells a human why a candidate
 finding was dropped. It must engage this counterexample specifically.
 A reason that only says the theorem looks fine, or that you could not
-follow the disprover, is malformed — the pipeline re-spawns you once
-on a malformed report, and a second malformed report makes the finding
-stand.
+follow the disprover, is malformed — you get no second attempt, and a
+malformed report makes the finding stand on the disprover's proposed
+consequence class.
 
 Refuting a counterexample does **not** prove the theorem. You checked
 one offered refutation and rejected it; say only that.

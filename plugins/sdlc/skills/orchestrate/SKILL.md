@@ -952,8 +952,8 @@ responses, so read what the report **says** before you act on it:
    result files, keeps every theorem already settled there, and
    re-attacks only the rest (see
    the `sdlc:theorem-based-pr-reviewer` agent → "You are re-entrant",
-   which also names the one spawn a settled theorem
-   still gets and what it is for). So a
+   where one child per theorem per stage is an invariant and a settled
+   theorem gets no second child at all). So a
    second in-progress return means the round
    is still making no progress on what it has left, not that the
    re-spawn threw the first attempt away.

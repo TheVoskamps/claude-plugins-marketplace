@@ -128,6 +128,16 @@ writes**, and `print` for the one that reads.
   written before the record that names it, so a run that dies between
   the two leaves the report readable rather than a record pointing at
   nothing.
+
+  Stdin lands first in `<result-file>.partial-<pid>` and is renamed into
+  place only once it is whole, because a result file's mere existence
+  settles its theorem: a report streamed straight to its own name would
+  settle the theorem from a fragment the moment the first byte landed,
+  and a child killed mid-write would leave that fragment there for
+  good. The rename is what makes the file appear complete or not at
+  all, and the `-<pid>` suffix is what keeps two writers from staging
+  over each other. A refused empty report leaves nothing behind: the
+  staging file is removed before the call exits non-zero.
 - **`return`** — appends one `return` record for `--theorem` in
   `--stage`, carrying `--agent-id` and the optional `--tokens`,
   `--tools` and `--ms`. The caller's, from a `<task-notification>` it
@@ -140,7 +150,9 @@ writes**, and `print` for the one that reads.
   is never its to stop, and the record is what says the child was
   written off either way.
 - **`print`** — writes the round log to stdout, followed by one
-  `result` line per result file present. Exits non-zero when the log
+  `result` line per result file present. A `.partial-<pid>` staging
+  from a `leave` still in flight is **skipped**, so a report reaches a
+  reader whole or not at all. Exits non-zero when the log
   does not exist, which means neither the round's `anchor` call nor any
   child's `enter` has run — the fresh-round case the reviewer branches
   on before spawning anything.
@@ -262,10 +274,12 @@ subtracted the theorem from the outstanding set would report an
 unanswered theorem as settled. The `enter` record, not this one, is
 what names the stopped child's worktree for cleanup.
 
-**A duplicate `leave` is a diagnostic, not a conflict.** A child
-written off as lost can report anyway, leaving one theorem with two
-`leave` records and one result file overwritten by the later child. The
-reader takes the theorem as settled either way and reads the report
-that is there; the pair of records is evidence that a child believed
-dead was alive, and it is worth reporting as such. No line is revised,
-so concurrent appends cannot collide.
+**A duplicate `leave` is a diagnostic, not a conflict, and the later
+one wins.** A child written off as lost can report anyway, leaving one
+theorem with two `leave` records and one result file — the later
+child's, since its rename overwrote the earlier report. So the
+theorem's verdict is the later child's by construction: it is the
+verdict in the one file there is to read, and no reader has a tie to
+break. Both records stay in the log, because the pair is evidence that
+a child believed dead was alive, and the reader reports it as such. No
+line is revised, so concurrent appends cannot collide.

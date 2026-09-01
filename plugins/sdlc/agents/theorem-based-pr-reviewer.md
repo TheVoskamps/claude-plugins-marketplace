@@ -203,21 +203,28 @@ No parameter tells you which arm you are in, and none may. A flag is a
 second source of truth that can disagree with the log, and when it
 disagrees the log wins anyway.
 
-**A theorem is settled when its child wrote `leave`, or when its result
-file exists — never when you heard back.** Both derivations are owned
-by the preloaded `sdlc:agent-result-persist-interface` skill → "What the
-reader derives", including the in-flight one below. The verdict itself
-is in the result file: read the file the record names rather than
-inferring a verdict from the log.
+Which theorems are settled, and which have a child in flight, are both
+derived by the preloaded `sdlc:agent-result-persist-interface` skill →
+"What the reader derives". The verdict itself is in the result file:
+read the file the record names rather than inferring a verdict from the
+log.
 
 **Keep what is settled, re-run the rest.** A settled theorem is never
 re-attacked to find out what it says — its report is on disk in full, so
 no spawn can recover anything a record left out. That is the whole
 saving: a stalled round that had settled 4 of 24 theorems resumes with
-20 to run, not 24. The one spawn a settled theorem still gets is the
-remedy for a report that came back **malformed**, which the two fan-out
-sections define; that is keyed on the report's quality rather than on
-its absence, and its replacement report is the one the round then reads.
+20 to run, not 24. **One child per theorem per stage is an invariant**:
+a theorem never carries two children at once, and no remedy path
+anywhere below spawns a second one for a theorem that already has one.
+The deadline replacement in the next paragraph is not an exception — the
+child it replaces was recorded `stopped` first, so the theorem had none
+when the replacement went out. A theorem whose report came back
+**malformed** is settled like any other and gets no replacement at all:
+it takes the disposition "Derive each theorem's disposition" gives a
+report that cannot be graded. A second child there would be invisible to
+the in-flight derivation, which excludes every theorem with a result
+file — so the round could double-spawn it, or grade it from the stale
+report, and would never arm the replacement's deadline.
 
 **A theorem with a child still in flight is not re-spawned.** Subtract
 the in-flight set as well as the settled one: a predecessor's child that
@@ -230,8 +237,10 @@ outstanding theorem with no child in flight is spawned without further
 question.
 
 A **duplicate `leave`** is a diagnostic worth reporting rather than a
-conflict — either a child believed dead reported anyway, or a malformed
-report's replacement landed. The later report is the one on disk.
+conflict: a child written off as lost reported anyway, after its
+replacement had already reported. Both records stay in the log, the
+later child's report is the one on disk, and that later verdict is the
+theorem's.
 
 **A `stopped` after that `enter` says the child is gone, while the
 theorem stays outstanding.** A stop kills the child, not the theorem:
@@ -272,6 +281,10 @@ unsettled, waiting for them, and re-reading the log. It is not the
 turn-level resume "Fan out the verifiers" runs, which is how the
 waiting itself is done: many turn resumes happen inside one pass, and
 only a pass spawns anything.
+**One count spans all three stages.** Every re-spawn a deadline
+authorises is a resume pass — the generator's as much as a disprover's
+or a verifier's — and each increments the same count, so a stage that
+keeps failing runs out of passes instead of re-spawning forever.
 Take another pass only while the last one settled at least one theorem
 the log did not already have; stop at 7 passes whatever happened.
 Either exit is an escalation: report an in-progress status naming the
@@ -775,6 +788,13 @@ Without that override a generator that entered and died parks the round
 forever: no later stage runs until the list is settled, so nothing else
 would ever release it.
 
+**That replacement is a resume pass**, and it is counted as one against
+the shared pass count and the 7-pass hard stop per "You are re-entrant"
+above — the bound that stops a generator failing the same way every time
+from re-spawning without end. Once the loop exits with the list still
+unsettled, the round has no theorems and posts no review: report an
+in-progress status naming the `generate` stage and which exit you took.
+
 Otherwise spawn the definition "Pick the generator tier" settled on,
 with the `Agent` tool, passing the resolved set from "Identify the issue
 set" — not the caller's claim.
@@ -1131,10 +1151,13 @@ in "Derive each theorem's disposition" has a row for the theorem you
 cannot settle, and taking that row is the correct move.
 
 A turn you end while any live theorem still has no verdict is an
-**in-progress status**, and it must read as one — how many theorems
-are still outstanding, plus which resume-pass loop exit you took once
-one has fired (per "You are re-entrant" above),
-and nothing more. It carries no verdict block, no tally, and no findings. The
+**in-progress status**, and it must read as one — the outstanding
+theorems named by id and which stage they are outstanding in, plus which
+resume-pass loop exit you took once one has fired (per "You are
+re-entrant" above), and nothing more. Name them rather than counting
+them: a count tells your caller nothing about whether spawning you again
+would buy anything, which is the one decision it takes from this report.
+It carries no verdict block, no tally, and no findings. The
 harness surfaces a turn-end as
 `status: completed` with your closing message as the result, so a
 partial turn written like a report is indistinguishable, to a human or
@@ -1204,12 +1227,17 @@ matches nothing at the head commit; a filesystem quote from the primary
 clone is the rarer instance, because the permission-gate denies a `Read`
 or a curated read command naming a primary-clone path — and one that
 asserts file topology without having run a topology command (see "Before
-claiming file-topology issues" below). Re-spawn that one disprover with
-the same brief rather than filing the finding on a paraphrase or
-dropping it silently; if the second run is malformed too, the theorem is
-unsettled — see the disposition table in "Derive each theorem's
-disposition". Spawning a verifier against a malformed report would waste
-the check on evidence that has already failed a cheaper one.
+claiming file-topology issues" below). Such a theorem takes the **could
+not be settled** disposition in "Derive each theorem's disposition", and
+is live again next round — which is the remedy. Never file the finding
+on a paraphrase, and never drop it silently. Spawning a verifier against
+a malformed report would waste the check on evidence that has already
+failed a cheaper one, and spawning a **second disprover** would break
+the one-child-per-theorem-per-stage invariant "You are re-entrant"
+states. The theorem is settled in the log's sense — its report is on
+disk, and what it lacks is a gradeable verdict, not a report — so a
+replacement child is invisible to the in-flight derivation every later
+read runs.
 
 A settled `DISPROVED` theorem always has its counterexample to hand:
 the disprover wrote its whole report to its result file, and a
@@ -1263,11 +1291,13 @@ do not spawn a second verifier to check the refutation. One attack,
 one check.
 
 A verifier report that carries no reason, or a reason that does not
-engage the counterexample it was handed, is malformed. Re-spawn that
-one verifier with the same brief; if the second report is malformed
-too, the finding **stands** — resolve toward filing, never toward
-silently dropping a counterexample that carried verbatim evidence, and
-take the consequence class from the disprover's proposal in that case.
+engage the counterexample it was handed, is malformed. The finding then
+**stands** — resolve toward filing, never toward silently dropping a
+counterexample that carried verbatim evidence, and take the consequence
+class from the disprover's proposal. Spawn no second verifier: the
+theorem is settled and its report is on disk, so a replacement would
+break the one-child-per-theorem-per-stage invariant "You are re-entrant"
+states and be invisible to every later read's in-flight derivation.
 
 **Subtract what the log already answers here too** — exactly as "Fan
 out the disprovers" did for its own stage, and for its reason: a resumed
@@ -1296,12 +1326,12 @@ read the clock and compare it against each outstanding verifier's own
 admissible-source rule above holds unchanged here — a verifier with no
 result file has given you no verdict — and so does the resume-pass loop,
 which bounds this stage's re-spawns the same way and shares one pass
-count with the disprover stage.
+count with the generate and disprove stages.
 
 A turn you end
 while any verifier is still outstanding is an **in-progress status**
 and must read as one, on the same terms the disprover wait above sets:
-how many verifiers are still outstanding and which resume-pass loop
+the outstanding verifiers named by theorem id and which resume-pass loop
 exit you took, and no verdict block, no tally and no findings, for the
 reason that wait gives.
 
@@ -1345,9 +1375,9 @@ counterexample.
 | `SURVIVED` | not spawned | **Verified** list, carrying what the disprover checked |
 | `DISPROVED` | `REFUTED` | **Verified** list, with the offered counterexample and the rejection reason on the line |
 | `DISPROVED` | `STANDS` | a **finding** → severity → verdict, per the chain below |
-| `DISPROVED` | malformed twice (the verifier's own re-spawn path) | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
+| `DISPROVED` | malformed | a **finding** → severity → verdict, per the chain below, with the consequence class taken from the disprover's proposal |
 | `DISPROVED` | no verdict once the resume-pass loop exits | **disproved, unverified** — no finding, no severity |
-| malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
+| malformed | not spawned | **could not be settled**, no severity |
 | no verdict once the resume-pass loop exits | not spawned | **could not be settled**, no severity |
 | a verdict carried by no result file | not spawned | **inadmissible** — not a verdict at all; the theorem takes the no-disprover-verdict row above |
 
@@ -1364,7 +1394,7 @@ survival is something a disprover reported, and this row exists so that
 by supplying one.
 
 "Could not be settled" and "unsettled" are the same disposition —
-the two rows that resolve to it, the disprover-malformed-twice row and
+the two rows that resolve to it, the disprover-malformed row and
 the no-disprover-verdict row. The long form is what the posted review
 body's section is titled; "unsettled" is the shorthand this file and
 the report-back tally use for it.
@@ -1373,10 +1403,10 @@ The **disproved, unverified** row resolves like neither of its
 neighbours, and reaching for whichever row is nearest gets it wrong in
 both directions. `disproved` is the truthful state: the disprover did
 settle the claim and produced a verbatim counterexample, and only the
-verification is missing. The verifier-malformed-twice row above it
+verification is missing. The verifier-malformed row above it
 resolves toward *filing* the finding, because a malformed report is a
-returned artifact that failed a quality bar twice — the re-spawn remedy
-has been tried and exhausted. A verifier that never returned produced
+returned artifact that failed a quality bar — the stage ran and produced
+something to grade. A verifier that never returned produced
 no artifact at all, and filing a finding whose counterexample nobody
 checked is the exact outcome the verification stage exists to prevent.
 The unsettled rows below it get the severity outcome right and the
@@ -1389,7 +1419,7 @@ disprover's counterexample quote **verbatim** — you do not re-quote
 the source yourself, and you never paraphrase what either agent sent.
 Its severity is the transcription of the consequence class the row
 above assigns it — the verifier's, or the disprover's proposal on the
-verifier-malformed-twice row — per "Consequence classes are
+verifier-malformed row — per "Consequence classes are
 transcribed, not graded" below, and it is tagged to the member
 issue(s) the theorem carried.
 
@@ -1403,7 +1433,7 @@ above settle their theorem, so each is stamped `retired` **in this
 round**, per "Retire on survive" above, with `state-detail: survived` or
 `state-detail: disproved-but-refuted` saying which of the two settled it
 and `settled-at` carrying this round's head SHA. The `STANDS`,
-verifier-malformed-twice and no-verifier-verdict rows are stamped
+verifier-malformed and no-verifier-verdict rows are stamped
 `disproved` — the last of those with `state-detail: unverified` — and
 the two unsettled rows `unsettled`; all of them are live again next
 round, so none retires.
@@ -1466,17 +1496,30 @@ git worktree list
 git worktree remove <absolute-path-from-the-listing>
 ```
 
-**Remove only the worktrees this round owns**, which are two sets and
-no more: the children you spawned yourself, and the `agent-<agent-id>`
-directories this round's own log names in its `enter`
-records — the generator's among them, which no earlier design recorded.
-That second set is how a resumed instance clears the children
-its predecessor left behind — cleanup is the one thing you may do to a
-child you did not spawn, and `TaskStop` remains forbidden on it per
-"You are re-entrant". Multiple sessions share
-`.claude/worktrees/`, so anything wider than those two sets reaches
-into another session's work: never sweep the listing by pattern, and
-never remove a worktree just because it looks like a review agent's.
+**The removal set is exactly the `agent-<agent-id>` directories this
+round's own log names in its `enter` records** — the generator's among
+them, which no earlier design recorded. That is one set, not two, and it
+is derived from the log rather than from what you remember spawning:
+your own children are in it on the same terms a predecessor's are, which
+is how a resumed instance clears what its predecessor left behind.
+Cleanup is the one thing you may do to a child you did not spawn, and
+`TaskStop` remains forbidden on it per "You are re-entrant". Multiple
+sessions share `.claude/worktrees/`, so anything wider reaches into
+another session's work: never sweep the listing by pattern, and never
+remove a worktree just because it looks like a review agent's.
+
+A child that died before writing its `enter` record is named by nothing
+in the log, so its worktree is **not** yours to remove even if you
+spawned it: a `spawn` record carries no agent id and no path, and you
+learn a child's worktree name from its own `enter` and nowhere else.
+Guessing from the listing is the pattern sweep this section forbids.
+The log does say one exists — a `spawn` record with no `enter` in that
+stage — so report the theorem and stage instead of the path you cannot
+resolve, and let it reach the run summary and the human's whole-repo
+`/git-tools:git-cleanup-branches-and-worktrees` sweep, which is what
+`sdlc:orchestrate` → "Sweep the run's leftover worktrees at the end"
+leaves it to. A leaked directory costs disk; a wrong removal costs
+another session its work.
 
 Remove by the **absolute** path `git worktree list` prints, never by a
 short `.claude/worktrees/<name>` form. `git worktree remove` resolves a
@@ -1615,10 +1658,9 @@ diff <path-A> <path-B>          # do two paths have different content?
 ```
 
 A disprover that reports `DISPROVED` on a topology claim without such a
-command has not disproved it. That report is malformed, so it is sent
-back at "Fan out the verifiers" before any verifier is spawned; if the
-second report is malformed the same way, treat the theorem as unsettled
-rather than filing the finding. A hedged-but-wrong topology finding
+command has not disproved it. That report is malformed, so "Fan out the
+verifiers" spawns no verifier against it and the theorem is unsettled
+rather than a filed finding. A hedged-but-wrong topology finding
 ("appears to be a separate copy", "likely out of sync") still lands as
 fact to the reader and is the exact failure mode this section exists to
 prevent.
@@ -1631,13 +1673,13 @@ in advance, broken by a counterexample, and then put to a second
 reader briefed to reject that counterexample — with the verification
 stage ending in no rejection and nothing further to try. A verifier
 that attacked the counterexample and reported `STANDS` ends it that
-way, and so does one that returned a malformed report twice: that
-spends the one re-spawn the stage has, so the remedy is exhausted with
-the counterexample unrejected.
+way, and so does one that returned a malformed report: the stage ran
+and produced an artifact that failed a quality bar, leaving the
+counterexample unrejected.
 
 A verifier that never reported is the case that is *not* that. It
-returned no artifact at all, so the stage is unfinished rather than
-exhausted, and the remedy — a verifier next round, against a theorem
+returned no artifact at all, so the stage never reached a report to
+grade, and the remedy — a verifier next round, against a theorem
 that stays live — has not been tried. Nothing else in the review body
 gets a severity label.
 
@@ -1653,11 +1695,10 @@ The non-finding homes are:
   among the **Disproved theorems**,
   saying no verifier ever checked the counterexample. Never a finding:
   that verifier returned no artifact at all, so the verification stage
-  is unfinished rather than exhausted, and the theorem is live again
+  never reached a report to grade, and the theorem is live again
   next round for a verifier to attack. That is what separates it from
-  a verifier that reported malformed twice, which does file a finding
-  — a returned artifact that failed a quality bar, with the one
-  re-spawn already spent.
+  a verifier that reported malformed, which does file a finding
+  — a returned artifact that failed a quality bar.
 - **An intentional, documented design choice nobody disputes** → not a
   finding at all. If the review disputes it, that dispute was a
   theorem and it is a finding graded on its consequence.
@@ -1725,7 +1766,7 @@ body with these sections, in this order:
    quote copied through verbatim, the consequence reasoning as the
    verifier confirmed or corrected it, and a closing cross-link
    `→ Finding N`. This is where the evidence lives. On any entry for
-   which no usable verifier report exists — a verifier malformed twice,
+   which no usable verifier report exists — a malformed verifier report,
    whose finding stands anyway — give the consequence as the *disprover*
    proposed it and say the verifier's report was malformed, so the
    entry never claims a verifier confirmation that did not happen. An entry
@@ -1942,10 +1983,10 @@ The class comes from the verifier's `STANDS` report: where the verifier
 and the disprover disagree, the verifier's class is the one you take,
 per `counterexample-verifier` → "The consequence classes", which states
 why. The one case where you take the disprover's proposal is the one
-"Fan out the verifiers" defines: a verifier malformed twice, whose
-finding stands anyway. If a `STANDS` report carries no class at all,
-that is a malformed report — re-spawn per "Fan out the verifiers" rather
-than assigning a class yourself. You are not a source of consequence
+"Fan out the verifiers" defines: a malformed verifier report, whose
+finding stands anyway. A `STANDS` report carrying no class at all is
+malformed on exactly those terms, so it takes that same row rather than
+a class you assign yourself. You are not a source of consequence
 grades any more than you are a source of theorems — everything you write
 into a record is transcribed from the agent or the human that produced
 it.
@@ -2041,6 +2082,10 @@ on an in-progress return — which loop exit you took (a pass that
 settled nothing new, or the seventh pass) and which
 theorems are still outstanding. That is what tells your caller whether
 spawning you again would buy anything.
+
+Report any child whose `spawn` record got no `enter` too, by theorem and
+stage. Its worktree is not yours to remove, per "Clean up the spawned
+worktrees", and this line is the only record that one may be left over.
 
 Also report which generator tier ran and whether the rubric or a
 `--generator` override picked it, so an override has something to
