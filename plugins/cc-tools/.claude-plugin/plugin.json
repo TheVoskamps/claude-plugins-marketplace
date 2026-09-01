@@ -1,6 +1,6 @@
 {
   "name": "cc-tools",
-  "description": "Claude Code meta-skills: load all global rules, track Claude Code feature/bug watchlist status, report what changed upstream since the last run filtered to this machine's settings and plugins, curate a repo's .claude/agent-memory/ in one acting pass, and route a session's agent memory through a scratchpad inbox — capture on the writer side, transfer-or-delete into CLAUDE.md and docs on the curator side.",
-  "version": "0.5.0",
+  "description": "Claude Code meta-skills: load all global rules, track Claude Code feature/bug watchlist status, report what changed upstream since the last run filtered to the topics in the user's own cc-tools config, curate a repo's .claude/agent-memory/ in one acting pass, and route a session's agent memory through a scratchpad inbox — capture on the writer side, transfer-or-delete into CLAUDE.md and docs on the curator side.",
+  "version": "0.6.0",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }
