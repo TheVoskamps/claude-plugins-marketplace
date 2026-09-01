@@ -1804,7 +1804,20 @@ must not be runtime-editable. **Changing policy means editing the Go
 source, re-running the test suite, rebuilding every committed binary,
 and recommitting them.**
 
-It also means sweeping the surfaces that describe a verdict. Classifier
+That holds for the prescription a deny carries as much as for the
+verdict it reaches. `scratchDestinations` composes the scratch
+remediation at deny time out of the repo root and the uid the gate has
+already resolved, so the emitted message states the whole convention to
+the agent that needs it. A document restating it is a second copy
+nothing tests, which is what `plugins/guardrails/rules/`'s
+`scratch-file-location.md` had become before issue #362 deleted it.
+Record a design decision worth keeping in this README instead; the
+plugin ships no rule file of its own, because a `rules/` directory
+inside a plugin loads nowhere (see
+[`docs/plugin-authoring-constraints.md`](../../../../docs/plugin-authoring-constraints.md)).
+
+Changing policy also means sweeping the surfaces that describe a
+verdict. Classifier
 behavior is owned here and by no other plugin, and each `/docs` surface
 that names a verdict is bounded to one reader — so sweep by grepping
 what each names rather than by opening the files this list happens to

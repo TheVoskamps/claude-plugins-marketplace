@@ -75,6 +75,18 @@ revision moves them.
    permission rules — or an unattended call becomes a prompt nobody is
    there to answer.
 
+8. **A plugin cannot ship a rules file.** Claude Code loads instruction
+   files from `CLAUDE.md` and `.claude/rules/*.md` in a project and
+   from the user's own `~/.claude/` — the surfaces
+   `plugins/show-loaded-rules/` reports on `InstructionsLoaded` — and
+   from nowhere inside a plugin. A `rules/` directory in a plugin tree
+   therefore reaches no session's context: it ships inert, and only a
+   link resolving inside a checkout of this marketplace can even point
+   at it, which is how `plugins/guardrails/rules/scratch-file-location.md`
+   went unread until issue #362 deleted it. A rule a plugin needs its
+   consumers to follow has to travel as something that does load — a
+   skill, an agent's instructions, or the text its hook emits.
+
 ## Patterns this marketplace uses
 
 ### Sharing reference content (`lib/`)
