@@ -63,7 +63,7 @@ no-repo-context residual, not the `ask` a stale note may expect, so
 such a note reads as a probe failure rather than the setup mistake
 it is.
 
-Two probe-cwd traps fake a whole result table:
+These probe-cwd traps each fake a whole result table:
 
 - A cwd that does not **exist** resolves no repo context, so every row
   — including the control — comes back `defer` and the table looks
@@ -92,20 +92,57 @@ probe. Read the reason string, not just the bucket: both are denies. Use
 
 ### Pick the probe form by the track the program takes
 
-The read tracks have different terminals for the same containment
-verdict: the read-only-utility track *allows* any operand that is
-contained or carved out, while the pager/dumper track (`less`, `more`,
-`od`, `xxd`) *defers*. A probe whose track already produces the bucket
-you expect proves nothing about the carve-out under review. Read the
-program's classifier arm first, then pick a probe whose verdict can
-actually change.
+The read tracks diverge on a merely **contained** operand: the
+read-only-utility track *allows* it, while the pager/dumper track
+(`less`, `more`, `od`, `xxd`) *defers*. An operand landing in a
+carve-out the bash engine honors *allows* on both tracks —
+`less <scratchpad>/f` and `cat <scratchpad>/f` alike. A probe whose
+track already produces the bucket you expect proves nothing about the
+carve-out under review. Read the program's classifier arm first, then
+pick a probe whose verdict can actually change. Check first whether the
+carve-out reaches the bash engine at all: a file-tool-only one moves no
+bash verdict in either direction, so every bash probe of it is vacuous.
 
-Two related facts older notes get backwards: `ls` **is** on the
+Related facts older notes get backwards: `ls` **is** on the
 read-only-utility allow track, so it grades a path rather than
 deferring on every one; and a redirect target **is** graded —
 destinations land in `sc.redirectTargets` and are decided by
 `redirectVetoesAllow`. Neither `ls <path>` nor `cmd > <path>` is a
 vacuous probe.
+
+### A `$HOME`-rooted rule is settled by `go test`, not by a replay
+
+The `~/.config` carve-out and the `~/.claude` one are rooted at the real
+home directory, and a worktree-isolated agent can build no fixture for
+either. Each obstacle below is decisive on its own.
+
+**A `HOME=<dir>` prefix is refused** — not by the gate, but by the
+harness's worktree-isolation guard, which answers "this command sets
+HOME, injecting git configuration whose effect on where git writes can't
+be verified". It is not scoped to `git`: the refusal is measured on
+`/usr/bin/env` and on the gate binary itself reading a synthetic event,
+with the fake home inside the worktree both times. Its message opens
+"This agent is isolated in the worktree", so it reads as
+isolation-conditional, and a probe of this form run from a main session
+is no evidence about the subagent that needs the answer. Another
+environment assignment on the same command is not refused (`FOO=bar` on
+the same `/usr/bin/env` runs), so this is a rule about `HOME`, not about
+env prefixes.
+
+**A fake home would have no baseline anyway.** Every directory such an
+agent may create is one the gate already blesses: under the repo root a
+path is contained (DEFER), under the harness scratchpad it is carved out
+(ALLOW), and a `mkdir` elsewhere under `/tmp` denies. So a listed path
+inside a fake home never earns the deny the rule under test is meant to
+overturn. A synthetic replay can therefore exercise these rules only
+against whatever the driving machine's own home directory holds.
+
+Settle them in the package tests instead, where `t.Setenv("HOME", …)`
+over a `t.TempDir()` builds the fixture the replay cannot
+(`xdg_config_carveout_test.go` is the worked example). Replay still
+earns its place as the negative control: the unconfigured machine you
+are running on denies the very reads the carve-out is for, and that
+verdict is real evidence.
 
 ## Prove which source a committed binary came from
 
@@ -165,7 +202,7 @@ the latest commit.
 
 ## Adjudicate a "comments only, no behavior change" round
 
-Two commands, and they are decisive rather than suggestive:
+These commands are decisive rather than suggestive:
 
 1. Non-comment lines changed must be zero:
 
@@ -396,7 +433,7 @@ bundled row in both field orders. The check walks the document's
 fields, so a probe that always puts the redirectable verb first cannot
 tell a whole-document rule from a first-match one.
 
-Two traps in running the query itself:
+Traps in running the query itself:
 
 - **`__Type.inputFields` may be used at most twice per document.** A
   third alias fails the whole query with
@@ -475,7 +512,7 @@ the compiled maps.
 **Dump the cross from the package itself.** `git archive HEAD` the
 package into `.claude/tmp/`, drop in a `zz_dump_test.go` that unions
 the nouns and verbs out of every table the classifier dispatches on,
-and write `<tool> <noun> <verb>` lines to `$CROSS_OUT`. Two things make
+and write `<tool> <noun> <verb>` lines to `$CROSS_OUT`. What makes
 it honest: function-local literals have to be restated, so assert every
 restated member back through the real predicate in the same test, plus
 a non-member, or you are grading your own transcription; and report the
@@ -505,7 +542,7 @@ So grade the derivation, not the total: a PR that states a width and
 its composition is reproducible, and one that states a bare count is
 not.
 
-Three more replays are cheap once the rig exists:
+More replays are cheap once the rig exists:
 
 - **Last-reviewed tip to current tip**, bounding what the rounds since
   the last review changed. Anything moving beyond the directed change
@@ -705,13 +742,16 @@ not obstacles to route around — each has a plain spelling that works:
   write target that resolves outside the repository, so no in-repo
   spelling gets through. Use the Edit tool, or copy the file and edit
   the copy — `cp` itself is fine.
-- Setting `HOME=` inline is refused, since a redirected HOME changes
-  where git reads configuration and therefore where git might write.
-  This does not make a HOME-redirected experiment impossible: move it
-  into a container, where the redirection is the container's business
-  and no host git configuration is in play.
+- Setting `HOME=` inline is refused on ANY command, not just a git one,
+  since a redirected HOME changes where git reads configuration and
+  therefore where git might write — see "A `$HOME`-rooted rule is
+  settled by `go test`" above for the measured rows. This does not make
+  a HOME-redirected experiment impossible: move it into a container,
+  where the redirection is the container's business and no host git
+  configuration is in play.
 - An inline environment assignment on a `git` command is denied
-  outright — the `HOME=` case above is one instance of it — so
+  outright — a narrower rule than the `HOME=` one above, reaching every
+  variable rather than every command — so
   `GIT_EDITOR=true git rebase --continue` never runs. `git rebase
   --continue` accepts no `--no-edit` of its own either, and prints its
   usage instead. Finish a conflicted rebase by staging the resolution,
@@ -739,7 +779,8 @@ Forms that look like they should be refused and are not, so no
 workaround is warranted: a leading `GOOS=`/`GOARCH=`/`CGO_ENABLED=`
 assignment on a `go build`, `podman run` including a host bind-mount,
 `mkdir -p` and `>` redirects relative to the worktree cwd, and an
-environment prefix on a program the git/gh/aws classifiers never see.
+environment prefix naming anything but `HOME` on a program the
+git/gh/aws classifiers never see.
 
 The Edit tool enforces the worktree boundary independently of the gate.
 Anchor every path to the worktree root, reads included: a primary-clone
@@ -821,16 +862,38 @@ format error. Cross-check both directions.
 
 ## `cat` already allows, so probe a read carve-out with something else
 
-The gate has two bash read tracks with different terminals for the same
-containment verdict: the curated read-only utilities (`cat`, `head`,
-`grep`) terminate in **allow** for any operand that is contained or
-lands in any carve-out, while the path-reader track (`less`, `more`,
-`od`) terminates in **defer**.
+The gate has two bash read tracks with different terminals for a merely
+**contained** operand: the curated read-only utilities (`cat`, `head`,
+`grep`) terminate in **allow**, while the path-reader track (`less`,
+`more`, `od`, `xxd`) terminates in **defer**. A carve-out the bash
+engine honors lifts the path-reader track to **allow** as well, so the
+two tracks agree there.
 
-So an assertion that `cat <new-carve-out-path>` allows passes
-identically before and after the carve-out exists. Probe a new read
-carve-out with a path-reader utility or the file-read tool, or the
-negate-check leaves every `cat` assertion green while proving nothing.
+So an assertion that `cat <path>` allows proves nothing about a
+carve-out carved inside a region that was already contained: the row
+was green before the carve-out existed. Probe that carve-out with a
+path-reader utility or the file-read tool, whose contained terminal is
+a defer, or the negate-check leaves every `cat` assertion green while
+proving nothing.
+
+A carve-out scoped to the **file-tool track alone** — the
+operator-configured `~/.config` listing is one — inverts the trap
+without escaping it: `cat` of a listed path **denies** before and after,
+because the bash engine never consults the listing. There the file-read
+tool is the only probe that moves, and a bash row belongs in the table
+only as the control that pins the asymmetry.
+
+The two tracks agree on a path **outside** the repository: `Read`,
+`cat` and `jq` all deny `/etc/passwd` and `~/.zshrc` alike. A sentence
+claiming one track denies where the other defers is therefore false for
+every out-of-repo operand, and a probe pair built from one settles
+nothing about the asymmetry it names. The file tool keeps a residual of
+its own inside the repository — `Read` of a `.git/` path defers — so
+say which region an asymmetry claim covers before probing it. Sentences
+asserting a bash-versus-file-tool split are the ones a gate doc round
+should probe first: they get written while the author's attention is on
+the arm being added, and no test covers a claim about a track the
+change did not touch.
 
 ## Measure which AST node a construct hangs off
 
@@ -885,10 +948,9 @@ Build one row list covering the fix, its mirror and unrelated controls,
 and replay it through both the base and rebuilt binaries in one table.
 Keep a known-contained read in it: if the probe's working directory
 loses repository context every row reads the residual bucket and the
-table is meaningless. Two traps produce exactly that — a working
-directory that does not exist, and relative levels counted by feel that
-resolve back inside the primary clone (a worktree-escape deny, not the
-cross-repo one).
+table is meaningless. That happens when the working directory does not
+exist, and when relative levels counted by feel resolve back inside the
+primary clone (a worktree-escape deny, not the cross-repo one).
 
 ## A teaching verdict is graded per document, not per element
 
@@ -938,7 +1000,7 @@ URL, and containment can never catch that, because containment bounds
 which file, and a contained file is exactly where "the bytes stay on
 the machine" fails.
 
-Two follow-ons. A screen that decided a branch you are making
+Follow-ons. A screen that decided a branch you are making
 unconditional is **dead, not repurposable** — a walk that reported a
 flag being *named* cannot describe the value it carried, so reusing it
 to sharpen the message produces a false sentence. And negative-control

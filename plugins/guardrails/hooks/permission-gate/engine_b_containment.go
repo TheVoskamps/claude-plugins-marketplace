@@ -339,7 +339,8 @@ const (
 	harnessScratch
 	// harnessScratchSession: target is under <system-tmp>/claude-<uid> AND the
 	// remainder matches the per-session shape → ALLOW on every track,
-	// reads and writes alike. This is the one carve-out verdict that outranks
+	// reads and writes alike — bar a target under a `.git/` segment, which the
+	// file-tool track denies. This is the one carve-out verdict that outranks
 	// settings.json, which is deliberate: the harness directs the model to this
 	// exact tree, and a defer would leave the feature dead until every /tmp entry
 	// is removed from settings.json.
@@ -643,9 +644,11 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// this returns:
 	//
 	//	remainder matches the per-session shape → harnessScratchSession
-	//	  (ALLOW on every track, read and write alike)
+	//	  (ALLOW on every track, read and write alike, bar a `.git/` segment,
+	//	  which the file-tool track denies)
 	//	remainder matches bundled-skills        → harnessScratchBundled
-	//	  (read ALLOW / write DEFER — graded by the caller, see there)
+	//	  (read ALLOW / write DEFER — graded by the caller, see there; the
+	//	  same `.git/` deny applies)
 	//	remainder does not match                → harnessScratch
 	//	  (not an escape and not carve-out grounds for an ALLOW: the caller's
 	//	  terminal for a contained target governs, which is a DEFER on the

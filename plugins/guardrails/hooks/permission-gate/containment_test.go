@@ -497,6 +497,46 @@ func TestHarnessScratchSessionAllowed(t *testing.T) {
 	}
 }
 
+// A `.git/` segment inside the scratchpad prefix denies for read and write
+// alike, so no carve-out hands out a git internals tree — the sibling of
+// TestXDGConfigCarveOutDoesNotOpenGitTree, with the same two halves: the write
+// on the top-of-walk rule, the read inside the arm that grades scratchpad
+// eligibility, which is the only place such a read could otherwise reach an
+// ALLOW (a target under the harness prefix is outside the worktree, so without
+// the carve-out it is an escape). Every allow-eligible region is covered, and
+// the sibling non-`.git/` read is the negative control that the deny is the
+// `.git/` rule rather than a shape miss.
+func TestHarnessScratchDoesNotOpenGitTree(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	root := canonicalize(repo)
+	uid := os.Getuid()
+
+	regions := map[string]string{
+		"session scratchpad": filepath.Join(sessionSlug, sessionUUID, "scratchpad"),
+		"session tasks":      filepath.Join(sessionSlug, sessionUUID, "tasks"),
+		"bundled-skills":     filepath.Join("bundled-skills", bundledVersion, bundledHash, "skill"),
+	}
+	for what, rel := range regions {
+		target := scratchTarget(uid, rel, ".git", "config")
+		for _, tc := range []struct{ tool, op string }{
+			{"Read", "read:.git tree"},
+			{"Write", "write:.git tree"},
+		} {
+			d := fileToolBucket(t, tc.tool, root, target)
+			wantBucket(t, d, BucketDeny, tc.tool+" under .git/ in the "+what+" region")
+			if !containsSubstr(d.Operation, tc.op) {
+				t.Errorf("%s under .git/ in the %s region should deny as %q; got op %q (%s)",
+					tc.tool, what, tc.op, d.Operation, d.Reason)
+			}
+		}
+
+		d := fileToolBucket(t, "Read", root, scratchTarget(uid, rel, "notes.md"))
+		wantBucket(t, d, BucketAllow, "read of a "+what+" path with no .git/ segment")
+	}
+}
+
 // "Reaching the carve-out from bash", gate 1: a carve-out the bash track
 // cannot reach is not a carve-out. `ls` is the command whose whole job is naming
 // what is in a directory, and it was in NEITHER bash read track — not

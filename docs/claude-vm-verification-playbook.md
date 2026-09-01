@@ -22,7 +22,7 @@ vfkit --bootloader "linux,kernel=/nonexistent/vmlinuz,initrd=/nonexistent/initrd
       --device "virtio-fs,sharedDir=/tmp/nx,mountTag=probe,readOnly=true" 2>&1 | tail -1
 ```
 
-Three traps:
+Traps:
 
 - **`--bootloader` is validated before `--device`.** Without one, every
   probe dies on `empty option list in --bootloader command line
@@ -408,9 +408,9 @@ needs no egress at all.
 
 ### What the claudecreds share must carry
 
-Two of its files are hard aborts and one is optional, and the
-difference is not guessable from their names — each missing one costs
-a whole boot to discover:
+Which of its files are hard aborts and which are optional is not
+guessable from their names — each missing one costs a whole boot to
+discover:
 
 - `settings.json` — `[ ! -s … ]` → `exit 1`. It is the security-posture
   file (the deny-list backstop), so the launcher refuses to boot
@@ -551,7 +551,15 @@ over merged documents; the bake files' own schema has `packages:` as a
 flat list, with no `.packages.bake` normalization on that path.
 
 **Getting a real linux-arm64 claude binary.** The host's cache under
-`~/.config/claude-vm/` is unreadable from a worktree-isolated agent.
+`~/.config/claude-vm/` is unreadable from a worktree-isolated agent
+unless this machine's operator listed `claude-vm/**` in the permission
+gate's `~/.config` carve-out (see
+[`docs/config-file-conventions.md`](config-file-conventions.md) →
+"The permission gate reads `$HOME/.config` literally"); the gate ships
+no default entries, so assume it is unreadable until a `Read` says
+otherwise. The carve-out reaches the file tools only, so a `cat` or a
+`cp` of the cache denies whatever the listing says, which rules out
+copying the binary out of it.
 Fetch one into repo scratch through the product's own verified path
 instead, setting `CLAUDE_VM_CACHE_DIR` under `.claude/tmp/<slug>/` and
 sourcing `lib/claude-cache.sh` to call `claude_cache_ensure`. The
@@ -691,7 +699,7 @@ reset to it, staying on the cloned branch so the later update
 fast-forwards. Installing then pins the old version and the boot
 phase's update must carry it forward.
 
-## Two guest-image facts that are easy to get backwards
+## Guest-image facts that are easy to get backwards
 
 **Getty respawn is governed by the restart setting, not the leading
 dash.** The upstream unit ships an always-restart policy, and

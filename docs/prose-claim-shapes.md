@@ -629,6 +629,25 @@ across every file the feature touches and read each pre-existing hit
 under the new sense; the repair is to re-word the older sense, which
 has somewhere else to go, and leave the new axis the term.
 
+## Widening one half of a contrast leaves the other half blanket
+
+A sentence contrasting two behaviours — "A allows, while B defers" —
+gets edited on one side when a round widens the condition, and the
+other side keeps its bare verb. The unedited half now reads as
+unconditional over the widened condition too, and it is false exactly
+in the newly-added case. It survives review because the edited half is
+what the diff draws the eye to.
+
+The tell is a `while`/`whereas` clause whose verb carries no condition
+in a sentence whose other clause just gained one. The permission-gate
+playbook said the read-only-utility track "allows any operand that is
+contained or lands in a carve-out the bash engine honors, while the
+pager/dumper track defers" — the carve-out clause was added that
+round. Measured, the pager track allows a carve-out operand
+(`less <scratchpad>/f`) and defers only a merely contained one, so the
+tracks diverge on containment alone. Probe the unedited half against
+the case the edit added, and state the condition on both sides.
+
 ## A platform refusal is scoped to the case that surfaced it
 
 A constraint met while exercising one member of a fixed option set

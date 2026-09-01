@@ -1145,7 +1145,11 @@ The gate's engines feed that decision:
   can inject hooks or corrupt repo state just as a `.git/config` write
   rewrites identity). An **in-repo** `.git/` read is not a write and is
   unaffected by this refinement; a `.git/` read that resolves into the
-  primary clone denies on the read branch described in (3) below. If
+  primary clone denies on the read branch described in (3) below, and a
+  `.git/` read either file-tool carve-out would otherwise turn into an
+  ALLOW — one the operator's `~/.config` listing covers, or one in an
+  allow-eligible region of the harness scratchpad — denies inside that
+  carve-out's own arm. If
   you need a repo-scoped scratch file, write it under
   `<repo-root>/.claude/tmp/` (gitignored). The containment-escape denies
   are **prescriptive**: a write/edit escape names
@@ -1264,6 +1268,13 @@ The gate's engines feed that decision:
   | the `claude-<uid>` root is not a plain, this-uid-owned directory | `defer` | `defer` | `defer` |
   | anything else under `/tmp` | `deny` | `deny` | `deny` |
 
+  Every cell reads "for a target the `.git/`-tree rule does not already
+  claim". On the **file-tool** track that rule outranks the region: a
+  `Write`/`Edit` under a `.git/` segment denies at the top of the walk,
+  and a `Read` of one denies inside the arm that would otherwise have
+  carried it to the ALLOW. The bash tracks are deliberately not mirrored
+  onto it — see "Gaps left in place deliberately" below.
+
   The curated read-utility column's `allow` on the unshaped-remainder
   row is **pre-existing behavior of that track**, not something the
   scratchpad carve-out decides: that classifier's terminal for any
@@ -1313,9 +1324,9 @@ The gate's engines feed that decision:
 
   The **bundled-skills shape** covers the harness-managed, non-session
   sibling living under the same prefix,
-  `bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...`. It is
-  the one carve-out whose verdict is **read/write-graded**: a read is
-  `allow` (reading a bundled skill is what the tree is for), a write is
+  `bundled-skills/<version>/<32-lowercase-hex>/<skill-name>/...`. Its
+  verdict is **read/write-graded**: a read is `allow` (reading a bundled
+  skill is what the tree is for), a write is
   `defer` (the content is harness-installed, so the gate has no
   positive grounds to bless a rewrite — but neither is it an escape to
   deny; the classifier decides). The grading uses the read/write
@@ -1378,9 +1389,10 @@ The gate's engines feed that decision:
   mismatch surfaces on its own. A symlink pointing *within* the region
   is cross-session handoff working as intended, and is allowed.
 
-  **Reaching the carve-out from bash.** A carve-out the bash track
-  cannot reach is not a carve-out, and gates sat in front of this one
-  until a later round. The first was the read-only-utility
+  **Reaching the carve-out from bash.** A carve-out whose point is to
+  be a *destination* the model writes to is worthless if the bash track
+  cannot reach it, and gates sat in front of this one until a later
+  round. The first was the read-only-utility
   table's missing `ls`, described above. The second was the redirect
   veto: `allowEligible()` returns false whenever `hasRedirectToFile` is
   set, so `echo x > <scratchpad>/f` could never reach an ALLOW however
@@ -1517,18 +1529,146 @@ The gate's engines feed that decision:
   start paying for a gate subprocess. Separately, an
   **in-repo** `.git/` read on the curated read-utility track allows
   (`cat <repo-root>/.git/config`): `isUnderGitDir` is consulted on the
-  write path and on the primary-clone read branch, not for an ordinary
-  contained read. Both gaps predate the input-redirect grading, and
+  write path, on the primary-clone read branch and in the file-tool
+  carve-out arms, not for an ordinary contained read. Both gaps predate
+  the input-redirect grading, and
   each holds identically for its operand and redirect spellings —
   `cat < <repo-root>/.git/config` allows exactly as
   `cat <repo-root>/.git/config` does. That is the equivalence rule
   working as specified, not a hole the redirect grading opened.
+
+  Consequences of that same scoping, each measured against
+  `origin/main` and unchanged by the carve-out work. A bash read of a
+  `.git/` path inside the scratchpad allows
+  (`cat <scratchpad>/x/.git/config`), because that track's terminal for
+  any operand it does not grade as an escape is already an ALLOW —
+  `cat /tmp/claude-<uid>/other/.git/config` allows too, out in the
+  unshaped remainder the carve-out never reached. The carve-out grants
+  nothing extra there, which is why the file-tool `.git/` deny is not
+  mirrored onto it. And a redirect writing into one allows
+  (`echo x > <scratchpad>/x/.git/f`) where the argv spelling of the same
+  write denies (`tee <scratchpad>/x/.git/f`), because
+  `redirectVetoesAllow` grades its destination through
+  `scratchAllowEligible` alone and never through `isUnderGitDir`.
+  Closing either is a bash-engine change with a blast radius of its own,
+  and is not attempted here.
 
   Every other `/tmp` path — including another uid's
   `/tmp/claude-<other-uid>/` — still earns the ordinary cross-repo deny.
   Neither the carve-out nor the root `defer` short-circuits the operand
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
+
+  (6) a **file-tool** target under `$HOME/.config` that matches a glob
+  the operator listed in `~/.config/guardrails/config.yml` is
+  **allowed** (`xdg_config_carveout.go`).
+  [`docs/config-file-conventions.md`](../../../../docs/config-file-conventions.md)
+  puts every per-user plugin config under
+  `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/`, and containment
+  canonicalizes both sides before it decides. On a machine whose
+  `~/.config` is a symlink into a dotfiles repo, that resolution lands
+  every such config inside **another git repo**, so the cross-repo deny
+  fired on the whole convention this marketplace documents —
+  `/cc-tools:cc-whats-new` could not read its own watermark and
+  `/issues:global-user-config` could not write its own file, on that
+  machine only, invisibly everywhere else. A `permissions.allow` entry
+  cannot repair it: a PreToolUse `deny` outranks `settings.json`.
+
+  **The gate carries no knowledge of which plugins exist.** There are no
+  shipped default entries; a machine that wants the carve-out writes the
+  file, in the shape `docs/config-file-conventions.md` prescribes, with
+  lists of globs **relative to `~/.config`**:
+
+  ```yaml
+  schema-version: 1
+  allow-read:
+    - macos-setup/**
+    - gh/config.yml
+    - git/ignore
+  allow-write:
+    - issues/**
+    - cc-tools/**
+  ```
+
+  `allow-write` **implies** `allow-read`: a path writable but not
+  readable is a half-configured state rather than an intent —
+  `/issues:global-user-config` merge-updates its file and so must read
+  before it writes. A read-only entry stays expressible by listing it
+  under `allow-read` alone; a **write** to such a path does not allow
+  and keeps the verdict it has today. The glob grammar is `**` for zero
+  or more whole path segments plus `path.Match` per segment, so `*` and
+  `?` do not cross a separator.
+
+  **Absent, unreadable, malformed, or stamped below `schema-version: 1`
+  → both lists empty → today's behaviour**, on every path. The carve-out
+  fails closed, and the gate is its only reader, so none of those is an
+  error reported anywhere — it is simply an empty list. That is a named
+  exception to `docs/config-file-conventions.md`'s abort-on-malformed
+  rule, recorded there: a `PreToolUse` hook has no channel to abort
+  into, and failing the hook over a broken config would be strictly
+  worse than the behaviour the operator had before writing it. The file
+  is read in Go with `gopkg.in/yaml.v3` on each invocation — not a tool
+  call, so the carve-out does not gate its own config, and the process
+  is fresh per event, so nothing is cached.
+
+  **No symlink resolution, on either side.** The check runs on the path
+  as written: the target is made absolute and lexically `Clean`ed, the
+  `$HOME/.config` prefix is stripped, and the remainder is matched.
+  `~/.config`, `~/.config/<name>` and `~/.config/<name>/<file>` may each
+  be a symlink pointing anywhere and the verdict is unchanged — a listed
+  path is allowed wherever it lands, including inside another git repo.
+  That is a deliberate departure from the `~/.claude` carve-out, which
+  canonicalizes both sides, and it is the point of the fix rather than
+  an oversight. **The accepted consequence:** a symlink under a listed
+  path that points into a sibling repo is allowed. Because the match is
+  on a lexically-cleaned path, `~/.config/../../<sibling-repo>/x` cannot
+  match whatever the globs say — the cleaning removes the `..` segments
+  and the result no longer carries the root prefix — and a glob
+  containing `..` is dead for the same reason.
+
+  **`$HOME/.config` literally, not `$XDG_CONFIG_HOME`.** The carve-out
+  root is that one spelling. Deriving it from an environment variable
+  would let whatever set that variable relocate the carve-out, which is
+  the same reason `harnessScratchDir` is a fixed literal. A machine that
+  relocates `$XDG_CONFIG_HOME` therefore gets no carve-out at all, which
+  is the fail-closed direction.
+
+  **`allow`, not `defer`.** A defer only removes the gate's veto and
+  hands the call to the ordinary permission rules, which nothing here
+  establishes would permit it — the same broken outcome by a different
+  route. The `.git/`-tree deny outranks the carve-out on **both**
+  sides, by a different route each. A `Write`/`Edit` of a listed path
+  under a `.git/` segment denies at the top of the operand walk, before
+  the listing is consulted. A `Read` of one denies inside the carve-out
+  arm itself, which is the only place such a read could otherwise reach
+  an ALLOW — an unlisted `.git/` read under `~/.config` is already
+  denied by containment, so the check is stated where the listing
+  overrides it rather than hoisted to the top of the walk, where it
+  would flip an **in-repo** `.git/` read from the defer it earns today
+  to a deny. Either way a glob wide enough to cover a `.git/` segment
+  hands out nothing. List the plugin directories the convention actually
+  puts a config in, not `**`, all the same — a wide glob still opens
+  whatever else lives under `~/.config`. And the ALLOW terminal requires
+  **every** target of the call to ride a carve-out, so a call mixing a
+  listed path with an ordinary in-repo one falls back to the ordinary
+  defer.
+
+  **Scope: the file-tool track only** (`Read`, `Write`, `Edit`,
+  `MultiEdit`, `NotebookEdit`). The bash engine is untouched, so a `cat`
+  of a listed config path is **still denied**. That is a deliberate gap,
+  not an oversight: an outside-repo path denies on both tracks alike
+  (`Read /Users/<u>/.zshrc` and `jq /Users/<u>/.zshrc` both deny today),
+  so the listing is what makes the two disagree, and only for a path an
+  operator listed. Widening it to the bash engine is a separate change
+  with its own blast radius. The config file is hand-written —
+  no `/guardrails:*` skill creates or merge-updates it, and this section
+  is the only documentation of its schema. The fix does not make the
+  gate symlink-aware in general: a symlink from inside the repo out to a
+  sibling repo is still denied, which is intended. It changes nothing
+  about how the gate is packaged, so the `claude-vm` surfaces that
+  mirror that shape are untouched. Adding YAML parsing pulls a further
+  dependency (`gopkg.in/yaml.v3`, alongside `mvdan.cc/sh/v3`) into a
+  security binary; that is accepted rather than hand-rolling a parser.
 
 **An unparseable command is a syntax error, not a decision**. A
 parse failure used to **ask**, on the rationale that "an unparseable

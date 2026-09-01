@@ -24,7 +24,12 @@ as a `cd` target), not only as a bare assignment RHS.
 - ❌ `/tmp/foo.json` — out of repo; boundaries can't be enforced and
   the artifact escapes inspection.
 - ❌ `.git/foo.json` (or anywhere under `.git/`) — git internal state.
-  The permission-gate denies it outright, across the whole `.git/` tree.
+  A write there denies: the `Write`/`Edit` tools deny it wherever the
+  path sits, and so does an argv-spelled bash write (`tee`, `cp`). The
+  read and redirect spellings are not uniformly denied — an in-repo
+  `cat <repo-root>/.git/config` allows and
+  `echo x > <repo-root>/.git/f` defers — so treat this as the
+  convention rather than as something the gate will catch for you.
 
 The destination matters even for a scratch file the agent never reads
 back itself. A file `gh` PUBLISHES is graded by the same
@@ -121,10 +126,14 @@ The verdict inside that prefix is graded on where the path lands:
   (`echo x > <scratchpad>/f`), including a credentialed tool's redirect
   (`gh pr diff 224 > <scratchpad>/f` — it is graded as a write
   destination like any other, not vetoed for being `gh`). This is the
-  destination to use.
+  destination to use. One target is excepted: a path under a `.git/`
+  segment somebody created inside the region, which the file tools deny
+  for reads and writes alike, so the carve-out never hands out a git
+  internals tree.
 - A path under `bundled-skills/` — harness-installed skill content
   living beside the session directories, not a scratch destination —
-  is **allowed to read** and **defers** for a write.
+  is **allowed to read** and **defers** for a write, under the same
+  `.git/` exception.
 - A path elsewhere under the prefix **defers** to the normal
   permission pipeline: `settings.json` allow/ask/deny still governs,
   but containment no longer hard-denies.

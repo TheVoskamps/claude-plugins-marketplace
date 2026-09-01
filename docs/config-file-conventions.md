@@ -20,9 +20,35 @@ A skill spells the fallback out once and refers to that spelling
 elsewhere rather than restating it, because a second spelling is a
 second thing to get wrong.
 
+### The permission gate reads `$HOME/.config` literally
+
+The `guardrails` permission gate carves tool-mediated reads and writes
+under `$HOME/.config` out of its containment deny, driven by globs the
+operator lists in `~/.config/guardrails/config.yml` — which is what
+makes any of these files reachable at all on a machine whose
+`~/.config` is a symlink into a dotfiles repo. Its carve-out root is
+the `$HOME/.config` spelling and **nothing else**: it does not consult
+`$XDG_CONFIG_HOME`, because deriving a security carve-out from an
+environment variable would let whatever set that variable relocate it.
+
+So on a machine that relocates `$XDG_CONFIG_HOME`, the config a plugin
+writes is still at the path this document prescribes, and is still
+correct — but it is unreachable from a tool-mediated read or write,
+because no carve-out covers it. A reader that is not a tool call at all
+— a script running inside a claude-vm guest, say — is unaffected. The
+**Bash tool** is not one of those: the carve-out reaches the file-tool
+track only, so a skill that reads its own config with `cat` or `grep` is
+denied on every machine, carve-out or not. `Read` is the only spelling a
+listing can reach, and it reaches it only for a path that machine's
+operator actually listed — on an unconfigured machine the `Read` denies
+too, and a skill has to survive that rather than assume the file is
+readable. See
+[`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
+for the carve-out's schema and scope limits.
+
 ## The format is YAML, or Markdown when a human must read prose too
 
-Two formats are in use, and neither is JSON:
+The formats in use, none of them JSON:
 
 - **YAML** (`*.yml`) — the default. `~/.config/claude-vm/config-*.yml`
   and `~/.config/auto-mode-tools/facts.yml` are this shape. It is what
@@ -64,6 +90,16 @@ Absence of the **file** is a separate question from a bad stamp, and
 the reader's own contract decides it: a config whose keys have
 defaults degrades to them, while a watermark or a facts file that
 cannot be invented stops and says what to write.
+
+**Named exception: a reader with no channel to abort into.** The
+`guardrails` permission gate's `~/.config/guardrails/config.yml` (see
+above) treats absent, unreadable, malformed and below-the-pin
+identically, as two empty lists — today's behaviour, with nothing
+reported anywhere. A `PreToolUse` hook cannot abort: failing the hook
+over a broken config denies every tool call on the machine, which is
+strictly worse than the behaviour the operator had before writing the
+file. The rule above stands for every reader that can surface an abort
+to a human, which is all of the others.
 
 ## Multi-writer files merge; single-owner files rewrite
 
