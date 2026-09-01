@@ -883,6 +883,18 @@ because the bash engine never consults the listing. There the file-read
 tool is the only probe that moves, and a bash row belongs in the table
 only as the control that pins the asymmetry.
 
+The two tracks agree on a path **outside** the repository: `Read`,
+`cat` and `jq` all deny `/etc/passwd` and `~/.zshrc` alike. A sentence
+claiming one track denies where the other defers is therefore false for
+every out-of-repo operand, and a probe pair built from one settles
+nothing about the asymmetry it names. The file tool keeps a residual of
+its own inside the repository — `Read` of a `.git/` path defers — so
+say which region an asymmetry claim covers before probing it. Sentences
+asserting a bash-versus-file-tool split are the ones a gate doc round
+should probe first: they get written while the author's attention is on
+the arm being added, and no test covers a claim about a track the
+change did not touch.
+
 ## Measure which AST node a construct hangs off
 
 The gate walks a shell AST, and when a fix depends on *which node* a
