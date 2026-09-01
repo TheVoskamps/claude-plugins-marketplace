@@ -225,12 +225,12 @@ full six-field reader contract that used to live at
 (issue #143): `sdlc` no longer bundles its own copy of the `issues`
 plugin's reader contract, and a bare cross-plugin reference to
 `skills/lib/repo-config.md` cannot resolve it either — plugins are
-file-sandboxed (see `docs/plugin-authoring-constraints.md` → "Plugins
-are file-sandboxed"). This is deliberate, not a gap: the orchestrator
-no longer does branch/PR mechanics itself — the branch and the draft
-PR both exist by the time `issue-developer` returns — so the
-orchestrator only ever needed these things out of the old six-field
-contract:
+file-sandboxed (see `docs/plugin-authoring-constraints.md` → "A
+cross-plugin reference does not resolve"). This is deliberate, not a
+gap: the orchestrator no longer does branch/PR mechanics itself — the
+branch and the draft PR both exist by the time `issue-developer`
+returns — so the orchestrator only ever needed these things out of the
+old six-field contract:
 
 - `issue-link-prefix` (string, e.g. `"#"` for GitHub or `"SET-"` for
   Jira) — used in spawn-prompt templates (`<link-prefix>101`) and the
@@ -670,8 +670,8 @@ of those rounds needs the doc pass before its re-review.
 
 The doc pass is cheap in the common case and never costs a review
 round: a round with no doc impact returns without a doc commit, and
-the review-round cap (Hard Constraints → "Max review rounds per PR")
-counts reviewer spawns only, at whatever tier the pipeline picked.
+the review-round cap (see "Hard Constraints" below) counts reviewer
+spawns only, at whatever tier the pipeline picked.
 
 Cleanup of each subagent's worktree directory happens in this phase too,
 **serially within the wave** — never in parallel. See
@@ -702,7 +702,16 @@ with an error that reads as though the worktree were already gone. See
 
 The reviewer's own fan-out worktrees are not yours: it removes the
 generator's, every disprover's, and every verifier's itself before it
-returns, so what is left for you is the reviewer's one worktree.
+returns, so what is left for you is the reviewer's one worktree. A
+reviewer killed mid-round returns nothing and removes nothing, so that
+one worktree survives the loop with no per-return cleanup to catch it —
+the end-of-run pass is the **backstop** for it, per "Sweep the run's
+leftover worktrees at the end" below. Its fan-out children stay not
+yours even then: a resumed reviewer clears the generator, disprover and
+verifier worktrees its round log names, and anything that outlives the
+run is named in the summary rather than removed. Never
+remove one during the loop either way — a fan-out's worktrees are in
+use while its round is still running.
 
 If that fails with `fatal: cannot remove a locked working tree` and
 the lock reason matches the harness's standard end-state shape
@@ -784,10 +793,7 @@ only when the human named a tier. See "Overriding the generator tier"
 below.
 
 `--full` is yours or the human's to pass, and it re-disproves every
-recorded theorem, retired ones included. The natural moment is the
-round before the merge blessing: a default round never re-checks a
-retired theorem, so a fix can have broken one silently since it
-retired. Pass it on no other round.
+recorded theorem, retired ones included.
 
 The reviewer returns every verdict line it posted, the overall
 APPROVED / NEEDS_CHANGES / BLOCKED, the severity counts, the findings
@@ -821,7 +827,7 @@ round it ran.
 
 You do not pick a tier. The rubric lives in the reviewer, next to the
 delta it reads (see the `sdlc:theorem-based-pr-reviewer` agent →
-"4. Pick the generator tier"), and it routes between `theorem-generator` (low) and
+"Pick the generator tier"), and it routes between `theorem-generator` (low) and
 `theorem-generator-medium` (medium) and nowhere else.
 
 `--generator` is a human-override channel, and you pass it only when
@@ -845,11 +851,9 @@ drives a fix, which is a new diff for the next round to harvest more
 of the same from. Too high a tier therefore degrades review quality,
 not just its cost.
 
-`--full` is the other override, and it is the human's or yours. When
-to pass it is stated at the reviewer's spawn template above, next to
-the brief you write. Say in the round's report which tier ran, whether
-the rubric or an override picked it, and whether the round was a
-`--full` one.
+`--full` is the other override, and it is the human's or yours. Say in
+the round's report which tier ran, whether the rubric or an override
+picked it, and whether the round was a `--full` one.
 
 ### The PR body is frozen for the loop
 
@@ -908,18 +912,19 @@ escalation, because the reviewer is not stopping to ask you anything.
 Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
 
-- **An in-progress status** — outstanding disprover or verifier
-  counts, or a named fan-out and round the reviewer reports as already
-  started. A round is under way; follow the four steps below.
-- **A broken header call** — the report names a
-  `sdlc-agent-result-persist --mode header` call the reviewer could
-  not repair and quotes the script's message verbatim. No round is
-  under way, so follow "A broken header call" below instead. Never
-  read one as an in-progress status: a re-spawn composes the same call
-  and fails the same way, and step 4's escalation would then tell the
-  human the PR keeps returning mid-round.
+- **An in-progress status** — which stage the round is still waiting
+  on and how much of it is outstanding, the theorem list itself as
+  readily as the disprovers or the verifiers, and on a reviewer that
+  had already exhausted its own resume loop, which exit it took. A
+  round is under way; follow the four steps below.
+- **A broken call** — the report names a `sdlc-agent-result-persist`
+  call the reviewer could not repair and quotes the script's message
+  verbatim. No round is under way, so follow "A broken call" below
+  instead. Never read one as an in-progress status: a re-spawn composes
+  the same call and fails the same way, and step 4's escalation would
+  then tell the human the PR keeps returning mid-round.
 
-1. **Confirm it against the PR.** A round that returned mid-fan-out
+1. **Confirm it against the PR.** A round that returned mid-round
    posted no review, so read the PR rather than the report:
 
    ```bash
@@ -942,20 +947,26 @@ responses, so read what the report **says** before you act on it:
    because no commits landed, and no adjustment comment, because the
    human has nothing to adjust yet.
 
-   Until #358 lands, that re-spawn does not pick the stalled round up:
-   the reviewer finds this round's record file already there and stops.
-   Expect a second in-progress return and take step 4's escalation
-   rather than reading the repeat as a reviewer defect.
+   That re-spawn **resumes** the stalled round rather than starting it
+   over: the reviewer derives what is left from this round's log and its
+   result files, keeps every theorem already settled there, and
+   re-attacks only the rest (see
+   the `sdlc:theorem-based-pr-reviewer` agent → "You are re-entrant",
+   where one child per theorem per stage is an invariant and a settled
+   theorem gets no second child at all). So a
+   second in-progress return means the round
+   is still making no progress on what it has left, not that the
+   re-spawn threw the first attempt away.
 
 4. **The round does not count against the review-round cap**
-   (Hard Constraints → "Max review rounds per PR"). It produced no
-   review, and charging the budget for a harness failure burns the
-   loop's headroom on it. Count it in the round's report instead, so
-   the human can see a PR that keeps returning mid-round rather than
+   (see "Hard Constraints" below). It produced no review, and charging
+   the budget for a harness failure burns the loop's headroom on it.
+   Count it in the round's report instead, so the human can see a PR
+   that keeps returning mid-round rather than
    converging — after two such returns on one PR, raise it as a
    **Needs Your Attention** row rather than re-spawning indefinitely.
 
-**A broken header call.** This is a defect to surface, not a round to
+**A broken call.** This is a defect to surface, not a round to
 retry. Spawn no `issue-fixer` and re-spawn no reviewer; raise it as a
 **Needs Your Attention** row on the first return, quoting the script's
 message verbatim per "Report-consumption principle", since that message
@@ -1057,7 +1068,7 @@ member)**:
    human caught is a reason to ask the human for a `--generator`
    override, per "Overriding the generator tier".
 6. Repeat this loop until APPROVED or until the review-round cap
-   (Hard Constraints → "Max review rounds per PR") is reached.
+   (see "Hard Constraints" below) is reached.
 7. If findings above Low persist when the cap is reached, escalate to
    the human in the final report.
 
@@ -1324,6 +1335,26 @@ not flip it to ready or them to In Review, and do not spawn
 section to write and the body stays frozen for whatever round comes
 next.
 
+### Sweep the run's leftover worktrees at the end
+
+Once every review loop has settled and before you write the summary,
+run `git worktree list` once and remove any worktree still registered
+for a teammate **you** spawned this run. Normally there is none: each
+is removed as its teammate returns. The case that leaves one is a
+teammate killed mid-run — it returns nothing, so the per-return cleanup
+never fires — and this pass is the backstop for exactly that.
+
+Scope it to your own spawns, by the same absolute-path,
+serial, no-`--force` rules the per-return cleanup uses. A worktree you
+did not spawn is not yours to remove, however stale it looks:
+`.claude/worktrees/` is shared with every other session running against
+this repo. A killed reviewer's own generator, disprover and verifier
+worktrees are in that category — a resumed reviewer clears the ones its
+round log names, and anything that outlives the
+run goes in the summary by path rather than being removed here.
+`/git-tools:git-cleanup-branches-and-worktrees` is the whole-repo sweep
+for those, and running it is the human's call.
+
 ### Summary
 
 Once all waves are complete and all review loops have settled, deliver
@@ -1352,8 +1383,15 @@ a summary:
 ### Worktrees Cleaned
 N worktrees cleaned (each subagent you spawned had its worktree
 removed after it returned, serially within each wave to avoid
-Anthropic issue #48927). The reviewer's generator, disprover and
-verifier worktrees are not in N — it removes those itself.
+Anthropic issue #48927, plus whatever the end-of-run sweep found).
+The reviewer's generator, disprover and verifier worktrees are not in
+N — it removes those itself. Name here, by absolute path, any such
+worktree a killed reviewer left behind, since removing one is not
+yours. A reviewer that did return may also report a child it could not
+name a worktree for — one whose spawn its round log records with no
+`enter`; relay that by the theorem and stage it gave, because no path
+resolves for it and guessing one from the listing is what the reviewer
+refused to do.
 
 All ready-for-review PRs are open and awaiting your approval.
 Nothing has been merged.
@@ -1513,8 +1551,9 @@ on the reviewer's severity line and the fixer's report. Fill them per
   fan-outs spawned, at whatever generator tier; the `doc-updater` pass
   that precedes each one is not a review and never counts against the
   cap. A spawn that returned without a verdict block posted nothing
-  and does not count either — an in-progress status or a broken header
-  call alike (see "Handling review findings — the fix loop"):
+  and does not count either — an in-progress status or a broken
+  `sdlc-agent-result-persist` call alike (see "Handling review
+  findings — the fix loop"):
   charging the budget for a spawn that checked nothing spends the
   loop's headroom on it.
 

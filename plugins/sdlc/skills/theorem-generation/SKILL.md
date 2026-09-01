@@ -11,8 +11,7 @@ It is **tier-invariant**: it carries no tier parameter and never asks
 which generator is running it. The generator's reasoning tier lives
 solely in the spawned agent's frontmatter `effort:`, and the reviewer
 picks a tier by naming which definition to spawn (see the
-`sdlc:theorem-based-pr-reviewer` agent → "4. Pick the generator
-tier").
+`sdlc:theorem-based-pr-reviewer` agent → "Pick the generator tier").
 
 Your entire output is a **theorem list**. You do not review, you do
 not grade, you do not file findings, and you never post to the PR.
@@ -46,6 +45,10 @@ You never commit, never push, and never edit a file in the repo. You
 declare no `memory:`, so there is nothing of yours to capture either.
 Scratch work goes under `.claude/tmp/<task-slug>/`.
 
+The two `sdlc-agent-result-persist` calls the workflow below opens and
+closes with are not an exception: both go **outside every repository**,
+through a script you run with Bash rather than a file tool.
+
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
 
@@ -67,8 +70,13 @@ touch a file the section mentions.
 You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
-`--branch`, and — on a re-review only — `--carried-records` and
-`--delta-commits`.
+`--branch`, `--scratchpad`, `--owner`, `--repo`, `--round`, and — on a
+re-review only — `--carried-records` and `--delta-commits`.
+
+The four in the middle say nothing about what to generate: steps 1 and
+6 pass them back unchanged. Without them you can still generate the list
+but cannot record that you started or write it where a resumed reviewer
+would find it — say so in your report rather than guessing at one.
 
 `--issues` is the answer, not a claim: the pipeline already resolved
 it, so do not re-derive it, do not parse the branch name, and do not
@@ -85,16 +93,27 @@ theorems.
 
 ## Workflow
 
-1. **Fetch the diff** via `/github-prs:pr-diff <PR>`. On a re-review
+1. **Record that you started, before you do anything else.** The script
+   derives your agent id and your transcript path from the worktree you
+   are standing in, and the generation stage answers no one theorem, so
+   its theorem column is the literal `list`:
+
+   ```bash
+   sdlc-agent-result-persist --mode enter \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --theorem list --stage generate
+   ```
+
+2. **Fetch the diff** via `/github-prs:pr-diff <PR>`. On a re-review
    the whole-PR diff is context rather than your subject — what you
    generate from is the delta, per "On a re-review, generate from the
    delta" below.
-2. **Read each member issue independently** via `/issue-view <N>`,
+3. **Read each member issue independently** via `/issue-view <N>`,
    once per member of `--issues`. Read them yourself rather than
    relying on any summary in your brief — each issue's own text,
    especially its acceptance criteria, is the yardstick.
-3. **Read the PR body** (`gh pr view <PR> --json body`).
-4. **Check out the branch's head commit and read the surrounding
+4. **Read the PR body** (`gh pr view <PR> --json body`).
+5. **Check out the branch's head commit and read the surrounding
    codebase.**
 
    ```bash
@@ -120,8 +139,30 @@ theorems.
    checkout of `origin/<branch>` claims no branch, gives you the
    identical tree, and leaves nothing to release when you return.
 
-5. **Emit the theorem list** in the record format below. Nothing else
-   goes in your report.
+6. **Write the theorem list to your result file**, as your final act
+   before reporting. The whole list goes in, byte for byte, on stdin —
+   the quoted heredoc is what keeps a backtick or a `$` in a claim from
+   reaching the shell:
+
+   ```bash
+   sdlc-agent-result-persist --mode leave \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --theorem list --stage generate \
+     --agent <your own definition's name> <<'LIST'
+   T1
+   claim: …
+   LIST
+   ```
+
+   **That file is the round's theorem list**, not a copy of it. Your
+   report reaches the reviewer as a `<task-notification>` the harness
+   may never deliver, and a later instance of the reviewer reads this
+   file instead of spawning a generator again — which is what makes a
+   theorem id denote the same claim for every instance that ever reads
+   the round. So write it in full, and write it before you report.
+
+7. **Emit the theorem list** in the record format below, the same text
+   you just wrote. Nothing else goes in your report.
 
 ## Theorem sources
 
@@ -433,7 +474,7 @@ T1
 claim: The diff satisfies acceptance criterion "…" of #206.
 issues: #206
 class: semantic
-pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, step 7
+pointers: plugins/sdlc/agents/theorem-based-pr-reviewer.md, "Fan out the disprovers"
 ```
 
 Field rules:

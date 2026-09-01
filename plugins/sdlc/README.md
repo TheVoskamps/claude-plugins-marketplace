@@ -54,11 +54,12 @@ rather than recalling it:
   each pointer against the heading **line**, joining a wrapped quote
   back across its line breaks first. A pointer that quotes only the
   readable half of a subtitled heading still greps to a hit.
-- A renumbered workflow step in `agents/theorem-based-pr-reviewer.md`:
-  its headings are numbered, so inserting one renames every later
-  heading without the diff touching it. Grep `→ "` for a leading digit
-  repo-wide, then read that agent's body end to end — it also refers to
-  its own steps by bare number, which no heading grep reaches.
+- A renamed workflow section in `agents/theorem-based-pr-reviewer.md`:
+  its headings are named rather than numbered, precisely so that
+  inserting one renames nothing, but a rename is still a cross-file
+  sweep. Grep the quoted heading repo-wide, then read that agent's body
+  end to end — it refers to its own sections by name throughout, and a
+  reference wrapped across two lines survives a single-line grep.
 - A changed count or roster: a back-reference like "those three" goes
   stale in silence. Read the paragraph; don't trust the grep.
 
@@ -122,7 +123,7 @@ changes how the two relate edits it here.
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
-| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, path and record grammar | preloaded into the reviewer, the disprover, and the verifier |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, and the verifier |
 
 `theorem-generation`, `theorem-agents-interface` and
 `agent-result-persist-interface` carry no leading slash here because
@@ -155,6 +156,38 @@ The plugin ships exactly one, `bin/sdlc-agent-result-persist`, whose
 whole contract is owned by
 `skills/agent-result-persist-interface/SKILL.md`. A PR that adds or
 removes an executable edits this count.
+
+## Files it writes
+
+Everything this plugin persists is written by
+`bin/sdlc-agent-result-persist` under the harness's per-session
+scratchpad, outside every repository — a review round writes nothing to
+the branch it reviews. A PR that adds or removes one of these edits this
+list, the same convention "Executables" above sets. Which mode writes
+each, and the record grammar the log holds, are part of that contract
+and are owned by `skills/agent-result-persist-interface/SKILL.md`.
+
+| File | What it holds |
+| ------- | --------------- |
+| `<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>` | the round log |
+| `<that path>-<theorem>-<agent>` | one child's full report |
+| `<that path>.voided-<instant>` and `<that path>.voided-<instant>-<theorem>-<agent>` | the log and every result file of a round whose branch moved under it, set aside rather than overwritten |
+
+The `enter` record also carries a fourth path,
+`~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
+— the harness's own transcript of that child. The script **composes**
+that path and writes nothing there; recording it is what lets a
+post-mortem reach a child's transcript after its worktree is gone.
+
+**Nothing ever removes any of it, and that is deliberate.** There is no
+cleanup mode, no expiry, and no sweep: a round log outlives the
+worktrees of every child it names, and the voided copies outlive the
+round they describe. That accumulation is the debugging trail — a
+stalled or voided round is diagnosed from these files and from nothing
+else, since the reviewer holds no state across a turn. Deleting on a
+schedule would throw away the evidence at exactly the moment it is
+wanted, so the growth is left for the session scratchpad's own lifetime
+to bound.
 
 ## Agents
 

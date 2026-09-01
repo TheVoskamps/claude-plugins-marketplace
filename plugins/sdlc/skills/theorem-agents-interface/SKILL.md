@@ -18,7 +18,7 @@ skeletons hold no instructions of their own. The meaning of a
 parameter is stated here and nowhere else.
 
 The reviewer reads this file too, rather than only writing against it:
-its step 2 findings come from no theorem, so it grades them by the
+its issue-set findings come from no theorem, so it grades them by the
 class glosses below and then transcribes the class into a severity by
 its own table. It reaches this skill by name rather than by preload —
 its frontmatter is reserved for what every round needs, and the glosses
@@ -53,8 +53,8 @@ them as well.
   there is nothing to fetch.
 - `--fetched yes` — optional. The reviewer fetched `origin` in its own
   session immediately before spawning the agent, so the shared ref
-  store is already current. The agent's own step 1 decides from this
-  and `--head-sha` whether to fetch at all.
+  store is already current. The agent's own checkout step decides from
+  this and `--head-sha` whether to fetch at all.
 - `--theorem T<k>` — the theorem's handle, from the generator's
   record. Reports are filed under it.
 - `--claim <text>` — the generator's claim, verbatim from its record:
@@ -77,8 +77,9 @@ them as well.
   theorem with its id, claim, issues, class, pointers, the state it
   held, and the head SHA it was settled against. Only a generator
   receives it, and only on the **delta-round brief**, which
-  `sdlc:theorem-based-pr-reviewer` → "5. Spawn the theorem generator"
-  writes and its step 3 decides the rounds for — more than one round
+  `sdlc:theorem-based-pr-reviewer` → "Spawn the theorem generator"
+  writes and its "Carry the previous round's theorems forward" decides
+  the rounds for — more than one round
   kind sends that brief, so read the round taxonomy there rather than
   inferring it from this parameter. It is what the generator
   must not re-emit — a carried theorem is already recorded, so
@@ -86,14 +87,14 @@ them as well.
 - `--delta-commits <oid…>` — the round's change, as the list of this
   PR's **own** commits that have no patch-equivalent commit in the head
   the previous round reviewed. `sdlc:theorem-based-pr-reviewer` →
-  "3. Carry the previous round's theorems forward" computes it and
+  "Carry the previous round's theorems forward" computes it and
   bounds it to the PR's own commits, so a rebase that advanced the base
   cannot put the base branch's commits in it. Paired with `--carried-records`, and
   present on the same brief. A clean rebase leaves the list **empty**,
   and so does an adjustment-only round: an empty value is a delta of
   nothing, not a missing parameter.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
-  verbatim, every line as the disprover wrote it — `VERDICT`,
+  verbatim, as its result file holds it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
@@ -104,10 +105,15 @@ them as well.
 - `--repo <repo>` — the repository name, separate from the owner.
 - `--round <n>` — the review round, as the reviewer numbers it.
 
-Those four say nothing about the claim, and no generator receives any
-of them. A disprover and a verifier pass them straight back — alongside
-`--pr` and their own fan-out name — to `sdlc-agent-result-persist`, per
-`sdlc:agent-result-persist-interface`.
+Those four say nothing about the claim, and **every** theorem agent
+receives them, the generator included. Each passes them straight back —
+alongside `--pr`, its own stage, and its own definition's name — to
+`sdlc-agent-result-persist`, per
+`sdlc:agent-result-persist-interface`, when it records that it started
+and when it writes its report. Nothing else is passed in: that script
+derives the agent id from the worktree the agent is standing in, so a
+re-spawned child is distinguishable from the one it replaced without a
+handle travelling in a brief.
 
 ## The consequence classes
 

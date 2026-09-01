@@ -25,6 +25,33 @@ Run `bash -c '. <lib>; <func> <args>'` or `bash <script>` instead.
 Better still, run the committed test file, which is already a `bash`
 invocation — hand-rolling a source-and-call reproduces the trap.
 
+## `awk` rejects the `--` end-of-options separator
+
+`awk 'prog' -- "$file"` fails with `awk: can't open file --`. The BSD
+awk on macOS reads `--` as a filename, where `head`, `cat` and `mv`
+take it as the end-of-options marker. A script hardened against
+leading-dash paths by writing `-- "$file"` uniformly therefore turns a
+working read into a hard error, and only the arm that reaches the `awk`
+call shows it.
+
+Keep `--` on the utilities that document it, drop it on `awk`, and run
+the arm rather than assuming the guard is inert.
+
+## A newline test written with command substitution matches every string
+
+`case "$x" in *"$(printf '\n')"*)` matches **every** value: command
+substitution strips trailing newlines, so the pattern collapses to
+`**`. Hold the newline in a variable instead:
+
+```bash
+newline='
+'
+case "$x" in *"$newline"*) ... ;; esac
+```
+
+The broken form reads as obviously correct and fails open, so exercise
+a matching and a non-matching input before believing either spelling.
+
 ## A successful fetch can leave the remote-tracking ref behind
 
 `git fetch origin <branch>` updates `FETCH_HEAD`, but in a freshly

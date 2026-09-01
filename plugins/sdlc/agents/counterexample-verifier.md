@@ -67,9 +67,10 @@ Without `--branch` you have no tree to check the quote against.
 thing you attack.
 
 `--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
-counterexample; step 4 passes them back unchanged. Without them you can
-still settle the counterexample but cannot record the result — say so
-in your report rather than guessing at one.
+counterexample; steps 1 and 5 pass them back unchanged. Without them
+you can still settle the counterexample but cannot record that you
+started or what you found — say so in your report rather than guessing
+at one.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.
@@ -86,16 +87,32 @@ declare no `memory:`, and you carry no `Write` or `Edit` tool: the
 review pipeline is strictly non-mutating. Scratch work goes under
 `.claude/tmp/<task-slug>/`.
 
-Recording your result in step 4 is not an exception: it appends one
-line to a file **outside every repository**, through a script you run
-with Bash rather than a file tool.
+What steps 1 and 5 write is not an exception: both go **outside every
+repository**, through a script you run with Bash rather than a file
+tool — one record line each, and in step 5 your report into a file of
+your own that only that script composes the path of.
 
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
 
 ## Workflow
 
-1. **Check out the PR's head commit first, detached.**
+1. **Record that you started, before you do anything else.** The script
+   derives your agent id and your transcript path from the worktree you
+   are standing in, so neither is yours to build:
+
+   ```bash
+   sdlc-agent-result-persist --mode enter \
+     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --pr <PR> --round <round> --theorem <theorem> --stage verify
+   ```
+
+   Your spawn and your start can be minutes apart, and the reviewer's
+   deadline for you runs from this record rather than from the spawn —
+   so a turn that starts work first can be cut off for time it never
+   had.
+
+2. **Check out the PR's head commit first, detached.**
 
    Check whether you need to fetch at all before you fetch:
 
@@ -139,11 +156,11 @@ calls in a subagent context.
    `fatal: '<branch>' is already used by worktree at '…'` (exit 128)
    in every verifier but the first.
 
-2. **Fetch the diff** via `/github-prs:pr-diff <PR>` if the
+3. **Fetch the diff** via `/github-prs:pr-diff <PR>` if the
    counterexample's consequence turns on what the PR changed. A quote
    check against the head tree usually does not need it.
 
-3. **Attack the counterexample** along these axes, in this
+4. **Attack the counterexample** along these axes, in this
    order. A quote that does not exist, or that does not contradict the
    claim, is a `REFUTED` and you can stop there. An overstated
    consequence is not — you correct it, per that axis's own bullet:
@@ -168,27 +185,36 @@ calls in a subagent context.
      counterexample: an inflated consequence is a `STANDS` with your
      corrected wording, not a `REFUTED`.
 
-4. **Record your verdict**, as your final act before reporting:
+5. **Write your report to your result file**, as your final act before
+   reporting. The whole report goes in, byte for byte, on stdin — the
+   quoted heredoc is what keeps a backtick or a `$` in your `REASON`
+   from reaching the shell:
 
    ```bash
-   sdlc-agent-result-persist --mode detail \
+   sdlc-agent-result-persist --mode leave \
      --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-     --pr <PR> --round <round> --agent counterexample-verifier \
-     --theorem <theorem> --result <STANDS|REFUTED>
+     --pr <PR> --round <round> --theorem <theorem> --stage verify \
+     --agent counterexample-verifier <<'REPORT'
+   VERDICT: …
+   REPORT
    ```
 
-   Every value comes straight from your brief except two: `--agent
-   counterexample-verifier` is your own fan-out's name, which you never
-   vary — the disprover's name would file your verdict in their file —
-   and `--result` is the verdict you just reached. The preloaded
-   `sdlc:agent-result-persist-interface` skill owns the rest.
+   Every value comes straight from your brief except `--stage verify`
+   and `--agent counterexample-verifier`, which are what you are and
+   never vary — the disprover's name would file your report over theirs.
+   The preloaded `sdlc:agent-result-persist-interface` skill owns the
+   rest.
 
-   This is the reviewer's only evidence that you ran, since your report
-   reaches it as a `<task-notification>` the harness may never deliver.
-   So run it whichever verdict you reached, and run it before you
-   report — a turn that ends first records nothing.
+   **This file is the reviewer's copy of your report**, not a receipt
+   beside it: your report reaches the reviewer as a
+   `<task-notification>` the harness may never deliver, and where it
+   does not, this is what the theorem's disposition is derived from. So
+   write it whichever verdict you reached, write it in full, and write
+   it before you report — a turn that ends first records nothing. There
+   is no size limit and nothing to encode.
 
-5. **Report** in one of the formats below. Nothing else.
+6. **Report** in one of the formats below, the same text you just wrote.
+   Nothing else.
 
 ## Establishing a fact
 
@@ -196,7 +222,7 @@ You are checking somebody else's check, so the ways a check goes wrong
 are your subject matter. These are the ones that decide verifications:
 
 - **Extract evidence bytes from `HEAD`, never another ref.**
-  `git show HEAD:<path>` after the detached checkout of step 1 is the
+  `git show HEAD:<path>` after the detached checkout of step 2 is the
   PR head; `git show main:<path>` or `git show origin/<base>:<path>`
   returns the base's bytes, which is how a real counterexample gets
   `REFUTED`. Your byte-for-byte check of a `DISPROVED` report's
@@ -264,9 +290,9 @@ failed, and the command output or quoted text that shows it>
 offered counterexample, so it is what tells a human why a candidate
 finding was dropped. It must engage this counterexample specifically.
 A reason that only says the theorem looks fine, or that you could not
-follow the disprover, is malformed — the pipeline re-spawns you once
-on a malformed report, and a second malformed report makes the finding
-stand.
+follow the disprover, is malformed — you get no second attempt, and a
+malformed report makes the finding stand on the disprover's proposed
+consequence class.
 
 Refuting a counterexample does **not** prove the theorem. You checked
 one offered refutation and rejected it; say only that.
@@ -289,7 +315,7 @@ pipeline already holds the disprover's copy and publishes that one.
 
 ## End-of-run cleanup
 
-There is none. Your checkout in step 1 is detached, so you hold no
+There is none. Your checkout in step 2 is detached, so you hold no
 branch claim and there is nothing to release — and you never commit,
 so there is nothing to guard either. Return your verdict and stop. The
 pipeline that spawned you removes the worktree directory itself.
