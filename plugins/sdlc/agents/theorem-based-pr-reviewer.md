@@ -94,37 +94,55 @@ Scratch work goes under `.claude/tmp/<task-slug>/` too.
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
 
-## The round state file
+## The round log
 
 A fan-out wait ends your turn and resumes it on a child's
 `<task-notification>`, so nothing you merely remember survives the
-boundary — and a notification the harness never delivers takes its
-child's result with it, leaving you waiting on an agent that has
-already finished. So **each child records its own result**, through
-`sdlc-agent-result-persist`, in one file per fan-out outside every
-worktree. A notification is a wake-up; the file is the evidence, and
-the round must complete correctly from the file alone. The preloaded
-`sdlc:agent-result-persist-interface` skill owns that CLI.
+boundary. And the notification is not the thing to build a round on: a
+child that ran, finished and reported can still skip its own last call,
+and the harness can drop a notification outright. Every loss this round
+has to survive is of that shape — never a child that failed to run — so
+**nothing here may depend on you hearing back**.
 
-Your half of the contract is four calls: a `--mode header` call per
-fan-out writing that fan-out's `anchor` line, one `--mode spawn` call
-per child you spawn, `--mode print` on every resume before you decide
-anything, and `--mode stopped` at a child's deadline. `print` reads;
-each of the other three appends a single line and rewrites nothing
-already in the file. The header call is **idempotent** — it writes the
-anchor when none is there, no-ops on one naming the same head SHA, and
-voids the file on one naming a different head — so no ordering between
-it and a child's own first record matters, and you make it without
-knowing which of you wrote first. You never create this file with
-`Write`, never reach for `Edit` — you declare no `Edit` tool — and
-never hold its path.
-Reconstructing it from what you remember is what once left returned
-disprovers uncrossed-off and burned a round's budget on theorems that
-had already reported (issue #351). The `anchor` line's instant and head
-SHA are yours to compute and pass in.
+Each child therefore records its own entry and its own exit, and writes
+its full report to a **result file** of its own, through
+`sdlc-agent-result-persist`, into one **round log** outside every
+worktree. The preloaded `sdlc:agent-result-persist-interface` skill
+owns that CLI: its modes, the paths it composes, the record grammar,
+and the derivations you read it back with.
 
-**Resolve the six identifying values at the top of the round, and again
-on every resume** rather than trusting a remembered one:
+**One round is one log.** The `stage` column — `generate`, `disprove`,
+`verify` — says which fan-out a record belongs to, so no two files can
+disagree about the round and one `--mode print` answers every stage's
+question.
+
+Your half of the contract is four calls, and **not one of them carries
+a verdict**: `--mode anchor` once at the top of the round,
+`--mode spawn` per child you spawn, `--mode return` when a
+`<task-notification>` reaches you, and `--mode stopped` at a child's
+deadline. You read with `--mode print`, on every resume, before you
+decide anything. Each write appends a single line and rewrites nothing
+already there. The anchor call is **idempotent** — it writes the anchor
+when none is there, no-ops on one naming the same head SHA, and voids
+the round on one naming a different head — so no ordering between it
+and a child's own first record matters.
+
+`--mode return` is the one call that records something you were told
+rather than something you did, and it is **telemetry, not evidence**:
+the tokens, tool calls and wall time a notification carried, kept so a
+round's cost is legible afterwards. Nothing you derive reads it. A
+child has finished when it wrote `leave`, or when its result file
+exists, and never because you heard from it.
+
+You never create the log with `Write`, never reach for `Edit` — you
+declare no `Edit` tool — and never hold a path: you read a result
+file's path out of the log you just printed, then read the file with
+`Read`. Reconstructing state from what you remember is what once left
+returned disprovers uncrossed-off and burned a round's budget on
+theorems that had already reported (issue #351).
+
+**Resolve the five identifying values at the top of the round, and
+again on every resume** rather than trusting a remembered one:
 
 ```bash
 gh repo view --json owner,name --jq '.owner.login + " " + .name'
@@ -137,39 +155,87 @@ Your own review lands only at "Post one review", so the count holds
 across the round. `--scratchpad` is the harness's per-session scratchpad
 directory, named in your own context and passed verbatim.
 
-The file is outside every repository and you have no commit or push
-step, so nothing this writes reaches the branch. It is per-round working
-state that outlives the worktrees "Clean up the spawned worktrees"
-removes; the posted review remains this procedure's only thing the next
-round reads.
+The log and the result files are outside every repository and you have
+no commit or push step, so nothing this writes reaches the branch. They
+are per-round working state that outlives the worktrees "Clean up the
+spawned worktrees" removes; the posted review remains this procedure's
+only thing the next round reads.
 
-### Resume a started round; never restart it
+### You are re-entrant
 
 A round that ended without posting is the failure this section
 recovers. Your caller's remedy for an in-progress return is to spawn
 you again over the same PR with the same parameters, so a fresh
 instance of you routinely arrives at a round some earlier instance
-already partly settled. Everything that round finished is in its state
-files, and throwing it away to start over is what once left a round
-re-fanning-out over theorems that had already reported.
+already partly settled — and you are that instance as often as you are
+the first one.
 
-**Detect the resume from the file, never from a flag.** Before either
-fan-out's spawns, run `--mode print` for that fan-out:
+**Derive what to do from the log, and hold nothing across a turn that
+is not written down.** Run `--mode print`, then take whichever arm the
+records name:
 
-- **It prints records** — this fan-out's round was started before.
-  Resume it, per the rest of this section.
-- **It fails saying there is no result file** — this is a fresh
-  fan-out. Spawn its whole live list.
-- **It fails naming a flag** — see "When a call fails" below.
+- **The call fails saying there is no round log** — nothing has run.
+  Anchor the round and start from "Read the PR's shape".
+- **The theorem list is not settled** — the generate stage has no
+  `leave` and no result file. Spawn the generator, per "Spawn the
+  theorem generator".
+- **Disprovers are missing** — a live theorem with no `leave` in the
+  `disprove` stage, no result file, and no child in flight. Spawn those,
+  per "Fan out the disprovers".
+- **Every disprover has left** — spawn a verifier for each theorem whose
+  report says `DISPROVED`, per "Fan out the verifiers".
+- **Every verifier has left** — derive the dispositions and post, per
+  "Derive each theorem's disposition".
+- **The call fails naming a flag** — see "When a call fails" below.
 
-No parameter tells you which of those you are in. A flag would be a
-second source of truth that can disagree with the file, and when it
-disagrees the file wins anyway.
+Whichever arm you take, run the sections before it that read the PR
+rather than skipping to the spawn: the issue set, the carried records,
+the round's delta and the live list are all derived from the PR and the
+round log every time, and none of them is remembered.
 
-**Both fan-outs get this branch** — disprovers and verifiers alike.
-Whichever stage the round stalled in is the stage that has to pick
-itself back up, and the two files are independent: a resumed round can
-find the disprover file complete and the verifier file half-written.
+**Keep the barrier between the stages.** No verifier is spawned while
+any disprover is outstanding, and nothing is derived while any verifier
+is: completeness stays one comparison per stage, and a stage that
+started before its predecessor finished would make it two.
+
+No parameter tells you which arm you are in, and none may. A flag is a
+second source of truth that can disagree with the log, and when it
+disagrees the log wins anyway.
+
+**A theorem is settled when its child wrote `leave`, or when its result
+file exists — never when you heard back.** Both derivations are owned
+by the preloaded `sdlc:agent-result-persist-interface` skill → "What the
+reader derives", including the in-flight one below. The verdict itself
+is in the result file: read the file the record names rather than
+inferring a verdict from the log.
+
+**Keep what is settled, re-run the rest.** A settled theorem is never
+re-attacked to find out what it says — its report is on disk in full, so
+no spawn can recover anything a record left out. That is the whole
+saving: a stalled round that had settled 4 of 24 theorems resumes with
+20 to run, not 24. The one spawn a settled theorem still gets is the
+remedy for a report that came back **malformed**, which the two fan-out
+sections define; that is keyed on the report's quality rather than on
+its absence, and its replacement report is the one the round then reads.
+
+**A theorem with a child still in flight is not re-spawned.** Subtract
+the in-flight set as well as the settled one: a predecessor's child that
+has `enter`ed, has not `leave`d, has no `stopped` after that `enter`,
+and is not yet past its own deadline is running the theorem now, and a
+second child on the same theorem would duplicate the work. The deadline
+is the override, and the only one — an overdue child is precisely the
+one to replace, so record its stop and spawn the replacement. An
+outstanding theorem with no child in flight is spawned without further
+question.
+
+A **duplicate `leave`** is a diagnostic worth reporting rather than a
+conflict — either a child believed dead reported anyway, or a malformed
+report's replacement landed. The later report is the one on disk.
+
+**A `stopped` after that `enter` says the child is gone, while the
+theorem stays outstanding.** A stop kills the child, not the theorem:
+the theorem is unanswered and re-spawnable, and it has no child in
+flight until a new `enter` arrives.
 
 **A moved head voids the round.** The `anchor` line carries the head SHA
 the round's theorems were generated against. Compare it against
@@ -180,85 +246,33 @@ them, say so in the Review method section, and run the round fresh from
 from two trees. This is not hypothetical — a scheduled sweep
 force-rebases open PR branches and can fire mid-round (see `CLAUDE.md` →
 "The rebase automation can move a PR branch mid-session"). Then make the
-`--mode header` call for the fresh round carrying the new head SHA: the
+`--mode anchor` call for the fresh round carrying the new head SHA: the
 preloaded `sdlc:agent-result-persist-interface` skill → "The modes" owns
-what the script does with the stale file. Making that call is what keeps
-the void from repeating — the next instance to arrive reads an `anchor`
-carrying the current head and resumes normally.
+what the script does with the stale log and the result files beside it.
+Making that call is what keeps the void from repeating — the next
+instance to arrive reads an `anchor` carrying the current head and
+resumes normally.
 
-**Keep what is settled, re-run the rest.** A theorem whose id carries a
-`return` record is settled: it is never **re-attacked**, and its verdict
-is fixed at that first `return`. Every other theorem the file `spawn`ed
-gets a new child, bar the ones the next paragraph holds back. That is
-the whole saving — a stalled round that had settled 4 of 24 theorems
-resumes with 20 to run, not 24.
+**Fan out in waves bounded by `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`.**
+Read that value and spawn at most that many children at once, waiting
+for a wave before starting the next. Spawning past the ceiling does not
+run more children — it queues them, which is what makes a child's start
+time unpredictable, and an unpredictable start is what a deadline
+anchored anywhere but the child's own `enter` gets wrong.
 
-**A theorem with a child still in flight is not re-spawned.** Subtract
-the in-flight set as well as the settled one: a predecessor's child
-that has `enter`ed, has not `return`ed, has no `stopped` after that
-`enter`, and is not yet past its own deadline is running the theorem
-now, and a second child on the same theorem would duplicate the work
-and put two `return` records where one belongs. The deadline is the
-override, and the only one — an overdue child is precisely the one to
-replace, so record its stop and spawn the replacement. The in-flight
-derivation is owned by the preloaded
-`sdlc:agent-result-persist-interface` skill → "The line grammar"; an
-outstanding theorem with no child in flight is spawned without further
-question.
-
-Settled bars a re-attack rather than every spawn. Recovering a **lost
-report** is the one permitted exception, below, and it cannot change a
-verdict.
-
-The consequences that are easy to get backwards:
-
-- A `SURVIVED` record is complete evidence on its own, and the theorem
-  needs nothing further this round.
-- A `DISPROVED` record is a complete **verdict** but carries no
-  counterexample, and "Fan out the verifiers" needs one to brief a
-  verifier. Where the report did not reach you, the existing remedy in
-  "Fan out the verifiers" applies unchanged: re-spawn that **one**
-  disprover with the same brief to recover the report. That is the
-  exception above — a recovery of a lost artifact, not a re-attack of
-  the round, and one spawn per theorem rather than a fan-out. The
-  verdict is not at risk: first-`return`-wins already fixed it, so the
-  recovery child's own `return` is the ignored duplicate, and what the
-  spawn is for is the counterexample prose no record carries. It may
-  fail to retrieve it — a recovery child that reaches `SURVIVED`
-  produces no such prose — and that section owns where the theorem goes
-  then.
-
-**A theorem's current child is its last `enter`, and its verdict is its
-first `return`.** The preloaded `sdlc:agent-result-persist-interface`
-skill → "The line grammar" owns both rules and why they point opposite
-ways. A duplicate `return` is a diagnostic worth reporting: it is
-evidence that a child believed dead was alive.
-
-**A `stopped` after that `enter` says the child is gone, while the
-theorem stays outstanding.** A stop kills the child, not the theorem:
-the theorem is unanswered and re-spawnable, and it has no child in
-flight until a new `enter` arrives. Same skill → "The line grammar"
-owns that derivation too.
-
-**Deadlines are per child, measured from its `enter` record** — not
-from the round's anchor. `Agent()` calls beyond the harness's
-concurrency ceiling queue and run in waves, so a child spawned at the
-anchor may not begin for many minutes, and a round-anchored deadline
-would record it unsettled for reasons that have nothing to do with its
-theorem. A child with **no** `enter` record has not started and is
-never overdue; a child whose `enter` is followed by a `stopped` has
-been written off and is never overdue again, so the deadline arm passes
-over both. What bounds the round in either case is the resume-pass
-loop below, not a clock.
+**Deadlines are per child, measured from its `enter` record.** A child
+with **no** `enter` record has not started and is never overdue; a child
+whose `enter` is followed by a `stopped` has been written off and is
+never overdue again, so the deadline arm passes over both.
 
 **Loop while progress continues; hard-stop at 7 resume passes.** A
-**resume pass** is one round of re-spawning the children the file shows
-unsettled, waiting for them, and re-reading the file. It is not the
+**resume pass** is one round of re-spawning the children the log shows
+unsettled, waiting for them, and re-reading the log. It is not the
 turn-level resume "Fan out the verifiers" runs, which is how the
 waiting itself is done: many turn resumes happen inside one pass, and
 only a pass spawns anything.
 Take another pass only while the last one settled at least one theorem
-the file did not already have; stop at 7 passes whatever happened.
+the log did not already have; stop at 7 passes whatever happened.
 Either exit is an escalation: report an in-progress status naming the
 outstanding theorems and which exit you took. A count alone is wrong in
 both directions — a round converging on its last theorem should not be
@@ -266,20 +280,13 @@ cut off, and a round settling nothing should not get seven tries. The
 count is your own instance's, and your caller bounds how many instances
 a PR gets.
 
-**Bound your own spawns.** A 40-theorem round re-spawned across several
-passes runs to hundreds of children, and
-`CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` is a **session** cap —
-exhausting it kills the session, not just the round. Count the children
-you have spawned across all passes, and escalate with that count rather
-than spawning past it.
-
 **Never `TaskStop` a child you did not spawn.** A resumed instance may
 stop its own children; a predecessor's are not yours to stop, and you
-use their ids from the file only for worktree cleanup ("Clean up the
+use their ids from the log only for worktree cleanup ("Clean up the
 spawned worktrees"). Multiple sessions run against one repo and share
 `.claude/worktrees/`, so a blanket kill reaches into another session's
-work. Acting only on ids you spawned, or that this round's own files
-name, is what keeps the scope provably correct.
+work. Acting only on ids you spawned, or that this round's own log
+names, is what keeps the scope provably correct.
 
 #### What this resume cannot see
 
@@ -289,11 +296,10 @@ mechanism:
 - **No runtime slot introspection exists.** The concurrency ceiling is
   readable from `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, but neither the
   number of slots in use nor the queue depth is exposed to an agent by
-  any documented tool, env var or API, and the behavior of a spawn
-  beyond the ceiling is undocumented. Starvation is therefore detected
-  only as absence of progress — the resume-pass loop above — and never
-  as a cause. Do not report a stall as starvation; report what the file
-  shows.
+  any documented tool, env var or API. Waves are what keep you off that
+  edge; starvation, if it happens anyway, is detected only as absence of
+  progress — the resume-pass loop above — and never as a cause. Do not
+  report a stall as starvation; report what the log shows.
 - **`No task found with ID` reads as gone, not as still-occupying.**
   When a resumed reviewer tried to stop its own children after a
   suspension, every `TaskStop` returned that error. Whether those
@@ -413,6 +419,31 @@ and every disprover's and verifier's brief; `baseRefName` is what bounds
 the delta in "Carry the previous round's theorems forward" to this PR's
 own commits. Do not fetch the diff — see "Why the diff never lands in
 your context" above.
+
+### Read the round log, then anchor the round
+
+Resolve the five identifying values per "The round log" above, then read
+the log before you decide anything:
+
+```bash
+sdlc-agent-result-persist --mode print \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number>
+```
+
+Take the arm "You are re-entrant" names for what it printed. Then anchor
+the round, whichever arm you are on — the call is idempotent, so it is
+the same call on a fresh round and on a resume, and nothing turns on
+whether a child has written first:
+
+```bash
+sdlc-agent-result-persist --mode anchor \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> --head-sha <headRefOid>
+```
+
+One anchor per round, here and nowhere else. A child's own deadline
+comes from its `enter` record rather than from anything written here.
 
 ### Identify the issue set
 
@@ -711,9 +742,17 @@ the Review method section.
 
 ### Spawn the theorem generator
 
-Spawn the definition "Pick the generator tier" settled on, with the
-`Agent` tool, passing the resolved set from "Identify the issue set" —
-not the caller's claim.
+**The generate stage may already be settled.** Read the log's `generate`
+stage first: on a `leave` record or a `result` line for the theorem
+`list`, an earlier instance already generated this round's list — read
+that result file with `Read` and take the list from it rather than
+spawning. That is what makes a theorem id denote the same claim across
+instances of you; regenerating would renumber the round under a fresh
+reading of the same PR.
+
+Otherwise spawn the definition "Pick the generator tier" settled on,
+with the `Agent` tool, passing the resolved set from "Identify the issue
+set" — not the caller's claim.
 
 On a **round-1 or fallback round**, the brief is the whole PR:
 
@@ -721,10 +760,14 @@ On a **round-1 or fallback round**, the brief is the whole PR:
 --pr <PR_N>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
+--scratchpad <the session scratchpad directory>
+--owner <owner>
+--repo <repo>
+--round <this round's number>
 
-Generate the theorem list per your preloaded generation skill. Report
-it back in the theorem-record format that skill defines, and nothing
-else.
+Generate the theorem list per your preloaded generation skill. Record it
+to your result file and report it back in the theorem-record format that
+skill defines, and nothing else.
 ```
 
 On a **delta round**, the brief adds the carried records and the
@@ -736,10 +779,27 @@ round's delta commits, and the generator emits only what those imply:
 --branch <headRefName>
 --carried-records <the records block, verbatim from the previous review>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
+--scratchpad <the session scratchpad directory>
+--owner <owner>
+--repo <repo>
+--round <this round's number>
 
-Generate the theorem list per your preloaded generation skill. Report
-it back in the theorem-record format that skill defines, and nothing
-else.
+Generate the theorem list per your preloaded generation skill. Record it
+to your result file and report it back in the theorem-record format that
+skill defines, and nothing else.
+```
+
+Append a `spawn` record for it, exactly as you do for every other child
+— the generate stage's theorem column is the literal `list`, and the
+generator's tier travels in `--agent` because that is what picking a
+tier is:
+
+```bash
+sdlc-agent-result-persist --mode spawn \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> \
+  --theorem list --stage generate \
+  --agent <the definition you spawned> --model default --effort default
 ```
 
 Pass the delta as the **commit list** "Carry the previous round's
@@ -757,7 +817,10 @@ this step only says what you put in each.
 Pass no tier, effort, or model in the brief. The generator's tier is
 the `effort:` of the definition you spawned.
 
-You get back a numbered theorem list. Each record carries a claim, the
+The generator's list reaches you twice — in its report, and in its
+result file, which is the copy a later instance of you reads. Where the
+two disagree, the file is the round's list: it is what every instance
+sees. Each record carries a claim, the
 member issue(s) it is tagged to, a `mechanical` / `semantic` class,
 and file/region pointers. **Ids are stable across rounds and are never
 reused**: new theorems continue the numbering the carried records
@@ -881,52 +944,35 @@ If it does not match, the branch moved since the round opened: re-read
 "Read the PR's shape" and restart the review from "Identify the issue
 set" against the new head, rather than reviewing a mix of two trees.
 
-**Then read this fan-out's state file before you spawn anything**, per
-"Resume a started round; never restart it" above:
+**Then subtract what the log already answers**, per "You are
+re-entrant" above: check the `anchor` line's head SHA against the
+`<headRefOid>` above, then take the `disprove` stage's settled and
+in-flight theorems off the list you are about to spawn. On a fresh round
+that leaves the whole live list.
 
-```bash
-sdlc-agent-result-persist --mode print \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-  --pr <PR_N> --round <this round's number> --agent theorem-disprover
-```
-
-On records, this is a resume: check the `anchor` line's head SHA
-against the `<headRefOid>` above, then subtract the settled and the
-in-flight theorems from the list you are about to spawn, per "Resume a
-started round; never restart it". On "no result file", this is a fresh
-fan-out and the whole live list is spawned.
-
-**Anchor the fan-out either way.** The call is idempotent, so it is the
-same call on a fresh fan-out and on a resume, and nothing turns on
-whether a child has written first. The anchor is the clock reading here
-and the head SHA is `<headRefOid>`; a child's own deadline comes from
-its `enter` record rather than from anything written here:
-
-```bash
-sdlc-agent-result-persist --mode header \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
-  --header "anchor $(date -u +%Y-%m-%dT%H:%M:%SZ) <headRefOid>"
-```
-
-Then spawn one `sdlc:theorem-disprover` per theorem still to run,
-**all in a single message block** so they run concurrently, and append
-one `spawn` record per child you spawned:
+Spawn one `sdlc:theorem-disprover` per theorem still to run, **in waves
+of at most `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, each wave in a single
+message block** so its children run concurrently, and append one `spawn`
+record per child you spawned:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
   --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
-  --theorem T4
+  --pr <PR_N> --round <this round's number> \
+  --theorem T4 --stage disprove --agent theorem-disprover \
+  --model <haiku, or default where you named none> --effort default
 ```
+
+The model and the effort go on this record because you chose them and
+the child can read neither. `default` is the honest value where the
+spawn named none and the definition's own frontmatter decided.
 
 That record is per **child**, not per theorem, so a re-spawn in a later
 pass writes its own and a theorem carries one per attempt. Every child
 this file has you spawn gets one, wherever it has you spawn it —
 because a child with a `spawn` record and no `enter` is one that never
-started, and a child with neither was never asked for. The re-spawns
-"Fan out the verifiers" defines are children too, however narrow their
-purpose. One disprover per theorem is the starting point; if missed
+started, and a child with neither was never asked for.
+One disprover per theorem is the starting point; if missed
 counterexamples show up in practice, N disprovers per theorem is a
 one-line change here.
 
@@ -976,10 +1022,9 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-The last four, with the `--pr` at the top, are five of the six
-identifying values, the same five the `--mode header` call above
-carried; the disprover supplies the sixth, `--agent`, itself. Pass them
-unchanged or its result lands in a file you never read.
+The last four, with the `--pr` at the top, are the five identifying
+values the `--mode anchor` call carried. Pass them unchanged or the
+child's records and its report land in a round you never read.
 
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into every agent you
@@ -1009,26 +1054,32 @@ order, and runs them over **every** outstanding child rather than the
 one that woke you — so one surviving notification carries the round
 past every result whose own notification was lost.
 
-1. **Read the fan-out's state file**, before anything else in the
-   resume:
+1. **Read the round log**, before anything else in the resume:
 
    ```bash
    sdlc-agent-result-persist --mode print \
      --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-     --pr <PR_N> --round <this round's number> --agent theorem-disprover
+     --pr <PR_N> --round <this round's number>
    ```
 
-   You write nothing here: each disprover appended its own `return`
-   record, so the file already carries every result that exists.
+   You write no verdict here: each disprover appended its own `leave`
+   and wrote its own report, so the round already carries every result
+   that exists. Append a `--mode return` record for the notification
+   that woke you, carrying its agent id and whatever token, tool-call
+   and duration figures it gave you — that is cost telemetry, and no
+   step below reads it. A notification that names no agent id gets no
+   record: telemetry is never worth a refused call, and the round is
+   settled from the `leave` records either way.
 2. **Derive the round's position from that output** — which theorems
-   returned, what each returned, which have started, and which are
-   still outstanding — then read the clock and compare it against each
-   outstanding child's own deadline: 15 minutes after that theorem's
-   most recent `enter` record. A theorem with no `enter` record has no
-   child running yet and no deadline to be past, and one whose most
-   recent `enter` is followed by a `stopped` has no child left to be
-   overdue — its child was already written off, and the arm is not
-   taken against it again.
+   have left, which have started, and which are still outstanding, per
+   "You are re-entrant" — then read each settled theorem's report out of
+   the result file its `leave` or `result` line names. Then read the
+   clock and compare it against each outstanding child's own deadline:
+   15 minutes after that theorem's most recent `enter` record. A theorem
+   with no `enter` record has no child running yet and no deadline to be
+   past, and one whose most recent `enter` is followed by a `stopped`
+   has no child left to be overdue — its child was already written off,
+   and the arm is not taken against it again.
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ
@@ -1041,23 +1092,23 @@ past every result whose own notification was lost.
 3. **End the turn, or take the deadline arm below** according to what
    that comparison said.
 
-**A verdict's only admissible source is a `return` record in the
-fan-out's state file.** A `<task-notification>` is a wake-up, not
-evidence: it tells you to look, and the file is what you look at. You
-are not a source of verdicts any more than you are a source of theorems.
-A theorem whose disprover recorded nothing has no verdict — not
-`SURVIVED`, not anything — and writing one down because the round needs
-a verdict per live theorem is exactly the failure this rule exists to
-prevent. The `return` records are what make a verdict checkable rather
-than remembered: a theorem with no `return` record in this fan-out's
-file carries no verdict, whatever you recall of a notification. The
-disposition table in "Derive each theorem's disposition" has a row for
-the theorem you cannot settle, and taking that row is the correct move.
+**A verdict's only admissible source is the child's own result file.** A
+`<task-notification>` is a wake-up, not evidence: it tells you to look,
+and the round log is what you look at. You are not a source of verdicts
+any more than you are a source of theorems. A theorem whose disprover
+wrote no report has no verdict — not `SURVIVED`, not anything — and
+writing one down because the round needs a verdict per live theorem is
+exactly the failure this rule exists to prevent. The result files are
+what make a verdict checkable rather than remembered, and they carry the
+whole report rather than a token: a theorem with no result file carries
+no verdict, whatever you recall of a notification. The disposition table
+in "Derive each theorem's disposition" has a row for the theorem you
+cannot settle, and taking that row is the correct move.
 
 A turn you end while any live theorem still has no verdict is an
 **in-progress status**, and it must read as one — how many theorems
 are still outstanding, plus which resume-pass loop exit you took once
-one has fired (per "Resume a started round; never restart it" above),
+one has fired (per "You are re-entrant" above),
 and nothing more. It carries no verdict block, no tally, and no findings. The
 harness surfaces a turn-end as
 `status: completed` with your closing message as the result, so a
@@ -1067,17 +1118,16 @@ to `/sdlc:orchestrate`, from a finished review.
 The wait is bounded. A child's deadline is **15 minutes after its own
 `enter` record** — five times the worst case measured on a 32-theorem
 round, where every disprover reported inside three minutes, and
-measured from the child's start because the harness queues spawns past
-its concurrency ceiling and a queued child is not a slow one. The
+measured from the child's start because a child queued behind the
+concurrency ceiling is not a slow one. The
 comparison in move 2 above is what evaluates it.
 
 A theorem past its child's deadline with no verdict is **unsettled** in
 this pass: it takes the `could not be settled` disposition in "Derive
 each theorem's disposition", gets no severity, is named in the posted
 review so the tally stays true, and is live again next round — unless a
-resume pass re-spawns it first, per "Resume a started round; never
-restart it" above, in which case its new child gets its own fresh
-deadline from its own `enter`.
+resume pass re-spawns it first, per "You are re-entrant" above, in which
+case its new child gets its own fresh deadline from its own `enter`.
 
 At a child's deadline, and only there, `TaskStop` that disprover if
 **you** spawned it, so it is no longer mid-run and "Clean up the spawned
@@ -1090,30 +1140,30 @@ child is never yours to stop — you record the stop and leave it alone:
 ```bash
 sdlc-agent-result-persist --mode stopped \
   --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-  --pr <PR_N> --round <this round's number> --agent theorem-disprover \
-  --theorem T7
+  --pr <PR_N> --round <this round's number> \
+  --theorem T7 --stage disprove
 ```
 
-That is `TaskStop`'s one sanctioned use on this fan-out: past that
+That is `TaskStop`'s one sanctioned use on this stage: past that
 child's own deadline, and only for a theorem already recorded as
 unsettled.
-The verifier fan-out below carries the same one, and nothing widens
+The verifier stage below carries the same one, and nothing widens
 either. Never reach for it to make a slow round finish sooner —
 stopping a disprover that would have reported drops a theorem while
 the review reports a complete tally.
 
 **A deadline is a reason to take a resume pass, not a reason to give
 up on the theorem.** With theorems recorded unsettled and passes left,
-re-spawn a disprover for each of them and wait again, per "Resume a
-started round; never restart it" above — that is what a resume pass is,
+re-spawn a disprover for each of them and wait again, per "You are
+re-entrant" above — that is what a resume pass is,
 and the same three moves per turn govern the new wait. The round moves
 on with them unsettled only when that loop exits: a pass that settled
-nothing new, the seventh pass, or your spawn budget.
+nothing new, or the seventh pass.
 
 A `DISPROVED` report is a candidate finding, not a finding. Each
 `DISPROVED` theorem gets one `sdlc:counterexample-verifier`. Which
-theorems those are is read off the disprover fan-out's `return`
-records — the ones whose result is `DISPROVED` — not off your
+theorems those are is read out of the disprovers' result files — the
+ones whose report says `DISPROVED` — not off your
 recollection of which notifications carried one.
 
 `SURVIVED` theorems spawn no verifier. There is no counterexample to
@@ -1135,20 +1185,10 @@ unsettled — see the disposition table in "Derive each theorem's
 disposition". Spawning a verifier against a malformed report would waste
 the check on evidence that has already failed a cheaper one.
 
-A record carries a result token, not a report, so a `DISPROVED` record
-whose notification never reached you leaves no counterexample to hand a
-verifier. Take the same remedy — re-spawn that one disprover with the
-same brief.
-
-**That recovery can disagree, and a disagreeing one recovers nothing.**
-The recovery child re-runs the same attack and is free to reach
-`SURVIVED`, whose report shape carries no `COUNTEREXAMPLE` and no
-`EVIDENCE` field — so there is no prose to recover, while the recorded
-verdict stays `DISPROVED` under first-`return`-wins. Do not spawn a
-third: the theorem takes the **disproved, unverified** disposition in
-"Derive each theorem's disposition", which is where a run that returned
-no report at all lands too. Both leave the same state — a settled
-`DISPROVED` verdict with no counterexample for a verifier to check.
+A settled `DISPROVED` theorem always has its counterexample to hand:
+the disprover wrote its whole report to its result file, and a
+notification that never arrived took nothing with it. There is no
+lost-report case here to recover from.
 
 Route the model exactly as "Fan out the disprovers" did, by the
 theorem's class: `model: haiku` on the `Agent` call for a `mechanical`
@@ -1187,8 +1227,9 @@ else.
 What each parameter means is owned by the
 `sdlc:theorem-agents-interface` skill, preloaded into every agent you
 spawn here; this step only says what you put in each. What you put in
-`--counterexample` is the report that theorem's disprover returned to
-you, as received — never summarize it for the verifier.
+`--counterexample` is the disprover's report as its result file holds
+it, byte for byte — never a summary, and never your recollection of the
+notification.
 
 **No retry ping-pong.** A `REFUTED` counterexample ends that theorem's
 round: you do not re-spawn the disprover for another attack, and you
@@ -1202,46 +1243,34 @@ too, the finding **stands** — resolve toward filing, never toward
 silently dropping a counterexample that carried verbatim evidence, and
 take the consequence class from the disprover's proposal in that case.
 
-**Read this fan-out's state file before you spawn anything** — exactly
-as "Fan out the disprovers" did for the disprovers, and for its reason:
-a resumed round may have stalled in this stage rather than that one. Run
-`--mode print` under `--agent counterexample-verifier`; on records,
-subtract the settled and the in-flight theorems from the verifiers you
-are about to spawn. Anchor this fan-out with the same idempotent
-`--mode header` call "Fan out the disprovers" makes, under the other
-`--agent` value:
+**Subtract what the log already answers here too** — exactly as "Fan
+out the disprovers" did for its own stage, and for its reason: a resumed
+round may have stalled in this stage rather than that one. Take the
+`verify` stage's settled and in-flight theorems off the verifiers you
+are about to spawn. There is no second anchor and no second file: the
+round was anchored once, at "Read the round log, then anchor the round",
+and the `stage` column is what tells these records from the disprovers'.
 
-```bash
-sdlc-agent-result-persist --mode header \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
-  --pr <PR_N> --round <this round's number> \
-  --agent counterexample-verifier \
-  --header "anchor $(date -u +%Y-%m-%dT%H:%M:%SZ) <headRefOid>"
-```
-
-`--agent` keys the file, so this is a **second file** beside the
-disprovers', neither able to answer for the other. Both carry the same
-head SHA, and a resume checks it against `origin/<headRefName>` in
-either file it reads.
-
-Then spawn the verifiers, **all in a single message block** so they run
-concurrently, and append a `--mode spawn` record per verifier you
-spawned, under this fan-out's `--agent`, exactly as "Fan out the
-disprovers" does for its own children.
+Then spawn the verifiers, **in waves of at most
+`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, each wave in a single message
+block** so its children run concurrently, and append a `--mode spawn`
+record per verifier you spawned under `--stage verify` and
+`--agent counterexample-verifier`, exactly as "Fan out the disprovers"
+does for its own children.
 
 State which verifiers you are waiting on in your closing turn text too.
 
 **The wait for the verifiers is the same resume loop**, run a second
 time, with the same three moves per resume and the same literal
-commands under `--agent counterexample-verifier` rather than
-`--agent theorem-disprover`: read the file with `--mode print`, derive
-which verifiers have returned and what they returned, read the clock
-and compare it against each outstanding verifier's own `enter` record,
-then end the turn or take the deadline arm. The admissible-source rule
-above holds unchanged here — a verifier with no `return` record has
-given you no verdict — and so does the resume-pass loop, which bounds
-this stage's re-spawns the same way and shares one pass count and one
-spawn budget with the disprover stage.
+commands, reading the `verify` stage's records rather than the
+`disprove` stage's: read the log with `--mode print`, derive which
+verifiers have left and read each one's report out of its result file,
+read the clock and compare it against each outstanding verifier's own
+`enter` record, then end the turn or take the deadline arm. The
+admissible-source rule above holds unchanged here — a verifier with no
+result file has given you no verdict — and so does the resume-pass loop,
+which bounds this stage's re-spawns the same way and shares one pass
+count with the disprover stage.
 
 A turn you end
 while any verifier is still outstanding is an **in-progress status**
@@ -1268,9 +1297,9 @@ again next round.
 At a verifier's deadline, and only there, `TaskStop` it if **you**
 spawned it, so it is no longer mid-run and "Clean up the spawned
 worktrees" can remove its worktree, and append its stop either way with
-`--mode stopped` under this fan-out's own `--agent` value. That is the
+`--mode stopped` under `--stage verify`. That is the
 same single sanctioned use the
-disprover deadline has, extended to the second fan-out and no wider:
+disprover deadline has, extended to the second stage and no wider:
 past that child's own deadline, and only for a theorem already recorded
 unverified.
 
@@ -1294,12 +1323,12 @@ counterexample.
 | `DISPROVED` | no verdict once the resume-pass loop exits | **disproved, unverified** — no finding, no severity |
 | malformed twice (the disprover's own re-spawn path) | not spawned | **could not be settled**, no severity |
 | no verdict once the resume-pass loop exits | not spawned | **could not be settled**, no severity |
-| a verdict carried by no `return` record | not spawned | **inadmissible** — not a verdict at all; the theorem takes the no-disprover-verdict row above |
+| a verdict carried by no result file | not spawned | **inadmissible** — not a verdict at all; the theorem takes the no-disprover-verdict row above |
 
 The **inadmissible** row is the one that is not a disposition. It is the
 case the admissible-source rule in "Fan out the verifiers" names: a
-verdict you have for a theorem carrying no `return` record in this
-fan-out's state file was inferred rather than recorded, so the theorem
+verdict you have for a theorem whose child wrote no result file was
+inferred rather than read, so the theorem
 has no verdict and the table's other rows are read against that. While
 that resume-pass loop is still running that means
 the round has not moved on and the turn ends again; once it exits the
@@ -1327,14 +1356,6 @@ checked is the exact outcome the verification stage exists to prevent.
 The unsettled rows below it get the severity outcome right and the
 state wrong: they assert the claim was never settled, and `state` is
 what a human reads to judge the round.
-
-The row has a second way in, from the lost-report case in "Fan out the
-verifiers": a `DISPROVED` record whose report never reached you and
-whose recovery spawn returned nothing usable — no report, or a
-`SURVIVED` one carrying no counterexample. No verifier is spawned there,
-because there is nothing to hand one. `disproved` is still the truthful
-state — the first `return` settled the claim — and what is missing is
-the counterexample as well as the verification, which the entry says.
 
 A standing finding is written in the format under "Findings must
 quote, not paraphrase" below. Its `**Evidence:**` block is the
@@ -1421,11 +1442,12 @@ git worktree remove <absolute-path-from-the-listing>
 
 **Remove only the worktrees this round owns**, which are two sets and
 no more: the children you spawned yourself, and the `agent-<agent-id>`
-directories this round's own two state files name in their `enter`
-records. That second set is how a resumed instance clears the children
+directories this round's own log names in its `enter`
+records — the generator's among them, which no earlier design recorded.
+That second set is how a resumed instance clears the children
 its predecessor left behind — cleanup is the one thing you may do to a
 child you did not spawn, and `TaskStop` remains forbidden on it per
-"Resume a started round; never restart it". Multiple sessions share
+"You are re-entrant". Multiple sessions share
 `.claude/worktrees/`, so anything wider than those two sets reaches
 into another session's work: never sweep the listing by pattern, and
 never remove a worktree just because it looks like a review agent's.
@@ -1659,8 +1681,8 @@ body with these sections, in this order:
    that round back to round-1 behavior.
 
    Say so too when this round was **resumed** from an earlier
-   instance's state files: how many theorems it inherited already
-   settled, how many resume passes it took, and any duplicate `return`
+   instance's records: how many theorems it inherited already
+   settled, how many resume passes it took, and any duplicate `leave`
    record it found. A reader weighing the round needs to know which
    verdicts came from children this instance never spawned. A round
    that discarded its records for a moved head says that here as well,
@@ -1684,12 +1706,7 @@ body with these sections, in this order:
    for a theorem no verifier ever reported on gives the consequence the
    same way, says no verifier ever checked the counterexample, and
    carries no `→ Finding N` cross-link at all, because that disposition
-   files no finding. A theorem that reached that disposition by the
-   lost-report case in "Fan out the verifiers" has no disprover report
-   either, so its entry carries the claim, the recorded `DISPROVED`
-   verdict, and the statement that the counterexample was never
-   recovered — never an invented narrative or quote in place of the one
-   that was lost.
+   files no finding.
 5. **Findings** — numbered, terse, and actionable, ranked by severity,
    each in the `**Finding:** / **Evidence:** / **Recommendation:**`
    format, each tagged with the theorem id it came from and the
@@ -1995,7 +2012,7 @@ posted review for anything beyond that.
 Report whether the round was **resumed** and how it ended: how many
 theorems it inherited settled, how many resume passes it took, and —
 on an in-progress return — which loop exit you took (a pass that
-settled nothing new, the seventh pass, or the spawn budget) and which
+settled nothing new, or the seventh pass) and which
 theorems are still outstanding. That is what tells your caller whether
 spawning you again would buy anything.
 

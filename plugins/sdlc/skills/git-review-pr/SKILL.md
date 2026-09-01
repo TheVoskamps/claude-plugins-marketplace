@@ -89,7 +89,7 @@ skill computes.
    so it reads like a finished review unless you look. On such a
    return, tell the user the round did not finish, say no review was
    posted, and offer to re-spawn the reviewer on the same PR — that
-   re-spawn resumes the stalled round from its state files rather than
+   re-spawn resumes the stalled round from its round log rather than
    starting it over, so the theorems already settled stay settled. Do
    not present the partial text as a review outcome. Relay the loop
    exit with the offer: a reviewer that stopped because a pass settled

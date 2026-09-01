@@ -707,10 +707,9 @@ reviewer killed mid-round returns nothing and removes nothing, so that
 one worktree survives the loop with no per-return cleanup to catch it —
 the end-of-run pass is the **backstop** for it, per "Sweep the run's
 leftover worktrees at the end" below. Its fan-out children stay not
-yours even then: a resumed reviewer clears the disprover and verifier
-worktrees its round's state files name, and anything that outlives the
-run — a killed reviewer's generator worktree among them, since no
-record names it — is named in the summary rather than removed. Never
+yours even then: a resumed reviewer clears the generator, disprover and
+verifier worktrees its round log names, and anything that outlives the
+run is named in the summary rather than removed. Never
 remove one during the loop either way — a fan-out's worktrees are in
 use while its round is still running.
 
@@ -948,11 +947,12 @@ responses, so read what the report **says** before you act on it:
    human has nothing to adjust yet.
 
    That re-spawn **resumes** the stalled round rather than starting it
-   over: the reviewer finds this round's state files, keeps every
-   theorem already settled in them, and re-attacks only the rest (see
-   the `sdlc:theorem-based-pr-reviewer` agent → "Resume a started round;
-   never restart it", which also names the one spawn a settled theorem
-   still gets and why it cannot move that theorem's verdict). So a
+   over: the reviewer derives what is left from this round's log and its
+   result files, keeps every theorem already settled there, and
+   re-attacks only the rest (see
+   the `sdlc:theorem-based-pr-reviewer` agent → "You are re-entrant",
+   which also names the one spawn a settled theorem
+   still gets and what it is for). So a
    second in-progress return means the round
    is still making no progress on what it has left, not that the
    re-spawn threw the first attempt away.
@@ -1348,10 +1348,9 @@ serial, no-`--force` rules the per-return cleanup uses. A worktree you
 did not spawn is not yours to remove, however stale it looks:
 `.claude/worktrees/` is shared with every other session running against
 this repo. A killed reviewer's own generator, disprover and verifier
-worktrees are in that category — a resumed reviewer clears the
-disprover and verifier ones its round's state files name, while the
-generator's is in no record, so it and anything else that outlives the
-run go in the summary by path rather than being removed here.
+worktrees are in that category — a resumed reviewer clears the ones its
+round log names, and anything that outlives the
+run goes in the summary by path rather than being removed here.
 `/git-tools:git-cleanup-branches-and-worktrees` is the whole-repo sweep
 for those, and running it is the human's call.
 

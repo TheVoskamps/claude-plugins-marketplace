@@ -1,6 +1,6 @@
 ---
 name: theorem-generator-xhigh
-description: Reads a PR, the issues it closes, and the surrounding codebase at the xhigh reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:theorem-based-pr-reviewer agent; it posts nothing and writes nothing.
+description: Reads a PR, the issues it closes, and the surrounding codebase at the xhigh reasoning tier, and emits a list of disprovable theorems for the review pipeline to fan out. Spawned by the sdlc:theorem-based-pr-reviewer agent; it posts nothing and writes nothing in any repository.
 tools: Read, Glob, Grep, Bash, Skill
 model: fable
 effort: xhigh
@@ -8,6 +8,7 @@ isolation: worktree
 skills:
   - sdlc:theorem-generation
   - sdlc:theorem-agents-interface
+  - sdlc:agent-result-persist-interface
   - issue-view
   - github-prs:pr-diff
 ---

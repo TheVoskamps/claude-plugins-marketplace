@@ -94,7 +94,7 @@ them as well.
   and so does an adjustment-only round: an empty value is a delta of
   nothing, not a missing parameter.
 - `--counterexample <text>` — a disprover's full `DISPROVED` report,
-  verbatim, every line as the disprover wrote it — `VERDICT`,
+  verbatim, as its result file holds it — `VERDICT`,
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
@@ -105,13 +105,15 @@ them as well.
 - `--repo <repo>` — the repository name, separate from the owner.
 - `--round <n>` — the review round, as the reviewer numbers it.
 
-Those four say nothing about the claim, and no generator receives any
-of them. A disprover and a verifier pass them straight back — alongside
-`--pr`, their own fan-out name, and the agent id they derive from their
-own worktree — to `sdlc-agent-result-persist`, per
-`sdlc:agent-result-persist-interface`. The agent id is the only one of
-those the agent has to derive rather than receive: a re-spawned child
-would otherwise be indistinguishable from the one it replaced.
+Those four say nothing about the claim, and **every** theorem agent
+receives them, the generator included. Each passes them straight back —
+alongside `--pr`, its own stage, and its own definition's name — to
+`sdlc-agent-result-persist`, per
+`sdlc:agent-result-persist-interface`, when it records that it started
+and when it writes its report. Nothing else is passed in: that script
+derives the agent id from the worktree the agent is standing in, so a
+re-spawned child is distinguishable from the one it replaced without a
+handle travelling in a brief.
 
 ## The consequence classes
 

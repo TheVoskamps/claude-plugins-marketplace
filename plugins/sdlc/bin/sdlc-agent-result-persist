@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Persist one theorem-review fan-out's records to a file outside every
-# worktree, so a lost <task-notification> cannot lose a child's result.
+# Record one theorem-review round's progress in a log outside every
+# worktree, and hold each child's full report in a file of its own, so a
+# round completes from what is on disk rather than from what a caller
+# heard back.
 #
-# The path is composed here and nowhere else: every caller passes the
-# same identifying flags in every mode, so no agent ever holds a path
-# string to mistype or to carry across a turn boundary.
+# Every path is composed here and nowhere else — the round log, each
+# result file, and each child's harness transcript — so no agent ever
+# holds a path string to mistype or to carry across a turn boundary.
 #
-# The contract this implements — modes, flags, path, line grammar — is
+# The contract this implements — modes, flags, paths, line grammar — is
 # plugins/sdlc/skills/agent-result-persist-interface/SKILL.md.
 set -euo pipefail
 
@@ -19,11 +21,13 @@ die() {
 
 usage() {
   cat <<EOF
-usage: $PROGRAM --mode header|spawn|enter|detail|stopped|print
+usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
                 --scratchpad <dir> --owner <owner> --repo <repo>
-                --pr <n> --round <n> --agent <name>
-                [--header <text>] [--theorem <id>] [--agent-id <id>]
-                [--result <token>]
+                --pr <n> --round <n>
+                [--head-sha <sha>] [--theorem <id>]
+                [--stage generate|disprove|verify] [--agent <name>]
+                [--model <name>] [--effort <name>] [--agent-id <id>]
+                [--tokens <n>] [--tools <n>] [--ms <n>]
 EOF
 }
 
@@ -33,16 +37,21 @@ owner=
 repo=
 pr=
 round=
-agent=
-agent_id=
-header=
+head_sha=
 theorem=
-result=
+stage=
+agent=
+model=
+effort=
+agent_id=
+tokens=
+tools=
+ms=
 
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--scratchpad|--owner|--repo|--pr|--round|--agent|--agent-id|--header|--theorem|--result)
+    --mode|--scratchpad|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -62,16 +71,21 @@ while [ "$#" -gt 0 ]; do
     --repo)       repo=$value ;;
     --pr)         pr=$value ;;
     --round)      round=$value ;;
-    --agent)      agent=$value ;;
-    --agent-id)   agent_id=$value ;;
-    --header)     header=$value ;;
+    --head-sha)   head_sha=$value ;;
     --theorem)    theorem=$value ;;
-    --result)     result=$value ;;
+    --stage)      stage=$value ;;
+    --agent)      agent=$value ;;
+    --model)      model=$value ;;
+    --effort)     effort=$value ;;
+    --agent-id)   agent_id=$value ;;
+    --tokens)     tokens=$value ;;
+    --tools)      tools=$value ;;
+    --ms)         ms=$value ;;
   esac
 done
 
 case "$mode" in
-  header|spawn|enter|detail|stopped|print) ;;
+  anchor|spawn|enter|leave|return|stopped|print) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
@@ -81,7 +95,7 @@ esac
 # A / in an identifying value would silently add a directory level to
 # the composed path, which is why owner and repo stay separate flags
 # rather than arriving as one owner/name token.
-for pair in "owner:$owner" "repo:$repo" "agent:$agent"; do
+for pair in "owner:$owner" "repo:$repo"; do
   name=${pair%%:*}
   given=${pair#*:}
   [ -n "$given" ] || die "--$name is required"
@@ -99,99 +113,187 @@ for pair in "pr:$pr" "round:$round"; do
   esac
 done
 
-# Every column of every record is whitespace-separated, so a theorem id
-# or a result carrying whitespace would shift the columns of that line
-# and desynchronise the reader's derivation from the writer's intent.
-if [ "$mode" = spawn ] || [ "$mode" = enter ] || [ "$mode" = detail ] || [ "$mode" = stopped ]; then
-  [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
-  case "$theorem" in
-    *[!A-Za-z0-9._-]*) die "--theorem must be a single token: $theorem" ;;
+# Every column of every record is whitespace-separated, so a value
+# carrying whitespace would shift the columns of its line and
+# desynchronise the reader's derivation from the writer's intent.
+single_token() {
+  case "$2" in
+    *[!A-Za-z0-9._:-]*) die "--$1 must be a single token: $2" ;;
   esac
+}
+
+case "$mode" in
+  spawn|enter|leave|return|stopped)
+    [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
+    single_token theorem "$theorem"
+    # A result file is named <log>-<theorem>-<agent> and --mode print
+    # splits it back apart at the first dash, so the theorem id carries
+    # none and the agent name is free to.
+    case "$theorem" in
+      *-*) die "--theorem must carry no dash: $theorem" ;;
+    esac
+    [ -n "$stage" ] || die "--stage is required in --mode $mode"
+    case "$stage" in
+      generate|disprove|verify) ;;
+      *) die "--stage must be generate, disprove or verify: $stage" ;;
+    esac
+    ;;
+esac
+
+# The agent names which definition the record is about, and on a leave
+# it is half the result file's name.
+case "$mode" in
+  spawn|leave)
+    [ -n "$agent" ] || die "--agent is required in --mode $mode"
+    single_token agent "$agent"
+    ;;
+esac
+
+if [ "$mode" = spawn ]; then
+  for pair in "model:$model" "effort:$effort"; do
+    name=${pair%%:*}
+    given=${pair#*:}
+    [ -n "$given" ] || die "--$name is required in --mode spawn"
+    single_token "$name" "$given"
+  done
 fi
 
-# The agent id names which child wrote the record, so a re-spawned
-# theorem's second child is told apart from the first one.
-if [ "$mode" = enter ] || [ "$mode" = detail ]; then
-  [ -n "$agent_id" ] || die "--agent-id is required in --mode $mode"
-  case "$agent_id" in
-    *[!A-Za-z0-9._-]*) die "--agent-id must be a single token: $agent_id" ;;
+# The agent id names which child a record is about, so a re-spawned
+# theorem's second child is told apart from the first. A child derives
+# its own from its worktree; only the caller has to pass one.
+if [ "$mode" = return ]; then
+  [ -n "$agent_id" ] || die "--agent-id is required in --mode return"
+  single_token agent-id "$agent_id"
+fi
+
+if [ "$mode" = anchor ]; then
+  [ -n "$head_sha" ] || die "--head-sha is required in --mode anchor"
+  single_token head-sha "$head_sha"
+fi
+
+for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
+  name=${pair%%:*}
+  given=${pair#*:}
+  [ -n "$given" ] || continue
+  case "$given" in
+    *[!0-9]*) die "--$name must be a number: $given" ;;
   esac
-fi
+done
 
-if [ "$mode" = detail ]; then
-  [ -n "$result" ] || die "--result is required in --mode detail"
-  case "$result" in
-    *[!A-Za-z0-9._-]*) die "--result must be a single token: $result" ;;
-  esac
-fi
-
-if [ "$mode" = header ]; then
-  [ -n "$header" ] || die "--header is required in --mode header"
-fi
-
-readonly file="$scratchpad/sdlc/theorem-based-pr-reviewer-$owner-$repo-pr$pr-round$round-$agent"
+readonly dir="$scratchpad/sdlc"
+readonly file="$dir/theorem-based-pr-reviewer-$owner-$repo-pr$pr-round$round"
+readonly result_file="$file-$theorem-$agent"
 
 now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
+# The harness names an isolation: worktree worktree agent-<agent-id>,
+# and that is the same token TaskStop takes.
+this_agent_id() {
+  base=${PWD##*/}
+  printf '%s\n' "${base#agent-}"
+}
+
+# The harness writes a child's transcript to
+# ~/.claude/projects/<project>/<session>/subagents/agent-<id>.jsonl,
+# where <project> is the primary clone's path with each character
+# outside [A-Za-z0-9-] replaced by a dash — measured on both a / and a
+# dot. The child's own cwd is a worktree, so the primary root comes from
+# the common git dir rather than from $PWD. Any part of that being
+# unavailable yields a dash: the record is worth more than the path.
+transcript_path() {
+  common=$(git rev-parse --git-common-dir 2>/dev/null) || { printf -- '-\n'; return; }
+  case "$common" in
+    /*) ;;
+    *) common=$PWD/$common ;;
+  esac
+  primary=$(dirname "$common")
+  session=${CLAUDE_CODE_SESSION_ID:-}
+  if [ -z "$session" ]; then
+    printf -- '-\n'
+    return
+  fi
+  project=$(printf '%s' "$primary" | tr -c 'A-Za-z0-9-' '-')
+  printf '%s\n' "$HOME/.claude/projects/$project/$session/subagents/agent-$(this_agent_id).jsonl"
+}
+
+# Every mode but print writes, and each writes into the same directory.
+[ "$mode" = print ] || mkdir -p "$dir"
+
 case "$mode" in
-  header)
-    mkdir -p "$(dirname "$file")"
-    # The header is the anchor line and nothing else: every other record
-    # arrives as its own append, so a multi-line header is a caller still
-    # writing the batch shape this mode no longer has.
-    newline='
-'
-    case "$header" in
-      *"$newline"*) die "--header must be a single anchor line: $header" ;;
-    esac
-    new_head=$(printf '%s\n' "$header" | awk '$1=="anchor"{print $3}')
-    [ -n "$new_head" ] || die "--header must be an anchor line naming a head SHA: $header"
-    # Idempotent: the anchor is one line, and every other line in the
-    # file is some other actor's append. So the write is keyed on
-    # whether an anchor is already there, and never on whether the file
-    # is — a child's own enter record creates it whenever the child
-    # starts first.
+  anchor)
+    # Idempotent, because the anchor is one line among appends every
+    # other actor makes: the write is keyed on whether an anchor is
+    # already there, never on whether the file is — a child that starts
+    # first creates it with its own enter record.
     old_head=
     if [ -e "$file" ]; then
       old_head=$(awk '$1=="anchor"{print $3; exit}' "$file")
     fi
     if [ -z "$old_head" ]; then
-      printf '%s\n' "$header" >> "$file"
-    elif [ "$old_head" != "$new_head" ]; then
+      printf 'anchor %s %s\n' "$(now)" "$head_sha" >> "$file"
+    elif [ "$old_head" != "$head_sha" ]; then
       # A different head means the records describe a tree that no
       # longer exists, so they answer for nothing the new round will ask
       # — but they are still the evidence of what the voided round did,
-      # so the file is set aside rather than overwritten.
-      mv -- "$file" "$file.voided-$(date -u +%Y%m%dT%H%M%SZ)"
-      printf '%s\n' "$header" > "$file"
+      # so the log is set aside rather than overwritten.
+      stamp=$(date -u +%Y%m%dT%H%M%SZ)
+      mv -- "$file" "$file.voided-$stamp"
+      # The result files go with it. A reader takes a report's existence
+      # as a settled theorem, so one left in place under its own name
+      # would settle the fresh round's theorem from the voided tree.
+      for stale in "$file"-*; do
+        [ -e "$stale" ] || continue
+        mv -- "$stale" "$file.voided-$stamp-${stale##"$file"-}"
+      done
+      printf 'anchor %s %s\n' "$(now)" "$head_sha" > "$file"
     fi
     # An anchor already naming this head is this same round's: the call
     # writes nothing and says so by exiting zero.
     ;;
   spawn)
-    mkdir -p "$(dirname "$file")"
-    printf 'spawn %s %s\n' "$theorem" "$(now)" >> "$file"
+    printf 'spawn %s %s %s %s %s %s\n' \
+      "$theorem" "$stage" "$(now)" "$agent" "$model" "$effort" >> "$file"
     ;;
   enter)
-    mkdir -p "$(dirname "$file")"
-    printf 'enter %s %s %s\n' "$theorem" "$(now)" "$agent_id" >> "$file"
+    printf 'enter %s %s %s %s %s\n' \
+      "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$(transcript_path)" >> "$file"
     ;;
-  detail)
-    # Deliberately creates the file when it is absent rather than
-    # failing: an unwritten result is the loss this script exists to
-    # prevent, and a header that never ran is the reviewer's defect to
-    # see in the records, not the child's result to discard.
-    mkdir -p "$(dirname "$file")"
-    printf 'return %s %s %s %s\n' "$theorem" "$(now)" "$agent_id" "$result" >> "$file"
+  leave)
+    # The report is written before the record that names it, so a run
+    # that dies between the two leaves the report readable rather than a
+    # record pointing at nothing.
+    staged="$result_file.partial-$$"
+    cat > "$staged"
+    if [ ! -s "$staged" ]; then
+      rm -f -- "$staged"
+      die "--mode leave takes the report on stdin, and nothing arrived"
+    fi
+    mv -- "$staged" "$result_file"
+    printf 'leave %s %s %s %s %s\n' \
+      "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
+    ;;
+  return)
+    printf 'return %s %s %s %s tokens=%s tools=%s ms=%s\n' \
+      "$theorem" "$stage" "$(now)" "$agent_id" "$tokens" "$tools" "$ms" >> "$file"
     ;;
   stopped)
-    mkdir -p "$(dirname "$file")"
-    printf 'stopped %s %s\n' "$theorem" "$(now)" >> "$file"
+    printf 'stopped %s %s %s\n' "$theorem" "$stage" "$(now)" >> "$file"
     ;;
   print)
-    [ -e "$file" ] || die "no result file at $file"
+    [ -e "$file" ] || die "no round log at $file"
     cat -- "$file"
+    # Every result file present, synthesized from the directory at read
+    # time rather than stored: a report written by a child whose leave
+    # record never landed still reaches the reader this way.
+    for found in "$file"-*; do
+      [ -e "$found" ] || continue
+      case "$found" in
+        *.partial-*) continue ;;
+      esac
+      rest=${found##"$file"-}
+      printf 'result %s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
+    done
     ;;
 esac

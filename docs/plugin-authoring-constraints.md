@@ -349,25 +349,30 @@ deadline from that child's own record, and (c) the spawner to read the
 clock again and compare explicitly on **every** resume, before
 deciding whether to end the turn.
 
-**Measure from the child's start, not from the spawn.** `Agent()` calls
-beyond the harness's concurrency ceiling queue and run in waves, so a
-child spawned at the round's anchor may not begin for many minutes. A
-deadline anchored on the spawn therefore cuts a queued child off for
-time it never had, and no runtime introspection distinguishes the two
-cases: the ceiling is readable from
-`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, but neither the slots in use
-nor the queue depth is exposed to an agent, so starvation is observable
-only as absence of progress. Give the state file a start record per
-child; a child that has none has not begun and is never overdue.
+**Fan out in waves the concurrency ceiling bounds, and measure from the
+child's start rather than from the spawn.** `Agent()` calls beyond the
+harness's ceiling queue, so a whole list spawned at once makes a child's
+start time unpredictable for reasons that have nothing to do with its
+work. Read `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` and spawn at most that
+many at a time. The measurement still anchors on the child, because a
+deadline anchored on the spawn cuts a queued child off for time it never
+had and no runtime introspection distinguishes the two cases: the
+ceiling is readable, but neither the slots in use nor the queue depth is
+exposed to an agent, so starvation is observable only as absence of
+progress. Give the log a start record per child; a child that has none
+has not begun and is never overdue.
 
-**A child names itself from its own cwd, so the record needs no
-handle passed in.** The harness names an `isolation: worktree`
+**A child names itself from its own cwd, so nothing has to be passed
+in.** The harness names an `isolation: worktree`
 worktree `agent-<id>` — the same shape its stale worktree locks read
-back as `claude agent agent-<hash> (pid NNNN)` — so `basename "$PWD"`
+back as `claude agent agent-<hash> (pid NNNN)`, and the same shape its
+transcript file `agent-<id>.jsonl` carries — so `basename "$PWD"`
 with that prefix stripped is a child's own id, and one record can be
-told from the record of the child that replaced it. Inventing a
-spawner-assigned handle instead puts a second source of truth in a
-brief that the file would then have to agree with.
+told from the record of the child that replaced it. Derive it in the
+`bin/` executable rather than in an agent's prose: an id or a path an
+agent builds is a second source of truth the file would then have to
+agree with. The same executable composes the child's transcript path
+from it, which is how a post-mortem reaches what the child actually did.
 
 **A written-off child stops being overdue too.** The record the deadline
 arm writes when it gives up on a child ends that child, not the work it
@@ -379,23 +384,30 @@ end of the retry loop below, whichever bound it hits. So key "is
 something running this?" on the child, and let the write-off record
 subtract from it while leaving the work outstanding.
 
-None of that survives in context alone, so it goes in a state
-file — which is also where the per-child spawn and return log belongs,
-since "which children reported" is the other fact a resume cannot
-remember. That log is what makes a **received** verdict
-distinguishable from an inferred one: a procedure that requires a
-verdict per child, with no record of which children returned, will
-have one supplied. State that a verdict's only admissible source is a
-`return` record in that file, and give the disposition table a row for
-the child that has not reported.
+None of that survives in context alone, so it goes in a **log** under
+the session scratchpad, where no worktree cleanup reaches it, with its
+path composed in a `bin/` executable (constraint 7) that every writer
+and the reader call by bare name.
 
-A notification the harness never delivers takes its child's result with
-it, so have each child append its own record, put the file under the
-session scratchpad where no worktree cleanup reaches it, and compose
-its path in a `bin/` executable (constraint 7) that every writer and
-the reader call by bare name.
+**Nothing may depend on the spawner hearing back.** A child that ran,
+finished and reported can still skip its own last call, and a
+notification the harness never delivers looks the same from the
+spawner's side; both are unrecoverable from its memory. So have each
+child write its own start record, its own finish record, and **its
+report in full to a result file of its own**, and let the spawner's view
+of a child be telemetry rather than truth. A result file, rather than a
+result token, is what removes the whole class of "the verdict is
+recorded but the narrative was lost" — no recovery spawn, no branch on
+what a re-run of a settled item says, and a later instance reads the
+artifact instead of reproducing it.
 
-**That state file is append-only, and the procedure has to say so.**
+That log is what makes a **read** verdict distinguishable from an
+inferred one: a procedure that requires a verdict per child, with no
+record of which children finished, will have one supplied. State that a
+verdict's only admissible source is the child's own result file, and
+give the disposition table a row for the child that has not reported.
+
+**The log is append-only, and the procedure has to say so.**
 Extend it one record per line with an append, and revise no line
 already written. A whole-file write and a tail edit are
 the same failure in different spellings: both
@@ -415,18 +427,30 @@ writers whose order nothing controls, so a batch write that creates the
 file fails on a fan-out that really was fresh, and every ordering
 requirement written to prevent that is one more rule to get wrong. Give
 the spawner the same append the children get — one record when it asks
-for a child, one when it writes one off — and make the header that
+for a child, one when it writes one off — and make the call that
 carries the round's anchor idempotent: write the anchor when none is
 there, no-op on one naming the same commit, void the file on one naming
 a different commit. Then no procedure needs to say who writes first,
 and a child spawned later in the round records itself as readily as one
 spawned in the first fan-out.
 
-`theorem-based-pr-reviewer` carries both — the anchor at each of its
-two spawn points, and one state file per fan-out under the session
-scratchpad, whose start and result records the disprovers and
-verifiers write themselves (issue #344). A
-procedure that fans out twice needs a deadline on **each** fan-out: an
+**Name every mode for the record it writes.** A mode called `header` or
+`detail` describes the shape of a call rather than its meaning, and the
+two vocabularies then drift apart file by file. One word per record kind
+— `anchor`, `spawn`, `enter`, `leave`, `return`, `stopped` — is what
+lets a reader move between the CLI, the log and the procedure without a
+translation table.
+
+**One log per round, not one per fan-out.** A stage column on every
+record says which fan-out it belongs to, so two files can never disagree
+about the same round and a reader answers every stage's question from
+one read.
+
+`theorem-based-pr-reviewer` carries all of it — one anchor per round,
+one log under the session scratchpad, and start records, finish records
+and full reports the generator, the disprovers and the verifiers write
+themselves (issues #344 and #358).
+A procedure that fans out twice needs a deadline on **each** fan-out: an
 unbounded second stage parks the round exactly as an unbounded first
 one would, and it is the easier one to leave unbounded, because it
 runs only on the rounds the first stage found something in. Where no measurement
@@ -438,43 +462,46 @@ stopping a child that would have reported drops a result the report
 then claims to have counted. The stop needs the tool in the spawner's
 own `tools:` frontmatter, which the fanned-out agents do not carry.
 
-**The state file also makes the spawner resumable, and the procedure
-has to say resume rather than restart.** A spawner killed mid-round
+**The log makes the spawner re-entrant, and the procedure has to be
+written that way rather than as a restart with a resume branch bolted
+on.** A spawner killed mid-round
 returns nothing, so its caller's only remedy is to spawn it again over
 the same work — which means a fresh instance routinely arrives at a
-round an earlier one partly settled. Have it detect that from the file
+round an earlier one partly settled, and every instance should derive
+what to do from the log alone. Have it detect that from the log
 rather than from a parameter: a flag is a second source of truth, and
-where the two disagree the file wins anyway. It then keeps every child
-the file records as settled and re-runs only the rest — with one
-exception that follows from what a record is: a record carries a result
-token and never the child's narrative, so recovering a report a
-notification lost means spawning again for an item already settled.
-Say that the recovery cannot move the recorded result, or the exception
-reads as a licence to re-decide. Bounds keep
-the retry loop from running away — take another pass only while
-the last one settled something new, with a hard cap on passes whatever
-happens, and count the children spawned across all passes against
-`CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`, which is a **session** cap, so
-exhausting it kills the session rather than the round.
+where the two disagree the log wins anyway. It then keeps every item
+the log records as finished and re-runs only the rest. Keep the barrier
+between stages — no stage starts while its predecessor has an
+outstanding child — so completeness stays one comparison per stage.
+Bounds keep the retry loop from running away: take another pass only
+while the last one finished something new, with a hard cap on passes
+whatever happens. The per-session subagent cap was removed in Claude
+Code 2.1.224, so a session no longer refuses new agents and the
+concurrency ceiling is the only limit worth spawning against.
 
 **A resumed round must check that the tree its records describe still
 exists.** Records made against one commit answer nothing about another,
 and a scheduled sweep force-rebases open PR branches mid-round
 (`CLAUDE.md` → "The rebase automation can move a PR branch
-mid-session"). So write the commit into the state file's anchor and
+mid-session"). So write the commit into the log's anchor and
 compare it before trusting a single record. Where the two differ the
-round is void: set the stale file aside under a new name rather than
-deleting it — it is the only evidence of what the voided round did —
-and let the create call write a fresh header in its place, which is
-what stops the next instance voiding the same round again.
+round is void: set the stale log **and every result file beside it**
+aside under a new name rather than
+deleting them — they are the only evidence of what the voided round did
+— and let the anchor call write a fresh log in its place, which is
+what stops the next instance voiding the same round again. Moving the
+result files is not tidiness: a reader that takes a report's existence
+as a finished item would otherwise finish the fresh round's item from
+the voided tree.
 
 **A predecessor's children may be cleaned up but never stopped.**
 `.claude/worktrees/` is shared with every other session running against
 the repo, so `TaskStop` on an id the instance did not spawn reaches
 into work that is not its own, while removing the worktrees the
-round's own state file names is scoped by the file and safe. Expect a
-child written off as lost to report anyway, leaving one theorem with
-two result records: the reader takes the first and keeps the duplicate
+round's own log names is scoped by the file and safe. Expect a
+child written off as lost to report anyway, leaving one item with
+two finish records: the reader keeps the duplicate
 as a diagnostic, which is what lets no line ever be revised.
 
 ### Handing data between agents: a session-scoped inbox
