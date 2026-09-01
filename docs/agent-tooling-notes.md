@@ -284,11 +284,10 @@ Measured on git 2.55.0 against a repo holding a worktree at
 
 So a short argument is wrong two different ways: it can hit a
 **different** worktree than you meant because of where you stand, and
-it can hit none because it is **ambiguous**. This repo nests worktrees
-under `.claude/worktrees/`, and an agent's own worktree carries a
-further `.claude/worktrees/` inside it, so two live worktrees routinely
-share a trailing component run. When the suffix matches more than one,
-git answers
+it can hit none because it is **ambiguous**. Both are properties of
+the resolution order rather than of any particular repo layout, and
+neither is visible in the argument you typed. When the suffix matches
+more than one, git answers
 
 ```text
 fatal: '<arg>' is not a working tree
@@ -307,6 +306,30 @@ reason to take the path from the listing rather than composing one:
 git worktree list
 git worktree remove <absolute-path-from-the-listing>
 ```
+
+## A subagent's worktree is a sibling, not a child
+
+An `isolation: worktree` subagent spawned from **inside** a worktree
+gets its own worktree beside the spawner's, under the primary clone's
+`.claude/worktrees/`, sharing the same `--git-common-dir`. It is not
+nested under the spawner's worktree, and isolation is not broken by
+spawning from one.
+
+Measured 2026-08-20: a `general-purpose` agent running in
+`.claude/worktrees/agent-a7c796714c0aba1b9` spawned a worktree
+subagent, which landed at
+`.claude/worktrees/agent-a53d463b5c46a2a27`. The spawner's own
+worktree contained no `.claude/worktrees/` directory at all.
+
+The claim this replaces — that the subagent's worktree nests under the
+spawner's, cited to Anthropic issue #47548 — justified a rule or two
+that outlived it. The rules those justified stand on other grounds and
+were kept; the claim is deleted rather than qualified, because it is a
+statement about what the harness does and it is false.
+
+A nested worktree can still be **constructed** deliberately, and
+`git worktree remove`'s resolution order above was measured against
+one. That says nothing about what a spawn produces.
 
 ## A push over SSH can hang in the foreground and succeed in the background
 

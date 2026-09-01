@@ -1,22 +1,35 @@
 ---
 name: git-cleanup-branches-and-worktrees
-description: Clean up merged local branches and remove stale subagent worktrees from `.claude/worktrees/`.
+description: Clean up merged local branches and reclaim the worktrees under `.claude/worktrees/` that hold nothing anyone can lose, reporting what it could not touch.
 ---
 
 # git-cleanup-branches-and-worktrees
 
-Please clean up merged local branches (regardless of naming convention)
-and their worktrees, plus the throwaway worktrees that
-`isolation: worktree` subagents leave behind.
+Please clean up merged local branches (regardless of naming
+convention), reclaim the worktrees under `.claude/worktrees/` that hold
+nothing anyone can lose, and report everything you had to leave.
 
-## Protected branch (referenced from Steps 2, 5, and 9)
+This skill is written to be the **only** worktree cleanup a caller
+needs, so that a caller that spawns worktrees can invoke it — or tell
+the human to — rather than carrying an inline copy of the
+unlock-then-remove procedure. Every such copy is an opportunity to
+improvise when the happy path fails, and an improvised fallback that
+reaches for a glob `rm` consults no gate at all. So the removal
+*mechanism*, not just the gates around it, lives in one section here,
+and a caller restates neither.
+
+The sections below are named rather than numbered, and every reference
+in this file names the section it means. Run them in the order they
+appear.
+
+## The protected branch
 
 This skill protects exactly **one** branch: the repo's default
-branch, detected dynamically at runtime. That branch is **never**
-deleted by this skill and is always excluded from the merged-branch
-scan in Step 2. Step 5's orphan-branch reachability check (Pass 2)
-uses it as the "fully landed" yardstick. It is also the branch Step 9
-pulls forward at the end of the run.
+branch, detected dynamically at runtime. That branch is never deleted,
+is always excluded from the merged-branch enumeration, is the "fully
+landed" yardstick "Removing a worktree" and "Reclaim orphan
+`worktree-*` branch refs" both measure against, and is the branch
+"Pull the default branch forward" updates at the end.
 
 Do **not** hardcode branch names. Detect the default branch once at
 the start of the run and reuse it everywhere below as
@@ -36,221 +49,308 @@ fi
 
 If neither form yields a non-empty branch name, **stop and report** —
 without a known protected branch the skill cannot safely decide what
-to delete. Everything other than `$DEFAULT_BRANCH` is a candidate
-subject to the existing gates (merged-PR + remote-gone for Step 3;
-reachability for Step 5b). Because the protected set is a single,
+to delete. Because the protected set is a single,
 guaranteed-to-exist ref, the previous failure mode — a hardcoded list
 naming branches the repo doesn't have, causing `git rev-list` to abort
 with `fatal: bad revision` — cannot occur.
 
-1. Run `git fetch --all --prune` to refresh tracking branches and
-   remove stale remote refs.
-2. List all local branches **except** `$DEFAULT_BRANCH`:
+## Refresh the remote state
 
-   ```bash
-   git for-each-ref --format='%(refname:short)' refs/heads/ \
-     | grep -v -x "$DEFAULT_BRANCH"
-   ```
+Run `git fetch --all --prune` to refresh tracking branches and remove
+stale remote refs. Every gate below reads remote state, so this runs
+before any of them.
 
-   Filter out the protected branch. The remaining branches are
-   candidates for the gate in Step 3 — this deliberately includes
-   branches that don't match `issue-NNN-*` (e.g. `add-foo-skill`,
-   `fix-bar-allowlist`, `update-settings-permissions`), because the
-   gate (merged PR + remote gone) is the real safety signal, not the
-   name pattern. Note: `worktree-*` branches that appear in this
-   enumeration fail Step 3's gate (they have no merged PR) and are
-   handled by Step 5 instead.
-3. For each candidate branch, determine whether it is safe to delete.
-   The check is **PR merged AND remote branch is gone** — both must hold.
-   "Issue closed and assigned to me" is **not** a sufficient signal: an
-   issue can be closed without its PR ever merging, and an unmerged
-   branch may still hold work that hasn't landed on the default branch.
+## Removing a worktree
 
-   ```bash
-   gh pr list --state merged --head <branch> --json number,mergedAt
-   git ls-remote --exit-code origin <branch>   # exit 2 = branch is gone
-   ```
+This is the one removal procedure. Every pass below points here and
+restates none of it: a pass decides **which** worktrees to consider,
+and this section decides whether each one goes and how.
 
-   Both conditions must be true:
-   - `gh pr list` returns a non-empty result for a merged PR on this branch
-   - `git ls-remote --exit-code origin <branch>` exits 2 (branch absent on origin)
+**The gates are content-based, not ownership-based.** A worktree that
+is clean, holds no commits that exist nowhere else, and carries no
+live-PID lock holds nothing anyone can lose, whoever spawned it. That
+is what makes this safe to run against a `.claude/worktrees/` shared
+with other live sessions without having to establish whose each entry
+is. Removing a worktree **never** deletes its branch — branch deletion
+is "Deleting a branch", reached only by the passes whose own gate
+establishes the branch has landed.
 
-   A branch with no merged PR (e.g. a local-only branch you never
-   pushed, or a remote-tracking branch for in-progress work) fails
-   the gate and is left alone. The gate is the safety net; the
-   broadened enumeration in Step 2 just stops the skill from
-   ignoring merged branches that don't happen to start with
-   `issue-`.
+Take the worktree's **absolute** path from `git worktree list` and use
+it verbatim. `git worktree remove` resolves a short argument against
+the cwd first and then by unique suffix match, so a short form can
+remove a different worktree than you meant or match two and fail with
+an error that reads as though the worktree were already gone. See
+`docs/agent-tooling-notes.md` → "Remove a worktree by the path
+`git worktree list` prints".
 
-   **Note on the name-based PR match.** `gh pr list --head <branch>`
-   matches by branch *name*, not by SHA. Edge case: a branch was deleted,
-   then later recreated with the same name and a different commit lineage,
-   and that new instance has its own merged PR. The name-based gate would
-   pass even though the local SHA points at the *first* (now-gone) remote
-   tip. The secondary safety check in step 4a handles this — the local
-   branch's `@{upstream}` is gone in that scenario, so
-   `git rev-list @{upstream}..HEAD` fails loudly and the worktree is
-   skipped rather than silently removed.
+Apply these gates in order. Any gate that does not clearly pass means
+**skip the worktree and report the reason** — never route around a
+gate, and never widen the mechanism to get past one.
 
-   Closed-but-not-merged PRs are correctly excluded by `--state merged`.
-   Force-pushed branches are also handled correctly: the gate requires
-   the *branch* to be gone, not the local SHA to match the remote tip.
+1. **Clean working tree.** `git -C <path> status --porcelain` is
+   empty. (This `git -C` is in *this* script, not in a subagent's Bash
+   call, so the subagent forbidden-form rule does not apply.)
 
-4. For branches where both conditions hold:
-   a. Remove any git worktree under `.claude/worktrees/` that uses the
-      branch. **Use plain `git worktree remove`, not `--force`** — the
-      safety check matters; if it trips, we want to know.
+2. **No unreachable commits.** The worktree must hold no commit that
+   exists nowhere else. Which comparison answers that depends on what
+   its HEAD is:
 
-      Before calling `git worktree remove <path>`, verify the worktree
-      is in a known-safe state:
-      - no uncommitted changes (`git status --porcelain` empty)
-      - no unpushed commits relative to the branch's remote tracking
-        ref (`git rev-list @{upstream}..HEAD` empty)
+   - **Detached HEAD** — reachable from some remote ref or from
+     `$DEFAULT_BRANCH`:
 
-      If either check fails, **skip the worktree** and report the
-      reason. Do not force-remove.
+     ```bash
+     count=$(git -C <path> rev-list --count HEAD --not --remotes "$DEFAULT_BRANCH")
+     ```
 
-      If `git worktree remove` fails with `fatal: cannot remove a
-      locked working tree`, inspect the lock reason via
-      `git worktree list --porcelain`. If it matches the standard
-      harness shape `claude agent agent-<hash> (pid NNNN)` AND (the
-      PID is no longer alive (`kill -0 <pid>` fails) OR the branch
-      passed step 3's "merged + remote gone" gate (which is the case
-      here, since we're inside step 4)), this is a stale end-state
-      lock from a returned or crashed subagent — run
-      `git worktree unlock <path>` then re-run
-      `git worktree remove <path>` (no `--force`). If the lock reason
-      does not match the harness shape, or the uncommitted/unpushed
-      check above failed, skip and report — do not unlock and do not
-      force-remove.
-   b. Delete the local branch (`git branch -D`).
-      (Safe because step 3 already confirmed the PR was merged AND the
-      remote branch is gone; `git branch -d` gives false negatives when
-      worktree checkouts are stale.)
-   c. Delete the remote branch only if step 3's `git ls-remote` shows
-      it still exists (defensive — usually it's already gone, which
-      was part of the gate).
+   - **Attached branch with a resolvable `@{upstream}`** —
+     `@{upstream}..HEAD` is empty:
 
-5. Clean up `isolation: worktree` subagent worktrees and their
-   leftover branch refs. Claude Code's `isolation: worktree`
-   produces branch names matching `worktree-*` (e.g.
-   `worktree-agent-a39b0297dc3421b9e`).
+     ```bash
+     count=$(git -C <path> rev-list --count '@{upstream}..HEAD')
+     ```
 
-   Enumerate candidates in these passes:
+     Do **not** compare against `$DEFAULT_BRANCH` here: a feature
+     branch is expected to diverge from it, and what matters is
+     whether the branch is fully pushed to its own remote.
 
-   a. **Pass 1 — worktrees that still exist.** List all worktrees
-      under `.claude/worktrees/` whose checked-out branch matches
-      `worktree-*`. For each, run the safety check:
-      - no uncommitted changes
-      - no unpushed commits relative to `@{upstream}` (the branch's
-        own remote tracking ref). Do **not** compare against the default
-        branch — feature/worktree branches are expected to diverge from it;
-        what matters is whether the branch is fully pushed to its own
-        remote.
+   - **Attached branch with no upstream configured, or an upstream
+     that is gone** — the same yardstick as the detached case. The
+     harness creates refs it never pushes, so `@{upstream}..HEAD`
+     fails loudly rather than giving a clean answer.
 
-      If both checks pass: remove the worktree (`git worktree remove`,
-      no `--force`) and delete the local branch (`git branch -d`).
-      If either check fails: skip and report the reason.
+   In every arm the **`rev-list` exit status is authoritative**. Act on
+   `$count` only when the command exited `0`; a non-zero exit reads as
+   "cannot verify: skip and report", never as an empty-string that
+   looks like a zero count. An errored `rev-list` must never read as
+   "safe to remove". A `$count` of `0` passes the gate; anything else
+   is a skip.
 
-      If `git worktree remove` fails with `fatal: cannot remove a
-      locked working tree`, inspect the lock reason via
-      `git worktree list --porcelain`. If the lock reason matches the
-      standard harness shape `claude agent agent-<hash> (pid NNNN)`
-      AND the PID in the lock reason is no longer alive
-      (`kill -0 <pid>` fails — the harness exited uncleanly or the
-      subagent has already returned), this is a stale end-state lock
-      and the canonical cleanup is `git worktree unlock <path>`
-      followed by `git worktree remove <path>` (no `--force`). If the
-      lock reason does not match the harness shape, or the PID is
-      still alive (the
-      subagent may be mid-run), **skip and report** — do not unlock
-      a live subagent's worktree and do not force-remove. `--force`
-      remains reserved for the data-loss carve-out (uncommitted work
-      or unpushed commits the user has explicitly approved
-      discarding), not for bypassing a lock.
+3. **The lock gate.** Attempt the removal; if it fails with
+   `fatal: cannot remove a locked working tree`, read the lock reason
+   from `git worktree list --porcelain`. Unlocking is allowed **only**
+   when both hold:
 
-   b. **Pass 2 — orphan branch refs with no worktree.** Some
-      `worktree-*` branches are left behind as local refs after their
-      worktree was already removed (the harness can leak these).
-      Enumerate all local branches matching `worktree-*` that are
-      **not** checked out in any worktree under `.claude/worktrees/`.
-      For each, apply this decision tree:
+   - the lock reason matches the harness end-state shape
+     `claude agent agent-<hash> (pid NNNN)`, and
+   - that PID is no longer alive (`kill -0 <pid>` fails).
 
-      - **Branch has an upstream configured** (`git rev-parse
-        --abbrev-ref --symbolic-full-name <branch>@{upstream}` succeeds
-        and the upstream still exists on origin): use the same
-        `@{upstream}..HEAD` empty check as Pass 1. If empty, delete the
-        branch with `git branch -d`. If non-empty, skip and report
-        (the branch holds unpushed work).
-      - **Branch has no upstream configured, or the upstream is gone**
-        (the harness creates these refs but never pushes them, so
-        `@{upstream}..HEAD` fails loudly rather than giving a clean
-        answer): fall back to a reachability check against
-        `$DEFAULT_BRANCH` (detected at the top of this file).
-        Concretely:
+   Then `git worktree unlock <absolute-path>` and re-run the removal.
+   A lock reason of any other shape, or a **live** PID, is a skip with
+   the reason reported — a live PID means a subagent may be mid-run,
+   and that holds in every pass without exception. No branch gate
+   anywhere in this file licenses unlocking a live-PID worktree.
 
-        ```bash
-        if count=$(git rev-list "<branch>" ^"$DEFAULT_BRANCH" --count); then
-          # rev-list succeeded; $count is trustworthy
-          :
-        else
-          # rev-list errored (bad revision, etc.) — cannot verify
-          count=""
-        fi
-        ```
+The mechanism is bounded here and nowhere else: plain
+`git worktree remove` against the absolute path, never `--force`,
+never `rm`, never a glob. Force-removal is reserved for the data-loss
+carve-out — uncommitted work or unpushed commits the human has
+explicitly chosen to discard — which is a decision this skill does not
+make and therefore an outcome it does not produce. A removal that
+fails for any reason other than the lock case above is reported, never
+routed around.
 
-        **Treat the `rev-list` exit status as authoritative.** Only act
-        on `$count` when the command exited `0`. A non-zero exit (bad
-        revision, etc.) must be read as "cannot verify — skip and
-        report," never as an empty-string-that-looks-like-zero count.
-        An errored `git rev-list` must NOT be allowed to read as "safe
-        to delete."
+## Deleting a branch
 
-        If `rev-list` succeeded and the count is `0`, every commit on
-        `<branch>` is already reachable from `$DEFAULT_BRANCH` — the ref
-        is a stale starting point with no unique history, so deleting it
-        loses nothing. Delete with `git branch -D` (the `-D` form is
-        required because the no-upstream state makes `git branch -d`
-        refuse with "not fully merged" even though the commits are in
-        fact reachable from the default branch).
+Branch deletion is separate from worktree removal and is reached only
+from a pass whose gate has established the branch has landed —
+"Reclaim merged branches" (merged PR + remote gone) or "Reclaim orphan
+`worktree-*` branch refs" (the reachability check). Nothing else in
+this file deletes a branch.
 
-        If `rev-list` succeeded and the count is non-zero, the branch
-        has commits not on the default branch — skip and report so the
-        human can investigate before any history is dropped.
+- Delete the local ref with `git branch -D`. The `-D` form is required
+  because a stale worktree checkout or an absent upstream makes
+  `git branch -d` refuse with "not fully merged" even when the commits
+  are in fact reachable.
+- Delete the remote branch only if the calling pass's `git ls-remote`
+  showed it still exists. This is defensive; usually it is already
+  gone, which was part of the gate.
+- A branch still checked out in a worktree is **not** deleted. Report
+  it, with the worktree path and the reason that worktree was skipped.
 
-6. Do **not** auto-clean nested worktrees
-   (`.claude/worktrees/*/.claude/worktrees/`). If any are detected,
-   report them with a note that nested worktrees indicate
-   [Anthropic issue #47548](https://github.com/anthropics/claude-code/issues/47548)
-   (`isolation: worktree` spawned from inside a worktree) and need
-   human inspection. Auto-removing them risks data loss.
-7. Run `git worktree prune` to clean up any stale worktree references.
-8. Run `git fetch --all --prune` again to refresh tracking branches and
-   remove stale remote refs.
-9. Pull `$DEFAULT_BRANCH` (detected at the top of this file) forward:
-   a. Check `git worktree list` first. If `$DEFAULT_BRANCH` is
-      currently checked out in another worktree (the harness sometimes
-      keeps a worktree on the default branch), do **not** `git switch`
-      to it from the primary clone — git refuses to check out a branch
-      claimed by another worktree. Instead, update the existing
-      checkout in place: `git -C <that-path> pull --ff-only`.
-      (Note: this `git -C` use is in *this script*, not in a subagent
-      Bash call, so the subagent forbidden-form rule doesn't apply.)
-   b. If `$DEFAULT_BRANCH` is **not** checked out elsewhere:
-      - `git switch "$DEFAULT_BRANCH"`
-      - `git pull --ff-only`
+## Reclaim clean-and-reachable worktrees
 
-10. Final summary — report counts:
-    - Merged branches deleted (local + remote)
-    - Subagent worktrees removed (Step 5a / Pass 1)
-    - Orphan `worktree-*` branch refs deleted (Step 5b / Pass 2),
-      broken down by which path applied (upstream-empty vs.
-      no-upstream-reachable-from-default-branch)
-    - Worktrees skipped, with reason for each (uncommitted changes,
-      unpushed commits, nested worktree, etc.)
-    - Orphan branch refs skipped, with reason for each (non-zero
-      reachability count, rev-list could not verify, etc.)
-    - Default branch updated (and whether it was updated in place
-      via `git -C`)
+Enumerate **every** worktree under `.claude/worktrees/` from
+`git worktree list --porcelain`, regardless of branch name or HEAD
+state, and apply "Removing a worktree" to each. Nothing about the
+branch a worktree holds is a gate here, and no branch is deleted for a
+worktree this pass reclaims.
 
-    List anything that was skipped so the human can investigate.
+The wide enumeration is the point. Narrower ones miss most of what a
+run leaves behind:
+
+- A review pipeline's fan-out worktrees are **detached HEAD** — each
+  agent checks out `origin/<branch>` detached — so a branch-name
+  pattern never sees them.
+- A teammate's worktree holds the open PR's `issue-N-…` branch, which
+  fails the merged-plus-remote-gone gate for as long as the PR stays
+  open, which at the end of an orchestrated run it always is.
+
+Both are reclaimable the moment their content says so, and neither
+loses a branch by being reclaimed.
+
+## Reclaim merged branches
+
+List all local branches **except** `$DEFAULT_BRANCH`:
+
+```bash
+git for-each-ref --format='%(refname:short)' refs/heads/ \
+  | grep -v -x "$DEFAULT_BRANCH"
+```
+
+This deliberately includes branches that don't match `issue-NNN-*`
+(e.g. `add-foo-skill`, `fix-bar-allowlist`), because the gate is the
+real safety signal, not the name pattern.
+
+For each candidate, the gate is **PR merged AND remote branch gone** —
+both must hold:
+
+```bash
+gh pr list --state merged --head <branch> --json number,mergedAt
+git ls-remote --exit-code origin <branch>   # exit 2 = branch is gone
+```
+
+- `gh pr list` returns a non-empty result for a merged PR on this
+  branch, and
+- `git ls-remote --exit-code origin <branch>` exits 2.
+
+"Issue closed and assigned to me" is **not** a sufficient signal: an
+issue can be closed without its PR ever merging. A branch with no
+merged PR — a local-only branch you never pushed, or a
+remote-tracking branch for in-progress work — fails the gate and is
+left alone. Closed-but-not-merged PRs are correctly excluded by
+`--state merged`, and a force-pushed branch is handled correctly
+because the gate requires the *branch* to be gone, not the local SHA
+to match the remote tip.
+
+**Note on the name-based PR match.** `gh pr list --head <branch>`
+matches by branch *name*, not by SHA. Edge case: a branch was deleted,
+then recreated with the same name and a different commit lineage, and
+that new instance has its own merged PR. The name-based gate would
+pass even though the local SHA points at the first, now-gone remote
+tip. "Reclaim clean-and-reachable worktrees" is what catches it — in
+that scenario the local branch's `@{upstream}` is gone, so the
+no-unreachable-commits gate falls back to the reachability yardstick
+and skips the worktree rather than removing it, and the branch below
+is then skipped too.
+
+For each branch where both conditions hold, apply "Deleting a branch".
+Its worktree, if it had one, was already considered by "Reclaim
+clean-and-reachable worktrees" above; a branch whose worktree that
+pass skipped is skipped here as well, per that section.
+
+## Reclaim orphan `worktree-*` branch refs
+
+Claude Code's `isolation: worktree` produces branch names matching
+`worktree-*` (e.g. `worktree-agent-a39b0297dc3421b9e`), and some are
+left behind as local refs after their worktree is gone — the harness
+leaks these, and the pass above never sees them because they have no
+merged PR.
+
+Enumerate all local branches matching `worktree-*` that are **not**
+checked out in any worktree. For each:
+
+- **Upstream configured and still present on origin**: the branch is
+  landed when `git rev-list --count '<branch>@{upstream}..<branch>'` is
+  `0`. Non-zero means it holds unpushed work — skip and report.
+- **No upstream configured, or the upstream is gone**: fall back to
+  reachability from `$DEFAULT_BRANCH`:
+
+  ```bash
+  if count=$(git rev-list --count "<branch>" ^"$DEFAULT_BRANCH"); then
+    :        # rev-list succeeded; $count is trustworthy
+  else
+    count="" # rev-list errored (bad revision, etc.) — cannot verify
+  fi
+  ```
+
+  **Treat the `rev-list` exit status as authoritative**, exactly as
+  "Removing a worktree" does: act on `$count` only on a zero exit, and
+  read a non-zero exit as "cannot verify — skip and report". A count
+  of `0` means every commit on the branch is already reachable from
+  `$DEFAULT_BRANCH`, so the ref is a stale starting point with no
+  unique history and deleting it loses nothing; a non-zero count means
+  the branch holds history the default branch does not, so skip and
+  report before any of it is dropped.
+
+Where the gate passes, apply "Deleting a branch".
+
+## Nested worktrees are report-only
+
+Do **not** auto-clean nested worktrees
+(`.claude/worktrees/*/.claude/worktrees/`). If any are detected,
+report them with a note that they need human inspection: a nested
+registry is not a state this skill's gates were measured against, and
+reclaiming one risks data loss. "Reclaim clean-and-reachable
+worktrees" does not reach them either.
+
+## Prune, then sweep the filesystem
+
+Run `git worktree prune` to clear stale worktree registrations, then
+compare what is on disk against what git knows:
+
+```bash
+ls -A .claude/worktrees/
+git worktree list --porcelain
+```
+
+For each entry in the listing that git does not know about, read
+`<dir>/.git` to identify what it is. A worktree checkout carries a
+one-line `gitdir: <owner-repo>/.git/worktrees/<name>` pointer, which
+names the repository the entry is registered to; a directory or file
+without one is plain debris.
+
+**This sweep deletes nothing.** Name every such entry in the final
+summary — a foreign-repo worktree with the owning-repo path read from
+its `.git` file, a stray file or directory as such — and leave it in
+place. The owning repo's registry is outside the current repository,
+so reclaiming one of its worktrees needs human judgment. A run where
+the filesystem listing and `git worktree list` agree adds nothing to
+the summary.
+
+This pass exists because entries not registered to the current repo
+are invisible to `git worktree list` entirely, so every enumeration
+above passes straight over them and a cleanup can report itself
+complete with tens of megabytes of another clone's checkouts still
+sitting under `.claude/worktrees/`.
+
+Then run `git fetch --all --prune` again, to pick up anything the
+branch deletions above changed.
+
+## Pull the default branch forward
+
+Check `git worktree list` first. If `$DEFAULT_BRANCH` is currently
+checked out in another worktree, do **not** `git switch` to it from
+the primary clone — git refuses to check out a branch claimed by
+another worktree. Update that checkout in place instead:
+`git -C <that-path> pull --ff-only`.
+
+If `$DEFAULT_BRANCH` is not checked out elsewhere:
+
+```bash
+git switch "$DEFAULT_BRANCH"
+git pull --ff-only
+```
+
+## Final summary
+
+Report:
+
+- Worktrees reclaimed (from "Reclaim clean-and-reachable worktrees"),
+  by path.
+- Merged branches deleted, local and remote.
+- Orphan `worktree-*` branch refs deleted, broken down by which arm
+  applied (upstream-empty vs. reachable-from-default-branch).
+- Worktrees skipped, with the reason for each — dirty tree, commits
+  reachable from nowhere, a rev-list that could not verify, a live-PID
+  lock, an unrecognised lock reason, nested worktree.
+- Branch refs skipped, with the reason for each.
+- Entries the filesystem sweep found that git does not own: a
+  foreign-repo worktree with its owning-repo path, a stray file or
+  directory as such. None of these were deleted.
+- Whether the default branch was updated, and whether in place via
+  `git -C`.
+
+List everything skipped, with its reason, so the human can
+investigate. A skip is the expected outcome for anything that still
+holds work, and reporting it is what makes this skill safe to run
+against a shared `.claude/worktrees/`.

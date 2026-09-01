@@ -328,8 +328,8 @@ an in-progress status, carrying no verdict, no tally and no findings.
 A child that never returns parks the round forever, so the spawner
 fixes a deadline, gives the unreported work an explicit disposition
 rather than dropping it, and past that deadline `TaskStop`s any child
-it spawned itself, which also releases the worktree the cleanup step
-has to remove. Size
+it spawned itself, which is also what stops that child's worktree
+carrying a live-PID lock a later cleanup would have to skip. Size
 the deadline off a measured worst case with room to spare, and state
 the figure and the run it was measured on where the deadline itself
 lives, so a re-measurement is one edit — review sizes its disprover
@@ -512,11 +512,16 @@ result files is not tidiness: a reader that takes a report's existence
 as a finished item would otherwise finish the fresh round's item from
 the voided tree.
 
-**A predecessor's children may be cleaned up but never stopped.**
-`.claude/worktrees/` is shared with every other session running against
-the repo, so `TaskStop` on an id the instance did not spawn reaches
-into work that is not its own, while removing the worktrees the
-round's own log names is scoped by the file and safe. Expect a
+**A predecessor's children are never stopped, and a spawner cleans up
+after none of them.** `.claude/worktrees/` is shared with every other
+session running against the repo, so `TaskStop` on an id the instance
+did not spawn reaches into work that is not its own. Worktree removal
+is not the spawner's either, however scoped its log makes it look:
+give the whole run one cleanup pass, gated on what each worktree
+*holds* rather than on who spawned it, and a spawner killed mid-fan-out
+then leaves exactly the state one that returned leaves — which is the
+property that makes an inline per-return cleanup unnecessary and its
+absence safe. Expect a
 child written off as lost to report anyway, leaving one item with
 two finish records: the reader keeps the duplicate
 as a diagnostic, which is what lets no line ever be revised.

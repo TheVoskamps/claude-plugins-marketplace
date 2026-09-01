@@ -78,7 +78,8 @@ skill computes.
    throughout, which the inline form would hand to the shell. It
    commits nothing and pushes nothing.
 
-   Remove the reviewer agent's worktree when it returns.
+   Leave the reviewer's worktree, and its fan-out's, in place. This
+   skill runs no cleanup and spawns none: see step 5.
 
 3. **Check for a verdict block before relaying anything.** A reviewer
    that returns mid-round reports an **in-progress status** — which
@@ -114,3 +115,12 @@ skill computes.
    enumeration here. Relay the tier that ran and the kind of round it
    was as well — a user reading "no findings" off an empty-delta round
    is reading a carried-forward verdict, not a fresh check.
+
+5. **Tell the user to clean up when they are done reviewing.** Close
+   with a line pointing at
+   `/git-tools:git-cleanup-branches-and-worktrees`, which reclaims the
+   reviewer's worktree and its fan-out's. A human ran this verb, so a
+   human decides when those worktrees go — and a user who wants
+   another round on the same PR wants them still there. This skill
+   removes nothing itself and restates none of that skill's gates or
+   mechanics.
