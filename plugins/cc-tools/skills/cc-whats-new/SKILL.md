@@ -44,9 +44,12 @@ last-run: "2026-08-31"
 last-version: "2.1.247"
 ```
 
-Both dates are **quoted**. Unquoted, YAML 1.1 resolves `2026-08-31` to
-a timestamp rather than the `YYYY-MM-DD` string this skill compares
-against `--since` and against `gh search` output.
+Both values are **quoted**, for different reasons. Unquoted,
+`2026-08-31` resolves to a timestamp rather than the `YYYY-MM-DD`
+string this skill compares against `--since` and against `gh search`
+output. A three-component `2.1.247` is already a string unquoted, but a
+two-component version such as `2.1` resolves to a float, so
+`last-version` is quoted to keep every version the same type.
 
 `last-version` is what filters the CHANGELOG, which carries version
 headings and no dates; `last-run` is what filters the issue search,
@@ -174,7 +177,7 @@ Since <last-version> (<last-run>) — now <version>, <today>.
 
 ## Watch
 
-- <entry that names a surface you configure but does not change it yet>
+- <entry that names a topic you track but does not change it yet>
 
 ## Track these?
 
@@ -182,10 +185,11 @@ Since <last-version> (<last-run>) — now <version>, <today>.
 - #<num> — <title>
 ```
 
-Omit any section whose list is empty. Two bounds on the middle column
-of "Affects your setup": say what the entry changes for the topics the
-user tracks, not what the feature is, and never assert an interaction
-the CHANGELOG does not state — label a hypothesis as one.
+Omit any section whose list is empty. Two bounds on the gloss that
+follows a CHANGELOG entry in "Affects your setup": say what the entry
+changes for the topics the user tracks, not what the feature is, and
+never assert an interaction the CHANGELOG does not state — label a
+hypothesis as one.
 
 ## Notes
 

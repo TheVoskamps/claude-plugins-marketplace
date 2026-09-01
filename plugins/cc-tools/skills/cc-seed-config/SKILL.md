@@ -56,14 +56,14 @@ on. `issues` is optional — a topic without one is search-only, which is
 how a user tracks a subject with no issue numbers yet. Order in the
 file is report order.
 
-Two shapes in the block above are load-bearing rather than stylistic,
-and a hand-edit reproduces them:
+The third name is **quoted** because a plain scalar may not begin with
+a backtick — YAML reserves it — so the unquoted form is a parse error
+rather than a style choice. That is load-bearing rather than stylistic,
+and a hand-edit reproduces it.
 
-- The third name is **quoted** because a plain scalar may not begin
-  with a backtick — YAML reserves it — so the unquoted form is a parse
-  error rather than a style choice.
-- The comment is the only one. The skills own the schema, so the file
-  carries no restatement of it, no history, and no rationale.
+The one comment is the whole of the file's prose. The skills own the
+schema, so the file carries no restatement of it, no history, and no
+rationale.
 
 ## Execution
 
@@ -93,8 +93,10 @@ and a hand-edit reproduces them:
 - `--table-only` never reads and never writes. It is a request for the
   shipped list alone.
 - The starter list is a starting point, not a recommendation the user
-  is stuck with: they curate `config.yml` by hand afterwards, and this
-  skill never runs again on that machine.
+  is stuck with: they curate `config.yml` by hand afterwards, and once
+  the file is there and readable a caller stops invoking this skill.
+  The exception is a machine whose `~/.config` reads are denied, where
+  every run takes the `--table-only` path.
 - Hand-editing is the **only** way to curate it. No skill creates or
   merge-updates `config.yml` interactively; the one other writer is
   `/cc-tools:cc-whats-new`, appending a topic the user accepted when it

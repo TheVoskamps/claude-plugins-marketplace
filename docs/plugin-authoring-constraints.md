@@ -82,7 +82,12 @@ revision moves them.
 - **Within a plugin → `Read`-able files** (`skills/lib/*.md`). No
   per-skill compaction cap, deterministic, no extra machinery. This is
   the default; use it whenever every consumer of the lib lives in the
-  same plugin.
+  same plugin and what they share is *content*. What they share being a
+  **write** is the exception, because a lib each caller copies the write
+  out of is still two writers: the write moves into a skill of its own,
+  even inside one plugin. `cc-tools:cc-seed-config` owns the write that
+  creates `~/.config/cc-tools/config.yml`, and `cc-watchlist` invokes it
+  rather than gaining a `Write` tool it needs for nothing else.
 
 - **Across plugins → lib-as-skill.** Turn the shared `.md` into a skill
   (`SKILL.md` with `user-invocable: false`), and have consumers

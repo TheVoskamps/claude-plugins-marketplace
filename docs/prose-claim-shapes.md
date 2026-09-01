@@ -648,6 +648,22 @@ round. Measured, the pager track allows a carve-out operand
 tracks diverge on containment alone. Probe the unedited half against
 the case the edit added, and state the condition on both sides.
 
+## Prose indexes a template by position, and the template loses a field
+
+A skill or a README that prescribes an output template usually
+constrains one of its fields in prose below the block, naming the field
+by *position* — "the middle column", "the second line", "the trailing
+parenthetical". Dropping a field from the template renames every
+position after it, and the constraining sentence keeps pointing at a
+slot that no longer exists while still reading as a sensible rule.
+
+`cc-whats-new`'s "Affects your setup" line lost its `(<file>: <key>)`
+citation when the machine-derived profile went away, leaving two
+segments and a sentence bounding "the middle column". The check is to
+count the template's fields after the edit and re-read every sentence
+under the block that names one; the repair is to name the field by what
+it *says* rather than where it sits.
+
 ## A platform refusal is scoped to the case that surfaced it
 
 A constraint met while exercising one member of a fixed option set

@@ -18,9 +18,9 @@ dropping one never means editing a plugin file.
 Every Bash command MUST be single-token: no `&&`, no `||`, no `;`, no
 `|`, no `>` / `2>`. Compound forms hit known parser gaps in the
 permissions harness and prompt even with matching `Bash(cmd:*)` allow
-rules. That rules out shell parameter expansion for the config path too — resolve
-`XDG_CONFIG_HOME`'s value by reading the environment yourself and pass
-the absolute path.
+rules. That rules out shell parameter expansion for the config path
+too — resolve `XDG_CONFIG_HOME`'s value by reading the environment
+yourself and pass the absolute path.
 
 Read the config with `Read`, never `cat` or `grep` from Bash: the
 guardrails carve-out that makes `~/.config` reachable at all covers the
@@ -43,8 +43,8 @@ file-tool track only.
      stop. A hand-edited file that broke is not a file to guess at.
    - **`schema-version` below 1** — stop, naming both the version found
      and the version pinned.
-   - **`schema-version` above 1** — proceed on the keys documented here
-     and ignore the rest.
+   - **`schema-version` above 1** — proceed on the keys documented in
+     `/cc-tools:cc-seed-config` and ignore the rest.
 
 2. **Take the issue numbers** — every `issues:` entry of every topic,
    in file order. A topic with no `issues:` is search-only, belongs to
