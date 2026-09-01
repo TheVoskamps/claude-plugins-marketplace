@@ -177,8 +177,8 @@ records name:
 - **The call fails saying there is no round log** — nothing has run.
   Anchor the round and start from "Read the PR's shape".
 - **The theorem list is not settled** — the generate stage has no
-  `leave` and no result file. Spawn the generator, per "Spawn the
-  theorem generator".
+  `leave` and no result file. Wait on a generator still in flight, and
+  spawn one only when none is, per "Spawn the theorem generator".
 - **Disprovers are missing** — a live theorem with no `leave` in the
   `disprove` stage, no result file, and no child in flight. Spawn those,
   per "Fan out the disprovers".
@@ -750,6 +750,30 @@ spawning. That is what makes a theorem id denote the same claim across
 instances of you; regenerating would renumber the round under a fresh
 reading of the same PR.
 
+**A generator may instead be in flight**, and it is subtracted like any
+other child, per "You are re-entrant" above: an `enter` for the theorem
+`list` with no `leave` and no `stopped` after it says a predecessor's
+generator is reading this PR now, and a second one would renumber the
+round exactly as regenerating would. Wait on it rather than spawning
+beside it — end the turn and resume on its notification, running the
+same three moves per resume that "Fan out the verifiers" defines.
+
+Its deadline is the same **15 minutes after its own `enter` record** the
+fan-out stages carry, and it is the only override. Past it, `TaskStop`
+the generator if **you** spawned it, append its stop either way, and
+spawn the replacement, whose own `enter` starts a fresh deadline:
+
+```bash
+sdlc-agent-result-persist --mode stopped \
+  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --pr <PR_N> --round <this round's number> \
+  --theorem list --stage generate
+```
+
+Without that override a generator that entered and died parks the round
+forever: no later stage runs until the list is settled, so nothing else
+would ever release it.
+
 Otherwise spawn the definition "Pick the generator tier" settled on,
 with the `Agent` tool, passing the resolved set from "Identify the issue
 set" — not the caller's claim.
@@ -1147,8 +1171,9 @@ sdlc-agent-result-persist --mode stopped \
 That is `TaskStop`'s one sanctioned use on this stage: past that
 child's own deadline, and only for a theorem already recorded as
 unsettled.
-The verifier stage below carries the same one, and nothing widens
-either. Never reach for it to make a slow round finish sooner —
+The generate stage above and the verifier stage below carry the same
+one, and nothing widens any of them. Never reach for it to make a slow
+round finish sooner —
 stopping a disprover that would have reported drops a theorem while
 the review reports a complete tally.
 
@@ -1298,8 +1323,8 @@ At a verifier's deadline, and only there, `TaskStop` it if **you**
 spawned it, so it is no longer mid-run and "Clean up the spawned
 worktrees" can remove its worktree, and append its stop either way with
 `--mode stopped` under `--stage verify`. That is the
-same single sanctioned use the
-disprover deadline has, extended to the second stage and no wider:
+same single sanctioned use the generator and disprover deadlines have,
+extended to the last stage and no wider:
 past that child's own deadline, and only for a theorem already recorded
 unverified.
 
