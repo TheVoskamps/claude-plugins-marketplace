@@ -196,9 +196,9 @@ is the thing to fix.
   emitting the literal `"defer"` ends a headless subagent's run.
 - [`docs/config-file-conventions.md`](docs/config-file-conventions.md) —
   read before a plugin reads or writes a config or state file of its
-  own. Kernel: never JSON, whatever `settings.json` beside it does —
-  YAML, or Markdown with front-matter when a human needs the prose
-  too, under `$XDG_CONFIG_HOME/<plugin>/`, stamped `schema-version`.
+  own. Kernel: never JSON — YAML, or Markdown with front-matter when
+  a human needs the prose too, stamped `schema-version`, under
+  `$XDG_CONFIG_HOME/<plugin>/`, or `$XDG_STATE_HOME` for run state.
 - [`docs/plugin-authoring-constraints.md`](docs/plugin-authoring-constraints.md)
   — read before adding a plugin, or a file one plugin expects another to
   reach. Kernel: plugins are file-sandboxed, so a cross-plugin `Read`

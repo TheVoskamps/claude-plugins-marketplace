@@ -679,7 +679,7 @@ justifying it with a premise that no longer holds. A find-and-replace
 gets this class exactly wrong: substituting the new path into the old
 reasoning produces a fluent sentence that is now false.
 
-The two spellings to separate, on every hit and on everything the
+The spellings to separate, on every hit and on everything the
 literal-grep cannot reach:
 
 - **Prose that states where the thing lives.** Rewrite to the new

@@ -192,7 +192,7 @@ skill, are *documentation* of the default for a human reader; no code reads
 them, and the launcher's own diagnostics name `$CLAUDE_VM_RUNS_ROOT` and print
 the resolved `$RUN` rather than restating the default.)
 
-Two properties of that siting are load-bearing, and each is the answer to a
+Each property of that siting is load-bearing, and each is the answer to a
 question the obvious alternative gets wrong:
 
 - **`XDG_STATE_HOME`, not `XDG_CONFIG_HOME`.** A run dir is run *state*, and
@@ -245,7 +245,7 @@ version-manager install rather than a system binary).
 lock held after the launcher is killed. Inheriting the fd therefore *extends
 the run's liveness to that child's lifetime*, and the question at every
 long-lived spawn site is "does this process still running mean the RUN is
-still live?". The launcher answers it three times, and not the same way:
+still live?". The launcher answers it per spawn site, and not the same way:
 
 - **vfkit inherits it, deliberately.** vfkit *is* the VM. A `kill -9` of the
   launcher orphans a vfkit that is still running the guest against
@@ -276,6 +276,12 @@ the directory holding the recorded `gvproxy_sock` (a `$TMPDIR` mktemp dir
 `cleanup()` normally removes and that leaks on an abnormal exit), and removes
 the run dir, clone included. For a live run it does nothing. `--dry-run`
 reports the same verdicts and changes nothing.
+
+"Dead" is not "abnormally exited": a run that powered off cleanly is dead
+too, and its retained run dir — worktree included — is reaped like any
+other. That is the intent, since nothing else reclaims a retained run dir,
+but it means a sweep between a clean exit and a `/claude-vm-apply-local`
+takes the worktree that skill was going to read. Extract first, then sweep.
 
 The recorded pids are **not** independently liveness-tested — the run's lock
 is the single source of truth, and testing pids separately would reintroduce

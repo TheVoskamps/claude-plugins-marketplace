@@ -20,6 +20,18 @@ A skill spells the fallback out once and refers to that spelling
 elsewhere rather than restating it, because a second spelling is a
 second thing to get wrong.
 
+### Run state is `$XDG_STATE_HOME`, not `$XDG_CONFIG_HOME`
+
+The path above is for **configuration** — what a human wrote and would
+expect to survive and to be worth backing up. Bytes a run produces and
+a later run or a cleaner consumes are state, and go to
+`${XDG_STATE_HOME:-$HOME/.local/state}/<plugin>/`. `claude-vm`'s run
+dirs are the case in hand: `payload/lib/runsroot.sh` composes
+`.../claude-vm/runs/`, while its config pair and verified-binary cache
+stay under `~/.config/claude-vm/`. The `$HOME` fallback differs between
+the two variables, so a plugin using both takes each spelling from the
+one place that composes it rather than deriving one from the other.
+
 ### The permission gate reads `$HOME/.config` literally
 
 The `guardrails` permission gate carves tool-mediated reads and writes

@@ -5,10 +5,12 @@
 # A claude-vm run materializes a run dir (holding a per-run APFS clone of the
 # guest image, a worktree, creds, run.meta and logs) plus two host-side
 # background processes (gvproxy and the forward proxy) with a $TMPDIR socket
-# dir. On a CLEAN exit the launcher's cleanup() trap tears all of that down. On
-# an abnormal exit it cannot -- `kill -9` is uncatchable -- and the residue is
-# orphaned: the processes keep running and the COW-diverged clone stays on
-# disk. This command is the remedy.
+# dir. On a CLEAN exit the launcher's cleanup() trap discards the clone, kills
+# the two processes and removes the socket dir, but RETAINS the run dir itself
+# for the diff/apply skills. On an abnormal exit it cannot -- `kill -9` is
+# uncatchable -- so nothing is torn down: the processes keep running and the
+# COW-diverged clone stays on disk. This command is the remedy for both, since
+# a retained run dir is reclaimed by nothing else.
 #
 # Usage:
 #   claude-vm-cleanup [--dry-run]

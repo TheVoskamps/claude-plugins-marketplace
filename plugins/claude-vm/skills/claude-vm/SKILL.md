@@ -842,10 +842,12 @@ This is run *state*, not configuration, which is why it sits under
 it, as `run.meta`'s `repo_src`; that is what the diff/apply skills
 filter on.
 
-The launcher removes all of this on a clean exit. On an abnormal exit
-its cleanup trap cannot run — `kill -9` is uncatchable — and the run
-dir, its clone, and the run's gvproxy and forward-proxy processes are
-orphaned. Reap them with:
+On a clean exit the launcher discards the per-run clone and kills the
+run's gvproxy and forward-proxy processes, but **keeps the run dir** —
+that is what the diff/apply skills read. On an abnormal exit its
+cleanup trap cannot run — `kill -9` is uncatchable — so the clone stays
+on disk at its COW-diverged size and those two processes keep running.
+Reap a run you are done with, orphaned or not, with:
 
 ```bash
 claude-vm-cleanup            # or --dry-run to see what it would do
