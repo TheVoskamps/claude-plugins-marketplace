@@ -817,13 +817,46 @@ How the repo is made available RW to the guest:
 
 - **`clone` (default)**: `git clone --no-hardlinks` the repo into a
   **persistent** worktree, mounted RW. The guest never touches the live
-  working tree or `.git`. The worktree lives under
-  `<repo>/.claude/tmp/<runid>/worktree` when launched from inside a
-  repo (otherwise a `mktemp` dir under `TMPDIR`). It persists after the
-  run so the companion diff/apply skills can inspect and extract
-  results. `.claude/tmp/` is git-ignored.
+  working tree or `.git`. The worktree lives at `<runs-root>/<runid>/worktree`,
+  under the host-scoped runs root described below — never inside the
+  repo, and the same for a launch whose argument is not a git repo. It
+  persists after the run so the companion diff/apply skills can inspect
+  and extract results.
 - **`live`**: mount the live repo dir RW directly. More convenient,
   less isolated. Opt-in.
+
+### Where a run's files live, and cleaning them up
+
+Every run gets a persistent **run directory** holding its worktree, its
+per-run guest-image clone, its EFI variable store, `run.meta`,
+`run.lock` and its logs. Run dirs are **host-scoped**, shared by every
+repo:
+
+```text
+${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm/runs/<runid>/
+```
+
+This is run *state*, not configuration, which is why it sits under
+`XDG_STATE_HOME` rather than beside the config under
+`~/.config/claude-vm/`. Which repo a run belongs to is recorded inside
+it, as `run.meta`'s `repo_src`; that is what the diff/apply skills
+filter on.
+
+The launcher removes all of this on a clean exit. On an abnormal exit
+its cleanup trap cannot run — `kill -9` is uncatchable — and the run
+dir, its clone, and the run's gvproxy and forward-proxy processes are
+orphaned. Reap them with:
+
+```bash
+claude-vm-cleanup            # or --dry-run to see what it would do
+```
+
+It sweeps every repo's runs in one pass and **never touches a live
+run**: each run holds an advisory lock on its own `run.lock` for its
+lifetime, the kernel releases it when the run dies, and the sweep tests
+that lock rather than testing whether a directory exists. Concurrent
+sessions — in one repo or across many — are safe to leave running while
+it runs. It is deliberately manual: the launcher does not invoke it.
 
 ### Getting work back out (clone mode)
 

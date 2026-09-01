@@ -308,30 +308,46 @@ playbook's slice advice, to run a fragment under `/bin/bash` and under
 `bash`, assumes a newer `bash` earlier in PATH, which is the
 assumption to measure before claiming a two-interpreter run.
 
-## The run dir sits inside the guest's repo share
+## Trace where a run artifact lands, and re-read it — the run dir moved
 
 Trace where a new host-side artifact lands before accepting any
-isolation story around it:
+isolation story around it. Re-read the launcher rather than recalling
+this section: issue #181 moved the run dir and inverted the conclusion
+this section used to draw.
 
-- `RUN="$REPO_SRC/.claude/tmp/$RUN_ID"` whenever the launcher starts
-  inside a git repo — the run dir is *inside the operator's repo*, not
-  in `$TMPDIR`.
+- `RUN="$CLAUDE_VM_RUNS_ROOT/$RUN_ID"`, composed by
+  `payload/lib/runsroot.sh` as
+  `${XDG_STATE_HOME:-$HOME/.local/state}/claude-vm/runs`. That is
+  **host-scoped and outside the repo**, for every launch, whether or
+  not the argument is a git repo. It is no longer under
+  `$REPO_SRC`, and no longer a `$TMPDIR` mktemp dir in the non-repo
+  case either.
 - `repo.mount: clone` (the default) shares `$RUN/worktree`, so a
   sibling under `$RUN` is outside the share.
 - `repo.mount: live` shares `$REPO_SRC` itself, and the image's fstab
-  mounts tag `repo` **rw**. So in live mode everything under `$RUN` is
-  reachable and writable from the guest.
-- `cleanup()` retains `$RUN`, so whatever lands there outlives the
-  run, inside the repo.
+  mounts tag `repo` **rw** — but `$REPO_SRC` no longer contains
+  `$RUN`, so nothing under the run dir is reachable from the guest in
+  that mode either. The share test the mount-wrap code used to perform,
+  and the guest-exposure finding behind it, are gone with the condition
+  that triggered them; do not re-file either.
+- `cleanup()` retains `$RUN`, so whatever lands there outlives the run
+  — now outside the repo, until `bin/claude-vm-cleanup` reaps it.
 
-For each new `$RUN/<thing>`, ask what it grants the guest in live mode
-— a hard link to an arbitrary host file hands the guest a writable
-second path to the same inode. The launcher now tests `$RUN` against
-`$MOUNT_SHARED_DIR` and falls back to a `$TMPDIR` directory when the
-run dir is inside the share, so read that branch before re-filing it.
-The hard link is also why `ln` is used rather than `cp` (same inode
-means write-through), so "move it out of the repo" trades against "a
-hard link cannot cross filesystems" — expect that tension in any fix.
+What replaced the guest-exposure question is a **volume** question. A
+wrap entry is a hard link (`ln`, not `cp`, because the same inode is
+what makes the documented write-through real), a hard link cannot cross
+a volume, and `$RUN` is now pinned to the `$HOME` volume rather than
+tracking the repo's. So the launcher attempts the link under `$RUN` and
+falls back to `$TMPDIR` on failure — and that fallback only rescues the
+case where `$TMPDIR` is on the *source's* volume, which on a stock
+macOS it is not. Before filing anything here, read both link attempts
+and the both-failed message.
+
+`$RUN` being outside the repo also changes how you *find* it: a run
+dir will not show up in a `git status` or a repo-tree listing, and a
+verification launch from a worktree leaves its run dir among the
+operator's real ones. `run.meta`'s `repo_src` is what distinguishes
+them, and it is also what the diff/apply skills filter on.
 
 ## Measure the emitters before worrying about record injection
 

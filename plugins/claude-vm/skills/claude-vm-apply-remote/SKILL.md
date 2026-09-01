@@ -18,14 +18,19 @@ force-push.
 ## How runs are located
 
 Same as `/claude-vm-diff`: each run writes
-`<repo>/.claude/tmp/<runid>/run.meta` recording `run_id`, `repo_src`,
+`<runs-root>/<runid>/run.meta` recording `run_id`, `repo_src`,
 `repo_mount`, `worktree`, and `copy_back`. The run dir persists after
 the guest exits (clone mode).
+
+`<runs-root>` is **host-scoped and shared by every repo**, so follow
+`/claude-vm-diff`'s "How runs are located" exactly: resolve the root by
+sourcing `payload/lib/runsroot.sh` rather than spelling it, and select
+"this repo's runs" by filtering `run.meta`'s `repo_src`.
 
 ## Inputs
 
 - **`<runid>`** (optional): the run to push. Defaults to the most
-  recent run under `<repo>/.claude/tmp/`.
+  recent run **for this repo** in `<runs-root>`.
 - **`<repo>`** (optional): the source repo root. Defaults to the
   current repo.
 - **`<branch>`** (optional): the remote branch to push to. When
@@ -35,8 +40,11 @@ the guest exits (clone mode).
 
 ## Steps
 
-1. Resolve the run dir and read `run.meta` (see `/claude-vm-diff`). If
-   no recorded run exists, report and stop.
+1. Resolve the run dir and read `run.meta` (see `/claude-vm-diff`),
+   including its `repo_src` check. If no recorded run for this repo
+   exists, report and stop. A run whose `repo_src` names a **different**
+   repo would push another project's commits to this repo's remote, so
+   that mismatch is a stop, not a warning.
 2. Confirm `repo_mount` is `clone` — the worktree (a `--no-hardlinks`
    clone of the source) carries the guest's commits and its own
    `origin` pointing at the source. For a `live` run there is no

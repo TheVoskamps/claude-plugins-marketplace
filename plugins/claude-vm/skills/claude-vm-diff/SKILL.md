@@ -17,31 +17,54 @@ or push it to the remote (`/claude-vm-apply-remote`).
 ## How runs are located
 
 Each `claude-vm` run writes a `run.meta` file into its persistent run
-directory:
+directory, which lives under one **host-scoped runs root** shared by
+every repo:
 
 ```text
-<repo>/.claude/tmp/<runid>/run.meta
+<runs-root>/<runid>/run.meta
 ```
 
 `run.meta` records `run_id`, `repo_src`, `repo_mount`, `worktree`, and
-`copy_back`. The run directory persists after the guest exits (clone
-mode) precisely so this skill can find it.
+`copy_back`, plus the run's process/endpoint keys. The run directory
+persists after the guest exits (clone mode) precisely so this skill can
+find it.
+
+**Never spell the runs root here.** It is composed in exactly one place
+— `payload/lib/runsroot.sh` — so ask that file for it rather than
+writing the path into these instructions:
+
+```bash
+RUNS_ROOT="$(. "$CLAUDE_PLUGIN_ROOT/payload/lib/runsroot.sh" && claude_vm_runs_root)"
+```
+
+Because the root is shared across repos, "this repo's runs" is a
+**filter on `run.meta`'s `repo_src`**, not a property of the directory's
+location. That is the whole reason `repo_src` is recorded.
 
 ## Inputs
 
 - **`<runid>`** (optional): the run to inspect. When omitted, use the
-  most recent run dir under `<repo>/.claude/tmp/` (highest-sorting
-  `run_id`, which is timestamp-prefixed).
+  most recent run **for this repo** — see the filter in step 1.
 - **`<repo>`** (optional): the source repo root. Defaults to the
   current repo.
 
 ## Steps
 
-1. Resolve the run dir:
-   - If `<runid>` is given, use `<repo>/.claude/tmp/<runid>/`.
-   - Otherwise, pick the most recent `<repo>/.claude/tmp/*/` that
-     contains a `run.meta`. If none exists, report that there are no
-     recorded runs and stop.
+1. Resolve the run dir. Resolve `<runs-root>` as above first.
+   - If `<runid>` is given, use `<runs-root>/<runid>/`. Confirm its
+     `run.meta` records a `repo_src` matching `<repo>`; if it names a
+     different repo, say so and stop rather than diffing one repo's
+     worktree against another's source.
+   - Otherwise, pick the most recent `<runs-root>/*/` that contains a
+     `run.meta` **whose `repo_src` is `<repo>`** — highest-sorting
+     `run_id`, which is timestamp-prefixed. Skip any run dir belonging
+     to another repo. If none exists, report that there are no recorded
+     runs for this repo and stop.
+
+   A run dir may belong to a **live** VM. This skill is read-only, so
+   inspecting one is harmless, but its worktree is being written to as
+   you read it — mention that if the run you resolved is the current
+   session's.
 2. Read `run.meta`. Confirm `repo_mount` is `clone`. For a `live` run
    there is no separate worktree — the guest wrote to the source in
    place — so report that a diff against a separate worktree does not
@@ -75,6 +98,10 @@ mode) precisely so this skill can find it.
 - This skill is strictly read-only. To apply the changes, use
   `/claude-vm-apply-local` (to the local source) or
   `/claude-vm-apply-remote` (to the remote).
+- Run dirs are reaped by `claude-vm-cleanup`, which removes the
+  **dead** ones across all repos. If a run you expected is missing,
+  that command (or a manual cleanup) is the likely reason; it never
+  removes a live run.
 - The default copy-back (`repo.copy_back: local`) may already have
   mirrored the guest's changes onto the source. If so, a working-tree
   diff against the source shows nothing — diff the worktree's git

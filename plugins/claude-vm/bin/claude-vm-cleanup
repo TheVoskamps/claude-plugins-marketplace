@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+#
+# claude-vm-cleanup -- reap orphaned claude-vm run residue (issue #181).
+#
+# A claude-vm run materializes a run dir (holding a per-run APFS clone of the
+# guest image, a worktree, creds, run.meta and logs) plus two host-side
+# background processes (gvproxy and the forward proxy) with a $TMPDIR socket
+# dir. On a CLEAN exit the launcher's cleanup() trap tears all of that down. On
+# an abnormal exit it cannot -- `kill -9` is uncatchable -- and the residue is
+# orphaned: the processes keep running and the COW-diverged clone stays on
+# disk. This command is the remedy.
+#
+# Usage:
+#   claude-vm-cleanup [--dry-run]
+#
+# It ships in the plugin's bin/ directory beside `claude-vm`, which Claude Code
+# adds to PATH for the Bash tool, so it runs as the bare command. It is
+# deliberately RUN BY HAND: it has no skill and no slash command, and the
+# launcher does not call it. Folding it into the launcher's hot path (likely
+# default-on with a --no-cleanup escape hatch) is a separate decision to be
+# taken once the standalone command is proven in use, and is out of scope here.
+#
+# HOST-SCOPED, because neither half of the problem is per-repo. Run dirs live
+# under one host-scoped runs root (payload/lib/runsroot.sh), which this sweeps
+# across ALL repos in one pass, and the orphaned host processes have no repo
+# affiliation at all.
+#
+# LIVENESS, not existence. 6-17 concurrent sessions in one repo is normal
+# usage, so at any moment the runs root legitimately holds many LIVE run dirs
+# and reaping by existence would delete a running VM's disk out from under it.
+# Each run holds an exclusive BSD advisory lock on its own $RUN/run.lock for
+# its whole lifetime; the kernel releases it when the holder dies, `kill -9`
+# included. So a non-blocking test-acquire is the whole test: it SUCCEEDS on a
+# dead run (reap) and fails EX_TEMPFAIL (75) on a live one (leave). Per
+# `man 1 lockf`, "the mere existence of the file is not considered to
+# constitute a lock", so a run.lock left behind on disk is not read as a live
+# run. A run dir with no run.lock at all is a run that died before it took the
+# lock, which is likewise dead.
+#
+# The recorded pids are NOT independently liveness-tested. The run's lock is
+# the single source of truth: once it is established dead, every pid run.meta
+# records for that run is reaped. Testing the pids separately would reintroduce
+# exactly the PID-recycling weakness the lock design avoids.
+#
+# vfkit is deliberately absent from that pid set, and this command never kills
+# a VM. The launcher lets vfkit -- and only vfkit -- inherit the lock
+# descriptor, so a run whose VM is still up reads LIVE here and is spared with
+# everything else it owns, its per-run disk clone included. By the time a run
+# reads dead its vfkit is already gone, and what is left is the gvproxy and
+# proxy that outlived it. See the lock block in payload/claude-vm.sh.
+#
+# macOS-only, like the rest of claude-vm. lockf(1) is /usr/bin/lockf, a base
+# system binary; there is deliberately no flock(1), shlock or python3 fallback.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# The runs root is composed in exactly ONE place. Source it rather than
+# respelling the path -- the launcher that creates these run dirs sources the
+# same file.
+# shellcheck source=../payload/lib/runsroot.sh
+. "$PLUGIN_ROOT/payload/lib/runsroot.sh"
+
+DRY_RUN=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    -h|--help)
+      echo "usage: claude-vm-cleanup [--dry-run]"
+      echo
+      echo "Reap orphaned claude-vm run dirs, their per-run guest image clones,"
+      echo "their recorded gvproxy/proxy processes and their recorded socket dir,"
+      echo "across all repos. A LIVE run is never touched."
+      exit 0
+      ;;
+    *)
+      echo "claude-vm-cleanup: unknown argument '$1' (try --help)" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if ! command -v lockf >/dev/null 2>&1; then
+  echo "claude-vm-cleanup: 'lockf' not found. It is a macOS base-system binary at" >&2
+  echo "claude-vm-cleanup: /usr/bin/lockf, and claude-vm is macOS-only; there is no fallback" >&2
+  echo "claude-vm-cleanup: liveness test, because every alternative (PID files, shlock) has the" >&2
+  echo "claude-vm-cleanup: PID-recycling weakness the lock design exists to avoid." >&2
+  exit 1
+fi
+
+if [ ! -d "$CLAUDE_VM_RUNS_ROOT" ]; then
+  echo "claude-vm-cleanup: no runs root at '$CLAUDE_VM_RUNS_ROOT' -- nothing to do." >&2
+  exit 0
+fi
+
+# Read one `key=value` line out of a run.meta. The launcher writes each key
+# once, at the moment the thing it names is created and confirmed live, so a
+# key that is absent names something that never materialized and there is
+# nothing to reap for it. The last occurrence wins, which is also the value a
+# re-appended key would carry.
+run_meta_get() {
+  local meta="$1" key="$2" line=""
+  [ -f "$meta" ] || return 0
+  line="$(grep "^$key=" "$meta" 2>/dev/null | tail -1 || true)"
+  [ -n "$line" ] || return 0
+  printf '%s\n' "${line#*=}"
+}
+
+REAPED=0
+SPARED=0
+SKIPPED=0
+
+# `find -maxdepth 1` rather than a glob, so an empty runs root does not hand
+# the loop the literal pattern, and so a run id carrying a shell metacharacter
+# is still enumerated. -print0/read -d '' keeps a path with a space or a
+# newline in it intact.
+while IFS= read -r -d '' run; do
+  [ -d "$run" ] || continue
+  run_id="${run##*/}"
+  lock="$run/run.lock"
+  meta="$run/run.meta"
+
+  # The liveness test. `-k` keeps the lock file (removing it would race a run
+  # that is about to take it), and `-t 0` fails immediately rather than waiting
+  # when another process holds it. `set -e` is relaxed around it because a
+  # nonzero status here is the answer, not an error.
+  set +e
+  lockf -s -t 0 -k "$lock" true
+  lock_rc=$?
+  set -e
+
+  if [ "$lock_rc" -eq 0 ]; then
+    : # dead -- fall through to the reap below.
+  elif [ "$lock_rc" -eq 75 ]; then
+    # EX_TEMPFAIL: another process holds the lock. This run is LIVE.
+    echo "claude-vm-cleanup: SPARED  $run_id (live -- its run.lock is held)"
+    SPARED=$(( SPARED + 1 ))
+    continue
+  else
+    # Any other sysexits code (EX_CANTCREAT on an unwritable path, EX_USAGE,
+    # ...) means the test did not run, which is NOT the same as "dead". Say so
+    # and leave the run alone rather than reaping on an unanswered question.
+    echo "claude-vm-cleanup: SKIPPED $run_id (could not test '$lock'; lockf exit $lock_rc)" >&2
+    SKIPPED=$(( SKIPPED + 1 ))
+    continue
+  fi
+
+  gvproxy_pid="$(run_meta_get "$meta" gvproxy_pid)"
+  proxy_pid="$(run_meta_get "$meta" proxy_pid)"
+  gvproxy_sock="$(run_meta_get "$meta" gvproxy_sock)"
+  repo_src="$(run_meta_get "$meta" repo_src)"
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    # Written as `if` rather than `[ -n ... ] && echo`: under `set -e` a false
+    # test makes the whole && list the command's status and aborts the sweep.
+    echo "claude-vm-cleanup: WOULD REAP $run_id (dead)${repo_src:+ repo=$repo_src}"
+    if [ -n "$gvproxy_pid" ]; then
+      echo "claude-vm-cleanup:   would kill gvproxy pid $gvproxy_pid"
+    fi
+    if [ -n "$proxy_pid" ]; then
+      echo "claude-vm-cleanup:   would kill proxy pid $proxy_pid"
+    fi
+    if [ -n "$gvproxy_sock" ]; then
+      echo "claude-vm-cleanup:   would remove socket dir $(dirname "$gvproxy_sock")"
+    fi
+    echo "claude-vm-cleanup:   would remove run dir $run"
+    REAPED=$(( REAPED + 1 ))
+    continue
+  fi
+
+  # Kill the recorded processes. `|| true` throughout: a pid that has already
+  # exited is the ordinary case (the launcher may have got far enough to kill
+  # one before it died), not a failure.
+  for pid in "$gvproxy_pid" "$proxy_pid"; do
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+  done
+
+  # The gvproxy socket dir is a $TMPDIR mktemp dir that cleanup() normally
+  # removes; it leaks on an abnormal exit. Remove the DIRECTORY holding the
+  # recorded socket, which is what the launcher created, not just the socket
+  # file -- vfkit derives a sibling socket in it. Guarded on the dir actually
+  # looking like one of ours, so a malformed run.meta cannot aim an rm -rf at
+  # an arbitrary path.
+  if [ -n "$gvproxy_sock" ]; then
+    sock_dir="$(dirname "$gvproxy_sock")"
+    case "${sock_dir##*/}" in
+      claude-vm-sock.*) rm -rf "$sock_dir" ;;
+      *)
+        echo "claude-vm-cleanup: NOTE    $run_id records gvproxy_sock '$gvproxy_sock', whose directory" >&2
+        echo "claude-vm-cleanup:         is not a claude-vm-sock.* mktemp dir; leaving it alone." >&2
+        ;;
+    esac
+  fi
+
+  # Finally the run dir itself, clone included. This is the COW-diverged
+  # guest-clone.raw the issue is largely about reclaiming.
+  rm -rf "$run"
+  echo "claude-vm-cleanup: REAPED  $run_id (dead)${repo_src:+ repo=$repo_src}"
+  REAPED=$(( REAPED + 1 ))
+done < <(find "$CLAUDE_VM_RUNS_ROOT" -mindepth 1 -maxdepth 1 -type d -print0)
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "claude-vm-cleanup: $REAPED dead run(s) would be reaped, $SPARED live run(s) spared, $SKIPPED skipped."
+else
+  echo "claude-vm-cleanup: reaped $REAPED dead run(s), spared $SPARED live run(s), skipped $SKIPPED."
+fi

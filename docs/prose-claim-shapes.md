@@ -668,3 +668,40 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
+
+## Moving a path invalidates arguments, not just path literals
+
+When a location moves, the sweep everyone runs is for the old literal.
+That finds the sentences that *name* the path and misses the ones whose
+**argument** silently depended on where it used to be — and those are
+the durable ones, because they keep pointing at the right code while
+justifying it with a premise that no longer holds. A find-and-replace
+gets this class exactly wrong: substituting the new path into the old
+reasoning produces a fluent sentence that is now false.
+
+The two spellings to separate, on every hit and on everything the
+literal-grep cannot reach:
+
+- **Prose that states where the thing lives.** Rewrite to the new
+  location. Cheap, and the grep finds it.
+- **Prose whose reasoning *rests* on the old location.** The premise is
+  gone, so the repair is deletion or a freshly measured rationale —
+  never a path substitution. A guard justified by "X sits inside Y" is
+  not repaired by renaming Y.
+
+Measured on `claude-vm`'s run dir (issue #181). Moving it out of the
+repo left three arguments standing on the vanished premise, each still
+beside correct code: a socket sited under `$TMPDIR` "because the run
+dir's path overflows `sun_path`" — re-measured, the two are now within
+a byte of each other, so the siting survives on *scope*, not on length;
+a mount wrap directory moved out of `$RUN` "because the guest can reach
+it in live mode" — it no longer can, so the test and its rationale were
+deleted outright; and a fallback justified as an *exposure* remedy that
+now exists for a *volume* one, the same branch surviving for a
+completely different reason. Only the first named the old path at all.
+
+The check, when you move something: grep for what *depended* on the old
+site, not for the old site. Ask of each rationale in the blast radius
+whether its premise was the location; if it was, the sentence is a
+rewrite or a deletion, and if a number justified it, re-measure the
+number rather than carrying it forward.
