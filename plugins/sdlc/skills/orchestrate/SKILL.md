@@ -1387,7 +1387,11 @@ Anthropic issue #48927, plus whatever the end-of-run sweep found).
 The reviewer's generator, disprover and verifier worktrees are not in
 N — it removes those itself. Name here, by absolute path, any such
 worktree a killed reviewer left behind, since removing one is not
-yours.
+yours. A reviewer that did return may also report a child it could not
+name a worktree for — one whose spawn its round log records with no
+`enter`; relay that by the theorem and stage it gave, because no path
+resolves for it and guessing one from the listing is what the reviewer
+refused to do.
 
 All ready-for-review PRs are open and awaiting your approval.
 Nothing has been merged.

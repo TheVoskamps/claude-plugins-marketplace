@@ -189,7 +189,7 @@ now() {
 }
 
 # The harness names an isolation: worktree worktree agent-<agent-id>,
-# and that is the same token TaskStop takes.
+# so a child's own id is the one thing its cwd already tells it.
 this_agent_id() {
   base=${PWD##*/}
   printf '%s\n' "${base#agent-}"

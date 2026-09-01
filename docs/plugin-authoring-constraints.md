@@ -486,6 +486,17 @@ whatever happens. The per-session subagent cap was removed in Claude
 Code 2.1.224, so a session no longer refuses new agents and the
 concurrency ceiling is the only limit worth spawning against.
 
+**One child per item per stage, and a returned artifact settles the
+item whether or not the spawner can use it.** A remedy that re-spawns a
+child for an item the log already records as finished is invisible to
+the in-flight derivation, which subtracts every item carrying a result
+file: a later instance would double-spawn it, grade it from the earlier
+artifact, and never arm the replacement's deadline. So give an artifact
+that fails a quality bar a disposition rather than a second attempt —
+review grades a malformed report by a row its table already has — and
+leave the deadline write-off as the only path to a replacement, since
+that records the first child gone before the second goes out.
+
 **A resumed round must check that the tree its records describe still
 exists.** Records made against one commit answer nothing about another,
 and a scheduled sweep force-rebases open PR branches mid-round

@@ -1536,9 +1536,10 @@ with an error that reads as though the worktree were already gone. See
 Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
 for a parallel-cleanup data-loss bug. A round leaves one worktree per
-agent it spawned: the generator, k disprovers, and one verifier per
-disproved theorem, plus one more for each re-spawn and one per theorem
-each resume pass re-ran. Remove them one after another once they have
+child it ran: the generator, k disprovers, one verifier per disproved
+theorem, and one more per theorem each resume pass re-ran — the count
+is the round's, not this instance's, which is why the log rather than
+your memory names the set. Remove them one after another once they have
 all returned or been stopped at their own deadlines.
 
 If a removal fails with `fatal: cannot remove a locked working tree`
