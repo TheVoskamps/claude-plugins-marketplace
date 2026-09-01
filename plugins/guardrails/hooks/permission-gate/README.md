@@ -1174,10 +1174,9 @@ The gate's engines feed that decision:
   none: the cross-repo denies name the handoff location via
   `handoffHint`, the worktree-escape denies prescribe whichever
   remediation `worktreeReadRemediation` grades as the true one, and the
-  `.git/`-tree read deny prescribes nothing beyond the prohibition. See
-  [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
-  for the convention. (3) **reading** a non-`.git/` file that resolves
-  into the primary clone / shared git dir **denies**, under
+  `.git/`-tree read deny prescribes nothing beyond the prohibition. (3)
+  **reading** a non-`.git/` file that resolves into the primary clone /
+  shared git dir **denies**, under
   `read:worktree-escape` on the file-tool path and
   `bash-read:worktree-escape` on the operand walk. The primary clone's
   working files can differ from this worktree's, so such a read returns
@@ -1824,10 +1823,6 @@ mention:
   matcher string.
 - [`docs/verification-playbook.md`](../../../../docs/verification-playbook.md)
   names one verdict only, to keep a lint-baselining technique runnable.
-- [`rules/scratch-file-location.md`](../../rules/scratch-file-location.md)
-  names verdicts only where they decide **which destination a scratch
-  file goes to**. A verdict change that leaves that choice unchanged
-  needs no edit there.
 
 `.claude/agent-memory/` is deliberately absent from that list: the tree
 is gitignored, lives only in a throwaway worktree, and the session
