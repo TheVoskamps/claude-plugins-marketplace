@@ -163,13 +163,15 @@ Everything this plugin persists is written by
 `bin/sdlc-agent-result-persist` under the harness's per-session
 scratchpad, outside every repository — a review round writes nothing to
 the branch it reviews. A PR that adds or removes one of these edits this
-list, the same convention "Executables" above sets.
+list, the same convention "Executables" above sets. Which mode writes
+each, and the record grammar the log holds, are part of that contract
+and are owned by `skills/agent-result-persist-interface/SKILL.md`.
 
-| File | Written by | What it holds |
-| ------- | ------------ | --------------- |
-| `<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>` | every mode but `print` | the round log: one line per `anchor`, `spawn`, `enter`, `leave`, `return` and `stopped` |
-| `<that path>-<theorem>-<agent>` | `--mode leave` | one child's full report, staged as `.partial-<pid>` and renamed into place |
-| `<that path>.voided-<instant>` and `<that path>.voided-<instant>-<theorem>-<agent>` | `--mode anchor`, on a head SHA that differs from the log's | the log and every result file of a round whose branch moved under it, set aside rather than overwritten |
+| File | What it holds |
+| ------- | --------------- |
+| `<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>` | the round log |
+| `<that path>-<theorem>-<agent>` | one child's full report |
+| `<that path>.voided-<instant>` and `<that path>.voided-<instant>-<theorem>-<agent>` | the log and every result file of a round whose branch moved under it, set aside rather than overwritten |
 
 The `enter` record also carries a fourth path,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
