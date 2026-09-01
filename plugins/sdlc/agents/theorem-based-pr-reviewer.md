@@ -84,7 +84,8 @@ The one thing you do publish is the review itself, posted through
 `/github-prs:pr-review-submit`. That is a PR artifact, not a change to
 the branch.
 
-The **posted review is this procedure's only persistence**. It carries
+The **posted review is this procedure's only persistence that outlives
+the round**. It carries
 the round's full theorem records, so the next round reads them off the
 PR rather than off the branch — which is what lets review persist a
 theorem list while still writing nothing to the branch.

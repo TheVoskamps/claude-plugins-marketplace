@@ -81,8 +81,10 @@ skill computes.
    Remove the reviewer agent's worktree when it returns.
 
 3. **Check for a verdict block before relaying anything.** A reviewer
-   that returns mid-fan-out reports an **in-progress status** —
-   outstanding disprover or verifier counts, plus which exit its own
+   that returns mid-round reports an **in-progress status** — which
+   stage it is still waiting on and how much of it is outstanding, the
+   theorem list itself as readily as the disprovers or the verifiers,
+   plus which exit its own
    resume loop took when it ran one — with no verdict line, no tally
    and no findings, and the harness surfaces
    that as `status: completed` with the closing message as the result,

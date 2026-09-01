@@ -912,10 +912,11 @@ escalation, because the reviewer is not stopping to ask you anything.
 Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
 
-- **An in-progress status** — outstanding disprover or verifier
-  counts, and on a reviewer that had already exhausted its own resume
-  loop, which exit it took. A round is under way; follow the four
-  steps below.
+- **An in-progress status** — which stage the round is still waiting
+  on and how much of it is outstanding, the theorem list itself as
+  readily as the disprovers or the verifiers, and on a reviewer that
+  had already exhausted its own resume loop, which exit it took. A
+  round is under way; follow the four steps below.
 - **A broken call** — the report names a `sdlc-agent-result-persist`
   call the reviewer could not repair and quotes the script's message
   verbatim. No round is under way, so follow "A broken call" below
@@ -923,7 +924,7 @@ responses, so read what the report **says** before you act on it:
   the same call and fails the same way, and step 4's escalation would
   then tell the human the PR keeps returning mid-round.
 
-1. **Confirm it against the PR.** A round that returned mid-fan-out
+1. **Confirm it against the PR.** A round that returned mid-round
    posted no review, so read the PR rather than the report:
 
    ```bash

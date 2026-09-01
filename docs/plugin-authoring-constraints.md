@@ -450,14 +450,20 @@ one read.
 one log under the session scratchpad, and start records, finish records
 and full reports the generator, the disprovers and the verifiers write
 themselves (issues #344 and #358).
-A procedure that fans out twice needs a deadline on **each** fan-out: an
-unbounded second stage parks the round exactly as an unbounded first
-one would, and it is the easier one to leave unbounded, because it
-runs only on the rounds the first stage found something in. Where no measurement
-of the second stage exists, reuse the first's rather than deriving a
-shorter one from how much less work the second does — review bounds
-its verifiers on that reasoning, with the same figure its disprovers
-get. Never reach for `TaskStop` to make a slow round finish sooner:
+
+**Every stage needs a deadline, the ones that spawn a single child
+included.** An unbounded second fan-out parks the round exactly as an
+unbounded first one would, and it is the easier one to leave unbounded,
+because it runs only on the rounds the first stage found something in.
+A stage that spawns one child is easier still to overlook, and it is
+the worst one to: everything downstream waits on its output, so one
+child that started and died leaves nothing else able to release the
+round — which is why review bounds its single-child generator stage
+too. Where no measurement of the second stage exists, reuse the
+first's rather than deriving a shorter one from how much less work the
+second does — review bounds its verifiers on that reasoning, with the
+same figure its disprovers get. Never reach for `TaskStop` to make a
+slow round finish sooner:
 stopping a child that would have reported drops a result the report
 then claims to have counted. The stop needs the tool in the spawner's
 own `tools:` frontmatter, which the fanned-out agents do not carry.
