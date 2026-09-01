@@ -248,8 +248,11 @@ wherever it runs — the issue verbs, `git-branch-create`,
 `agent-memory-inbox-cleanup`, and
 `git-cleanup-branches-and-worktrees`, which
 `skills/orchestrate/SKILL.md` invokes once at the end of a run as the
-whole flow's only cleanup — nothing in this plugin removes a worktree
-or deletes a branch itself. The edge coordinates install and
+whole flow's only cleanup — nothing else in this plugin removes a
+worktree, and the only branch deletion outside it is a teammate
+releasing its own claim on the PR branch inside its own end-of-run
+(`issue-developer`, `issue-fixer`, `doc-updater`,
+`agent-memory-scrubber`). The edge coordinates install and
 enablement, not file access:
 plugins are file-sandboxed, so nothing here reads another plugin's
 files (see `docs/plugin-authoring-constraints.md`).

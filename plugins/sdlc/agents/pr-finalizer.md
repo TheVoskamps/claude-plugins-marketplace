@@ -236,5 +236,7 @@ anything was addressed.
   so artifacts won't get committed.
 - You take no branch claim: you read `origin/<branch-name>` and never
   check the branch out attached, so there is no claim to release and
-  no end-of-run branch cleanup to do. Your worktree is your spawner's
-  to remove.
+  no end-of-run branch cleanup to do. Leave your worktree where it is:
+  the orchestrator removes none, and the run's terminal
+  `/git-tools:git-cleanup-branches-and-worktrees` invocation is what
+  reclaims it.
