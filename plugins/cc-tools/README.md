@@ -85,9 +85,9 @@ in a repo or in a session.
 grades every entry in `.claude/agent-memory/`, then **acts** — it
 deletes every entry the rubric grades as no longer earning its place,
 moves durable lore out into the repo's own documentation, keeps what
-has no home in the repo, and repairs the
-`MEMORY.md` indexes and the wikilinks between entries. It is not a
-read-only report handed to someone else to apply.
+has no home in the repo, and repairs the `MEMORY.md` indexes and the
+wikilinks between entries. It is not a read-only report handed to
+someone else to apply.
 
 The argument picks which tree it curates: with none, the one you are
 sitting in; with a PR number, that PR's branch. What each mode does
