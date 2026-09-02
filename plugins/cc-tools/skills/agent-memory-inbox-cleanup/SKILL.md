@@ -37,7 +37,7 @@ Two, and no more:
 
 | Verdict | What happens |
 | --- | --- |
-| **transfer** | the constraint is written into a `plugins/**/README.md`, a `docs/*.md`, or `CLAUDE.md`, and the inbox entry is deleted |
+| **transfer** | the constraint is written into a governing README, a `docs/*.md`, or `CLAUDE.md`, and the inbox entry is deleted |
 | **delete** | the inbox entry is deleted and nothing is written |
 
 There is no third verdict that keeps an entry where it is — nothing
@@ -114,14 +114,13 @@ cannot take back.
 ### Land the transfers
 
 Stage by explicit path — `CLAUDE.md`, each `docs/*.md`, and each
-`plugins/**/README.md` you changed, whether you wrote a constraint
-into it, cut one out of it, or created the file to receive a transfer
-— a README you created is untracked, so staging it by path is what
-puts it in the commit at all — plus any
-`plugins/<name>/.claude-plugin/plugin.json` whose `version` the repo's
-own rules obliged you to bump. Never `git add -A`, and never a
-directory-wide add. Nothing under `.claude/agent-memory/` is ever
-staged: the memory tree is not part of this flow.
+README you changed, whether you wrote a constraint into it, cut one
+out of it, or created the file to receive a transfer — a README you
+created is untracked, so staging it by path is what puts it in the
+commit at all — plus any companion edit the repo's own rules obliged
+that change to carry. Never `git add -A`, and never a directory-wide
+add. Nothing under `.claude/agent-memory/` is ever staged: the memory
+tree is not part of this flow.
 
 ```bash
 git add <each path you changed>
@@ -182,6 +181,10 @@ Cut from <destination> (N):
 Inbox: emptied
 Commit: <SHA> | none — <why nothing was staged>
 ```
+
+A `<destination>` the transfer created rather than edited carries
+`(created)` after its path — the caller has no other way to tell a new
+file from an amended one.
 
 Where the inbox was absent or empty, the report is that one fact plus
 `Commit: none`.

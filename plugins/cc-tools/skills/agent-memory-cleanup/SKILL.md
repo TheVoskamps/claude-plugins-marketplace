@@ -223,13 +223,12 @@ defect to chase.
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
 every memory path you deleted or edited, plus `CLAUDE.md`, each
-`docs/*.md`, and each `plugins/**/README.md` you changed, whether you
-wrote a constraint into it, cut one out of it, or created the file to
-receive a transfer — a README you created is untracked, so staging it
-by path is what puts it in the commit at all — plus any
-`plugins/<name>/.claude-plugin/plugin.json` whose `version` the repo's
-own rules obliged you to bump. Never `git add -A`, and never a
-directory-wide add.
+`docs/*.md`, and each README you changed, whether you wrote a
+constraint into it, cut one out of it, or created the file to receive
+a transfer — a README you created is untracked, so staging it by path
+is what puts it in the commit at all — plus any companion edit the
+repo's own rules obliged that change to carry. Never `git add -A`, and
+never a directory-wide add.
 
 ```bash
 git add <each path you changed>
@@ -323,6 +322,10 @@ Cut from <destination> (N):
 Indexes fixed: <agent>/MEMORY.md, ...
 Wikilinks repaired: <count>
 ```
+
+A `<destination>` the transfer created rather than edited carries
+`(created)` after its path — a reader has no other way to tell a new
+file from an amended one.
 
 Then the tail for the mode you ran in. In autonomous mode, a `Commit:`
 line carrying either the SHA — once the post-push check above has
