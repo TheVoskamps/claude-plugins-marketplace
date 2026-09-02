@@ -390,8 +390,9 @@ worktree. Update the existing checkout in place instead:
 git -C <that-path> pull --ff-only
 ```
 
-(This `git -C` use is in *this* procedure, not in a subagent Bash call,
-so the subagent forbidden-form rule doesn't apply.)
+(This `git -C`, and the one in "Removing a worktree"'s reachability
+check, are in *this* procedure rather than in a subagent Bash call, so
+the subagent forbidden-form rule doesn't apply to either.)
 
 If `$DEFAULT_BRANCH` is **not** checked out elsewhere:
 

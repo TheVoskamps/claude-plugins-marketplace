@@ -294,13 +294,14 @@ a `theorem-generator`, a `theorem-disprover`, and a
 `theorem-based-pr-reviewer` that spawns them never checks the branch
 out at all, so none of them claims anything.
 Run this only if the memory capture completed **and** either your
-commit and push both succeeded or you had nothing to commit — if the
-capture failed, or if either the commit or the push failed, `git branch
--D` would destroy the only copy of your work, so stop and report the
-failure instead of proceeding to cleanup. The capture condition holds
-on the nothing-to-commit path too: your memory entries live only in
-this worktree until the capture moves them out, whether or not you
-committed anything:
+commit and push both succeeded or you had nothing to commit. A failed
+commit or push means `git branch -D` would destroy the only copy of
+your work; a failed capture means the run's terminal cleanup carries
+your memory entries off with the worktree when it reclaims it. Stop and
+report either failure instead of proceeding to cleanup. The capture
+condition holds on the nothing-to-commit path too: your memory entries
+live only in this worktree until the capture moves them out, whether or
+not you committed anything:
 
 ```bash
 git checkout --detach
