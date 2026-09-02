@@ -284,11 +284,11 @@ Measured on git 2.55.0 against a repo holding a worktree at
 
 So a short argument is wrong two different ways: it can hit a
 **different** worktree than you meant because of where you stand, and
-it can hit none because it is **ambiguous**. This repo nests worktrees
-under `.claude/worktrees/`, and an agent's own worktree carries a
-further `.claude/worktrees/` inside it, so two live worktrees routinely
-share a trailing component run. When the suffix matches more than one,
-git answers
+it can hit none because it is **ambiguous**. Both resolutions depend on
+state the caller does not control — the cwd, and what else is
+registered at the moment — so the absolute path the listing prints is
+the only argument that names one worktree unconditionally. When the
+suffix matches more than one, git answers
 
 ```text
 fatal: '<arg>' is not a working tree
@@ -307,6 +307,35 @@ reason to take the path from the listing rather than composing one:
 git worktree list
 git worktree remove <absolute-path-from-the-listing>
 ```
+
+## A subagent's worktree is a sibling, not a nested worktree
+
+An `isolation: worktree` subagent spawned from **inside** another
+worktree does not get its worktree nested under the spawner's. Measured
+2026-08-20: a `general-purpose` agent running in
+`.claude/worktrees/agent-a7c796714c0aba1b9` spawned a worktree
+subagent, which landed at `.claude/worktrees/agent-a53d463b5c46a2a27` —
+a sibling under the **primary clone**, sharing the same
+`--git-common-dir`. The spawner's own worktree contained no
+`.claude/worktrees/` directory at all.
+
+Re-confirmed 2026-09-01 from inside a spawned agent's worktree:
+
+```console
+$ pwd
+<repo>/.claude/worktrees/agent-a98761e946f4e4e74
+$ git rev-parse --git-common-dir
+<repo>/.git
+$ ls -a .claude/
+.  ..  agent-memory
+```
+
+So the topology under `.claude/worktrees/` is flat: one directory per
+live agent, all siblings, all registered to the primary clone. A rule
+justified by "the spawner's worktree carries a `.claude/worktrees/` of
+its own" is justified by something that does not happen — the
+absolute-path rule above stands on the two resolution behaviours it
+measures instead, which need no nesting to bite.
 
 ## A push over SSH can hang in the foreground and succeed in the background
 

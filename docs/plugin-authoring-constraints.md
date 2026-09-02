@@ -328,8 +328,7 @@ an in-progress status, carrying no verdict, no tally and no findings.
 A child that never returns parks the round forever, so the spawner
 fixes a deadline, gives the unreported work an explicit disposition
 rather than dropping it, and past that deadline `TaskStop`s any child
-it spawned itself, which also releases the worktree the cleanup step
-has to remove. Size
+it spawned itself, so the round is no longer waiting on it. Size
 the deadline off a measured worst case with room to spare, and state
 the figure and the run it was measured on where the deadline itself
 lives, so a re-measurement is one edit — review sizes its disprover

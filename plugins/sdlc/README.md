@@ -247,9 +247,13 @@ wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, the PR verbs, `agent-memory-inbox-capture`,
 and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
-`git-cleanup-branches-and-worktrees`, which nothing here invokes:
-`skills/orchestrate/SKILL.md` names it as the whole-repo sweep of the
-same shape as the per-worktree cleanup the orchestrator performs
-inline. The edge coordinates install and enablement, not file access:
+`git-cleanup-branches-and-worktrees`, which
+`skills/orchestrate/SKILL.md` invokes once as the run's terminal
+cleanup step. That skill is the single owner of worktree removal and
+branch deletion for this plugin: nothing here — not the orchestrator,
+not `theorem-based-pr-reviewer`, not `/sdlc:git-review-pr` — removes a
+worktree or deletes a branch of its own, and a PR that adds such an
+instruction back edits this paragraph first. The edge coordinates
+install and enablement, not file access:
 plugins are file-sandboxed, so nothing here reads another plugin's
 files (see `docs/plugin-authoring-constraints.md`).
