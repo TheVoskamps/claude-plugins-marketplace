@@ -113,10 +113,11 @@ them as well.
   is; a disprover and a verifier each have one definition and
   name themselves.
 
-Those four say nothing about the claim, and **every** theorem agent
-receives them, the generator included. Each passes them straight back —
-alongside `--pr`, its own stage, and its definition's name, which a
-generator takes from `--agent` and every other agent knows — to
+`--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
+claim, and **every** theorem agent receives them, the generator
+included; `--agent` reaches a generator only. Each passes them straight
+back — alongside `--pr`, its own stage, and its definition's name, which
+a generator takes from `--agent` and every other agent knows — to
 `sdlc-agent-result-persist`, per
 `sdlc:agent-result-persist-interface`, when it records that it started
 and when it writes its report. Nothing else is passed in: that script

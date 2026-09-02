@@ -216,8 +216,11 @@ byte-identical except the frontmatter `name:` and `effort:` lines and
 the tier phrase in `description:`. Generation instructions live in
 `skills/theorem-generation/SKILL.md`, preloaded into each skeleton, so
 picking a tier is picking which definition to spawn rather than
-passing a parameter. After editing any skeleton, prove the others
-match:
+passing a parameter. The reviewer does pass the spawned definition's
+name in the brief as `--agent`, because a skeleton cannot read its own
+name off four identical bodies; it is a record token the generator
+echoes into its result file, and nothing generated turns on it. After
+editing any skeleton, prove the others match:
 
 ```bash
 for v in medium high xhigh; do

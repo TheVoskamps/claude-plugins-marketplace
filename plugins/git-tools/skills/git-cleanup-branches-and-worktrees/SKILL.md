@@ -1,6 +1,6 @@
 ---
 name: git-cleanup-branches-and-worktrees
-description: Clean up merged local branches and remove stale subagent worktrees from `.claude/worktrees/`.
+description: Clean up merged local branches and reclaim every worktree under `.claude/worktrees/` that holds nothing anyone can lose. The one place a run's leftovers are removed.
 ---
 
 # git-cleanup-branches-and-worktrees
