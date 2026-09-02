@@ -224,7 +224,9 @@ defect to chase.
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
 every memory path you deleted or edited, plus `CLAUDE.md`, each
 `docs/*.md`, and each `plugins/**/README.md` you changed, whether you
-wrote a constraint into it or cut one out of it, plus any
+wrote a constraint into it, cut one out of it, or created the file to
+receive a transfer — a README you created is untracked, so staging it
+by path is what puts it in the commit at all — plus any
 `plugins/<name>/.claude-plugin/plugin.json` whose `version` the repo's
 own rules obliged you to bump. Never `git add -A`, and never a
 directory-wide add.
@@ -293,9 +295,10 @@ curation.
 nothing. Leave in place whatever "Apply the verdicts" step 3 already
 staged for formerly-untracked entries — that staging **is** their
 undo; do not `git reset` it to make the tree match "nothing staged"
-literally. Show `git diff --stat` and stop. The working tree (staged
-plus unstaged) is the deliverable, and the human decides what to
-commit.
+literally. Show `git diff --stat`, and name alongside it any README you
+created to receive a transfer — that file is untracked, so the stat
+never mentions it — then stop. The working tree (staged plus unstaged)
+is the deliverable, and the human decides what to commit.
 
 ## Output
 

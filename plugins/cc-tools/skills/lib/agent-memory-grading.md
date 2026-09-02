@@ -59,7 +59,7 @@ deleting, produce the check:
 | the code already says it | the file and lines that say it |
 | names an external source of truth | the pointer, quoted from the entry |
 | narrates finished work | the past-tense narration, quoted |
-| already in `CLAUDE.md`, a `docs/*.md`, a plugin README, or a rule | the file and lines that say it |
+| already in `CLAUDE.md`, a `docs/*.md`, a plugin README, a rule, or a skill or agent definition | the file and lines that say it |
 | duplicate | the entry it duplicates |
 
 If you cannot produce the check, the verdict is not delete. Fall back
@@ -110,24 +110,28 @@ Narrowest first. Take the first one that fits:
   governs one plugin. "Closest-fitting" ranges over every README in
   that plugin's tree, not only `plugins/<name>/README.md` — a
   constraint governing a subtree that carries its own README belongs
-  in that deeper file. A plugin with no README of its own has no
-  destination at this level, so the entry falls through to the next
-  one; never create a README to receive a transfer.
+  in that deeper file. A plugin with no README anywhere in its tree
+  still has this destination: create `plugins/<name>/README.md` and
+  land the constraint in it. Write that new file as a user manual for
+  someone deciding whether to install the plugin — what it does, why
+  they would want it, what it needs, how to start, and what it
+  deliberately does not do — never a per-skill catalogue, and mirror
+  the shape of a README another plugin in the repo already ships.
 - **The closest-fitting `docs/*.md`** when it is cross-plugin
   subsystem lore.
 - **`CLAUDE.md`** when the constraint governs how anyone works
   anywhere in the repo.
 
-A transfer into a plugin README modifies a file under
-`plugins/<name>/`, and some repos require such a change to carry a
-`version` bump in `plugins/<name>/.claude-plugin/plugin.json`. That
-obligation is the host repo's, never this rubric's: bump when the
-repo's own rules say a plugin change must, and bump nothing where they
-say nothing — a repo with no such convention, or no `plugin.json` to
-bump, is left alone. A calling skill that commits its transfers stages
-any bump it did make alongside the README it wrote; one that leaves
-its edits for a human to commit leaves the bump in the working tree
-with them.
+A transfer into a plugin README writes a file under `plugins/<name>/`,
+whether it edits a README already there or creates one, and some repos
+require such a change to carry a `version` bump in
+`plugins/<name>/.claude-plugin/plugin.json`. That obligation is the
+host repo's, never this rubric's: bump when the repo's own rules say a
+plugin change must, and bump nothing where they say nothing — a repo
+with no such convention, or no `plugin.json` to bump, is left alone. A
+calling skill that commits its transfers stages any bump it did make
+alongside the README it wrote or created; one that leaves its edits for
+a human to commit leaves the bump in the working tree with them.
 
 Add to the section that already covers the surrounding subject rather
 than opening a new one, and correct a statement already there when the
