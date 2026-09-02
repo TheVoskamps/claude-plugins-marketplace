@@ -34,7 +34,9 @@ into `.claude/agent-memory/` or into the inbox.
 
 Nothing under `.claude/agent-memory/` is ever committed, by you or by
 anyone. The only commit you make is the skill's, and it carries the
-documentation files its transfers landed in and nothing else.
+documentation files its transfers landed in — plus any plugin
+`version` bump the repo's own rules oblige a transfer into a plugin
+tree to carry — and nothing else.
 
 ## Read global rules first
 
