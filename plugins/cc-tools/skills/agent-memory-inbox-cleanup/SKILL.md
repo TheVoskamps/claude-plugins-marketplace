@@ -115,9 +115,9 @@ cannot take back.
 
 Stage by explicit path — `CLAUDE.md`, each `docs/*.md`, and each
 `plugins/**/README.md` you changed, whether you wrote a constraint into
-it or cut one out of it, plus the
-`plugins/<name>/.claude-plugin/plugin.json` whose `version` each
-touched plugin README obliged you to bump. Never
+it or cut one out of it, plus any
+`plugins/<name>/.claude-plugin/plugin.json` whose `version` the repo's
+own rules obliged you to bump. Never
 `git add -A`, and never a directory-wide add. Nothing under
 `.claude/agent-memory/` is ever staged: the memory tree is not part of
 this flow.

@@ -32,19 +32,22 @@ Each of these gets worse the longer you leave it:
 
 ## Before it will work
 
-- **`gh`, authenticated.** The two reporting skills read
-  `anthropics/claude-code` through it, and memory curation aimed at a
-  PR resolves that PR's branch through it.
+- **`gh`, authenticated.** The skills that report on upstream Claude
+  Code read `anthropics/claude-code` through it, and memory curation
+  aimed at a PR resolves that PR's branch through it.
 - **A `~/.claude/CLAUDE.md`**, if you want rule-loading to have
   anything to load.
 - **Agents that declare `memory: project`**, if you want anything to
-  curate. With no `.claude/agent-memory/` the curation skills report
-  that there was nothing to grade and stop; that is a valid outcome,
+  curate. With nothing captured — no `.claude/agent-memory/` for the
+  repo route, an empty inbox for the session route — curation reports
+  that there was nothing to grade and stops; that is a valid outcome,
   not a failure.
 
 `cc-whats-new` keeps a watermark file at
 `${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/whats-new.md`, which it
-creates on its first run. Nothing else here holds state.
+creates on its first run. The only other state is the session inbox
+described below, which lives under the session scratchpad rather than
+in any repo and dies with the session.
 
 ## The entry points
 
@@ -80,21 +83,18 @@ in a repo or in a session.
 
 `/cc-tools:agent-memory-cleanup` is the one you invoke yourself. It
 grades every entry in `.claude/agent-memory/`, then **acts** — it
-deletes what the code or `CLAUDE.md` already says, moves durable lore
-out into the repo's own documentation, keeps what has no home in the
-repo, and repairs the `MEMORY.md` indexes and the wikilinks between
-entries. It is not a read-only report handed to someone else to apply.
+deletes every entry the rubric grades as no longer earning its place,
+moves durable lore out into the repo's own documentation, keeps what
+has no home in the repo, and repairs the
+`MEMORY.md` indexes and the wikilinks between entries. It is not a
+read-only report handed to someone else to apply.
 
-The argument picks the mode. With no argument it curates the current
-working tree, confirms each transfer with you first, and leaves its
-edits uncommitted for you to review. With a PR number it checks that
-PR's branch out, applies transfers without asking, and commits and
-pushes so the cleanup lands on the same PR.
-
-Deletions are never confirmed, in either mode. That is deliberate —
-the rubric requires a delete to produce checkable evidence — but it
-means the undo is the working tree or the previous commit, so run the
-autonomous mode over a branch whose entries are already committed.
+The argument picks which tree it curates: with none, the one you are
+sitting in; with a PR number, that PR's branch. What each mode does
+about confirming and committing — and the caller-side precondition the
+PR mode carries, since deletions are confirmed with nobody — is
+`skills/agent-memory-cleanup/SKILL.md` → "Invocation". Read it before
+you run the PR mode.
 
 The other route is the **session inbox**, for agents that run under
 `isolation: worktree`. Their `.claude/agent-memory/` resolves inside a
@@ -128,10 +128,10 @@ which of its notes were about the branch and which about the repo.
 
 ## Where the rules actually live
 
-Both curation skills read a shared rubric,
+Curation reads a shared rubric,
 `skills/lib/agent-memory-grading.md` — what makes an entry durable,
 the evidence a delete has to produce, how a transfer is phrased, which
 file it lands in, and the standard that file is held to afterwards.
 The inbox path and layout live in `skills/lib/agent-memory-inbox.md`.
-Neither skill restates either contract, and neither does this README:
-when you need the exact behavior, those two files are the source.
+No skill restates either contract, and neither does this README: when
+you need the exact behavior, those two files are the source.

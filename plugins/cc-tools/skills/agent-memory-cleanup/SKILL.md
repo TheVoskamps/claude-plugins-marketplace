@@ -209,8 +209,7 @@ grep -rn "\[\[<slug>\]\]" .claude/agent-memory/
 Repair each hit:
 
 - **Transferred** — the content still exists, so replace the link with
-  a plain-prose reference to where it now lives (`CLAUDE.md`, or the
-  doc file).
+  a plain-prose reference to the destination file it landed in.
 - **Merged** — the content survives under the merge target's slug, so
   repoint the link at that slug.
 - **Scrubbed** — the content is gone entirely, so remove the link and
@@ -225,10 +224,10 @@ defect to chase.
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
 every memory path you deleted or edited, plus `CLAUDE.md`, each
 `docs/*.md`, and each `plugins/**/README.md` you changed, whether you
-wrote a constraint into it or cut one out of it, and the
-`plugins/<name>/.claude-plugin/plugin.json` whose `version` each
-touched plugin README obliged you to bump. Never `git add -A`, and
-never a directory-wide add.
+wrote a constraint into it or cut one out of it, plus any
+`plugins/<name>/.claude-plugin/plugin.json` whose `version` the repo's
+own rules obliged you to bump. Never `git add -A`, and never a
+directory-wide add.
 
 ```bash
 git add <each path you changed>
