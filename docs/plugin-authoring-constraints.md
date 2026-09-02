@@ -557,8 +557,8 @@ the run into an inbox keyed by branch and by writing agent — the path
 is stated once, in
 `plugins/cc-tools/skills/lib/agent-memory-inbox.md`, and nowhere else
 — and `/cc-tools:agent-memory-inbox-cleanup` grades every captured
-entry transfer-or-delete, then commits the resulting `CLAUDE.md` and
-`docs/` changes. `sdlc`'s `issue-developer`, `issue-fixer`, and
+entry transfer-or-delete, then commits the documentation files its
+transfers landed in. `sdlc`'s `issue-developer`, `issue-fixer`, and
 `doc-updater` call the writer; `agent-memory-scrubber` calls the
 curator.
 

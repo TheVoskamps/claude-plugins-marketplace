@@ -1,6 +1,6 @@
 ---
 name: agent-memory-cleanup
-description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or CLAUDE.md already says, moves durable lore into CLAUDE.md or docs as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
+description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or the repo's documentation already says, moves durable lore into that documentation as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
 argument-hint: [PR-number]
 ---
 
@@ -17,8 +17,8 @@ having no memory at all.
 This skill is the curation pass over that directory. It runs after the
 writers have captured, grades each entry, and **acts**: it deletes, it
 moves durable lore into the repo's own documentation, and it repairs
-the indexes. It is not read-only, and it does not hand a recommendation to
-someone else to apply.
+the indexes. It is not read-only, and it does not hand a
+recommendation to someone else to apply.
 
 Read `skills/lib/agent-memory-grading.md` for the grading rubric — what
 counts as durable, the evidence a delete must produce, how a transfer

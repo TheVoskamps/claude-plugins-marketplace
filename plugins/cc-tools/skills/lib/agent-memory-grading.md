@@ -121,8 +121,9 @@ Narrowest first. Take the first one that fits:
 A transfer into a plugin README modifies a file under
 `plugins/<name>/`, so it carries that plugin's `version` bump in
 `plugins/<name>/.claude-plugin/plugin.json`, per the repo's own rule.
-Both calling skills commit their transfers, so each stages the bumped
-`plugin.json` alongside the README it wrote.
+A calling skill that commits its transfers stages the bumped
+`plugin.json` alongside the README it wrote; one that leaves its edits
+for a human to commit leaves the bump in the working tree with them.
 
 Add to the section that already covers the surrounding subject rather
 than opening a new one, and correct a statement already there when the

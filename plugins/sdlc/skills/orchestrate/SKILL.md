@@ -1129,8 +1129,8 @@ inbox for this branch, so the scrubber's pass grades the whole run's
 entries. `pr-finalizer` running after the scrubber is therefore not a
 re-trigger: it captures nothing, and it puts no commit on the branch
 either. Nothing about that capture is on the branch: the inbox lives
-under the harness scratchpad, and the scrubber's commit carries
-`CLAUDE.md` and `docs/` changes and nothing else.
+under the harness scratchpad, and the scrubber's commit carries the
+documentation files its transfers landed in and nothing else.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running after every memory-declaring teammate — not a budget, and not

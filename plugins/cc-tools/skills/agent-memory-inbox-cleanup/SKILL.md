@@ -1,6 +1,6 @@
 ---
 name: agent-memory-inbox-cleanup
-description: "Curate the session's per-branch agent-memory inbox in one acting pass. Grades every captured entry transfer-or-delete, writes the durable ones into CLAUDE.md or docs as present-tense constraints, commits and pushes them on the given branch, and empties the inbox. Takes the branch name."
+description: "Curate the session's per-branch agent-memory inbox in one acting pass. Grades every captured entry transfer-or-delete, writes the durable ones into the repo's own documentation as present-tense constraints, commits and pushes them on the given branch, and empties the inbox. Takes the branch name."
 argument-hint: <branch>
 user-invocable: false
 ---

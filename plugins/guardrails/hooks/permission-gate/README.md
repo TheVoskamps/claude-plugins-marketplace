@@ -1828,10 +1828,10 @@ mention:
 is gitignored, lives only in a throwaway worktree, and the session
 inbox its entries reach dies with the session, so nothing there
 survives to be falsified. Such a note reaches the repo only once a
-curator transfers it into `CLAUDE.md` or `/docs` — grep those for the
-gate's own message fragments ("not all static literals", "resolves
-outside the current repository", "cannot resolve statically") whenever
-a verdict changes.
+curator transfers it into the repo's own documentation — grep this
+README, `docs/` and `CLAUDE.md` for the gate's own message fragments
+("not all static literals", "resolves outside the current repository",
+"cannot resolve statically") whenever a verdict changes.
 
 What a verdict looks like **on the wire** is a different axis, owned by
 `docs/hook-event-notes.md`, which this file already points at where it

@@ -12,7 +12,7 @@ Claude Code project, or the memory tree agents leave behind.
 
 ## Why you would want it
 
-Three problems, each of which gets worse the longer you leave it:
+Each of these gets worse the longer you leave it:
 
 - **Your global rules are on disk but not in the session.**
   `~/.claude/CLAUDE.md` pulls in files with `@~/` lines that are not
@@ -56,8 +56,8 @@ principles genuinely in context rather than nominally in effect.
 
 ### Finding out what changed
 
-Two skills, and which you want depends on whether you are asking about
-the harness or about your own filed issues:
+Which you want depends on whether you are asking about the harness or
+about your own filed issues:
 
 - `/cc-tools:cc-whats-new` reports what changed in Claude Code since
   the skill last ran, **filtered to what this machine actually uses**.
@@ -75,8 +75,8 @@ the harness or about your own filed issues:
 
 ### Curating agent memory
 
-Two routes into the same rubric, and the one you want depends on
-whether the memory is in a repo or in a session.
+Which route into the rubric you want depends on whether the memory is
+in a repo or in a session.
 
 `/cc-tools:agent-memory-cleanup` is the one you invoke yourself. It
 grades every entry in `.claude/agent-memory/`, then **acts** — it
