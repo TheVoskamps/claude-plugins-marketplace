@@ -472,7 +472,7 @@ one branch — and a batch of one is the ordinary single-issue PR.
 - **Reconcile the claim against the branch.** Invoke
   `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
   skill that parses a branch name and the one place the global
-  issue-to-branch rule in `rules/git-workflow.md` → "Issue references"
+  issue-to-branch rule in `rules/git-workflow.md` → "Issue References"
   is applied. Never parse a branch name and never re-derive the
   resolution yourself. **The set you review against is the resolved
   set it reports.**
@@ -809,6 +809,7 @@ On a **round-1 or fallback round**, the brief is the whole PR:
 --owner <owner>
 --repo <repo>
 --round <this round's number>
+--agent <the definition you spawned>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file and report it back in the theorem-record format that
@@ -828,6 +829,7 @@ round's delta commits, and the generator emits only what those imply:
 --owner <owner>
 --repo <repo>
 --round <this round's number>
+--agent <the definition you spawned>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file and report it back in the theorem-record format that
@@ -837,7 +839,11 @@ skill defines, and nothing else.
 Append a `spawn` record for it, exactly as you do for every other child
 — the generate stage's theorem column is the literal `list`, and the
 generator's tier travels in `--agent` because that is what picking a
-tier is:
+tier is. That is the same token the brief above carries: the four
+generator skeletons differ only in frontmatter, so a generator cannot
+name its own definition, and a `leave` under a sibling tier's name
+would leave the round's log disagreeing with itself about which
+definition ran.
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
@@ -860,7 +866,9 @@ What each parameter means is owned by the
 this step only says what you put in each.
 
 Pass no tier, effort, or model in the brief. The generator's tier is
-the `effort:` of the definition you spawned.
+the `effort:` of the definition you spawned. `--agent` is not an
+exception to that: it is a record token the generator echoes into its
+`leave` call, and nothing it generates may turn on it.
 
 The generator's list reaches you twice — in its report, and in its
 result file, which is the copy a later instance of you reads. Where the

@@ -226,12 +226,14 @@ that may be wasted. Each abort names **which** condition failed.
 3. **Current with the remote.** Fetch the default branch, then
    fast-forward the clone onto `origin/$DEFAULT_BRANCH` if it is
    behind. A fast-forward is a repair, not an abort. Abort only when
-   the fast-forward cannot happen — the tree is dirty, or the local
-   branch has diverged from the remote.
+   the fast-forward cannot happen — a tracked file is modified, or the
+   local branch has diverged from the remote. Untracked files do not
+   block a fast-forward, so they do not abort either.
 
    ```bash
    git fetch origin "$DEFAULT_BRANCH"
-   git status --porcelain      # non-empty: ABORT (dirty tree)
+   git status --porcelain --untracked-files=no
+   # non-empty: ABORT (dirty tree)
    git pull --ff-only          # fails on divergence: ABORT
    ```
 
@@ -1325,14 +1327,12 @@ its mechanics — no lock inspection, no `git worktree remove`, no
 
 Ownership stops being the question at this point, which is why one
 invocation suffices where per-teammate cleanup did not. The skill's
-gates are content-based: a worktree that is clean, holds no commits
-that exist nowhere else, and carries no live-PID lock is reclaimed
-whoever spawned it, and anything else is skipped and named. So a
-teammate killed mid-run, a reviewer's detached-HEAD fan-out children,
-and a worktree still holding this run's open-PR branch are all covered
-by the same pass — and a worktree belonging to another live session is
-protected by its own content rather than by your ability to tell whose
-it is.
+gates are content-based rather than ownership-based — they are stated
+once, in its "Pass: clean and reachable worktrees" — so a teammate
+killed mid-run, a reviewer's detached-HEAD fan-out children, and a
+worktree still holding this run's open-PR branch all go through one
+pass, and a worktree belonging to another live session is protected by
+its own content rather than by your ability to tell whose it is.
 
 Its terminal position is what makes that safe: while the loop is
 running, a fan-out's worktrees are in use, and a mid-loop sweep of any
@@ -1464,13 +1464,17 @@ on the reviewer's severity line and the fixer's report. Fill them per
     orchestrator-authored touch-up.
   - **Worktree removal and branch deletion** — owned by
     `/git-tools:git-cleanup-branches-and-worktrees`, invoked once at
-    the end of the run (Phase 3, "Terminal cleanup"). The orchestrator
-    never runs `git worktree remove` or `git worktree unlock` in any
-    spelling, never inspects a lock reason, and never runs
-    `git branch -D` — not mid-loop, not at the end, not to tidy up
-    after a teammate that died. There is no orchestrator-shaped
-    exception: improvising a removal when the skill's happy path fails
-    is the exact failure the single-owner rule exists to prevent.
+    the end of the run (Phase 3, "Terminal cleanup"). That invocation
+    is the only route to the verbs: the skill's body runs in the
+    orchestrator's own session, so they do execute there, under its
+    gates. Outside it the orchestrator composes no
+    `git worktree remove`, `git worktree unlock` or `git branch -D` of
+    its own and inspects no lock reason — not mid-loop, not to tidy up
+    after a teammate that died, and not when the skill's happy path
+    fails. There is no orchestrator-shaped exception: improvising a
+    removal at that point is the exact failure the single-owner rule
+    exists to prevent, and the remedy is to relay what the skill
+    reported.
 - **Never act on a subagent escalation without human input.** When a
   teammate stops and reports an environmental mismatch, rule conflict,
   or topology problem, the orchestrator's job is to surface that

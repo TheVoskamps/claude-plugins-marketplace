@@ -364,13 +364,13 @@ has not begun and is never overdue.
 **A child names itself from its own cwd, so nothing has to be passed
 in.** The harness names an `isolation: worktree`
 worktree `agent-<id>` — the same shape its stale worktree locks read
-back as `claude agent agent-<hash> (pid NNNN)`, and the same shape its
-transcript file `agent-<id>.jsonl` carries — so `basename "$PWD"`
-with that prefix stripped is a child's own id, and one record can be
-told from the record of the child that replaced it. Derive it in the
-`bin/` executable rather than in an agent's prose: an id or a path an
-agent builds is a second source of truth the file would then have to
-agree with. The same executable composes the child's transcript path
+back as `claude agent agent-<hash> (pid NNNN start <date>)`, and the
+same shape its transcript file `agent-<id>.jsonl` carries — so
+`basename "$PWD"` with that prefix stripped is a child's own id, and
+one record can be told from the record of the child that replaced it.
+Derive it in the `bin/` executable rather than in an agent's prose: an
+id or a path an agent builds is a second source of truth the file would
+then have to agree with. The same executable composes the child's transcript path
 from it, which is how a post-mortem reaches what the child actually did.
 
 **A written-off child stops being overdue too.** The record the deadline
@@ -511,14 +511,13 @@ result files is not tidiness: a reader that takes a report's existence
 as a finished item would otherwise finish the fresh round's item from
 the voided tree.
 
-**A predecessor's children may be cleaned up but never stopped.**
+**A predecessor's children are never stopped.**
 `.claude/worktrees/` is shared with every other session running against
 the repo, so `TaskStop` on an id the instance did not spawn reaches
-into work that is not its own, while removing the worktrees the
-round's own log names is scoped by the file and safe. Expect a
-child written off as lost to report anyway, leaving one item with
-two finish records: the reader keeps the duplicate
-as a diagnostic, which is what lets no line ever be revised.
+into work that is not its own. Expect a child written off as lost to
+report anyway, leaving one item with two finish records: the reader
+keeps the duplicate as a diagnostic, which is what lets no line ever be
+revised.
 
 ### Handing data between agents: a session-scoped inbox
 

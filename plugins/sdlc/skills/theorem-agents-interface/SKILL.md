@@ -104,10 +104,19 @@ them as well.
 - `--owner <owner>` — the repository owner.
 - `--repo <repo>` — the repository name, separate from the owner.
 - `--round <n>` — the review round, as the reviewer numbers it.
+- `--agent <name>` — the definition the reviewer spawned, for a
+  **generator** only. It is a record token and never a tier
+  signal: the generator passes it back as `--agent` on its
+  `leave` and generates nothing differently for it. A generator
+  gets it because four skeletons share one body and one
+  generation skill, so no generator can tell which definition it
+  is; a disprover and a verifier each have one definition and
+  name themselves.
 
 Those four say nothing about the claim, and **every** theorem agent
 receives them, the generator included. Each passes them straight back —
-alongside `--pr`, its own stage, and its own definition's name — to
+alongside `--pr`, its own stage, and its definition's name, which a
+generator takes from `--agent` and every other agent knows — to
 `sdlc-agent-result-persist`, per
 `sdlc:agent-result-persist-interface`, when it records that it started
 and when it writes its report. Nothing else is passed in: that script

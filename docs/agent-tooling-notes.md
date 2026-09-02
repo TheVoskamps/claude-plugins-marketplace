@@ -337,6 +337,45 @@ its own" is justified by something that does not happen — the
 absolute-path rule above stands on the two resolution behaviours it
 measures instead, which need no nesting to bite.
 
+## A worktree lock's PID is the session's, not the agent's
+
+The harness locks each `isolation: worktree` worktree with a reason of
+the shape
+
+```text
+claude agent agent-<hash> (pid NNNN start <date>)
+```
+
+and `NNNN` is the PID of the `claude` **session process** that spawned
+the agent, not of the agent. Measured 2026-09-01 in this repo: seven
+worktrees under `.claude/worktrees/`, each holding a different agent,
+all read back the same `pid 67009` with the same `start` stamp, and
+PID 67009 is a live `claude` process belonging to a session other than
+the one reading the locks.
+
+Two consequences for anything gating on that PID. It carries a `start
+<date>` field, so an exact or end-anchored match against
+`... (pid NNNN)` never fires. And a live PID means a session is
+running, never that a particular agent still is — the PID outlives
+every agent that session spawns, so a gate that reads liveness as
+"an agent may be mid-run" makes a session unable to reclaim any
+worktree it ever spawned.
+
+A session tells its own locks from a foreign session's by process
+ancestry. The Bash tool's shell is a direct child of the session
+process, so walking up from `$$` reaches the PID stamped in the lock:
+
+```console
+$ pid=$$; while [ "$pid" -gt 1 ]; do ps -o pid=,command= -p "$pid"; \
+    pid=$(ps -o ppid= -p "$pid" | tr -d ' '); done
+80879 /opt/homebrew/bin/zsh -c source .../shell-snapshots/snapshot...
+ 9376 claude --name One cleanup pass #134 claude-plugins-marketplace...
+ 9100 -zsh
+```
+
+That holds from inside a spawned agent's own worktree, which is where
+the listing above was taken.
+
 ## A push over SSH can hang in the foreground and succeed in the background
 
 `git push` over SSH to `github.com` intermittently stalls here. The same

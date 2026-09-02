@@ -148,11 +148,17 @@ theorems.
    sdlc-agent-result-persist --mode leave \
      --scratchpad <scratchpad> --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem list --stage generate \
-     --agent <your own definition's name> <<'LIST'
+     --agent <the definition name from your brief> <<'LIST'
    T1
    claim: …
    LIST
    ```
+
+   `--agent` is the brief's, verbatim. Four generator skeletons share
+   this skill and differ only in frontmatter, so which one is running
+   is not something you can read off your effort or your worktree —
+   the reviewer names it, and naming it is what makes your result file
+   agree with the round log's `spawn` record.
 
    **That file is the round's theorem list**, not a copy of it. Your
    report reaches the reviewer as a `<task-notification>` the harness

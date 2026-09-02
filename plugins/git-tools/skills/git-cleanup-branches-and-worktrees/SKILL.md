@@ -141,21 +141,45 @@ reported with the reason:**
    `fatal: cannot remove a locked working tree`, inspect the lock
    reason via `git worktree list --porcelain`. Unlock-then-remove is
    allowed only when **both** hold: the lock reason matches the harness
-   end-state shape `claude agent agent-<hash> (pid NNNN)`, **and** that
-   PID is no longer alive (`kill -0 <pid>` fails). That is a stale
-   end-state lock from a returned or crashed subagent:
+   end-state shape
+
+   ```text
+   claude agent agent-<hash> (pid NNNN start <date>)
+   ```
+
+   **and** the PID it carries belongs to no session other than the one
+   invoking this skill — either the PID is no longer alive
+   (`kill -0 <pid>` fails), or it is one of the invoking shell's own
+   ancestors.
+
+   That PID is the **spawning session's**, not the subagent's: one
+   `claude` process stamps its own PID on every worktree it spawns and
+   outlives all of them (see `docs/agent-tooling-notes.md` → "A
+   worktree lock's PID is the session's, not the agent's"). So a live
+   PID says some session is running, never that a particular agent
+   still is. A foreign live PID is hands-off on that basis. The
+   invoking session's own PID is not: it is alive because it is
+   running this cleanup, and a gate that read it as a live agent would
+   make a session unable to reclaim any worktree it ever spawned.
 
    ```bash
+   # the PIDs that are this session's rather than a foreign session's
+   pid=$$
+   while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
+     printf '%s\n' "$pid"
+     pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+   done
+
    git worktree unlock <absolute-path-from-the-listing>
    git worktree remove <absolute-path-from-the-listing>
    ```
 
-   If the lock reason does not match the harness shape, or the PID is
-   still alive, **skip and report** — a live PID means a subagent may
-   be mid-run, and no branch-side gate overrides that. `--force` is
-   reserved for the data-loss carve-out (uncommitted work or unpushed
-   commits the user has explicitly approved discarding) and is never
-   used to bypass a lock.
+   If the lock reason does not match the harness shape, or its PID is
+   alive and outside that ancestry, **skip and report** — a foreign
+   live session may be mid-run, and no branch-side gate overrides
+   that. `--force` is reserved for the data-loss carve-out
+   (uncommitted work or unpushed commits the user has explicitly
+   approved discarding) and is never used to bypass a lock.
 
 **Removals are serial, never parallel** — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
@@ -244,9 +268,12 @@ the reason.
 
 Enumerate **every** worktree under `.claude/worktrees/` from
 `git worktree list --porcelain`, regardless of branch name or HEAD
-state, and put each through "Removing a worktree". Nothing else decides:
-this pass's gate *is* that procedure's preconditions, and anything they
-skip is reported with its reason.
+state, save the nested ones under
+`.claude/worktrees/*/.claude/worktrees/`, which are report-only per
+"Nested worktrees are report-only". Put each of the rest through
+"Removing a worktree". Nothing else decides: this pass's gate *is* that
+procedure's preconditions, and anything they skip is reported with its
+reason.
 
 Removal here is the **directory only** — no branch is ever deleted by
 this pass. That is what lets it reclaim a teammate worktree still
@@ -256,12 +283,13 @@ would ever pass.
 
 The gates are deliberately **content**-based rather than
 ownership-based. A worktree that is clean, holds no commits that exist
-nowhere else, and carries no live-PID lock holds nothing anyone can
-lose, whoever spawned it — so this pass is safe to run against a
-`.claude/worktrees/` shared with other live sessions without asking
-whose each entry is. Ownership is not knowable from the listing anyway,
-and a run that tried to guess it would either skip everything or
-improvise, which is the failure this skill exists to prevent.
+nowhere else, and carries no lock held by another live session holds
+nothing anyone can lose, whoever spawned it — so this pass is safe to
+run against a `.claude/worktrees/` shared with other live sessions
+without asking whose each entry is. Ownership is not knowable from the
+listing anyway, and a run that tried to guess it would either skip
+everything or improvise, which is the failure this skill exists to
+prevent.
 
 ## Pass: orphan `worktree-*` branch refs
 
@@ -384,8 +412,8 @@ Report:
 - Orphan `worktree-*` branch refs deleted, broken down by which path
   applied (upstream-empty vs. no-upstream-reachable-from-default-branch)
 - Worktrees skipped, with the reason for each (uncommitted changes,
-  unreachable commits, rev-list could not verify, live-PID lock,
-  unrecognized lock reason, nested worktree)
+  unreachable commits, rev-list could not verify, lock held by another
+  live session, unrecognized lock reason, nested worktree)
 - Orphan branch refs skipped, with the reason for each
 - Entries the filesystem sweep found that git does not know about —
   foreign-repo worktrees with their owning-repo path, and stray
