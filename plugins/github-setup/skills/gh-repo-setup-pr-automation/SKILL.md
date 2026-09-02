@@ -82,9 +82,9 @@ authority — so an App holding only `contents: write` +
 leaves its linked issues open. That is a real failure mode rather than
 a hypothetical: the permission set is coherent for the mechanical act
 of merging, which is why the gap goes unnoticed until someone audits
-issue state. What it defeats is `rules/git-workflow.md`'s
-closing-keyword convention (PR body only, the branch's own issue set
-only) — the very thing this automation exists to carry out.
+issue state. What it defeats is the closing-keyword convention (PR
+body only, the branch's own issue set only) — the very thing this
+automation exists to carry out.
 
 `checks: read` and `statuses: read` cover the **CI-outcome reads** the
 rendered workflows make. `auto-enable-automerge.yml` reads the
