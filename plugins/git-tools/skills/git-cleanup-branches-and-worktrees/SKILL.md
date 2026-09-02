@@ -220,10 +220,12 @@ with `fatal: bad revision` — cannot occur.
 
 6. Do **not** auto-clean nested worktrees
    (`.claude/worktrees/*/.claude/worktrees/`). If any are detected,
-   report them with a note that nested worktrees indicate
-   [Anthropic issue #47548](https://github.com/anthropics/claude-code/issues/47548)
-   (`isolation: worktree` spawned from inside a worktree) and need
-   human inspection. Auto-removing them risks data loss.
+   report them with a note that they need human inspection. Every
+   worktree this skill knows how to reason about is a flat sibling
+   under the primary clone, so a nested one was made by something
+   this skill cannot account for — none of the gates above tell you
+   who owns it or whether its work has landed. Auto-removing them
+   risks data loss.
 7. Run `git worktree prune` to clean up any stale worktree references.
 8. Run `git fetch --all --prune` again to refresh tracking branches and
    remove stale remote refs.

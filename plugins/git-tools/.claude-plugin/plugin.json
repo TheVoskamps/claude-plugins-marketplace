@@ -1,6 +1,6 @@
 {
   "name": "git-tools",
   "description": "Git and dev utilities: create issue branches (one issue or a batch of them), recover a branch name's issue set and reconcile a claimed issue list against it, clean up merged branches and stale worktrees, generate unit tests.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": { "name": "Edwin Voskamp", "email": "edwin.global-claude-plugins-marketplace@thevoskam.ps" }
 }
