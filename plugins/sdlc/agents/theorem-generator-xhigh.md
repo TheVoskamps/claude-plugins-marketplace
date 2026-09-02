@@ -47,4 +47,6 @@ There is none. The checkout your generation skill mandates is detached
 (`git checkout --detach origin/<branch>`), so you hold no branch claim
 and there is nothing to release — and you never commit, so there is
 nothing to guard either. Return your theorem list and stop. The
-pipeline that spawned you removes the worktree directory itself.
+reviewer that spawned you removes no worktree, so yours outlives you:
+an orchestrate run's terminal cleanup removes it, and after
+`/sdlc:git-review-pr` the human's own sweep does.

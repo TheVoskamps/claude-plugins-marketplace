@@ -281,7 +281,8 @@ directory.
 Two rules used to be justified by the opposite claim — a nesting one —
 and both survive on other grounds, so do not resurrect it to explain
 them. "Remove a worktree by the path `git worktree list` prints" below
-stands on the cwd-relative arm, which needs no nesting. And
+stands on the absolute path naming one worktree from every cwd, which
+needs no nesting. And
 `sdlc:orchestrate`'s starting-location pre-flight stands on wanting one
 known starting location per run, not on isolation.
 
@@ -308,11 +309,18 @@ Measured on git 2.55.0 against a repo holding a worktree at
 
 So a short argument is wrong two different ways: it can hit a
 **different** worktree than you meant because of where you stand, and
-it can hit none because it is **ambiguous**. The first arm is the one
-that bites in this repo without anything unusual in the tree: every
-agent worktree lives under `.claude/worktrees/`, so a short argument
-written as `.claude/worktrees/<name>` is a valid relative path from
-more than one cwd. When the suffix matches more than one, git answers
+it can hit none because it is **ambiguous**. Neither arm misfires in
+this repo as it stands, and that is the reason to distrust a short
+argument rather than to allow one: worktrees do not nest here (see
+above), so `.claude/worktrees/<name>` is a valid relative path only
+from the primary clone — where it names the worktree meant — and from
+an agent's own root it falls through to a suffix match that is unique
+per agent id. Measured 2026-09-02 on git 2.55.0 against a flat pair,
+`git worktree remove .claude/worktrees/<other>` run from inside one
+sibling removed the other and exited 0. A short argument is correct by
+accident of the layout it is written in, and the caller who writes one
+has checked neither arm. When the suffix matches more than one, git
+answers
 
 ```text
 fatal: '<arg>' is not a working tree

@@ -1447,8 +1447,9 @@ session loses tracked files.
 `/git-tools:git-cleanup-branches-and-worktrees` remains the whole-repo
 sweep a human runs over whatever any run left behind, from any session.
 This step does not invoke it and is not a variant of it: that skill
-infers ownership from the worktree lock, and you infer nothing —
-you were told.
+works out what is safe to remove from the tree in front of it — a
+`worktree-*` branch name, a clean and fully-pushed worktree, a lock
+whose pid is dead — while you infer nothing, because you were told.
 
 ### Summary
 
