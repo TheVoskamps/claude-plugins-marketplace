@@ -229,17 +229,19 @@ that may be wasted. Each abort names **which** condition failed.
    check in front of it is deliberately conservative: it aborts on any
    modified tracked file, including one the incoming commits never
    touch and that a fast-forward would have carried through
-   untouched. Untracked files pass that check, but an untracked file
-   colliding with an incoming path still fails the pull — read the
-   failure and name which of the two it was, so the operator is not
-   sent after the wrong diagnosis.
+   untouched. Untracked files pass that check, but the pull can still
+   fail for reasons neither check sees — a collision with an untracked
+   file, divergence, a branch with no upstream tracking. Report
+   `git pull`'s own failure message verbatim rather than a cause you
+   inferred from it, so the operator is not sent after the wrong
+   diagnosis.
 
    ```bash
    git fetch origin "$DEFAULT_BRANCH"
    git status --porcelain --untracked-files=no
    # non-empty: ABORT (dirty tree)
    git pull --ff-only
-   # fails on divergence or an untracked-file collision: ABORT
+   # any failure: ABORT, quoting git's own message
    ```
 
 This is not an isolation guard. Spawning `isolation: worktree`
@@ -1333,11 +1335,11 @@ its mechanics — no lock inspection, no `git worktree remove`, no
 Ownership stops being the question at this point, which is why one
 invocation suffices where per-teammate cleanup did not. The skill's
 gates are content-based rather than ownership-based — they are stated
-once, in its "Pass: clean and reachable worktrees" — so a teammate
-killed mid-run, a reviewer's detached-HEAD fan-out children, and a
-worktree still holding this run's open-PR branch all go through one
-pass, and a worktree belonging to another live session is protected by
-its own content rather than by your ability to tell whose it is.
+once, in its "Removing a worktree" — so a teammate killed mid-run, a
+reviewer's detached-HEAD fan-out children, and a worktree still holding
+this run's open-PR branch all go through one pass, and a worktree
+belonging to another live session is protected by its own content
+rather than by your ability to tell whose it is.
 
 Its terminal position is what makes that safe: while the loop is
 running, a fan-out's worktrees are in use, and a mid-loop sweep of any
