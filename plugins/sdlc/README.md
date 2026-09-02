@@ -159,19 +159,25 @@ removes an executable edits this count.
 
 ## Files it writes
 
-Everything this plugin persists is written by
-`bin/sdlc-agent-result-persist` under the harness's per-session
+Everything this plugin persists lands under the harness's per-session
 scratchpad, outside every repository — a review round writes nothing to
-the branch it reviews. A PR that adds or removes one of these edits this
-list, the same convention "Executables" above sets. Which mode writes
-each, and the record grammar the log holds, are part of that contract
-and are owned by `skills/agent-result-persist-interface/SKILL.md`.
+the branch it reviews, and neither does an orchestrate run's own
+bookkeeping. A PR that adds or removes one of these edits this list,
+the same convention "Executables" above sets. All but the last are
+written by `bin/sdlc-agent-result-persist`; which mode writes each, and
+the record grammar the log holds, are part of that contract and are
+owned by `skills/agent-result-persist-interface/SKILL.md`.
 
 | File | What it holds |
 | ------- | --------------- |
 | `<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>` | the round log |
 | `<that path>-<theorem>-<agent>` | one child's full report |
 | `<that path>.voided-<instant>` and `<that path>.voided-<instant>-<theorem>-<agent>` | the log and every result file of a round whose branch moved under it, set aside rather than overwritten |
+| `<scratchpad>/sdlc/orchestrate-run-<owner>-<repo>-<issues>` | the orchestrate run file: every worktree the run created, and the one thing its terminal cleanup acts on |
+
+The run file is the one entry no executable writes —
+`skills/orchestrate/SKILL.md` appends to it with a shell redirect and
+owns both its name and its line grammar.
 
 The `enter` record also carries a fourth path,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
@@ -248,8 +254,11 @@ wherever it runs — the issue verbs, `git-branch-create`,
 and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which nothing here invokes:
-`skills/orchestrate/SKILL.md` names it as the whole-repo sweep of the
-same shape as the per-worktree cleanup the orchestrator performs
-inline. The edge coordinates install and enablement, not file access:
+`skills/orchestrate/SKILL.md` and `skills/git-review-pr/SKILL.md` each
+name it as the whole-repo sweep a **human** runs, over whatever any run
+left behind. It is not the shape of either verb's own cleanup — an
+orchestrate run removes exactly the worktrees its run file records and
+infers ownership from nothing, and a `/sdlc:git-review-pr` run removes
+none at all. The edge coordinates install and enablement, not file access:
 plugins are file-sandboxed, so nothing here reads another plugin's
 files (see `docs/plugin-authoring-constraints.md`).

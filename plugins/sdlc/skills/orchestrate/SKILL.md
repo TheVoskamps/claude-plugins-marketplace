@@ -78,8 +78,10 @@ section, not this roster, is where review's contract lives.
 
 Every teammate declares `isolation: worktree` in its frontmatter, so
 the harness creates each one's worktree under `.claude/worktrees/` and
-starts the subagent inside it. You don't manage worktree paths and you
-never pass them in spawn prompts. They also share a hardened
+starts the subagent inside it. You choose no worktree path and you
+never pass one in a spawn prompt; the only thing you do with a path is
+write it down as its owner finishes, per "The run file: every worktree
+this run creates". They also share a hardened
 frontmatter baseline, with `memory: project` on `issue-developer`,
 `issue-fixer`, and `doc-updater` only — `agent-memory-scrubber`,
 `pr-finalizer`, `theorem-based-pr-reviewer`, `theorem-generator` and
@@ -195,30 +197,62 @@ If no issue numbers are given, ask for them before proceeding.
 
 ## Phase 1: Discovery and Planning (read-only, no changes)
 
-### Pre-flight: orchestrator must run from the primary clone
+### Pre-flight: a known starting location
 
-Verify you are running in the primary clone, not in a worktree. If
-`git rev-parse --git-dir` returns anything other than `.git` (i.e.,
-an absolute path under `.git/worktrees/`), abort with an error
-explaining `/sdlc:orchestrate` must be run from the main repo root.
-Run this first — it's a hard abort regardless of repo-config, so it
-fails fast without doing config work that may be wasted.
+Every orchestrator run starts from one known location: the primary
+clone, on the repo's default branch, current with the remote. That is
+the whole reason for this check — not isolation. A teammate's branch is
+cut correctly wherever you stand, because `/git-tools:git-branch-create`
+fetches the configured source branch and roots the new branch at
+`origin/<source>` explicitly. What a known starting location buys is
+that the tree you read while planning, and the tree you inspect
+afterwards, are the same tree every run.
 
-This guards against
-[Anthropic issue #47548](https://github.com/anthropics/claude-code/issues/47548),
-where spawning `isolation: worktree` subagents from inside a worktree
-silently breaks isolation (the subagent's worktree gets nested under
-the orchestrator's worktree).
+Run this first — each condition is a hard abort regardless of
+repo-config, so it fails fast without doing config work that may be
+wasted. Check them in this order and name the failed condition in the
+abort:
+
+1. **The primary clone, not a worktree.** `git rev-parse --git-dir`
+   returns `.git`; anything else (an absolute path under
+   `.git/worktrees/`) means you are in a worktree.
+2. **On the default branch.** Detect the default branch dynamically —
+   never hardcode it, and never take it from `.issues/repo-config.md`,
+   whose `default-issue-source-branch` answers a different question.
+   Abort when the current branch is not it; do **not** switch the
+   primary clone on the human's behalf, because that clone is the
+   human's working tree and whatever they left checked out is theirs.
+3. **Current with the remote.** Fetch the default branch. A clone that
+   is merely *behind* is repaired, not aborted: fast-forward it. Abort
+   only when the fast-forward cannot happen — the tree is dirty, or
+   the local branch has commits the remote does not.
 
 ```bash
 git rev-parse --git-dir
-# expected: .git
-# if anything else: ABORT with error
+# expected: .git — anything else: ABORT (condition 1)
+
+git remote set-head origin --auto >/dev/null   # repairs an unset origin/HEAD
+default=$(git symbolic-ref --short refs/remotes/origin/HEAD)  # e.g. origin/main
+default=${default#origin/}
+[ "$(git branch --show-current)" = "$default" ]
+# false: ABORT (condition 2)
+
+git fetch origin "$default"
+git status --porcelain --untracked-files=no
+# non-empty: ABORT (condition 3, dirty tree)
+git rev-list --left-right --count "$default...origin/$default"
+# "<ahead> <behind>": ahead > 0: ABORT (condition 3, diverged)
+#                     ahead = 0, behind > 0: git merge --ff-only "origin/$default"
 ```
+
+`--untracked-files=no` is deliberate: an untracked file blocks no
+fast-forward, and a human's primary clone routinely carries a few. What
+would block one is a modification to a tracked file, which is what the
+dirty check is for.
 
 ### Pre-flight: read the per-repo config
 
-Once the primary-clone check passes, read `.issues/repo-config.md`
+Once the starting-location check passes, read `.issues/repo-config.md`
 with a lightweight **inline** parse of just the fields below — not the
 full six-field reader contract that used to live at
 `plugins/sdlc/skills/lib/repo-config.md`. That duplicate was deleted
@@ -420,6 +454,64 @@ teammates yet.
 
 Work in waves of batches, as defined by your plan. Each batch gets one
 `issue-developer`, one branch, and one PR.
+
+### The run file: every worktree this run creates
+
+Nothing in the run removes a worktree or deletes a branch. Instead you
+keep a **run file** that names every worktree the run creates, and
+Phase 3's one terminal cleanup acts on it — see "The terminal cleanup".
+
+The run file lives in the session's scratchpad, beside the reviewer's
+round logs, and is named for this run's issue set so a second
+`/sdlc:orchestrate` in the same session gets its own:
+
+```text
+<scratchpad>/sdlc/orchestrate-run-<owner>-<repo>-<N1>-<N2>-…
+```
+
+One record per line, three whitespace-separated columns — the
+worktree's absolute path, the branch the agent held or `-`, and the
+agent that ran there:
+
+```text
+<absolute-worktree-path> <branch-or-dash> <agent-name>
+```
+
+Append a record the moment a worktree's owner is done with it, never
+earlier: a path recorded while its agent is still running is a path
+the terminal cleanup would act on if the run ended abruptly. Append
+with a shell redirect rather than `Write` — the tool prohibition under
+Hard Constraints is absolute and this file needs no exception:
+
+```bash
+mkdir -p "<scratchpad>/sdlc"
+printf '%s %s %s\n' "<abs-path>" "<branch-or-dash>" "<agent-name>" \
+  >> "<run-file>"
+```
+
+Two sources fill it, and between them they cover every worktree the run
+creates:
+
+- **Each teammate you spawned**, as it returns. The harness names that
+  teammate's worktree in the task notification you are resumed with;
+  take the path from there and cross-check it against
+  `git worktree list`. This covers `issue-developer`, `doc-updater`,
+  `issue-fixer`, `agent-memory-scrubber`, `pr-finalizer`, and
+  `theorem-based-pr-reviewer` alike.
+- **Each of the reviewer's fan-out children**, from that round's log.
+  You never learn those paths from the reviewer's report; you read
+  them off the round log's `enter` records, each of which carries the
+  child's agent id, and the worktree is `.claude/worktrees/agent-<that
+  id>`. The log's path template and record grammar belong to
+  `sdlc:agent-result-persist-interface` → "The line grammar"; the
+  round logs for one PR are the files under `<scratchpad>/sdlc/` whose
+  names carry that PR, including any `.voided-` copy, since a voided
+  round's children got worktrees too.
+
+Reading the fan-out worktrees off the log rather than off a report is
+what makes a reviewer that **died** mid-fan-out leave the same state,
+and the same record, as one that returned: the log is written by the
+children themselves and survives either way.
 
 ### Set each batch's issues to In Progress before spawning its developer
 
@@ -673,66 +765,14 @@ round: a round with no doc impact returns without a doc commit, and
 the review-round cap (see "Hard Constraints" below) counts reviewer
 spawns only, at whatever tier the pipeline picked.
 
-Cleanup of each subagent's worktree directory happens in this phase too,
-**serially within the wave** — never in parallel. See
-[Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
-for a parallel-cleanup data-loss bug.
-
-After each subagent you spawned (issue-developer, doc-updater,
-issue-fixer, agent-memory-scrubber, pr-finalizer,
-theorem-based-pr-reviewer)
-returns, run `git worktree list`
-to find the subagent's worktree (it will be the most recently added
-one matching the worktree-naming pattern; cross-check by branch or
-path), then:
-
-```bash
-git worktree remove <absolute-path-from-the-listing>
-```
-
-Remove by the **absolute** path the listing prints, never by a short
-`.claude/worktrees/<name>` form. `git worktree remove` resolves a short
-argument against your cwd first and falls back to a unique suffix match
-on each registered worktree's path, and a `theorem-based-pr-reviewer`
-worktree carries a `.claude/worktrees/` of its own — so the short form
-can remove a *different* worktree than you meant, or match two and fail
-with an error that reads as though the worktree were already gone. See
-`docs/agent-tooling-notes.md` → "Remove a worktree by the path
-`git worktree list` prints".
-
-The reviewer's own fan-out worktrees are not yours: it removes the
-generator's, every disprover's, and every verifier's itself before it
-returns, so what is left for you is the reviewer's one worktree. A
-reviewer killed mid-round returns nothing and removes nothing, so that
-one worktree survives the loop with no per-return cleanup to catch it —
-the end-of-run pass is the **backstop** for it, per "Sweep the run's
-leftover worktrees at the end" below. Its fan-out children stay not
-yours even then: a resumed reviewer clears the generator, disprover and
-verifier worktrees its round log names, and anything that outlives the
-run is named in the summary rather than removed. Never
-remove one during the loop either way — a fan-out's worktrees are in
-use while its round is still running.
-
-If that fails with `fatal: cannot remove a locked working tree` and
-the lock reason matches the harness's standard end-state shape
-(`claude agent agent-<hash> (pid NNNN)`), the subagent has returned
-and left a stale lock — this is routine end-of-wave cleanup, not an
-escalation. Unlock-then-remove:
-
-```bash
-git worktree unlock <absolute-path-from-the-listing>
-git worktree remove <absolute-path-from-the-listing>
-```
-
-Unlock-then-remove is **not** allowed when the subagent is still
-mid-run, when the lock reason doesn't match the standard harness
-shape, or when the worktree has uncommitted work / unpushed commits —
-that last case is the genuine data-loss case and needs human
-approval. The `/git-tools:git-cleanup-branches-and-worktrees` skill
-applies the same pattern, with the same skip-and-report conditions,
-when you want a whole-repo sweep rather than one worktree.
-
-Track a "worktrees cleaned" count for the final report.
+No worktree is removed in this phase, or anywhere else in the run.
+As each subagent returns — `issue-developer`, `doc-updater`,
+`issue-fixer`, `agent-memory-scrubber`, `pr-finalizer`,
+`theorem-based-pr-reviewer` alike — append its worktree to the run
+file, per "The run file: every worktree this run creates" above, and
+move on. Phase 3's terminal cleanup is the one place a worktree goes
+away, which is what keeps a fan-out's worktrees from being removed
+under a round that is still running.
 
 **doc-updater spawn prompt** — give it PR number, the issue set, and
 branch name. The same prompt serves both the developer's round and
@@ -802,9 +842,11 @@ theorems had their counterexample refuted by verification, the number
 that says what the verification stage bought that round. What the
 tally enumerates, and which of its counts never reach severity, is the
 reviewer agent's own "Report back" section; this summary defers to it
-rather than restating it. Remove the reviewer's worktree afterwards,
-serially, like any other subagent's; the reviewer removes the
-generator's, the disprovers', and the verifiers' itself.
+rather than restating it. Afterwards append to the run file both the
+reviewer's own worktree and every fan-out worktree that round's log
+names, per "The run file: every worktree this run creates" — the
+reviewer removes nothing of its own, and a reviewer that never returns
+still leaves that log behind for you to read.
 
 That return is a report, so read it per "Report-consumption
 principle" — which cuts both ways here.
@@ -1041,11 +1083,8 @@ member)**:
    A spawn prompt reaches neither: it is visible to nobody once the
    spawn returns.
 
-3. After issue-fixer returns, remove its worktree
-   (`git worktree remove ...`, or unlock-then-remove if the harness
-   left a stale end-state lock — the unlock-then-remove pattern is
-   spelled out under "After each issue-developer or issue-fixer:
-   doc-updater, then review" above) before spawning the next
+3. After issue-fixer returns, append its worktree to the run file (see
+   "The run file: every worktree this run creates") and spawn the next
    subagent. Read its per-finding report as input rather than as the
    record: it says which findings it fixed and which it did not, and
    the next review round is what settles whether it was right. When it
@@ -1054,9 +1093,9 @@ member)**:
    silently into another round (see "Report-consumption principle").
 4. Spawn `doc-updater` against the branch, with the same spawn prompt
    as after the developer's round (see "After each issue-developer or
-   issue-fixer: doc-updater, then review" above), and remove its
-   worktree when it returns — serially, before the review runs. The
-   review must see the final state of the PR including any doc commit;
+   issue-fixer: doc-updater, then review" above), and append its
+   worktree to the run file when it returns, before the review runs.
+   The review must see the final state of the PR including any doc commit;
    if doc-updater runs after the review, the review covers an
    incomplete PR. Skipping this step is what lets a fixer's own
    unverified doc claim reach the review unchecked. A round with no
@@ -1174,8 +1213,8 @@ destination file, where transfers landed, and the commit SHA you
 pushed — or, if nothing was staged, why.
 ```
 
-Remove its worktree after it returns, the same way as any other
-teammate's.
+Append its worktree to the run file after it returns, the same way as
+any other teammate's.
 
 ### When a teammate escalates
 
@@ -1285,8 +1324,9 @@ only then, the orchestrator performs these transitions, in this order:
    ```
 
    It reads the PR's own reviews and commits for the rest; that is its
-   job, not yours to summarize into the brief. Remove its worktree
-   after it returns, the same way as any other teammate's.
+   job, not yours to summarize into the brief. Append its worktree to
+   the run file after it returns, the same way as any other
+   teammate's.
 
 2. **Flip the PR draft → ready:**
 
@@ -1335,25 +1375,80 @@ not flip it to ready or them to In Review, and do not spawn
 section to write and the body stays frozen for whatever round comes
 next.
 
-### Sweep the run's leftover worktrees at the end
+### The terminal cleanup
 
-Once every review loop has settled and before you write the summary,
-run `git worktree list` once and remove any worktree still registered
-for a teammate **you** spawned this run. Normally there is none: each
-is removed as its teammate returns. The case that leaves one is a
-teammate killed mid-run — it returns nothing, so the per-return cleanup
-never fires — and this pass is the backstop for exactly that.
+This is the run's **only** removal of anything, and it runs once, at
+the end, after every PR's transitions above are done: the human said
+the review/fix looping is over → `agent-memory-scrubber` →
+`pr-finalizer` → the `/pr-ready` flip → this. One cleanup for the
+whole run, not one per PR, because the run file is the run's.
 
-Scope it to your own spawns, by the same absolute-path,
-serial, no-`--force` rules the per-return cleanup uses. A worktree you
-did not spawn is not yours to remove, however stale it looks:
-`.claude/worktrees/` is shared with every other session running against
-this repo. A killed reviewer's own generator, disprover and verifier
-worktrees are in that category — a resumed reviewer clears the ones its
-round log names, and anything that outlives the
-run goes in the summary by path rather than being removed here.
-`/git-tools:git-cleanup-branches-and-worktrees` is the whole-repo sweep
-for those, and running it is the human's call.
+It is an inline step of this skill rather than an `sdlc` cleanup agent.
+Every agent in this plugin declares `isolation: worktree`, so a cleanup
+agent would be handed a worktree of its own — one more leftover, and
+the one leftover it could not put in its own run file, since it is
+standing in it. It would create the very thing it exists to remove, and
+it would do no judgment work to pay for that: the run file already says
+what to remove, so a cleanup agent would only be a courier.
+
+Work the run file's records **serially**, in order, and touch nothing
+else. For each record, in this order:
+
+```bash
+git worktree unlock <absolute-path-from-the-run-file> || true
+git worktree remove --force <absolute-path-from-the-run-file>
+git branch -D worktree-<basename-of-that-path>   # e.g. worktree-agent-<id>
+```
+
+Each line of that is licensed by something the run knows:
+
+- **Unlock unconditionally, and ignore its failure.** Every worktree in
+  the run file belongs to an agent that has returned, so every lock on
+  one is the harness's stale end-state lock — you are not inferring
+  that from the lock reason; the run file is the evidence. Not every
+  one carries a lock, though, and `git worktree unlock` on an unlocked
+  worktree is not a no-op: it exits 128 with
+  `fatal: '<path>' is not locked`. That failure is the expected case
+  and never a removal failure to report.
+- **`--force` is correct here**, and this is the one place in the run
+  it is. See "What the orchestrator IS allowed to do" for the carve-out
+  and its bounds. Everything of value the run produced is on the PR
+  branch and pushed; what is left in these worktrees is scratch, and
+  the run knows their owners are done with them.
+- **Delete only the harness's throwaway branch.** The harness creates
+  one `worktree-agent-<id>` branch per worktree it hands out, and its
+  name follows from the worktree directory's own name — so the branch
+  to delete is derived, never guessed. A `git branch -D` reporting
+  that branch not found is nothing to repair — an agent that detached
+  and released it already got there. **Never delete the issue
+  branch**: it carries the PR the human is about to merge.
+
+Two bounds make this safe to run in a `.claude/worktrees/` shared with
+every other session on this repo:
+
+- **It acts only on paths the run file names.** A path it was not given
+  belongs to another session, whatever state it is in.
+- **It never enumerates `.claude/worktrees/`, and never sweeps the
+  `git worktree list` output by pattern.** There is no "looks like one
+  of ours" arm, because there is no way to write one that is right.
+
+One worktree can exist that the run file cannot name: a fan-out child
+that died before writing its `enter` record leaves a `spawn` record
+carrying no agent id, so no path resolves for it. The reviewer reports
+that child by theorem and stage; relay it the same way in the summary,
+and guess no path for it — guessing is what the whole design refuses.
+
+Report every removal that **fails** with git's own message, verbatim,
+in the summary. Never route around a failure — not with a second
+`--force`, not with `rm -rf`, not with a script that globs. A leaked
+directory costs disk; an improvised removal is how another live
+session loses tracked files.
+
+`/git-tools:git-cleanup-branches-and-worktrees` remains the whole-repo
+sweep a human runs over whatever any run left behind, from any session.
+This step does not invoke it and is not a variant of it: that skill
+infers ownership from the worktree lock, and you infer nothing —
+you were told.
 
 ### Summary
 
@@ -1380,18 +1475,10 @@ a summary:
 |-------|--------|-----------|--------|
 | D | <link-prefix>103 | Batch C to merge | same file conflict |
 
-### Worktrees Cleaned
-N worktrees cleaned (each subagent you spawned had its worktree
-removed after it returned, serially within each wave to avoid
-Anthropic issue #48927, plus whatever the end-of-run sweep found).
-The reviewer's generator, disprover and verifier worktrees are not in
-N — it removes those itself. Name here, by absolute path, any such
-worktree a killed reviewer left behind, since removing one is not
-yours. A reviewer that did return may also report a child it could not
-name a worktree for — one whose spawn its round log records with no
-`enter`; relay that by the theorem and stage it gave, because no path
-resolves for it and guessing one from the listing is what the reviewer
-refused to do.
+### Terminal Cleanup
+<the terminal cleanup's own summary: how many run-file records it
+worked, and one line per removal that failed, carrying git's message
+verbatim>
 
 All ready-for-review PRs are open and awaiting your approval.
 Nothing has been merged.
@@ -1486,29 +1573,16 @@ on the reviewer's severity line and the fixer's report. Fill them per
   escalation to the human verbatim and wait for direction — not to
   repair the environment and resume. Specifically forbidden without
   explicit human approval:
-  - `git worktree remove -f` / `-f -f` against a worktree that has
-    uncommitted changes or unpushed commits (force-removing
-    real work). Force-remove is for data-loss cases only and
-    needs explicit approval for the data loss. Force-remove is
-    NOT the right tool for routine end-of-wave cleanup of a
-    locked worktree whose subagent has returned — use
-    `git worktree unlock` then plain `git worktree remove`
-    instead.
-  - `git branch -D` of a feature branch while a subagent still
-    holds it
+  - Removing, unlocking, or force-removing the escalated teammate's
+    worktree, or deleting any branch it holds. An escalated teammate
+    never reaches the run file — you append a worktree only once its
+    owner is done with it — so the terminal cleanup does not touch one
+    either.
   - Resuming an escalated subagent instead of asking the human
     (always re-dispatch fresh if the human says retry)
-  - Any cleanup that touches a worktree whose subagent is still
-    mid-run or escalated, or whose lock reason does not match the
-    standard harness shape (`claude agent agent-<hash> (pid NNNN)`).
 
   The line is: if a subagent is mid-run or escalated, the lifecycle
-  decision belongs to the human. Routine end-of-wave cleanup of a
-  *returned* subagent's worktree — including unlocking the harness's
-  stale end-state lock — is allowed orchestration mechanics; see
-  "What the orchestrator IS allowed to do" below for the canonical
-  pattern, and the `/git-tools:git-cleanup-branches-and-worktrees`
-  skill for the whole-repo sweep of the same shape.
+  decision belongs to the human.
 - **Never skip the planning phase.** Even for a single issue.
 - **Never spawn a Wave 2 batch concurrently with a conflicting Wave 1
   batch.**
@@ -1540,8 +1614,11 @@ on the reviewer's severity line and the fixer's report. Fill them per
   (`#N`, `owner/repo#N`, `GH-N`, or issue URL) auto-closes the
   referenced issue and must never appear. See
   `rules/git-workflow.md` → "Issue references" for the full rule.
-- **Never run subagent worktree cleanup in parallel.** Cleanup is
-  serial within a wave, per Anthropic issue #48927.
+- **Never remove a worktree or delete a branch before the terminal
+  cleanup.** Nothing in the run does either; you append to the run file
+  and the one terminal step acts on it (see "The terminal cleanup").
+  It works its records serially, never in parallel, per
+  [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927).
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A
@@ -1575,24 +1652,26 @@ itself:
   however, prefer `/issue-view <N>` over `gh issue view <N> --json
   ...` — see "Prefer the `/issue-*` namespace over raw `gh`" below.
 - **Run git plumbing for orchestration mechanics.** `git fetch`,
-  `git pull --ff-only` on long-lived branches it tracks (e.g. keeping
-  `main` current in the primary clone after a merge),
-  `git worktree remove` (without `-f`) for cleanup of a returned
-  subagent's worktree, `git worktree unlock <path>` followed by
-  `git worktree remove <path>` when the worktree carries the
-  harness's stale end-of-run lock (lock reason matches
-  `claude agent agent-<hash> (pid NNNN)` and the subagent has
-  returned),
-  `git branch -D` for the same returned-subagent case, `git push`
-  of an agent's work that the agent committed but couldn't push
-  due to a credential prompt (rare). Force-removal (`-f` / `-f -f`)
-  is reserved for data-loss cases (uncommitted changes or unpushed
-  commits the user has chosen to discard) and needs explicit human
-  approval for the data loss. Any cleanup that touches a worktree
-  whose subagent is still mid-run, escalated, or whose lock reason
-  does not match the standard harness shape is a human decision
-  (see "Never act on a subagent escalation without human input"
-  above).
+  `git pull --ff-only` / `git merge --ff-only` on long-lived branches
+  it tracks (the pre-flight's fast-forward, and keeping the default
+  branch current in the primary clone after a merge), `git push` of an
+  agent's work that the agent committed but couldn't push due to a
+  credential prompt (rare), and the terminal cleanup's
+  `git worktree unlock` / `git worktree remove --force` /
+  `git branch -D` over the run file's records.
+
+  Force-removal is otherwise reserved for data-loss cases (uncommitted
+  changes or unpushed commits the user has chosen to discard) and
+  needs explicit human approval for the data loss. **The terminal
+  cleanup is the one named exception**, and its licence is what the
+  run file records rather than what a lock reason suggests: every path
+  in it was appended only after that agent finished with it, the PR is
+  pushed and already flipped ready, and the run knows nothing of value
+  is left in those trees. Outside that step — mid-run, and against any
+  path the run file does not name — force-removal stays a human
+  decision, and so does any cleanup touching a worktree whose subagent
+  is still mid-run or escalated (see "Never act on a subagent
+  escalation without human input" above).
 - **Comment on a PR with orchestration metadata** — e.g. "closing
   this PR because we'll respawn the issue", or pointing at a follow-up
   issue. That's coordination, not review. A review body with verdict

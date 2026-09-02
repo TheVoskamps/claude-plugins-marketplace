@@ -261,6 +261,30 @@ No local branch is created, so there is no end-of-run branch to
 release, and the other worktree's local ref is simply behind origin
 afterwards — say so rather than repairing it.
 
+## An `isolation: worktree` subagent's worktree is a sibling, never nested
+
+Spawning an `isolation: worktree` subagent from inside a worktree does
+**not** nest the child's worktree under the spawner's. Measured
+2026-08-20: a `general-purpose` agent running in
+`.claude/worktrees/agent-a7c796714c0aba1b9` spawned a worktree
+subagent, which landed at `.claude/worktrees/agent-a53d463b5c46a2a27`
+— a sibling under the **primary clone**, sharing the same
+`--git-common-dir`. The spawner's own worktree contained no
+`.claude/worktrees/` directory at all.
+
+The layout is flat and re-confirmable from inside any agent worktree in
+one command: `git worktree list` prints every worktree as
+`<primary-clone>/.claude/worktrees/agent-<id>`, and
+`ls .claude/worktrees` from an agent's own root reports no such
+directory.
+
+Two rules used to be justified by the opposite claim — a nesting one —
+and both survive on other grounds, so do not resurrect it to explain
+them. "Remove a worktree by the path `git worktree list` prints" below
+stands on the cwd-relative arm, which needs no nesting. And
+`sdlc:orchestrate`'s starting-location pre-flight stands on wanting one
+known starting location per run, not on isolation.
+
 ## Remove a worktree by the path `git worktree list` prints
 
 `git worktree remove` resolves a short argument two ways, in order,
@@ -284,11 +308,11 @@ Measured on git 2.55.0 against a repo holding a worktree at
 
 So a short argument is wrong two different ways: it can hit a
 **different** worktree than you meant because of where you stand, and
-it can hit none because it is **ambiguous**. This repo nests worktrees
-under `.claude/worktrees/`, and an agent's own worktree carries a
-further `.claude/worktrees/` inside it, so two live worktrees routinely
-share a trailing component run. When the suffix matches more than one,
-git answers
+it can hit none because it is **ambiguous**. The first arm is the one
+that bites in this repo without anything unusual in the tree: every
+agent worktree lives under `.claude/worktrees/`, so a short argument
+written as `.claude/worktrees/<name>` is a valid relative path from
+more than one cwd. When the suffix matches more than one, git answers
 
 ```text
 fatal: '<arg>' is not a working tree

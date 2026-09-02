@@ -95,6 +95,45 @@ Scratch work goes under `.claude/tmp/<task-slug>/` too.
 Run all commands as bare commands — `cd` does not persist between Bash
 calls in a subagent context.
 
+## You remove no worktree
+
+Every generator, disprover, and verifier runs in its own
+`isolation: worktree` worktree, and none of them ever claims the PR
+branch — each checks out `origin/<branch>` detached (see their
+definitions), so there is no claim to release and no local branch to
+delete. You take no branch claim either: you never check out the PR
+branch attached.
+
+The worktree *directories* those children leave behind are not yours
+to remove, and neither is your own. Leave every one of them in place.
+Who removes them is your caller's business, and the two callers answer
+it differently: an orchestrate run does one terminal cleanup at the
+end over the worktrees it recorded, finding your children's the way
+you would have — the `agent-<agent-id>` directories this round's log
+names in its `enter` records (`sdlc:orchestrate` → "The terminal
+cleanup") — while `/sdlc:git-review-pr` removes none and tells the
+human to sweep when they are done reading. Neither answer is yours to
+supply.
+
+That is what makes an instance of you that **dies** mid-fan-out leave
+exactly the state, and exactly the record, that a returning one does.
+The log is written by the children themselves, so it names them
+whether or not you live to read it — and there is no removal step for
+a death to skip.
+
+A child that died before writing its `enter` record is named by
+nothing in the log: a `spawn` record carries no agent id, and a
+child's worktree name comes from its own `enter` and nowhere else. The
+log does say one exists — a `spawn` record with no `enter` in that
+stage — so report the theorem and stage, per "Report back", and guess
+no path for it.
+
+Still `TaskStop` a child at its deadline, per the fan-out sections in
+the workflow below: that is about the child being mid-run, not about
+its directory, and a stopped child is one a later cleanup can act on.
+`TaskStop` on a child you did not spawn stays forbidden per "You are
+re-entrant".
+
 ## The round log
 
 A fan-out wait ends your turn and resumes it on a child's
@@ -158,9 +197,9 @@ directory, named in your own context and passed verbatim.
 
 The log and the result files are outside every repository and you have
 no commit or push step, so nothing this writes reaches the branch. They
-are per-round working state that outlives the worktrees "Clean up the
-spawned worktrees" removes; the posted review remains this procedure's
-only thing the next round reads.
+are per-round working state that outlives the worktrees of every child
+they name; the posted review remains this procedure's only thing the
+next round reads.
 
 ### You are re-entrant
 
@@ -296,11 +335,13 @@ a PR gets.
 
 **Never `TaskStop` a child you did not spawn.** A resumed instance may
 stop its own children; a predecessor's are not yours to stop, and you
-use their ids from the log only for worktree cleanup ("Clean up the
-spawned worktrees"). Multiple sessions run against one repo and share
+hold no lifecycle power over them at all — you remove no worktree
+either (see "You remove no worktree"). Multiple sessions run against
+one repo and share
 `.claude/worktrees/`, so a blanket kill reaches into another session's
-work. Acting only on ids you spawned, or that this round's own log
-names, is what keeps the scope provably correct.
+work. Acting only on ids you spawned yourself is what keeps the scope
+provably correct; a predecessor's ids you read from the log, and
+record against, but never act on.
 
 #### What this resume cannot see
 
@@ -1178,11 +1219,11 @@ resume pass re-spawns it first, per "You are re-entrant" above, in which
 case its new child gets its own fresh deadline from its own `enter`.
 
 At a child's deadline, and only there, `TaskStop` that disprover if
-**you** spawned it, so it is no longer mid-run and "Clean up the spawned
-worktrees" can remove its worktree. Append its stop either way — that
-record is this round's evidence that the child was written off, and
-"Clean up the spawned worktrees" finds the worktree from the child's
-`enter` record whether it was stopped or not. A predecessor instance's
+**you** spawned it, so it is no longer mid-run and whatever cleans up
+afterwards can remove its worktree. Append its stop either way — that
+record is this round's evidence that the child was written off, and a
+cleanup finds the worktree from the child's `enter` record whether it
+was stopped or not. A predecessor instance's
 child is never yours to stop — you record the stop and leave it alone:
 
 ```bash
@@ -1351,8 +1392,9 @@ severity, named in the posted review so the tally stays true, and live
 again next round.
 
 At a verifier's deadline, and only there, `TaskStop` it if **you**
-spawned it, so it is no longer mid-run and "Clean up the spawned
-worktrees" can remove its worktree, and append its stop either way with
+spawned it, so it is no longer mid-run and whatever cleans up
+afterwards can remove its worktree, and append its stop either way
+with
 `--mode stopped` under `--stage verify`. That is the
 same single sanctioned use the generator and disprover deadlines have,
 extended to the last stage and no wider:
@@ -1480,81 +1522,6 @@ and the **theorem records block** that the next round reads back, per
 "The theorem records block". Coverage is auditable that way: a reader
 can see every claim that was checked, not only the ones that broke —
 and the round after this one can pick up where this one stopped.
-
-### Clean up the spawned worktrees
-
-Every generator, disprover, and verifier runs in its own
-`isolation: worktree` worktree, and none of them ever claims the PR
-branch — each checks out `origin/<branch>` detached (see their
-definitions), so there is no claim to release and no local branch to
-delete. You take no branch claim either: you never check out the PR
-branch attached. What is left is the worktree *directories*, which
-you remove as the spawner:
-
-```bash
-git worktree list
-git worktree remove <absolute-path-from-the-listing>
-```
-
-**The removal set is exactly the `agent-<agent-id>` directories this
-round's own log names in its `enter` records** — the generator's among
-them, which no earlier design recorded. That is one set, not two, and it
-is derived from the log rather than from what you remember spawning:
-your own children are in it on the same terms a predecessor's are, which
-is how a resumed instance clears what its predecessor left behind.
-Cleanup is the one thing you may do to a child you did not spawn, and
-`TaskStop` remains forbidden on it per "You are re-entrant". Multiple
-sessions share `.claude/worktrees/`, so anything wider reaches into
-another session's work: never sweep the listing by pattern, and never
-remove a worktree just because it looks like a review agent's.
-
-A child that died before writing its `enter` record is named by nothing
-in the log, so its worktree is **not** yours to remove even if you
-spawned it: a `spawn` record carries no agent id and no path, and you
-learn a child's worktree name from its own `enter` and nowhere else.
-Guessing from the listing is the pattern sweep this section forbids.
-The log does say one exists — a `spawn` record with no `enter` in that
-stage — so report the theorem and stage instead of the path you cannot
-resolve, and let it reach the run summary and the human's whole-repo
-`/git-tools:git-cleanup-branches-and-worktrees` sweep, which is what
-`sdlc:orchestrate` → "Sweep the run's leftover worktrees at the end"
-leaves it to. A leaked directory costs disk; a wrong removal costs
-another session its work.
-
-Remove by the **absolute** path `git worktree list` prints, never by a
-short `.claude/worktrees/<name>` form. `git worktree remove` resolves a
-short argument against your cwd first and falls back to a unique suffix
-match on each registered worktree's path; you are yourself running
-inside an `isolation: worktree` worktree under the repo's
-`.claude/worktrees/`, which carries a `.claude/worktrees/` of its own —
-the very directory the agents you spawned sit in. So the short form can
-remove a *different* worktree than you meant, or match two and fail
-with an error that reads as though the worktree were already gone. See
-`docs/agent-tooling-notes.md` → "Remove a worktree by the path
-`git worktree list` prints".
-
-Remove them **serially**, never in parallel — see
-[Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
-for a parallel-cleanup data-loss bug. A round leaves one worktree per
-child it ran: the generator, k disprovers, one verifier per disproved
-theorem, and one more per theorem each resume pass re-ran — the count
-is the round's, not this instance's, which is why the log rather than
-your memory names the set. Remove them one after another once they have
-all returned or been stopped at their own deadlines.
-
-If a removal fails with `fatal: cannot remove a locked working tree`
-and the lock reason matches the harness's standard end-state shape
-(`claude agent agent-<hash> (pid NNNN)`), the agent has returned and
-left a stale lock: `git worktree unlock <path>` then remove.
-
-Unlock-then-remove is **not** allowed when the agent is still mid-run,
-when the lock reason does not match that standard shape, or when the
-worktree carries uncommitted work or unpushed commits. The last is a
-data-loss case and needs human approval — though the agents you spawn
-never commit, so it should not arise from a review round. Never reach
-for `git worktree remove -f`.
-
-Your own worktree is your spawner's to remove.
 
 ## The theorem contract
 
@@ -2085,8 +2052,9 @@ theorems are still outstanding. That is what tells your caller whether
 spawning you again would buy anything.
 
 Report any child whose `spawn` record got no `enter` too, by theorem and
-stage. Its worktree is not yours to remove, per "Clean up the spawned
-worktrees", and this line is the only record that one may be left over.
+stage. No worktree of a review round is yours to remove, per "You
+remove no worktree", and this line is the only record of one the round
+log cannot name at all.
 
 Also report which generator tier ran and whether the rubric or a
 `--generator` override picked it, so an override has something to
