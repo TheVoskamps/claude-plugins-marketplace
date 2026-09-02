@@ -101,7 +101,9 @@ glob `rm` consults no gate at all, which is why it is out even as a
 last resort.
 
 **Preconditions — all must hold, or the worktree is skipped and
-reported with the reason:**
+reported with the reason.** A precondition the skill cannot settle
+counts as failed: a worktree not established to hold nothing anyone can
+lose is left exactly where it stands.
 
 1. **The working tree is clean.** `git status --porcelain` inside the
    worktree is empty.
@@ -149,39 +151,33 @@ reported with the reason:**
    claude agent agent-<hash> (pid NNNN start <date>)
    ```
 
-   **and** the PID it carries belongs to no session other than the one
-   invoking this skill — either the PID is no longer alive
-   (`kill -0 <pid>` fails), or it is one of the invoking shell's own
-   ancestors.
+   **and** the PID it carries is no longer alive (`kill -0 <pid>`
+   fails).
 
    That PID is the **spawning session's**, not the subagent's: one
    `claude` process stamps its own PID on every worktree it spawns and
    outlives all of them (see `docs/agent-tooling-notes.md` → "A
    worktree lock's PID is the session's, not the agent's"). So a live
    PID says some session is running, never that a particular agent
-   still is. A foreign live PID is hands-off on that basis. The
-   invoking session's own PID is not: it is alive because it is
-   running this cleanup, and a gate that read it as a live agent would
-   make a session unable to reclaim any worktree it ever spawned.
+   still is — which is why liveness ends the question here instead of
+   opening one. A gate that tried to reason past it would be guessing
+   about a session it cannot see, and the invoking session's own PID
+   is no more legible than a stranger's.
 
    ```bash
-   # the PIDs that are this session's rather than a foreign session's
-   pid=$$
-   while [ -n "$pid" ] && [ "$pid" -gt 1 ]; do
-     printf '%s\n' "$pid"
-     pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
-   done
-
-   git worktree unlock <absolute-path-from-the-listing>
-   git worktree remove <absolute-path-from-the-listing>
+   # a stamped PID that is still alive ends this worktree's turn
+   kill -0 <pid> 2>/dev/null || {
+     git worktree unlock <absolute-path-from-the-listing>
+     git worktree remove <absolute-path-from-the-listing>
+   }
    ```
 
    If the lock reason does not match the harness shape, or its PID is
-   alive and outside that ancestry, **skip and report** — a foreign
-   live session may be mid-run, and no branch-side gate overrides
-   that. `--force` is reserved for the data-loss carve-out
-   (uncommitted work or unpushed commits the user has explicitly
-   approved discarding) and is never used to bypass a lock.
+   still alive, **skip and report** — a live session may be mid-run,
+   and no branch-side gate overrides that. `--force` is reserved for
+   the data-loss carve-out (uncommitted work or unpushed commits the
+   user has explicitly approved discarding) and is never used to
+   bypass a lock.
 
 **Removals are serial, never parallel** — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)
@@ -285,10 +281,10 @@ would ever pass.
 
 The gates are deliberately **content**-based rather than
 ownership-based. A worktree that is clean, holds no commits that exist
-nowhere else, and carries no lock held by another live session holds
-nothing anyone can lose, whoever spawned it — so this pass is safe to
-run against a `.claude/worktrees/` shared with other live sessions
-without asking whose each entry is. Ownership is not knowable from the
+nowhere else, and carries no lock held by a live session holds nothing
+anyone can lose, whoever spawned it — so this pass is safe to run
+against a `.claude/worktrees/` shared with other live sessions without
+asking whose each entry is. Ownership is not knowable from the
 listing anyway, and a run that tried to guess it would either skip
 everything or improvise, which is the failure this skill exists to
 prevent.
@@ -414,8 +410,8 @@ Report:
 - Orphan `worktree-*` branch refs deleted, broken down by which path
   applied (upstream-empty vs. no-upstream-reachable-from-default-branch)
 - Worktrees skipped, with the reason for each (uncommitted changes,
-  unreachable commits, rev-list could not verify, lock held by another
-  live session, unrecognized lock reason, nested worktree)
+  unreachable commits, rev-list could not verify, lock held by a live
+  session, unrecognized lock reason, nested worktree)
 - Orphan branch refs skipped, with the reason for each
 - Entries the filesystem sweep found that git does not know about —
   foreign-repo worktrees with their owning-repo path, and stray

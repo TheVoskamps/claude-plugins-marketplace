@@ -357,24 +357,16 @@ That has consequences for anything gating on that PID. It carries a
 `start <date>` field, so an exact or end-anchored match against
 `... (pid NNNN)` never fires. And a live PID means a session is
 running, never that a particular agent still is — the PID outlives
-every agent that session spawns, so a gate that reads liveness as
-"an agent may be mid-run" makes a session unable to reclaim any
-worktree it ever spawned.
+every agent that session spawns, so liveness cannot separate a worktree
+whose agent is mid-run from one whose agent finished long ago.
 
-A session tells its own locks from a foreign session's by process
-ancestry. The Bash tool's shell is a direct child of the session
-process, so walking up from `$$` reaches the PID stamped in the lock:
-
-```console
-$ pid=$$; while [ "$pid" -gt 1 ]; do ps -o pid=,command= -p "$pid"; \
-    pid=$(ps -o ppid= -p "$pid" | tr -d ' '); done
-80879 /opt/homebrew/bin/zsh -c source .../shell-snapshots/snapshot...
- 9376 claude --name One cleanup pass #134 claude-plugins-marketplace...
- 9100 -zsh
-```
-
-That holds from inside a spawned agent's own worktree, which is where
-the listing above was taken.
+A gate on that PID therefore reads it in one direction only: a dead PID
+settles that nothing is using the worktree, and a live one settles
+nothing at all. That is why
+`/git-tools:git-cleanup-branches-and-worktrees` → "Removing a worktree"
+skips a live-PID lock without asking whose session it is — including
+the reclaiming session's own, which the lock reason makes no more
+legible than a stranger's.
 
 ## A push over SSH can hang in the foreground and succeed in the background
 

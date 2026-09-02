@@ -241,7 +241,8 @@ wasted. Each abort names **which** condition failed.
    git status --porcelain --untracked-files=no
    # non-empty: ABORT (dirty tree)
    git pull --ff-only
-   # any failure: ABORT, quoting git's own message
+   # any failure: ABORT (not current with the remote), quoting git's
+   #               own message
    ```
 
 This is not an isolation guard. Spawning `isolation: worktree`
@@ -1334,7 +1335,7 @@ its mechanics — no lock inspection, no `git worktree remove`, no
 Ownership stops being the question at this point, which is why one
 invocation suffices where per-teammate cleanup did not. The skill's
 gates are content-based rather than ownership-based — they are stated
-once, in its "Removing a worktree" — so a teammate killed mid-run, a
+in its "Removing a worktree" — so a teammate killed mid-run, a
 reviewer's detached-HEAD fan-out children, and a worktree still holding
 this run's open-PR branch all go through one pass, and a worktree
 belonging to another live session is protected by its own content
