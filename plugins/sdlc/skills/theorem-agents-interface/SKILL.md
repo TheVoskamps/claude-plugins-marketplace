@@ -116,14 +116,16 @@ them as well.
 `--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
 claim, and **every** theorem agent receives them, the generator
 included; `--agent` reaches a generator only. Each passes them straight
-back — alongside `--pr`, its own stage, and its definition's name, which
-a generator takes from `--agent` and every other agent knows — to
-`sdlc-agent-result-persist`, per
-`sdlc:agent-result-persist-interface`, when it records that it started
-and when it writes its report. Nothing else is passed in: that script
-derives the agent id from the worktree the agent is standing in, so a
-re-spawned child is distinguishable from the one it replaced without a
-handle travelling in a brief.
+back — alongside `--pr` and its own stage — to
+`sdlc-agent-result-persist`, per `sdlc:agent-result-persist-interface`,
+when it records that it started and when it writes its report. The
+definition's name rides on the report alone: `leave` names the result
+file after it, `enter` carries no `--agent` at all, and a generator
+takes that name from its brief where every other agent knows its own.
+Nothing else is passed in: that script derives the agent id from the
+worktree the agent is standing in, so a re-spawned child is
+distinguishable from the one it replaced without a handle travelling in
+a brief.
 
 ## The consequence classes
 

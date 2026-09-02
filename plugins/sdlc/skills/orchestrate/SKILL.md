@@ -198,10 +198,10 @@ If no issue numbers are given, ask for them before proceeding.
 ### Pre-flight: a known starting location
 
 Every orchestrator run starts from one known location: the primary
-clone, on the default branch, current with the remote. Verify all
-three, in this order, before anything else — they are hard aborts
-regardless of repo-config, so they fail fast without doing config work
-that may be wasted. Each abort names **which** condition failed.
+clone, on the default branch, current with the remote. Verify each, in
+this order, before anything else — they are hard aborts regardless of
+repo-config, so they fail fast without doing config work that may be
+wasted. Each abort names **which** condition failed.
 
 1. **The primary clone, not a worktree.**
 
@@ -252,9 +252,8 @@ wrong-base failure this pre-flight is sometimes assumed to guard is
 guarded downstream anyway: `git-tools:git-branch-create` fetches the
 configured source branch and roots the new branch at
 `origin/<source>` explicitly, so a branch is cut correctly regardless
-of where the orchestrator stands. What the three checks buy is a run
-whose starting state you can name in a report and a human can
-reproduce.
+of where the orchestrator stands. What the checks buy is a run whose
+starting state you can name in a report and a human can reproduce.
 
 ### Pre-flight: read the per-repo config
 
@@ -905,7 +904,7 @@ responses, so read what the report **says** before you act on it:
   on and how much of it is outstanding, the theorem list itself as
   readily as the disprovers or the verifiers, and on a reviewer that
   had already exhausted its own resume loop, which exit it took. A
-  round is under way; follow the four steps below.
+  round is under way; follow the steps below.
 - **A broken call** — the report names a `sdlc-agent-result-persist`
   call the reviewer could not repair and quotes the script's message
   verbatim. No round is under way, so follow "A broken call" below

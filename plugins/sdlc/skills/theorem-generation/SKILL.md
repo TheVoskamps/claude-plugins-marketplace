@@ -73,7 +73,7 @@ agent alongside this one) says it means: `--pr`, `--issues`,
 `--branch`, `--scratchpad`, `--owner`, `--repo`, `--round`, `--agent`,
 and — on a re-review only — `--carried-records` and `--delta-commits`.
 
-The four record parameters — `--scratchpad`, `--owner`, `--repo`,
+The record parameters — `--scratchpad`, `--owner`, `--repo`,
 `--round` — say nothing about what to generate: steps 1 and 6 pass them
 back unchanged, and step 6 passes `--agent` back the same way. Without
 them you can still generate the list but cannot record that you started
