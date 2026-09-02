@@ -519,6 +519,21 @@ report anyway, leaving one item with two finish records: the reader
 keeps the duplicate as a diagnostic, which is what lets no line ever be
 revised.
 
+**No spawner reclaims a worktree; one terminal pass does.** Removal
+gated on ownership cannot work: an instance killed mid-fan-out removes
+nothing, and `.claude/worktrees/` is shared with other sessions, so no
+instance can tell whose an entry is anyway. Gate on content instead — a
+worktree that is clean, holds no commit that exists nowhere else, and
+carries no lock held by another live session holds nothing anyone
+can lose, whoever spawned it — and put the pass after the whole run,
+where nothing is still in use. One invocation of
+`/git-tools:git-cleanup-branches-and-worktrees` is that pass here.
+Leaving it out of the round is what makes an uneven round leave the
+same state an even one does. The one thing that stays with the agent is
+releasing its own branch claim — a `git branch -D` of the branch it
+checked out attached — because a claim the next agent needs is not a
+leftover to reclaim.
+
 ### Handing data between agents: a session-scoped inbox
 
 An agent that declares `memory: project` under `isolation: worktree`

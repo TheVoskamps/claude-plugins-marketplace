@@ -160,8 +160,8 @@ from its issue.
 
 10. Push the branch (it's already tracking the remote).
 
-11. Capture agent memory into the session inbox, before worktree
-    cleanup. `memory: project` resolves `.claude/agent-memory/`
+11. Capture agent memory into the session inbox, before you return.
+    `memory: project` resolves `.claude/agent-memory/`
     relative to your cwd, which is this throwaway worktree — anything
     you wrote there during this run dies with the worktree unless you
     move it out. Invoke:
@@ -179,7 +179,8 @@ from its issue.
     your own entries here. Nothing about your memory is committed,
     pushed, or `git add`ed: `.claude/agent-memory/` never enters a
     commit. If the capture fails, stop and report it rather than
-    proceeding to cleanup — the worktree removal is what makes the loss
+    proceeding to cleanup — the run's terminal cleanup reclaims this
+    worktree afterwards, and that removal is what makes the loss
     permanent.
 
     A later round of yours on the same branch writes the same inbox
