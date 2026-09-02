@@ -76,12 +76,11 @@ Every issue this PR closes MUST be a member of the branch's own issue
 set — **never** an umbrella, parent, predecessor, or otherwise
 "related" issue. Aiming a closing keyword at another issue would
 auto-close that issue when this PR merges, which is what the
-closing-keyword rule in `rules/git-workflow.md` — PR body only, the
-branch's own issue set only — exists to prevent.
+closing-keyword rule — PR body only, the branch's own issue set only —
+exists to prevent.
 
 That rule also settles what happens when the caller's numbers and the
-branch name disagree, and it is **global** rather than this skill's:
-`rules/git-workflow.md` → "Issue References" is the authority, and
+branch name disagree, and it is **global** rather than this skill's —
 `/git-tools:git-issues-from-branch` is the one skill that applies it.
 
 This skill's part is small. Its **claim** is the caller-supplied

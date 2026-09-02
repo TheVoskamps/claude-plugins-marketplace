@@ -48,9 +48,9 @@ configures.
 
 ## The syntax
 
-`rules/git-workflow.md` → "Issue References" is the normative
-statement and this skill's authority. It is applied here, once, so
-that no consumer applies it again.
+The closing-keyword syntax is GitHub's and global rather than this
+skill's invention. It is applied here, once, so that no consumer
+applies it again.
 
 A **closing keyword** — `close`, `closes`, `closed`, `fix`, `fixes`,
 `fixed`, `resolve`, `resolves`, `resolved`, case-insensitive —

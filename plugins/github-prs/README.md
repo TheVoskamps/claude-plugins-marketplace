@@ -29,11 +29,10 @@ single-issue PR, so nothing below is extra work for that case.
 `git-tools:git-branch-create` encodes the set in the branch name, and
 `git-tools:git-issues-from-branch` — its inverse — recovers it. That
 skill is also where the **issue-to-branch reconciliation rule** is
-applied: the rule itself is global, stated normatively in
-`rules/git-workflow.md` → "Issue References", and neither skill here
-restates it. `/pr-create` and `/pr-link-issue` each hand
-`git-issues-from-branch` the branch plus their own claim — the numbers
-their caller passed, which a caller of either always has in hand — and
+applied: the rule itself is global, and neither skill here restates
+it. `/pr-create` and `/pr-link-issue` each hand `git-issues-from-branch`
+the branch plus their own claim — the numbers their caller passed,
+which a caller of either always has in hand — and
 act on the outcome it reports. Neither parses a branch name and
 neither re-derives the resolution.
 
@@ -181,11 +180,9 @@ deliberately deferred member stays un-closed.
 ### `/pr-closing-issues <PR>`
 
 Fetches the PR body and reports the set of issues it closes, applying
-the closing-keyword-immediately-before-reference syntax
-(`rules/git-workflow.md` → "Issue References" is the authority). It is
-the one place in this marketplace that syntax is applied to a PR body,
-so `/pr-link-issue`, `sdlc:theorem-based-pr-reviewer` running
-standalone, and
-`/sdlc:orchestrate`'s end-of-loop status flip all invoke it rather
+the closing-keyword-immediately-before-reference syntax. It is the one
+place in this marketplace that syntax is applied to a PR body, so
+`/pr-link-issue`, `sdlc:theorem-based-pr-reviewer` running standalone,
+and `/sdlc:orchestrate`'s end-of-loop status flip all invoke it rather
 than scanning a body themselves. A single-PR primitive: a caller
 holding several PRs loops.

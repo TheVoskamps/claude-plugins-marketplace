@@ -118,11 +118,11 @@ branch-name grammar is stated once, in
 `git-issues-from-branch` is the one skill that parses it —
 `github-prs:pr-create`, `github-prs:pr-link-issue`, and
 `sdlc:theorem-based-pr-reviewer` invoke `git-issues-from-branch`
-rather than each restating the rule. The same skill also applies the global
-issue-to-branch reconciliation rule in `rules/git-workflow.md`,
-because that rule is global rather than per-caller; what each consumer
-keeps is its own **action** per reported outcome, which is exactly the
-deliberate per-caller difference the extraction must not flatten.
+rather than each restating the rule. The same skill also applies the
+global issue-to-branch reconciliation rule, because that rule is
+global rather than per-caller; what each consumer keeps is its own
+**action** per reported outcome, which is exactly the deliberate
+per-caller difference the extraction must not flatten.
 
 A new skill's registration surfaces are the owning plugin's
 `plugin.json` `description` and — where the plugin ships a `README.md`
@@ -523,11 +523,12 @@ revised.
 gated on ownership cannot work: an instance killed mid-fan-out removes
 nothing, and `.claude/worktrees/` is shared with other sessions, so no
 instance can tell whose an entry is anyway. Gate on content instead — a
-worktree that is clean, holds no commit that exists nowhere else, and
-carries no lock held by another live session holds nothing anyone
-can lose, whoever spawned it — and put the pass after the whole run,
-where nothing is still in use. One invocation of
-`/git-tools:git-cleanup-branches-and-worktrees` is that pass here.
+worktree carrying nothing anyone can lose is reclaimable whoever
+spawned it — and put the pass after the whole run, where nothing is
+still in use. One invocation of
+`/git-tools:git-cleanup-branches-and-worktrees` is that pass here, and
+that skill is where which content counts is spelled out; nothing else
+restates its gates.
 Leaving it out of the round is what makes an uneven round leave the
 same state an even one does. The one thing that stays with the agent is
 releasing its own branch claim — a `git branch -D` of the branch it

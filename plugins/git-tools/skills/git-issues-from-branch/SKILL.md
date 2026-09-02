@@ -90,9 +90,8 @@ exists to prevent.
 ## Reconciling a claimed list
 
 How a PR's issues relate to its branch's name is a **global** rule,
-not a per-caller convention. `rules/git-workflow.md` → "Issue
-References" is its normative statement and this skill's authority for
-everything below: the branch's set is a maximum rather than an
+not a per-caller convention. This skill's authority for everything
+below is that rule: the branch's set is a maximum rather than an
 equality, a PR may close a subset of it and never a superset, and
 where a caller's claim and the branch name disagree the branch name is
 the higher-fidelity source of truth. This skill is where that rule is

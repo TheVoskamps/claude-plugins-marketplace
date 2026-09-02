@@ -225,16 +225,21 @@ that may be wasted. Each abort names **which** condition failed.
 
 3. **Current with the remote.** Fetch the default branch, then
    fast-forward the clone onto `origin/$DEFAULT_BRANCH` if it is
-   behind. A fast-forward is a repair, not an abort. Abort only when
-   the fast-forward cannot happen — a tracked file is modified, or the
-   local branch has diverged from the remote. Untracked files do not
-   block a fast-forward, so they do not abort either.
+   behind. A fast-forward is a repair, not an abort. The dirty-tree
+   check in front of it is deliberately conservative: it aborts on any
+   modified tracked file, including one the incoming commits never
+   touch and that a fast-forward would have carried through
+   untouched. Untracked files pass that check, but an untracked file
+   colliding with an incoming path still fails the pull — read the
+   failure and name which of the two it was, so the operator is not
+   sent after the wrong diagnosis.
 
    ```bash
    git fetch origin "$DEFAULT_BRANCH"
    git status --porcelain --untracked-files=no
    # non-empty: ABORT (dirty tree)
-   git pull --ff-only          # fails on divergence: ABORT
+   git pull --ff-only
+   # fails on divergence or an untracked-file collision: ABORT
    ```
 
 This is not an isolation guard. Spawning `isolation: worktree`
@@ -1194,8 +1199,8 @@ run it on the subset per the remedy below while the human decides what
 becomes of the dropped issue. Unless the human says otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
-  A PR closing a subset of its branch's issue set is sanctioned by
-  `rules/git-workflow.md` → "Issue references", so the PR closes only
+  A PR may close a subset of its branch's issue set — the set the
+  name encodes is a maximum, not an equality — so the PR closes only
   the landed subset and the developer names the deferral in the PR
   body.
 - The rest of the loop runs on that subset: `/pr-link-issue`,
@@ -1520,8 +1525,7 @@ on the reviewer's severity line and the fixer's report. Fill them per
   `fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`,
   case-insensitive) **immediately followed by** an issue reference
   (`#N`, `owner/repo#N`, `GH-N`, or issue URL) auto-closes the
-  referenced issue and must never appear. See
-  `rules/git-workflow.md` → "Issue references" for the full rule.
+  referenced issue and must never appear.
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A

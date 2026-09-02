@@ -23,10 +23,9 @@ auto-close-on-merge is the behavior we want.
 Each issue needs **its own keyword**, so this skill writes one
 `Closes #<issue>` line per issue rather than one line listing several.
 The syntax that makes that necessary is stated once, in
-`github-prs:pr-closing-issues` → "The syntax", over
-`rules/git-workflow.md` as its authority — and reading a body back for
-the lines it already carries goes through that same skill rather than
-a scan of this one's own (see step 2 of "Execution").
+`github-prs:pr-closing-issues` → "The syntax" — and reading a body
+back for the lines it already carries goes through that same skill
+rather than a scan of this one's own (see step 2 of "Execution").
 
 ## Invocation
 
@@ -46,12 +45,11 @@ Every issue this skill writes a closing keyword for MUST be a member
 of the branch's own issue set — **never** an umbrella, parent,
 predecessor, or otherwise "related" issue. Aiming a closing keyword at
 another issue would auto-close that issue when this PR merges, which
-is what the closing-keyword rule in `rules/git-workflow.md` — PR body
-only, the branch's own issue set only — exists to prevent.
+is what the closing-keyword rule — PR body only, the branch's own
+issue set only — exists to prevent.
 
 That rule also settles what happens when the caller's numbers and the
-branch name disagree, and it is **global** rather than this skill's:
-`rules/git-workflow.md` → "Issue References" is the authority, and
+branch name disagree, and it is **global** rather than this skill's —
 `/git-tools:git-issues-from-branch` is the one skill that applies it.
 
 This skill's part is small. Its **claim** is the caller-supplied

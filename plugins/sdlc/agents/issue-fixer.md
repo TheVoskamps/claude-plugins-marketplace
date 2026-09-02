@@ -155,8 +155,7 @@ from its issue.
    immediately before an issue reference (`#N`, `owner/repo#N`,
    `GH-N`, or an issue URL) — that pattern auto-closes the
    referenced issue. The keyword as plain English prose with no
-   adjacent issue reference is fine. See `git-workflow.md` → "Issue
-   references" for the full rule.
+   adjacent issue reference is fine.
 
 10. Push the branch (it's already tracking the remote).
 
