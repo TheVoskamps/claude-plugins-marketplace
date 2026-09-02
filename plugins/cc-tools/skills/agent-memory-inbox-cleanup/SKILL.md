@@ -37,7 +37,7 @@ Two, and no more:
 
 | Verdict | What happens |
 | --- | --- |
-| **transfer** | the constraint is written into `CLAUDE.md` or a `docs/*.md`, and the inbox entry is deleted |
+| **transfer** | the constraint is written into a `plugins/**/README.md`, a `docs/*.md`, or `CLAUDE.md`, and the inbox entry is deleted |
 | **delete** | the inbox entry is deleted and nothing is written |
 
 There is no third verdict that keeps an entry where it is — nothing
@@ -46,7 +46,8 @@ of the session with extra steps. Two consequences the rubric leaves to
 each calling skill follow:
 
 - An entry the rubric grades under "Entries with no code home"
-  transfers into `CLAUDE.md`, having nowhere here to be kept.
+  transfers to the narrowest destination that fits it, having nowhere
+  here to be kept.
 - The verdict turns on the surviving bar, not the delete bar.
   `transfer` iff the entry states a present-tense constraint this repo
   should carry — the rubric's "What counts as durable" or the class
@@ -112,8 +113,11 @@ cannot take back.
 
 ### Land the transfers
 
-Stage by explicit path — `CLAUDE.md` and each `docs/*.md` you changed,
-whether you wrote a constraint into it or cut one out of it. Never
+Stage by explicit path — `CLAUDE.md`, each `docs/*.md`, and each
+`plugins/**/README.md` you changed, whether you wrote a constraint into
+it or cut one out of it, plus the
+`plugins/<name>/.claude-plugin/plugin.json` whose `version` each
+touched plugin README obliged you to bump. Never
 `git add -A`, and never a directory-wide add. Nothing under
 `.claude/agent-memory/` is ever staged: the memory tree is not part of
 this flow.

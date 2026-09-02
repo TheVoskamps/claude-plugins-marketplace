@@ -27,6 +27,7 @@ So read, in full:
 - the root `CLAUDE.md`, plus any nested `CLAUDE.md`
 - `.claude/rules/*.md`
 - `docs/*.md`
+- `plugins/**/README.md`
 - the code each entry makes a claim about
 
 ## The delete cases
@@ -42,8 +43,9 @@ An entry is deleted when it:
 - **Narrates finished work.** "Slice 3 added the retry loop" is a
   changelog, and `git log` already holds it. A memory earns its place
   by binding future behavior, not by recording past behavior.
-- **Restates content already in `CLAUDE.md`,** in `.claude/rules/`, or
-  in a skill or agent definition.
+- **Restates content already in a transfer destination** — `CLAUDE.md`,
+  a `docs/*.md`, or a `plugins/**/README.md` — or in `.claude/rules/`,
+  or in a skill or agent definition.
 - **Duplicates another entry.** Merge the surviving content into the
   more complete entry first, then delete the duplicate.
 
@@ -57,7 +59,7 @@ deleting, produce the check:
 | the code already says it | the file and lines that say it |
 | names an external source of truth | the pointer, quoted from the entry |
 | narrates finished work | the past-tense narration, quoted |
-| already in `CLAUDE.md` or a rule | the file and lines that say it |
+| already in a transfer destination or a rule | the file and lines that say it |
 | duplicate | the entry it duplicates |
 
 If you cannot produce the check, the verdict is not delete. Fall back
@@ -102,9 +104,25 @@ states that outcome itself.
 
 ## Where a transfer lands
 
-- **`CLAUDE.md`** when the constraint governs how anyone works in the
-  repo.
-- **The closest-fitting `docs/*.md`** when it is subsystem lore.
+Narrowest first. Take the first one that fits:
+
+- **The closest-fitting `plugins/**/README.md`** when the constraint
+  governs one plugin. "Closest-fitting" ranges over every README in
+  that plugin's tree, not only `plugins/<name>/README.md` — a
+  constraint governing a subtree that carries its own README belongs
+  in that deeper file. A plugin with no README of its own has no
+  destination at this level, so the entry falls through to the next
+  one; never create a README to receive a transfer.
+- **The closest-fitting `docs/*.md`** when it is cross-plugin
+  subsystem lore.
+- **`CLAUDE.md`** when the constraint governs how anyone works
+  anywhere in the repo.
+
+A transfer into a plugin README modifies a file under
+`plugins/<name>/`, so it carries that plugin's `version` bump in
+`plugins/<name>/.claude-plugin/plugin.json`, per the repo's own rule.
+Both calling skills commit their transfers, so each stages the bumped
+`plugin.json` alongside the README it wrote.
 
 Add to the section that already covers the surrounding subject rather
 than opening a new one, and correct a statement already there when the

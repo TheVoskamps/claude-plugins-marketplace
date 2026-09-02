@@ -18,9 +18,10 @@ checks nothing out, one that commits it checks out every agent's
 committed entries — so a reader scopes itself to its own
 `<plugin>-<agent>/` directory rather than to the tree.
 
-Durable lore has exactly one home — `CLAUDE.md` and `/docs/*.md` — and
-the inbox is the hand-off that carries a run's lessons from the agent
-that learned them to the agent that writes them there.
+Durable lore's home is the repo's own documentation — the destinations
+`skills/lib/agent-memory-grading.md` → "Where a transfer lands" ranks —
+and the inbox is the hand-off that carries a run's lessons from the
+agent that learned them to the agent that writes them there.
 
 Nothing is committed to a repository at any point in that hand-off, and
 the inbox itself lives outside every repository.

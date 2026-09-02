@@ -16,8 +16,8 @@ having no memory at all.
 
 This skill is the curation pass over that directory. It runs after the
 writers have captured, grades each entry, and **acts**: it deletes, it
-moves durable lore into `CLAUDE.md` or `docs/*.md`, and it repairs the
-indexes. It is not read-only, and it does not hand a recommendation to
+moves durable lore into the repo's own documentation, and it repairs
+the indexes. It is not read-only, and it does not hand a recommendation to
 someone else to apply.
 
 Read `skills/lib/agent-memory-grading.md` for the grading rubric — what
@@ -223,9 +223,12 @@ defect to chase.
 ### Land the result
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
-every memory path you deleted or edited, plus `CLAUDE.md` and each
-`docs/*.md` you changed, whether you wrote a constraint into it or cut
-one out of it. Never `git add -A`, and never a directory-wide add.
+every memory path you deleted or edited, plus `CLAUDE.md`, each
+`docs/*.md`, and each `plugins/**/README.md` you changed, whether you
+wrote a constraint into it or cut one out of it, and the
+`plugins/<name>/.claude-plugin/plugin.json` whose `version` each
+touched plugin README obliged you to bump. Never `git add -A`, and
+never a directory-wide add.
 
 ```bash
 git add <each path you changed>
