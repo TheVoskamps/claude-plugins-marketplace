@@ -59,7 +59,7 @@ deleting, produce the check:
 | the code already says it | the file and lines that say it |
 | names an external source of truth | the pointer, quoted from the entry |
 | narrates finished work | the past-tense narration, quoted |
-| already in a transfer destination or a rule | the file and lines that say it |
+| already in `CLAUDE.md`, a `docs/*.md`, a plugin README, or a rule | the file and lines that say it |
 | duplicate | the entry it duplicates |
 
 If you cannot produce the check, the verdict is not delete. Fall back

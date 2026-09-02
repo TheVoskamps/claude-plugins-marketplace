@@ -43,11 +43,11 @@ Each of these gets worse the longer you leave it:
   that there was nothing to grade and stops; that is a valid outcome,
   not a failure.
 
-`cc-whats-new` keeps a watermark file at
-`${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/whats-new.md`, which it
-creates on its first run. The only other state is the session inbox
-described below, which lives under the session scratchpad rather than
-in any repo and dies with the session.
+`cc-whats-new` keeps a watermark file under your user config
+directory, which it creates on its first run; its path and shape are
+`skills/cc-whats-new/SKILL.md` → "State file". The only other state is
+the session inbox described below, which lives under the session
+scratchpad rather than in any repo and dies with the session.
 
 ## The entry points
 
