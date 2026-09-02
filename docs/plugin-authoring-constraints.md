@@ -512,11 +512,16 @@ result files is not tidiness: a reader that takes a report's existence
 as a finished item would otherwise finish the fresh round's item from
 the voided tree.
 
-**A predecessor's children may be cleaned up but never stopped.**
+**A predecessor's children are neither stopped nor cleaned up.**
 `.claude/worktrees/` is shared with every other session running against
 the repo, so `TaskStop` on an id the instance did not spawn reaches
-into work that is not its own, while removing the worktrees the
-round's own log names is scoped by the file and safe. Expect a
+into work that is not its own. Removal is out for a different reason:
+a spawner that can die mid-round is the wrong place for it, because
+the instance that skips the removal is exactly the one that leaves the
+worktrees. So have the spawner record what its round created and leave
+removal to one terminal step, run by whoever owns the run over the
+file it recorded — review's rounds leave every worktree standing, and
+`sdlc:orchestrate` clears its run's in one pass at the end. Expect a
 child written off as lost to report anyway, leaving one item with
 two finish records: the reader keeps the duplicate
 as a diagnostic, which is what lets no line ever be revised.

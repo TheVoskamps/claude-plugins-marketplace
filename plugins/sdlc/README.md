@@ -179,7 +179,7 @@ The run file is the one entry no executable writes —
 `skills/orchestrate/SKILL.md` appends to it with a shell redirect and
 owns both its name and its line grammar.
 
-The `enter` record also carries a fourth path,
+The `enter` record also carries a path this table does not list,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
 — the harness's own transcript of that child. The script **composes**
 that path and writes nothing there; recording it is what lets a
