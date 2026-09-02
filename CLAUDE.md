@@ -158,6 +158,10 @@ because each has to be in front of you before you know you needed it:
   moving one edits every plugin that spells it.
 - **`github-setup`** — the App's starter permission set is restated
   as a literal list in several files and rendered in one.
+- **`cc-tools`** — the agent-memory contracts under `skills/lib/` are
+  paraphrased outside the plugin, so changing what one says also edits
+  `sdlc`'s agents and its orchestrator skill and the
+  `guardrails` permission-gate README, and bumps those plugins too.
 
 ## Read on demand
 
