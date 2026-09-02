@@ -353,8 +353,8 @@ all read back the same `pid 67009` with the same `start` stamp, and
 PID 67009 is a live `claude` process belonging to a session other than
 the one reading the locks.
 
-Two consequences for anything gating on that PID. It carries a `start
-<date>` field, so an exact or end-anchored match against
+That has consequences for anything gating on that PID. It carries a
+`start <date>` field, so an exact or end-anchored match against
 `... (pid NNNN)` never fires. And a live PID means a session is
 running, never that a particular agent still is — the PID outlives
 every agent that session spawns, so a gate that reads liveness as

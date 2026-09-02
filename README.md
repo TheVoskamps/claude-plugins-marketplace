@@ -19,7 +19,8 @@ The marketplace currently ships these plugins (one entry each in
   automation, security and protection posture, and the move from
   private to public.
 - **`git-tools`** — git-side helpers for the issue-branch lifecycle,
-  plus unit-test generation.
+  the one cleanup pass that reclaims the branches and worktrees an
+  agent run leaves behind, plus unit-test generation.
 - **`cc-tools`** — Claude Code meta-skills: global rules, feature/bug
   watchlist status, what's-new-since-last-run filtered to this
   machine's settings and plugins, and agent-memory curation from a
