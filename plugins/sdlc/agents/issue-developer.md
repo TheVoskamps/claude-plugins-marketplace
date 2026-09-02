@@ -248,9 +248,9 @@ owns — but never a finding, a location, or an implementation shape
 
 13. Report back: PR URL (or equivalent), the issue set the PR closes,
     branch name, and — per member — what you implemented, its commit,
-    and its test result. Name any dropped member and why. (The
-    orchestrator handles the worktree directory itself; the worktree
-    path isn't something you need to surface.)
+    and its test result. Name any dropped member and why. (The run's
+    terminal cleanup enumerates `.claude/worktrees/` itself, so the
+    worktree path isn't something you need to surface.)
 
 ## Drop protocol
 

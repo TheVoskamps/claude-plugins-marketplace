@@ -9,13 +9,21 @@ Please clean up merged local branches (regardless of naming convention)
 and their worktrees, plus everything an `isolation: worktree` subagent
 run leaves behind under `.claude/worktrees/`.
 
-This skill is the **only** place a worktree gets removed or a branch
-gets deleted on a run's behalf. `/sdlc:orchestrate`,
-`sdlc:theorem-based-pr-reviewer` and `/sdlc:git-review-pr` each run
-their whole flow without removing anything, and reach one invocation of
-this skill at the end. That is what makes "how a worktree is removed" a
-single procedure with a single answer rather than a pattern each caller
-improvises when its happy path fails.
+This skill is the **only** place a run's leftovers get reclaimed:
+`/sdlc:orchestrate`, `sdlc:theorem-based-pr-reviewer` and
+`/sdlc:git-review-pr` each run their whole flow without removing
+anything, and reach one invocation of this skill at the end. That is
+what makes "how a worktree is removed" a single procedure with a single
+answer rather than a pattern each caller improvises when its happy path
+fails.
+
+One deletion is not reclamation and stays outside this skill: a
+subagent that checked its branch out attached runs `git branch -D` on
+that branch at the end of its own run. Worktrees of one repo share a
+single ref store, so that ref is a **claim** the next subagent cannot
+check out until it is released — the branch itself lives on the remote
+throughout. This skill deletes a branch only once a gate below has
+established it landed.
 
 The sections below are **named, never numbered**, and every
 cross-reference names a section. Numbering is what let one removal

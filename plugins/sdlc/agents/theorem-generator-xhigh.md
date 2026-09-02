@@ -46,5 +46,7 @@ lesson becomes a PR against `sdlc:theorem-generation` or the repo's
 There is none. The checkout your generation skill mandates is detached
 (`git checkout --detach origin/<branch>`), so you hold no branch claim
 and there is nothing to release — and you never commit, so there is
-nothing to guard either. Return your theorem list and stop. The
-pipeline that spawned you removes the worktree directory itself.
+nothing to guard either. Return your theorem list and stop. Your
+worktree directory is left where the harness put it — nothing in the
+review pipeline removes one, and a later
+`/git-tools:git-cleanup-branches-and-worktrees` invocation reclaims it.

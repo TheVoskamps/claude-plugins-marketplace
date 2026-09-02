@@ -249,11 +249,14 @@ and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which
 `skills/orchestrate/SKILL.md` invokes once as the run's terminal
-cleanup step. That skill is the single owner of worktree removal and
-branch deletion for this plugin: nothing here — not the orchestrator,
-not `theorem-based-pr-reviewer`, not `/sdlc:git-review-pr` — removes a
-worktree or deletes a branch of its own, and a PR that adds such an
-instruction back edits this paragraph first. The edge coordinates
+cleanup step. That skill is the single owner of reclaiming what a run
+leaves behind: nothing here — not the orchestrator, not
+`theorem-based-pr-reviewer`, not `/sdlc:git-review-pr` — removes a
+worktree or deletes a landed branch of its own, and a PR that adds such
+an instruction back edits this paragraph first. The one branch deletion
+that stays with the agents is a teammate's end-of-run `git branch -D`
+of its own attached checkout, which releases the branch claim the next
+teammate needs rather than reclaiming anything. The edge coordinates
 install and enablement, not file access:
 plugins are file-sandboxed, so nothing here reads another plugin's
 files (see `docs/plugin-authoring-constraints.md`).

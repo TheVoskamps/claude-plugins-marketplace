@@ -271,8 +271,7 @@ in-flight and not from outstanding. A derivation that left the child in
 flight would report the theorem overdue on every later read and take
 the deadline arm against a child already written off; one that
 subtracted the theorem from the outstanding set would report an
-unanswered theorem as settled. The `enter` record, not this one, is
-what names the stopped child's worktree for cleanup.
+unanswered theorem as settled.
 
 **A duplicate `leave` is a diagnostic, not a conflict, and the later
 one wins.** A child written off as lost can report anyway, leaving one

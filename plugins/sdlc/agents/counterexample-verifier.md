@@ -317,5 +317,7 @@ pipeline already holds the disprover's copy and publishes that one.
 
 There is none. Your checkout in step 2 is detached, so you hold no
 branch claim and there is nothing to release — and you never commit,
-so there is nothing to guard either. Return your verdict and stop. The
-pipeline that spawned you removes the worktree directory itself.
+so there is nothing to guard either. Return your verdict and stop. Your
+worktree directory is left where the harness put it — nothing in the
+review pipeline removes one, and a later
+`/git-tools:git-cleanup-branches-and-worktrees` invocation reclaims it.
