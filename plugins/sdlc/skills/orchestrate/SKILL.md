@@ -224,8 +224,9 @@ abort:
    human's working tree and whatever they left checked out is theirs.
 3. **Current with the remote.** Fetch the default branch. A clone that
    is merely *behind* is repaired, not aborted: fast-forward it. Abort
-   only when the fast-forward cannot happen — the tree is dirty, or
-   the local branch has commits the remote does not.
+   only when the fast-forward cannot happen — the tree is dirty, the
+   local branch has commits the remote does not, or the merge itself
+   refuses.
 
 ```bash
 git rev-parse --git-dir
@@ -243,12 +244,28 @@ git status --porcelain --untracked-files=no
 git rev-list --left-right --count "$default...origin/$default"
 # "<ahead> <behind>": ahead > 0: ABORT (condition 3, diverged)
 #                     ahead = 0, behind > 0: git merge --ff-only "origin/$default"
+#                     that merge exiting non-zero: ABORT (condition 3)
 ```
 
-`--untracked-files=no` is deliberate: an untracked file blocks no
-fast-forward, and a human's primary clone routinely carries a few. What
-would block one is a modification to a tracked file, which is what the
-dirty check is for.
+The default-branch detection here is deliberately not
+`git-tools:git-cleanup-branches-and-worktrees`'s, which asks
+`gh repo view` first and keeps the `origin/HEAD` symref as its
+fallback. This check runs before `.issues/repo-config.md` is read and
+every condition is a hard abort, so it cannot depend on the repo being
+on GitHub or on `gh` being authenticated: git-only detection is the
+requirement here rather than a fallback, and
+`git remote set-head origin --auto` repairs the one ref that detection
+reads.
+
+`--untracked-files=no` is deliberate: a human's primary clone routinely
+carries untracked files, while a modification to a tracked file is the
+thing that reliably blocks a fast-forward, and that is what the dirty
+check is for. Untracked files are not harmless, though — one sitting
+at a path the incoming commits add makes `git merge --ff-only` refuse
+with "The following untracked working tree files would be overwritten
+by merge". So the merge is checked rather than assumed: any non-zero
+exit from it is a condition-3 abort quoting git's own message, and the
+human clears their own tree.
 
 ### Pre-flight: read the per-repo config
 
@@ -501,12 +518,18 @@ creates:
 - **Each of the reviewer's fan-out children**, from that round's log.
   You never learn those paths from the reviewer's report; you read
   them off the round log's `enter` records, each of which carries the
-  child's agent id, and the worktree is `.claude/worktrees/agent-<that
-  id>`. The log's path template and record grammar belong to
-  `sdlc:agent-result-persist-interface` → "The line grammar"; the
-  round logs for one PR are the files under `<scratchpad>/sdlc/` whose
-  names carry that PR, including any `.voided-` copy, since a voided
-  round's children got worktrees too.
+  child's agent id. The worktree is `agent-<that id>` under
+  `.claude/worktrees/` in the primary clone, and the grammar above
+  wants it absolute: prepend the primary clone's root
+  (`git rev-parse --show-toplevel`, which the pre-flight pinned you
+  to), then cross-check the result against `git worktree list` the
+  same way as a teammate's. The log's path template and record grammar
+  belong to `sdlc:agent-result-persist-interface` → "The line
+  grammar"; a round log for one PR is a file under
+  `<scratchpad>/sdlc/` whose name ends at that PR's
+  `…-pr<N>-round<M>`, optionally followed by `.voided-<instant>` — a
+  voided round's children got worktrees too. A name carrying anything
+  else after `round<M>` is a child's result file, not a log.
 
 Reading the fan-out worktrees off the log rather than off a report is
 what makes a reviewer that **died** mid-fan-out leave the same state,
@@ -1378,10 +1401,19 @@ next.
 ### The terminal cleanup
 
 This is the run's **only** removal of anything, and it runs once, at
-the end, after every PR's transitions above are done: the human said
-the review/fix looping is over → `agent-memory-scrubber` →
-`pr-finalizer` → the `/pr-ready` flip → this. One cleanup for the
-whole run, not one per PR, because the run file is the run's.
+the end, after every PR has had whatever transitions above it gets:
+the human said the review/fix looping is over → `pr-finalizer` → the
+scrubber again if a memory-declaring teammate ran since it last did →
+the `/pr-ready` flip → this. One cleanup for the whole run, not one
+per PR, because the run file is the run's.
+
+A PR the human never blessed gets none of those transitions, per the
+paragraph above, and that holds nothing back here: this step runs once
+the human ends the loop, whatever each PR's outcome was. Every record
+in the run file was appended only after its own agent returned, so
+those worktrees are as finished with on an unblessed PR as on a
+blessed one — and leaking them is the failure the run file exists to
+close.
 
 It is an inline step of this skill rather than an `sdlc` cleanup agent.
 Every agent in this plugin declares `isolation: worktree`, so a cleanup
@@ -1397,7 +1429,7 @@ else. For each record, in this order:
 ```bash
 git worktree unlock <absolute-path-from-the-run-file> || true
 git worktree remove --force <absolute-path-from-the-run-file>
-git branch -D worktree-<basename-of-that-path>   # e.g. worktree-agent-<id>
+git branch -D worktree-<basename-of-that-path> || true   # worktree-agent-<id>
 ```
 
 Each line of that is licensed by something the run knows:
@@ -1420,8 +1452,10 @@ Each line of that is licensed by something the run knows:
   name follows from the worktree directory's own name — so the branch
   to delete is derived, never guessed. A `git branch -D` reporting
   that branch not found is nothing to repair — an agent that detached
-  and released it already got there. **Never delete the issue
-  branch**: it carries the PR the human is about to merge.
+  and released it already got there — which is why that line carries
+  `|| true` as well: the expected case must not read as a removal
+  failure to report. **Never delete the issue branch**: it carries the
+  PR the human is about to merge.
 
 Two bounds make this safe to run in a `.claude/worktrees/` shared with
 every other session on this repo:
