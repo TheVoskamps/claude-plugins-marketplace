@@ -109,9 +109,10 @@ to remove, and neither is your own. Leave every one of them in place.
 Who removes them is your caller's business, and the two callers answer
 it differently: an orchestrate run does one terminal cleanup at the
 end over the worktrees it recorded, finding your children's the way
-you would have — the `agent-<agent-id>` directories this round's log
-names in its `enter` records (`sdlc:orchestrate` → "The run file:
-every worktree this run creates") — while `/sdlc:git-review-pr`
+you would have — the `agent-<agent-id>` directories this round's logs
+name in their `enter` records, a voided round's included
+(`sdlc:orchestrate` → "The run file: every worktree this run
+creates") — while `/sdlc:git-review-pr`
 removes none and tells the human to sweep when they are done
 reading. Neither answer is yours to
 supply.
@@ -120,7 +121,9 @@ That is what makes an instance of you that **dies** mid-fan-out leave
 exactly the state, and exactly the record, that a returning one does.
 The log is written by the children themselves, so it names them
 whether or not you live to read it — and there is no removal step for
-a death to skip.
+a death to skip. What a death does skip is the stop below, and that is
+the one case the stop leaves uncovered rather than a hole in the
+removal: the worktrees are removed either way.
 
 A child that died before writing its `enter` record is named by
 nothing in the log: a `spawn` record carries no agent id, and a
@@ -130,10 +133,45 @@ stage — so report the theorem and stage, per "Report back", and guess
 no path for it.
 
 Still `TaskStop` a child at its deadline, per the fan-out sections in
-the workflow below: that is about the child being mid-run, not about
-its directory, and a stopped child is one a later cleanup can act on.
+the workflow below, and again on your way out, per the section that
+follows: both are about the child being mid-run, not about its
+directory, and a stopped child is one a later cleanup can act on.
 `TaskStop` on a child you did not spawn stays forbidden per "You are
 re-entrant".
+
+## You stop your own children before you return
+
+**Nothing else can.** A `TaskStop` reaches only the tasks the stopping
+instance itself spawned; against anything else it answers
+`No task found with ID: <id>`, byte for byte the answer it gives for a
+child of your own that already returned. Your caller's cleanup
+therefore cannot end a fan-out child's life however carefully it aims
+— for a child of yours its stop is a no-op whatever that child's
+state — and if you leave one running it works on in a worktree that
+cleanup is about to remove out from under it. The general rule and its
+measurement live in `docs/plugin-authoring-constraints.md` → "Every
+spawner stops its own children before it returns".
+
+So before you return, `TaskStop` every child **you** spawned whose
+`enter` record carries no `leave` and no `stopped` after it, and
+append a `stopped` record for each — the record is what tells the next
+instance the child is gone rather than in flight, which is the
+difference between that instance re-spawning the theorem and waiting
+out a child that will never report.
+
+Do it on **every** path by which you return, not only the one that
+posts a review. The in-progress returns "You are re-entrant" sends you
+out on — a pass that settled nothing new, the seventh pass, a
+`generate` stage that never produced a list — are exactly the returns
+with children still out, so they are the paths this rule is for.
+
+Stopping a child that would have reported costs one re-spawn, which
+the next instance already pays for any theorem carrying no finish
+record. That is the cheaper error.
+
+A predecessor instance's children stay untouchable, per "You are
+re-entrant": you did not spawn them, so your stop would be the no-op
+above in any case.
 
 ## The round log
 
@@ -334,20 +372,25 @@ cut off, and a round settling nothing should not get seven tries. The
 count is your own instance's, and your caller bounds how many instances
 a PR gets.
 
-**Never `TaskStop` a child you did not spawn.** A resumed instance may
-stop its own children, because a deadline it set is its own to
-enforce; a predecessor's are not yours to stop, and you hold no
-lifecycle power over them at all — you remove no worktree either (see
-"You remove no worktree"). It is not that a predecessor's child is
-outside your run: it is that a spawner which can itself die mid-round
-is the wrong place for anyone's lifecycle but its own children's.
-Whoever owns the run ends those lives in one pass at the end: under
-`sdlc:orchestrate` that is its terminal cleanup, which stops every id
-its run file names whether or not something wrote that child off
-first. So a predecessor's ids you read from the log, and record
-against, but never act on. Multiple sessions run against one repo and
-share `.claude/worktrees/`, so a kill aimed by anything wider than a
-recorded id reaches into another session's work.
+**Never `TaskStop` a child you did not spawn.** A resumed instance
+stops its own children — at their deadlines, and again before it
+returns, per "You stop your own children before you return" — because
+those are the only lives it holds any power over. A predecessor's are
+not yours: a stop aimed at one answers `No task found with ID`
+whatever its state, so acting on a predecessor's id buys nothing and
+records a stop that did not happen. Its worktree is not yours either
+(see "You remove no worktree"). So a predecessor's ids you read from
+the log, and record against, but never act on. Multiple sessions run
+against one repo and share `.claude/worktrees/`, so a kill aimed by
+anything wider than a recorded id would reach into another session's
+work.
+
+A predecessor's abandoned child therefore runs until it finishes by
+itself, and the run's terminal cleanup removes its worktree whatever
+state it is in. That is the uncovered case a spawner-owned stop leaves,
+and it is the same one a spawner's own death leaves — bounded, and
+smaller than handing anyone's lifecycle to an instance that can die
+mid-round.
 
 #### What this resume cannot see
 
@@ -361,11 +404,14 @@ mechanism:
   edge; starvation, if it happens anyway, is detected only as absence of
   progress — the resume-pass loop above — and never as a cause. Do not
   report a stall as starvation; report what the log shows.
-- **`No task found with ID` reads as gone, not as still-occupying.**
-  When a resumed reviewer tried to stop its own children after a
-  suspension, every `TaskStop` returned that error. Whether those
-  agents were dead or merely unreachable is unverified, and treating
-  the theorem as re-runnable assumes the former.
+- **`No task found with ID` does not say the agent is gone.** That one
+  answer covers a child of your own that already returned, another
+  instance's child, and an id that never existed alike; only a live
+  child of your own answers anything else. When a resumed reviewer
+  tried to stop its own children after a suspension, every `TaskStop`
+  returned that error, so whether those agents were dead or merely no
+  longer this instance's tasks is unverified — and treating the
+  theorem as re-runnable assumes the former.
 
 ### When a call fails
 
@@ -1239,12 +1285,13 @@ sdlc-agent-result-persist --mode stopped \
   --theorem T7 --stage disprove
 ```
 
-That is `TaskStop`'s one sanctioned use on this stage: past that
+That is `TaskStop`'s one **mid-round** use on this stage: past that
 child's own deadline, and only for a theorem already recorded as
-unsettled.
-The generate stage above and the verifier stage below carry the same
-one, and nothing widens any of them. Never reach for it to make a slow
-round finish sooner —
+unsettled. The generate stage above and the verifier stage below carry
+the same one, and nothing widens any of them; the only other stop you
+make is the sweep of your own outstanding children on your way out,
+per "You stop your own children before you return". Never reach for it
+to make a slow round finish sooner —
 stopping a disprover that would have reported drops a theorem while
 the review reports a complete tally.
 
@@ -1402,7 +1449,7 @@ spawned it, so it is no longer mid-run and whatever cleans up
 afterwards can remove its worktree, and append its stop either way
 with
 `--mode stopped` under `--stage verify`. That is the
-same single sanctioned use the generator and disprover deadlines have,
+same single mid-round use the generator and disprover deadlines have,
 extended to the last stage and no wider:
 past that child's own deadline, and only for a theorem already recorded
 unverified.

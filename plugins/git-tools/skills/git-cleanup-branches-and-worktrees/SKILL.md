@@ -162,12 +162,17 @@ with `fatal: bad revision` — cannot occur.
         git rev-list HEAD --not --remotes=origin --count
         ```
 
-        It asks the same question `@{upstream}..HEAD` asks — is
-        everything at this HEAD already on origin — and answers it
-        identically for an attached worktree, so it is the one form to
-        use here. Treat its exit status as authoritative: act on the
-        count only on exit `0`, and read any non-zero exit as "cannot
-        verify — skip and report". Do **not** compare against the
+        It asks a **broader** question than `@{upstream}..HEAD`: is
+        everything at this HEAD anywhere on origin, rather than on this
+        branch's own upstream in particular. The two answers diverge
+        when a HEAD's commits reached origin under some other ref —
+        non-zero for `@{upstream}..HEAD`, zero here — and where they
+        diverge this form is the one to trust, because nothing is lost
+        by removing a worktree whose every commit is already fetchable
+        from origin under some name, which is the question this gate
+        exists to ask. Treat its exit status as authoritative: act on
+        the count only on exit `0`, and read any non-zero exit as
+        "cannot verify — skip and report". Do **not** compare against the
         default branch — feature and worktree branches are expected to
         diverge from it; what matters is whether the commits are on
         origin somewhere.

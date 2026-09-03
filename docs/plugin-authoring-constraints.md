@@ -512,27 +512,51 @@ result files is not tidiness: a reader that takes a report's existence
 as a finished item would otherwise finish the fresh round's item from
 the voided tree.
 
-**A spawner neither stops nor cleans up; the run's terminal step does
-both.** The scope that makes either provably correct is the **run** —
-a task this run started, in a worktree this run created, both named by
-a file the run wrote. `.claude/worktrees/` is shared with every other
-session running against the repo, so nothing outside that file is
-reachable however much a directory looks like one of yours; a resumed
-instance, though, continues the same run, so a predecessor's abandoned
-child is inside it. What keeps the spawner out of both is that it can
-die mid-round: the instance that skips the step is exactly the one
-that leaves the mess. So have the spawner record what its round
-created and leave the stop and the removal alike to one terminal step,
-run by whoever owns the run over the file it recorded — review's
-rounds stop nothing and leave every worktree standing, and
-`sdlc:orchestrate` stops each recorded agent and removes its worktree
-in one pass at the end. Stop unconditionally there rather than probing
-for liveness: a stop against an agent that already returned is a
-no-op, and that is what lets every record be worked identically,
-including one a resumed spawner wrote off without ever holding the
-power to stop it. Expect a child written off as lost to report anyway,
-leaving one item with two finish records: the reader keeps the
-duplicate as a diagnostic, which is what lets no line ever be revised.
+**Every spawner stops its own children before it returns; the run's
+terminal step does the removal.** Stopping and removing read as one
+duty and split on who *can* do them. A stop reaches only the tasks the
+stopping instance itself spawned: against anything else — another
+instance's child, an id that never existed — it answers
+`No task found with ID: <id>`, byte for byte the answer a child of its
+own that already returned gets, while a live child of its own answers
+`Successfully stopped task: <id>` (measured 2026-09-02 from an
+orchestrating session, the live child as the positive control). So
+that answer establishes only that *this* instance has no task by that
+id, never that the agent returned, and a later stage aiming a stop at a
+child it did not spawn is a no-op whatever that child's state. Only the
+spawner can end its own children's lives, so have it do that on
+**every** path by which it returns — a clean finish and an early
+mid-round return alike. The risk prices out: stopping a child that
+might yet have answered costs one re-spawn, which the resume path
+already pays for any item carrying no finish record.
+
+Removal stays with the run's terminal step, and what splits the two is
+what a death costs. A spawner can die mid-round, and the instance that
+skips a step is exactly the one that leaves the mess — but a skipped
+removal leaks a directory for good, while a skipped stop leaks nothing
+the terminal removal does not then take away anyway. The scope that
+makes removal provably correct is the **run** — a worktree this run
+created, named by a file the run wrote. `.claude/worktrees/` is shared
+with every other session running against the repo, so nothing outside
+that file is reachable however much a directory looks like one of
+yours; a resumed instance, though, continues the same run, so a
+predecessor's abandoned child is inside it. Review's rounds stop their
+own children and leave every worktree standing, and `sdlc:orchestrate`
+removes each worktree its run file names in one pass at the end,
+stopping that record's agent unconditionally as it goes — a real stop
+for the teammates it spawned itself, and belt-and-braces over the
+reviewer's own stop for the fan-out children it did not.
+
+One case stays uncovered, and naming it beats papering over it: a
+spawner killed so hard it never returns stops nothing, and its
+children run on until they finish by themselves. That is no worse than
+leaving the stop to a stage that could never have performed it, and
+the terminal step still removes those worktrees once the run's owner
+ends the loop.
+
+Expect a child written off as lost to report anyway, leaving one item
+with two finish records: the reader keeps the duplicate as a
+diagnostic, which is what lets no line ever be revised.
 
 ### Handing data between agents: a session-scoped inbox
 

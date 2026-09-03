@@ -250,16 +250,28 @@ git rev-list --left-right --count "$default...origin/$default"
 The default-branch detection here is deliberately not
 `git-tools:git-cleanup-branches-and-worktrees`'s, which asks
 `gh repo view` first and keeps the `origin/HEAD` symref as its
-fallback. The two do not disagree on the answer — that fallback
-resolves the same symref this check reads, so on a non-GitHub repo or
-with `gh` unauthenticated both land on the same branch name. What
-differs is the dependency and the failure mode. This check runs before
-`.issues/repo-config.md` is read, so nothing has yet said what hosts
-this repo or which CLI the repo expects, and taking a `gh` dependency
-here would be taking it on no evidence. And every condition is a hard
-abort, so an unset `origin/HEAD` would abort the run: hence
+fallback. Three things differ, and the third is the one that surprises.
+
+The **dependency**: this check runs before `.issues/repo-config.md` is
+read, so nothing has yet said what hosts this repo or which CLI the
+repo expects, and taking a `gh` dependency here would be taking it on
+no evidence.
+
+The **failure mode**: every condition here is a hard abort, so an unset
+`origin/HEAD` would abort the run — hence
 `git remote set-head origin --auto`, which repairs the ref rather than
 reporting it missing the way the other recipe does.
+
+The **answer**, in one case: `--auto` queries the remote for its HEAD
+and sets the symref to it, so it corrects a set-but-**stale**
+`origin/HEAD` as well as an unset one — given the remote-tracking ref
+for the branch it now names, which git says must be fetched first —
+while a bare read of that symref returns the stale name.
+On a repo whose default branch was renamed, this check and that
+recipe's fallback path — the one it takes with `gh` unavailable or
+unauthenticated — therefore land on different branch names. That
+recipe's primary path asks `gh repo view`, which is authoritative and
+agrees with this check; it is only the fallback that can disagree.
 
 `--untracked-files=no` is deliberate: a human's primary clone routinely
 carries untracked files, while a modification to a tracked file is the
@@ -520,21 +532,36 @@ run creates:
   `git worktree list`. This covers `issue-developer`, `doc-updater`,
   `issue-fixer`, `agent-memory-scrubber`, `pr-finalizer`, and
   `theorem-based-pr-reviewer` alike.
-- **Each of the reviewer's fan-out children**, from that round's log.
-  You never learn those paths from the reviewer's report; you read
-  them off the round log's `enter` records, each of which carries the
+- **Each of the reviewer's fan-out children**, from that round's
+  logs — plural, and found by **listing** `<scratchpad>/sdlc/` rather
+  than by composing the one deterministic path. A mid-round rebase
+  voids a round: the log its children already recorded themselves in is
+  renamed to `<that name>.voided-<instant>` and the fresh round starts
+  an empty one under the deterministic name, so a reader that only ever
+  opens that name sees none of the voided log's children and their
+  worktrees leak for good. Take every file under `<scratchpad>/sdlc/`
+  whose name begins with this PR's `…-pr<N>-round<M>` and ends either
+  there or at a `.voided-<instant>` suffix; a name carrying anything
+  else after `round<M>` is a child's result file, not a log. The log's
+  path template and record grammar belong to
+  `sdlc:agent-result-persist-interface` → "The line grammar".
+
+  You never learn those paths from the reviewer's report; you read them
+  off each of those logs' `enter` records, each of which carries the
   child's agent id. The worktree is `agent-<that id>` under
   `.claude/worktrees/` in the primary clone, and the grammar above
   wants it absolute: prepend the primary clone's root
   (`git rev-parse --show-toplevel`, which the pre-flight pinned you
   to), then cross-check the result against `git worktree list` the
-  same way as a teammate's. The log's path template and record grammar
-  belong to `sdlc:agent-result-persist-interface` → "The line
-  grammar"; a round log for one PR is a file under
-  `<scratchpad>/sdlc/` whose name ends at that PR's
-  `…-pr<N>-round<M>`, optionally followed by `.voided-<instant>` — a
-  voided round's children got worktrees too. A name carrying anything
-  else after `round<M>` is a child's result file, not a log.
+  same way as a teammate's.
+
+  Listing that directory is not the enumeration "The terminal cleanup"
+  forbids. `<scratchpad>/sdlc/` holds files this session's own agents
+  wrote, and each name carries the owner, repo, PR and round that say
+  which run it belongs to, so a name is what selects a file rather than
+  a guess about it. `.claude/worktrees/` carries no such marking — a
+  directory there names an agent id and nothing about whose run created
+  it — which is why nothing may enumerate that one.
 
 Reading the fan-out worktrees off the log rather than off a report is
 what makes a reviewer that **died** mid-fan-out leave the same state,
@@ -1442,29 +1469,45 @@ Each step of that is licensed by something the run knows:
 
 - **Stop first, unconditionally, and ignore the failure.** No liveness
   check, no probe of whether that agent is still running, no branch on
-  where the record came from. A `TaskStop` against an agent that
-  already returned answers `No task found with ID` — the expected case,
-  and never a failure to report. What the unconditional stop buys is
-  that every record is worked identically: a teammate's record, which
-  the run appended only after that teammate returned, and a fan-out
-  child that a resumed reviewer wrote off with a `stopped` record
-  without ever holding the power to stop it, both reach the removal
-  below with nothing running in the tree. Destroying a worktree and
-  its branch while its agent is still working there is not an end state
-  to leave behind, which is why the stop comes before the removal
-  rather than after it.
+  where the record came from — every record is worked identically.
+  Read what the answer establishes, though, and no more: a `TaskStop`
+  answers `No task found with ID` for an agent **you** spawned that
+  already returned, for an agent you never spawned, and for an id that
+  never existed alike, so it says only that this session holds no task
+  by that id. It never says the agent returned, and it is never a
+  failure to report.
+
+  For a teammate's record the stop is real — you spawned that agent —
+  and the run appended the record only after it returned anyway. For a
+  **fan-out child** it is a no-op whatever the child's state, because
+  the reviewer spawned that child and you did not; what leaves those
+  trees quiet is the reviewer stopping its own children before it
+  returns, on every path by which it does, per
+  `docs/plugin-authoring-constraints.md` → "Every spawner stops its
+  own children before it returns". Your stop is belt-and-braces over
+  that. Destroying a worktree and its branch while its agent is still
+  working there is not an end state to leave behind, which is why the
+  stop comes before the removal rather than after it.
 - **Unlock unconditionally, and ignore its failure.** Every worktree
-  here has just had its agent stopped, so every lock left on one is a
-  stale end-state lock — you are not inferring that from the lock
-  reason; the stop above is what makes it stale. Not every one carries
-  a lock, though, and `git worktree unlock` on an unlocked worktree is
-  not a no-op: it exits 128 with `fatal: '<path>' is not locked`. That
-  failure is the expected case and never a removal failure to report.
+  here belongs to an agent the run has stopped — you stopped the
+  teammates, and the reviewer stopped its own fan-out children before
+  it returned — so a lock left on one is a stale end-state lock rather
+  than a live agent's, and you are not inferring that from the lock
+  reason. One case escapes that and is named rather than papered over:
+  a reviewer killed before it could return stopped nothing, so a child
+  of its can still be running here. It is still this run's worktree and
+  still yours to remove — the human has ended the loop — and it is the
+  same case the run file exists to keep from leaking. Not every
+  worktree carries a lock, though, and `git worktree unlock` on an
+  unlocked one is not a no-op: it exits 128 with
+  `fatal: '<path>' is not locked`. That failure is the expected case
+  and never a removal failure to report.
 - **`--force` is correct here**, and this is the one place in the run
   it is. See "What the orchestrator IS allowed to do" for the carve-out
   and its bounds. Everything of value the run produced is on the PR
   branch and pushed; what is left in these worktrees is scratch, and
-  the stop above ended whatever was still using them.
+  the stops above — yours over the teammates, the reviewer's over its
+  own children — ended what was using them.
 - **Delete only the harness's throwaway branch.** The harness creates
   one `worktree-agent-<id>` branch per worktree it hands out, and its
   name follows from the worktree directory's own name — so the branch
@@ -1724,9 +1767,11 @@ itself:
   changes or unpushed commits the user has chosen to discard) and
   needs explicit human approval for the data loss. **The terminal
   cleanup is the one named exception**, and its licence is what the
-  run file records plus the stop it runs first, rather than what a lock
-  reason suggests: every record's agent is stopped before its worktree
-  is touched, the PR is pushed and already flipped ready, and the run
+  run file records plus the stops that ran first, rather than what a
+  lock reason suggests: every record's agent has been stopped by the
+  instance that could stop it — you for the teammates you spawned, the
+  reviewer for its own fan-out children — before its worktree is
+  touched, the PR is pushed and already flipped ready, and the run
   knows nothing of value is left in those trees. Outside that step —
   mid-run, and against any path the run file does not name —
   force-removal stays a human

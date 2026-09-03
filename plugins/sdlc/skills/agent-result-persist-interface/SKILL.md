@@ -145,10 +145,11 @@ writes**, and `print` for the one that reads.
   derivation below reads it, and a stage never waits on one. An omitted
   number leaves its column empty rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
-  `--stage`. The caller's, at a child's deadline. It writes one whether
-  or not it `TaskStop`ped that child — a predecessor instance's child
-  is never its to stop, and the record is what says the child was
-  written off either way.
+  `--stage`. The caller's, at a child's deadline and again for any
+  child of its own still outstanding when it returns. It writes one
+  whether or not it `TaskStop`ped that child — a predecessor
+  instance's child is never its to stop, and the record is what says
+  the child was written off either way.
 - **`print`** — writes the round log to stdout, followed by one
   `result` line per result file present. A `.partial-<pid>` staging
   from a `leave` still in flight is **skipped**, so a report reaches a
