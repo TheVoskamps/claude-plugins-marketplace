@@ -195,7 +195,7 @@ and the derivations you read it back with.
 disagree about the round and one `--mode print` answers every stage's
 question.
 
-Your half of the contract is four calls, and **not one of them carries
+Your half of the contract is these calls, and **not one of them carries
 a verdict**: `--mode anchor` once at the top of the round,
 `--mode spawn` per child you spawn, `--mode return` when a
 `<task-notification>` reaches you, and `--mode stopped` at a child's
@@ -386,8 +386,10 @@ anything wider than a recorded id would reach into another session's
 work.
 
 A predecessor's abandoned child therefore runs until it finishes by
-itself, and the run's terminal cleanup removes its worktree whatever
-state it is in. That is the uncovered case a spawner-owned stop leaves,
+itself, and its worktree goes whenever your caller's answer says it
+does — the run's terminal cleanup, or the human's sweep after
+`/sdlc:git-review-pr`, per "You remove no worktree" — whatever state it
+is in. That is the uncovered case a spawner-owned stop leaves,
 and it is the same one a spawner's own death leaves — bounded, and
 smaller than handing anyone's lifecycle to an instance that can die
 mid-round.

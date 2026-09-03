@@ -490,10 +490,12 @@ Work in waves of batches, as defined by your plan. Each batch gets one
 
 ### The run file: every worktree this run creates
 
-Nothing in the run stops an agent, removes a worktree, or deletes a
-branch. Instead you keep a **run file** that names every worktree the
+You stop no agent, remove no worktree, and delete no branch until
+Phase 3. Instead you keep a **run file** that names every worktree the
 run creates, and Phase 3's one terminal cleanup acts on it — see "The
-terminal cleanup".
+terminal cleanup". What a teammate does inside its own worktree is its
+own contract, not an exception to this: each releases its branch claim
+before it returns, and the reviewer stops the children it spawned.
 
 The run file lives in the session's scratchpad, beside the reviewer's
 round logs, and is named for this run's issue set so a second
@@ -1013,7 +1015,7 @@ responses, so read what the report **says** before you act on it:
   on and how much of it is outstanding, the theorem list itself as
   readily as the disprovers or the verifiers, and on a reviewer that
   had already exhausted its own resume loop, which exit it took. A
-  round is under way; follow the four steps below.
+  round is under way; follow the steps below.
 - **A broken call** — the report names a `sdlc-agent-result-persist`
   call the reviewer could not repair and quotes the script's message
   verbatim. No round is under way, so follow "A broken call" below
@@ -1717,7 +1719,7 @@ on the reviewer's severity line and the fixer's report. Fill them per
   referenced issue and must never appear. See
   `rules/git-workflow.md` → "Issue references" for the full rule.
 - **Never stop an agent, remove a worktree, or delete a branch before
-  the terminal cleanup.** Nothing in the run does any of the three; you
+  the terminal cleanup.** You do none of the three anywhere else; you
   append to the run file and the one terminal step acts on it (see
   "The terminal cleanup").
   It works its records serially, never in parallel, per
