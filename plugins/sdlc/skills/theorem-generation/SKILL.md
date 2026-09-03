@@ -257,20 +257,16 @@ the abstract, or the disprover has nowhere to start.
 
 ### 5. Style guides
 
-The code and comment style guides are a theorem source of the same
-standing as the sources above. A style rule that reaches a developer
-agent as prose alone gets applied unevenly, and the violations that
-do surface arrive as ad-hoc reviewer nits rather than as reproduced,
-verified findings.
+The code and documentation style guides are a theorem source of the
+same standing as the sources above. A style rule that reaches a
+developer agent as prose alone gets applied unevenly, and the
+violations that do surface arrive as ad-hoc reviewer nits rather than
+as reproduced, verified findings.
 
 Resolve each guide layer by layer:
 
-1. The global guide, at `~/.claude/rules/code-style.md` and
-   `~/.claude/rules/comment-style.md`.
-2. The repo's extension, appended to its global counterpart, at
-   `<repo>/docs/code-style.md` and `<repo>/docs/comment-style.md`.
-   Those names are fixed, and the repo layer extends and overrides the
-   global one.
+1. The global guide, at `~/.claude/docs/rules/code-style.md` and
+   `~/.claude/docs/rules/documentation-style.md`.
 
 An absent file yields no style theorems from that file, silently. A
 missing global guide is not an abort, and a repo carrying no extension
