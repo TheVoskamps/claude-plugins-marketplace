@@ -110,9 +110,10 @@ Who removes them is your caller's business, and the two callers answer
 it differently: an orchestrate run does one terminal cleanup at the
 end over the worktrees it recorded, finding your children's the way
 you would have — the `agent-<agent-id>` directories this round's log
-names in its `enter` records (`sdlc:orchestrate` → "The terminal
-cleanup") — while `/sdlc:git-review-pr` removes none and tells the
-human to sweep when they are done reading. Neither answer is yours to
+names in its `enter` records (`sdlc:orchestrate` → "The run file:
+every worktree this run creates") — while `/sdlc:git-review-pr`
+removes none and tells the human to sweep when they are done
+reading. Neither answer is yours to
 supply.
 
 That is what makes an instance of you that **dies** mid-fan-out leave

@@ -230,21 +230,21 @@ abort:
 
 ```bash
 git rev-parse --git-dir
-# expected: .git — anything else: ABORT (condition 1)
+# expected: .git — anything else: ABORT (not the primary clone)
 
 git remote set-head origin --auto >/dev/null   # repairs an unset origin/HEAD
 default=$(git symbolic-ref --short refs/remotes/origin/HEAD)  # e.g. origin/main
 default=${default#origin/}
 [ "$(git branch --show-current)" = "$default" ]
-# false: ABORT (condition 2)
+# false: ABORT (not on the default branch)
 
 git fetch origin "$default"
 git status --porcelain --untracked-files=no
-# non-empty: ABORT (condition 3, dirty tree)
+# non-empty: ABORT (not current with the remote — dirty tree)
 git rev-list --left-right --count "$default...origin/$default"
-# "<ahead> <behind>": ahead > 0: ABORT (condition 3, diverged)
+# "<ahead> <behind>": ahead > 0: ABORT (not current — diverged)
 #                     ahead = 0, behind > 0: git merge --ff-only "origin/$default"
-#                     that merge exiting non-zero: ABORT (condition 3)
+#                     that merge exiting non-zero: ABORT (not current)
 ```
 
 The default-branch detection here is deliberately not
@@ -264,8 +264,8 @@ check is for. Untracked files are not harmless, though — one sitting
 at a path the incoming commits add makes `git merge --ff-only` refuse
 with "The following untracked working tree files would be overwritten
 by merge". So the merge is checked rather than assumed: any non-zero
-exit from it is a condition-3 abort quoting git's own message, and the
-human clears their own tree.
+exit from it aborts the run, quoting git's own message, and the human
+clears their own tree.
 
 ### Pre-flight: read the per-repo config
 
@@ -506,8 +506,8 @@ printf '%s %s %s\n' "<abs-path>" "<branch-or-dash>" "<agent-name>" \
   >> "<run-file>"
 ```
 
-Two sources fill it, and between them they cover every worktree the run
-creates:
+These sources fill it, and between them they cover every worktree the
+run creates:
 
 - **Each teammate you spawned**, as it returns. The harness names that
   teammate's worktree in the task notification you are resumed with;
@@ -1404,8 +1404,8 @@ This is the run's **only** removal of anything, and it runs once, at
 the end, after every PR has had whatever transitions above it gets:
 the human said the review/fix looping is over → `pr-finalizer` → the
 scrubber again if a memory-declaring teammate ran since it last did →
-the `/pr-ready` flip → this. One cleanup for the whole run, not one
-per PR, because the run file is the run's.
+the `/pr-ready` flip → the issues to In Review → this. One cleanup for
+the whole run, not one per PR, because the run file is the run's.
 
 A PR the human never blessed gets none of those transitions, per the
 paragraph above, and that holds nothing back here: this step runs once
@@ -1457,7 +1457,7 @@ Each line of that is licensed by something the run knows:
   failure to report. **Never delete the issue branch**: it carries the
   PR the human is about to merge.
 
-Two bounds make this safe to run in a `.claude/worktrees/` shared with
+These bounds make it safe to run in a `.claude/worktrees/` shared with
 every other session on this repo:
 
 - **It acts only on paths the run file names.** A path it was not given
