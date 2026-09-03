@@ -20,9 +20,8 @@ Each of these gets worse the longer you leave it:
   loaded" is an assumption, not a fact. There is a skill that makes it
   a fact.
 - **Claude Code moves faster than you can read its changelog.** Most
-  of what ships does not touch anything your settings, plugins, or
-  hooks actually exercise, and the bug you filed six months ago may
-  have quietly closed.
+  of what ships does not touch any subject you are actually following,
+  and the bug you filed six months ago may have quietly closed.
 - **Agent memory rots.** Agents that declare `memory: project` write
   into `.claude/agent-memory/` as they work, and nothing judges those
   writes. Entries pile up that restate the code, name a design doc as
@@ -43,8 +42,14 @@ Each of these gets worse the longer you leave it:
   that there was nothing to grade and stops; that is a valid outcome,
   not a failure.
 
-`cc-whats-new` keeps a watermark file under your user config
-directory, which it creates on its first run; its path and shape are
+- **A list of topics you care about.** The two skills that report on
+  upstream Claude Code act on that list and on nothing else; both seed
+  it from a starter set on their first run, and you edit it from
+  there. What it holds and where it lives are
+  `skills/lib/cc-topics-config.md`.
+
+`cc-whats-new` keeps a watermark file beside that list, which it
+creates on its first run; its path and shape are
 `skills/cc-whats-new/SKILL.md` → "State file". The only other state is
 the session inbox described below, which lives under the session
 scratchpad rather than in any repo and dies with the session.
@@ -63,18 +68,18 @@ Which you want depends on whether you are asking about the harness or
 about your own filed issues:
 
 - `/cc-tools:cc-whats-new` reports what changed in Claude Code since
-  the skill last ran, **filtered to what this machine actually uses**.
-  It builds a profile from your settings, installed plugins, hooks and
-  MCP servers, and drops changelog lines nothing in that profile
-  touches. Takes an optional `--since YYYY-MM-DD` to widen the window
-  for one run. A typical run: it reads the watermark, diffs the
-  upstream CHANGELOG forward from your last version, searches issues
-  on the same topics, prints the report, and advances the watermark.
-- `/cc-tools:cc-watchlist` reports which of a tracked set of upstream
-  feature requests and bugs are still open and which have shipped,
-  with the closure date. The tracked set lives in the skill's own
-  body, grouped by topic; pass extra issue numbers as arguments to
-  fold them into one run without editing it.
+  the skill last ran, **filtered to the topics you configured**, and
+  drops changelog lines none of them names. Takes an optional
+  `--since YYYY-MM-DD` to widen the window for one run. A typical run:
+  it reads the watermark, diffs the upstream CHANGELOG forward from
+  your last version, searches issues on every configured topic, prints
+  the report — offering what it found as candidates to track — and
+  advances the watermark.
+- `/cc-tools:cc-watchlist` reports which of the upstream feature
+  requests and bugs your topics list are still open and which have
+  shipped, with the closure date, one group per topic. Pass extra
+  issue numbers as arguments to fold them into one run without editing
+  the list.
 
 ### Curating agent memory
 
@@ -110,14 +115,16 @@ which of its notes were about the branch and which about the repo.
 
 - **It does not decide what your rules should say.** `cc-all` loads
   `~/.claude/CLAUDE.md`; authoring it is yours.
-- **The watchlist is hand-maintained.** It reports status for a set
-  someone curated by hand, and it discovers nothing on its own. An
-  issue nobody added is an issue it will not mention.
-- **`cc-whats-new` is opinionated about omission.** Filtering to this
-  machine's profile is the feature, so a change that matters to you
-  for a reason your configuration does not express will be filtered
-  out. Widen the window with `--since` and read the upstream CHANGELOG
-  yourself when that matters.
+- **The topics list is hand-maintained.** Nothing adds to it on your
+  behalf: the watchlist discovers nothing, and `cc-whats-new` asks
+  before it appends anything it found. An issue nobody added is an
+  issue neither will mention.
+- **Nothing here reads your machine to decide what matters.** Your
+  settings, installed plugins and hooks are not consulted, so a
+  surface this machine exercises but your topics do not name goes
+  unmentioned. That is the trade: the tools report, you curate. Widen
+  the window with `--since` and read the upstream CHANGELOG yourself
+  when that matters.
 - **Curation is destructive and has no undo of its own.** It relies on
   git, or on your review of an uncommitted tree. The inbox is not a
   repository at all: an entry the curator neither transfers nor
@@ -133,5 +140,10 @@ Curation reads a shared rubric,
 the evidence a delete has to produce, how a transfer is phrased, which
 file it lands in, and the standard that file is held to afterwards.
 The inbox path and layout live in `skills/lib/agent-memory-inbox.md`.
-No skill restates either contract, and neither does this README: when
-you need the exact behavior, those two files are the source.
+The topics config — its path, its schema, and what a reader does when
+it is missing or unreadable — lives in
+`skills/lib/cc-topics-config.md`, and the starter set that seeds it
+lives in the one skill that writes it,
+`skills/cc-seed-config/SKILL.md`. No skill restates any of those
+contracts, and neither does this README: when you need the exact
+behavior, those files are the source.
