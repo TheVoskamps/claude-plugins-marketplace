@@ -41,11 +41,10 @@ Each of these gets worse the longer you leave it:
   repo route, an empty inbox for the session route — curation reports
   that there was nothing to grade and stops; that is a valid outcome,
   not a failure.
-
 - **A list of topics you care about.** The two skills that report on
-  upstream Claude Code act on that list and on nothing else; both seed
-  it from a starter set on their first run, and you edit it from
-  there. What it holds and where it lives are
+  upstream Claude Code take their topics from that list and infer none
+  from anywhere else; both seed it from a starter set on their first
+  run, and you edit it from there. What it holds and where it lives are
   `skills/lib/cc-topics-config.md`.
 
 `cc-whats-new` keeps a watermark file beside that list, which it

@@ -64,8 +64,8 @@ and leaves the file's own watermark to be advanced as usual.
 ## Execution rules
 
 Every Bash command MUST be single-token: no `&&`, no `||`, no `;`, no
-`|`, no `>` / `2>`. Compound forms hit the parser issues cc-watchlist
-tracks and prompt even with a matching allow rule. That rules out shell
+`|`, no `>` / `2>`. Compound forms hit an upstream permission-parser
+bug and prompt even with a matching allow rule. That rules out shell
 parameter expansion for the state path too — resolve
 `XDG_CONFIG_HOME`'s value by reading the environment yourself and pass
 the absolute path.
@@ -153,10 +153,10 @@ Since <last-version> (<last-run>) — now <version>, <today>.
 - #<num> — <title>
 ```
 
-Omit any section whose list is empty. Two bounds on the middle column
-of "Affects your setup": say what the entry changes for these topics,
-not what the feature is, and never assert an interaction the CHANGELOG
-does not state — label a hypothesis as one.
+Omit any section whose list is empty. Bounds on the gloss after each
+entry's dash in "Affects your setup": say what the entry changes for
+these topics, not what the feature is, and never assert an interaction
+the CHANGELOG does not state — label a hypothesis as one.
 
 ## Notes
 

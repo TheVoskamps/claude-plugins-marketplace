@@ -34,14 +34,14 @@ it rather than overwriting.
 
 ## The starter set
 
-Three topics, thirteen issues, all in `anthropics/claude-code`. The
-right-hand column is for whoever maintains this list — the file you
-write carries the numbers only.
+Every issue below is in `anthropics/claude-code`. The right-hand
+column is for whoever maintains this list — the file you write carries
+the numbers only.
 
 | Topic | Issues | Subject |
 | --- | --- | --- |
 | Session display / CLI flags | 40393 | `--color`/`--title` CLI flags |
-| Compound bash parsing & permissions harness | 16561, 46363, 31523, 28240, 52822, 4368, 4719, 27661, 54898 | Parsing compound bash against permission rules, and the PreToolUse surface around it — `updatedInput`, the active permission mode, subagent inheritance, per-agent control |
+| Compound bash parsing & permissions harness | 16561, 46363, 31523, 28240, 52822, 4368, 4719, 27661, 54898 | Parsing compound bash against permission rules, and the PreToolUse surface around it — `updatedInput`, the active permission mode, subagent inheritance, per-agent control. 28240 is Windows-reported but the matcher it names is platform-agnostic, which is why it sits here |
 | `isolation: worktree` subagent isolation | 62547, 52958, 47548 | Worktree-isolated subagents writing into the primary clone, leaking cwd, or switching the parent's branch |
 
 Keep the issue order within a topic: it is the order the user reads
@@ -50,7 +50,7 @@ off.
 
 ## Writing the file
 
-Write exactly this, with the three topics above expanded, at the path
+Write exactly this, with the topics above expanded, at the path
 `skills/lib/cc-topics-config.md` gives:
 
 ```yaml

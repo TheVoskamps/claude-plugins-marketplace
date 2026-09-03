@@ -19,9 +19,8 @@ This skill's pin is `schema-version: 1`.
 ## Execution rules
 
 Every Bash command MUST be single-token: no `&&`, no `||`, no `;`, no
-`|`, no `>` / `2>`. Compound forms hit the parser issues this
-watchlist tracks and prompt even with matching `Bash(cmd:*)` allow
-rules.
+`|`, no `>` / `2>`. Compound forms hit an upstream permission-parser
+bug and prompt even with matching `Bash(cmd:*)` allow rules.
 
 ## Steps
 
@@ -98,6 +97,3 @@ removes.
   when it was unreadable and the starter topics were used instead.
 - Don't speculate about issue progress beyond what `gh` reports.
 - If `gh` fails, report the error verbatim and stop.
-- #28240 is labeled `platform:windows` by the reporter but the
-  underlying compound-command matcher is platform-agnostic; treat fixes
-  as relevant to macOS/Linux too.
