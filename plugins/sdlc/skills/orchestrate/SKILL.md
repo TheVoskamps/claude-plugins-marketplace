@@ -250,12 +250,16 @@ git rev-list --left-right --count "$default...origin/$default"
 The default-branch detection here is deliberately not
 `git-tools:git-cleanup-branches-and-worktrees`'s, which asks
 `gh repo view` first and keeps the `origin/HEAD` symref as its
-fallback. This check runs before `.issues/repo-config.md` is read and
-every condition is a hard abort, so it cannot depend on the repo being
-on GitHub or on `gh` being authenticated: git-only detection is the
-requirement here rather than a fallback, and
-`git remote set-head origin --auto` repairs the one ref that detection
-reads.
+fallback. The two do not disagree on the answer — that fallback
+resolves the same symref this check reads, so on a non-GitHub repo or
+with `gh` unauthenticated both land on the same branch name. What
+differs is the dependency and the failure mode. This check runs before
+`.issues/repo-config.md` is read, so nothing has yet said what hosts
+this repo or which CLI the repo expects, and taking a `gh` dependency
+here would be taking it on no evidence. And every condition is a hard
+abort, so an unset `origin/HEAD` would abort the run: hence
+`git remote set-head origin --auto`, which repairs the ref rather than
+reporting it missing the way the other recipe does.
 
 `--untracked-files=no` is deliberate: a human's primary clone routinely
 carries untracked files, while a modification to a tracked file is the
@@ -474,9 +478,10 @@ Work in waves of batches, as defined by your plan. Each batch gets one
 
 ### The run file: every worktree this run creates
 
-Nothing in the run removes a worktree or deletes a branch. Instead you
-keep a **run file** that names every worktree the run creates, and
-Phase 3's one terminal cleanup acts on it — see "The terminal cleanup".
+Nothing in the run stops an agent, removes a worktree, or deletes a
+branch. Instead you keep a **run file** that names every worktree the
+run creates, and Phase 3's one terminal cleanup acts on it — see "The
+terminal cleanup".
 
 The run file lives in the session's scratchpad, beside the reviewer's
 round logs, and is named for this run's issue set so a second
@@ -1409,11 +1414,9 @@ the whole run, not one per PR, because the run file is the run's.
 
 A PR the human never blessed gets none of those transitions, per the
 paragraph above, and that holds nothing back here: this step runs once
-the human ends the loop, whatever each PR's outcome was. Every record
-in the run file was appended only after its own agent returned, so
-those worktrees are as finished with on an unblessed PR as on a
-blessed one — and leaking them is the failure the run file exists to
-close.
+the human ends the loop, whatever each PR's outcome was. Those
+worktrees are as finished with on an unblessed PR as on a blessed one
+— and leaking them is the failure the run file exists to close.
 
 It is an inline step of this skill rather than an `sdlc` cleanup agent.
 Every agent in this plugin declares `isolation: worktree`, so a cleanup
@@ -1424,7 +1427,10 @@ it would do no judgment work to pay for that: the run file already says
 what to remove, so a cleanup agent would only be a courier.
 
 Work the run file's records **serially**, in order, and touch nothing
-else. For each record, in this order:
+else. For each record, `TaskStop` that record's own agent — the
+harness names every worktree it hands out `agent-<id>`, so the id is
+the path's basename with `agent-` dropped — and then run, in this
+order:
 
 ```bash
 git worktree unlock <absolute-path-from-the-run-file> || true
@@ -1432,21 +1438,33 @@ git worktree remove --force <absolute-path-from-the-run-file>
 git branch -D worktree-<basename-of-that-path> || true   # worktree-agent-<id>
 ```
 
-Each line of that is licensed by something the run knows:
+Each step of that is licensed by something the run knows:
 
-- **Unlock unconditionally, and ignore its failure.** Every worktree in
-  the run file belongs to an agent that has returned, so every lock on
-  one is the harness's stale end-state lock — you are not inferring
-  that from the lock reason; the run file is the evidence. Not every
-  one carries a lock, though, and `git worktree unlock` on an unlocked
-  worktree is not a no-op: it exits 128 with
-  `fatal: '<path>' is not locked`. That failure is the expected case
-  and never a removal failure to report.
+- **Stop first, unconditionally, and ignore the failure.** No liveness
+  check, no probe of whether that agent is still running, no branch on
+  where the record came from. A `TaskStop` against an agent that
+  already returned answers `No task found with ID` — the expected case,
+  and never a failure to report. What the unconditional stop buys is
+  that every record is worked identically: a teammate's record, which
+  the run appended only after that teammate returned, and a fan-out
+  child that a resumed reviewer wrote off with a `stopped` record
+  without ever holding the power to stop it, both reach the removal
+  below with nothing running in the tree. Destroying a worktree and
+  its branch while its agent is still working there is not an end state
+  to leave behind, which is why the stop comes before the removal
+  rather than after it.
+- **Unlock unconditionally, and ignore its failure.** Every worktree
+  here has just had its agent stopped, so every lock left on one is a
+  stale end-state lock — you are not inferring that from the lock
+  reason; the stop above is what makes it stale. Not every one carries
+  a lock, though, and `git worktree unlock` on an unlocked worktree is
+  not a no-op: it exits 128 with `fatal: '<path>' is not locked`. That
+  failure is the expected case and never a removal failure to report.
 - **`--force` is correct here**, and this is the one place in the run
   it is. See "What the orchestrator IS allowed to do" for the carve-out
   and its bounds. Everything of value the run produced is on the PR
   branch and pushed; what is left in these worktrees is scratch, and
-  the run knows their owners are done with them.
+  the stop above ended whatever was still using them.
 - **Delete only the harness's throwaway branch.** The harness creates
   one `worktree-agent-<id>` branch per worktree it hands out, and its
   name follows from the worktree directory's own name — so the branch
@@ -1460,8 +1478,11 @@ Each line of that is licensed by something the run knows:
 These bounds make it safe to run in a `.claude/worktrees/` shared with
 every other session on this repo:
 
-- **It acts only on paths the run file names.** A path it was not given
-  belongs to another session, whatever state it is in.
+- **It acts only on paths the run file names**, and on the agent ids
+  those paths carry. A path it was not given belongs to another
+  session, whatever state it is in, and so does the agent standing in
+  it — the stop is unconditional over the records, never over the
+  directory.
 - **It never enumerates `.claude/worktrees/`, and never sweeps the
   `git worktree list` output by pattern.** There is no "looks like one
   of ours" arm, because there is no way to write one that is right.
@@ -1470,7 +1491,9 @@ One worktree can exist that the run file cannot name: a fan-out child
 that died before writing its `enter` record leaves a `spawn` record
 carrying no agent id, so no path resolves for it. The reviewer reports
 that child by theorem and stage; relay it the same way in the summary,
-and guess no path for it — guessing is what the whole design refuses.
+and guess no path for it — which leaves it no id to stop either, since
+the id is what the path carries. Guessing is what the whole design
+refuses.
 
 Report every removal that **fails** with git's own message, verbatim,
 in the summary. Never route around a failure — not with a second
@@ -1482,8 +1505,9 @@ session loses tracked files.
 sweep a human runs over whatever any run left behind, from any session.
 This step does not invoke it and is not a variant of it: that skill
 works out what is safe to remove from the tree in front of it — a
-`worktree-*` branch name, a clean and fully-pushed worktree, a lock
-whose pid is dead — while you infer nothing, because you were told.
+clean worktree whose commits are all on origin, a lock whose pid is
+dead, a merged PR with its remote branch gone — while you infer
+nothing, because you were told.
 
 ### Summary
 
@@ -1608,11 +1632,11 @@ on the reviewer's severity line and the fixer's report. Fill them per
   escalation to the human verbatim and wait for direction — not to
   repair the environment and resume. Specifically forbidden without
   explicit human approval:
-  - Removing, unlocking, or force-removing the escalated teammate's
-    worktree, or deleting any branch it holds. An escalated teammate
-    never reaches the run file — you append a worktree only once its
-    owner is done with it — so the terminal cleanup does not touch one
-    either.
+  - `TaskStop`ping the escalated teammate, or removing, unlocking, or
+    force-removing its worktree, or deleting any branch it holds. An
+    escalated teammate never reaches the run file — you append a
+    worktree only once its owner is done with it — so the terminal
+    cleanup does not touch one either.
   - Resuming an escalated subagent instead of asking the human
     (always re-dispatch fresh if the human says retry)
 
@@ -1649,9 +1673,10 @@ on the reviewer's severity line and the fixer's report. Fill them per
   (`#N`, `owner/repo#N`, `GH-N`, or issue URL) auto-closes the
   referenced issue and must never appear. See
   `rules/git-workflow.md` → "Issue references" for the full rule.
-- **Never remove a worktree or delete a branch before the terminal
-  cleanup.** Nothing in the run does either; you append to the run file
-  and the one terminal step acts on it (see "The terminal cleanup").
+- **Never stop an agent, remove a worktree, or delete a branch before
+  the terminal cleanup.** Nothing in the run does any of the three; you
+  append to the run file and the one terminal step acts on it (see
+  "The terminal cleanup").
   It works its records serially, never in parallel, per
   [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927).
 - **Always wait for explicit human confirmation** before starting
@@ -1691,7 +1716,7 @@ itself:
   it tracks (the pre-flight's fast-forward, and keeping the default
   branch current in the primary clone after a merge), `git push` of an
   agent's work that the agent committed but couldn't push due to a
-  credential prompt (rare), and the terminal cleanup's
+  credential prompt (rare), and the terminal cleanup's `TaskStop` /
   `git worktree unlock` / `git worktree remove --force` /
   `git branch -D` over the run file's records.
 
@@ -1699,11 +1724,12 @@ itself:
   changes or unpushed commits the user has chosen to discard) and
   needs explicit human approval for the data loss. **The terminal
   cleanup is the one named exception**, and its licence is what the
-  run file records rather than what a lock reason suggests: every path
-  in it was appended only after that agent finished with it, the PR is
-  pushed and already flipped ready, and the run knows nothing of value
-  is left in those trees. Outside that step — mid-run, and against any
-  path the run file does not name — force-removal stays a human
+  run file records plus the stop it runs first, rather than what a lock
+  reason suggests: every record's agent is stopped before its worktree
+  is touched, the PR is pushed and already flipped ready, and the run
+  knows nothing of value is left in those trees. Outside that step —
+  mid-run, and against any path the run file does not name —
+  force-removal stays a human
   decision, and so does any cleanup touching a worktree whose subagent
   is still mid-run or escalated (see "Never act on a subagent
   escalation without human input" above).

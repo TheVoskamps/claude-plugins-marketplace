@@ -335,14 +335,19 @@ count is your own instance's, and your caller bounds how many instances
 a PR gets.
 
 **Never `TaskStop` a child you did not spawn.** A resumed instance may
-stop its own children; a predecessor's are not yours to stop, and you
-hold no lifecycle power over them at all — you remove no worktree
-either (see "You remove no worktree"). Multiple sessions run against
-one repo and share
-`.claude/worktrees/`, so a blanket kill reaches into another session's
-work. Acting only on ids you spawned yourself is what keeps the scope
-provably correct; a predecessor's ids you read from the log, and
-record against, but never act on.
+stop its own children, because a deadline it set is its own to
+enforce; a predecessor's are not yours to stop, and you hold no
+lifecycle power over them at all — you remove no worktree either (see
+"You remove no worktree"). It is not that a predecessor's child is
+outside your run: it is that a spawner which can itself die mid-round
+is the wrong place for anyone's lifecycle but its own children's.
+Whoever owns the run ends those lives in one pass at the end: under
+`sdlc:orchestrate` that is its terminal cleanup, which stops every id
+its run file names whether or not something wrote that child off
+first. So a predecessor's ids you read from the log, and record
+against, but never act on. Multiple sessions run against one repo and
+share `.claude/worktrees/`, so a kill aimed by anything wider than a
+recorded id reaches into another session's work.
 
 #### What this resume cannot see
 

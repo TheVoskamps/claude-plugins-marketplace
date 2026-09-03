@@ -113,7 +113,7 @@ with `fatal: bad revision` — cannot occur.
       If `git worktree remove` fails with `fatal: cannot remove a
       locked working tree`, inspect the lock reason via
       `git worktree list --porcelain`. If it matches the standard
-      harness shape `claude agent agent-<hash> (pid NNNN)` AND (the
+      harness shape `claude agent agent-<hash> (pid NNNN …)` AND (the
       PID is no longer alive (`kill -0 <pid>` fails) OR the branch
       passed step 3's "merged + remote gone" gate (which is the case
       here, since we're inside step 4)), this is a stale end-state
@@ -132,30 +132,60 @@ with `fatal: bad revision` — cannot occur.
       was part of the gate).
 
 5. Clean up `isolation: worktree` subagent worktrees and their
-   leftover branch refs. Claude Code's `isolation: worktree`
-   produces branch names matching `worktree-*` (e.g.
-   `worktree-agent-a39b0297dc3421b9e`).
+   leftover branch refs. Claude Code's `isolation: worktree` hands each
+   subagent a directory under `.claude/worktrees/` and creates a branch
+   matching `worktree-*` for it (e.g.
+   `worktree-agent-a39b0297dc3421b9e`) — but that branch is often not
+   what the worktree has checked out by the time you get here, so only
+   Pass 2 keys on the name.
 
    Enumerate candidates in these passes:
 
-   a. **Pass 1 — worktrees that still exist.** List all worktrees
-      under `.claude/worktrees/` whose checked-out branch matches
-      `worktree-*`. For each, run the safety check:
-      - no uncommitted changes
-      - no unpushed commits relative to `@{upstream}` (the branch's
-        own remote tracking ref). Do **not** compare against the default
-        branch — feature/worktree branches are expected to diverge from it;
-        what matters is whether the branch is fully pushed to its own
-        remote.
+   a. **Pass 1 — worktrees that still exist.** List **every** worktree
+      under `.claude/worktrees/`, whatever it has checked out. Do not
+      filter this enumeration by branch name: an agent typically checks
+      out the branch it was sent to work on and detaches HEAD before it
+      returns, so its worktree is on a detached HEAD or on an issue
+      branch, and almost never on the `worktree-*` branch it was handed.
+      (Measured in this repo during one orchestrated run: six live agent
+      worktrees, all six on detached HEAD — a `worktree-*` filter
+      enumerated none of them.) The gates below are the safety signal;
+      the name never was.
+
+      For each, run the safety check:
+      - no uncommitted changes (`git status --porcelain` empty)
+      - no commits missing from the remote. A detached worktree has no
+        `@{upstream}`, so use a form that needs neither a branch nor an
+        upstream:
+
+        ```bash
+        git rev-list HEAD --not --remotes=origin --count
+        ```
+
+        It asks the same question `@{upstream}..HEAD` asks — is
+        everything at this HEAD already on origin — and answers it
+        identically for an attached worktree, so it is the one form to
+        use here. Treat its exit status as authoritative: act on the
+        count only on exit `0`, and read any non-zero exit as "cannot
+        verify — skip and report". Do **not** compare against the
+        default branch — feature and worktree branches are expected to
+        diverge from it; what matters is whether the commits are on
+        origin somewhere.
 
       If both checks pass: remove the worktree (`git worktree remove`,
-      no `--force`) and delete the local branch (`git branch -d`).
+      no `--force`), then delete its checked-out branch (`git branch
+      -d`) **only when that branch matches `worktree-*`**. A detached
+      worktree leaves no branch to delete here, and its leaked
+      `worktree-*` ref, if any, is Pass 2's. Never delete any other
+      branch from this pass: a worktree can hold an issue branch whose
+      PR is still open, and step 3's merged-PR-plus-remote-gone gate is
+      the only path by which such a branch is deleted.
       If either check fails: skip and report the reason.
 
       If `git worktree remove` fails with `fatal: cannot remove a
       locked working tree`, inspect the lock reason via
       `git worktree list --porcelain`. If the lock reason matches the
-      standard harness shape `claude agent agent-<hash> (pid NNNN)`
+      standard harness shape `claude agent agent-<hash> (pid NNNN …)`
       AND the PID in the lock reason is no longer alive
       (`kill -0 <pid>` fails — the harness exited uncleanly or the
       subagent has already returned), this is a stale end-state lock
@@ -164,10 +194,19 @@ with `fatal: bad revision` — cannot occur.
       lock reason does not match the harness shape, or the PID is
       still alive (the
       subagent may be mid-run), **skip and report** — do not unlock
-      a live subagent's worktree and do not force-remove. `--force`
-      remains reserved for the data-loss carve-out (uncommitted work
-      or unpushed commits the user has explicitly approved
-      discarding), not for bypassing a lock.
+      a live subagent's worktree and do not force-remove. This is the
+      check that keeps a running agent's worktree out of the pass, and
+      with the enumeration above widened past `worktree-*` it is doing
+      that job for every agent worktree rather than a subset of them:
+      the harness holds a lock naming its own PID for as long as the
+      subagent runs. Match that shape by its prefix, never as a whole
+      string — the parenthesis carries more than the PID (measured
+      here: `claude agent agent-<hash> (pid 97557 start Wed Sep  2
+      23:15:24 2026)`), and a whole-string match would read every live
+      lock as unrecognized. `--force` remains reserved for the
+      data-loss carve-out (uncommitted work or unpushed commits the
+      user has explicitly approved discarding), not for bypassing a
+      lock.
 
    b. **Pass 2 — orphan branch refs with no worktree.** Some
       `worktree-*` branches are left behind as local refs after their
