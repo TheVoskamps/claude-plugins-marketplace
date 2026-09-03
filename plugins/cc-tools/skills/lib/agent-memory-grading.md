@@ -27,6 +27,9 @@ So read, in full:
 - the root `CLAUDE.md`, plus any nested `CLAUDE.md`
 - `.claude/rules/*.md`
 - `docs/*.md`
+- the README governing what each entry claims about — the nearest one
+  above that code, which in most repositories is the repo's single
+  top-level README
 - the code each entry makes a claim about
 
 ## The delete cases
@@ -42,8 +45,9 @@ An entry is deleted when it:
 - **Narrates finished work.** "Slice 3 added the retry loop" is a
   changelog, and `git log` already holds it. A memory earns its place
   by binding future behavior, not by recording past behavior.
-- **Restates content already in `CLAUDE.md`,** in `.claude/rules/`, or
-  in a skill or agent definition.
+- **Restates content already in a transfer destination** — `CLAUDE.md`,
+  a `docs/*.md`, or a governing README — or in `.claude/rules/`, or in
+  a skill or agent definition.
 - **Duplicates another entry.** Merge the surviving content into the
   more complete entry first, then delete the duplicate.
 
@@ -57,7 +61,7 @@ deleting, produce the check:
 | the code already says it | the file and lines that say it |
 | names an external source of truth | the pointer, quoted from the entry |
 | narrates finished work | the past-tense narration, quoted |
-| already in `CLAUDE.md` or a rule | the file and lines that say it |
+| already in `CLAUDE.md`, a `docs/*.md`, a governing README, a rule, or a skill or agent definition | the file and lines that say it |
 | duplicate | the entry it duplicates |
 
 If you cannot produce the check, the verdict is not delete. Fall back
@@ -102,9 +106,33 @@ states that outcome itself.
 
 ## Where a transfer lands
 
-- **`CLAUDE.md`** when the constraint governs how anyone works in the
-  repo.
-- **The closest-fitting `docs/*.md`** when it is subsystem lore.
+Narrowest first. Take the first one that fits:
+
+- **The README governing the tree the constraint applies to** when the
+  constraint governs one part of the repo rather than the whole of it.
+  "Governing" means the nearest README above the code the constraint
+  is about, however deep that sits — a subtree carrying its own README
+  owns the constraints about that subtree. When no README governs that
+  tree, create one at the tree's root and land the constraint in it.
+  Write that new file as a user manual for someone deciding whether to
+  use what the tree ships — what it does, why they would want it, what
+  it needs, how to start, and what it deliberately does not do — never
+  a per-file catalogue, and mirror the shape of a README the repo
+  already ships elsewhere.
+- **The closest-fitting `docs/*.md`** when the lore spans trees.
+- **`CLAUDE.md`** when the constraint governs how anyone works
+  anywhere in the repo.
+
+A transfer into a README writes a file inside the tree that README
+governs, whether it edits a README already there or creates one, and
+some repos require a change inside such a tree to carry a companion
+edit — a version bump in the manifest beside it, say. That obligation
+is the host repo's, never this rubric's: make the companion edit when
+the repo's own rules say a change there must carry one, and make none
+where they say nothing. A calling skill that commits its transfers
+stages any companion edit it did make alongside the README it wrote or
+created; one that leaves its edits for a human to commit leaves the
+companion edit in the working tree with them.
 
 Add to the section that already covers the surrounding subject rather
 than opening a new one, and correct a statement already there when the

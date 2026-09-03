@@ -1,6 +1,6 @@
 ---
 name: agent-memory-inbox-cleanup
-description: "Curate the session's per-branch agent-memory inbox in one acting pass. Grades every captured entry transfer-or-delete, writes the durable ones into CLAUDE.md or docs as present-tense constraints, commits and pushes them on the given branch, and empties the inbox. Takes the branch name."
+description: "Curate the session's per-branch agent-memory inbox in one acting pass. Grades every captured entry transfer-or-delete, writes the durable ones into the repo's own documentation as present-tense constraints, commits and pushes them on the given branch, and empties the inbox. Takes the branch name."
 argument-hint: <branch>
 user-invocable: false
 ---
@@ -37,7 +37,7 @@ Two, and no more:
 
 | Verdict | What happens |
 | --- | --- |
-| **transfer** | the constraint is written into `CLAUDE.md` or a `docs/*.md`, and the inbox entry is deleted |
+| **transfer** | the constraint is written into a governing README, a `docs/*.md`, or `CLAUDE.md`, and the inbox entry is deleted |
 | **delete** | the inbox entry is deleted and nothing is written |
 
 There is no third verdict that keeps an entry where it is — nothing
@@ -46,7 +46,8 @@ of the session with extra steps. Two consequences the rubric leaves to
 each calling skill follow:
 
 - An entry the rubric grades under "Entries with no code home"
-  transfers into `CLAUDE.md`, having nowhere here to be kept.
+  transfers to the narrowest destination that fits it, having nowhere
+  here to be kept.
 - The verdict turns on the surviving bar, not the delete bar.
   `transfer` iff the entry states a present-tense constraint this repo
   should carry — the rubric's "What counts as durable" or the class
@@ -112,11 +113,14 @@ cannot take back.
 
 ### Land the transfers
 
-Stage by explicit path — `CLAUDE.md` and each `docs/*.md` you changed,
-whether you wrote a constraint into it or cut one out of it. Never
-`git add -A`, and never a directory-wide add. Nothing under
-`.claude/agent-memory/` is ever staged: the memory tree is not part of
-this flow.
+Stage by explicit path — `CLAUDE.md`, each `docs/*.md`, and each
+README you changed, whether you wrote a constraint into it, cut one
+out of it, or created the file to receive a transfer — a README you
+created is untracked, so staging it by path is what puts it in the
+commit at all — plus any companion edit the repo's own rules obliged
+that change to carry. Never `git add -A`, and never a directory-wide
+add. Nothing under `.claude/agent-memory/` is ever staged: the memory
+tree is not part of this flow.
 
 ```bash
 git add <each path you changed>
@@ -177,6 +181,10 @@ Cut from <destination> (N):
 Inbox: emptied
 Commit: <SHA> | none — <why nothing was staged>
 ```
+
+A `<destination>` the transfer created rather than edited carries
+`(created)` after its path — the caller has no other way to tell a new
+file from an amended one.
 
 Where the inbox was absent or empty, the report is that one fact plus
 `Commit: none`.

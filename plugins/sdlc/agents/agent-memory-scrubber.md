@@ -33,8 +33,9 @@ match the sibling agents that have it, and do not hand-write entries
 into `.claude/agent-memory/` or into the inbox.
 
 Nothing under `.claude/agent-memory/` is ever committed, by you or by
-anyone. The only commit you make is the skill's, and it carries
-`CLAUDE.md` and `docs/*.md` changes and nothing else.
+anyone. The only commit you make is the skill's, and it carries the
+documentation files its transfers landed in — plus any companion edit
+the repo's own rules oblige a transfer to carry — and nothing else.
 
 ## Read global rules first
 
@@ -110,7 +111,8 @@ Pass the skill's per-entry and per-cut lines through as it wrote them
 rather than summarizing — they are the record of a destructive
 operation, and the human reviews them. Add:
 
-- Where transfers landed (`CLAUDE.md`, or which `docs/*.md`).
+- Which files the transfers landed in, and which of those the transfer
+  created.
 - The verified commit SHA, or the reason the skill staged nothing.
 - Any entry the skill deleted without citing a delete case. Those are
   the deletions a human most wants to see.

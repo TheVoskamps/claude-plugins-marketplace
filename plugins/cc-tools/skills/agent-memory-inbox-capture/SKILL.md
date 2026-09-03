@@ -1,6 +1,6 @@
 ---
 name: agent-memory-inbox-capture
-description: "Copy the invoking agent's own .claude/agent-memory/<plugin>-<agent>/ entry files that outlive this run into the session's per-branch agent-memory inbox under the scratchpad, so a curator can transfer the durable ones into CLAUDE.md or docs. Takes no arguments and commits nothing."
+description: "Copy the invoking agent's own .claude/agent-memory/<plugin>-<agent>/ entry files that outlive this run into the session's per-branch agent-memory inbox under the scratchpad, so a curator can transfer the durable ones into the repo's own documentation. Takes no arguments and commits nothing."
 user-invocable: false
 ---
 

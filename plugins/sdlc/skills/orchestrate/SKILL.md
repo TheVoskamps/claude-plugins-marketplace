@@ -1129,8 +1129,9 @@ inbox for this branch, so the scrubber's pass grades the whole run's
 entries. `pr-finalizer` running after the scrubber is therefore not a
 re-trigger: it captures nothing, and it puts no commit on the branch
 either. Nothing about that capture is on the branch: the inbox lives
-under the harness scratchpad, and the scrubber's commit carries
-`CLAUDE.md` and `docs/` changes and nothing else.
+under the harness scratchpad, and the scrubber's commit carries the
+documentation files its transfers landed in — plus any companion edit
+the repo's own rules oblige a transfer to carry — and nothing else.
 
 One pass is therefore the normal outcome, but it is a *consequence* of
 running after every memory-declaring teammate — not a budget, and not
@@ -1169,9 +1170,9 @@ name:
 PR <PR_N> has settled its review loop. Branch: <branch-name>
 
 Curate the PR's agent memory per your agent definition. Report back
-what was transferred, what was deleted, and what was cut from a
-destination file, where transfers landed, and the commit SHA you
-pushed — or, if nothing was staged, why.
+what was transferred, what was deleted, and what was cut from or
+created as a destination file, where transfers landed, and the commit
+SHA you pushed — or, if nothing was staged, why.
 ```
 
 Remove its worktree after it returns, the same way as any other

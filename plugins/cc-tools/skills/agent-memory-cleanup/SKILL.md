@@ -1,6 +1,6 @@
 ---
 name: agent-memory-cleanup
-description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or CLAUDE.md already says, moves durable lore into CLAUDE.md or docs as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
+description: "Curate a repo's .claude/agent-memory/ in one acting pass. Grades every entry persist / scrub / transfer, deletes what the code or the repo's documentation already says, moves durable lore into that documentation as present-tense constraints, and repairs the MEMORY.md indexes and wikilinks. Takes an optional PR number; with none, curates the current working tree."
 argument-hint: [PR-number]
 ---
 
@@ -16,9 +16,9 @@ having no memory at all.
 
 This skill is the curation pass over that directory. It runs after the
 writers have captured, grades each entry, and **acts**: it deletes, it
-moves durable lore into `CLAUDE.md` or `docs/*.md`, and it repairs the
-indexes. It is not read-only, and it does not hand a recommendation to
-someone else to apply.
+moves durable lore into the repo's own documentation, and it repairs
+the indexes. It is not read-only, and it does not hand a
+recommendation to someone else to apply.
 
 Read `skills/lib/agent-memory-grading.md` for the grading rubric — what
 counts as durable, the evidence a delete must produce, how a transfer
@@ -209,8 +209,7 @@ grep -rn "\[\[<slug>\]\]" .claude/agent-memory/
 Repair each hit:
 
 - **Transferred** — the content still exists, so replace the link with
-  a plain-prose reference to where it now lives (`CLAUDE.md`, or the
-  doc file).
+  a plain-prose reference to the destination file it landed in.
 - **Merged** — the content survives under the merge target's slug, so
   repoint the link at that slug.
 - **Scrubbed** — the content is gone entirely, so remove the link and
@@ -223,9 +222,13 @@ defect to chase.
 ### Land the result
 
 **Autonomous mode** (a PR number was passed) — stage by explicit path:
-every memory path you deleted or edited, plus `CLAUDE.md` and each
-`docs/*.md` you changed, whether you wrote a constraint into it or cut
-one out of it. Never `git add -A`, and never a directory-wide add.
+every memory path you deleted or edited, plus `CLAUDE.md`, each
+`docs/*.md`, and each README you changed, whether you wrote a
+constraint into it, cut one out of it, or created the file to receive
+a transfer — a README you created is untracked, so staging it by path
+is what puts it in the commit at all — plus any companion edit the
+repo's own rules obliged that change to carry. Never `git add -A`, and
+never a directory-wide add.
 
 ```bash
 git add <each path you changed>
@@ -291,9 +294,10 @@ curation.
 nothing. Leave in place whatever "Apply the verdicts" step 3 already
 staged for formerly-untracked entries — that staging **is** their
 undo; do not `git reset` it to make the tree match "nothing staged"
-literally. Show `git diff --stat` and stop. The working tree (staged
-plus unstaged) is the deliverable, and the human decides what to
-commit.
+literally. Show `git diff --stat`, and name alongside it any README you
+created to receive a transfer — that file is untracked, so the stat
+never mentions it — then stop. The working tree (staged plus unstaged)
+is the deliverable, and the human decides what to commit.
 
 ## Output
 
@@ -318,6 +322,10 @@ Cut from <destination> (N):
 Indexes fixed: <agent>/MEMORY.md, ...
 Wikilinks repaired: <count>
 ```
+
+A `<destination>` the transfer created rather than edited carries
+`(created)` after its path — a reader has no other way to tell a new
+file from an amended one.
 
 Then the tail for the mode you ran in. In autonomous mode, a `Commit:`
 line carrying either the SHA — once the post-push check above has
