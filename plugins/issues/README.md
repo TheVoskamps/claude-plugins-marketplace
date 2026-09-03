@@ -38,11 +38,16 @@ verbs serve a Jira backend, and only the calls underneath differ.
   backend; `acli` for Jira, plus the `issues-jira` plugin, which is
   where the Jira command templates live.
 
-A project board is **optional**. With no `github-project:` block in
-the config, the verbs and flags that need project metadata
-(`--type`, `--priority`, `--size`, `--status`, and their `set-` verbs)
-warn and skip rather than failing, and everything that touches only
-the issue itself works unchanged.
+A project board is **optional**, and the two ways of reaching project
+metadata degrade differently without a `github-project:` block.
+`/issue-create`'s `--type`, `--priority`, `--size` and `--status` warn
+and skip the flag, so the issue is still filed. The dedicated
+`/issue-set-type`, `/issue-set-priority`, `/issue-set-size` and
+`/issue-set-status` abort instead, pointing at `/repo-config`: setting
+the field is the whole run there, so skipping it would leave nothing
+to do. Everything that touches only the issue itself — bodies,
+comments, labels, assignees, parents and blocked-by edges — works
+unchanged.
 
 Personal defaults — `default-assignee`, for one — are optional too,
 and live in a user-config file written by `/issues:user-config` (this
@@ -119,6 +124,22 @@ them say it either way.
 - **No config written behind your back.** `/repo-config` is the only
   writer of the repo config and it rewrites the whole file from an
   interview; no verb edits it mid-run to record what it discovered.
+
+## Mutation shapes live only in the lib's templates
+
+The GraphQL templates in `skills/lib/issue.md` are the one place a
+mutation's argument names and nesting are written down. Every other
+passage — a `SKILL.md` step, and the lib's own prose outside that
+section — names the template it calls and says which value fills each
+input in role terms ("the blocked issue and the blocker", "the field
+from `fields.status.id`"), never respelling the arguments themselves.
+Prose that spells them reads as a specification complete enough to
+build the call from, so the next reader builds one instead of opening
+the template; nothing makes that paraphrase fail when the template
+changes, and the malformed-input error that follows looks like an
+upstream schema change rather than a stale runbook. Changing a
+mutation stays a one-file edit for exactly as long as no step has
+re-specified it.
 
 ## The config paths are literals every consumer spells itself
 

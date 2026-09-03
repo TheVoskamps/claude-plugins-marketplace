@@ -668,3 +668,24 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
+
+## An overview list is the wrong authority for a per-verb behavior
+
+A long contract file carries both a friendly overview section and the
+per-operation routine that actually runs, and a summary written for a
+README is distilled from the overview, because that is the passage
+written to be summarized. The overview quantifies over a list to stay
+short, so a member whose routine diverges is absorbed silently, and
+the new summary then reads as sourced from the contract when its
+source was the one passage in the contract nobody re-derives.
+
+`skills/lib/issue.md` said commands and flags requiring project
+metadata "emit a one-line warning and skip that step rather than
+aborting the whole run", listing `/issue-create`'s slot flags and the
+set-slot verbs together; the same file's set-slot dispatcher and error
+catalogue both say the set-slot verbs abort, as does each of those
+verbs' own `SKILL.md`. The check is to take each member of the
+overview's list to the routine that executes it — the dispatcher, the
+catalogue entry, the verb's own file — before quoting the overview
+anywhere, and to repair the overview rather than the summary when they
+disagree.
