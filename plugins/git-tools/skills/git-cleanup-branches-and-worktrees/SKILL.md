@@ -222,10 +222,14 @@ with `fatal: bad revision` — cannot occur.
 
       - **Branch has an upstream configured** (`git rev-parse
         --abbrev-ref --symbolic-full-name <branch>@{upstream}` succeeds
-        and the upstream still exists on origin): use the same
-        `@{upstream}..HEAD` empty check as Pass 1. If empty, delete the
-        branch with `git branch -d`. If non-empty, skip and report
-        (the branch holds unpushed work).
+        and the upstream still exists on origin): check that
+        `git rev-list <branch>@{upstream}..<branch>` is empty — the
+        branch is checked out in no worktree, so the check names the
+        branch rather than `HEAD`, and a configured upstream answers
+        the question directly where Pass 1's detached worktrees forced
+        the broader `--remotes=origin` form. If empty, delete the
+        branch with `git branch -d`. If non-empty, skip and report (the
+        branch holds unpushed work).
       - **Branch has no upstream configured, or the upstream is gone**
         (the harness creates these refs but never pushes them, so
         `@{upstream}..HEAD` fails loudly rather than giving a clean
