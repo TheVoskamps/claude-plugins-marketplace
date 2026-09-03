@@ -521,7 +521,17 @@ list-member `IssueFieldCreateOrUpdateInput` (the native-issue-field
 write path — see "`setIssueFieldValue` — native issue field
 (single-select)").
 
-Use the templates below verbatim.
+Use the templates below verbatim, and treat them as the **only**
+place a mutation's shape is written. A caller — a `SKILL.md` step, or
+any other prose outside this section — names which template it uses
+and which value supplies each input in role terms ("the blocked issue
+and the blocker", "the field from `fields.status.id`"), and never
+restates the mutation's own argument names or nesting. Prose that
+spells the arguments reads as a specification complete enough to build
+the call from, so a reader builds one instead of opening the template;
+nothing then makes the paraphrase fail when a template changes, and
+the malformed-input error that follows looks like an upstream schema
+change rather than a misread runbook.
 
 Variable substitutions use `<...>` for the call site to fill in.
 Where the template takes runtime arguments, prefer

@@ -57,7 +57,7 @@ there is no way to resolve the requested type name.
 
 ## Execution (GitHub backend)
 
-1. **Resolve the type name to an `issueTypeId`** per the
+1. **Resolve the type name to a type ID** per the
    "Name -> ID lookup rules" in `skills/lib/issue.md`. Case-folding is
    applied; whitespace is significant. If the name does not match any
    key in `github-project.issue-types` (excluding the `default:` key,
@@ -77,14 +77,13 @@ there is no way to resolve the requested type name.
    catalogue and abort.
 
 4. **Pre-check (idempotency)**: if the issue's current
-   `issueType.id` already equals the `issueTypeId` resolved in step 1,
+   `issueType.id` already equals the type ID resolved in step 1,
    print the no-op echo (below) and exit zero without calling the
    mutation.
 
 5. **Set the issue type** via the `updateIssueIssueType` template from
-   `skills/lib/issue.md`. Pass:
-   - `issueId = <resolved issue node id>`
-   - `issueTypeId = <type id resolved in step 1>`
+   `skills/lib/issue.md`, supplying the resolved issue node ID and the
+   type ID resolved in step 1.
 
 ## Output
 

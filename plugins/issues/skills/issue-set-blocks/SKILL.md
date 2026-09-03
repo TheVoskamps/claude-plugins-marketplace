@@ -54,13 +54,10 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    already blocks #<B>; no change.`) and exit zero.
 
 3. **Create the edge** via the `addBlockedBy` template from
-   `skills/lib/issue.md`. Note the **swapped arguments** vs.
-   `/issue-set-blocked-by`:
-   - `issueId = <node id of <blocked-N>>` (the **blocked** issue is
-     what `addBlockedBy.issueId` names; see the lib's call-site
-     mapping).
-   - `blockingIssueId = <node id of <N>>` (the **blocker** — i.e.
-     the first CLI argument).
+   `skills/lib/issue.md`, with the two roles **inverted** vs.
+   `/issue-set-blocked-by`: `<blocked-N>` is the **blocked** issue and
+   `<N>` — the first CLI argument — is the **blocker**. Supply each as
+   its node ID; the lib's call-site mapping states the same inversion.
 
 4. **Issue not found**: if either node-ID lookup returns
    `repository.issue: null`, emit the "Issue not found" error from

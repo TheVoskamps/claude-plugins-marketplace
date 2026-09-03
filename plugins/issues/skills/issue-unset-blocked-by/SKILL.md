@@ -45,9 +45,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    not blocked by #<B>; no change.`) and exit zero.
 
 3. **Remove the edge** via the `removeBlockedBy` template from
-   `skills/lib/issue.md`. Pass:
-   - `issueId = <node id of N>`
-   - `blockingIssueId = <node id of B>`
+   `skills/lib/issue.md`, with `<N>` as the **blocked** issue and
+   `<blocker-N>` as the **blocker**, each supplied as its node ID.
 
 4. **Issue not found**: if either node-ID lookup returns
    `repository.issue: null`, emit the "Issue not found" error from

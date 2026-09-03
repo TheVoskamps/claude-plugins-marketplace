@@ -223,8 +223,8 @@ what didn't — do not roll back successful steps.
 
 7. **Link to parent**, if `--parent` was passed. Look up the parent's
    node ID (re-use the node-ID lookup template, trimmed to `id`), then
-   call the `addSubIssue` template with `issueId: <parent-id>` and
-   `subIssueId: <new-issue-id>`.
+   call the `addSubIssue` template, taking `--parent`'s issue as the
+   parent and the newly created issue as the child.
 
 8. **Set priority**, if `--priority` resolved to a concrete value.
    Dispatch on `github-project.fields.priority.kind:` and follow the
@@ -232,13 +232,14 @@ what didn't — do not roll back successful steps.
    `skills/lib/issue.md`:
    - **`kind: number`** — validate the parsed integer against
      `[min, max]`, then call the
-     `updateProjectV2ItemFieldValue` number-field template with
-     `fieldId = fields.priority.id`.
+     `updateProjectV2ItemFieldValue` number-field template, taking
+     the field from `fields.priority.id`.
    - **`kind: single-select`** — resolve the option name to an
      option ID via the case-insensitive lookup rules
      ("Name -> ID lookup rules"), then call the
-     `updateProjectV2ItemFieldValue` single-select-field template
-     with `fieldId = fields.priority.id` and that `optionId`.
+     `updateProjectV2ItemFieldValue` single-select-field template,
+     taking the field from `fields.priority.id` and the option
+     resolved above.
    - **`kind: label`** — resolve the option name against
      `fields.priority.options` (flat list, case-insensitive), then
      follow the "Label-namespace update (`gh issue edit`, not
@@ -251,9 +252,9 @@ what didn't — do not roll back successful steps.
      **issue-field write path** from the "Set-slot dispatcher" routine
      in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
      the "`setIssueFieldValue` — native issue field (single-select)"
-     template with `issueId = <the issue node ID from step 4>`,
-     `fieldId = fields.priority.field-id`, and
-     `optionId = fields.priority.options.<canonical>`. This writes on
+     template, taking the issue node ID from step 4, the field from
+     `fields.priority.field-id`, and the option from
+     `fields.priority.options.<canonical>`. This writes on
      the issue itself and does **not** depend on the project-item
      lookup from step 5 — it works even when the issue is not on (or
      there is no) project board.
@@ -271,12 +272,12 @@ what didn't — do not roll back successful steps.
    dispatch shape as step 8, against
    `github-project.fields.size.kind:`:
    - **`kind: number`** — validate against `[min, max]`, then call
-     the `updateProjectV2ItemFieldValue` number-field template with
-     `fieldId = fields.size.id`.
+     the `updateProjectV2ItemFieldValue` number-field template, taking
+     the field from `fields.size.id`.
    - **`kind: single-select`** — resolve the option name to an
      option ID, then call the `updateProjectV2ItemFieldValue`
-     single-select-field template with `fieldId = fields.size.id` and
-     that `optionId`.
+     single-select-field template, taking the field from
+     `fields.size.id` and the option resolved above.
    - **`kind: label`** — resolve the option name against
      `fields.size.options`, then follow the "Label-namespace update
      (`gh issue edit`, not GraphQL)" recipe with
@@ -286,9 +287,9 @@ what didn't — do not roll back successful steps.
      **issue-field write path** from the "Set-slot dispatcher" routine
      in `skills/lib/issue.md`: check `viewerCanSetFields`, then call
      the "`setIssueFieldValue` — native issue field (single-select)"
-     template with `issueId = <the issue node ID from step 4>`,
-     `fieldId = fields.size.field-id`, and
-     `optionId = fields.size.options.<canonical>`. This writes on the
+     template, taking the issue node ID from step 4, the field from
+     `fields.size.field-id`, and the option from
+     `fields.size.options.<canonical>`. This writes on the
      issue itself and does **not** depend on the project-item lookup
      from step 5 — it works even when the issue is not on (or there is
      no) project board. GitHub's native `Effort` field is the size
@@ -307,7 +308,8 @@ what didn't — do not roll back successful steps.
     resolves the status name to an option ID via the
     case-insensitive lookup rules ("Name -> ID lookup rules") and
     calls the `updateProjectV2ItemFieldValue` single-select-field
-    template with `fieldId = fields.status.id` and that `optionId`.
+    template, taking the field from `fields.status.id` and the option
+    resolved above.
     The remaining kinds (`number`, `label`, `issue-field`, and
     `skip`/absent) follow the same per-kind write paths as in step 8.
 
