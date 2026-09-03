@@ -364,8 +364,8 @@ has not begun and is never overdue.
 
 **A child names itself from its own cwd, so nothing has to be passed
 in.** The harness names an `isolation: worktree`
-worktree `agent-<id>` — the same shape its stale worktree locks read
-back as `claude agent agent-<hash> (pid NNNN)`, and the same shape its
+worktree `agent-<id>` — the same shape its worktree locks read
+back as `claude agent agent-<hash> (pid NNNN …)`, and the same shape its
 transcript file `agent-<id>.jsonl` carries — so `basename "$PWD"`
 with that prefix stripped is a child's own id, and one record can be
 told from the record of the child that replaced it. Derive it in the
