@@ -264,8 +264,8 @@ violations that do surface arrive as ad-hoc reviewer nits rather than
 as reproduced, verified findings.
 
 Read the global guides, at `~/.claude/docs/rules/code-style.md` and
-`~/.claude/docs/rules/documentation-style.md`. Each carries its own
-Structure contract and its own pointer to the repo's extension file,
+`~/.claude/docs/rules/documentation-style.md`. Each names the Structure
+contract that governs it and the repo extension file that extends it,
 and both are the guide's to state and yours to follow: what a rule is,
 what in a guide is one, and where any further layer lives all come from
 the guide you are reading rather than from here.
