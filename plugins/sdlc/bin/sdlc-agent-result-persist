@@ -21,7 +21,7 @@ die() {
 
 usage() {
   cat <<EOF
-usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
+usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|killed|print
                 --scratchpad <dir> --owner <owner> --repo <repo>
                 --pr <n> --round <n>
                 [--head-sha <sha>] [--theorem <id>]
@@ -85,7 +85,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$mode" in
-  anchor|spawn|enter|leave|return|stopped|print) ;;
+  anchor|spawn|enter|leave|return|stopped|killed|print) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
@@ -123,7 +123,7 @@ single_token() {
 }
 
 case "$mode" in
-  spawn|enter|leave|return|stopped)
+  spawn|enter|leave|return|stopped|killed)
     [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
     single_token theorem "$theorem"
     # A result file is named <log>-<theorem>-<agent> and --mode print
@@ -280,6 +280,9 @@ case "$mode" in
     ;;
   stopped)
     printf 'stopped %s %s %s\n' "$theorem" "$stage" "$(now)" >> "$file"
+    ;;
+  killed)
+    printf 'killed %s %s %s\n' "$theorem" "$stage" "$(now)" >> "$file"
     ;;
   print)
     [ -e "$file" ] || die "no round log at $file"

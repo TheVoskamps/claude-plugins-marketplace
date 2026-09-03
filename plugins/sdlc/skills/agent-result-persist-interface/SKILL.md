@@ -20,11 +20,12 @@ its own entry and its own exit**, and the caller's view of a child is
 telemetry rather than truth.
 
 `sdlc:theorem-based-pr-reviewer` anchors the round, records each spawn,
-reads the log back, and records a child it writes off. The theorem
-generator, `sdlc:theorem-disprover` and `sdlc:counterexample-verifier`
-each write their own `enter` and `leave`. **Every record is a single
-atomic append**, so no two writers can be ordered wrongly and no call
-has to know what the log already holds.
+reads the log back, and records a child it writes off or kills. The
+theorem generator, `sdlc:theorem-disprover` and
+`sdlc:counterexample-verifier` each write their own `enter` and
+`leave`. **Every record is a single atomic append**, so no two writers
+can be ordered wrongly and no call has to know what the log already
+holds.
 
 ## Invocation
 
@@ -145,11 +146,18 @@ writes**, and `print` for the one that reads.
   derivation below reads it, and a stage never waits on one. An omitted
   number leaves its column empty rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
-  `--stage`. The caller's, at a child's deadline and again for any
-  child of its own still outstanding when it returns. It writes one
+  `--stage`. The caller's, at a child's deadline. It writes one
   whether or not it `TaskStop`ped that child — a predecessor
   instance's child is never its to stop, and the record is what says
   the child was written off either way.
+- **`killed`** — appends one `killed` record for `--theorem` in
+  `--stage`. The caller's, on its way out, for a child it spawned and
+  `TaskStop`ped before returning. Where `stopped` leaves open that the
+  written-off child is still running, `killed` says nothing is running
+  in that child's tree, so a later cleanup can remove that worktree on
+  what the log proves rather than on a promise made in prose. It is
+  never written for a predecessor instance's child: no instance can
+  stop one, so none can say that of one.
 - **`print`** — writes the round log to stdout, followed by one
   `result` line per result file present. A `.partial-<pid>` staging
   from a `leave` still in flight is **skipped**, so a report reaches a
@@ -176,6 +184,7 @@ enter   <theorem> <stage> <instant> <agent-id> <transcript-path>
 leave   <theorem> <stage> <instant> <agent-id> <result-file>
 return  <theorem> <stage> <instant> <agent-id> tokens=<n> tools=<n> ms=<n>
 stopped <theorem> <stage> <instant>
+killed  <theorem> <stage> <instant>
 ```
 
 `--mode print` adds one line per result file it finds, synthesized from
@@ -201,11 +210,15 @@ theorem id.
 
 **Two lifecycles share the log, and the split is what keeps the
 vocabulary from drifting the next time a kind is added.** `spawn`,
-`return` and `stopped` are the caller's view of a child — it asked for
-one, it heard back about one, it wrote one off. `enter` and `leave` are
-the child's own — it began, and it finished. A caller therefore never
-writes an `enter` or a `leave`, and a child never writes any of the
-other three.
+`return`, `stopped` and `killed` are the caller's view of a child — it
+asked for one, it heard back about one, it wrote one off, it ended
+one. `enter` and `leave` are the child's own — it began, and it
+finished. A caller therefore never writes an `enter` or a `leave`, and
+a child never writes any of the other four. `stopped` and `killed` are
+two kinds rather than one because the checked meaning keeps the name:
+the return sweep needed a record saying nothing is running, and
+widening `stopped` to carry it would have cost every reader the
+difference it checks.
 
 A `spawn` record is written per child rather than per theorem, so a
 theorem re-spawned in a later wave carries one for each attempt. That
@@ -251,12 +264,13 @@ log.
 **Whether an outstanding theorem has a child in flight is a second
 question, and it is keyed on the child rather than on the theorem.** A
 theorem is in flight when its **last** `enter` in that stage carries an
-agent id that no `leave` of that theorem carries, and no `stopped`
-follows that `enter`:
+agent id that no `leave` of that theorem carries, and no `stopped` and
+no `killed` follows that `enter`:
 
 ```bash
 awk '$1=="enter"   && $3==stage {child[$2]=$5; gone[$2]=0}
      $1=="stopped" && $3==stage {gone[$2]=1}
+     $1=="killed"  && $3==stage {gone[$2]=1}
      $1=="leave"   && $3==stage {done[$2" "$5]=1}
      $1=="result"  && $3==agent {left[$2]=1}
      END{for(t in child) if(!gone[t] && !(t in left) && !((t" "child[t]) in done)) print t}' \
@@ -267,13 +281,15 @@ That is the question a deadline arm asks — an outstanding theorem with
 no child in flight has nothing to be overdue — and the one the next
 wave asks before spawning.
 
-`stopped` kills the **child**, not the **theorem**: it subtracts from
-in-flight and not from outstanding. A derivation that left the child in
-flight would report the theorem overdue on every later read and take
-the deadline arm against a child already written off; one that
-subtracted the theorem from the outstanding set would report an
-unanswered theorem as settled. The `enter` record, not this one, is
-what names the stopped child's worktree for cleanup.
+`stopped` and `killed` each end the **child**, not the **theorem**:
+both subtract from in-flight and neither subtracts from outstanding. A
+derivation that left the child in flight would report the theorem
+overdue on every later read and take the deadline arm against a child
+already gone; one that subtracted the theorem from the outstanding set
+would report an unanswered theorem as settled. A killed child is no
+more awaited than a written-off one, so the arm answers the same
+question for both. The `enter` record, not either of these, is what
+names that child's worktree for cleanup.
 
 **A duplicate `leave` is a diagnostic, not a conflict, and the later
 one wins.** A child written off as lost can report anyway, leaving one

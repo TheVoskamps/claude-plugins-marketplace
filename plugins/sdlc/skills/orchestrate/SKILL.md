@@ -513,6 +513,16 @@ agent that ran there:
 <absolute-worktree-path> <branch-or-dash> <agent-name>
 ```
 
+**Columns 2 and 3 have no reader, and that is deliberate.** The
+terminal cleanup derives everything it acts on from column 1 — the
+agent id it stops and the throwaway branch it deletes are both that
+path's own basename, and the issue branch is never deleted. The other
+two columns are there for a **human post-mortem**: which agent held
+which branch in which directory is what makes an abandoned run legible
+afterwards, and the run is over by the time anyone opens the file. Do
+not go looking for the consumer, and do not drop a column for want of
+one.
+
 Append a record the moment a worktree's owner is done with it, never
 earlier: a path recorded while its agent is still running is a path
 the terminal cleanup would act on if the run ended abruptly. Append
@@ -1495,9 +1505,15 @@ Each step of that is licensed by something the run knows:
   teammates, and the reviewer stopped its own fan-out children before
   it returned — so a lock left on one is a stale end-state lock rather
   than a live agent's, and you are not inferring that from the lock
-  reason. One case escapes that and is named rather than papered over:
-  a reviewer killed before it could return stopped nothing, so a child
-  of its can still be running here. It is still this run's worktree and
+  reason. For a fan-out child that is not a promise made in prose: the
+  reviewer appends a `killed` record for every child it stops on its
+  way out, so a theorem whose last `enter` in a stage is followed by a
+  `killed` has nothing running in its tree, and the record is what says
+  so (`sdlc:agent-result-persist-interface` → "The modes"). One case
+  escapes that and is named rather than papered over: a reviewer killed
+  before it could return stopped nothing and recorded nothing, so a
+  child whose `enter` carries no `leave`, no `stopped` and no `killed`
+  can still be running here. It is still this run's worktree and
   still yours to remove — the human has ended the loop — and it is the
   same case the run file exists to keep from leaking. Not every
   worktree carries a lock, though, and `git worktree unlock` on an
@@ -1772,13 +1788,14 @@ itself:
   run file records plus the stops that ran first, rather than what a
   lock reason suggests: every record's agent has been stopped by the
   instance that could stop it — you for the teammates you spawned, the
-  reviewer for its own fan-out children — before its worktree is
-  touched, the PR is pushed and already flipped ready, and the run
-  knows nothing of value is left in those trees. Outside that step —
-  mid-run, and against any path the run file does not name —
-  force-removal stays a human
-  decision, and so does any cleanup touching a worktree whose subagent
-  is still mid-run or escalated (see "Never act on a subagent
+  reviewer for its own fan-out children, and the reviewer's stops are
+  on the round log as `killed` records rather than taken on trust —
+  before its worktree is touched, the PR is pushed and already flipped
+  ready, and the run knows nothing of value is left in those trees.
+  Outside that step — mid-run, and against any path the run file does
+  not name — force-removal stays a human decision, and so does any
+  cleanup touching a worktree whose subagent is still mid-run or
+  escalated (see "Never act on a subagent
   escalation without human input" above).
 - **Comment on a PR with orchestration metadata** — e.g. "closing
   this PR because we'll respawn the issue", or pointing at a follow-up

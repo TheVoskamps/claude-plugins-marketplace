@@ -135,9 +135,9 @@ no path for it.
 Still `TaskStop` a child at its deadline, per the fan-out sections in
 the workflow below, and again on your way out, per the section that
 follows: both are about the child being mid-run, not about its
-directory, and a stopped child is one a later cleanup can act on.
-`TaskStop` on a child you did not spawn stays forbidden per "You are
-re-entrant".
+directory, and a child you have ended is one a later cleanup can act
+on. `TaskStop` on a child you did not spawn stays forbidden per "You
+are re-entrant".
 
 ## You stop your own children before you return
 
@@ -153,11 +153,16 @@ measurement live in `docs/plugin-authoring-constraints.md` → "Every
 spawner stops its own children before it returns".
 
 So before you return, `TaskStop` every child **you** spawned whose
-`enter` record carries no `leave` and no `stopped` after it, and
-append a `stopped` record for each — the record is what tells the next
-instance the child is gone rather than in flight, which is the
-difference between that instance re-spawning the theorem and waiting
-out a child that will never report.
+`enter` record carries no `leave`, no `stopped` and no `killed` after
+it, and append a `--mode killed` record for each — the record is what
+tells the next instance the child is gone rather than in flight, which
+is the difference between that instance re-spawning the theorem and
+waiting out a child that will never report.
+
+`killed` rather than `stopped` because you stopped this one, and the
+cleanup that removes the worktree afterwards reads the difference — the
+preloaded `sdlc:agent-result-persist-interface` skill owns the two
+kinds.
 
 Do it on **every** path by which you return, not only the one that
 posts a review. The in-progress returns "You are re-entrant" sends you
@@ -198,8 +203,9 @@ question.
 Your half of the contract is these calls, and **not one of them carries
 a verdict**: `--mode anchor` once at the top of the round,
 `--mode spawn` per child you spawn, `--mode return` when a
-`<task-notification>` reaches you, and `--mode stopped` at a child's
-deadline. You read with `--mode print`, on every resume, before you
+`<task-notification>` reaches you, `--mode stopped` at a child's
+deadline, and `--mode killed` per child of your own you stop on your
+way out. You read with `--mode print`, on every resume, before you
 decide anything. Each write appends a single line and rewrites nothing
 already there. The anchor call is **idempotent** — it writes the anchor
 when none is there, no-ops on one naming the same head SHA, and voids
@@ -306,11 +312,11 @@ report, and would never arm the replacement's deadline.
 
 **A theorem with a child still in flight is not re-spawned.** Subtract
 the in-flight set as well as the settled one: a predecessor's child that
-has `enter`ed, has not `leave`d, has no `stopped` after that `enter`,
-and is not yet past its own deadline is running the theorem now, and a
-second child on the same theorem would duplicate the work. The deadline
-is the override, and the only one — an overdue child is precisely the
-one to replace, so record its stop and spawn the replacement. An
+has `enter`ed, has not `leave`d, has no `stopped` and no `killed` after
+that `enter`, and is not yet past its own deadline is running the
+theorem now, and a second child on the same theorem would duplicate the
+work. The deadline is the override, and the only one — an overdue child
+is precisely the one to replace, so record its stop and spawn the replacement. An
 outstanding theorem with no child in flight is spawned without further
 question.
 
@@ -320,10 +326,10 @@ replacement had already reported. Both records stay in the log, the
 later child's report is the one on disk, and that later verdict is the
 theorem's.
 
-**A `stopped` after that `enter` says the child is gone, while the
-theorem stays outstanding.** A stop kills the child, not the theorem:
-the theorem is unanswered and re-spawnable, and it has no child in
-flight until a new `enter` arrives.
+**A `stopped` or a `killed` after that `enter` says the child is gone,
+while the theorem stays outstanding.** Either ends the child, not the
+theorem: the theorem is unanswered and re-spawnable, and it has no
+child in flight until a new `enter` arrives.
 
 **A moved head voids the round.** The `anchor` line carries the head SHA
 the round's theorems were generated against. Compare it against
@@ -350,7 +356,7 @@ anchored anywhere but the child's own `enter` gets wrong.
 
 **Deadlines are per child, measured from its `enter` record.** A child
 with **no** `enter` record has not started and is never overdue; a child
-whose `enter` is followed by a `stopped` has been written off and is
+whose `enter` is followed by a `stopped` or a `killed` is gone and is
 never overdue again, so the deadline arm passes over both.
 
 **Loop while progress continues; hard-stop at 7 resume passes.** A
@@ -861,11 +867,12 @@ reading of the same PR.
 
 **A generator may instead be in flight**, and it is subtracted like any
 other child, per "You are re-entrant" above: an `enter` for the theorem
-`list` with no `leave` and no `stopped` after it says a predecessor's
-generator is reading this PR now, and a second one would renumber the
-round exactly as regenerating would. Wait on it rather than spawning
-beside it — end the turn and resume on its notification, running the
-same three moves per resume that "Fan out the verifiers" defines.
+`list` with no `leave`, no `stopped` and no `killed` after it says a
+predecessor's generator is reading this PR now, and a second one would
+renumber the round exactly as regenerating would. Wait on it rather
+than spawning beside it — end the turn and resume on its notification,
+running the same three moves per resume that "Fan out the verifiers"
+defines.
 
 Its deadline is the same **15 minutes after its own `enter` record** the
 fan-out stages carry, and it is the only override. Past it, `TaskStop`
@@ -1217,9 +1224,9 @@ past every result whose own notification was lost.
    clock and compare it against each outstanding child's own deadline:
    15 minutes after that theorem's most recent `enter` record. A theorem
    with no `enter` record has no child running yet and no deadline to be
-   past, and one whose most recent `enter` is followed by a `stopped`
-   has no child left to be overdue — its child was already written off,
-   and the arm is not taken against it again.
+   past, and one whose most recent `enter` is followed by a `stopped` or
+   a `killed` has no child left to be overdue — its child is already
+   gone, and the arm is not taken against it again.
 
    ```bash
    date -u +%Y-%m-%dT%H:%M:%SZ

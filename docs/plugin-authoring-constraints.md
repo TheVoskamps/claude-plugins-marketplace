@@ -437,9 +437,16 @@ spawned in the first fan-out.
 **Name every mode for the record it writes.** A mode called `header` or
 `detail` describes the shape of a call rather than its meaning, and the
 two vocabularies then drift apart file by file. One word per record kind
-— `anchor`, `spawn`, `enter`, `leave`, `return`, `stopped` — is what
-lets a reader move between the CLI, the log and the procedure without a
-translation table.
+— `anchor`, `spawn`, `enter`, `leave`, `return`, `stopped`, `killed` —
+is what lets a reader move between the CLI, the log and the procedure
+without a translation table. The corollary is what to do when a new
+event arrives: where an existing kind is semantically checked, the
+checked meaning keeps its name and the event gets a kind of its own.
+Review's `stopped` says a child was written off and may still be
+running, which is what its in-flight derivation checks, so the
+spawner's own stop-before-return became `killed` rather than a second
+sense of `stopped` — one kind spelling both leaves a cleanup that has
+to know a tree is quiet with no record that says so.
 
 **One log per round, not one per fan-out.** A stage column on every
 record says which fan-out it belongs to, so two files can never disagree
