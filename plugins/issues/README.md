@@ -29,9 +29,10 @@ verbs serve a Jira backend, and only the calls underneath differ.
 - **`.issues/repo-config.md`, written by `/issues:repo-config`.** This
   is the one prerequisite with a setup step: the interview asks which
   VCS and tracker the repo uses, discovers the project board's field
-  and option IDs, and writes them down. Every verb reads the file and
-  aborts pointing back at `/repo-config` when it is missing or when
-  its `schema-version` is older than the reader requires. It is
+  and option IDs, and writes them down. Every issue verb reads the
+  file and aborts pointing back at `/repo-config` when it is missing
+  or when its `schema-version` is older than the reader requires; the
+  three config verbs write config rather than requiring it. It is
   team-shared and committed, so one person runs the interview per
   repo.
 - **An authenticated CLI for the backend.** `gh` for the GitHub
@@ -39,15 +40,15 @@ verbs serve a Jira backend, and only the calls underneath differ.
   where the Jira command templates live.
 
 A project board is **optional**, and the two ways of reaching project
-metadata degrade differently without a `github-project:` block.
+metadata degrade differently without a `github-project:` block:
 `/issue-create`'s `--type`, `--priority`, `--size` and `--status` warn
-and skip the flag, so the issue is still filed. The dedicated
+and skip the flag, so the issue is still filed, while the dedicated
 `/issue-set-type`, `/issue-set-priority`, `/issue-set-size` and
-`/issue-set-status` abort instead, pointing at `/repo-config`: setting
-the field is the whole run there, so skipping it would leave nothing
-to do. Everything that touches only the issue itself — bodies,
-comments, labels, assignees, parents and blocked-by edges — works
-unchanged.
+`/issue-set-status` abort instead, pointing at `/repo-config`. Why
+each verb degrades the way it does is in `skills/lib/issue.md` →
+"Graceful degradation when the block is missing". Everything that
+touches only the issue itself — bodies, comments, labels, assignees,
+parents and blocked-by edges — works unchanged.
 
 Personal defaults — `default-assignee`, for one — are optional too,
 and live in a user-config file written by `/issues:user-config` (this
@@ -72,9 +73,11 @@ that files an issue, links it under its parent, and reads it back:
 /issue-view 412
 ```
 
-Values are always human-readable names — `High`, `Bug`, `In progress`
-— matched case-insensitively against the options the config records.
-A name that matches nothing is an error, never a guess.
+Values for a select-style slot are human-readable names — `High`,
+`Bug`, `In progress` — matched case-insensitively against the options
+the config records. A name that matches nothing is an error, never a
+guess. A slot the config declares as `kind: number` takes a number
+instead; `skills/lib/issue.md` carries the per-kind rules.
 
 ## Skills
 
@@ -133,13 +136,8 @@ passage — a `SKILL.md` step, and the lib's own prose outside that
 section — names the template it calls and says which value fills each
 input in role terms ("the blocked issue and the blocker", "the field
 from `fields.status.id`"), never respelling the arguments themselves.
-Prose that spells them reads as a specification complete enough to
-build the call from, so the next reader builds one instead of opening
-the template; nothing makes that paraphrase fail when the template
-changes, and the malformed-input error that follows looks like an
-upstream schema change rather than a stale runbook. Changing a
-mutation stays a one-file edit for exactly as long as no step has
-re-specified it.
+Read `skills/lib/issue.md` → "GraphQL templates" before writing such a
+passage; the rule's rationale is stated there.
 
 ## The config paths are literals every consumer spells itself
 

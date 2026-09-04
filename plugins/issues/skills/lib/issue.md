@@ -233,8 +233,8 @@ The kinds:
   only by `name`. Re-introspection against the live schema (see "GraphQL
   templates") found the concrete `IssueFieldSingleSelect` object type
   **does** expose a stable node `id`, and `setIssueFieldValue`'s input
-  (`IssueFieldCreateOrUpdateInput`) addresses the field by that
-  `fieldId`, not by name. The slot therefore stores `field-id:` as the
+  (`IssueFieldCreateOrUpdateInput`) addresses the field by that node
+  ID, not by name. The slot therefore stores `field-id:` as the
   authoritative identifier and keeps `field-name:` only for display.
   `#32` added the `Effort` single-select native field as the `size`
   slot's backing, reusing this same machinery unchanged. The remaining
