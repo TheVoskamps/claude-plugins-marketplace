@@ -1266,8 +1266,9 @@ next.
 
 ### Clean up, once, at the end
 
-Once every review loop has settled and the PRs are flipped ready, and
-before you write the summary, invoke the whole-repo sweep exactly once:
+The sweep runs once per run: after the end-of-loop transitions, however
+many of the run's PRs those flipped, and before you write the summary.
+Invoke the whole-repo sweep exactly once:
 
 ```text
 /git-tools:git-cleanup-branches-and-worktrees
@@ -1276,6 +1277,11 @@ before you write the summary, invoke the whole-repo sweep exactly once:
 Its own gates decide what is safe to remove. Report what it reports, in
 its own words, and add nothing — no count of your own, no list of what
 you expected it to find.
+
+A worktree still locked under a live pid — this session's own included
+— is one the sweep skips by design, so a teammate's worktree can
+outlive the run; the same skill reclaims it on a later run, once the
+pid holding it is gone.
 
 ### Summary
 
@@ -1402,10 +1408,7 @@ on the reviewer's severity line and the fixer's report. Fill them per
     (always re-dispatch fresh if the human says retry)
 
   The line is: if a subagent is mid-run or escalated, the lifecycle
-  decision belongs to the human. The terminal
-  `/git-tools:git-cleanup-branches-and-worktrees` invocation is the
-  only cleanup this flow performs, and its own gates skip anything
-  dirty, not fully pushed, or under a lock it cannot prove is stale.
+  decision belongs to the human.
 - **Never skip the planning phase.** Even for a single issue.
 - **Never spawn a Wave 2 batch concurrently with a conflicting Wave 1
   batch.**
