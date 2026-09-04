@@ -1396,7 +1396,7 @@ the summary is preserved even if the transition fails.
 ### Relationships (parent/child, blocks/blocked-by)
 
 The "One edge, two sides" pattern above applies unchanged — the two
-verbs per edge differ only in how they take their CLI arguments (their
+verbs per edge differ in how they take their CLI arguments (their
 order, or their arity where a verb resolves one end by lookup); the
 underlying Jira link is one edge.
 
