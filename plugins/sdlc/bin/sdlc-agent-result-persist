@@ -121,9 +121,9 @@ case "$mode" in
   spawn|enter|leave|return|stopped)
     [ -n "$theorem" ] || die "--theorem is required in --mode $mode"
     single_token theorem "$theorem"
-    # A result file is named <log>-<theorem>-<agent> and --mode print
-    # splits it back apart at the first dash, so the theorem id carries
-    # none and the agent name is free to.
+    # A result file is named <theorem>-<agent> and --mode print splits
+    # it back apart at the first dash, so the theorem id carries none
+    # and the agent name is free to.
     case "$theorem" in
       *-*) die "--theorem must carry no dash: $theorem" ;;
     esac
