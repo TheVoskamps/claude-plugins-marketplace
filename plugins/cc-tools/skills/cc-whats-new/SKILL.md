@@ -1,7 +1,7 @@
 ---
 name: cc-whats-new
 description: Report what changed in Claude Code since this skill last ran, filtered to the topics in your cc-tools config. Reads the upstream CHANGELOG and searches anthropics/claude-code issues on the same topics. Use when asked what's new in Claude Code, or when starting a session after an update.
-allowed-tools: Bash(gh search issues:*), Bash(gh issue view:*), Bash(claude --version), Bash(cat:*), Bash(ls:*), Bash(mkdir:*), Bash(date:*), Read, Write, Skill, WebFetch
+allowed-tools: Bash(gh search issues:*), Bash(gh issue view:*), Bash(claude --version), Bash(date:*), Read, Write, Skill, WebFetch
 argument-hint: [--since YYYY-MM-DD]
 ---
 
