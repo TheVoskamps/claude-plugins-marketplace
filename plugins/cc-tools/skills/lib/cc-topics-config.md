@@ -104,7 +104,7 @@ Every reader handles each of these outcomes:
 
 Only `/cc-tools:cc-seed-config` creates the file, and only when a
 reader found it absent or the user accepted the offer the
-**Unreadable** case makes. The other two writes are edits to an
+**Unreadable** case makes. The other writes are edits to an
 existing file, and each preserves every key and every topic already
 there: `cc-whats-new` appending a topic the user accepted from its
 discovery section, and `cc-suggest-topics` appending a candidate the

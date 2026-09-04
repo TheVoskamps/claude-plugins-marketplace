@@ -83,10 +83,10 @@ about your own filed issues:
 
 ### Widening the topics list
 
-`/cc-tools:cc-suggest-topics` is the one skill that looks at the
-machine. It reads your **global** Claude configuration — settings,
-installed plugins and marketplaces, the always-loaded rules — derives
-candidate topics from the harness surfaces it finds there, and shows
+`/cc-tools:cc-suggest-topics` is the one skill that mines the machine
+for topics to track. It reads your **global** Claude configuration —
+settings, installed plugins and marketplaces, the always-loaded rules —
+derives candidate topics from the harness surfaces it finds there, and shows
 each one with the file and key it came from, so you can tell a claim
 about your own setup from a topic the skill invented. It appends only
 what you accept. A candidate that restates a topic you already track
@@ -139,7 +139,7 @@ which of its notes were about the branch and which about the repo.
   hooks for nothing, so a surface this machine exercises but your
   topics do not name goes unmentioned in their reports. That is the
   trade: the tools report, you curate. `cc-suggest-topics` is the one
-  place the machine is read, and it only proposes — you run it
+  place those surfaces are read, and it only proposes — you run it
   deliberately, and it writes nothing you did not accept.
 - **Suggestions come from configuration, not from use.** The candidates
   are derived from what the machine is configured for; no transcript
