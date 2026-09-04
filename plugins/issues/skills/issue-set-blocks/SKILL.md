@@ -5,8 +5,8 @@ description: Declare that one issue blocks another (blocked-by edge from the blo
 
 Add a blocking relationship: "issue N blocks issue B". This is the
 blocker's-side view of the same edge that `/issue-set-blocked-by`
-exposes — both verbs call `addBlockedBy`, just with the arguments
-swapped.
+exposes — both verbs write that one edge with the `addBlockedBy`
+template; which CLI argument names the blocker is what differs.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
 dispatch, the "One edge, two sides" pattern, and error wording. This

@@ -5,8 +5,9 @@ description: Remove a blocking relationship between two issues (blocker's side).
 
 Remove a blocking relationship: "issue N no longer blocks issue B".
 This is the blocker's-side view of the same edge that
-`/issue-unset-blocked-by` exposes — both verbs call `removeBlockedBy`
-with swapped arguments.
+`/issue-unset-blocked-by` exposes — both verbs clear that one edge
+with the `removeBlockedBy` template; which CLI argument names the
+blocker is what differs.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
 dispatch, the "One edge, two sides" pattern, and error wording. This

@@ -1394,8 +1394,8 @@ the summary is preserved even if the transition fails.
 ### Relationships (parent/child, blocks/blocked-by)
 
 The "One edge, two sides" pattern above applies unchanged — the two
-verbs per edge differ only in argument order; the underlying Jira link
-is one edge.
+verbs per edge differ only in the order they take their CLI arguments;
+the underlying Jira link is one edge.
 
 - **parent / child** (`/issue-set-parent`, `/issue-set-child`,
   `/issue-unset-parent`, `/issue-unset-child`) — Jira models this as
