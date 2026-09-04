@@ -463,7 +463,7 @@ Several GitHub-issue relationships are **single edges in the data
 model** but are exposed by the `/issue-*` namespace as **two verbs**
 — one verb per direction — because users think about them from
 either end. The underlying API still has only one mutation per edge;
-the two verbs differ only in how they take their CLI arguments — in
+the two verbs differ in how they take their CLI arguments — in
 their order, or in their arity where a verb resolves one end by
 lookup instead of taking it as an argument.
 
