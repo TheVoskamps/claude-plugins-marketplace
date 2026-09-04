@@ -231,15 +231,14 @@ what didn't — do not roll back successful steps.
    matching write path from the "Set-slot dispatcher" routine in
    `skills/lib/issue.md`:
    - **`kind: number`** — validate the parsed integer against
-     `[min, max]`, then call the
-     `updateProjectV2ItemFieldValue` number-field template, taking
-     the field from `fields.priority.id`.
-   - **`kind: single-select`** — resolve the option name to an
-     option ID via the case-insensitive lookup rules
-     ("Name -> ID lookup rules"), then call the
-     `updateProjectV2ItemFieldValue` single-select-field template,
-     taking the field from `fields.priority.id` and the option
-     resolved above.
+     `[min, max]`, then call the `updateProjectV2ItemFieldValue`
+     number-field template, taking the field from
+     `fields.priority.id`.
+   - **`kind: single-select`** — resolve the option name to an option
+     ID via the case-insensitive lookup rules ("Name -> ID lookup
+     rules"), then call the `updateProjectV2ItemFieldValue`
+     single-select-field template, taking the field from
+     `fields.priority.id` and the option resolved above.
    - **`kind: label`** — resolve the option name against
      `fields.priority.options` (flat list, case-insensitive), then
      follow the "Label-namespace update (`gh issue edit`, not
@@ -254,10 +253,10 @@ what didn't — do not roll back successful steps.
      the "`setIssueFieldValue` — native issue field (single-select)"
      template, taking the issue node ID from step 4, the field from
      `fields.priority.field-id`, and the option from
-     `fields.priority.options.<canonical>`. This writes on
-     the issue itself and does **not** depend on the project-item
-     lookup from step 5 — it works even when the issue is not on (or
-     there is no) project board.
+     `fields.priority.options.<canonical>`. This writes on the issue
+     itself and does **not** depend on the project-item lookup from
+     step 5 — it works even when the issue is not on (or there is no)
+     project board.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
      from "Graceful degradation when the block is missing" in
      `skills/lib/issue.md` and skip.
@@ -289,10 +288,10 @@ what didn't — do not roll back successful steps.
      the "`setIssueFieldValue` — native issue field (single-select)"
      template, taking the issue node ID from step 4, the field from
      `fields.size.field-id`, and the option from
-     `fields.size.options.<canonical>`. This writes on the
-     issue itself and does **not** depend on the project-item lookup
-     from step 5 — it works even when the issue is not on (or there is
-     no) project board. GitHub's native `Effort` field is the size
+     `fields.size.options.<canonical>`. This writes on the issue
+     itself and does **not** depend on the project-item lookup from
+     step 5 — it works even when the issue is not on (or there is no)
+     project board. GitHub's native `Effort` field is the size
      analogue here; its options are `High` / `Medium` / `Low`, not the
      t-shirt buckets.
    - **`kind: skip` or slot absent** — emit the slot-skipped warning
@@ -309,9 +308,9 @@ what didn't — do not roll back successful steps.
     case-insensitive lookup rules ("Name -> ID lookup rules") and
     calls the `updateProjectV2ItemFieldValue` single-select-field
     template, taking the field from `fields.status.id` and the option
-    resolved above.
-    The remaining kinds (`number`, `label`, `issue-field`, and
-    `skip`/absent) follow the same per-kind write paths as in step 8.
+    resolved above. The remaining kinds (`number`, `label`,
+    `issue-field`, and `skip`/absent) follow the same per-kind write
+    paths as in step 8.
 
     If the `github-project:` block is missing entirely, warn and
     skip as above.

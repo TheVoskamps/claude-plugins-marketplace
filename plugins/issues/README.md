@@ -32,9 +32,8 @@ verbs serve a Jira backend, and only the calls underneath differ.
   and option IDs, and writes them down. Every issue verb reads the
   file and aborts pointing back at `/repo-config` when it is missing
   or when its `schema-version` is older than the reader requires; the
-  three config verbs write config rather than requiring it. It is
-  team-shared and committed, so one person runs the interview per
-  repo.
+  config verbs write config rather than requiring it. It is team-shared
+  and committed, so one person runs the interview per repo.
 - **An authenticated CLI for the backend.** `gh` for the GitHub
   backend; `acli` for Jira, plus the `issues-jira` plugin, which is
   where the Jira command templates live.
