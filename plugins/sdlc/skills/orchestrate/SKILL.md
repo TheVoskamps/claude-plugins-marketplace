@@ -1405,7 +1405,7 @@ on the reviewer's severity line and the fixer's report. Fill them per
   decision belongs to the human. The terminal
   `/git-tools:git-cleanup-branches-and-worktrees` invocation is the
   only cleanup this flow performs, and its own gates skip anything
-  locked, dirty, or not fully pushed.
+  dirty, not fully pushed, or under a lock it cannot prove is stale.
 - **Never skip the planning phase.** Even for a single issue.
 - **Never spawn a Wave 2 batch concurrently with a conflicting Wave 1
   batch.**
