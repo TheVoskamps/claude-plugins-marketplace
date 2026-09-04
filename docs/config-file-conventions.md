@@ -1,6 +1,6 @@
 # Config file conventions
 
-A plugin that persists state outside the repo picks a path and a
+A plugin that writes a config outside the repo picks a path and a
 format. Both are already decided here, and the decision is not
 transferable from whatever the ecosystem around the file does: JSON is
 what `settings.json` and `~/.claude.json` use, and copying it into a
@@ -45,6 +45,30 @@ too, and a skill has to survive that rather than assume the file is
 readable. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema and scope limits.
+
+## State goes under `$XDG_STATE_HOME/<plugin>/`
+
+State — what a plugin writes and reads back later, rather than what a
+user writes for it — lives at
+`${XDG_STATE_HOME:-$HOME/.local/state}/<plugin-name>/`, with the
+variable used when set and non-empty and `$HOME/.local/state` when
+unset or empty, and with the fallback spelled out once for the same
+reason the config one is. `~/.local/state/auto-mode-tools/` and
+`~/.local/state/sdlc/` are this shape.
+
+Below that directory the plugin keys on whatever identifies the thing
+the state is about, and on nothing that identifies the run that wrote
+it. `sdlc/<owner>/<repo>/pr<n>/round<n>/` is keyed on a PR and a round,
+which is what lets a later session pick a round up where an interrupted
+one left it; a session id in the path would have made the same records
+unreachable. The harness's per-session scratchpad is the opposite
+choice deliberately — it is for what should die with the session.
+
+State is not config, so the format and `schema-version` rules below do
+not reach it by default. A state file a human may open and edit takes
+both, as `auto-mode-tools`' `ledger.yml` does; a machine-only record
+like `sdlc`'s round log takes neither, and its own writer owns its
+grammar.
 
 ## The format is YAML, or Markdown when a human must read prose too
 

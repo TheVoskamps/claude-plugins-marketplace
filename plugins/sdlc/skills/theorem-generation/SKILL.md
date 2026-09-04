@@ -70,11 +70,11 @@ touch a file the section mentions.
 You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
-`--branch`, `--scratchpad`, `--owner`, `--repo`, `--round`, and — on a
-re-review only — `--carried-records` and `--delta-commits`.
+`--branch`, `--owner`, `--repo`, `--round`, and — on a re-review only —
+`--carried-records` and `--delta-commits`.
 
-The four in the middle say nothing about what to generate: steps 1 and
-6 pass them back unchanged. Without them you can still generate the list
+The three in the middle say nothing about what to generate: steps 1 and 6
+pass them back unchanged. Without them you can still generate the list
 but cannot record that you started or write it where a resumed reviewer
 would find it — say so in your report rather than guessing at one.
 
@@ -100,7 +100,7 @@ theorems.
 
    ```bash
    sdlc-agent-result-persist --mode enter \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem list --stage generate
    ```
 
@@ -146,7 +146,7 @@ theorems.
 
    ```bash
    sdlc-agent-result-persist --mode leave \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem list --stage generate \
      --agent <your own definition's name> <<'LIST'
    T1

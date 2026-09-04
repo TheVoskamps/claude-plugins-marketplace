@@ -22,8 +22,7 @@ die() {
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                --scratchpad <dir> --owner <owner> --repo <repo>
-                --pr <n> --round <n>
+                --owner <owner> --repo <repo> --pr <n> --round <n>
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
@@ -32,7 +31,6 @@ EOF
 }
 
 mode=
-scratchpad=
 owner=
 repo=
 pr=
@@ -51,7 +49,7 @@ ms=
 while [ "$#" -gt 0 ]; do
   flag=$1
   case "$flag" in
-    --mode|--scratchpad|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms)
+    --mode|--owner|--repo|--pr|--round|--head-sha|--theorem|--stage|--agent|--model|--effort|--agent-id|--tokens|--tools|--ms)
       [ "$#" -ge 2 ] || die "$flag needs a value"
       value=$2
       shift 2
@@ -66,7 +64,6 @@ while [ "$#" -gt 0 ]; do
   esac
   case "$flag" in
     --mode)       mode=$value ;;
-    --scratchpad) scratchpad=$value ;;
     --owner)      owner=$value ;;
     --repo)       repo=$value ;;
     --pr)         pr=$value ;;
@@ -89,8 +86,6 @@ case "$mode" in
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
-
-[ -n "$scratchpad" ] || die "--scratchpad is required"
 
 # A / in an identifying value would silently add a directory level to
 # the composed path, which is why owner and repo stay separate flags
@@ -180,9 +175,12 @@ for pair in "tokens:$tokens" "tools:$tools" "ms:$ms"; do
   esac
 done
 
-readonly dir="$scratchpad/sdlc"
-readonly file="$dir/theorem-based-pr-reviewer-$owner-$repo-pr$pr-round$round"
-readonly result_file="$file-$theorem-$agent"
+# The round gets a directory of its own under XDG state, composed from
+# the identifying flags alone: no session is part of the path, so a
+# round interrupted by a session ending is resumed from the same one.
+readonly dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$owner/$repo/pr$pr/round$round"
+readonly file="$dir/log"
+readonly result_file="$dir/$theorem-$agent"
 
 now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
@@ -237,16 +235,14 @@ case "$mode" in
       # A different head means the records describe a tree that no
       # longer exists, so they answer for nothing the new round will ask
       # — but they are still the evidence of what the voided round did,
-      # so the log is set aside rather than overwritten.
+      # so the round's whole directory is set aside rather than
+      # overwritten. The result files go with the log because a reader
+      # takes a report's existence as a settled theorem, and one left in
+      # place under its own name would settle the fresh round's theorem
+      # from the voided tree.
       stamp=$(date -u +%Y%m%dT%H%M%SZ)
-      mv -- "$file" "$file.voided-$stamp"
-      # The result files go with it. A reader takes a report's existence
-      # as a settled theorem, so one left in place under its own name
-      # would settle the fresh round's theorem from the voided tree.
-      for stale in "$file"-*; do
-        [ -e "$stale" ] || continue
-        mv -- "$stale" "$file.voided-$stamp-${stale##"$file"-}"
-      done
+      mv -- "$dir" "$dir.voided-$stamp"
+      mkdir -p "$dir"
       printf 'anchor %s %s\n' "$(now)" "$head_sha" > "$file"
     fi
     # An anchor already naming this head is this same round's: the call
@@ -287,12 +283,12 @@ case "$mode" in
     # Every result file present, synthesized from the directory at read
     # time rather than stored: a report written by a child whose leave
     # record never landed still reaches the reader this way.
-    for found in "$file"-*; do
+    for found in "$dir"/*; do
       [ -e "$found" ] || continue
-      case "$found" in
-        *.partial-*) continue ;;
+      rest=${found##*/}
+      case "$rest" in
+        log|*.partial-*) continue ;;
       esac
-      rest=${found##"$file"-}
       printf 'result %s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
     done
     ;;

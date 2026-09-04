@@ -58,19 +58,17 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--class`,
-`--pointers`, `--counterexample`, `--scratchpad`, `--owner`, `--repo`,
-and `--round`.
+`--pointers`, `--counterexample`, `--owner`, `--repo`, and `--round`.
 
 Without `--branch` you have no tree to check the quote against.
 
 `--counterexample` is the one parameter only you receive: it is the
 thing you attack.
 
-`--scratchpad`, `--owner`, `--repo` and `--round` say nothing about the
-counterexample; steps 1 and 5 pass them back unchanged. Without them
-you can still settle the counterexample but cannot record that you
-started or what you found — say so in your report rather than guessing
-at one.
+`--owner`, `--repo` and `--round` say nothing about the counterexample;
+steps 1 and 5 pass them back unchanged. Without them you can still
+settle the counterexample but cannot record that you started or what
+you found — say so in your report rather than guessing at one.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.
@@ -103,7 +101,7 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode enter \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage verify
    ```
 
@@ -192,7 +190,7 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode leave \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage verify \
      --agent counterexample-verifier <<'REPORT'
    VERDICT: …
