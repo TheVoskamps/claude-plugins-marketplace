@@ -22,8 +22,10 @@ The marketplace currently ships these plugins (one entry each in
   plus unit-test generation.
 - **`cc-tools`** — Claude Code meta-skills: global rules, feature/bug
   watchlist status, what's-new-since-last-run — both filtered to the
-  topics in your own config — and agent-memory curation from a
-  session's scratchpad inbox into the repo's own documentation.
+  topics in your own config, which a suggester widens from this
+  machine's Claude configuration on your yes — and agent-memory
+  curation from a session's scratchpad inbox into the repo's own
+  documentation.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
   user's personal identity.

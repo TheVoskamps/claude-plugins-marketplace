@@ -54,12 +54,10 @@ one would push a single repo's topics onto every other repo. Issue #375
 adds the repo-local layer; this skill gains the repo-local rung when
 that lands, and not before.
 
-Read each of these with the `Read` tool, never `cat` or `grep` from
-Bash, for the reason the topics contract gives. A file that is absent
-contributes no candidates and is not an error. A file whose `Read`
-denies is reported with the tool's error verbatim, and the run
-continues on the files that did read — say which files went unread, so
-a thin candidate list is not read as a thin machine.
+A file that is absent contributes no candidates and is not an error. A
+file whose `Read` denies is reported with the tool's error verbatim,
+and the run continues on the files that did read — say which files
+went unread, so a thin candidate list is not read as a thin machine.
 
 A **candidate topic** is any harness surface those files exercise: a
 model id, a permission mode, `alwaysThinkingEnabled` and its
@@ -79,11 +77,6 @@ search-only topic shape. `cc-whats-new` searches it on its next run;
 `cc-watchlist` contributes no rows for it until the user adds issue
 numbers by hand.
 
-When `config.yml` is absent, invoke `/cc-tools:cc-seed-config`, say in
-the report that the config was seeded and at which path, and proceed
-against the seeded file. The starter set lives in that skill and
-nowhere else; carry no copy of it.
-
 ## Nothing is written without an answer
 
 Show the current `topics:` in full, then every candidate with its
@@ -91,10 +84,10 @@ provenance. Then take the candidates one at a time:
 
 - **A candidate that overlaps a tracked topic under different
   wording** — "hook events" against a tracked "hooks", say. Propose the
-  combined or broader term, naming three things: the tracked topic, the
-  candidate, and the single replacement name you would write. On yes,
-  rewrite that topic's `name` to the broader term and carry its
-  `issues:` over untouched. On no, offer the candidate as its own
+  combined or broader term, naming the tracked topic, the candidate,
+  and the single replacement name you would write. On yes, rewrite that
+  topic's `name` to the broader term and carry its `issues:` over
+  untouched. On no, offer the candidate as its own
   separate topic, which takes its own yes.
 - **A candidate that overlaps nothing** — offer it as a new topic
   directly.

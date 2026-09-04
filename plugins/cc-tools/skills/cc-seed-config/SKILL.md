@@ -23,13 +23,13 @@ is the only statement of them; this skill does not restate them.
 
 No arguments. You write the file and report where.
 
-Two situations reach you: a caller that read the path and found
-nothing there, and a caller whose read was denied and whose user
-accepted the offer to create a starter config anyway, whichever skill
-it was. The second cannot tell whether a file
-already exists, and neither can you — the `Read` that would settle it
-is denied for you too. The user accepted that risk; write, and if the
-`Write` denies as well, report the tool's error verbatim and stop.
+You are reached by a caller that read the path and found nothing
+there, or by one whose read was denied and whose user accepted the
+offer to create a starter config anyway — whichever skill it was. The
+latter cannot tell whether a file already exists, and neither can you
+— the `Read` that would settle it is denied for you too. The user
+accepted that risk; write, and if the `Write` denies as well, report
+the tool's error verbatim and stop.
 
 ## The starter set
 

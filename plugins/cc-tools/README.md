@@ -175,7 +175,7 @@ The inbox path and layout live in `skills/lib/agent-memory-inbox.md`.
 The topics config — its path, its schema, and what a reader does when
 it is missing or unreadable — lives in
 `skills/lib/cc-topics-config.md`, and the starter set that seeds it
-lives in the one skill that writes it,
+lives in the one skill that creates it,
 `skills/cc-seed-config/SKILL.md`. No skill restates any of those
 contracts, and neither does this README: when you need the exact
 behavior, those files are the source.
