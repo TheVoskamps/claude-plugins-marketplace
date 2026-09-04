@@ -42,10 +42,17 @@ could see, and here it buys nothing back.
 The machine's **global** Claude configuration, and only that:
 
 - `~/.claude/settings.json` and `~/.claude/settings.local.json`
-- `~/.claude/plugins/config.json`, plus the `plugins` block of
-  `~/.claude.json`, for installed plugins and marketplaces
+- `~/.claude/plugins/installed_plugins.json`, for each installed
+  plugin and its version, and
+  `~/.claude/plugins/known_marketplaces.json`, for the marketplaces
+  they came from
 - `~/.claude/CLAUDE.md`, for always-loaded rules that name a harness
   feature
+
+`~/.claude.json` is not one of them: it is a sibling of `~/.claude/`
+rather than a path under it, so the `guardrails` permission gate denies
+a `Read` of it as an outside-the-repository escape wherever that gate
+is installed.
 
 The repo-local `.claude/settings.json` and `settings.local.json` are
 **not** read. `config.yml` is machine-wide, so a candidate derived from
@@ -72,10 +79,8 @@ configuration from a topic this skill invented.
 ## What it writes
 
 `config.yml`'s `topics:`, and nothing else. An accepted candidate is
-appended as a name-only entry — no `issues:` — which is the
-search-only topic shape. `cc-whats-new` searches it on its next run;
-`cc-watchlist` contributes no rows for it until the user adds issue
-numbers by hand.
+appended as a name-only entry — no `issues:`. What that shape means
+for the readers is in `skills/lib/cc-topics-config.md`.
 
 ## Nothing is written without an answer
 
@@ -109,7 +114,7 @@ before the run.
 
 ## Tracked now
 
-- <topic name>
+- <topic name> — <its `issues:`, or "search-only" when it has none>
 
 ## Candidates
 

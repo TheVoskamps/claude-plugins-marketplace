@@ -16,12 +16,12 @@ Both skills act on the same curated set from opposite ends:
 `cc-whats-new` searches upstream for what is new on the topic's
 subject. A set baked into either skill's body is one user's shopping
 list shipped as the plugin's behaviour — unaddable, unremovable, and
-lost on every plugin update. A set derived from the machine's settings
-and installed plugins is no better: it is a list the user never chose
-and cannot prune. Derivation as a *proposal* is a different thing, and
-is what `cc-suggest-topics` does — every topic it derives takes the
-user's yes before it reaches the file, so what the file holds stays a
-list the user chose.
+lost on every plugin update. A set *derived and written* from the
+machine's settings and installed plugins is no better: it is a list the
+user never chose and cannot prune. Derivation as a *proposal* is a
+different thing, and is what `cc-suggest-topics` does — every topic it
+derives takes the user's yes before it reaches the file, so what the
+file holds stays a list the user chose.
 
 So the file below is the **only** source of topics for the two readers
 named above. Neither infers a topic from anything else.
