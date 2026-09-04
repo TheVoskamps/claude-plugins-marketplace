@@ -455,7 +455,8 @@ and one that answered anything else earns the written-off kind, which
 is already true of it. A kind written unconditionally there carries
 only that the writer tried, which is the ambiguity the split was made
 to remove — reintroduced one level down, and invisible to every reader
-That is the sweep on the way out and nowhere else. A child written off
+of the log. That rule holds in the spawner's sweep on its way out and
+nowhere else. A child written off
 at its own deadline takes the written-off kind unconditionally,
 whatever its stop answered: nothing reads that record as a claim about
 the child's tree — its theorem is simply live again for a later pass —

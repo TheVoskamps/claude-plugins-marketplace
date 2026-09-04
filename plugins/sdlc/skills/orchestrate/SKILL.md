@@ -2035,6 +2035,7 @@ These carve-outs keep this rule from being over-broad:
   perspective on its own task is independent of the orchestrator's;
   the orchestrator's perspective on the same task is not. And the
   human is excluded from decisions the rules reserve for them
-  (escalations, locked worktrees, retry-vs-resume). A "quick"
+  (escalations, a mid-run or escalated teammate's worktree,
+  retry-vs-resume). A "quick"
   orchestrator-authored review, fix, or environmental repair loses
   that independence and is worth fewer tokens than it costs.
