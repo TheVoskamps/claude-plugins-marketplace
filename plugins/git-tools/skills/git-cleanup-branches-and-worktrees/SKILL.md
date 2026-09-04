@@ -43,8 +43,28 @@ guaranteed-to-exist ref, the previous failure mode — a hardcoded list
 naming branches the repo doesn't have, causing `git rev-list` to abort
 with `fatal: bad revision` — cannot occur.
 
-1. Run `git fetch --all --prune` to refresh tracking branches and
-   remove stale remote refs.
+1. Run `git fetch --prune origin`, and **stop the run** if it exits
+   non-zero.
+
+   Every gate below that asks whether work has reached origin answers
+   from local `refs/remotes/origin/*` refs and from nothing else —
+   step 4a's `@{upstream}..HEAD`, Pass 1's
+   `HEAD --not --remotes=origin`, Pass 2's
+   `<branch>@{upstream}..<branch>`. A tracking ref git has not
+   refreshed can name a commit origin no longer serves, which is
+   exactly the state that makes one of those gates read "already on
+   origin" for work that is nowhere else, so this fetch is the
+   precondition all three rest on rather than a convenience: with it
+   skipped or failed there is nothing below that is safe to act on.
+   `--prune` is the half that removes the tracking refs for branches
+   origin has deleted, and `origin` rather than `--all` because
+   `origin` is the only remote any gate below reads.
+
+   What the fetch cannot cover is what happens to origin *after* it:
+   a branch deleted or force-pushed mid-run leaves this run reading the
+   refs as they were. Read every gate below as answering "as of step
+   1's fetch", and re-run the skill rather than trusting a run that has
+   been sitting open.
 2. List all local branches **except** `$DEFAULT_BRANCH`:
 
    ```bash
@@ -168,9 +188,22 @@ with `fatal: bad revision` — cannot occur.
         when a HEAD's commits reached origin under some other ref —
         non-zero for `@{upstream}..HEAD`, zero here — and where they
         diverge this form is the one to trust, because nothing is lost
-        by removing a worktree whose every commit is already fetchable
-        from origin under some name, which is the question this gate
-        exists to ask. Treat its exit status as authoritative: act on
+        by removing a worktree whose every commit origin still serves
+        under some name, which is the question this gate
+        exists to ask.
+
+        What makes the count answer *that* question rather than a
+        weaker one is step 1's `git fetch --prune origin`, and that is
+        why a failed fetch there stops the run. The command reads
+        `refs/remotes/origin/*` and never the remote: against a
+        tracking ref for a branch origin has deleted, a zero count says
+        only that some local ref still names the commit. Nothing is
+        lost at removal even then — the object stays reachable through
+        that stale ref — but the next `--prune` fetch corrects the ref,
+        this skill's own step 1 next run included, and the commit is
+        then unreachable under any name with no working copy left. The
+        fetch is what keeps that ref from being stale by the time this
+        gate reads it. Treat its exit status as authoritative: act on
         the count only on exit `0`, and read any non-zero exit as
         "cannot verify — skip and report". Do **not** compare against the
         default branch — feature and worktree branches are expected to
@@ -231,8 +264,9 @@ with `fatal: bad revision` — cannot occur.
         branch with `git branch -d`. If non-empty, skip and report (the
         branch holds unpushed work).
       - **Branch has no upstream configured, or the upstream is gone**
-        (the harness creates these refs but never pushes them, so
-        `@{upstream}..HEAD` fails loudly rather than giving a clean
+        (the harness creates these refs but never pushes them, so the
+        arm above — `git rev-list <branch>@{upstream}..<branch>` —
+        fails loudly rather than giving a clean
         answer): fall back to a reachability check against
         `$DEFAULT_BRANCH` (detected at the top of this file).
         Concretely:

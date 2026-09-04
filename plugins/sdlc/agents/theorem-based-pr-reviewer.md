@@ -110,9 +110,8 @@ Who removes them is your caller's business, and the two callers answer
 it differently: an orchestrate run does one terminal cleanup at the
 end over the worktrees it recorded, finding your children's the way
 you would have — the `agent-<agent-id>` directories this round's logs
-name in their `enter` records, a voided round's included
-(`sdlc:orchestrate` → "The run file: every worktree this run
-creates") — while `/sdlc:git-review-pr`
+name in their `enter` records, a voided round's included — while
+`/sdlc:git-review-pr`
 removes none and tells the human to sweep when they are done
 reading. Neither answer is yours to
 supply.
@@ -149,19 +148,35 @@ therefore cannot end a fan-out child's life however carefully it aims
 — for a child of yours its stop is a no-op whatever that child's
 state — and if you leave one running it works on in a worktree that
 cleanup is about to remove out from under it. The general rule and its
-measurement live in `docs/plugin-authoring-constraints.md` → "Every
-spawner stops its own children before it returns".
+measurement live in `docs/plugin-authoring-constraints.md`.
 
 So before you return, `TaskStop` every child **you** spawned whose
 `enter` record carries no `leave`, no `stopped` and no `killed` after
-it, and append a `--mode killed` record for each — the record is what
+it, and append one record per child — the record is what
 tells the next instance the child is gone rather than in flight, which
 is the difference between that instance re-spawning the theorem and
 waiting out a child that will never report.
 
-`killed` rather than `stopped` because you stopped this one, and the
-cleanup that removes the worktree afterwards reads the difference — the
-preloaded `sdlc:agent-result-persist-interface` skill owns the two
+**Which kind is the stop's own answer, read rather than assumed.**
+
+- `Successfully stopped task: <id>` — you ended a child that was
+  running, so nothing is running in its tree. Append `--mode killed`.
+- `No task found with ID: <id>`, or any other failure — the stop
+  established nothing about that child, only that this session holds no
+  task by that id. Append `--mode stopped`, which already means written
+  off and possibly still running, and is true of exactly this case.
+
+No third kind, and never a `killed` on an answer that did not say you
+stopped something. The terminal cleanup force-removes a worktree on
+`killed` meaning that tree is quiet, so a `killed` recording an
+*attempt* hands it a licence the log never established — the same
+ambiguity the two kinds exist to remove, one level down. The second arm
+is ordinary rather than exotic: after a suspension every `TaskStop` a
+resumed reviewer aimed at its own children answered
+`No task found with ID` (per "What this resume cannot see"), and that
+answer leaves their liveness unverified.
+
+The preloaded `sdlc:agent-result-persist-interface` skill owns both
 kinds.
 
 Do it on **every** path by which you return, not only the one that
@@ -204,11 +219,13 @@ Your half of the contract is these calls, and **not one of them carries
 a verdict**: `--mode anchor` once at the top of the round,
 `--mode spawn` per child you spawn, `--mode return` when a
 `<task-notification>` reaches you, `--mode stopped` at a child's
-deadline, and `--mode killed` per child of your own you stop on your
-way out. You read with `--mode print`, on every resume, before you
-decide anything. Each write appends a single line and rewrites nothing
-already there. The anchor call is **idempotent** — it writes the anchor
-when none is there, no-ops on one naming the same head SHA, and voids
+deadline, and one record per child in the sweep on your way out —
+`--mode killed` where the stop answered `Successfully stopped task`,
+`--mode stopped` where it did not. You read with `--mode print`, on
+every resume, before you decide anything. Each write appends a single
+line and rewrites nothing already there. The anchor call is
+**idempotent** — it writes the anchor when none is there, no-ops on one
+naming the same head SHA, and voids
 the round on one naming a different head — so no ordering between it
 and a child's own first record matters.
 

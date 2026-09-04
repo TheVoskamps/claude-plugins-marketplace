@@ -222,9 +222,14 @@ abort:
    Abort when the current branch is not it; do **not** switch the
    primary clone on the human's behalf, because that clone is the
    human's working tree and whatever they left checked out is theirs.
-3. **Current with the remote.** Fetch the default branch. A clone that
+3. **Current with the remote.** Fetch first. The fetch is what makes
+   the remote-tracking refs current, and condition 2's `origin/HEAD`
+   repair is one of the things that needs them current, so the fetch
+   runs ahead of that repair in the fence below even though the
+   condition it belongs to comes after. A clone that
    is merely *behind* is repaired, not aborted: fast-forward it. Abort
-   only when the fast-forward cannot happen — the tree is dirty, the
+   when the fetch itself fails, when the `origin/HEAD` repair fails,
+   and when the fast-forward cannot happen — the tree is dirty, the
    local branch has commits the remote does not, or the merge itself
    refuses.
 
@@ -232,13 +237,16 @@ abort:
 git rev-parse --git-dir
 # expected: .git — anything else: ABORT (not the primary clone)
 
-git remote set-head origin --auto >/dev/null   # repairs an unset origin/HEAD
+git fetch --prune origin
+# exiting non-zero: ABORT (not current with the remote — the fetch failed)
+
+git remote set-head origin --auto >/dev/null   # repairs an unset or stale origin/HEAD
+# exiting non-zero: ABORT (not current with the remote — origin/HEAD unrepaired)
 default=$(git symbolic-ref --short refs/remotes/origin/HEAD)  # e.g. origin/main
 default=${default#origin/}
 [ "$(git branch --show-current)" = "$default" ]
 # false: ABORT (not on the default branch)
 
-git fetch origin "$default"
 git status --porcelain --untracked-files=no
 # non-empty: ABORT (not current with the remote — dirty tree)
 git rev-list --left-right --count "$default...origin/$default"
@@ -264,9 +272,15 @@ reporting it missing the way the other recipe does.
 
 The **answer**, in one case: `--auto` queries the remote for its HEAD
 and sets the symref to it, so it corrects a set-but-**stale**
-`origin/HEAD` as well as an unset one — given the remote-tracking ref
-for the branch it now names, which git says must be fetched first —
-while a bare read of that symref returns the stale name.
+`origin/HEAD` as well as an unset one, where a bare read of that symref
+returns the stale name. It can do that only once the remote-tracking
+ref for the branch it now names exists locally, and the fetch above it
+is what supplies that: run the other way round on a repo whose default
+branch was renamed, `--auto` reports
+`error: Not a valid ref: refs/remotes/origin/<new name>` and the read
+after it hands back the retired one. The order is what performs the
+repair, and the ABORT arm on `--auto` is what keeps a run that did not
+get the repair from continuing on a `$default` nobody checked.
 On a repo whose default branch was renamed, this check and that
 recipe's fallback path — the one it takes with `gh` unavailable or
 unauthenticated — therefore land on different branch names. That
@@ -556,7 +570,7 @@ run creates:
   there or at a `.voided-<instant>` suffix; a name carrying anything
   else after `round<M>` is a child's result file, not a log. The log's
   path template and record grammar belong to
-  `sdlc:agent-result-persist-interface` → "The line grammar".
+  `sdlc:agent-result-persist-interface`.
 
   You never learn those paths from the reviewer's report; you read them
   off each of those logs' `enter` records, each of which carries the
@@ -1494,10 +1508,9 @@ Each step of that is licensed by something the run knows:
   **fan-out child** it is a no-op whatever the child's state, because
   the reviewer spawned that child and you did not; what leaves those
   trees quiet is the reviewer stopping its own children before it
-  returns, on every path by which it does, per
-  `docs/plugin-authoring-constraints.md` → "Every spawner stops its
-  own children before it returns". Your stop is belt-and-braces over
-  that. Destroying a worktree and its branch while its agent is still
+  returns, on every path by which it does. Your stop is
+  belt-and-braces over that. Destroying a worktree and its branch while
+  its agent is still
   working there is not an end state to leave behind, which is why the
   stop comes before the removal rather than after it.
 - **Unlock unconditionally, and ignore its failure.** Every worktree
@@ -1505,16 +1518,20 @@ Each step of that is licensed by something the run knows:
   teammates, and the reviewer stopped its own fan-out children before
   it returned — so a lock left on one is a stale end-state lock rather
   than a live agent's, and you are not inferring that from the lock
-  reason. For a fan-out child that is not a promise made in prose: the
-  reviewer appends a `killed` record for every child it stops on its
-  way out, so a theorem whose last `enter` in a stage is followed by a
-  `killed` has nothing running in its tree, and the record is what says
-  so (`sdlc:agent-result-persist-interface` → "The modes"). One case
-  escapes that and is named rather than papered over: a reviewer killed
-  before it could return stopped nothing and recorded nothing, so a
-  child whose `enter` carries no `leave`, no `stopped` and no `killed`
-  can still be running here. It is still this run's worktree and
-  still yours to remove — the human has ended the loop — and it is the
+  reason. For a fan-out child that is not a promise made in prose: on
+  its way out the reviewer writes `killed` for a child whose stop
+  answered `Successfully stopped task` and `stopped` for one whose stop
+  answered anything else, so a theorem whose last `enter` in a stage is
+  followed by a `killed` has nothing running in its tree, and the
+  record is what says so
+  (`sdlc:agent-result-persist-interface`). What escapes that is named
+  rather than papered over, and it is `killed`'s absence in either
+  form: a reviewer killed before it could return stopped nothing and
+  recorded nothing, and a stop that answered `No task found with ID`
+  left its child's liveness unverified. So a child whose `enter` is
+  followed by no `leave` and no `killed` can still be running here. It
+  is still this run's worktree and still yours to remove — the human
+  has ended the loop — and it is the
   same case the run file exists to keep from leaking. Not every
   worktree carries a lock, though, and `git worktree unlock` on an
   unlocked one is not a no-op: it exits 128 with
@@ -1788,8 +1805,9 @@ itself:
   run file records plus the stops that ran first, rather than what a
   lock reason suggests: every record's agent has been stopped by the
   instance that could stop it — you for the teammates you spawned, the
-  reviewer for its own fan-out children, and the reviewer's stops are
-  on the round log as `killed` records rather than taken on trust —
+  reviewer for its own fan-out children, and each of the reviewer's
+  stops is on the round log as the kind its own answer earned rather
+  than taken on trust —
   before its worktree is touched, the PR is pushed and already flipped
   ready, and the run knows nothing of value is left in those trees.
   Outside that step — mid-run, and against any path the run file does

@@ -146,16 +146,22 @@ writes**, and `print` for the one that reads.
   derivation below reads it, and a stage never waits on one. An omitted
   number leaves its column empty rather than dropping the column.
 - **`stopped`** — appends one `stopped` record for `--theorem` in
-  `--stage`. The caller's, at a child's deadline. It writes one
+  `--stage`. The caller's, at a child's deadline, and again in the
+  sweep on its way out for a child whose `TaskStop` did not answer
+  `Successfully stopped task`. It writes one
   whether or not it `TaskStop`ped that child — a predecessor
   instance's child is never its to stop, and the record is what says
   the child was written off either way.
 - **`killed`** — appends one `killed` record for `--theorem` in
   `--stage`. The caller's, on its way out, for a child it spawned and
-  `TaskStop`ped before returning. Where `stopped` leaves open that the
+  whose `TaskStop` answered `Successfully stopped task`. Where
+  `stopped` leaves open that the
   written-off child is still running, `killed` says nothing is running
   in that child's tree, so a later cleanup can remove that worktree on
-  what the log proves rather than on a promise made in prose. It is
+  what the log proves rather than on a promise made in prose. That is
+  why the answer, not the attempt, decides the kind: a `killed` written
+  for a stop that answered `No task found with ID` would say a tree is
+  quiet on an answer that establishes nothing about it. It is
   never written for a predecessor instance's child: no instance can
   stop one, so none can say that of one.
 - **`print`** — writes the round log to stdout, followed by one

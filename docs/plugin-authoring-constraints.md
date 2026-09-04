@@ -448,6 +448,14 @@ spawner's own stop-before-return became `killed` rather than a second
 sense of `stopped` — one kind spelling both leaves a cleanup that has
 to know a tree is quiet with no record that says so.
 
+The kind is then decided by the **outcome**, never by the attempt: a
+stop that answered `Successfully stopped task` earns the kind a cleanup
+reads as quiet, and one that answered anything else earns the
+written-off kind, which is already true of it. A kind written
+unconditionally carries only that the writer tried, which is the
+ambiguity the split was made to remove — reintroduced one level down,
+and invisible to every reader that checks the name.
+
 **One log per round, not one per fan-out.** A stage column on every
 record says which fan-out it belongs to, so two files can never disagree
 about the same round and a reader answers every stage's question from
@@ -533,7 +541,9 @@ id, never that the agent returned, and a later stage aiming a stop at a
 child it did not spawn is a no-op whatever that child's state. Only the
 spawner can end its own children's lives, so have it do that on
 **every** path by which it returns — a clean finish and an early
-mid-round return alike. The risk prices out: stopping a child that
+mid-round return alike — and record what each stop answered rather than
+that it was attempted, per "Name every mode for the record it writes"
+above. The risk prices out: stopping a child that
 might yet have answered costs one re-spawn, which the resume path
 already pays for any item carrying no finish record.
 
