@@ -62,10 +62,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    Use the existing parent's number from the lookup in step 1.
 
 4. **Create the edge** via the `addSubIssue` template from
-   `skills/lib/issue.md`. Pass:
-   - `issueId = <parent node id>` (the parent — `addSubIssue.issueId`
-     names the **parent** by GitHub's API convention; see the lib).
-   - `subIssueId = <child node id>`.
+   `skills/lib/issue.md`, supplying the node ID of `<parent-N>` as the
+   parent and the node ID of `<child-N>` as the child.
 
 5. **Issue not found**: if either node-ID lookup returns
    `repository.issue: null`, emit the "Issue not found" error from

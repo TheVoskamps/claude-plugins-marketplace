@@ -5,8 +5,9 @@ description: Remove a blocking relationship between two issues (blocker's side).
 
 Remove a blocking relationship: "issue N no longer blocks issue B".
 This is the blocker's-side view of the same edge that
-`/issue-unset-blocked-by` exposes — both verbs call `removeBlockedBy`
-with swapped arguments.
+`/issue-unset-blocked-by` exposes — both verbs clear that one edge
+with the `removeBlockedBy` template; which CLI argument names the
+blocker is what differs.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
 dispatch, the "One edge, two sides" pattern, and error wording. This
@@ -46,10 +47,9 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    block #<B>; no change.`) and exit zero.
 
 3. **Remove the edge** via the `removeBlockedBy` template from
-   `skills/lib/issue.md`. Note the **swapped arguments** vs.
-   `/issue-unset-blocked-by`:
-   - `issueId = <node id of <blocked-N>>` (the **blocked** issue).
-   - `blockingIssueId = <node id of <N>>` (the **blocker**).
+   `skills/lib/issue.md`, with the two roles **inverted** vs.
+   `/issue-unset-blocked-by`: `<blocked-N>` is the **blocked** issue
+   and `<N>` is the **blocker**. Supply each as its node ID.
 
 4. **Issue not found**: if either node-ID lookup returns
    `repository.issue: null`, emit the "Issue not found" error from

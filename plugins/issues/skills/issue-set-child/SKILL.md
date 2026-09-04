@@ -5,8 +5,9 @@ description: Link a parent issue to a child (sub-issue edge) by adding the child
 
 Add a child issue as a sub-issue of a parent issue. This is the
 "parent side" of the same sub-issue edge that `/issue-set-parent`
-exposes — both verbs call `addSubIssue(issueId: P, subIssueId: C)`,
-they only differ in argument order.
+exposes — both verbs make the same `addSubIssue` call with the same
+parent and the same child; they differ only in the order the CLI takes
+them.
 
 See `skills/lib/issue.md` for the shared GraphQL templates, tracker
 dispatch, the "One edge, two sides" pattern, and error wording. This
@@ -55,9 +56,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    > with `/issue-unset-parent <C>` before setting a new parent
 
 4. **Create the edge** via the `addSubIssue` template from
-   `skills/lib/issue.md`. Pass:
-   - `issueId = <parent node id>`
-   - `subIssueId = <child node id>`
+   `skills/lib/issue.md`, supplying the node ID of `<parent-N>` as the
+   parent and the node ID of `<child-N>` as the child.
 
 5. **Issue not found**: if either node-ID lookup returns
    `repository.issue: null`, emit the "Issue not found" error from

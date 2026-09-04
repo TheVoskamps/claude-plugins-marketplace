@@ -61,9 +61,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    call the mutation.
 
 3. **Remove the edge** via the `removeSubIssue` template from
-   `skills/lib/issue.md`. Pass:
-   - `issueId = <parent.id from step 1>`
-   - `subIssueId = <child node id from step 1>`
+   `skills/lib/issue.md`, supplying the parent and child node IDs
+   resolved in step 1.
 
 4. **Issue not found**: if the node-ID lookup returns
    `repository.issue: null` for the child, emit the "Issue not

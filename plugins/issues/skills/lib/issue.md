@@ -233,8 +233,8 @@ The kinds:
   only by `name`. Re-introspection against the live schema (see "GraphQL
   templates") found the concrete `IssueFieldSingleSelect` object type
   **does** expose a stable node `id`, and `setIssueFieldValue`'s input
-  (`IssueFieldCreateOrUpdateInput`) addresses the field by that
-  `fieldId`, not by name. The slot therefore stores `field-id:` as the
+  (`IssueFieldCreateOrUpdateInput`) addresses the field by that node
+  ID, not by name. The slot therefore stores `field-id:` as the
   authoritative identifier and keeps `field-name:` only for display.
   `#32` added the `Effort` single-select native field as the `size`
   slot's backing, reusing this same machinery unchanged. The remaining
@@ -263,20 +263,25 @@ entirely. In that case:
   `/issue-unset-blocked-by`, `/issue-set-blocks`,
   `/issue-unset-blocks`, `/issue-view`) work normally — they don't
   need project metadata.
-- Commands or flags that **require** project metadata
-  (`--type`, `--priority`, `--size`, `--status`,
-  `/issue-set-priority`, `/issue-set-size`, `/issue-set-status`,
-  `/issue-set-type`)
-  emit a one-line warning and skip that step rather than aborting the
-  whole run. Example:
+- `/issue-create`'s flags that need project metadata (`--type`,
+  `--priority`, `--size`, `--status`) emit a one-line warning and skip
+  that step rather than aborting the run — the issue is still filed.
+  Example:
 
   > `warning: no github-project: block in repo-config.md;`
   > `skipping --status. Run /repo-config to add it.`
 
+- The set-slot verbs (`/issue-set-priority`, `/issue-set-size`,
+  `/issue-set-status`, `/issue-set-type`) **abort** with the "No
+  `github-project:` block in repo-config" catalogue entry instead (see
+  "Set-slot dispatcher"): setting the field is the whole run there, so
+  skipping it would leave nothing to do.
+
 - `/issue-view` prints whatever project fields it can read; if there's
   no project, the project-fields section is omitted.
 
-The same warn-and-skip behavior applies at the per-slot level when a
+Warn-and-skip is also what happens at the per-slot level — for the
+set-slot verbs too, which abort only on the missing block — when a
 slot is **declared as `kind: skip`** and when a slot is **absent
 entirely** from `fields:`. The two are intentionally equivalent — a
 repo author who wants to make "we deliberately don't track this here"
@@ -458,23 +463,29 @@ Several GitHub-issue relationships are **single edges in the data
 model** but are exposed by the `/issue-*` namespace as **two verbs**
 — one verb per direction — because users think about them from
 either end. The underlying API still has only one mutation per edge;
-the two verbs differ only in argument order.
+the two verbs differ in how they take their CLI arguments — in
+their order, or in their arity where a verb resolves one end by
+lookup instead of taking it as an argument.
 
 Verb pairs that share an edge:
 
-- **`set-blocked-by` / `set-blocks`** — same blocked-by edge.
-  - `set-blocked-by N B` calls `addBlockedBy(issueId: N, blockingIssueId: B)`
+- **`set-blocked-by` / `set-blocks`** — same blocked-by edge, written
+  with the `addBlockedBy` template.
+  - `set-blocked-by N B` — `N` is the blocked issue, `B` the blocker
     ("issue N is blocked by issue B").
-  - `set-blocks N B` calls `addBlockedBy(issueId: B, blockingIssueId: N)`
-    ("issue N blocks issue B" — same edge, written from the other side).
-  - `unset-blocked-by` / `unset-blocks` mirror this with
-    `removeBlockedBy`.
-- **`set-parent` / `set-child`** — same sub-issue edge.
-  - `set-parent C P` calls `addSubIssue(issueId: P, subIssueId: C)`
-    ("the parent of C is P").
-  - `set-child P C` calls `addSubIssue(issueId: P, subIssueId: C)`
-    ("a child of P is C").
-  - `unset-parent` / `unset-child` mirror this with `removeSubIssue`.
+  - `set-blocks N B` — the roles invert: `B` is the blocked issue and
+    `N` the blocker ("issue N blocks issue B" — the same edge, written
+    from the other side).
+  - `unset-blocked-by` / `unset-blocks` mirror this with the
+    `removeBlockedBy` template.
+- **`set-parent` / `set-child`** — same sub-issue edge, written with
+  the `addSubIssue` template.
+  - `set-parent C P` — `P` is the parent, `C` the child ("the parent
+    of C is P").
+  - `set-child P C` — the same parent and the same child ("a child of
+    P is C"); only the CLI order differs.
+  - `unset-parent` / `unset-child` mirror this with the
+    `removeSubIssue` template.
 
 The namespace exposes both directions even though the underlying API
 only offers one mutation per edge (`addBlockedBy` only, no
@@ -485,8 +496,8 @@ the same edge read from opposite sides, and `Issue.parent` /
 
 When implementing a new verb in this namespace, decide which side of
 an existing edge it lives on **before** writing a new mutation
-template — odds are the mutation already exists in this doc and you
-just need to flip the arguments.
+template — odds are the mutation already exists in this doc and the
+new verb is that template called with the two roles swapped.
 
 `unset-child P C` treats a mismatched current parent (child's parent
 is something other than P) as a no-op — the end state "child is not
@@ -521,7 +532,17 @@ list-member `IssueFieldCreateOrUpdateInput` (the native-issue-field
 write path — see "`setIssueFieldValue` — native issue field
 (single-select)").
 
-Use the templates below verbatim.
+Use the templates below verbatim, and treat them as the **only**
+place a mutation's shape is written. A caller — a `SKILL.md` step, or
+any other prose outside this section — names which template it uses
+and which value supplies each input in role terms ("the blocked issue
+and the blocker", "the field from `fields.status.id`"), and never
+restates the mutation's own argument names or nesting. Prose that
+spells the arguments reads as a specification complete enough to build
+the call from, so a reader builds one instead of opening the template;
+nothing then makes the paraphrase fail when a template changes, and
+the malformed-input error that follows looks like an upstream schema
+change rather than a misread runbook.
 
 Variable substitutions use `<...>` for the call site to fill in.
 Where the template takes runtime arguments, prefer
@@ -1029,8 +1050,8 @@ The verb takes exactly two positional arguments:
    with the "No `github-project:` block in repo-config" error from the
    catalogue. This is an abort, not a warning-and-skip — without the
    project metadata there is no slot to set. (On the Jira branch the
-   parallel requirement is a `jira:` block; absence warns-and-skips the
-   same way per "Graceful degradation when the block is missing".)
+   parallel requirement is a `jira:` block, and its absence aborts the
+   same way.)
 
 3. **Re-read `github-project.fields.<slot>`** from
    `.issues/repo-config.md`. Do not assume it's already in
@@ -1085,9 +1106,10 @@ The verb takes exactly two positional arguments:
    issue is not on the configured board, call `addProjectV2ItemById`
    to add it and capture the returned `item.id`.
 3. Call the "`updateProjectV2ItemFieldValue` — number field
-   (priority)" template with `projectId = github-project.project-id`,
-   `itemId = <resolved item id>`,
-   `fieldId = fields.<slot>.id`, and `value = <parsed integer>`.
+   (priority)" template, taking the project from
+   `github-project.project-id`, the project item resolved in step 2,
+   the field from `fields.<slot>.id`, and the parsed integer as the
+   value.
 4. If the mutation returns a "field not found"-shaped GraphQL error,
    surface the "Project field ID no longer exists on the project"
    catalogue entry.
@@ -1110,8 +1132,10 @@ The verb takes exactly two positional arguments:
    (A board-absent issue cannot match the pre-check, so this step
    only fires when the pre-check missed.)
 4. Call the "`updateProjectV2ItemFieldValue` — single-select field
-   (status)" template with `projectId`, `itemId`, `fieldId`, and
-   `optionId = fields.<slot>.options.<canonical>`.
+   (status)" template, taking the project from
+   `github-project.project-id`, the project item resolved in step 3,
+   the field from `fields.<slot>.id`, and the option from
+   `fields.<slot>.options.<canonical>`.
 5. Stale-field-ID handling as above.
 6. Emit the success echo using the **canonical capitalization** of
    the matched option key (not whatever casing the caller typed).
@@ -1155,9 +1179,9 @@ project item and no `addProjectV2ItemById` step.
    requested canonical option name (case-insensitive), print the
    verb's no-op echo and exit zero without calling the mutation.
 4. Call the "`setIssueFieldValue` — native issue field (single-select)"
-   template with `issueId = <issue node id>`,
-   `fieldId = fields.<slot>.field-id`, and
-   `optionId = fields.<slot>.options.<canonical>`.
+   template, taking the issue node ID, the field from
+   `fields.<slot>.field-id`, and the option from
+   `fields.<slot>.options.<canonical>`.
 5. If the mutation returns a "field not found"-shaped GraphQL error,
    surface the "Native issue field no longer exists" catalogue entry.
 6. Emit the success echo using the **canonical capitalization** of the
@@ -1201,10 +1225,9 @@ The Jira path resolves metadata against the **`jira:`** block of
 `.issues/repo-config.md` (schema in
 `skills/lib/repo-config.md` → "`jira:` block"), exactly the way the
 GitHub path resolves against `github-project:`. The block is optional
-and degrades gracefully the same way (see "Graceful degradation when
-the block is missing" above — the `jira:` block stands in for
-`github-project:`, and a missing-block / `kind: skip` / slot-absent
-case warns-and-skips identically).
+and degrades exactly as its GitHub counterpart does, per verb and per
+case (see "Graceful degradation when the block is missing" above,
+reading `jira:` for `github-project:`).
 
 ### Preconditions (every Jira operation)
 
@@ -1373,8 +1396,9 @@ the summary is preserved even if the transition fails.
 ### Relationships (parent/child, blocks/blocked-by)
 
 The "One edge, two sides" pattern above applies unchanged — the two
-verbs per edge differ only in argument order; the underlying Jira link
-is one edge.
+verbs per edge differ in how they take their CLI arguments (their
+order, or their arity where a verb resolves one end by lookup); the
+underlying Jira link is one edge.
 
 - **parent / child** (`/issue-set-parent`, `/issue-set-child`,
   `/issue-unset-parent`, `/issue-unset-child`) — Jira models this as

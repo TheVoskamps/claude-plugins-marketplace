@@ -70,11 +70,10 @@ the requested status name.
 
 4. **Set the status field** via the
    `updateProjectV2ItemFieldValue` single-select-field template from
-   `skills/lib/issue.md`. Pass:
-   - `projectId = github-project.project-id`
-   - `itemId = <resolved item id>`
-   - `fieldId = github-project.fields.status.id`
-   - `optionId = <option id resolved in step 1>`
+   `skills/lib/issue.md`, taking the project from
+   `github-project.project-id`, the project item resolved in step 3,
+   the field from `github-project.fields.status.id`, and the option
+   resolved in step 1.
 
 5. **Handle stale field IDs.** If the mutation returns a GraphQL
    error indicating the field ID is unknown to the project, surface

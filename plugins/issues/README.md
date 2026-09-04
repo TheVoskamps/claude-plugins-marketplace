@@ -5,6 +5,135 @@ issue — over a GitHub or Jira backend, dispatched on the `issues:`
 value in the repo's config. The skills under `skills/` are the roster;
 `skills/lib/` holds the contracts they share.
 
+## Why you would want it
+
+An issue's interesting metadata is not reachable from a single `gh`
+flag. Its type, its status/priority/size fields, its parent, its
+sub-issues and its blocked-by edges are Projects V2 GraphQL mutations
+addressed by node ID, and the IDs are per-repo. A session that files
+or updates an issue without these verbs looks those IDs up again every
+time and has to get each mutation's input shape right first try.
+
+These verbs move that lookup to setup time and record the answers in
+the repo's config. Afterwards `/issue-create` files a fully configured
+issue in one invocation, `/issue-view` prints one issue's body, fields
+and relationships without a follow-up command, and the relationship
+verbs set and clear edges by issue number from whichever end you are
+thinking from. The flags do not change when the tracker does: the same
+verbs serve a Jira backend, and only the calls underneath differ.
+
+## What it needs first
+
+- **A git working tree.** Every verb resolves the repo root itself and
+  reads the config from there.
+- **`.issues/repo-config.md`, written by `/issues:repo-config`.** This
+  is the one prerequisite with a setup step: the interview asks which
+  VCS and tracker the repo uses, discovers the project board's field
+  and option IDs, and writes them down. Every issue verb reads the
+  file and aborts pointing back at `/repo-config` when it is missing
+  or when its `schema-version` is older than the reader requires; the
+  config verbs write config rather than requiring it. It is team-shared
+  and committed, so one person runs the interview per repo.
+- **An authenticated CLI for the backend.** `gh` for the GitHub
+  backend; `acli` for Jira, plus the `issues-jira` plugin, which is
+  where the Jira command templates live.
+
+A project board is **optional**, and the two ways of reaching project
+metadata degrade differently without a `github-project:` block:
+`/issue-create`'s `--type`, `--priority`, `--size` and `--status` warn
+and skip the flag, so the issue is still filed, while the dedicated
+`/issue-set-type`, `/issue-set-priority`, `/issue-set-size` and
+`/issue-set-status` abort instead, pointing at `/repo-config`. Why
+each verb degrades the way it does is in `skills/lib/issue.md` →
+"Graceful degradation when the block is missing". Everything that
+touches only the issue itself — bodies, comments, labels, assignees,
+parents and blocked-by edges — works unchanged.
+
+Personal defaults — `default-assignee`, for one — are optional too,
+and live in a user-config file written by `/issues:user-config` (this
+repo) or `/issues:global-user-config` (this machine). Neither file
+has to exist.
+
+## Getting started
+
+Run the interview once, then use the verbs:
+
+```text
+/issues:repo-config
+```
+
+Commit the `.issues/repo-config.md` it writes. A typical run after
+that files an issue, links it under its parent, and reads it back:
+
+```text
+/issue-create --title "Cache resolved field IDs" --body-file body.md
+              --type Bug --priority High --status Ready
+/issue-set-parent 412 380
+/issue-view 412
+```
+
+Values for a select-style slot are human-readable names — `High`,
+`Bug`, `In progress` — matched case-insensitively against the options
+the config records. A name that matches nothing is an error, never a
+guess. A slot the config declares as `kind: number` takes a number
+instead; `skills/lib/issue.md` carries the per-kind rules.
+
+## Skills
+
+Every verb addresses **one** issue, by number on GitHub or by key on
+Jira. Per-verb detail — flags, defaults, echo formats — lives in each
+skill's own `SKILL.md`.
+
+| Skill | What it does |
+| ------- | -------------- |
+| `/issue-create` | File a new issue with title, body, type, fields, parent, assignees and labels in one invocation |
+| `/issue-view <N>` | Print one issue's body, project fields and every relationship in one shot |
+| `/issue-view-tree <N>` | Walk an issue tree downward through sub-issues, depth-capped at 5 |
+| `/issue-sub-list <parent-N>` | List a parent's direct sub-issues |
+| `/issue-update <N>` | Change a title, body, labels or assignees |
+| `/issue-comment <N> --body-file PATH` | Add a comment, body read from a file |
+| `/issue-close <N>` | Close an issue, optionally commenting first |
+| `/issue-set-status <N> <status>` | Set the status field on the issue's project item |
+| `/issue-set-priority <N> <value>` | Set the priority slot |
+| `/issue-set-size <N> <value>` | Set the size slot |
+| `/issue-set-type <N> <type>` | Set the issue type |
+| `/issue-set-parent <child-N> <parent-N>` | Make one issue a sub-issue of another |
+| `/issue-set-child <parent-N> <child-N>` | The same edge, named from the parent's end |
+| `/issue-unset-parent <child-N>` | Detach an issue from its parent |
+| `/issue-unset-child <parent-N> <child-N>` | The same removal, named from the parent's end |
+| `/issue-set-blocked-by <N> <blocker-N>` | Record that an issue is blocked |
+| `/issue-set-blocks <N> <blocked-N>` | The same edge, named from the blocker's end |
+| `/issue-unset-blocked-by <N> <blocker-N>` | Clear a blocked-by edge |
+| `/issue-unset-blocks <N> <blocked-N>` | The same removal, named from the blocker's end |
+| `/issues:repo-config` | Interview the repo's team-shared config into existence, or rewrite it whole |
+| `/issues:user-config` | Merge-update this user's private per-repo settings, and keep the file ignored |
+| `/issues:global-user-config` | Merge-update this user's machine-wide settings |
+| `/issue-add` | Deprecated alias for `/issue-create` |
+| `/issue-set-importance` | Deprecated alias for `/issue-set-priority` |
+
+The two-verb pairs above are two views of **one** edge each, not two
+edges: users think about a link from either end, so the namespace lets
+them say it either way.
+
+## What it deliberately does not do
+
+- **No search or list-the-backlog verb.** Every verb takes an issue
+  you already have the number of; a caller holding several loops.
+- **No branch, commit or PR handling.** Naming an issue's branch,
+  opening its PR, and writing the closing keywords belong to
+  `git-tools` and `github-prs`; the multi-issue orchestrator that
+  drives an issue end-to-end is `sdlc`.
+- **No config written behind your back.** `/repo-config` is the only
+  writer of the repo config and it rewrites the whole file from an
+  interview; no verb edits it mid-run to record what it discovered.
+
+## Mutation shapes live only in the lib's templates
+
+A mutation's shape is written once, in the lib's templates; every other
+passage names the template and the roles its inputs play, never the
+arguments. Read `skills/lib/issue.md` → "GraphQL templates" before
+writing such a passage; the rule and its rationale are stated there.
+
 ## The config paths are literals every consumer spells itself
 
 This plugin owns these paths:

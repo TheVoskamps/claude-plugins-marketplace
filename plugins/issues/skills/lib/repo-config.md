@@ -138,9 +138,9 @@ namespace presents consistent errors.
    - Under `issues: Jira`, scan the body for a line that starts with
      `jira:` at column 0. If present, parse the indented YAML
      beneath it per the `jira:` schema documented under "`jira:`
-     block" below and in the `/issues-jira:jira-lib` skill. If absent, the reader
-     gracefully degrades the same way (warn-and-skip on
-     metadata-requiring operations).
+     block" below and in the `/issues-jira:jira-lib` skill. If absent,
+     the reader degrades per that same section, reading `jira:` for
+     `github-project:`.
 
    Skip-marker HTML comments (see below) count as "absent" for read
    purposes. A reader should not look for a `github-project:` block
@@ -437,19 +437,18 @@ Keys:
   type name is what `acli jira workitem create --type` consumes.
 
 The full `acli` discovery and application command templates for this
-block live in the `/issues-jira:jira-lib` skill. The block is **optional** and
-degrades gracefully exactly like `github-project:`: a Jira repo
-without a `jira:` block (or with a skip marker) warns-and-skips on
-metadata-requiring `/issue-*` operations rather than aborting the
-whole run.
+block live in the `/issues-jira:jira-lib` skill. The block is
+**optional**, and a Jira repo without it (or with a skip marker)
+degrades exactly as a GitHub repo without `github-project:` does, per
+verb and per case: `/issue-create`'s slot flags warn and skip so the
+issue is still filed, while the set-slot verbs abort.
+`skills/lib/issue.md` → "Graceful degradation when the block is
+missing" states which verb does which and why.
 
 > Note: the `/issue-*` Jira operations that consume this block are
 > implemented (issue #9, built on the #249 foundation). They live in
 > the "Jira backend" section of `skills/lib/issue.md` and call `acli`
-> per the `/issues-jira:jira-lib` skill. A Jira repo without this
-> block (or with a skip marker) still degrades gracefully —
-> metadata-requiring operations warn-and-skip rather than aborting the
-> run.
+> per the `/issues-jira:jira-lib` skill.
 
 ## Migration policy
 
