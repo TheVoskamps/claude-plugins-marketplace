@@ -668,25 +668,3 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
-
-## A paraphrase of a call's arguments is a second copy of its schema
-
-Prose that names a call's argument identifiers, or pairs them with
-values (`fieldId = fields.status.id`), reads as a specification
-complete enough to build the call from — so a reader builds one
-instead of opening the template it paraphrases. Nothing makes the
-paraphrase fail when the template changes: it still parses, and the
-malformed-input error that follows reads as an upstream schema change
-rather than as a misread runbook.
-
-The tell is an argument name appearing anywhere other than the file
-holding the call's literal text. The sharpest variant warns the reader
-about the copy it is making: `/issue-set-blocks` told its reader to
-"note the **swapped arguments** vs. `/issue-set-blocked-by`" and then
-spelled both arguments out — a sentence only sayable because the
-mutation's argument order had been written down at two call sites as
-well as in the template. Grep each identifier across the tree; every
-hit outside the template is a copy to restate in role terms ("the
-blocked issue and the blocker", "the field from `fields.status.id`"),
-which names what the call site supplies without respelling what the
-call takes.
