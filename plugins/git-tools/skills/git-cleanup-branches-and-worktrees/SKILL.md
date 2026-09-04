@@ -309,8 +309,10 @@ with `fatal: bad revision` — cannot occur.
    who owns it or whether its work has landed. Auto-removing them
    risks data loss.
 7. Run `git worktree prune` to clean up any stale worktree references.
-8. Run `git fetch --all --prune` again to refresh tracking branches and
-   remove stale remote refs.
+8. Run `git fetch --all --prune` to leave every remote's tracking refs
+   current after the deletions above. This is not step 1's fetch
+   repeated: every gate has already run, so no gate rests on this one
+   and it covers every remote rather than just `origin`.
 9. Pull `$DEFAULT_BRANCH` (detected at the top of this file) forward:
    a. Check `git worktree list` first. If `$DEFAULT_BRANCH` is
       currently checked out in another worktree (the harness sometimes
