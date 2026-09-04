@@ -463,7 +463,9 @@ Several GitHub-issue relationships are **single edges in the data
 model** but are exposed by the `/issue-*` namespace as **two verbs**
 — one verb per direction — because users think about them from
 either end. The underlying API still has only one mutation per edge;
-the two verbs differ only in the order they take their CLI arguments.
+the two verbs differ only in how they take their CLI arguments — in
+their order, or in their arity where a verb resolves one end by
+lookup instead of taking it as an argument.
 
 Verb pairs that share an edge:
 
@@ -1394,8 +1396,9 @@ the summary is preserved even if the transition fails.
 ### Relationships (parent/child, blocks/blocked-by)
 
 The "One edge, two sides" pattern above applies unchanged — the two
-verbs per edge differ only in the order they take their CLI arguments;
-the underlying Jira link is one edge.
+verbs per edge differ only in how they take their CLI arguments (their
+order, or their arity where a verb resolves one end by lookup); the
+underlying Jira link is one edge.
 
 - **parent / child** (`/issue-set-parent`, `/issue-set-child`,
   `/issue-unset-parent`, `/issue-unset-child`) — Jira models this as
