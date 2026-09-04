@@ -43,24 +43,47 @@ guaranteed-to-exist ref, the previous failure mode — a hardcoded list
 naming branches the repo doesn't have, causing `git rev-list` to abort
 with `fatal: bad revision` — cannot occur.
 
-1. Run `git fetch --prune origin`, and **stop the run** if it exits
-   non-zero.
+1. Refresh the tracking refs the gates below read — `origin`, plus
+   every remote a local branch's upstream names:
 
-   Every gate below that asks whether work has reached origin answers
-   from local `refs/remotes/origin/*` refs and from nothing else —
-   step 4a's `@{upstream}..HEAD`, Pass 1's
-   `HEAD --not --remotes=origin`, Pass 2's
-   `<branch>@{upstream}..<branch>`. A tracking ref git has not
-   refreshed can name a commit origin no longer serves, which is
-   exactly the state that makes one of those gates read "already on
-   origin" for work that is nowhere else, so this fetch is the
-   precondition all three rest on rather than a convenience: with it
-   skipped or failed there is nothing below that is safe to act on.
-   `--prune` is the half that removes the tracking refs for branches
-   origin has deleted, and `origin` rather than `--all` because
-   `origin` is the only remote any gate below reads.
+   ```bash
+   git fetch --prune origin
+   for remote in $(git for-each-ref --format='%(upstream:remotename)' \
+     refs/heads/ | sort -u | grep -v -x -e '' -e 'origin'); do
+     git fetch --prune "$remote"
+   done
+   ```
 
-   What the fetch cannot cover is what happens to origin *after* it:
+   Every gate below that asks whether work has been pushed answers from
+   local remote-tracking refs and never from the remote itself, and
+   which refs those are is decided per candidate rather than once for
+   the run: step 4a's `@{upstream}..HEAD` and Pass 2's
+   `<branch>@{upstream}..<branch>` read the tracking refs of whatever
+   remote *that branch's* upstream names, while Pass 1's
+   `HEAD --not --remotes=origin` reads `refs/remotes/origin/*`. A
+   tracking ref git has not refreshed can name a commit its remote no
+   longer serves, which is exactly the state that makes one of those
+   gates read "already pushed" for work that is nowhere else, so this
+   fetch is the precondition they rest on rather than a convenience:
+   with it skipped or failed there is nothing below that is safe to act
+   on. `--prune` is the half that removes the tracking refs for branches
+   the remote has deleted.
+
+   Enumerating the upstreams is what makes the set of remotes match the
+   set of candidates. `origin` alone leaves a branch tracking a second
+   remote gated on refs nothing refreshed; `--all` would instead fetch
+   remotes no candidate is gated on. `origin` is fetched unconditionally
+   even so, because step 3's `git ls-remote origin` and Pass 1's
+   `--remotes=origin` read it whether or not any branch tracks it.
+
+   A fetch that fails disqualifies exactly the candidates gated on that
+   remote's refs. `origin`'s failure **stops the run**: step 3 gates
+   every branch candidate on origin and Pass 1 gates every worktree on
+   it, so there is nothing left below worth proceeding for. Another
+   remote's failure skips the branches whose upstream names it, reported
+   by branch and remote, and the rest of the run proceeds.
+
+   What the fetch cannot cover is what happens on a remote *after* it:
    a branch deleted or force-pushed mid-run leaves this run reading the
    refs as they were. Read every gate below as answering "as of step
    1's fetch", and re-run the skill rather than trusting a run that has
@@ -199,11 +222,9 @@ with `fatal: bad revision` — cannot occur.
         tracking ref for a branch origin has deleted, a zero count says
         only that some local ref still names the commit. Nothing is
         lost at removal even then — the object stays reachable through
-        that stale ref — but the next `--prune` fetch corrects the ref,
-        this skill's own step 1 next run included, and the commit is
-        then unreachable under any name with no working copy left. The
-        fetch is what keeps that ref from being stale by the time this
-        gate reads it. Treat its exit status as authoritative: act on
+        that stale ref. The fetch is what keeps that ref from being
+        stale by the time this gate reads it. Treat the `rev-list` exit
+        status as authoritative: act on
         the count only on exit `0`, and read any non-zero exit as
         "cannot verify — skip and report". Do **not** compare against the
         default branch — feature and worktree branches are expected to
@@ -311,8 +332,9 @@ with `fatal: bad revision` — cannot occur.
 7. Run `git worktree prune` to clean up any stale worktree references.
 8. Run `git fetch --all --prune` to leave every remote's tracking refs
    current after the deletions above. This is not step 1's fetch
-   repeated: every gate has already run, so no gate rests on this one
-   and it covers every remote rather than just `origin`.
+   repeated: every gate has already run, so no gate rests on this one,
+   and `--all` covers the remotes step 1 had no candidate to fetch them
+   for as well as the ones it did.
 9. Pull `$DEFAULT_BRANCH` (detected at the top of this file) forward:
    a. Check `git worktree list` first. If `$DEFAULT_BRANCH` is
       currently checked out in another worktree (the harness sometimes

@@ -448,13 +448,20 @@ spawner's own stop-before-return became `killed` rather than a second
 sense of `stopped` — one kind spelling both leaves a cleanup that has
 to know a tree is quiet with no record that says so.
 
-The kind is then decided by the **outcome**, never by the attempt: a
-stop that answered `Successfully stopped task` earns the kind a cleanup
-reads as quiet, and one that answered anything else earns the
-written-off kind, which is already true of it. A kind written
-unconditionally carries only that the writer tried, which is the
-ambiguity the split was made to remove — reintroduced one level down,
-and invisible to every reader that checks the name.
+Where the spawner stops a child, the kind is then decided by the
+**outcome**, never by the attempt: a stop that answered
+`Successfully stopped task` earns the kind a cleanup reads as quiet,
+and one that answered anything else earns the written-off kind, which
+is already true of it. A kind written unconditionally there carries
+only that the writer tried, which is the ambiguity the split was made
+to remove — reintroduced one level down, and invisible to every reader
+That is the sweep on the way out and nowhere else. A child written off
+at its own deadline takes the written-off kind unconditionally,
+whatever its stop answered: nothing reads that record as a claim about
+the child's tree — its theorem is simply live again for a later pass —
+so the weaker kind, true of every answer, is the one that arm needs,
+and reading the answer there would buy a promise nothing goes on to
+use.
 
 **One log per round, not one per fan-out.** A stage column on every
 record says which fan-out it belongs to, so two files can never disagree

@@ -268,24 +268,25 @@ no evidence.
 The **failure mode**: every condition here is a hard abort, so an unset
 `origin/HEAD` would abort the run — hence
 `git remote set-head origin --auto`, which repairs the ref rather than
-reporting it missing the way the other recipe does.
+reporting it missing the way the other recipe does. `--auto` carries an
+ABORT arm of its own for the same reason the conditions beside it do:
+this pre-flight's whole job is to establish a known starting location,
+so a command it resolves that location through failing leaves the
+location unestablished, and a `$default` nobody checked is not
+something to continue on.
 
-The **answer**, in one case: `--auto` queries the remote for its HEAD
-and sets the symref to it, so it corrects a set-but-**stale**
-`origin/HEAD` as well as an unset one, where a bare read of that symref
-returns the stale name. It can do that only once the remote-tracking
-ref for the branch it now names exists locally, and the fetch above it
-is what supplies that: run the other way round on a repo whose default
-branch was renamed, `--auto` reports
-`error: Not a valid ref: refs/remotes/origin/<new name>` and the read
-after it hands back the retired one. The order is what performs the
-repair, and the ABORT arm on `--auto` is what keeps a run that did not
-get the repair from continuing on a `$default` nobody checked.
-On a repo whose default branch was renamed, this check and that
-recipe's fallback path — the one it takes with `gh` unavailable or
-unauthenticated — therefore land on different branch names. That
-recipe's primary path asks `gh repo view`, which is authoritative and
-agrees with this check; it is only the fallback that can disagree.
+The **answer**: `--auto` sets the symref from the remote's own HEAD, so
+it corrects a set-but-**stale** `origin/HEAD` as well as an unset one,
+where a bare read of that symref hands back whatever name is already
+there. It sits after the fetch because that is the order the two are in
+— refreshing the tracking refs, then resolving against them; resolving
+first would put the question to a set of refs that answers for the
+remote as it used to be. This check and that recipe's fallback path —
+the one it takes with `gh` unavailable or unauthenticated — can
+therefore land on different branch names, the fallback reading a stale
+symref this one repairs. That recipe's primary path asks
+`gh repo view`, which is authoritative and agrees with this check; it
+is only the fallback that can disagree.
 
 `--untracked-files=no` is deliberate: a human's primary clone routinely
 carries untracked files, while a modification to a tracked file is the
