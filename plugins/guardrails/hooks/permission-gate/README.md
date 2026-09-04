@@ -1797,6 +1797,18 @@ nothing about what to do, and tells whoever is tuning the evaluator
 from the §7 log no more, so a Reason must be self-sufficiently
 actionable wherever it surfaces.
 
+A Reason names no file this plugin does not ship, for the same
+reason. The gate's artifacts are the binary, its Go source and this
+README; a pointer like `rules/git-workflow.md` resolves against the
+operator's own `~/.claude/rules/`, which a machine that installed this
+plugin need not have and whose wording this repo does not control. So
+a remediation states the constraint and the call that satisfies it
+inline and stops there — the `cd <path> && git …` and
+`git -C <abs-path> …` denies name the two-call replacement, and the
+naked-`gh` deny names the wrapper's absolute path. No test guards this
+one: `trackerRefInReason` is issue-pointer-shaped only, so it is held
+by inspection whenever a Reason is written.
+
 ## Rules are compiled in
 
 Policy lives in the binary, not on disk — a security gate's rule set
