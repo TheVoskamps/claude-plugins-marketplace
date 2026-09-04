@@ -46,10 +46,11 @@ which is dated and versionless. Both are needed — neither substitutes
 for the other.
 
 Read it with the `Read` tool, for the reason the topics contract gives,
-requiring `schema-version: 1`. A file that is malformed, or whose
-`schema-version` is lower, is not a watermark to guess at: report the
-path and the version found and stop, so a hand-edit that broke the file
-is not silently overwritten. A **higher** version reads fine — take the
+requiring `schema-version: 1`. A malformed file is not a watermark to
+guess at: report the path and stop, so a hand-edit that broke the file
+is not silently overwritten. A `schema-version` lower than the pin
+stops the same way, naming both versions — the one the file carries and
+the `1` this skill requires. A **higher** version reads fine — take the
 two keys and ignore the rest.
 
 If the file is absent, this is a first run: report that, use the 30
@@ -58,13 +59,11 @@ CHANGELOG section is capped at 30 entries rather than complete. There
 is no migration from any earlier watermark file — an absent
 `whats-new.yml` is a first run whatever else the directory holds.
 
-If the `Read` **denies**, the file is not absent and this is not a first
-run: nothing is known about the watermark. Report the denial and the
-path, take the same 30-day window a first run uses (or `--since` when
-given), say in the report that the CHANGELOG section is capped at 30
-entries, and skip step 7 — a denied read is not evidence that the file
-is missing, the same reason the topics contract gives under
-"Unreadable".
+If the `Read` **denies**, report the tool's error verbatim and the path
+it was denied at, and stop. Name no cause: a denial says nothing about
+why, so any explanation you offer is a guess the user will act on. A
+denial is not absence either, so there is no first-run window to fall
+back on — the run ends there, with no report and nothing written.
 
 `--since YYYY-MM-DD` in `$ARGUMENTS` overrides `last-run` for this run
 and leaves the file's own watermark to be advanced as usual.
@@ -113,9 +112,7 @@ the absolute path.
 7. **Write the watermark back** to the state file: today's date, and
    the version from `claude --version`. Do this last, only after the
    report is produced, so a failed run leaves the window intact for the
-   next one. Skip this write entirely on a run whose watermark read was
-   denied: the file's contents are unknown, and writing today's date
-   over them would destroy a watermark this run never saw.
+   next one.
 
 ## Discovery is propose-and-ask
 
@@ -134,9 +131,7 @@ untouched.
 An accepted candidate is an edit to a file the user owns: preserve
 every existing key and every existing topic, add the issue number to
 the named topic's `issues:` (creating the topic at the end of the list
-when it is new), and change nothing else. Never write the file at all
-on a run whose config read was denied — see the contract's
-"Unreadable" case.
+when it is new), and change nothing else.
 
 ## Report format
 
@@ -173,5 +168,4 @@ the CHANGELOG does not state — label a hypothesis as one.
 - If WebFetch fails, report the error verbatim and stop before writing
   the watermark.
 - Say in the report when the topics config was seeded this run, and
-  where, or when it was unreadable and the starter topics were used
-  instead.
+  where.

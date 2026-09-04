@@ -53,11 +53,11 @@ Use this structure exactly, one group per configured topic, headed by
 the topic's `name` verbatim and in file order. No PR references, no
 progress narration, no extra commentary. The notice line above the
 groups is the exception the Notes section requires, not commentary:
-write it when the config was seeded or unreadable this run, and leave
-the line out entirely when the config was read as it stood.
+write it when the config was seeded this run, and leave the line out
+entirely when the config was read as it stood.
 
 ```text
-<config seeded / config unreadable notice, naming the path>
+<config seeded notice, naming the path>
 
 ## <topic name>
 
@@ -98,7 +98,6 @@ removes.
 
 ## Notes
 
-- Say in the report when the config was seeded this run, and where, or
-  when it was unreadable and the starter topics were used instead.
+- Say in the report when the config was seeded this run, and where.
 - Don't speculate about issue progress beyond what `gh` reports.
 - If `gh` fails, report the error verbatim and stop.

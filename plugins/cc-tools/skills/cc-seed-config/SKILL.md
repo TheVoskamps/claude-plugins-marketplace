@@ -1,6 +1,6 @@
 ---
 name: cc-seed-config
-description: "Seed the cc-tools topics config from the shipped starter set of Claude Code topics, or hand that starter set back without writing. Invoked by /cc-tools:cc-watchlist and /cc-tools:cc-whats-new when the config is absent or unreadable; not a user verb."
+description: "Seed the cc-tools topics config from the shipped starter set of Claude Code topics. Invoked by /cc-tools:cc-watchlist and /cc-tools:cc-whats-new when the config is absent, or when a denied read left the user willing to risk creating one; not a user verb."
 user-invocable: false
 allowed-tools: Read, Write
 ---
@@ -18,19 +18,17 @@ is the only statement of them; this skill does not restate them.
 ## Invocation
 
 ```text
-/cc-tools:cc-seed-config [--table-only]
+/cc-tools:cc-seed-config
 ```
 
-- **No argument** — write the file and report where. Your caller found
-  it absent.
-- **`--table-only`** — hand the starter topics back and write nothing.
-  Your caller could not read the file and needs topics to proceed on;
-  a denied read is not evidence that the file is missing, so seeding
-  there would clobber a config you cannot see.
+No arguments. You write the file and report where.
 
-The file already existing is not a case you handle: a caller that can
-read it does not invoke you. If the write finds one, stop and report
-it rather than overwriting.
+Two callers reach you: one that read the path and found nothing there,
+and one whose read was denied and whose user accepted the offer to
+create a starter config anyway. The second cannot tell whether a file
+already exists, and neither can you — the `Read` that would settle it
+is denied for you too. The user accepted that risk; write, and if the
+`Write` denies as well, report the tool's error verbatim and stop.
 
 ## The starter set
 
@@ -70,7 +68,7 @@ The `Write` tool creates missing parent directories, so do not run
 
 ## Output
 
-One block, naming which mode ran:
+One block:
 
 ```text
 ## cc-tools config seeded
@@ -79,13 +77,5 @@ Path:   <absolute path written>
 Topics: <N> (<M> issues)
 ```
 
-or, for `--table-only`:
-
-```text
-## cc-tools starter topics (nothing written)
-
-- <name> — <issue numbers, or "search-only">
-```
-
-Hand the topics themselves back to the caller in both modes; the
-caller reports on them and never re-reads this file for them.
+Hand the topics themselves back to the caller; the caller reports on
+them and never re-reads this file for them.

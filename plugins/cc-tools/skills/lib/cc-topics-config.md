@@ -73,16 +73,16 @@ Five outcomes, and every reader handles all five:
 - **Absent** — invoke `/cc-tools:cc-seed-config` to write it, say in
   your own report that the config was seeded and at which path, and
   proceed on the topics it wrote.
-- **Unreadable** — the `Read` denies. The usual cause is that the
-  machine's operator has not listed `cc-tools/**` in
-  `~/.config/guardrails/config.yml`, and it is not the only one: on a
-  machine that relocates `$XDG_CONFIG_HOME` the file sits outside the
-  carve-out root, where no listing reaches it at all
-  (`docs/config-file-conventions.md` → "The permission gate reads
-  `$HOME/.config` literally"). Report that the config was unreadable,
-  invoke `/cc-tools:cc-seed-config --table-only` for the starter
-  topics, and proceed on those. Seed nothing and write nothing: a
-  denied read is not evidence that the file is missing.
+- **Unreadable** — the `Read` denies. Report the tool's error verbatim
+  and the path it was denied at, and name no cause: a denial says
+  nothing about why, so any explanation you offer is a guess the user
+  will act on. Then offer to invoke `/cc-tools:cc-seed-config`, in case
+  the file does not exist, and say what the offer risks — a denied read
+  is not evidence that the file is missing, so an accepted offer may
+  overwrite a config nobody could see. Declined, stop and report on no
+  topics; there is no fallback set to report on. Accepted and written,
+  proceed as for **Absent**. Accepted and the write denies too, report
+  that error verbatim and stop.
 - **`schema-version` absent, or the YAML is malformed** — abort,
   naming the path. A hand-editable file that a reader treats as absent
   is a hand edit about to be overwritten.
@@ -93,8 +93,9 @@ Five outcomes, and every reader handles all five:
 
 ## Writing it
 
-Only `/cc-tools:cc-seed-config` creates the file, and only when it is
-absent. The one other write is `cc-whats-new` appending a topic the
-user accepted from its discovery section; that is an edit to an
-existing file, and it preserves every key and every topic already
-there.
+Only `/cc-tools:cc-seed-config` creates the file, and only when a
+reader found it absent or the user accepted the offer the
+**Unreadable** case makes. The one other write is `cc-whats-new`
+appending a topic the user accepted from its discovery section; that is
+an edit to an existing file, and it preserves every key and every topic
+already there.
