@@ -7,16 +7,16 @@ import (
 )
 
 // forbiddenForm detects the command shapes that the replaced
-// auto-approve-compound-commands.sh denied (rules/git-workflow.md "Forbidden
-// command forms"). Both trip harness gates and both have a clean two-call
-// alternative, so the gate denies them with a teaching remediation.
+// auto-approve-compound-commands.sh denied. Both trip harness gates and both
+// have a clean two-call alternative, so the gate denies them with a teaching
+// remediation.
 //
 //	Form 1: `cd <path> && git ...` — the CVE-2025-59536 harness gate prompts
 //	        on this regardless of hook approvals. Narrowed to a following
 //	        `git` command so the documented subagent carve-out
 //	        (`cd <subdir> && <non-git-cmd>`, e.g. `cd frontend && npm run
-//	        build`) is preserved — that form is explicitly allowed by
-//	        git-workflow.md and must not be denied.
+//	        build`) is preserved — the harness gate is specific to a
+//	        following `git`, so that form must not be denied.
 //	Form 2: `git -C <abs-path> <subcommand>` — the harness prompts on these
 //	        even when allow-listed.
 //
@@ -48,8 +48,7 @@ func forbiddenForm(file *syntax.File) (Decision, bool) {
 				found = deny("forbidden-form:cd-&&-git",
 					"Forbidden form 'cd <path> && git ...'. The harness gate (CVE-2025-59536) prompts on this "+
 						"regardless of approvals. Use two separate Bash calls instead: first 'cd <path>', then the bare "+
-						"'git <subcommand>'. CWD persists across calls in the main session. See rules/git-workflow.md "+
-						"\"Forbidden command forms\".")
+						"'git <subcommand>'. CWD persists across calls in the main session.")
 				hit = true
 				return false
 			}
@@ -59,7 +58,7 @@ func forbiddenForm(file *syntax.File) (Decision, bool) {
 				found = deny("forbidden-form:git-C-abs",
 					"Forbidden form 'git -C <abs-path> <subcommand>'. The harness prompts on these even when "+
 						"allow-listed. Use two separate Bash calls instead: first 'cd <abs-path>', then the bare "+
-						"'git <subcommand>'. See rules/git-workflow.md \"Forbidden command forms\".")
+						"'git <subcommand>'.")
 				hit = true
 				return false
 			}
