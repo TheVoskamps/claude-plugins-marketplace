@@ -155,7 +155,7 @@ Since <last-version> (<last-run>) — now <version>, <today>.
 
 ## Watch
 
-- <entry that names a surface you configure but does not change it yet>
+- <entry that names a configured topic's surface without changing it yet>
 
 ## Track these?
 

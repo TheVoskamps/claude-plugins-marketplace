@@ -42,7 +42,12 @@ denied on every machine, carve-out or not. `Read` is the only spelling a
 listing can reach, and it reaches it only for a path that machine's
 operator actually listed — on an unconfigured machine the `Read` denies
 too, and a skill has to survive that rather than assume the file is
-readable. See
+readable. Surviving it never means writing: a denial reports nothing
+about whether the file exists, so a reader that seeds a default when
+the file is absent, or rewrites a watermark at the end of a run, does
+neither when the read denies — it says the read was denied, proceeds on
+in-memory defaults for that run alone, and leaves a file it could not
+see untouched. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema and scope limits.
 
