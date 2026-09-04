@@ -146,10 +146,14 @@ with `fatal: bad revision` — cannot occur.
       detaching HEAD and deleting the issue branch. The worktree it
       leaves behind is on no branch at all, so a `worktree-*` match
       alone never reaches it; the `worktree-*` ref the harness created
-      the worktree on survives as an orphan for Pass 2. The detached
-      half of the selector is scoped to the `.claude/worktrees/` path
-      — a detached worktree elsewhere in the repo is never a
-      candidate.
+      the worktree on survives as an orphan for Pass 2.
+
+      Both halves of the selector reach only the **direct** children of
+      `.claude/worktrees/`. A worktree elsewhere in the repo is never a
+      candidate, and neither is a nested one under
+      `.claude/worktrees/*/.claude/worktrees/` — a detached HEAD does
+      not exempt it from Step 6, which reserves nested worktrees for
+      human inspection.
 
       For each candidate, run the safety check:
       - no uncommitted changes
@@ -167,10 +171,8 @@ with `fatal: bad revision` — cannot occur.
         git rev-list HEAD --not --remotes
         ```
 
-        **Treat the `rev-list` exit status as authoritative**, as in
-        Pass 2 below: act on the output only when the command exited
-        `0`. A non-zero exit means "cannot verify — skip and report",
-        never "no output, therefore safe".
+        Read this `rev-list`'s exit status exactly as Pass 2 below
+        directs for its own.
 
       If both checks pass: remove the worktree (`git worktree remove`,
       no `--force`), then delete the local branch (`git branch -d`).
