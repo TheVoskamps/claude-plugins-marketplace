@@ -3,9 +3,11 @@
 This file is the single source of truth for **where** the user's
 curated Claude Code topics live, **what** the file holds, and **how** a
 skill reads it. It is reference prose, not an executable script.
-`/cc-tools:cc-watchlist` and `/cc-tools:cc-whats-new` (the readers) and
-`/cc-tools:cc-seed-config` (the writer) all follow this contract; none
-of them restates the path or the schema.
+`/cc-tools:cc-watchlist` and `/cc-tools:cc-whats-new` (the readers),
+`/cc-tools:cc-suggest-topics` (which reads the file and appends what
+the user accepts to it), and `/cc-tools:cc-seed-config` (the writer)
+all follow this contract; none of them restates the path or the
+schema.
 
 ## Why the topics are a config and not a skill body
 
@@ -16,10 +18,13 @@ subject. A set baked into either skill's body is one user's shopping
 list shipped as the plugin's behaviour — unaddable, unremovable, and
 lost on every plugin update. A set derived from the machine's settings
 and installed plugins is no better: it is a list the user never chose
-and cannot prune.
+and cannot prune. Derivation as a *proposal* is a different thing, and
+is what `cc-suggest-topics` does — every topic it derives takes the
+user's yes before it reaches the file, so what the file holds stays a
+list the user chose.
 
-So the file below is the **only** source of topics for both skills.
-Neither infers a topic from anything else.
+So the file below is the **only** source of topics for the two readers
+named above. Neither infers a topic from anything else.
 
 ## The path
 
@@ -82,7 +87,11 @@ Every reader handles each of these outcomes:
   overwrite a config nobody could see. Declined, stop and report on no
   topics; there is no fallback set to report on. Accepted and written,
   proceed as for **Absent**. Accepted and the write denies too, report
-  that error verbatim and stop.
+  that error verbatim and stop. `cc-suggest-topics` is the one
+  exception to the offer: it derives its candidates against what is
+  already tracked, so with the file unseen it would propose its whole
+  list as new — it reports the denial and stops without offering to
+  seed.
 - **`schema-version` absent, or the YAML is malformed** — abort,
   naming the path. A hand-editable file that a reader treats as absent
   is a hand edit about to be overwritten.
@@ -95,7 +104,9 @@ Every reader handles each of these outcomes:
 
 Only `/cc-tools:cc-seed-config` creates the file, and only when a
 reader found it absent or the user accepted the offer the
-**Unreadable** case makes. The one other write is `cc-whats-new`
-appending a topic the user accepted from its discovery section; that is
-an edit to an existing file, and it preserves every key and every topic
-already there.
+**Unreadable** case makes. The other two writes are edits to an
+existing file, and each preserves every key and every topic already
+there: `cc-whats-new` appending a topic the user accepted from its
+discovery section, and `cc-suggest-topics` appending a candidate the
+user accepted — or renaming one tracked topic to a broader term the
+user accepted, carrying its `issues:` over untouched.

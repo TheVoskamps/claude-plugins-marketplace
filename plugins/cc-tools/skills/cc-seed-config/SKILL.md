@@ -1,6 +1,6 @@
 ---
 name: cc-seed-config
-description: "Seed the cc-tools topics config from the shipped starter set of Claude Code topics. Invoked by /cc-tools:cc-watchlist and /cc-tools:cc-whats-new when the config is absent, or when a denied read left the user willing to risk creating one; not a user verb."
+description: "Seed the cc-tools topics config from the shipped starter set of Claude Code topics. Invoked by the cc-tools skills that read that config when they find it absent, or when a denied read left the user willing to risk creating one; not a user verb."
 user-invocable: false
 allowed-tools: Read, Write
 ---
@@ -23,9 +23,10 @@ is the only statement of them; this skill does not restate them.
 
 No arguments. You write the file and report where.
 
-Two callers reach you: one that read the path and found nothing there,
-and one whose read was denied and whose user accepted the offer to
-create a starter config anyway. The second cannot tell whether a file
+Two situations reach you: a caller that read the path and found
+nothing there, and a caller whose read was denied and whose user
+accepted the offer to create a starter config anyway, whichever skill
+it was. The second cannot tell whether a file
 already exists, and neither can you — the `Read` that would settle it
 is denied for you too. The user accepted that risk; write, and if the
 `Write` denies as well, report the tool's error verbatim and stop.
