@@ -112,11 +112,10 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	}
 
 	// Naked `gh` in an App-configured repo (ported from the replaced
-	// auto-approve-compound-commands.sh; see rules/prefer-gh-wrapper-in-app-repos.md).
-	// When the event repo's LOCAL user.email is the App bot address
-	// (*[bot]@users.noreply.github.com), a bare `gh` would silently use the
-	// human's personal credentials and mis-attribute the action. Deny and
-	// point at the wrapper. Fires only in App repos; elsewhere the local
+	// auto-approve-compound-commands.sh). When the event repo's LOCAL
+	// user.email is the App bot address (*[bot]@users.noreply.github.com), a
+	// bare `gh` would silently use the human's personal credentials and
+	// mis-attribute the action. Deny and point at the wrapper. Fires only in App repos; elsewhere the local
 	// email is not a bot address and this is a no-op. A git lookup failure is
 	// treated as "not an App repo" (the gate does not block normal gh usage
 	// just because git can't answer).
@@ -600,7 +599,7 @@ func denyGhNakedAppRepo() Decision {
 		"Blocked: a bare 'gh' in an App-configured repo uses your personal credentials and silently "+
 			"mis-attributes the action. Call the wrapper by absolute path instead — "+
 			"'~/.claude/.global-claude-config/bin/gh_wrapper' — which mints a fresh App installation token "+
-			"per call. See rules/prefer-gh-wrapper-in-app-repos.md.")
+			"per call.")
 }
 
 // ghIrreparableDeny denies the DENY-tier gh operations: deletes of things

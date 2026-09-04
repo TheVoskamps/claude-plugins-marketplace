@@ -124,10 +124,9 @@ func classifyBash(command string, ev *Event) Decision {
 	}
 
 	// Forbidden command shapes (ported from the replaced
-	// auto-approve-compound-commands.sh; see rules/git-workflow.md "Forbidden
-	// command forms"). These trip harness gates / walker bugs and have a
-	// working two-call alternative, so the gate denies them with a teaching
-	// remediation rather than letting them through.
+	// auto-approve-compound-commands.sh). These trip harness gates / walker
+	// bugs and have a working two-call alternative, so the gate denies them
+	// with a teaching remediation rather than letting them through.
 	if d, hit := forbiddenForm(file); hit {
 		return d
 	}
