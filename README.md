@@ -21,8 +21,8 @@ The marketplace currently ships these plugins (one entry each in
 - **`git-tools`** — git-side helpers for the issue-branch lifecycle,
   plus unit-test generation.
 - **`cc-tools`** — Claude Code meta-skills: global rules, feature/bug
-  watchlist status, what's-new-since-last-run filtered to this
-  machine's settings and plugins, and agent-memory curation from a
+  watchlist status, what's-new-since-last-run — both filtered to the
+  topics in your own config — and agent-memory curation from a
   session's scratchpad inbox into the repo's own documentation.
 - **`github-claude-identity`** — run git + gh against GitHub as Claude's
   own bot identity (a dedicated GitHub App account) distinct from the
