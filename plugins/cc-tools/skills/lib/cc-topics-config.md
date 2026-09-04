@@ -73,12 +73,16 @@ Five outcomes, and every reader handles all five:
 - **Absent** — invoke `/cc-tools:cc-seed-config` to write it, say in
   your own report that the config was seeded and at which path, and
   proceed on the topics it wrote.
-- **Unreadable** — the `Read` denies, because that machine's operator
-  has not listed `cc-tools/**` in `~/.config/guardrails/config.yml`.
-  Report that the config was unreadable, invoke
-  `/cc-tools:cc-seed-config --table-only` for the starter topics, and
-  proceed on those. Seed nothing and write nothing: a denied read is
-  not evidence that the file is missing.
+- **Unreadable** — the `Read` denies. The usual cause is that the
+  machine's operator has not listed `cc-tools/**` in
+  `~/.config/guardrails/config.yml`, and it is not the only one: on a
+  machine that relocates `$XDG_CONFIG_HOME` the file sits outside the
+  carve-out root, where no listing reaches it at all
+  (`docs/config-file-conventions.md` → "The permission gate reads
+  `$HOME/.config` literally"). Report that the config was unreadable,
+  invoke `/cc-tools:cc-seed-config --table-only` for the starter
+  topics, and proceed on those. Seed nothing and write nothing: a
+  denied read is not evidence that the file is missing.
 - **`schema-version` absent, or the YAML is malformed** — abort,
   naming the path. A hand-editable file that a reader treats as absent
   is a hand edit about to be overwritten.

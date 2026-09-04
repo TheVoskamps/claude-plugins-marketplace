@@ -124,6 +124,11 @@ which of its notes were about the branch and which about the repo.
   unmentioned. That is the trade: the tools report, you curate. Widen
   the window with `--since` and read the upstream CHANGELOG yourself
   when that matters.
+- **The topics list is machine-wide.** It lives under your user config
+  directory, and no repo-local layer sits over it, so every repo you
+  run these skills in reports on the same topics — including the ones
+  that matter in one repo and nowhere else. Adding such a layer is
+  issue #375.
 - **Curation is destructive and has no undo of its own.** It relies on
   git, or on your review of an uncommitted tree. The inbox is not a
   repository at all: an entry the curator neither transfers nor

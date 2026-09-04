@@ -51,9 +51,14 @@ written to the config — adding one durably is a hand edit to
 
 Use this structure exactly, one group per configured topic, headed by
 the topic's `name` verbatim and in file order. No PR references, no
-progress narration, no extra commentary.
+progress narration, no extra commentary. The notice line above the
+groups is the exception the Notes section requires, not commentary:
+write it when the config was seeded or unreadable this run, and leave
+the line out entirely when the config was read as it stood.
 
 ```text
+<config seeded / config unreadable notice, naming the path>
+
 ## <topic name>
 
 Open:

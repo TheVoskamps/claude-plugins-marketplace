@@ -58,6 +58,14 @@ CHANGELOG section is capped at 30 entries rather than complete. There
 is no migration from any earlier watermark file — an absent
 `whats-new.yml` is a first run whatever else the directory holds.
 
+If the `Read` **denies**, the file is not absent and this is not a first
+run: nothing is known about the watermark. Report the denial and the
+path, take the same 30-day window a first run uses (or `--since` when
+given), say in the report that the CHANGELOG section is capped at 30
+entries, and skip step 7 — a denied read is not evidence that the file
+is missing, the same reason the topics contract gives under
+"Unreadable".
+
 `--since YYYY-MM-DD` in `$ARGUMENTS` overrides `last-run` for this run
 and leaves the file's own watermark to be advanced as usual.
 
@@ -105,7 +113,9 @@ the absolute path.
 7. **Write the watermark back** to the state file: today's date, and
    the version from `claude --version`. Do this last, only after the
    report is produced, so a failed run leaves the window intact for the
-   next one.
+   next one. Skip this write entirely on a run whose watermark read was
+   denied: the file's contents are unknown, and writing today's date
+   over them would destroy a watermark this run never saw.
 
 ## Discovery is propose-and-ask
 
