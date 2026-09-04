@@ -247,9 +247,9 @@ wherever it runs — the issue verbs, `git-branch-create`,
 `git-issues-from-branch`, the PR verbs, `agent-memory-inbox-capture`,
 and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
-`git-cleanup-branches-and-worktrees`, which nothing here invokes:
-`skills/orchestrate/SKILL.md` names it as the whole-repo sweep of the
-same shape as the per-worktree cleanup the orchestrator performs
-inline. The edge coordinates install and enablement, not file access:
+`git-cleanup-branches-and-worktrees`, which
+`skills/orchestrate/SKILL.md` invokes once as the orchestrator's
+terminal step — the run's only cleanup. The edge coordinates install
+and enablement, not file access:
 plugins are file-sandboxed, so nothing here reads another plugin's
 files (see `docs/plugin-authoring-constraints.md`).

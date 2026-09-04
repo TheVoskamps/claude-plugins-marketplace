@@ -1515,11 +1515,11 @@ learn a child's worktree name from its own `enter` and nowhere else.
 Guessing from the listing is the pattern sweep this section forbids.
 The log does say one exists — a `spawn` record with no `enter` in that
 stage — so report the theorem and stage instead of the path you cannot
-resolve, and let it reach the run summary and the human's whole-repo
+resolve, and let it reach the whole-repo
 `/git-tools:git-cleanup-branches-and-worktrees` sweep, which is what
-`sdlc:orchestrate` → "Sweep the run's leftover worktrees at the end"
-leaves it to. A leaked directory costs disk; a wrong removal costs
-another session its work.
+`sdlc:orchestrate` → "Clean up, once, at the end" leaves it to. A
+leaked directory costs disk; a wrong removal costs another session its
+work.
 
 Remove by the **absolute** path `git worktree list` prints, never by a
 short `.claude/worktrees/<name>` form. `git worktree remove` resolves a
