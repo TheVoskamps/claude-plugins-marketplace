@@ -668,23 +668,3 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
-
-## A paraphrase of a template's inputs is a second copy of the spec
-
-A runbook step that names the template to call and then respells its
-arguments — "pass `issueId = <parent node id>`, `subIssueId = <child
-node id>`" — reads as helpful precision, and the names are right the
-day it is written. It rots the day the template's own input changes:
-the step still names the right template, nothing greps as
-inconsistent, and a reader builds the call from the paraphrase without
-ever opening what it cites. The malformed-input error that follows
-looks like an upstream schema change rather than a stale runbook.
-
-The tell is a call site that gives a value's *role* and the *argument
-name* it fills in the same breath — a `Pass:` list of `name = value`
-pairs under a sentence that already named the template.
-`plugins/issues`' `SKILL.md` steps carried one under most of their
-Projects V2 mutation call sites. The repair keeps the role and drops
-the spelling ("the blocked issue and the blocker", "the field from
-`fields.status.id`"), so the argument names exist in one place and a
-reader who needs them has to go there.

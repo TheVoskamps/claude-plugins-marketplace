@@ -129,14 +129,10 @@ them say it either way.
 
 ## Mutation shapes live only in the lib's templates
 
-The GraphQL templates in `skills/lib/issue.md` are the one place a
-mutation's argument names and nesting are written down. Every other
-passage — a `SKILL.md` step, and the lib's own prose outside that
-section — names the template it calls and says which value fills each
-input in role terms ("the blocked issue and the blocker", "the field
-from `fields.status.id`"), never respelling the arguments themselves.
-Read `skills/lib/issue.md` → "GraphQL templates" before writing such a
-passage; the rule's rationale is stated there.
+A mutation's shape is written once, in the lib's templates; every other
+passage names the template and the roles its inputs play, never the
+arguments. Read `skills/lib/issue.md` → "GraphQL templates" before
+writing such a passage; the rule and its rationale are stated there.
 
 ## The config paths are literals every consumer spells itself
 
