@@ -30,8 +30,8 @@ has to know what the log already holds.
 
 ```text
 sdlc-agent-result-persist --mode <mode> \
-  --scratchpad <dir> --owner <owner> --repo <repo> \
-  --pr <n> --round <n> [mode-specific flags]
+  --owner <owner> --repo <repo> --pr <n> --round <n> \
+  [mode-specific flags]
 ```
 
 Spell the command as a bare name, never by path: the rule that lets a
@@ -41,14 +41,12 @@ because this plugin ships no permission rules.
 
 ## The identifying flags
 
-These five go on **every** call in every mode, and they are the whole
-of what the log's path is composed from:
+These four go on **every** call in every mode, and they are the whole
+of what the log's path is composed from. Every one of them is a fact
+about the PR under review, so a caller in any session — the one that
+opened the round or a later one resuming it — holds all four already
+and composes the same path:
 
-- `--scratchpad <dir>` — the harness's per-session scratchpad
-  directory, as the reviewer's own context names it, passed down
-  verbatim. Never hand-build a lookalike path: the uid in
-  `/tmp/claude-<uid>/` varies per machine and the session segment is
-  not a child's to compute.
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
   path. Neither may carry a path separator or whitespace.
@@ -66,9 +64,19 @@ is no path string to mistype, and none to carry across a turn
 boundary. A reader learns a result file's path by reading it out of the
 log it just printed.
 
+The round gets a **directory of its own**, and the identifying flags
+are the whole of what composes it — no session is part of the path.
+That is what makes a round survive the session that opened it: a
+reviewer resumed in a new session on the same PR and round reads the
+same log. The state variable is used when set and non-empty and
+`$HOME/.local/state` otherwise, and the script spells that fallback
+once. Nothing here is ever deleted, and nothing here duplicates the
+theorem state the review body's records block holds — that block
+remains the only cross-round store.
+
 ```text
-<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>
-<the same>-<theorem>-<agent>
+${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>/log
+<the same directory>/<theorem>-<agent>
 ~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl
 ```
 
@@ -80,8 +88,8 @@ outside `[A-Za-z0-9-]` replaced by a dash — measured on a `/` and on a
 basis: the primary root is `git rev-parse --git-common-dir` passed
 through `dirname`. `<session>` is `CLAUDE_CODE_SESSION_ID` and
 `<agent-id>` is the child's own worktree name with `agent-` stripped.
-The scratchpad's `.output` file is a symlink to that transcript; the
-record carries the target, which outlives the symlink.
+The harness's per-session scratchpad holds an `.output` symlink to that
+transcript; the record carries the target, which outlives the symlink.
 
 With any of those unavailable the record still lands, carrying `-` in
 the transcript column. A missing path is worth less than a missing
@@ -103,13 +111,13 @@ writes**, and `print` for the one that reads.
   - **An `anchor` naming the same head SHA** — this same round's, so
     the call writes nothing and exits zero.
   - **An `anchor` naming a different head SHA** — the records describe
-    a tree that no longer exists, so the log **and every result file
-    beside it** are renamed under `<file>.voided-<instant>` — kept as
-    the evidence of what the voided round did — and the new anchor is
-    written in its place. Nothing is deleted. The result files move
-    with the log because a reader takes a report's existence as a
-    settled theorem, and one left under its own name would settle the
-    fresh round's theorem from the voided tree.
+    a tree that no longer exists, so the round's whole directory is
+    renamed to `round<round>.voided-<instant>` — kept as the evidence
+    of what the voided round did — and a fresh `round<round>/` holding
+    only the new anchor takes its place. Nothing is deleted. The result
+    files move with the log because a reader takes a report's existence
+    as a settled theorem, and one left under its own name would settle
+    the fresh round's theorem from the voided tree.
 - **`spawn`** — appends one `spawn` record for `--theorem` in
   `--stage`, carrying `--agent`, `--model` and `--effort`. The
   caller's, once per child it spawns. Model and effort are on this

@@ -38,11 +38,11 @@ Your brief carries exactly these double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded above) says
 it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 (optional), `--theorem`, `--claim`, `--issues`, `--class`,
-`--pointers`, `--scratchpad`, `--owner`, `--repo`, and `--round`.
+`--pointers`, `--owner`, `--repo`, and `--round`.
 
 Without `--branch` you have no branch to settle the claim against.
 
-The last four carry nothing about the claim; steps 1 and 5 pass them
+The last three carry nothing about the claim; steps 1 and 5 pass them
 back unchanged. Without them you can still settle the claim but cannot
 record that you started or what you found — say so in your report
 rather than guessing at one.
@@ -79,7 +79,7 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode enter \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage disprove
    ```
 
@@ -151,7 +151,7 @@ calls in a subagent context.
 
    ```bash
    sdlc-agent-result-persist --mode leave \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR> --round <round> --theorem <theorem> --stage disprove \
      --agent theorem-disprover <<'REPORT'
    VERDICT: …
