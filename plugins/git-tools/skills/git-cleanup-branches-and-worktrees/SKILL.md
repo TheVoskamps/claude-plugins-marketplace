@@ -141,12 +141,15 @@ with `fatal: bad revision` — cannot occur.
    a. **Pass 1 — worktrees that still exist.** List all worktrees
       under `.claude/worktrees/` that are either checked out on a
       branch matching `worktree-*` **or** sitting at a detached HEAD.
-      An `sdlc` teammate releases its branch claim by detaching HEAD
-      and deleting its own `worktree-agent-*` branch, so the worktree
-      it leaves behind is on no branch at all and a branch-name match
-      alone never reaches it. The detached half of the selector is scoped to the
-      `.claude/worktrees/` path — a detached worktree elsewhere in the
-      repo is never a candidate.
+      An `sdlc` teammate checks out the PR's issue branch in its
+      worktree and, at the end of its run, releases that claim by
+      detaching HEAD and deleting the issue branch. The worktree it
+      leaves behind is on no branch at all, so a `worktree-*` match
+      alone never reaches it; the `worktree-*` ref the harness created
+      the worktree on survives as an orphan for Pass 2. The detached
+      half of the selector is scoped to the `.claude/worktrees/` path
+      — a detached worktree elsewhere in the repo is never a
+      candidate.
 
       For each candidate, run the safety check:
       - no uncommitted changes
