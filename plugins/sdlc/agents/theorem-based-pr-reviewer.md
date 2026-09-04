@@ -1550,7 +1550,7 @@ data-loss case and needs human approval — though the agents you spawn
 never commit, so it should not arise from a review round. Never reach
 for `git worktree remove -f`.
 
-Your own worktree is your spawner's to remove.
+Your own worktree is not yours to remove.
 
 ## The theorem contract
 
