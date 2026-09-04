@@ -75,8 +75,8 @@ about your own filed issues:
   the report — offering what it found as candidates to track — and
   advances the watermark.
 - `/cc-tools:cc-watchlist` reports which of the upstream feature
-  requests and bugs your topics list are still open and which have
-  shipped, with the closure date, one group per topic. Pass extra
+  requests and bugs your topics list names are still open and which
+  have shipped, with the closure date, one group per topic. Pass extra
   issue numbers as arguments to fold them into one run without editing
   the list.
 

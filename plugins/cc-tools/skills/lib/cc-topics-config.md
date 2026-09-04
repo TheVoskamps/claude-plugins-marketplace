@@ -68,7 +68,7 @@ only, so a Bash read is denied on every machine whether or not the
 operator listed a glob (`docs/config-file-conventions.md` → "The
 permission gate reads `$HOME/.config` literally").
 
-Five outcomes, and every reader handles all five:
+Every reader handles each of these outcomes:
 
 - **Absent** — invoke `/cc-tools:cc-seed-config` to write it, say in
   your own report that the config was seeded and at which path, and
