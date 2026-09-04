@@ -248,7 +248,7 @@ wherever it runs — the issue verbs, `git-branch-create`,
 and `agent-memory-inbox-cleanup`.
 The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which
-`skills/orchestrate/SKILL.md` invokes once at the end of a run. The
-edge coordinates install and enablement, not file access:
-plugins are file-sandboxed, so nothing here reads another plugin's
-files (see `docs/plugin-authoring-constraints.md`).
+`skills/orchestrate/SKILL.md` invokes once. The edge coordinates
+install and enablement, not file access: plugins are file-sandboxed,
+so nothing here reads another plugin's files (see
+`docs/plugin-authoring-constraints.md`).

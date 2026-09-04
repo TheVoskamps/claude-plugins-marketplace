@@ -1278,12 +1278,6 @@ Its own gates decide what is safe to remove. Report what it reports, in
 its own words, and add nothing — no count of your own, no list of what
 you expected it to find.
 
-A teammate's worktree can outlive the run. The sweep reaches a worktree
-through the branch that worktree has checked out, and a teammate that
-ran its own end-of-run cleanup left its worktree checked out on nothing;
-a worktree still locked under a live pid — this session's own included
-— it skips by design.
-
 ### Summary
 
 Once all waves are complete and all review loops have settled, deliver
