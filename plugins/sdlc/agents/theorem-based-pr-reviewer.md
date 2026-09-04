@@ -1948,11 +1948,12 @@ makes the next round fall back to round-1 behavior, per "Carry the
 previous round's theorems forward".
 
 The block grows with the PR's theorem count, and **no size cap is
-handled here**. GitHub's comment size limit is 64 KB; if a PR's
-records ever approach it, that is a follow-up to file, not something
-to solve by silently truncating the block — a truncated block is
-indistinguishable from a missing one to the next round, which would
-throw away every carried verdict without saying so.
+handled here**. If a post is ever refused for size, that is a
+follow-up to file, not something to solve by silently truncating the
+block — a truncated block is indistinguishable from a missing one to
+the next round, which would throw away every carried verdict without
+saying so. A refusal is the only evidence of a cap: never infer one
+from a body's length and compress to fit.
 
 ### Per-issue verdicts, one overall
 

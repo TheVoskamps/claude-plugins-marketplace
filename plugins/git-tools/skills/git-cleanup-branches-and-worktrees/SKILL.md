@@ -47,10 +47,15 @@ with `fatal: bad revision` — cannot occur.
    every remote a local branch's upstream names:
 
    ```bash
-   git fetch --prune origin
+   # origin's failure stops the run — see below
+   git fetch --prune origin || exit 1
+
+   # every other remote's outcome is recorded, not fatal
+   FAILED_REMOTES=""
    for remote in $(git for-each-ref --format='%(upstream:remotename)' \
      refs/heads/ | sort -u | grep -v -x -e '' -e 'origin'); do
-     git fetch --prune "$remote"
+     git fetch --prune "$remote" \
+       || FAILED_REMOTES="$FAILED_REMOTES$remote "
    done
    ```
 
@@ -65,9 +70,10 @@ with `fatal: bad revision` — cannot occur.
    longer serves, which is exactly the state that makes one of those
    gates read "already pushed" for work that is nowhere else, so this
    fetch is the precondition they rest on rather than a convenience:
-   with it skipped or failed there is nothing below that is safe to act
-   on. `--prune` is the half that removes the tracking refs for branches
-   the remote has deleted.
+   with it skipped there is nothing below that is safe to act on, and
+   where it fails the candidates resting on that remote are
+   disqualified below. `--prune` is the half that removes the tracking
+   refs for branches the remote has deleted.
 
    Enumerating the upstreams is what makes the set of remotes match the
    set of candidates. `origin` alone leaves a branch tracking a second
@@ -82,6 +88,36 @@ with `fatal: bad revision` — cannot occur.
    it, so there is nothing left below worth proceeding for. Another
    remote's failure skips the branches whose upstream names it, reported
    by branch and remote, and the rest of the run proceeds.
+
+   `$FAILED_REMOTES` above is that record, and this predicate is how
+   every gate below reads it — a candidate is disqualified when its own
+   upstream names a remote in the set:
+
+   ```bash
+   # exit 0 = this branch's upstream remote failed to fetch
+   fetch_failed_for() {   # $1 = branch name
+     upstream_remote=$(git for-each-ref \
+       --format='%(upstream:remotename)' "refs/heads/$1")
+     [ -n "$upstream_remote" ] || return 1
+     case " $FAILED_REMOTES" in
+       *" $upstream_remote "*) return 0 ;;
+     esac
+     return 1
+   }
+   ```
+
+   A branch with no upstream configured returns 1: it is gated on no
+   remote's refs, so no fetch outcome can disqualify it, and the arms
+   that handle it read `$DEFAULT_BRANCH` instead. Two gates call this,
+   and they are exactly the two that read a candidate's own upstream —
+   step 3, standing in front of the whole delete-a-merged-branch path
+   including step 4a's `@{upstream}..HEAD`, and Pass 2's first arm.
+   Pass 1's `--remotes=origin` calls it for nothing, because origin's
+   failure has already stopped the run. A disqualified candidate is
+   **skipped and reported** by step 10, never fallen through to a
+   different arm — falling through to a `$DEFAULT_BRANCH` reachability
+   check would answer a question about the default branch when the
+   question asked was whether this branch's own work reached its remote.
 
    What the fetch cannot cover is what happens on a remote *after* it:
    a branch deleted or force-pushed mid-run leaves this run reading the
@@ -104,7 +140,17 @@ with `fatal: bad revision` — cannot occur.
    enumeration fail Step 3's gate (they have no merged PR) and are
    handled by Step 5 instead.
 3. For each candidate branch, determine whether it is safe to delete.
-   The check is **PR merged AND remote branch is gone** — both must hold.
+
+   First consult step 1's fetch record: if `fetch_failed_for <branch>`
+   succeeds, **skip the candidate and report it by branch and remote**.
+   Step 4a's `@{upstream}..HEAD` is the gate that would otherwise read
+   that remote's tracking refs, and a ref this run could not refresh
+   reads "fully pushed" for work the remote may no longer hold. The
+   skip covers 4a, 4b and 4c alike, because the branch deletion in 4b
+   is the data-loss event and it rests on the same unrefreshed ref.
+
+   For a candidate that survives that, the check is **PR merged AND
+   remote branch is gone** — both must hold.
    "Issue closed and assigned to me" is **not** a sufficient signal: an
    issue can be closed without its PR ever merging, and an unmerged
    branch may still hold work that hasn't landed on the default branch.
@@ -276,7 +322,12 @@ with `fatal: bad revision` — cannot occur.
 
       - **Branch has an upstream configured** (`git rev-parse
         --abbrev-ref --symbolic-full-name <branch>@{upstream}` succeeds
-        and the upstream still exists on origin): check that
+        and the upstream's own tracking ref still exists — the remote
+        that upstream names, which is `%(upstream:remotename)` for this
+        branch and not necessarily origin): consult step 1's fetch
+        record first — if `fetch_failed_for <branch>` succeeds, skip
+        and report by branch and remote rather than falling through to
+        the arm below. Otherwise check that
         `git rev-list <branch>@{upstream}..<branch>` is empty — the
         branch is checked out in no worktree, so the check names the
         branch rather than `HEAD`, and a configured upstream answers
@@ -354,10 +405,14 @@ with `fatal: bad revision` — cannot occur.
     - Orphan `worktree-*` branch refs deleted (Step 5b / Pass 2),
       broken down by which path applied (upstream-empty vs.
       no-upstream-reachable-from-default-branch)
+    - Remotes whose step 1 fetch failed, if any, one line each
+    - Merged-branch candidates skipped at step 3 because their
+      upstream's remote failed to fetch, named by branch and remote
     - Worktrees skipped, with reason for each (uncommitted changes,
       unpushed commits, nested worktree, etc.)
     - Orphan branch refs skipped, with reason for each (non-zero
-      reachability count, rev-list could not verify, etc.)
+      reachability count, rev-list could not verify, upstream's remote
+      failed to fetch — that one named by branch and remote, etc.)
     - Default branch updated (and whether it was updated in place
       via `git -C`)
 
