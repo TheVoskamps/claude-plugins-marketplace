@@ -195,8 +195,8 @@ to the `nm` compare and the behavior probes.
 environment, then byte-compare and `go tool buildid` against the
 committed binary. An exact match names the commit. Comment-only `.go`
 edits change the artifact (pclntab `file:line`) while `go tool nm`
-stays identical, so policy identity and provenance identity are
-separable claims.
+stays identical under the `runtime.modinfo.str` filter, so policy
+identity and provenance identity are separable claims.
 
 Scope a "only a `_test.go` changed" claim to the **last commit that
 touched `bin/`** (`git log -- plugins/guardrails/hooks/bin/`), not to
