@@ -93,7 +93,8 @@ invented. It appends only what you accept. A candidate that restates
 a topic you already track under different wording becomes a proposal
 to rename that topic to the broader term instead, carrying its issue
 numbers over — and that rename takes its own yes. Decline everything
-and it writes nothing.
+and it leaves the file as it found it, a seed the run itself wrote
+included.
 
 ### Curating agent memory
 
@@ -129,29 +130,27 @@ which of its notes were about the branch and which about the repo.
 
 - **It does not decide what your rules should say.** `cc-all` loads
   `~/.claude/CLAUDE.md`; authoring it is yours.
-- **The topics list is hand-maintained.** Nothing adds to it on your
-  behalf: the watchlist discovers nothing, `cc-whats-new` asks before
-  it appends anything it found, and the suggester asks about every
-  candidate it derives and every rename it proposes. An issue nobody
-  added is an issue neither reporter will mention.
+- **The topics list is hand-maintained.** Past the starter set that
+  seeds it, nothing reaches it on your behalf: the watchlist discovers
+  nothing, and every other write asks first. An issue nobody added is
+  an issue neither reporter will mention.
 - **The reporting skills do not read your machine.** `cc-watchlist`
   and `cc-whats-new` consult your settings, installed plugins and
   hooks for nothing, so a surface this machine exercises but your
   topics do not name goes unmentioned in their reports. That is the
   trade: the tools report, you curate. `cc-suggest-topics` is the one
   place those surfaces are read, and it only proposes — you run it
-  deliberately, and it writes nothing you did not accept.
+  deliberately, and it writes no candidate you did not accept.
 - **Suggestions come from configuration, not from use.** The candidates
   are derived from what the machine is configured for; no transcript
   history and no usage frequency stands behind them, so a surface you
   set up once and never exercise is proposed exactly like one you hit
   daily.
-- **Nothing removes a topic.** The writes that touch an entry already
-  in the file — the suggester renaming a topic to a broader term,
-  `cc-whats-new` adding a discovered issue number to one — each take
-  their own yes, and neither drops anything. A tracked topic that has
-  stopped mattering stays until you delete it by hand — save on the one
-  path `skills/lib/cc-topics-config.md` discloses, under its "Reading
+- **Nothing removes a topic.** Every write that touches an entry
+  already in the file takes its own yes and drops nothing; which writer
+  touches what is in `skills/lib/cc-topics-config.md` → "Writing it". A
+  tracked topic that has stopped mattering stays until you delete it by
+  hand — save on the one path that file discloses, under its "Reading
   it" → **Unreadable** outcome.
 - **The topics list is machine-wide.** It lives under your user config
   directory, and no repo-local layer sits over it, so every repo you
@@ -176,8 +175,8 @@ Curation reads a shared rubric,
 the evidence a delete has to produce, how a transfer is phrased, which
 file it lands in, and the standard that file is held to afterwards.
 The inbox path and layout live in `skills/lib/agent-memory-inbox.md`.
-The topics config — its path, its schema, and what a reader does when
-it is missing or unreadable — lives in
+The topics config — its path, its schema, and what a skill that reads
+it does when it is missing or unreadable — lives in
 `skills/lib/cc-topics-config.md`, and the starter set that seeds it
 lives in the one skill that creates it,
 `skills/cc-seed-config/SKILL.md`. No skill restates any of those

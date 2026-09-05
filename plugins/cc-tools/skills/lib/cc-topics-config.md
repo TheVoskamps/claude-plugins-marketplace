@@ -56,9 +56,9 @@ topics:
 - **`topics`** — a list, in the order the user wants them reported and
   searched.
 - **`name`** — required. The heading `cc-watchlist` groups under, and
-  the query string `cc-whats-new` searches. Quote it when it contains
-  a colon followed by a space, as `` `isolation: worktree` subagent
-  isolation `` does — unquoted, YAML reads the colon as a key
+  what `cc-whats-new` puts into the query it searches. Quote it when it
+  contains a colon followed by a space, as `` `isolation: worktree`
+  subagent isolation `` does — unquoted, YAML reads the colon as a key
   separator and the topic becomes a nested mapping.
 - **`issues`** — optional, a list of `anthropics/claude-code` issue
   numbers. A topic without one is search-only, which is how a user
@@ -93,7 +93,7 @@ Every skill that reads the file handles each of these outcomes:
   list as new — it reports the denial and stops without offering to
   seed.
 - **`schema-version` absent, or the YAML is malformed** — abort,
-  naming the path. A hand-editable file that a reader treats as absent
+  naming the path. A hand-editable file that a skill treats as absent
   is a hand edit about to be overwritten.
 - **`schema-version` lower than the pin** — abort, naming both
   versions.
@@ -107,7 +107,6 @@ caller found it absent or the user accepted the offer the
 **Unreadable** case makes. The other writes are edits to an existing
 file, and each preserves every key and every topic already there.
 `cc-whats-new` writes to one topic only — the one the user named for an
-issue number they accepted from its discovery section, which may be a
-topic that name creates. `cc-suggest-topics` appends a candidate the
-user accepted, or renames one tracked topic to a broader term the user
-accepted and carries its `issues:` over untouched.
+issue number they accepted from its discovery section.
+`cc-suggest-topics` appends a candidate the user accepted, or renames
+one tracked topic to a broader term the user accepted.

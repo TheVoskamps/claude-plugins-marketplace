@@ -11,8 +11,9 @@ The tracked set is the user's, not this skill's. Read
 `skills/lib/cc-topics-config.md` for the config path, the `topics:`
 schema, and what to do when the file is absent, unreadable, or carries
 a `schema-version` this skill cannot serve. That contract is the only
-statement of them; this skill does not restate them and never writes
-the file.
+statement of them; this skill does not restate them, and it writes the
+file only by invoking `/cc-tools:cc-seed-config` where that contract
+directs it to.
 
 This skill's pin is `schema-version: 1`.
 
