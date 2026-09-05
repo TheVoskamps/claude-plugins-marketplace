@@ -12,7 +12,7 @@ Every per-user config lives at
 `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin-name>/<file>`, with the
 variable used when set and non-empty and `$HOME/.config` when unset or
 empty. The directory is the **plugin's** name, so two plugins never
-collide and a user can delete one plugin's state without reading the
+collide and a user can delete one plugin's config without reading the
 others. Per-repo counterparts live at `<repo-root>/.<plugin>/`, which
 is where `.issues/` and `.claude-vm/` come from.
 
