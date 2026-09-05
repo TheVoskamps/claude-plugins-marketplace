@@ -73,13 +73,13 @@ agent alongside this one) says it means: `--pr`, `--issues`,
 `--branch`, `--owner`, `--repo`, `--round`, and — on a re-review only —
 `--carried-records` and `--delta-commits`.
 
-`--owner`, `--repo` and `--round` say nothing about what to generate:
-steps 1 and 6 pass them back unchanged. Without them you can still
-generate the list but cannot record that you started or write it where a
-resumed reviewer would find it — say so in your report rather than
-guessing at one. `--pr` those two steps pass back unchanged as well, but
-it is also what you generate *from*: steps 2 and 4 fetch the diff and
-the body with it.
+`--owner`, `--repo` and `--round` say nothing about what to generate;
+steps 1 and 6 pass all four identifying flags, `--pr` included, back
+unchanged. Without them you can still generate the list but cannot
+record that you started or write it where a resumed reviewer would find
+it — say so in your report rather than guessing at one. `--pr` is also
+what you generate *from*: steps 2 and 4 fetch the diff and the body with
+it.
 
 `--issues` is the answer, not a claim: the pipeline already resolved
 it, so do not re-derive it, do not parse the branch name, and do not
