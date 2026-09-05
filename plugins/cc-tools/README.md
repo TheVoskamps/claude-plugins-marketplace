@@ -85,15 +85,15 @@ about your own filed issues:
 
 `/cc-tools:cc-suggest-topics` is the one skill that mines the machine
 for topics to track. It reads your **global** Claude configuration —
-settings, installed plugins and marketplaces, the always-loaded rules —
-derives candidate topics from the harness surfaces it finds there, and shows
-each one with the file and key it came from, so you can tell a claim
-about your own setup from a topic the skill invented. It appends only
-what you accept. A candidate that restates a topic you already track
-under different wording becomes a proposal to rename that topic to the
-broader term instead, carrying its issue numbers over — and that
-rename takes its own yes. Decline everything and the file is
-byte-identical.
+settings, installed plugins and marketplaces, the always-loaded
+rules — derives candidate topics from the harness surfaces it finds
+there, and shows each one with the file and key it came from, so you
+can tell a claim about your own setup from a topic the skill
+invented. It appends only what you accept. A candidate that restates
+a topic you already track under different wording becomes a proposal
+to rename that topic to the broader term instead, carrying its issue
+numbers over — and that rename takes its own yes. Decline everything
+and the file is byte-identical.
 
 ### Curating agent memory
 
