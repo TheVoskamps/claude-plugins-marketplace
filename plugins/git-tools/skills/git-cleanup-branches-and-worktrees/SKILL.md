@@ -149,8 +149,7 @@ with `fatal: bad revision` — cannot occur.
       the worktree on survives as an orphan for Pass 2.
 
       Both halves of the selector reach only the **direct** children of
-      `.claude/worktrees/`. A worktree elsewhere in the repo is never a
-      candidate, and neither is a nested one under
+      `.claude/worktrees/`, and not a nested one under
       `.claude/worktrees/*/.claude/worktrees/` — a detached HEAD does
       not exempt it from Step 6, which reserves nested worktrees for
       human inspection.
