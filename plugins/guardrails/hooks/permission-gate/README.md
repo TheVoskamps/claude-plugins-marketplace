@@ -1900,10 +1900,24 @@ To correctly verify that a committed binary matches its source:
    `CGO_ENABLED=0`) all match. Expect **only** `vcs.revision` /
    `vcs.modified` to differ.
 3. Confirm the compiled code is identical despite the byte delta: the
-   build-ID content-hash segment matches, and `go tool nm` symbol tables
-   are byte-identical. A raw `cmp` / `shasum` byte-diff against a rebuild
-   is **not** a valid mismatch signal on its own, because of the VCS
-   stamp.
+   build-ID content-hash segment (the third `/`-separated field of
+   `go tool buildid`) matches, and the `go tool nm` symbol tables agree
+   once `runtime.modinfo.str` is excluded from both sides:
+
+   ```sh
+   diff <(go tool nm <committed> | grep -v ' runtime\.modinfo\.str$') \
+        <(go tool nm <rebuilt>   | grep -v ' runtime\.modinfo\.str$')
+   ```
+
+   Empty output is the pass. The exclusion is what makes this a test of
+   the compiled code: `runtime.modinfo.str` is the build-info blob the
+   VCS stamp is written into, so its address moves whenever the stamp
+   does, and a raw `nm` comparison reports that one line as a
+   difference on a *correct* binary. Every other symbol, code symbols
+   included, is compared as before — a line in this diff naming
+   anything else is a real mismatch. A raw `cmp` / `shasum` byte-diff
+   against a rebuild is likewise **not** a valid mismatch signal on its
+   own, because of the VCS stamp.
 
 Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`:
 `darwin-arm64` for this machine, `linux-amd64` for WSL2, `linux-arm64`
