@@ -11,7 +11,7 @@ schema.
 
 ## Why the topics are a config and not a skill body
 
-Both skills act on the same curated set from opposite ends:
+The two readers act on the same curated set from opposite ends:
 `cc-watchlist` reports the status of the issues under a topic,
 `cc-whats-new` searches upstream for what is new on the topic's
 subject. A set baked into either skill's body is one user's shopping
@@ -35,8 +35,8 @@ ${XDG_CONFIG_HOME:-$HOME/.config}/cc-tools/config.yml
 Per [`docs/config-file-conventions.md`](../../../../docs/config-file-conventions.md):
 the variable when it is set and non-empty, `$HOME/.config` when it is
 unset or empty. Resolve it by reading the environment yourself and pass
-the absolute path — the skills that read this file forbid compound Bash
-commands, which rules out shell parameter expansion.
+the absolute path — no skill that reads this file can run a compound
+Bash command, which rules out shell parameter expansion.
 
 ## The shape
 
@@ -104,9 +104,10 @@ Every reader handles each of these outcomes:
 
 Only `/cc-tools:cc-seed-config` creates the file, and only when a
 reader found it absent or the user accepted the offer the
-**Unreadable** case makes. The other writes are edits to an
-existing file, and each preserves every key and every topic already
-there: `cc-whats-new` appending a topic the user accepted from its
-discovery section, and `cc-suggest-topics` appending a candidate the
-user accepted — or renaming one tracked topic to a broader term the
-user accepted, carrying its `issues:` over untouched.
+**Unreadable** case makes. The other writes are edits to an existing
+file, and each preserves every key and every topic already there.
+`cc-whats-new` adds an issue number the user accepted from its
+discovery section to the topic they named, creating that topic at the
+end of the list when it is new. `cc-suggest-topics` appends a candidate
+the user accepted, or renames one tracked topic to a broader term the
+user accepted and carries its `issues:` over untouched.

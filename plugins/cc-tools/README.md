@@ -146,9 +146,11 @@ which of its notes were about the branch and which about the repo.
   history and no usage frequency stands behind them, so a surface you
   set up once and never exercise is proposed exactly like one you hit
   daily.
-- **Nothing removes a topic.** The suggester's merge path is the only
-  thing that rewrites an existing entry, and only on a yes. A tracked
-  topic that has stopped mattering stays until you delete it by hand.
+- **Nothing removes a topic.** The writes that touch an entry already
+  in the file — the suggester renaming a topic to a broader term,
+  `cc-whats-new` adding a discovered issue number to one — each take
+  their own yes, and neither drops anything. A tracked topic that has
+  stopped mattering stays until you delete it by hand.
 - **The topics list is machine-wide.** It lives under your user config
   directory, and no repo-local layer sits over it, so every repo you
   run these skills in reports on the same topics — including the ones

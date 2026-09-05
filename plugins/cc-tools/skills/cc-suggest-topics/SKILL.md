@@ -23,19 +23,12 @@ No arguments.
 ## Topics config
 
 Read `skills/lib/cc-topics-config.md` for the config path, the
-`topics:` schema, and what to do when the file is absent or carries a
-`schema-version` this skill cannot serve. That contract is the only
-statement of them.
+`topics:` schema, and what to do when the file is absent, unreadable,
+or carries a `schema-version` this skill cannot serve — including the
+exception this skill holds on the unreadable outcome. That contract is
+the only statement of them.
 
 This skill's pin is `schema-version: 1`.
-
-The **unreadable** outcome is this skill's own, and the contract names
-it as the exception: a suggester with no view of what is already
-tracked would propose its whole candidate list as new, so there is no
-degraded run worth offering. Report the tool's error verbatim and the
-path it was denied at, name no cause, and stop having written nothing.
-Do not offer to seed — the offer risks overwriting a config nobody
-could see, and here it buys nothing back.
 
 ## What it reads
 
