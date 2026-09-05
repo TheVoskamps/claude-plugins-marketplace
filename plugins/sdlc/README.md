@@ -159,13 +159,19 @@ removes an executable edits this count.
 
 ## Files it writes
 
-Everything this plugin persists is written by
+Everything the **review pipeline** persists is written by
 `bin/sdlc-agent-result-persist` under XDG state, outside every
 repository — a review round writes nothing to the branch it reviews. A
 PR that adds or removes one of these edits this list, the same
 convention "Executables" above sets. Which mode writes each, and the
 record grammar the log holds, are part of that contract and are owned
 by `skills/agent-result-persist-interface/SKILL.md`.
+
+The implementing agents are outside that claim and write nothing this
+list owns: `issue-developer`, `issue-fixer` and `doc-updater` commit
+their work to the branch and capture their agent memory into the
+session's inbox, and `agent-memory-scrubber` commits what that inbox
+transfers.
 
 Write `<round-dir>` for
 `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>`,

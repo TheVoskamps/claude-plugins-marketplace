@@ -41,11 +41,8 @@ because this plugin ships no permission rules.
 
 ## The identifying flags
 
-These four go on **every** call in every mode, and they are the whole
-of what the log's path is composed from. Every one of them is a fact
-about the PR under review, so a caller in any session — the one that
-opened the round or a later one resuming it — holds all four already
-and composes the same path:
+These four go on **every** call in every mode, and "The paths" below
+says what they compose:
 
 - `--owner <owner>` and `--repo <repo>` — two values, not one
   `owner/name` token, whose `/` would add a directory level to the
@@ -66,13 +63,14 @@ log it just printed.
 
 The round gets a **directory of its own**, and the identifying flags
 are the whole of what composes it — no session is part of the path.
-That is what makes a round survive the session that opened it: a
-reviewer resumed in a new session on the same PR and round reads the
-same log. The state variable is used when set and non-empty and
-`$HOME/.local/state` otherwise, and the script spells that fallback
-once. Nothing here is ever deleted, and nothing here duplicates the
-theorem state the review body's records block holds — that block
-remains the only cross-round store.
+Every one of them is a fact about the PR under review, which is what
+makes a round survive the session that opened it: a reviewer resumed in
+a session that never saw the first one holds all four already, composes
+the same path, and reads the same log. The state variable is used when
+set and non-empty and `$HOME/.local/state` otherwise, and the script
+spells that fallback once. Nothing here is ever deleted, and nothing
+here duplicates the theorem state the review body's records block
+holds — that block remains the only cross-round store.
 
 ```text
 ${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>/log

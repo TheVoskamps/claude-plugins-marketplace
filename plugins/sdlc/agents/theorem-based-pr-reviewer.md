@@ -153,10 +153,9 @@ gh pr view <PR> --json reviews --jq '.reviews | length'
 The first gives `--owner` and `--repo`; `--pr` is the PR under review;
 `--round` is that review count **plus one**, so a first round is `1`.
 Your own review lands only at "Post one review", so the count holds
-across the round. Those four are the whole of what the log's path is
-composed from, and every one of them is a fact about the PR — so a
-later instance of you, in a session that never saw this one, resolves
-them the same way and reaches the same log.
+across the round. Resolving them is what reaches the log, on the terms
+the preloaded `sdlc:agent-result-persist-interface` skill → "The paths"
+states.
 
 The log and the result files are outside every repository and you have
 no commit or push step, so nothing this writes reaches the branch. They
@@ -173,12 +172,10 @@ instance of you routinely arrives at a round some earlier instance
 already partly settled — and you are that instance as often as you are
 the first one.
 
-**A session ending is one of the ways that happens.** The log's path
-carries no session, so an instance spawned in a new session over the
-same PR and round reads the same records with `--mode print` and
-continues the round from them — the arms below decide what is left to
-do, exactly as they do within one session. Nothing about a resume asks
-which session wrote a record.
+**A session ending is one of the ways that happens**, and it changes
+nothing about the recovery: read the same records with `--mode print`
+and let the arms below decide what is left to do, exactly as they do
+within one session. Never ask which session wrote a record.
 
 **Derive what to do from the log, and hold nothing across a turn that
 is not written down.** Run `--mode print`, then take whichever arm the
