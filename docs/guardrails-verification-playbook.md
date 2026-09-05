@@ -164,8 +164,10 @@ back to the protocol below.
 
 Require all of:
 
-1. `go tool nm <committed>` versus `go tool nm <rebuilt>`
-   byte-identical. This is compiled-code identity and works for a
+1. `go tool nm <committed>` versus `go tool nm <rebuilt>` identical
+   once `runtime.modinfo.str` is filtered out of both — its address
+   tracks the VCS stamp on some arches, so a correct binary can differ
+   on that one line. This is compiled-code identity and works for a
    foreign arch with no execution.
 2. `go tool buildid` third segment (`a/b/CONTENT/d`) matching.
 3. `cmp -l` offsets clustering **only** into vcs-stamp-derived
@@ -213,7 +215,8 @@ These commands are decisive rather than suggestive:
 
 2. `go tool nm` of the **pre-round** committed binary
    (`git show <parent-commit>:<bin-path> > <tmp>`) versus the tip one
-   must be byte-identical, on every committed arch.
+   must be identical under the same `runtime.modinfo.str` filter, on
+   every committed arch.
 
 Together those separate "the source is comments" from "the shipped
 bytes carry the same policy". The tip-rebuild `cmp` answers the
