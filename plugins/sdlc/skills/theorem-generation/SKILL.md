@@ -77,7 +77,9 @@ agent alongside this one) says it means: `--pr`, `--issues`,
 steps 1 and 6 pass them back unchanged. Without them you can still
 generate the list but cannot record that you started or write it where a
 resumed reviewer would find it — say so in your report rather than
-guessing at one.
+guessing at one. `--pr` those two steps pass back unchanged as well, but
+it is also what you generate *from*: steps 2 and 4 fetch the diff and
+the body with it.
 
 `--issues` is the answer, not a claim: the pipeline already resolved
 it, so do not re-derive it, do not parse the branch name, and do not
