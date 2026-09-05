@@ -106,9 +106,9 @@ Only `/cc-tools:cc-seed-config` creates the file, and only when a
 reader found it absent or the user accepted the offer the
 **Unreadable** case makes. The other writes are edits to an existing
 file, and each preserves every key and every topic already there.
-`cc-whats-new` touches only the one topic the user named for an issue
-number they accepted from its discovery section, appending that topic
-at the end of the list when the name is new. `cc-suggest-topics`
+`cc-whats-new` writes to one topic only — the one the user named for an
+issue number they accepted from its discovery section, which may be a
+topic that name creates. `cc-suggest-topics`
 appends a candidate the user accepted, or renames one tracked topic to
 a broader term the user accepted and carries its `issues:` over
 untouched.
