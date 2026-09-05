@@ -45,11 +45,11 @@ on uncertainty buys prompt fatigue rather than safety.
   measured property — see *The hard-ask tier's precedence is unpinned*
   below.) The whole tier is:
   - **Publish verbs** — `gh release create`, `gh gist create`,
-    `gh gist edit`, `gh repo edit --visibility`. CLAUDE.md already
-    treats the human click as the sanctioned escalation for publishing.
+    `gh gist edit`, `gh repo edit --visibility`. The human click is the
+    sanctioned escalation for publishing.
   - **History-destroying pushes** — `git push --force`/`-f` and a
-    `+`-prefixed forced refspec. Fleet rules (core-principles §1)
-    require explicit human permission. `--force-with-lease` stays
+    `+`-prefixed forced refspec. Fleet policy requires explicit human
+    permission. `--force-with-lease` stays
     ALLOW and is named in the reason. `git push --mirror` is stronger
     still: it DENIES, and always has.
   - **Credential/secret reads and mints** — the `aws` credential-read
@@ -1794,7 +1794,7 @@ gate emits is behavior rather than documentation: `trackerRefInReason`
 reason-bearing `Reason` carries a bare issue pointer — deny, ask and a
 `deferJudgment` analysis alike. An issue number tells a blocked agent
 nothing about what to do, and tells whoever is tuning the evaluator
-from the §7 log no more, so a Reason must be self-sufficiently
+from the evolution log no more, so a Reason must be self-sufficiently
 actionable wherever it surfaces.
 
 A Reason cites no instruction file this plugin does not own, for the
@@ -1821,10 +1821,10 @@ reason the rule exists, deleting the stale claim left the rule looking
 unmotivated. The `forbiddenForm` docstring and the naked-`gh` comment
 instead state what the gate denies and what it sends the caller to run
 instead, which stays true for as long as the code does. The
-`forbiddenForm` call site in `engine_a_bash.go` names neither a shape
-nor a replacement, on purpose: the shapes and their two-call
-alternatives are the docstring's to state, and a second copy at the
-call site is the one that would go stale.
+`forbiddenForm` call site in `engine_a_bash.go` names no individual
+shape and spells no replacement command, on purpose: the shapes and
+their two-call alternatives are the docstring's to state, and a second
+copy at the call site is the one that would go stale.
 
 ## Rules are compiled in
 
