@@ -92,9 +92,9 @@ func resolveRepoContext(eventCWD string) (*repoContext, error) {
 
 // runGit executes `git -C <cwd> <args...>` with a timeout. Empty stdout or a
 // non-zero exit is an error (fail-closed). We intentionally do NOT use the
-// forbidden `git -C` *command-line* shape that the harness gates — that gate
-// is about the model generating Bash; here we are a compiled hook forking git
-// directly, which is exactly what the existing shell hooks already do.
+// forbidden `git -C` *command-line* shape the gate denies — that deny is about
+// the model generating Bash; here we are a compiled hook forking git directly,
+// which is exactly what the existing shell hooks already do.
 func runGit(cwd string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitRevParseTimeout)
 	defer cancel()
