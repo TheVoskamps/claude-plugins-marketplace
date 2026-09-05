@@ -79,12 +79,14 @@ reach here: it is rooted at the `$HOME/.config` spelling, and today
 there is no state counterpart to it.
 
 What stays reachable is a call the gate grades no path for. `sdlc`'s
-round log is the worked case: every writer and the reader invoke
+round log is the worked case, and it is worked only halfway: every
+write, and the read of the log itself, invokes
 `bin/sdlc-agent-result-persist` by bare name, passing the identifying
-flags the path is composed from and never a path, and the gate abstains
-on it. A plugin that instead has an agent open its own state file with
-`Read` is denied today; closing that is the `guardrails` carve-out's
-job, not this document's.
+flags the path is composed from and never a path, so the gate abstains
+on those. Reading a result file's **contents** is what the CLI does not
+cover — the reviewer takes that path out of the log and opens the file
+with `Read`, which the gate denies today. Closing that is the
+`guardrails` carve-out's job, not this document's.
 
 ## The format is YAML, or Markdown when a human must read prose too
 

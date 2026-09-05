@@ -160,8 +160,8 @@ states.
 The log and the result files are outside every repository and you have
 no commit or push step, so nothing this writes reaches the branch. They
 are per-round working state that outlives the worktrees "Clean up the
-spawned worktrees" removes, and outlives this session too; the posted
-review remains this procedure's only thing the next round reads.
+spawned worktrees" removes; the posted review remains this procedure's
+only thing the next round reads.
 
 ### You are re-entrant
 
