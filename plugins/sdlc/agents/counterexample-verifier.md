@@ -66,9 +66,10 @@ Without `--branch` you have no tree to check the quote against.
 thing you attack.
 
 `--owner`, `--repo` and `--round` say nothing about the counterexample;
-steps 1 and 5 pass them back unchanged. Without them you can still
-settle the counterexample but cannot record that you started or what
-you found — say so in your report rather than guessing at one.
+steps 1 and 5 pass all four identifying flags, `--pr` included, back
+unchanged. Without them you can still settle the counterexample but
+cannot record that you started or what you found — say so in your
+report rather than guessing at one.
 
 If the brief carries two counterexamples, or none, stop and say so
 rather than inventing the missing one.

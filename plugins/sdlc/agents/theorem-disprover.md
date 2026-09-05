@@ -42,8 +42,9 @@ it means: `--pr`, `--branch`, `--head-sha` (optional), `--fetched yes`
 
 Without `--branch` you have no branch to settle the claim against.
 
-The last three carry nothing about the claim; steps 1 and 5 pass them
-back unchanged. Without them you can still settle the claim but cannot
+`--owner`, `--repo` and `--round` carry nothing about the claim; steps
+1 and 5 pass all four identifying flags, `--pr` included, back
+unchanged. Without them you can still settle the claim but cannot
 record that you started or what you found — say so in your report
 rather than guessing at one.
 
