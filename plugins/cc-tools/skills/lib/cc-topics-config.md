@@ -73,7 +73,7 @@ only, so a Bash read is denied on every machine whether or not the
 operator listed a glob (`docs/config-file-conventions.md` → "The
 permission gate reads `$HOME/.config` literally").
 
-Every reader handles each of these outcomes:
+Every skill that reads the file handles each of these outcomes:
 
 - **Absent** — invoke `/cc-tools:cc-seed-config` to write it, say in
   your own report that the config was seeded and at which path, and
@@ -103,12 +103,11 @@ Every reader handles each of these outcomes:
 ## Writing it
 
 Only `/cc-tools:cc-seed-config` creates the file, and only when a
-reader found it absent or the user accepted the offer the
+caller found it absent or the user accepted the offer the
 **Unreadable** case makes. The other writes are edits to an existing
 file, and each preserves every key and every topic already there.
 `cc-whats-new` writes to one topic only — the one the user named for an
 issue number they accepted from its discovery section, which may be a
-topic that name creates. `cc-suggest-topics`
-appends a candidate the user accepted, or renames one tracked topic to
-a broader term the user accepted and carries its `issues:` over
-untouched.
+topic that name creates. `cc-suggest-topics` appends a candidate the
+user accepted, or renames one tracked topic to a broader term the user
+accepted and carries its `issues:` over untouched.

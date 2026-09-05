@@ -93,7 +93,7 @@ invented. It appends only what you accept. A candidate that restates
 a topic you already track under different wording becomes a proposal
 to rename that topic to the broader term instead, carrying its issue
 numbers over — and that rename takes its own yes. Decline everything
-and the file is byte-identical.
+and it writes nothing.
 
 ### Curating agent memory
 

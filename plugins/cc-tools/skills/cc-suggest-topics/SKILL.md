@@ -90,15 +90,15 @@ provenance. Then take the candidates one at a time:
 - **A candidate that overlaps nothing** — offer it as a new topic
   directly.
 
-A topic `name` is the literal `gh search issues` query string
+A topic `name` goes verbatim into the `gh search issues` query
 `cc-whats-new` runs, so rewriting one changes what that skill finds
 from then on. That is why a merge is proposed rather than applied: no
 `topics:` entry is added, renamed, or removed without an answer.
 
 An accepted candidate is an edit to a file the user owns — preserve
 every other key and every other topic exactly as they stand. Declining
-every candidate leaves `config.yml` byte-identical to what it was
-before the run.
+every candidate leaves `config.yml` byte-identical to what this run
+read — a seed the run itself wrote included.
 
 ## Report format
 
