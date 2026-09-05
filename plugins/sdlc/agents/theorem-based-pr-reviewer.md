@@ -443,7 +443,7 @@ your context" above.
 
 ### Read the round log, then anchor the round
 
-Resolve the five identifying values per "The round log" above, then read
+Resolve the four identifying values per "The round log" above, then read
 the log before you decide anything:
 
 ```bash
@@ -1071,7 +1071,7 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-The last four, with the `--pr` at the top, are the five identifying
+The last three, with the `--pr` at the top, are the four identifying
 values the `--mode anchor` call carried. Pass them unchanged or the
 child's records and its report land in a round you never read.
 
