@@ -139,17 +139,44 @@ with `fatal: bad revision` — cannot occur.
    Enumerate candidates in these passes:
 
    a. **Pass 1 — worktrees that still exist.** List all worktrees
-      under `.claude/worktrees/` whose checked-out branch matches
-      `worktree-*`. For each, run the safety check:
+      under `.claude/worktrees/` that are either checked out on a
+      branch matching `worktree-*` **or** sitting at a detached HEAD.
+      An `sdlc` teammate checks out the PR's issue branch in its
+      worktree and, at the end of its run, releases that claim by
+      detaching HEAD and deleting the issue branch. The worktree it
+      leaves behind is on no branch at all, so a `worktree-*` match
+      alone never reaches it; the `worktree-*` ref the harness created
+      the worktree on survives as an orphan for Pass 2.
+
+      Both halves of the selector reach only the **direct** children of
+      `.claude/worktrees/`, and not a nested one under
+      `.claude/worktrees/*/.claude/worktrees/` — a detached HEAD does
+      not exempt it from Step 6, which reserves nested worktrees for
+      human inspection.
+
+      For each candidate, run the safety check:
       - no uncommitted changes
-      - no unpushed commits relative to `@{upstream}` (the branch's
-        own remote tracking ref). Do **not** compare against the default
-        branch — feature/worktree branches are expected to diverge from it;
+      - fully pushed. On a branch, that is no unpushed commits
+        relative to `@{upstream}` (the branch's own remote tracking
+        ref). Do **not** compare against the default branch —
+        feature/worktree branches are expected to diverge from it;
         what matters is whether the branch is fully pushed to its own
-        remote.
+        remote. A detached HEAD has no upstream to compare against, so
+        it counts as pushed only when its commit is reachable from
+        some remote-tracking ref:
+
+        ```bash
+        # empty output = HEAD is reachable from a remote ref
+        git rev-list HEAD --not --remotes
+        ```
+
+        Read this `rev-list`'s exit status exactly as Pass 2 below
+        directs for its own.
 
       If both checks pass: remove the worktree (`git worktree remove`,
-      no `--force`) and delete the local branch (`git branch -d`).
+      no `--force`), then delete the local branch (`git branch -d`).
+      A detached worktree has no branch, so its removal ends at
+      `git worktree remove` — there is no branch half to run.
       If either check fails: skip and report the reason.
 
       If `git worktree remove` fails with `fatal: cannot remove a
@@ -242,7 +269,9 @@ with `fatal: bad revision` — cannot occur.
 
 10. Final summary — report counts:
     - Merged branches deleted (local + remote)
-    - Subagent worktrees removed (Step 5a / Pass 1)
+    - Subagent worktrees removed (Step 5a / Pass 1), broken down by
+      which selector reached them (`worktree-*` branch vs. detached
+      HEAD)
     - Orphan `worktree-*` branch refs deleted (Step 5b / Pass 2),
       broken down by which path applied (upstream-empty vs.
       no-upstream-reachable-from-default-branch)
