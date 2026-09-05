@@ -668,25 +668,3 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
-
-## A new member rewrites the absolute and drops its qualifier
-
-The absolute a round has to revisit was usually true only because of a
-qualifier — "nothing here reads your machine *to decide what matters*".
-Rewriting it to name the new member is the obvious edit, and the
-qualifier goes with the rewrite: "X is the one place the machine is
-read" now claims exclusivity over the bare verb, which the siblings
-that always did the bare thing falsify. The sentence looks *more*
-careful than the one it replaced, because it names a member the old one
-did not.
-
-The tell is a superlative or exclusivity ("the one skill that …", "the
-only place …") in a sentence the diff rewrote, where the pre-image
-carried a narrowing clause the post-image dropped. `cc-tools`'
-README said "nothing here reads your machine to decide what matters"
-and the topic-suggester round rewrote it to "`cc-suggest-topics` is the
-one skill that looks at the machine", which `cc-all` — it reads
-`~/.claude/CLAUDE.md` — falsifies. Diff the two versions of the
-sentence for the dropped words, then grep the plugin for siblings that
-do the now-unqualified verb; the repair is to put the qualifier back in
-the rewritten sentence, not to widen the exception.

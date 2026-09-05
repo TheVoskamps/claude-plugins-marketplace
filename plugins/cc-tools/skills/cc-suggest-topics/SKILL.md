@@ -69,7 +69,7 @@ went unread, so a thin candidate list is not read as a thin machine.
 A **candidate topic** is any harness surface those files exercise: a
 model id, a permission mode, `alwaysThinkingEnabled` and its
 neighbours, each hook event wired up, each MCP server, each installed
-plugin's name and what its skills and agents call, each env var, each
+plugin's name and the marketplace it came from, each env var, each
 statusline or output-style setting.
 
 Record the file and the key each candidate came from and show both in
