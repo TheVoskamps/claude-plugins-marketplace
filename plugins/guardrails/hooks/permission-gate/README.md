@@ -1911,13 +1911,17 @@ To correctly verify that a committed binary matches its source:
 
    Empty output is the pass. The exclusion is what makes this a test of
    the compiled code: `runtime.modinfo.str` is the build-info blob the
-   VCS stamp is written into, so its address moves whenever the stamp
-   does, and a raw `nm` comparison reports that one line as a
-   difference on a *correct* binary. Every other symbol, code symbols
-   included, is compared as before — a line in this diff naming
-   anything else is a real mismatch. A raw `cmp` / `shasum` byte-diff
-   against a rebuild is likewise **not** a valid mismatch signal on its
-   own, because of the VCS stamp.
+   VCS stamp is written into, so its address can move when the stamp
+   does, and a raw `nm` comparison then reports that one line as a
+   difference on a *correct* binary. Whether it moves varies by arch —
+   one rebuild of a committed tip shifted it on `linux-amd64`, where it
+   was the sole differing line, while `darwin-arm64`'s raw tables came
+   out identical — so drop the line on every arch rather than reading
+   an identical raw table on one arch as proof it never moves. Every
+   other symbol, code symbols included, is compared as before — a line
+   in this diff naming anything else is a real mismatch. A raw `cmp` /
+   `shasum` byte-diff against a rebuild is likewise **not** a valid
+   mismatch signal on its own, because of the VCS stamp.
 
 Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`:
 `darwin-arm64` for this machine, `linux-amd64` for WSL2, `linux-arm64`
