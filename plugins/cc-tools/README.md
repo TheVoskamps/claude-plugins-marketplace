@@ -150,7 +150,10 @@ which of its notes were about the branch and which about the repo.
   in the file — the suggester renaming a topic to a broader term,
   `cc-whats-new` adding a discovered issue number to one — each take
   their own yes, and neither drops anything. A tracked topic that has
-  stopped mattering stays until you delete it by hand.
+  stopped mattering stays until you delete it by hand — save on the one
+  path the contract discloses: when a read of the list is denied, the
+  reader offers to seed, and accepting that offer replaces the whole
+  file with the starter set.
 - **The topics list is machine-wide.** It lives under your user config
   directory, and no repo-local layer sits over it, so every repo you
   run these skills in reports on the same topics — including the ones
