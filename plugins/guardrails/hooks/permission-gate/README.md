@@ -1818,9 +1818,13 @@ a deny by the harness prompt the denied shape would otherwise trip
 named behavior this repo neither ships nor tests, so it could go false
 without a line of this package changing — and because it read as the
 reason the rule exists, deleting the stale claim left the rule looking
-unmotivated. The forbidden-form and naked-`gh` comments instead state
-what the gate denies and what to run in its place, which stays true for
-as long as the code does.
+unmotivated. The `forbiddenForm` docstring and the naked-`gh` comment
+instead state what the gate denies and what it sends the caller to run
+instead, which stays true for as long as the code does. The
+`forbiddenForm` call site in `engine_a_bash.go` names neither a shape
+nor a replacement, on purpose: the shapes and their two-call
+alternatives are the docstring's to state, and a second copy at the
+call site is the one that would go stale.
 
 ## Rules are compiled in
 
