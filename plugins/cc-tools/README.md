@@ -93,8 +93,7 @@ invented. It appends only what you accept. A candidate that restates
 a topic you already track under different wording becomes a proposal
 to rename that topic to the broader term instead, carrying its issue
 numbers over — and that rename takes its own yes. Decline everything
-and it leaves the file as it found it, a seed the run itself wrote
-included.
+and no topic changes.
 
 ### Curating agent memory
 
@@ -140,7 +139,7 @@ which of its notes were about the branch and which about the repo.
   topics do not name goes unmentioned in their reports. That is the
   trade: the tools report, you curate. `cc-suggest-topics` is the one
   place those surfaces are read, and it only proposes — you run it
-  deliberately, and it writes no candidate you did not accept.
+  deliberately, and it writes nothing you did not accept.
 - **Suggestions come from configuration, not from use.** The candidates
   are derived from what the machine is configured for; no transcript
   history and no usage frequency stands behind them, so a surface you
@@ -150,8 +149,7 @@ which of its notes were about the branch and which about the repo.
   already in the file takes its own yes and drops nothing; which writer
   touches what is in `skills/lib/cc-topics-config.md` → "Writing it". A
   tracked topic that has stopped mattering stays until you delete it by
-  hand — save on the one path that file discloses, under its "Reading
-  it" → **Unreadable** outcome.
+  hand — save on the one path that file discloses.
 - **The topics list is machine-wide.** It lives under your user config
   directory, and no repo-local layer sits over it, so every repo you
   run these skills in reports on the same topics — including the ones
