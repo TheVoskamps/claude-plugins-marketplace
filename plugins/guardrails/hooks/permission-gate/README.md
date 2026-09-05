@@ -1812,6 +1812,16 @@ file it names. No test guards this one: `trackerRefInReason` is
 issue-pointer-shaped only, so it is held by inspection whenever a
 Reason is written.
 
+The same bar binds a comment in this package, with one clause added: it
+describes the gate, not the harness around it. A comment that justified
+a deny by the harness prompt the denied shape would otherwise trip
+named behavior this repo neither ships nor tests, so it could go false
+without a line of this package changing — and because it read as the
+reason the rule exists, deleting the stale claim left the rule looking
+unmotivated. The forbidden-form and naked-`gh` comments instead state
+what the gate denies and what to run in its place, which stays true for
+as long as the code does.
+
 ## Rules are compiled in
 
 Policy lives in the binary, not on disk — a security gate's rule set
