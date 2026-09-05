@@ -230,10 +230,10 @@ Those are the pclntab's boundary and lookup symbols, and that shape is
 exactly what added comment lines produce. A moved `T` symbol, an
 unequal delta, or an added or removed line refutes the claim instead.
 
-A comment-only round that leaves `nm` identical also settles, for free,
-that every other mutation or control count the PR body carries is
-unchanged from the previous round — assertions cannot move when no
-compiled code did.
+A comment-only round that leaves `nm` identical under the
+`runtime.modinfo.str` filter also settles, for free, that every other
+mutation or control count the PR body carries is unchanged from the
+previous round — assertions cannot move when no compiled code did.
 
 ## Negate-check the PR's own tests
 
