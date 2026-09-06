@@ -535,10 +535,10 @@ extraction as one bare `git show … > <file>` — never
 `cd <dir> && git show … > <file>`. A `cd <path> && git …` prefix is
 denied by the forbidden-form guard before the redirect is graded at
 all, so that spelling is not a probe of the redirect arms and cannot
-serve as a negative control for them: the
-redirect-unresolvable **defer** holds for `git`, `gh` and `aws` in the
-`;`-joined and prefix-free spellings, and the `&&`-joined `git` one
-denies for an unrelated reason.
+serve as a negative control for them: the redirect-unresolvable
+**defer** holds for `git`, `gh` and `aws` in the `;`-joined and
+prefix-free spellings, and the `&&`-joined `git` one denies for an
+unrelated reason.
 
 The moving **set** is invariant to the cross's width; the count is not.
 So grade the derivation, not the total: a PR that states a width and
