@@ -62,7 +62,7 @@ func wantReason(t *testing.T, d Decision, want Bucket, reasonFragment, label str
 	}
 }
 
-// §10: git globals before -C; commands inside &&/;/pipelines;
+// Git globals before -C; commands inside &&/;/pipelines;
 // env VAR=x <cmd>; quoted/expanded strings — verified by classification.
 
 func TestGitGlobalsBeforeSubcommand(t *testing.T) {
@@ -123,14 +123,14 @@ func TestQuotedAndExpandedStrings(t *testing.T) {
 	}
 }
 
-// §10: gh auth switch and multi-identity switch forms are denied.
+// gh auth switch and multi-identity switch forms are denied.
 func TestGhAuthSwitchDenied(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch", false), BucketDeny, "gh auth switch")
 	wantBucket(t, classifyCmd(t, "gh auth switch --user other", false), BucketDeny, "gh auth switch --user")
 	wantBucket(t, classifyCmd(t, "gh auth switch && gh pr list", false), BucketDeny, "gh auth switch in compound")
 }
 
-// §10: subagent git reset --hard is denied/asked with detached-checkout
+// A subagent git reset --hard is denied/asked with detached-checkout
 // remediation in stderr.
 func TestGitResetHard(t *testing.T) {
 	dSub := classifyCmd(t, "git reset --hard HEAD", true)
@@ -141,7 +141,7 @@ func TestGitResetHard(t *testing.T) {
 	// Main session: DEFER — still destructive, but whether it is
 	// destructive HERE depends on the working tree and what the session was
 	// doing, which the evaluator reads and the gate cannot. The same
-	// remediation hint rides the analysis into the §7 log.
+	// remediation hint rides the analysis into the evolution log.
 	dMain := classifyCmd(t, "git reset --hard HEAD", false)
 	wantBucket(t, dMain, BucketDefer, "main git reset --hard")
 	if !containsSubstr(dMain.Reason, "detached checkout") {
@@ -149,7 +149,7 @@ func TestGitResetHard(t *testing.T) {
 	}
 }
 
-// §10: git config user.* identity writes are denied, including the
+// git config user.* identity writes are denied, including the
 // `--file <path>` form where the file path precedes the user.* key. (The direct
 // file-tool Write/Edit of a .git/config is exercised separately in
 // containment_test.go's TestGitConfigFileWriteDenied.)
@@ -287,7 +287,7 @@ func TestReducibleConstructs(t *testing.T) {
 	notUnhandled("local d=$(rm -rf /tmp/x)")
 }
 
-// §10: aws list/describe/get, read-only gh/acli/git subcommands allowed.
+// aws list/describe/get, read-only gh/acli/git subcommands allowed.
 func TestReadOnlyAllowed(t *testing.T) {
 	for _, cmd := range []string{
 		"aws s3api list-buckets",
@@ -344,7 +344,7 @@ func TestAwsOpClassificationTokenAnchored(t *testing.T) {
 	}
 }
 
-// §10: redirect to a real file must not ride an allow-listed prefix.
+// A redirect to a real file must not ride an allow-listed prefix.
 func TestRedirectToFileNotAllowed(t *testing.T) {
 	d := classifyCmd(t, "git status > /tmp/exfil.txt", false)
 	if d.Bucket == BucketAllow {
@@ -354,7 +354,7 @@ func TestRedirectToFileNotAllowed(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "git status 2>/dev/null", false), BucketAllow, "redirect /dev/null")
 }
 
-// §10: unparseable command fails closed (never allow, never defer).
+// An unparseable command fails closed (never allow, never defer).
 func TestUnparseableFailsClosed(t *testing.T) {
 	d := classifyCmd(t, "git status && (", false) // unbalanced paren
 	if d.Bucket == BucketAllow || d.Bucket == BucketDefer {

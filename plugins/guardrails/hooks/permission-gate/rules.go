@@ -6,7 +6,7 @@ import (
 )
 
 // gitReadOnlySubcommands is the high-confidence read-only / non-mutating git
-// subcommand allow set (§4). Deliberately conservative: anything not listed
+// subcommand allow set. Deliberately conservative: anything not listed
 // here defers to the normal pipeline. `config` is intentionally absent — its
 // read forms are common but its write forms mutate, and parsing the two apart
 // for an allow is not worth the risk; it defers.
@@ -67,11 +67,10 @@ var gitReadOnlySubcommands = map[string]bool{
 //     which pushes local content into a gist that may already have readers);
 //     and the credential reads — gh auth token, and gh auth status in any
 //     spelling ghAuthStatusEscalates screens out.
-//   - DEFER (the judgment middle, with the gate's analysis on the §7 log):
-//     a gh api
-//     graphql mutation outside the curated allowlist and outside the redirect
-//     map — or one whose document carries a fragment, whose names the scanner
-//     cannot trust; an
+//   - DEFER (the judgment middle, with the gate's analysis on the evolution
+//     log): a gh api graphql mutation outside the curated allowlist and outside
+//     the redirect map — or one whose document carries a fragment, whose names
+//     the scanner cannot trust; an
 //     unknown gh api flag, a non-allowlisted gh api REST endpoint, or a
 //     gh api REST write — non-GET method, implicit-POST body flag, or
 //     method-override header; a foreign-target enumerated write; an unmodelled
@@ -1046,7 +1045,7 @@ func isGhReadOnly(cmd []string) bool {
 //     the session is meant to be making, is read from the arguments and the
 //     context, not from the operation name this classifier matches on.
 //
-// Classification is on the parsed operation TOKEN, never a substring match (§4).
+// Classification is on the parsed operation TOKEN, never a substring match.
 func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	// Precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("aws", sc); hit {

@@ -4,7 +4,7 @@ import "testing"
 
 // Adversarial coverage for dangerous git / gh / aws operations, with the
 // heaviest weight on the four bypass gates and on every spec line that reaches a
-// dangerous outcome WITHOUT the flag a naive policy keys on (the §4 test bar).
+// dangerous outcome WITHOUT the flag a naive policy keys on.
 //
 // These all run through classifyBash (the real entrypoint) in the main-session
 // context unless a subagent context is needed.
@@ -608,8 +608,8 @@ func TestAwsDeferNonReadOp(t *testing.T) {
 // The invariant it was protecting survives, restated on what it was actually
 // after: no sampled shape may fall out of the classifier UNACCOUNTED FOR. A
 // bare deferToPipeline is exactly that — no operation label, no analysis, and
-// therefore no §7 log record — so it is what this test forbids. A DEFER with
-// both is the classifier having reached a verdict and said why.
+// therefore no evolution-log record — so it is what this test forbids. A DEFER
+// with both is the classifier having reached a verdict and said why.
 func TestClassifierResidualsAreAccountedFor(t *testing.T) {
 	cmds := []string{
 		"git status", "git commit -m x", "git push origin main", "git push --force origin main",

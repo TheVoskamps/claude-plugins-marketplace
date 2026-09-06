@@ -155,10 +155,10 @@ func classifyBash(command string, ev *Event) Decision {
 	var worstDecision Decision
 	sawNonAllow := false
 	// The FIRST defer that carries an analysis (deferJudgment) is kept so the
-	// whole line's defer reaches the §7 log with an account of why, instead of
-	// collapsing to a bare, unloggable deferToPipeline. A defer is not "worse"
-	// than another defer, so first-wins is the whole rule; an ASK anywhere in
-	// the line still outranks every defer below.
+	// whole line's defer reaches the evolution log with an account of why,
+	// instead of collapsing to a bare, unloggable deferToPipeline. A defer is
+	// not "worse" than another defer, so first-wins is the whole rule; an ASK
+	// anywhere in the line still outranks every defer below.
 	//
 	// The no-specific-rule residual (deferResidualOp) is the one exception to
 	// first-wins, and it is a ranking rather than a discard: it is kept
@@ -209,8 +209,8 @@ func classifyBash(command string, ev *Event) Decision {
 	if sawNonAllow {
 		// Some part was not a high-confidence allow and was not a deny or a hard ask
 		// — hand the whole line back to the normal permission pipeline rather
-		// than auto-allowing. This keeps the allow track to cheap, certain
-		// wins only (§4 posture).
+		// than auto-allowing. This keeps the allow track to cheap, certain wins
+		// only.
 		if haveDeferAnalysis {
 			return deferDecision
 		}
@@ -1197,7 +1197,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 // each word to a literal where statically possible; words containing command
 // substitution or unresolved parameter expansion mark hasUnknownExpansion.
 // Leading `env VAR=val` wrappers and assignment prefixes are stripped so the
-// real program lands at args[0] (§10: `env VAR=x <cmd>`).
+// real program lands at args[0] (the `env VAR=x <cmd>` form).
 //
 // resolver and cc thread the var-resolution sources (process env for
 // $HOME/$USER/$TMPDIR, the tracked cwd for $PWD/$OLDPWD) into every
@@ -1228,7 +1228,7 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		sc.argMeta = append(sc.argMeta, argMeta{exact: exact, staticPrefix: staticWordPrefix(w)})
 	}
 
-	// Strip leading `env` wrapper and its VAR=val args (§10). Repeat in case
+	// Strip leading `env` wrapper and its VAR=val args. Repeat in case
 	// of `env A=1 env B=2 cmd` (unusual but harmless to handle). The
 	// `env VAR=val cmd` form parks the assignment in args (not c.Assigns), so
 	// stripEnvWrapper reports whether it removed any assignment so the inline

@@ -372,7 +372,7 @@ func TestGhPublishUnmodelledFlagDefers(t *testing.T) {
 // local file; a verb with neither — roughly half the table — must not be, or the
 // analysis reports a risk that command does not have. That sentence
 // is the gate's ANALYSIS rather than a prompt: emitDecision emits a defer with
-// no reason key on the wire, so the sentence reaches the §7 evolution log
+// no reason key on the wire, so the sentence reaches the evolution log
 // and the re-tune that reads it, never a human prompt.
 func TestGhPublishUnmodelledFlagMessageMatchesSurface(t *testing.T) {
 	repo := ghPublishRepo(t)

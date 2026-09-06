@@ -81,30 +81,30 @@ const (
 	// rather than asking.
 	//
 	// The constant's value is an INTERNAL label only — it names the bucket in
-	// the §7 log and in this package's own switches. It is never written to
-	// the wire; emitDecision spells a defer as the envelope with no
+	// the evolution log and in this package's own switches. It is never written
+	// to the wire; emitDecision spells a defer as the envelope with no
 	// permissionDecision field. See emitDecision for why the literal must not
 	// reach stdout.
 	BucketDefer Bucket = "defer"
 )
 
 // Decision is the gate's verdict for a single tool call, plus the teaching
-// message that explains it (§6). The reason is surfaced to the model via
+// message that explains it. The reason is surfaced to the model via
 // permissionDecisionReason on the JSON-stdout path.
 type Decision struct {
 	Bucket Bucket
-	// Reason is the §6 teaching message: what was blocked, why, and the
+	// Reason is the teaching message: what was blocked, why, and the
 	// remediation. Required for Deny and Ask.
 	//
 	// A Defer may also carry one — the gate's ANALYSIS of what it could and
 	// could not establish — but it is never emitted on the stdout verdict
 	// (emitDecision omits the reason key along with the decision key for a
 	// defer, so a deferred call reaches the downstream judge exactly as it did
-	// before). It exists for the §7 evolution log, which is the feed for
+	// before). It exists for the evolution log, which is the feed for
 	// automode re-tuning.
 	Reason string
 	// Operation is a short classified-operation label used for evolution
-	// logging (§7), e.g. "git reset --hard" or "containment:worktree-escape".
+	// logging, e.g. "git reset --hard" or "containment:worktree-escape".
 	Operation string
 }
 
@@ -121,9 +121,9 @@ func deferToPipeline() Decision { return Decision{Bucket: BucketDefer} }
 // could not decide — an unpinnable path, an unmodelled flag, a remote mutation
 // whose target the gate cannot see. The verdict is identical to a bare defer
 // (emitDecision omits the reason key along with the decision key, so it never
-// reaches stdout); what it adds is the §7 log record, which carries the
-// operation label AND the analysis text so the automode re-tune has the gate's
-// own account of each deferred call.
+// reaches stdout); what it adds is the evolution-log record, which carries the
+// operation label AND the analysis text so the automode re-tune has the
+// gate's own account of each deferred call.
 func deferJudgment(op, reason string) Decision {
 	return Decision{Bucket: BucketDefer, Reason: reason, Operation: op}
 }
