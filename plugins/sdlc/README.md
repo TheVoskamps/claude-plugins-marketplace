@@ -185,8 +185,13 @@ the round's own directory:
 
 The PR number keys the path because a PR is worked by one orchestrate
 run, and the agent tree under it, at a time. Nothing in the path names
-a session, which is what lets a reviewer resumed after a session loss —
-under a later run over the same PR — read the round it left behind.
+a session, so any reviewer spawned over that PR reads the round an
+earlier instance left behind — the same run's re-spawn after an
+in-progress return, and equally a spawn from a later session, such as
+`/sdlc:git-review-pr <PR>`. Finding it is the reviewer's own job, per
+`agents/theorem-based-pr-reviewer.md` → "Read the round log, then
+anchor the round", which it runs on every spawn; no caller looks for
+the log on its behalf.
 
 The `enter` record also carries a fourth path,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
