@@ -1820,11 +1820,7 @@ without a line of this package changing — and because it read as the
 reason the rule exists, deleting the stale claim left the rule looking
 unmotivated. The `forbiddenForm` docstring and the naked-`gh` comment
 instead state what the gate denies and what it sends the caller to run
-instead, which stays true for as long as the code does. The
-`forbiddenForm` call site in `engine_a_bash.go` names no individual
-shape and spells no replacement command, on purpose: the shapes and
-their two-call alternatives are the docstring's to state, and a second
-copy at the call site is the one that would go stale.
+instead, which stays true for as long as the code does.
 
 ## Rules are compiled in
 
