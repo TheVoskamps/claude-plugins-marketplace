@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// §10: fault-injection — a git rev-parse that times out must fail closed.
+// Fault injection: a git rev-parse that times out must fail closed.
 //
 // We shim `git` with a script that sleeps longer than gitRevParseTimeout, put
 // it first on PATH, and assert resolveRepoContext returns an error (which the
@@ -83,7 +83,7 @@ func TestRunGitTimeoutFailsClosed(t *testing.T) {
 	}
 }
 
-// §10 end-to-end: the built binary emits a structured JSON decision on stdout
+// End-to-end: the built binary emits a structured JSON decision on stdout
 // with exit 0 for normal verdicts, and exits 2 with stderr on a malformed
 // event (fail-closed backstop).
 func TestBinaryEndToEnd(t *testing.T) {

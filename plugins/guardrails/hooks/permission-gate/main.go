@@ -37,10 +37,10 @@
 //
 // Everything else — the whole judgment middle, including every "the gate
 // cannot statically classify this" arm — DEFERS, carrying the gate's analysis
-// into the §7 log for the evaluator's tuning. The old ask-default is gone: a
-// gate ask is a guaranteed hard prompt that BYPASSES the smartest layer in the
-// stack, so spending one on uncertainty bought prompt fatigue rather than
-// safety.
+// into the evolution log for the evaluator's tuning. The old ask-default is
+// gone: a gate ask is a guaranteed hard prompt that BYPASSES the smartest layer
+// in the stack, so spending one on uncertainty bought prompt fatigue rather
+// than safety.
 package main
 
 import (
@@ -56,8 +56,8 @@ const exitBlock = 2
 
 func main() {
 	// Top-level panic recovery: a panic anywhere in classification must
-	// fail closed (block), never crash-open. This is the §9 "panic →
-	// block" guarantee.
+	// fail closed (block), never crash-open. This is the "panic → block"
+	// guarantee.
 	defer func() {
 		if r := recover(); r != nil {
 			failClosed(fmt.Sprintf(
@@ -74,18 +74,18 @@ func main() {
 
 	ev, err := parseEvent(raw)
 	if err != nil {
-		// Malformed / empty / missing-field event is a §9 fail-closed case.
+		// Malformed / empty / missing-field event is a fail-closed case.
 		failClosed(fmt.Sprintf("permission-gate received a malformed PreToolUse event (%v); blocking. "+
 			"This is a fail-closed safety measure.", err))
 	}
 
 	d := classify(ev)
 
-	// Log every ASK, DENY and DEFER for rule evolution (§7). DEFER is logged
-	// because it is now the judgment middle's terminal, and the log is the feed
-	// for tuning the evaluator those calls land in: a deferred call that
-	// appears nowhere is a call nobody can tune for. Logging failure must never
-	// change the verdict, so errors are swallowed inside logEvent.
+	// Log every ASK, DENY and DEFER for rule evolution. DEFER is logged because
+	// it is now the judgment middle's terminal, and the log is the feed for
+	// tuning the evaluator those calls land in: a deferred call that appears
+	// nowhere is a call nobody can tune for. Logging failure must never change
+	// the verdict, so errors are swallowed inside logEvent.
 	if d.Bucket == BucketAsk || d.Bucket == BucketDeny || d.Bucket == BucketDefer {
 		logEvent(ev, d)
 	}
@@ -150,9 +150,9 @@ func isFileTool(name string) bool {
 //
 // A defer's reason is DROPPED here — with the decision field gone there is no
 // field to carry it, and there never was one to fill. deferJudgment sites
-// carry the gate's analysis for the §7 log, but a deferred call must reach the
-// downstream evaluator exactly as a bare defer does: the gate did not decide,
-// so it puts no words in the judge's mouth, and every defer emits the
+// carry the gate's analysis for the evolution log, but a deferred call must
+// reach the downstream evaluator exactly as a bare defer does: the gate did not
+// decide, so it puts no words in the judge's mouth, and every defer emits the
 // identical payload whatever its analysis says.
 func emitDecision(d Decision) {
 	hookOut := map[string]any{

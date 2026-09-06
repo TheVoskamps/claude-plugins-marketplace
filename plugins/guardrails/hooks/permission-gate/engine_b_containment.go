@@ -14,7 +14,7 @@ import (
 )
 
 // gitRevParseTimeout bounds the git subprocess so a hung git cannot wedge the
-// hook (§8: a wedged required hook MUST NOT fail open).
+// hook (a wedged required hook MUST NOT fail open).
 const gitRevParseTimeout = 5 * time.Second
 
 // repoContext is the resolved git context for the event's cwd. All paths are
@@ -35,10 +35,10 @@ type repoContext struct {
 	primaryClone string
 }
 
-// resolveRepoContext shells out to `git rev-parse` against the event's cwd
-// (§8). On ANY subprocess trouble (non-zero exit, empty output, timeout) it
-// returns an error; the caller treats that as fail-closed (block, or a defer
-// carrying the resolution failure as its analysis — never allow).
+// resolveRepoContext shells out to `git rev-parse` against the event's cwd. On
+// ANY subprocess trouble (non-zero exit, empty output, timeout) it returns an
+// error; the caller treats that as fail-closed (block, or a defer carrying the
+// resolution failure as its analysis — never allow).
 func resolveRepoContext(eventCWD string) (*repoContext, error) {
 	if eventCWD == "" {
 		return nil, fmt.Errorf("event has no cwd; cannot resolve git context (fail-closed)")
@@ -618,10 +618,12 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 		return contained, real
 	}
 	// Carve-out: the agent's own global config tree (~/.claude/CLAUDE.md,
-	// ~/.claude/rules/**, etc.) lives outside every repo, yet every subagent and
-	// the main session is REQUIRED to read it at startup and settings.json
-	// allow-lists exactly those reads. A hard cross-repo deny here would override
-	// that allow-list and break the /issue-address workflow this repo depends on.
+	// ~/.claude/rules/**, etc.) lives outside every repo, so the cross-repo rule
+	// reaches it — but what that rule protects is absent there. The tree is no
+	// other repo's working state: a read of it cannot come back stale against a
+	// worktree, and a write to it cannot land in a checkout another session is
+	// holding. A deny is also terminal: it would settle inside the gate a call
+	// the layer below it is the one equipped to grade.
 	// So a target whose canonical path lands under the real ~/.claude is reported
 	// as claudeConfig → the caller DEFERS, letting the normal settings.json
 	// allow-list govern it. The protection for genuine sibling repos is

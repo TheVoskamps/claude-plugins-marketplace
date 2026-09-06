@@ -2049,7 +2049,7 @@ which reads as a total lockout rather than as a mode problem.
 
 ## Deferred
 
-The per-`(session, cwd)` `git rev-parse` cache (§8 of the design)
-remains deferred. Worktree roots do not move mid-session, so it is a
-pure optimization for the worktree-parallel case; build it only if
-profiling shows the per-call fork bites.
+The per-`(session, cwd)` `git rev-parse` cache remains deferred. Worktree
+roots do not move mid-session, so it is a pure optimization for the
+worktree-parallel case; build it only if profiling shows the per-call fork
+bites.

@@ -18,7 +18,7 @@ type Event struct {
 	ToolName      string          `json:"tool_name"`
 	ToolInput     json.RawMessage `json:"tool_input"`
 	// CWD is the EVENT's working directory. Engine B MUST resolve git context
-	// against THIS directory, not the hook process's own cwd (§8).
+	// against THIS directory, not the hook process's own cwd.
 	CWD string `json:"cwd"`
 	// AgentType distinguishes the main session from a subagent. Some rules
 	// are conditioned on the agent being a subagent. The harness has

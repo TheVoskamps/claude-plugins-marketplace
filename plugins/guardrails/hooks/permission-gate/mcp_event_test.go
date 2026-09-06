@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-// §10 / §2: read-only MCP tools allowed; write MCP tools defer; unknown defers
+// Read-only MCP tools allowed; write MCP tools defer; unknown defers
 // (an MCP tool NAME substring is not grounds for a human click).
 func TestMCPClassification(t *testing.T) {
 	cases := []struct {
@@ -30,7 +30,7 @@ func TestMCPClassification(t *testing.T) {
 	}
 }
 
-// §10: an uncertain operation lands in DEFER, and — the half that
+// An uncertain operation lands in DEFER, and — the half that
 // matters — never in ALLOW. The bucket is asserted exactly so a future
 // widening of the read-only sets cannot quietly turn an unknown tool into an
 // allow while this test keeps passing on a "not ask" check.
@@ -41,8 +41,8 @@ func TestUnknownMCPDefersAndCarriesAnalysis(t *testing.T) {
 		t.Errorf("unknown MCP must DEFER; got %q", d.Bucket)
 	}
 	if d.Operation == "" || d.Reason == "" {
-		t.Errorf("unknown-MCP defer must carry the gate's analysis for the §7 log; got op=%q reason=%q",
-			d.Operation, d.Reason)
+		t.Errorf("unknown-MCP defer must carry the gate's analysis for the evolution log; "+
+			"got op=%q reason=%q", d.Operation, d.Reason)
 	}
 }
 

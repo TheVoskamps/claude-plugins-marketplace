@@ -11,7 +11,7 @@ func isMCPTool(name string) bool {
 	return strings.HasPrefix(name, "mcp__")
 }
 
-// classifyMCP branches on the MCP tool name (§2). Read-only MCP tools ALLOW;
+// classifyMCP branches on the MCP tool name. Read-only MCP tools ALLOW;
 // everything else DEFERS. The mutation branch and the unknown-tool
 // branch are both judgment-middle calls: the classification here is a
 // SUBSTRING match on a tool NAME, which says nothing about what the call
