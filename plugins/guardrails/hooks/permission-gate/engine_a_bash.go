@@ -123,10 +123,10 @@ func classifyBash(command string, ev *Event) Decision {
 			err, parseErrorCauseSentence(command, err)))
 	}
 
-	// Forbidden command shapes (ported from the replaced
-	// auto-approve-compound-commands.sh). Each has a working two-call
-	// alternative, so the gate denies them with a teaching remediation rather
-	// than letting them through.
+	// Forbidden command shapes: `cd <path> && git …` and `git -C <abs-path>
+	// …`. The gate denies each with a remediation naming the two-call
+	// replacement — `cd <path>`, then the bare `git <subcommand>` — rather
+	// than letting the compound shape through.
 	if d, hit := forbiddenForm(file); hit {
 		return d
 	}

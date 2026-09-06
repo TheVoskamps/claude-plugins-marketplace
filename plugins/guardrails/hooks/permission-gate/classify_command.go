@@ -622,10 +622,10 @@ func classifyGitPush(rest []string) Decision {
 		// merits. Before, `+src:dst` reached the same ask only incidentally,
 		// because it also contained a colon — the '+' was never inspected.
 		if strings.HasPrefix(src, "+") {
-			// HARD ASK tier: a history-destroying push is one of the
-			// enumerated calls fleet policy (core-principles §1) reserves for an
-			// explicit human decision, so it must not be waivable by a
-			// downstream judge however sensible the context looks.
+			// HARD ASK tier: a history-destroying push is one of the enumerated
+			// calls fleet policy reserves for an explicit human decision, so it
+			// must not be waivable by a downstream judge however sensible the
+			// context looks.
 			return ask("git push forced-refspec",
 				"'git push' with a '+' prefix on the refspec (e.g. 'origin +HEAD:branch') forces the update: "+
 					"the '+' is git's per-ref equivalent of --force, so the remote accepts a non-fast-forward "+
