@@ -159,19 +159,39 @@ removes an executable edits this count.
 
 ## Files it writes
 
-Everything this plugin persists is written by
-`bin/sdlc-agent-result-persist` under the harness's per-session
-scratchpad, outside every repository — a review round writes nothing to
-the branch it reviews. A PR that adds or removes one of these edits this
-list, the same convention "Executables" above sets. Which mode writes
-each, and the record grammar the log holds, are part of that contract
-and are owned by `skills/agent-result-persist-interface/SKILL.md`.
+Everything the **review pipeline** persists is written by
+`bin/sdlc-agent-result-persist` under XDG state, outside every
+repository — a review round writes nothing to the branch it reviews. A
+PR that adds or removes one of these edits this list, the same
+convention "Executables" above sets. Which mode writes each, and the
+record grammar the log holds, are part of that contract and are owned
+by `skills/agent-result-persist-interface/SKILL.md`.
+
+The implementing agents are outside that claim and write nothing this
+list owns: `issue-developer`, `issue-fixer` and `doc-updater` commit
+their work to the branch and capture their agent memory into the
+session's inbox, and `agent-memory-scrubber` commits what that inbox
+transfers.
+
+Write `<round-dir>` for
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<pr>/round<round>`,
+the round's own directory:
 
 | File | What it holds |
 | ------- | --------------- |
-| `<scratchpad>/sdlc/theorem-based-pr-reviewer-<owner>-<repo>-pr<pr>-round<round>` | the round log |
-| `<that path>-<theorem>-<agent>` | one child's full report |
-| `<that path>.voided-<instant>` and `<that path>.voided-<instant>-<theorem>-<agent>` | the log and every result file of a round whose branch moved under it, set aside rather than overwritten |
+| `<round-dir>/log` | the round log |
+| `<round-dir>/<theorem>-<agent>` | one child's full report |
+| `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
+
+The PR number keys the path because a PR is worked by one orchestrate
+run, and the agent tree under it, at a time. Nothing in the path names
+a session, so any reviewer spawned over that PR reads the round an
+earlier instance left behind — the same run's re-spawn after an
+in-progress return, and equally a spawn from a later session, such as
+`/sdlc:git-review-pr <PR>`. Finding it is the reviewer's own job, per
+`agents/theorem-based-pr-reviewer.md` → "Read the round log, then
+anchor the round", which it runs on every spawn; no caller looks for
+the log on its behalf.
 
 The `enter` record also carries a fourth path,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
@@ -186,8 +206,8 @@ round they describe. That accumulation is the debugging trail — a
 stalled or voided round is diagnosed from these files and from nothing
 else, since the reviewer holds no state across a turn. Deleting on a
 schedule would throw away the evidence at exactly the moment it is
-wanted, so the growth is left for the session scratchpad's own lifetime
-to bound.
+wanted. A `pr<N>/` stays after its PR merges or closes, and nothing
+here bounds that growth — removing one is the operator's own call.
 
 ## Agents
 

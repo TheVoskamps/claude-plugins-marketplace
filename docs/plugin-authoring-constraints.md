@@ -384,10 +384,15 @@ end of the retry loop below, whichever bound it hits. So key "is
 something running this?" on the child, and let the write-off record
 subtract from it while leaving the work outstanding.
 
-None of that survives in context alone, so it goes in a **log** under
-the session scratchpad, where no worktree cleanup reaches it, with its
-path composed in a `bin/` executable (constraint 7) that every writer
-and the reader call by bare name.
+None of that survives in context alone, so it goes in a **log** outside
+every repository, where no worktree cleanup reaches it, with its path
+composed in a `bin/` executable (constraint 7) that every writer and the
+reader call by bare name. Key that path on what the round is about and
+on nothing that names the session running it — a session ending is one
+of the ways a fan-out is interrupted, and a session-keyed path would
+leave the resumed spawner unable to reach its own records. See
+`docs/config-file-conventions.md` → "State goes under
+`$XDG_STATE_HOME/<plugin>/`".
 
 **Nothing may depend on the spawner hearing back.** A child that ran,
 finished and reported can still skip its own last call, and a
@@ -447,9 +452,9 @@ about the same round and a reader answers every stage's question from
 one read.
 
 `theorem-based-pr-reviewer` carries all of it — one anchor per round,
-one log under the session scratchpad, and start records, finish records
-and full reports the generator, the disprovers and the verifiers write
-themselves (issues #344 and #358).
+one log under XDG state keyed on owner, repo, PR and round, and start
+records, finish records and full reports the generator, the disprovers
+and the verifiers write themselves (issues #344 and #358).
 
 **Every stage needs a deadline, the ones that spawn a single child
 included.** An unbounded second fan-out parks the round exactly as an

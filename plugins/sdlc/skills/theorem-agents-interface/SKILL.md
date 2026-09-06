@@ -98,14 +98,11 @@ them as well.
   `THEOREM`, `COUNTEREXAMPLE`, `EVIDENCE`, `CONSEQUENCE`, and `CLASS`.
   It travels unchanged because a paraphrase is precisely what the
   verifier is checking for.
-- `--scratchpad <dir>` — the harness's per-session scratchpad
-  directory, as the reviewer's own context names it. Passed verbatim;
-  an agent never hand-builds a lookalike path.
 - `--owner <owner>` — the repository owner.
 - `--repo <repo>` — the repository name, separate from the owner.
 - `--round <n>` — the review round, as the reviewer numbers it.
 
-Those four say nothing about the claim, and **every** theorem agent
+Those three say nothing about the claim, and **every** theorem agent
 receives them, the generator included. Each passes them straight back —
 alongside `--pr`, its own stage, and its own definition's name — to
 `sdlc-agent-result-persist`, per

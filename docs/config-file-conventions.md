@@ -1,6 +1,6 @@
 # Config file conventions
 
-A plugin that persists state outside the repo picks a path and a
+A plugin that writes a config outside the repo picks a path and a
 format. Both are already decided here, and the decision is not
 transferable from whatever the ecosystem around the file does: JSON is
 what `settings.json` and `~/.claude.json` use, and copying it into a
@@ -12,7 +12,7 @@ Every per-user config lives at
 `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin-name>/<file>`, with the
 variable used when set and non-empty and `$HOME/.config` when unset or
 empty. The directory is the **plugin's** name, so two plugins never
-collide and a user can delete one plugin's state without reading the
+collide and a user can delete one plugin's config without reading the
 others. Per-repo counterparts live at `<repo-root>/.<plugin>/`, which
 is where `.issues/` and `.claude-vm/` come from.
 
@@ -45,6 +45,48 @@ too, and a skill has to survive that rather than assume the file is
 readable. See
 [`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema and scope limits.
+
+## State goes under `$XDG_STATE_HOME/<plugin>/`
+
+State — what a plugin writes and reads back later, rather than what a
+user writes for it — lives at
+`${XDG_STATE_HOME:-$HOME/.local/state}/<plugin-name>/`, with the
+variable used when set and non-empty and `$HOME/.local/state` when
+unset or empty, and with the fallback spelled out once for the same
+reason the config one is. `~/.local/state/auto-mode-tools/` and
+`~/.local/state/sdlc/` are this shape.
+
+Below that directory the plugin keys on whatever identifies the thing
+the state is about, and on nothing that identifies the run that wrote
+it. `sdlc/<owner>/<repo>/pr<n>/round<n>/` is keyed on a PR and a round,
+which is what lets a later session pick a round up where an interrupted
+one left it; a session id in the path would have made the same records
+unreachable. The harness's per-session scratchpad is the opposite
+choice deliberately — it is for what should die with the session.
+
+State is not config, so the format and `schema-version` rules below do
+not reach it by default. A state file a human may open and edit takes
+both, as `auto-mode-tools`' `ledger.yml` does; a machine-only record
+like `sdlc`'s round log takes neither, and its own writer owns its
+grammar.
+
+### The permission gate denies the state path outright
+
+A state path is outside every repository, so the `guardrails` gate
+denies every tool-mediated read and write of it — `Read`, `Write` and a
+Bash `cat` alike. The carve-out the section above describes does not
+reach here: it is rooted at the `$HOME/.config` spelling, and today
+there is no state counterpart to it.
+
+What stays reachable is a call the gate grades no path for. `sdlc`'s
+round log is the worked case, and it is worked only halfway: every
+write, and the read of the log itself, invokes
+`bin/sdlc-agent-result-persist` by bare name, passing the identifying
+flags the path is composed from and never a path, so the gate abstains
+on those. Reading a result file's **contents** is what the CLI does not
+cover — the reviewer takes that path out of the log and opens the file
+with `Read`, which the gate denies today. Closing that is the
+`guardrails` carve-out's job, not this document's.
 
 ## The format is YAML, or Markdown when a human must read prose too
 

@@ -142,7 +142,7 @@ file's path out of the log you just printed, then read the file with
 returned disprovers uncrossed-off and burned a round's budget on
 theorems that had already reported (issue #351).
 
-**Resolve the five identifying values at the top of the round, and
+**Resolve the four identifying values at the top of the round, and
 again on every resume** rather than trusting a remembered one:
 
 ```bash
@@ -153,8 +153,9 @@ gh pr view <PR> --json reviews --jq '.reviews | length'
 The first gives `--owner` and `--repo`; `--pr` is the PR under review;
 `--round` is that review count **plus one**, so a first round is `1`.
 Your own review lands only at "Post one review", so the count holds
-across the round. `--scratchpad` is the harness's per-session scratchpad
-directory, named in your own context and passed verbatim.
+across the round. Resolving them is what reaches the log, on the terms
+the preloaded `sdlc:agent-result-persist-interface` skill → "The paths"
+states.
 
 The log and the result files are outside every repository and you have
 no commit or push step, so nothing this writes reaches the branch. They
@@ -170,6 +171,11 @@ you again over the same PR with the same parameters, so a fresh
 instance of you routinely arrives at a round some earlier instance
 already partly settled — and you are that instance as often as you are
 the first one.
+
+**A session ending is one of the ways that happens**, and it changes
+nothing about the recovery: read the same records with `--mode print`
+and let the arms below decide what is left to do, exactly as they do
+within one session. Never ask which session wrote a record.
 
 **Derive what to do from the log, and hold nothing across a turn that
 is not written down.** Run `--mode print`, then take whichever arm the
@@ -327,9 +333,10 @@ rather than the status.
 
 **The message names a flag.** The call you
 built is malformed, so the script wrote nothing and no fan-out of yours
-is under way — an empty `--scratchpad` is the one to expect. Repair the
-flag and call again; when you cannot, report the failure with the
-message verbatim and stop. **Never report a malformed call as an
+is under way — an empty `--owner` or `--repo`, where the `gh repo view`
+read at the top of the round gave you nothing, is the one to expect.
+Repair the flag and call again; when you cannot, report the failure
+with the message verbatim and stop. **Never report a malformed call as an
 in-progress status**: it would send your caller to the escalation for a
 stalled fan-out while the actual fault, a call you composed wrongly,
 goes unreported.
@@ -436,12 +443,12 @@ your context" above.
 
 ### Read the round log, then anchor the round
 
-Resolve the five identifying values per "The round log" above, then read
+Resolve the four identifying values per "The round log" above, then read
 the log before you decide anything:
 
 ```bash
 sdlc-agent-result-persist --mode print \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --owner <owner> --repo <repo> \
   --pr <PR_N> --round <this round's number>
 ```
 
@@ -452,7 +459,7 @@ whether a child has written first:
 
 ```bash
 sdlc-agent-result-persist --mode anchor \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --owner <owner> --repo <repo> \
   --pr <PR_N> --round <this round's number> --head-sha <headRefOid>
 ```
 
@@ -779,7 +786,7 @@ spawn the replacement, whose own `enter` starts a fresh deadline:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --owner <owner> --repo <repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem list --stage generate
 ```
@@ -805,7 +812,6 @@ On a **round-1 or fallback round**, the brief is the whole PR:
 --pr <PR_N>
 --issues <resolved_N1> <resolved_N2> …
 --branch <headRefName>
---scratchpad <the session scratchpad directory>
 --owner <owner>
 --repo <repo>
 --round <this round's number>
@@ -824,7 +830,6 @@ round's delta commits, and the generator emits only what those imply:
 --branch <headRefName>
 --carried-records <the records block, verbatim from the previous review>
 --delta-commits <the oids the rev-list in "Carry the previous round's theorems forward" returned, space-separated>
---scratchpad <the session scratchpad directory>
 --owner <owner>
 --repo <repo>
 --round <this round's number>
@@ -841,7 +846,7 @@ tier is:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --owner <owner> --repo <repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem list --stage generate \
   --agent <the definition you spawned> --model default --effort default
@@ -1002,7 +1007,7 @@ record per child you spawned:
 
 ```bash
 sdlc-agent-result-persist --mode spawn \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --owner <owner> --repo <repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem T4 --stage disprove --agent theorem-disprover \
   --model <haiku, or default where you named none> --effort default
@@ -1056,7 +1061,6 @@ Each disprover's brief is one theorem and nothing more:
 --issues <the member(s) the theorem is tagged to>
 --class <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
---scratchpad <the session scratchpad directory>
 --owner <owner>
 --repo <repo>
 --round <this round's number>
@@ -1067,7 +1071,7 @@ statement, and a proposed consequence class, or SURVIVED with what
 you checked. Nothing else.
 ```
 
-The last four, with the `--pr` at the top, are the five identifying
+The last three, with the `--pr` at the top, are the four identifying
 values the `--mode anchor` call carried. Pass them unchanged or the
 child's records and its report land in a round you never read.
 
@@ -1103,7 +1107,7 @@ past every result whose own notification was lost.
 
    ```bash
    sdlc-agent-result-persist --mode print \
-     --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+     --owner <owner> --repo <repo> \
      --pr <PR_N> --round <this round's number>
    ```
 
@@ -1187,7 +1191,7 @@ child is never yours to stop — you record the stop and leave it alone:
 
 ```bash
 sdlc-agent-result-persist --mode stopped \
-  --scratchpad <scratchpad> --owner <owner> --repo <repo> \
+  --owner <owner> --repo <repo> \
   --pr <PR_N> --round <this round's number> \
   --theorem T7 --stage disprove
 ```
@@ -1267,7 +1271,6 @@ Each verifier's brief is one counterexample and nothing more:
 --class <mechanical|semantic>
 --pointers <the generator's pointers, verbatim>
 --counterexample <the disprover's full DISPROVED report, verbatim>
---scratchpad <the session scratchpad directory>
 --owner <owner>
 --repo <repo>
 --round <this round's number>
