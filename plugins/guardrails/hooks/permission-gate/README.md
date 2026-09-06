@@ -49,9 +49,9 @@ on uncertainty buys prompt fatigue rather than safety.
     sanctioned escalation for publishing.
   - **History-destroying pushes** — `git push --force`/`-f` and a
     `+`-prefixed forced refspec. Fleet policy requires explicit human
-    permission. `--force-with-lease` stays
-    ALLOW and is named in the reason. `git push --mirror` is stronger
-    still: it DENIES, and always has.
+    permission. `--force-with-lease` stays ALLOW and is named in the
+    reason. `git push --mirror` is stronger still: it DENIES, and
+    always has.
   - **Credential/secret reads and mints** — the `aws` credential-read
     operations and the `aws` credential *mints* (`sts assume-role`,
     `iam create-access-key`, …, which issue a live credential the
