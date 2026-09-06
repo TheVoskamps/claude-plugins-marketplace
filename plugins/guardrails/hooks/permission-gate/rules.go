@@ -6,7 +6,7 @@ import (
 )
 
 // gitReadOnlySubcommands is the high-confidence read-only / non-mutating git
-// subcommand allow set (§4). Deliberately conservative: anything not listed
+// subcommand allow set. Deliberately conservative: anything not listed
 // here defers to the normal pipeline. `config` is intentionally absent — its
 // read forms are common but its write forms mutate, and parsing the two apart
 // for an allow is not worth the risk; it defers.
@@ -67,11 +67,10 @@ var gitReadOnlySubcommands = map[string]bool{
 //     which pushes local content into a gist that may already have readers);
 //     and the credential reads — gh auth token, and gh auth status in any
 //     spelling ghAuthStatusEscalates screens out.
-//   - DEFER (the judgment middle, with the gate's analysis on the §7 log):
-//     a gh api
-//     graphql mutation outside the curated allowlist and outside the redirect
-//     map — or one whose document carries a fragment, whose names the scanner
-//     cannot trust; an
+//   - DEFER (the judgment middle, with the gate's analysis on the evolution
+//     log): a gh api graphql mutation outside the curated allowlist and outside
+//     the redirect map — or one whose document carries a fragment, whose names
+//     the scanner cannot trust; an
 //     unknown gh api flag, a non-allowlisted gh api REST endpoint, or a
 //     gh api REST write — non-GET method, implicit-POST body flag, or
 //     method-override header; a foreign-target enumerated write; an unmodelled
@@ -112,14 +111,13 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	}
 
 	// Naked `gh` in an App-configured repo (ported from the replaced
-	// auto-approve-compound-commands.sh; see rules/prefer-gh-wrapper-in-app-repos.md).
-	// When the event repo's LOCAL user.email is the App bot address
-	// (*[bot]@users.noreply.github.com), a bare `gh` would silently use the
-	// human's personal credentials and mis-attribute the action. Deny and
-	// point at the wrapper. Fires only in App repos; elsewhere the local
-	// email is not a bot address and this is a no-op. A git lookup failure is
-	// treated as "not an App repo" (the gate does not block normal gh usage
-	// just because git can't answer).
+	// auto-approve-compound-commands.sh). When the event repo's LOCAL
+	// user.email is the App bot address (*[bot]@users.noreply.github.com), a
+	// bare `gh` would silently use the human's personal credentials and
+	// mis-attribute the action. Deny and point at the wrapper. Fires only in
+	// App repos; elsewhere the local email is not a bot address and this is a
+	// no-op. A git lookup failure is treated as "not an App repo" (the gate
+	// does not block normal gh usage just because git can't answer).
 	if isAppManagedRepo(ev.CWD) {
 		return denyGhNakedAppRepo()
 	}
@@ -239,9 +237,9 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 
 	// HARD ASK tier: gh repo edit --visibility (sanctioned-skill
 	// territory). A visibility flip is a publish in the sense this tier cares
-	// about — CLAUDE.md already treats the human click as the sanctioned
-	// escalation for publishing — so it is meant to stand rather than be waived
-	// downstream (that precedence is design intent, not a pinned fact).
+	// about — the human click is the sanctioned escalation for publishing — so
+	// it is meant to stand rather than be waived downstream (that precedence is
+	// design intent, not a pinned fact).
 	if cmd[0] == "repo" && len(cmd) >= 2 && cmd[1] == "edit" {
 		if containsToken(args, "--visibility") || hasFlagPrefix(args, "--visibility=") {
 			return ask("gh repo edit --visibility",
@@ -255,9 +253,8 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	// has no signal for that wrapper, and a hard DENY would leave no escape
 	// hatch for legitimate release creation, so it routes to ASK (one human
 	// click) rather than DENY. It does NOT defer: the human click IS the
-	// sanctioned escalation for publishing per CLAUDE.md, and letting an
-	// evaluator waive it would remove the one control on an irreversible
-	// exposure.
+	// sanctioned escalation for publishing, and letting an evaluator waive it
+	// would remove the one control on an irreversible exposure.
 	if cmd[0] == "release" && len(cmd) >= 2 && cmd[1] == "create" {
 		return ask("gh release create publish",
 			"'gh release create' publishes a release — exposure that is effectively irreversible. "+
@@ -600,7 +597,7 @@ func denyGhNakedAppRepo() Decision {
 		"Blocked: a bare 'gh' in an App-configured repo uses your personal credentials and silently "+
 			"mis-attributes the action. Call the wrapper by absolute path instead — "+
 			"'~/.claude/.global-claude-config/bin/gh_wrapper' — which mints a fresh App installation token "+
-			"per call. See rules/prefer-gh-wrapper-in-app-repos.md.")
+			"per call.")
 }
 
 // ghIrreparableDeny denies the DENY-tier gh operations: deletes of things
@@ -1048,7 +1045,7 @@ func isGhReadOnly(cmd []string) bool {
 //     the session is meant to be making, is read from the arguments and the
 //     context, not from the operation name this classifier matches on.
 //
-// Classification is on the parsed operation TOKEN, never a substring match (§4).
+// Classification is on the parsed operation TOKEN, never a substring match.
 func classifyAws(args []string, sc simpleCommand, ev *Event) Decision {
 	// Precondition: static argv + no inline env-assignment, gated FIRST.
 	if d, hit := preconditionDeny("aws", sc); hit {

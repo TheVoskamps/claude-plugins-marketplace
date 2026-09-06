@@ -668,3 +668,25 @@ constraint back to its source — the platform's rule, not the case that
 surfaced it — and ask it of every member of the enumeration, then
 scope the prose to whatever that answers rather than to the value in
 front of you.
+
+## A rule justified by a system this repo does not ship
+
+A local rule often gets its motivation from a third party's behaviour
+— the harness prompts on this shape, the CLI rejects that flag, the
+platform refuses this call. The rule is ours and the tests pin it; the
+justifying clause is a fact about software this repo neither ships nor
+exercises, so it can go false with nothing here changing and no test
+noticing. It is worse than an ordinary stale sentence, because it
+reads as the reason the rule exists: a later reader who cannot verify
+it either keeps a claim nobody can check or deletes it and leaves the
+rule looking unmotivated.
+
+The tell is a *because* clause whose subject is not this codebase, in
+a comment or a user-facing message. The permission gate's
+`forbiddenForm` docstring and both of its deny messages justified the
+`cd <path> && git …` and `git -C <abs-path> …` denies by the harness
+prompting on those shapes regardless of hook approvals — a claim about
+the harness, from a gate that ships no harness and tests none of it.
+Ask what in this repo would fail if the clause went false; when the
+answer is nothing, restate the rule by what the local code does and
+what the caller should run instead, which the suite does pin.

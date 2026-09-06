@@ -52,7 +52,7 @@ func setupWorktree(t *testing.T) (string, string) {
 	return canonicalize(primary), canonicalize(wt)
 }
 
-// §10: a subagent Write whose target resolves to the primary clone is blocked;
+// A subagent Write whose target resolves to the primary clone is blocked;
 // the same write to the correct in-worktree path is allowed.
 func TestContainmentWorktreeEscape(t *testing.T) {
 	primary, wt := setupWorktree(t)
@@ -273,7 +273,7 @@ func TestPrimaryCloneReadDeniedAcrossBashReadTracks(t *testing.T) {
 	}
 }
 
-// §10: a Read/bash-read targeting a sibling repo is blocked.
+// A Read/bash-read targeting a sibling repo is blocked.
 func TestContainmentCrossRepo(t *testing.T) {
 	base := t.TempDir()
 	repoA := filepath.Join(base, "repoA")
@@ -1945,7 +1945,7 @@ func TestHarnessBundledSkillsShapeMissDefers(t *testing.T) {
 	}
 }
 
-// §10 + the .git/-tree write rule, broadened to the whole tree: a direct file-tool
+// The .git/-tree write rule, broadened to the whole tree: a direct file-tool
 // Write/Edit whose target resolves to ANYWHERE under .git/ is denied (the
 // Engine B half of the write criterion, generalized to the whole .git/
 // tree). Reads of .git/ files are not mutations and stay allowed/deferred.
@@ -2135,7 +2135,7 @@ func TestContainmentDeniesArePrescriptive(t *testing.T) {
 	}
 }
 
-// §10: a symlinked target that points outside the worktree is blocked (both
+// A symlinked target that points outside the worktree is blocked (both
 // sides canonicalized). Uses a mutating tool (Write): the write deny names the
 // state another worktree depends on, where the read deny names the staleness
 // hazard, and a WRITE resolving through a symlink into the primary clone must
@@ -2196,7 +2196,7 @@ func TestContainmentSymlinkPrimaryCloneRead(t *testing.T) {
 	}
 }
 
-// §10: never ALLOW when git rev-parse cannot resolve the context. The
+// Never ALLOW when git rev-parse cannot resolve the context. The
 // residual is a DEFER carrying the resolution failure as its analysis —
 // the boundary is unknown, which is an absence of proof rather than a proven
 // escape, and a human clicking Yes learns nothing the evaluator would not.
@@ -2218,7 +2218,7 @@ func TestContainmentNoRepoNeverAllows(t *testing.T) {
 	}
 }
 
-// §10: the same when the event has no cwd at all.
+// The same when the event has no cwd at all.
 func TestContainmentNoCWDNeverAllows(t *testing.T) {
 	ev := &Event{ToolName: "Write", CWD: "", ToolInput: []byte(`{"file_path":"/etc/passwd"}`)}
 	d := classifyFileTool(ev)

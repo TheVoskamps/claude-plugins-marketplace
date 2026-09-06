@@ -164,8 +164,10 @@ back to the protocol below.
 
 Require all of:
 
-1. `go tool nm <committed>` versus `go tool nm <rebuilt>`
-   byte-identical. This is compiled-code identity and works for a
+1. `go tool nm <committed>` versus `go tool nm <rebuilt>` identical
+   once `runtime.modinfo.str` is filtered out of both — its address
+   tracks the VCS stamp on some arches, so a correct binary can differ
+   on that one line. This is compiled-code identity and works for a
    foreign arch with no execution.
 2. `go tool buildid` third segment (`a/b/CONTENT/d`) matching.
 3. `cmp -l` offsets clustering **only** into vcs-stamp-derived
@@ -193,8 +195,8 @@ to the `nm` compare and the behavior probes.
 environment, then byte-compare and `go tool buildid` against the
 committed binary. An exact match names the commit. Comment-only `.go`
 edits change the artifact (pclntab `file:line`) while `go tool nm`
-stays identical, so policy identity and provenance identity are
-separable claims.
+stays identical under the `runtime.modinfo.str` filter, so policy
+identity and provenance identity are separable claims.
 
 Scope a "only a `_test.go` changed" claim to the **last commit that
 touched `bin/`** (`git log -- plugins/guardrails/hooks/bin/`), not to
@@ -213,7 +215,8 @@ These commands are decisive rather than suggestive:
 
 2. `go tool nm` of the **pre-round** committed binary
    (`git show <parent-commit>:<bin-path> > <tmp>`) versus the tip one
-   must be byte-identical, on every committed arch.
+   must be identical under the same `runtime.modinfo.str` filter, on
+   every committed arch.
 
 Together those separate "the source is comments" from "the shipped
 bytes carry the same policy". The tip-rebuild `cmp` answers the
@@ -227,10 +230,10 @@ Those are the pclntab's boundary and lookup symbols, and that shape is
 exactly what added comment lines produce. A moved `T` symbol, an
 unequal delta, or an added or removed line refutes the claim instead.
 
-A comment-only round that leaves `nm` identical also settles, for free,
-that every other mutation or control count the PR body carries is
-unchanged from the previous round — assertions cannot move when no
-compiled code did.
+A comment-only round that leaves `nm` identical under the
+`runtime.modinfo.str` filter also settles, for free, that every other
+mutation or control count the PR body carries is unchanged from the
+previous round — assertions cannot move when no compiled code did.
 
 ## Negate-check the PR's own tests
 
@@ -530,12 +533,12 @@ and `chmod +x` it. Report the composition as a counter of
 Write that file under `<repo-root>/.claude/tmp/<slug>/`, and spell the
 extraction as one bare `git show … > <file>` — never
 `cd <dir> && git show … > <file>`. A `cd <path> && git …` prefix is
-denied by the forbidden-form guard (CVE-2025-59536) before the redirect
-is graded at all, so that spelling is not a probe of the redirect arms
-and cannot serve as a negative control for them: the
-redirect-unresolvable **defer** holds for `git`, `gh` and `aws` in the
-`;`-joined and prefix-free spellings, and the `&&`-joined `git` one
-denies for an unrelated reason.
+denied by the forbidden-form guard before the redirect is graded at
+all, so that spelling is not a probe of the redirect arms and cannot
+serve as a negative control for them: the redirect-unresolvable
+**defer** holds for `git`, `gh` and `aws` in the `;`-joined and
+prefix-free spellings, and the `&&`-joined `git` one denies for an
+unrelated reason.
 
 The moving **set** is invariant to the cross's width; the count is not.
 So grade the derivation, not the total: a PR that states a width and

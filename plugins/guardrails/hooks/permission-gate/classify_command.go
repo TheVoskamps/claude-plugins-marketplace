@@ -21,7 +21,8 @@ import (
 //  5. Program-specific ALLOW rules (read-only git/gh/aws/acli).
 //  6. Path-bearing read/write programs → Engine B containment.
 //  7. Otherwise DEFER to the normal pipeline, labelled bash:no-specific-rule
-//     (deferResidualOp) so the §7 log records which program went unrecognized.
+//     (deferResidualOp) so the evolution log records which program went
+//     unrecognized.
 func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	// Redirects the shell performs for a construct that runs no program
 	// (`[[ -f x ]] > f`, `(( i++ )) > f`, `export A=1 > f`, `case q in esac > f`).
@@ -96,20 +97,21 @@ func classifySimpleCommand(sc simpleCommand, ev *Event) Decision {
 	// `npm test`, `python3 x.py`, `make`, every tool the gate has no table for —
 	// so it is by volume the largest single source of DEFER records, and a blank
 	// `{"operation":"","analysis":""}` row makes exactly that traffic invisible
-	// to the automode re-tune the §7 log feeds. The program name plus "no rule
-	// matched" is the whole of what the gate established, and it is enough to
-	// bucket the log by program.
+	// to the automode re-tune the evolution log feeds. The program name plus
+	// "no rule matched" is the whole of what the gate established, and it is
+	// enough to bucket the log by program.
 	return deferJudgment(deferResidualOp, fmt.Sprintf(
 		"no permission-gate rule matches the program '%s': it is on none of the classifier tables "+
 			"(git/gh/aws/acli), none of the in-repo-write or read-only-utility sets, and none of the "+
 			"path-reader set, so the gate established nothing about it either way.", prog))
 }
 
-// deferResidualOp is the §7 operation label for the no-specific-rule residual
-// above. It is named rather than inlined because the aggregator in
-// engine_a_bash.go ranks it BELOW every other defer analysis: for a line like
-// `npm test && git reset --hard`, the account worth logging is the one from the
-// arm that recognized something, not the residual that fired first.
+// deferResidualOp is the evolution-log operation label for the
+// no-specific-rule residual above. It is named rather than inlined because the
+// aggregator in engine_a_bash.go ranks it BELOW every other defer analysis:
+// for a line like `npm test && git reset --hard`, the account worth logging is
+// the one from the arm that recognized something, not the residual that fired
+// first.
 const deferResidualOp = "bash:no-specific-rule"
 
 // classifyRedirectOnly grades a synthetic redirect-only command: a statement
@@ -622,10 +624,10 @@ func classifyGitPush(rest []string) Decision {
 		// merits. Before, `+src:dst` reached the same ask only incidentally,
 		// because it also contained a colon — the '+' was never inspected.
 		if strings.HasPrefix(src, "+") {
-			// HARD ASK tier: a history-destroying push is one of the
-			// enumerated calls fleet policy (core-principles §1) reserves for an
-			// explicit human decision, so it must not be waivable by a
-			// downstream judge however sensible the context looks.
+			// HARD ASK tier: a history-destroying push is one of the enumerated
+			// calls fleet policy reserves for an explicit human decision, so it
+			// must not be waivable by a downstream judge however sensible the
+			// context looks.
 			return ask("git push forced-refspec",
 				"'git push' with a '+' prefix on the refspec (e.g. 'origin +HEAD:branch') forces the update: "+
 					"the '+' is git's per-ref equivalent of --force, so the remote accepts a non-fast-forward "+

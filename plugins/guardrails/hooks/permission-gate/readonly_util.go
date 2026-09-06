@@ -391,7 +391,7 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 	// the lift is exactly that narrow. (The unknown-expansion half of
 	// allowEligible is handled below: a path-bearing utility DEFERS WITH ITS
 	// ANALYSIS on a dynamic path operand — the same bucket as this bare defer,
-	// but the §7 log records why.)
+	// but the evolution log records why.)
 	if redirectVetoesAllow(sc, ev) {
 		return deferToPipeline()
 	}

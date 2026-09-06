@@ -60,7 +60,7 @@ func TestRemediationReasonsAreActionable(t *testing.T) {
 	for _, c := range cases {
 		d := c.got()
 		// Every reason-bearing bucket qualifies, DEFER included: a deferJudgment
-		// site's analysis is written into the §7 log and read by a human tuning
+		// site's analysis is written into the evolution log and read by a human tuning
 		// the evaluator, so an issue-tracker pointer is exactly as useless there
 		// as in a prompt.
 		if d.Reason == "" {

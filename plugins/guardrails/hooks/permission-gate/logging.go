@@ -11,14 +11,14 @@ import (
 // gate appends to that file instead of the default location.
 const logEnvVar = "PERMISSION_GATE_LOG"
 
-// logRecord is one structured, append-only evolution-log entry (§7). It
+// logRecord is one structured, append-only evolution-log entry. It
 // carries enough to evolve the rule set: when, who, what tool, the classified
 // operation, the gate's own analysis of that operation, the resolved
 // repo/worktree context, the bucket, and the raw command/target.
 //
 // Analysis is the Decision's Reason — the gate's account of what it could and
 // could not establish ("the destination is built from an expansion or command
-// substitution"). The operation label alone says which §7 taxonomy row was
+// substitution"). The operation label alone says which taxonomy row was
 // hit; the analysis says WHY, which is what makes a DEFER record usable as a
 // tuning input for the downstream automode evaluator rather than a bare tally.
 // It is empty for a bare deferToPipeline, which by construction has no account
@@ -34,7 +34,7 @@ type logRecord struct {
 	Raw       string `json:"raw"`
 }
 
-// logEvent appends one record for an ASK, DENY or DEFER decision (§7). Any
+// logEvent appends one record for an ASK, DENY or DEFER decision. Any
 // failure to log is swallowed: logging MUST NEVER change the verdict or crash
 // the gate. (A logging failure that bubbled up would otherwise turn an allow
 // into a fail-closed block, or worse.)

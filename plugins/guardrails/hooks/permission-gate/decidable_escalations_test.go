@@ -86,7 +86,7 @@ func TestCredentialedRedirectGraded(t *testing.T) {
 
 	// A destination the gate cannot PIN is a different thing: an absence of
 	// proof, not a proven escape. It withholds the allow and DEFERS, carrying
-	// why into the §7 log.
+	// why into the evolution log.
 	unp := classifyBash("gh pr diff 224 > $DEST", ev)
 	wantBucket(t, unp, BucketDefer, "unpinnable redirect destination")
 	if unp.Operation == "" || !containsSubstr(unp.Reason, "cannot pin statically") {
