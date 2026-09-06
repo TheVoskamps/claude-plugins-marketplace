@@ -1133,10 +1133,15 @@ The gate's engines feed that decision:
   and cross-repo access. Fail-closed on any git
   subprocess failure or timeout. Refinements: (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
-  not denied as a cross-repo escape, so the `settings.json` allow-list
-  governs the agent's required startup reads of its own global config;
-  the carve-out is canonicalized on both sides so it cannot be
-  symlink-escaped, and genuine sibling repos are still denied. (2) a
+  not denied as a cross-repo escape: that tree is no other repo's
+  working state, so what the cross-repo rule protects is absent there —
+  a read of it cannot come back stale against a worktree and a write to
+  it cannot land in a checkout another session is holding — and a deny
+  would settle terminally inside the gate a call the layer below it is
+  equipped to grade, where the defer leaves the `settings.json`
+  allow-list governing it. The carve-out is canonicalized on both sides
+  so it cannot be symlink-escaped, and genuine sibling repos are still
+  denied. (2) a
   file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
   canonical target is anywhere under a `.git/` directory is denied (the
   Engine B half of the identity-write rule, broadened from
