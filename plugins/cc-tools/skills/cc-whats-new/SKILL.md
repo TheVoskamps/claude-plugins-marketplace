@@ -125,8 +125,8 @@ curation the config exists for is undone by the tool.
 So: surface the candidates in the report's own section, ask which to
 track and under which topic — an existing `name` or a new one the user
 gives — and append only what the user accepts. Nothing reaches
-`topics:` without an answer, and a declined candidate leaves the file
-untouched.
+`topics:` without an answer, and declining every candidate changes no
+topic.
 
 An accepted candidate is an edit to a file the user owns: preserve
 every existing key and every existing topic, add the issue number to

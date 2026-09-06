@@ -44,7 +44,8 @@ Each of these gets worse the longer you leave it:
 - **A list of topics you care about.** The two skills that report on
   upstream Claude Code take their topics from that list and infer none
   from anywhere else; both seed it from a starter set on their first
-  run, and you edit it from there. What it holds and where it lives are
+  run, and you edit it from there — by hand, or by accepting what
+  `cc-suggest-topics` proposes. What it holds and where it lives are
   `skills/lib/cc-topics-config.md`.
 
 `cc-whats-new` keeps a watermark file beside that list, which it
@@ -80,6 +81,20 @@ about your own filed issues:
   issue numbers as arguments to fold them into one run without editing
   the list.
 
+### Widening the topics list
+
+`/cc-tools:cc-suggest-topics` is the one skill that mines the machine
+for topics to track. It reads your **global** Claude configuration —
+settings, installed plugins and marketplaces, the always-loaded
+rules — derives candidate topics from the harness surfaces it finds
+there, and shows each one with the file and key it came from, so you
+can tell a claim about your own setup from a topic the skill
+invented. It appends only what you accept. A candidate that restates
+a topic you already track under different wording becomes a proposal
+to rename that topic to the broader term instead, carrying its issue
+numbers over — and that rename takes its own yes. Decline everything
+and no topic changes.
+
 ### Curating agent memory
 
 Which route into the rubric you want depends on whether the memory is
@@ -114,21 +129,35 @@ which of its notes were about the branch and which about the repo.
 
 - **It does not decide what your rules should say.** `cc-all` loads
   `~/.claude/CLAUDE.md`; authoring it is yours.
-- **The topics list is hand-maintained.** Nothing adds to it on your
-  behalf: the watchlist discovers nothing, and `cc-whats-new` asks
-  before it appends anything it found. An issue nobody added is an
-  issue neither will mention.
-- **Nothing here reads your machine to decide what matters.** Your
-  settings, installed plugins and hooks are not consulted, so a
-  surface this machine exercises but your topics do not name goes
-  unmentioned. That is the trade: the tools report, you curate. Widen
-  the window with `--since` and read the upstream CHANGELOG yourself
-  when that matters.
+- **The topics list is hand-maintained.** Past the starter set that
+  seeds it, nothing reaches it on your behalf: the watchlist discovers
+  nothing, and every other write asks first. An issue nobody added is
+  an issue neither reporter will mention.
+- **The reporting skills do not read your machine.** `cc-watchlist`
+  and `cc-whats-new` consult your settings, installed plugins and
+  hooks for nothing, so a surface this machine exercises but your
+  topics do not name goes unmentioned in their reports. That is the
+  trade: the tools report, you curate. `cc-suggest-topics` is the one
+  place those surfaces are read, and it only proposes — you run it
+  deliberately, and it writes nothing you did not accept.
+- **Suggestions come from configuration, not from use.** The candidates
+  are derived from what the machine is configured for; no transcript
+  history and no usage frequency stands behind them, so a surface you
+  set up once and never exercise is proposed exactly like one you hit
+  daily.
+- **Nothing removes a topic.** Every write that touches an entry
+  already in the file takes its own yes and drops nothing; which writer
+  touches what is in `skills/lib/cc-topics-config.md` → "Writing it". A
+  tracked topic that has stopped mattering stays until you delete it by
+  hand — save on the one path that file discloses.
 - **The topics list is machine-wide.** It lives under your user config
   directory, and no repo-local layer sits over it, so every repo you
   run these skills in reports on the same topics — including the ones
-  that matter in one repo and nowhere else. Adding such a layer is
-  issue #375.
+  that matter in one repo and nowhere else. For the same reason the
+  suggester reads only the global rung of your Claude configuration and
+  never a repo-local `.claude/settings.json`: a candidate derived from
+  one repo's settings would have nowhere repo-local to be written.
+  Adding such a layer is issue #375.
 - **Curation is destructive and has no undo of its own.** It relies on
   git, or on your review of an uncommitted tree. The inbox is not a
   repository at all: an entry the curator neither transfers nor
@@ -144,10 +173,10 @@ Curation reads a shared rubric,
 the evidence a delete has to produce, how a transfer is phrased, which
 file it lands in, and the standard that file is held to afterwards.
 The inbox path and layout live in `skills/lib/agent-memory-inbox.md`.
-The topics config — its path, its schema, and what a reader does when
-it is missing or unreadable — lives in
+The topics config — its path, its schema, and what a skill that reads
+it does when it is missing or unreadable — lives in
 `skills/lib/cc-topics-config.md`, and the starter set that seeds it
-lives in the one skill that writes it,
+lives in the one skill that creates it,
 `skills/cc-seed-config/SKILL.md`. No skill restates any of those
 contracts, and neither does this README: when you need the exact
 behavior, those files are the source.
