@@ -183,10 +183,10 @@ the round's own directory:
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 
-The PR number keys the path because only one orchestrate run, and the
-agent tree under it, ever works a PR. Nothing in the path names a
-session, which is what lets a reviewer resumed after a session loss
-read the round it left behind.
+The PR number keys the path because a PR is worked by one orchestrate
+run, and the agent tree under it, at a time. Nothing in the path names
+a session, which is what lets a reviewer resumed after a session loss —
+under a later run over the same PR — read the round it left behind.
 
 The `enter` record also carries a fourth path,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
