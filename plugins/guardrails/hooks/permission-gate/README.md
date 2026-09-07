@@ -1133,12 +1133,16 @@ The gate's engines feed that decision:
   and cross-repo access. Fail-closed on any git
   subprocess failure or timeout. Refinements: (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
-  not denied as a cross-repo escape, leaving the `settings.json`
-  allow-list governing it. The carve-out is canonicalized on both sides
-  so it cannot be symlink-escaped, and genuine sibling repos are still
-  denied. (2) a
-  file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
-  canonical target is anywhere under a `.git/` directory is denied (the
+  not denied as a cross-repo escape. Neither verdict is available on the
+  gate's own evidence: the path is outside every repo, so there are no
+  positive grounds to bless it, and it is the caller's own home config
+  tree rather than another repo's work, so there is no proven escape to
+  deny either. Withholding the verdict leaves the operator's
+  `settings.json` permissions to govern. The carve-out is canonicalized
+  on both sides so it cannot be symlink-escaped, and genuine sibling
+  repos are still denied. (2) a file-mutating tool
+  (Write/Edit/MultiEdit/NotebookEdit) whose canonical target is anywhere
+  under a `.git/` directory is denied (the
   Engine B half of the identity-write rule, broadened from
   `.git/config` to the whole `.git/` tree — a hand-edit of
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
@@ -1772,7 +1776,7 @@ Logging swallows every failure — an unwritable path, a marshal error, a
 panic — because it must never change a verdict. A logging failure that
 bubbled up would turn an allow into a fail-closed block.
 
-## Comments state the invariant, not the ticket
+## Comments and messages state the rule, not a pointer
 
 A Go comment in this package states its invariant **in place** rather
 than pointing the reader at an issue number. Code must be authoritative
