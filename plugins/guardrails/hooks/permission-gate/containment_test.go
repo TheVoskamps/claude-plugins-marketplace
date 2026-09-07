@@ -383,8 +383,7 @@ const sessionSlug = "-Users-someone-Workspaces-permission-gate-fixture"
 // slugs to -Users-<u>--claude, which is a real session directory on the
 // author's machine with the standard scratchpad/ + tasks/ layout.
 //
-// An earlier revision of the carve-out spec prescribed a single-dash-only pattern,
-// which this gate faithfully implemented and which silently excluded every
+// This gate once matched a single-dash-only pattern, which silently excluded every
 // such session — reintroducing the very symptom the carve-out exists to fix. Every
 // assertion below that names this slug exists to keep that from regressing.
 const doubleDashSlug = "-Users-someone--claude"
@@ -453,8 +452,8 @@ func TestHarnessScratchSessionAllowed(t *testing.T) {
 	canonRoot := harnessScratchRootResolver().root
 	// Both session subdirectories, for a single-dash slug AND for slugs with
 	// RUNS of consecutive dashes. The doubled-dash case is the one that
-	// regressed once (an earlier spec revision pinned a single-dash-only
-	// pattern), so it is pinned end-to-end here, not only at the regexp level:
+	// regressed once (the pattern admitted only single dashes), so it is
+	// pinned end-to-end here, not only at the regexp level:
 	// every hidden-directory cwd on a real machine produces one.
 	slugs := map[string]string{
 		"single-dash slug": sessionSlug,
@@ -542,9 +541,9 @@ func TestHarnessScratchDoesNotOpenGitTree(t *testing.T) {
 // what is in a directory, and it was in NEITHER bash read track — not
 // readOnlyUtilities, not the classifyPathReader dispatch — so it deferred for
 // every path, carve-out or not, while `find` and `grep` (both strictly more
-// capable) allowed. That gap made the spec's own worked example — an `ls` of the
-// bundled-skills hash directory, which the shape's trailing `(/|$)` exists to
-// cover — false.
+// capable) allowed. That gap deferred an `ls` of the
+// bundled-skills hash directory, the case the shape's trailing `(/|$)` exists
+// to cover.
 //
 // Both regions are asserted, because they are graded differently everywhere else
 // (bundled-skills is read-eligible only) and `ls` is a read.
@@ -587,7 +586,7 @@ func TestHarnessScratchLsAllowed(t *testing.T) {
 	// `ls` somewhere else that happened to allow; this names the requirement.
 	spec, ok := readOnlyUtilities["ls"]
 	if !ok {
-		t.Fatal("`ls` must be in readOnlyUtilities, or the bundled-skills `ls` example is false again")
+		t.Fatal("`ls` must be in readOnlyUtilities, or the bundled-skills `ls` case defers again")
 	}
 	if !spec.pathBearing {
 		t.Error("`ls` must be pathBearing — its operands are paths Engine B has to contain")

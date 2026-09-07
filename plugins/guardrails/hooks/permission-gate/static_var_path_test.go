@@ -540,9 +540,8 @@ func TestForLoopBraceInListDotDotThreeMemberMiddleDropBugDenied(t *testing.T) {
 // UNNESTED comma-list grammar `{a,b,c}`. Real bash DOES resolve a nested
 // ".."-bearing brace group (`{a,{b,../c}}` splits into "a", "b", "../c" —
 // verified live), but reproducing bash's full nested-brace grammar is
-// exactly the complexity the follow-up spec says to avoid ("if you hit
-// a range form you don't handle, fall closed" generalizes to any brace
-// grammar this narrow fallback doesn't implement). Upstream's own
+// exactly the complexity this fallback declines: any brace grammar it
+// does not implement falls closed. Upstream's own
 // SplitBraces/expand.Braces partially declines this shape too (resolves "a"
 // but leaves residual "{"/"}" text for the nested "{b,../c}" sub-part), so
 // staticExpandItem's declined-detection fires and hands the raw text to

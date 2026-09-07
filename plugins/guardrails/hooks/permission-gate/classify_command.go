@@ -612,8 +612,8 @@ func classifyGitPush(rest []string) Decision {
 		if src == "" {
 			// ':branch' — a delete of the destination ref. The Restore-branch
 			// button / re-push recovers it, so a clean named-branch delete is
-			// ALLOW per the spec, but a delete is still a remote mutation the
-			// --delete-flag path treats as allow; keep it ALLOW here.
+			// an ALLOW — the same verdict the --delete-flag path gives a
+			// delete; keep it ALLOW here.
 			continue
 		}
 		if hasForceWithLease {

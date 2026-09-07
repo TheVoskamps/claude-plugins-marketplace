@@ -9,8 +9,8 @@ package main
 //	allow  - bypass remaining permission checks; the tool runs.
 //	deny   - block the tool call.
 //	ask    - escalate to a human permission prompt (the real ask channel).
-//	defer  - defer to the normal permission flow (the spec's "exit 0 /
-//	         allow-defer"): let the rest of the pipeline proceed. Emitted
+//	defer  - defer to the normal permission flow: let the rest of the
+//	         pipeline proceed. Emitted
 //	         as the envelope with NO permissionDecision field, which is the
 //	         documented per-call abstention. The literal "defer" is NOT
 //	         that: Claude Code reads it as "pause this tool call for later

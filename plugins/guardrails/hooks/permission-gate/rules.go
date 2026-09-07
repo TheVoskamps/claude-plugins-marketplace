@@ -249,7 +249,7 @@ func classifyGh(args []string, sc simpleCommand, ev *Event) Decision {
 	}
 
 	// HARD ASK tier: release / gist publish (exposure, irreversible).
-	// The spec DENYs publish "unless via sanctioned visibility skill"; the gate
+	// Publishing is sanctioned only through the visibility skill; the gate
 	// has no signal for that wrapper, and a hard DENY would leave no escape
 	// hatch for legitimate release creation, so it routes to ASK (one human
 	// click) rather than DENY. It does NOT defer: the human click IS the
@@ -831,9 +831,9 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 			// the gh analog of `aws --endpoint-url`. The signed request (carrying
 			// the credential) can be aimed at an attacker-controlled host
 			// (credential/data exfil, SSRF). DENY unconditionally, symmetric with
-			// the aws --endpoint-url deny (the spec's appendix step 6) — including
-			// that deny's closing prescription, since the shape has no legitimate
-			// use and "stay on the default host" is the whole redirect.
+			// the aws --endpoint-url deny — including that deny's closing
+			// prescription, since the shape has no legitimate use and "stay on
+			// the default host" is the whole redirect.
 			return classifyghAPIDeny(ghAPIHostnameDenyReason)
 		case strings.HasPrefix(a, "--hostname="):
 			return classifyghAPIDeny(ghAPIHostnameDenyReason)

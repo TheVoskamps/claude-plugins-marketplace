@@ -1099,7 +1099,7 @@ The gate's engines feed that decision:
   gate does not model gh's short-flag arity, and a missed token print
   costs a leak while a spurious escalation costs a click.
   **Every other aws op — including
-  ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
+  ordinary writes no deny or ask tier names (`s3 rm`, `s3 cp`,
   `cloudformation delete-stack`, `lambda invoke`, …) — defers**:
   the gate cannot prove the op read-only, and an aws mutation carries
   the guest's credentials to a control plane outside the microVM and
@@ -1133,16 +1133,12 @@ The gate's engines feed that decision:
   and cross-repo access. Fail-closed on any git
   subprocess failure or timeout. Refinements: (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
-  not denied as a cross-repo escape. Neither verdict is available on the
-  gate's own evidence: the path is outside every repo, so there are no
-  positive grounds to bless it, and it is the caller's own home config
-  tree rather than another repo's work, so there is no proven escape to
-  deny either. Withholding the verdict leaves the operator's
-  `settings.json` permissions to govern. The carve-out is canonicalized
-  on both sides so it cannot be symlink-escaped, and genuine sibling
-  repos are still denied. (2) a file-mutating tool
-  (Write/Edit/MultiEdit/NotebookEdit) whose canonical target is anywhere
-  under a `.git/` directory is denied (the
+  not denied as a cross-repo escape, leaving the `settings.json`
+  allow-list governing it. The carve-out is canonicalized on both sides
+  so it cannot be symlink-escaped, and genuine sibling repos are still
+  denied. (2) a
+  file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
+  canonical target is anywhere under a `.git/` directory is denied (the
   Engine B half of the identity-write rule, broadened from
   `.git/config` to the whole `.git/` tree — a hand-edit of
   `.git/hooks/*`, `.git/info/exclude`, or a nested/submodule `.git/`
@@ -1315,8 +1311,7 @@ The gate's engines feed that decision:
   `-Users-<u>--config-macos-setup`, both ordinary session directories
   with the standard `scratchpad`/`tasks` layout. The first
   implementation round shipped a single-dash-only
-  `(-[A-Za-z0-9]+)+`, faithfully implementing an earlier revision of
-  the scratchpad spec, and thereby excluded every such session — silently
+  `(-[A-Za-z0-9]+)+`, and thereby excluded every such session — silently
   reintroducing this issue's own symptom for them. The widening stops
   at the quantifier: the character class stays `[A-Za-z0-9]`, which is
   exactly the alphabet the harness emits.

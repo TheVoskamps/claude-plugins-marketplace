@@ -420,8 +420,8 @@ func harnessScratchDisplay() string {
 //
 // both of which are real session directories with the standard scratchpad/
 // tasks layout. A pattern admitting only single dashes — `(-[A-Za-z0-9]+)+`,
-// which an earlier revision of the carve-out spec prescribed and this code faithfully
-// implemented — silently excludes every such session and reintroduces the exact
+// which this code once implemented — silently excludes every such
+// session and reintroduces the exact
 // symptom the carve-out exists to fix (in a settings.json-has-a-/tmp-deny environment,
 // the DEFER lands on that deny). Hence the `-+`. The widening stops there: the
 // character class stays [A-Za-z0-9] so the slug alphabet is exactly the one the

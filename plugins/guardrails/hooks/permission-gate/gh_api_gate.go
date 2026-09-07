@@ -5,9 +5,7 @@ import (
 	"strings"
 )
 
-// This file implements the `gh api` classification the dangerous-command
-// spec's appendix anticipated ("If it later proves hot in the loop, whitelist
-// specific allowed forms, or adopt the GET-gate in the appendix"). It replaces
+// This file implements the `gh api` classification. It replaces
 // the blanket graphql-DENY / any-REST-ASK behavior with two classifiers, both
 // driven from classifyGhAPI in rules.go:
 //
