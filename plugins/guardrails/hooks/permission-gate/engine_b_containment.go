@@ -617,19 +617,12 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	if pathUnder(real, rc.topLevel) {
 		return contained, real
 	}
-	// Carve-out: the agent's own global config tree (~/.claude/CLAUDE.md,
-	// ~/.claude/rules/**, etc.) lives outside every repo, so the cross-repo rule
-	// reaches it — but what that rule protects is absent there. The tree is no
-	// other repo's working state: a read of it cannot come back stale against a
-	// worktree, and a write to it cannot land in a checkout another session is
-	// holding. A deny is also terminal: it would settle inside the gate a call
-	// the layer below it is the one equipped to grade.
-	// So a target whose canonical path lands under the real ~/.claude is reported
-	// as claudeConfig → the caller DEFERS, letting the normal settings.json
-	// allow-list govern it. The protection for genuine sibling repos is
-	// unaffected (this is checked BEFORE the escapeRepo classification, and only
-	// matches the ~/.claude subtree). Both sides are canonicalized so the
-	// carve-out cannot be symlink-escaped.
+	// Carve-out: a target whose canonical path lands under the real ~/.claude is
+	// reported as claudeConfig rather than as an escape → the caller DEFERS,
+	// letting the normal settings.json allow-list govern it. The protection for
+	// genuine sibling repos is unaffected (this is checked BEFORE the escapeRepo
+	// classification, and only matches the ~/.claude subtree). Both sides are
+	// canonicalized so the carve-out cannot be symlink-escaped.
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
 		return claudeConfig, real
 	}

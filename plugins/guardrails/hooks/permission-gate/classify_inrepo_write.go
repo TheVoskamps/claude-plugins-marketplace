@@ -262,8 +262,8 @@ func containWriteOperands(prog string, operands []string, baseCWD string, ev *Ev
 			// behavior the carve-out exists to permit.
 			//
 			// Ineligible is neither a clean write the gate should bless nor an
-			// escape it should deny — the agent's own ~/.claude global config
-			// tree, the part of the harness prefix matching neither harness
+			// escape it should deny — a target under the real ~/.claude, the
+			// part of the harness prefix matching neither harness
 			// shape, and the bundled-skills tree (read-eligible on the read
 			// track, but not here: rewriting harness-installed skill content is
 			// not something the gate has positive grounds to bless). Let the

@@ -190,9 +190,8 @@ func classifyFileTool(ev *Event) Decision {
 			// gate's to bless, but neither is it an escape to deny.
 		case claudeConfig, harnessScratch:
 			// Carve-outs that DEFER rather than deny, so the normal
-			// settings.json pipeline governs them: the agent's own ~/.claude
-			// global config tree (required startup reading, allow-listed
-			// in settings.json), and the part of the harness scratchpad prefix
+			// settings.json pipeline governs them: a target under the real
+			// ~/.claude, and the part of the harness scratchpad prefix
 			// matching neither the session nor the bundled-skills shape
 			// (in the right tree but not provably either, so the gate has no
 			// opinion).
@@ -363,8 +362,7 @@ func containPathOperands(prog string, operands []string, sc simpleCommand, ev *E
 			// below — this is the read track, and reading a bundled skill is
 			// exactly what that tree is provisioned for.
 		case claudeConfig, harnessScratch:
-			// The agent's own ~/.claude global config tree (required
-			// startup reading, allow-listed in settings.json) and the part of
+			// A target under the real ~/.claude, and the part of
 			// the harness scratchpad prefix matching neither the session nor
 			// the bundled-skills shape. Treat both as contained, leaving
 			// the caller's own terminal to govern — which differs by track, and
