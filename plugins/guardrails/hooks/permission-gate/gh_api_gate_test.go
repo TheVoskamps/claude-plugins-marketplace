@@ -589,7 +589,7 @@ func TestGhAPIRESTDefer(t *testing.T) {
 }
 
 // Endpoint-shape DENYs: a full URL (bypasses prefix matching) and a `..`
-// traversal → DENY (appendix step 7).
+// traversal → DENY.
 func TestGhAPIRESTDeny(t *testing.T) {
 	for _, cmd := range []string{
 		"gh api https://api.github.com/user",
