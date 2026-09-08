@@ -70,24 +70,6 @@ both, as `auto-mode-tools`' `ledger.yml` does; a machine-only record
 like `sdlc`'s round log takes neither, and its own writer owns its
 grammar.
 
-### The permission gate denies the state path outright
-
-A state path is outside every repository, so the `guardrails` gate
-denies every tool-mediated read and write of it — `Read`, `Write` and a
-Bash `cat` alike. The carve-out the section above describes does not
-reach here: it is rooted at the `$HOME/.config` spelling, and today
-there is no state counterpart to it.
-
-What stays reachable is a call the gate grades no path for. `sdlc`'s
-round log is the worked case, and it is worked only halfway: every
-write, and the read of the log itself, invokes
-`bin/sdlc-agent-result-persist` by bare name, passing the identifying
-flags the path is composed from and never a path, so the gate abstains
-on those. Reading a result file's **contents** is what the CLI does not
-cover — the reviewer takes that path out of the log and opens the file
-with `Read`, which the gate denies today. Closing that is the
-`guardrails` carve-out's job, not this document's.
-
 ## The format is YAML, or Markdown when a human must read prose too
 
 The formats in use, none of them JSON:
