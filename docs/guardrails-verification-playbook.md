@@ -58,14 +58,6 @@ every command line; splitting the pipeline into plain separate commands
 does not, because the refusal is on the text rather than on the compound
 form.
 
-A payload naming `git` can be refused even so, since the worktree
-guard matches that word anywhere in the command text. Never reshape the
-string to slip past the match — settle the verdict without executing
-anything instead. `forbidden_forms_test.go` carries the forbidden-form
-denies and the `cd <subdir> && <non-git-cmd>` carve-out, and
-`grep -a -o "<message prefix>" <binary>` reads the message the shipped
-bytes actually emit, on a foreign arch as readily as on the host.
-
 ### Placing the scratch repo
 
 The gate blocks tool-mediated writes outside the repo root and blocks
