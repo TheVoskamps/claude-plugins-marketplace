@@ -130,8 +130,8 @@ func TestGhAuthSwitchDenied(t *testing.T) {
 	wantBucket(t, classifyCmd(t, "gh auth switch && gh pr list", false), BucketDeny, "gh auth switch in compound")
 }
 
-// A subagent git reset --hard is denied/asked with detached-checkout
-// remediation in stderr.
+// A subagent git reset --hard is denied, and the deny carries the
+// detached-checkout remediation in its Reason.
 func TestGitResetHard(t *testing.T) {
 	dSub := classifyCmd(t, "git reset --hard HEAD", true)
 	wantBucket(t, dSub, BucketDeny, "subagent git reset --hard")
