@@ -49,6 +49,23 @@ binary — main's version, not the branch's. A deny you receive while
 working is evidence about main. Probe the branch's binary explicitly
 (`<pr-bin> < event.json`) whenever you need the branch's verdict.
 
+That live gate also grades the probe you run it with, and nothing about
+it knows the synthetic event's `command` string is data: a
+`printf '…' | <bin>` one-liner whose payload spells a forbidden form is
+denied before the binary reads a byte. Write the event JSON to a file
+with the Write tool and feed it in with `<`, which keeps the payload off
+every command line; splitting the pipeline into plain separate commands
+does not, because the refusal is on the text rather than on the compound
+form.
+
+A payload naming `git` can be refused even so, since the worktree
+guard matches that word anywhere in the command text. Never reshape the
+string to slip past the match — settle the verdict without executing
+anything instead. `forbidden_forms_test.go` carries the forbidden-form
+denies and the `cd <subdir> && <non-git-cmd>` carve-out, and
+`grep -a -o "<message prefix>" <binary>` reads the message the shipped
+bytes actually emit, on a foreign arch as readily as on the host.
+
 ### Placing the scratch repo
 
 The gate blocks tool-mediated writes outside the repo root and blocks
@@ -62,6 +79,11 @@ with no `.git`, after which every probe reads `defer` — the
 no-repo-context residual, not the `ask` a stale note may expect, so
 such a note reads as a probe failure rather than the setup mistake
 it is.
+
+A fixture needing a committer identity — the bare-`gh`-in-an-App-repo
+probe wants one — cannot get it from `git config --local user.email …`,
+which the gate denies as a git-identity write. Append the `[user]`
+stanza to the scratch repo's own `.git/config` instead.
 
 These probe-cwd traps each fake a whole result table:
 
@@ -180,6 +202,17 @@ Require all of:
 and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
 committed arch was rebuilt consistently when only one can execute.
 
+### A claim about the build tool holds only on the arches you ran it on
+
+The gate ships three arches, so one rebuild measures a sample rather
+than the rule, and a sentence asserting how the toolchain behaves — a
+symbol moving, a stamp shifting, a hash changing — is run on every
+committed arch before it is allowed to stand. `runtime.modinfo.str` is
+the worked example: it shifts on `linux-amd64` and can stay put on
+`darwin-arm64`, so a recipe correct in every step still carries a false
+universal claim about when it is needed. Scope the prose to what the
+runs showed and keep the recipe.
+
 ### Never read provenance off the embedded vcs stamp
 
 A build run inside a `.claude/worktrees/` linked worktree stamps
@@ -278,6 +311,17 @@ Probe helpers go in the package as a `zz_*_test.go` calling
 
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.
+
+## One test measures the machine, so its failure may not be yours
+
+`TestHarnessShapesMatchLiveLayout` in `containment_test.go` walks the
+real per-uid harness scratchpad tree, so it fails on live session
+directories the shipped shape regex rejects — on every branch, whatever
+the diff, until the offending directory ages out. Before attributing a
+failure of this one to your change, read the directory name it prints
+and check it against the regex it quotes; a malformed live name is an
+environment fact to report, not a regression to chase. Every other test
+in the package measures package state and grades your diff normally.
 
 ## Audit a per-verb flag whitelist
 
