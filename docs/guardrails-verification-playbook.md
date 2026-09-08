@@ -152,9 +152,13 @@ overturn. A synthetic replay can therefore exercise these rules only
 against whatever the driving machine's own home directory holds.
 
 **The XDG opt-in is not a way around either obstacle.** An
-`XDG_CONFIG_HOME=<dir>` prefix is not refused the way a `HOME=` one is,
-but the gate reads that variable only when the driving machine's own
-`~/.config/guardrails/config.yml` says
+`XDG_CONFIG_HOME=<dir>` prefix is refused by the same isolation guard
+and with the same message as a `HOME=` one — measured on
+`/usr/bin/env`, which runs under an `XDG_STATE_HOME=<dir>` prefix, so
+the guard is refusing the variables that inject git configuration
+rather than every `XDG_*` one. A prefix that does run buys nothing
+either: the gate reads either variable only when the driving machine's
+own `~/.config/guardrails/config.yml` says
 `resolve-xdg-environment-variables: yes` — a file outside the repo,
 which the gate itself refuses every write to. So the relocated root a
 replay could point at still carries whatever globs that machine's
@@ -931,8 +935,8 @@ a defer, or the negate-check leaves every `cat` assertion green while
 proving nothing.
 
 A carve-out scoped to the **file-tool track alone** — the
-operator-configured listing is one — inverts the trap
-without escaping it: `cat` of a listed path **denies** before and after,
+operator-configured listing is one — inverts the trap without escaping
+it: `cat` of a listed path **denies** before and after,
 because the bash engine never consults the listing. There the file-read
 tool is the only probe that moves, and a bash row belongs in the table
 only as the control that pins the asymmetry.

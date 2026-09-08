@@ -44,8 +44,9 @@ The machine's **global** Claude configuration, and only that:
 
 `~/.claude.json` is not one of them: it is a sibling of `~/.claude/`
 rather than a path under it, so the `guardrails` permission gate denies
-a `Read` of it as an outside-the-repository escape wherever that gate
-is installed.
+a `Read` of it as an outside-the-repository escape on any machine whose
+operator has not listed it under that gate's `home` carve-out root —
+and the gate ships no default entries, so assume the deny.
 
 The repo-local `.claude/settings.json` and `settings.local.json` are
 **not** read. `config.yml` is machine-wide, so a candidate derived from

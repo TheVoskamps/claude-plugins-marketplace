@@ -1357,7 +1357,11 @@ The gate's engines feed that decision:
   `os.TempDir()` honours `$TMPDIR` (a `/var/folders/...` path on macOS
   that the harness does not use), and deriving a security carve-out
   from an environment variable would let whatever set that variable
-  relocate it to an arbitrary directory.
+  relocate it to an arbitrary directory. The operator carve-out in (6)
+  below does read `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME`, and states
+  there what buys that off — an opt-in in a file the operator
+  hand-wrote, and two denies that hold whatever the file says. Neither
+  is available here.
 
   **Both `/tmp` and `/private/tmp` spellings** are handled by
   canonicalizing *both sides*, with no literal enumeration of either.
@@ -1556,7 +1560,7 @@ The gate's engines feed that decision:
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
 
-  (6) a **file-tool** target under one of three operator-configured
+  (6) a **file-tool** target under one of the operator-configured
   roots — the XDG config home, the XDG state home, or the home
   directory — that matches a glob the operator listed for that root in
   `~/.config/guardrails/config.yml` is **allowed**
@@ -1565,15 +1569,14 @@ The gate's engines feed that decision:
   puts every per-user plugin config under
   `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/` and every per-user
   state file under `${XDG_STATE_HOME:-$HOME/.local/state}/<plugin>/`,
-  and containment
-  canonicalizes both sides before it decides. On a machine whose
-  `~/.config` is a symlink into a dotfiles repo, that resolution lands
-  every such config inside **another git repo**, so the cross-repo deny
-  fired on the whole convention this marketplace documents —
-  `/cc-tools:cc-whats-new` could not read its own watermark and
-  `/issues:global-user-config` could not write its own file, on that
-  machine only, invisibly everywhere else. A `permissions.allow` entry
-  cannot repair it: a PreToolUse `deny` outranks `settings.json`.
+  and containment canonicalizes both sides before it decides. On a
+  machine whose `~/.config` is a symlink into a dotfiles repo, that
+  resolution lands every such config inside **another git repo**, so
+  the cross-repo deny fired on the whole convention this marketplace
+  documents — `/cc-tools:cc-whats-new` could not read its own watermark
+  and `/issues:global-user-config` could not write its own file, on
+  that machine only, invisibly everywhere else. A `permissions.allow`
+  entry cannot repair it: a PreToolUse `deny` outranks `settings.json`.
 
   **The gate carries no knowledge of which plugins exist.** There are no
   shipped default entries; a machine that wants the carve-out writes the
@@ -1629,13 +1632,13 @@ The gate's engines feed that decision:
 
   **Absent, unreadable, malformed, or stamped below `schema-version: 2`
   → no usable entry anywhere → today's behaviour**, on every path. The
-  carve-out
-  fails closed, and the gate is its only reader, so none of those is an
-  error reported anywhere — it is simply an empty list. That is a named
-  exception to `docs/config-file-conventions.md`'s abort-on-malformed
-  rule, recorded there: a `PreToolUse` hook has no channel to abort
-  into, and failing the hook over a broken config would be strictly
-  worse than the behaviour the operator had before writing it. The file
+  carve-out fails closed, and the gate is its only reader, so none of
+  those is an error reported anywhere — it is simply an empty list.
+  That is a named exception to `docs/config-file-conventions.md`'s
+  abort-on-malformed rule, recorded there: a `PreToolUse` hook has no
+  channel to abort into, and failing the hook over a broken config
+  would be strictly worse than the behaviour the operator had before
+  writing it. The file
   is read in Go with `gopkg.in/yaml.v3` on each invocation — not a tool
   call, so the carve-out does not gate its own config, and the process
   is fresh per event, so nothing is cached. A file still spelling the
@@ -1698,14 +1701,14 @@ The gate's engines feed that decision:
   overrides it rather than hoisted to the top of the walk, where it
   would flip an **in-repo** `.git/` read from the defer it earns today
   to a deny. Either way a glob wide enough to cover a `.git/` segment
-  hands out nothing. List the directories the conventions actually put a
-  file in, not `**`, all the same: a `home: '**'` opens **everything**
-  under the home directory except a `.git/` segment and this config
-  file, which are the only two things the globs cannot reach past. And
-  the ALLOW terminal requires
-  **every** target of the call to ride a carve-out, so a call mixing a
-  listed path with an ordinary in-repo one falls back to the ordinary
-  defer.
+  hands out nothing. List the directories the conventions actually put
+  a file in, not `**`, all the same: a `**` under `home` opens
+  **everything** under the home directory — every credential file
+  included — and the two denies above are the only things it cannot
+  reach past, one of which (the self-write deny) does not bound a read
+  at all. And the ALLOW terminal requires **every** target of the call
+  to ride a carve-out, so a call mixing a listed path with an ordinary
+  in-repo one falls back to the ordinary defer.
 
   **Scope: the file-tool track only** (`Read`, `Write`, `Edit`,
   `MultiEdit`, `NotebookEdit`). The bash engine is untouched, so a `cat`

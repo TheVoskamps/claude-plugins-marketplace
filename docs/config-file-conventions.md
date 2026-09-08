@@ -23,25 +23,25 @@ second thing to get wrong.
 ### The permission gate's carve-out follows these same roots
 
 The `guardrails` permission gate carves tool-mediated reads and writes
-out of its containment deny, driven by globs the
-operator lists in `~/.config/guardrails/config.yml` — which is what
-makes any of these files reachable at all on a machine whose
-`~/.config` is a symlink into a dotfiles repo. Its roots are the two
-this document prescribes plus the home directory, and it resolves
-`$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` by **the same test given above**
-— the variable when set and non-empty — on a per-machine opt-in
+out of its containment deny, driven by globs the operator lists in
+`~/.config/guardrails/config.yml` — which is what makes any of these
+files reachable at all on a machine whose `~/.config` is a symlink into
+a dotfiles repo. Its roots are the two this document prescribes plus
+the home directory, and it resolves `$XDG_CONFIG_HOME` /
+`$XDG_STATE_HOME` by **the same test given above** — the variable when
+set and non-empty — on a per-machine opt-in
 (`resolve-xdg-environment-variables: yes`) that is off by default. So
 where a plugin and the gate disagree about where a config lives, the
-disagreement is that the operator did not opt in, and not two different
+disagreement is in what that operator's file says, not two different
 resolution rules.
 
 Without the opt-in the gate follows the `config-home-default` /
 `state-home-default` spellings the operator's own file gives, and a
 root the file spells nowhere does not exist for the gate at all. So on
 a machine that relocates `$XDG_CONFIG_HOME` and neither opts in nor
-names the relocated path, the config a plugin
-writes is still at the path this document prescribes, and is still
-correct — but it is unreachable from a tool-mediated read or write,
+names the relocated path, the config a plugin writes is still at the
+path this document prescribes, and is still correct — but it is
+unreachable from a tool-mediated read or write,
 because no carve-out covers it. A reader that is not a tool call at all
 — a script running inside a claude-vm guest, say — is unaffected. The
 **Bash tool** is not one of those: the carve-out reaches the file-tool
@@ -131,8 +131,8 @@ cannot be invented stops and says what to write.
 `guardrails` permission gate's `~/.config/guardrails/config.yml` (see
 above) treats absent, unreadable, malformed and below-the-pin
 identically, as no usable entry on any root — the behaviour the machine
-had before the file existed, with nothing
-reported anywhere. A `PreToolUse` hook cannot abort: failing the hook
+had before the file existed, with nothing reported anywhere. A
+`PreToolUse` hook cannot abort: failing the hook
 over a broken config denies every tool call on the machine, which is
 strictly worse than the behaviour the operator had before writing the
 file. The rule above stands for every reader that can surface an abort
