@@ -857,7 +857,7 @@ func classifyGhAPI(args []string, sc simpleCommand, ev *Event) Decision {
 			}
 		case strings.HasPrefix(a, "-") && a != "-":
 			// A flag the walker does not consume above. The REST GET-gate's
-			// unknown-flag scan (Deviation 1) surfaces it; nothing to track here.
+			// unknown-flag scan surfaces it as a DEFER; nothing to track here.
 			// A value-taking known flag (e.g. `-q .login`) is handled there too.
 		default:
 			// A positional: the endpoint path (first one wins; gh takes a single
