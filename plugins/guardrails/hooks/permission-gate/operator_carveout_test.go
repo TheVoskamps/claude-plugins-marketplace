@@ -411,36 +411,45 @@ func TestOperatorCarveOutDoesNotRideAlong(t *testing.T) {
 // A `.git/` segment under a listed path denies for read and write alike, so no
 // listing hands out a git internals tree — the write on the top-of-walk rule,
 // the read inside the carve-out arm, which is the only place a listed path
-// could otherwise reach an ALLOW. The fixture lists the widest thing the schema
-// can express — `**` on the HOME root, which now covers everything the other
-// two roots do — and the sibling non-`.git/` read is the negative control that
-// the deny is the `.git/` rule rather than a missing listing.
+// could otherwise reach an ALLOW. Each fixture lists the widest thing the
+// schema can express — `**` on the HOME root, which now covers everything the
+// other two roots do — and the non-`.git/` read at the end is the negative
+// control that the deny is the `.git/` rule rather than a missing listing.
+//
+// Both listing keys are run. `read` is the one that puts the read arm's deny
+// against a listing that names it directly, and `write` reaches the same read
+// arm only through write-implies-read while being the only key that lists the
+// write arm's target at all — so neither key on its own covers both arms.
 func TestOperatorCarveOutDoesNotOpenGitTree(t *testing.T) {
-	base := t.TempDir()
-	repo := filepath.Join(base, "repo")
-	gitInit(t, repo)
-	home := carveOutFixture(t, base, "repo")
-	writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  write:\n    - '**'\n")
+	for _, listing := range []string{"read", "write"} {
+		t.Run(listing, func(t *testing.T) {
+			base := t.TempDir()
+			repo := filepath.Join(base, "repo")
+			gitInit(t, repo)
+			home := carveOutFixture(t, base, "repo")
+			writeCarveOutConfig(t, home, "schema-version: 2\nhome:\n  "+listing+":\n    - '**'\n")
 
-	for _, rel := range []string{
-		filepath.Join(".config", "cc-tools", ".git", "config"),
-		filepath.Join(".local", "state", "sdlc", ".git", "config"),
-	} {
-		target := filepath.Join(home, rel)
-		for _, tc := range []struct{ tool, op string }{
-			{"Read", "read:.git tree"},
-			{"Write", "write:.git tree"},
-		} {
-			d := fileToolVerdict(t, tc.tool, repo, target)
-			wantBucket(t, d, BucketDeny, tc.tool+" of a listed path under .git/ ("+rel+")")
-			if !containsSubstr(d.Operation, tc.op) {
-				t.Errorf("%s under .git/ should deny as %q; got op %q (%s)", tc.tool, tc.op, d.Operation, d.Reason)
+			for _, rel := range []string{
+				filepath.Join(".config", "cc-tools", ".git", "config"),
+				filepath.Join(".local", "state", "sdlc", ".git", "config"),
+			} {
+				target := filepath.Join(home, rel)
+				for _, tc := range []struct{ tool, op string }{
+					{"Read", "read:.git tree"},
+					{"Write", "write:.git tree"},
+				} {
+					d := fileToolVerdict(t, tc.tool, repo, target)
+					wantBucket(t, d, BucketDeny, tc.tool+" of a listed path under .git/ ("+rel+")")
+					if !containsSubstr(d.Operation, tc.op) {
+						t.Errorf("%s under .git/ should deny as %q; got op %q (%s)", tc.tool, tc.op, d.Operation, d.Reason)
+					}
+				}
 			}
-		}
-	}
 
-	d := fileToolVerdict(t, "Read", repo, filepath.Join(home, ".config", "cc-tools", "whats-new.md"))
-	wantBucket(t, d, BucketAllow, "read of a listed path with no .git/ segment")
+			d := fileToolVerdict(t, "Read", repo, filepath.Join(home, ".config", "cc-tools", "whats-new.md"))
+			wantBucket(t, d, BucketAllow, "read of a listed path with no .git/ segment")
+		})
+	}
 }
 
 // The glob grammar: `**` spans whole segments, a plain `*` does not cross a
@@ -509,6 +518,29 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	}
 	if c = loadOperatorCarveOutFrom(path); !c.empty() {
 		t.Errorf("a file listing nothing must yield no roots; got %+v", c)
+	}
+
+	// A relative `<root>-default` is not a usable spelling: the remainder would
+	// otherwise depend on the calling session's cwd. The root is dropped rather
+	// than resolved against anything, which the state-home root — spelled
+	// absolutely in the same file — separates from a whole-file failure.
+	if err := os.WriteFile(path, []byte(
+		"schema-version: 2\nconfig-home-default: .config\nstate-home-default: ~/.local/state\n"+
+			"config-home:\n  write:\n    - cc-tools/**\nstate-home:\n  write:\n    - sdlc/**\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	c = loadOperatorCarveOutFrom(path)
+	if len(c.roots) != 1 {
+		t.Fatalf("a relative config-home-default must drop that root; got %+v", c)
+	}
+	if want := filepath.Join(home, ".local", "state"); c.roots[0].path != want {
+		t.Errorf("the surviving root = %q, want the state home %q", c.roots[0].path, want)
+	}
+	// Dropping the root also drops its config-file spelling from the self-write
+	// list, leaving only the literal load path.
+	if len(c.selfWritePaths) != 1 || c.selfWritePaths[0] != path {
+		t.Errorf("expected only the literal load path as a self-write path; got %+v", c.selfWritePaths)
 	}
 
 	// A stamp ABOVE the pin is read for the keys this version documents, per
