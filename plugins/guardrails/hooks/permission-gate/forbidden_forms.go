@@ -7,23 +7,21 @@ import (
 )
 
 // forbiddenForm detects the command shapes that the replaced
-// auto-approve-compound-commands.sh denied (rules/git-workflow.md "Forbidden
-// command forms"). Both trip harness gates and both have a clean two-call
-// alternative, so the gate denies them with a teaching remediation.
+// auto-approve-compound-commands.sh denied. Each has a clean two-call
+// alternative, so the gate denies the compound shape with a teaching
+// remediation naming that alternative.
 //
-//	Form 1: `cd <path> && git ...` — the CVE-2025-59536 harness gate prompts
-//	        on this regardless of hook approvals. Narrowed to a following
-//	        `git` command so the documented subagent carve-out
+//	Form 1: `cd <path> && git ...` — denied in favour of two calls: `cd
+//	        <path>`, then the bare `git <subcommand>`. The match is narrowed
+//	        to a following `git`, so the subagent carve-out
 //	        (`cd <subdir> && <non-git-cmd>`, e.g. `cd frontend && npm run
-//	        build`) is preserved — that form is explicitly allowed by
-//	        git-workflow.md and must not be denied.
-//	Form 2: `git -C <abs-path> <subcommand>` — the harness prompts on these
-//	        even when allow-listed.
+//	        build`) is not denied.
+//	Form 2: `git -C <abs-path> <subcommand>` — denied in favour of two calls:
+//	        `cd <abs-path>`, then the bare `git <subcommand>`.
 //
-// Form 3 (subshells with `;`) was a harness walker-bug workaround in the old
-// regex hook; it is left to the harness, which still mishandles that shape —
-// the AST parses it fine, so there is no semantic boundary for the gate to
-// enforce there.
+// Form 3 (subshells with `;`) was denied by the old regex hook and is not
+// carried over: the AST parses that shape fine, so there is no semantic
+// boundary for the gate to enforce there.
 //
 // Detection is AST-based, so it is not fooled by quoting the way the old
 // regex was (a literal `echo 'cd /x && y'` is a single argument word, not a
@@ -46,10 +44,9 @@ func forbiddenForm(file *syntax.File) (Decision, bool) {
 			// leaf of the right operand's subtree.
 			if n.Op == syntax.AndStmt && stmtIsCdWithArg(rightmostLeaf(n.X)) && stmtIsGit(leftmostLeaf(n.Y)) {
 				found = deny("forbidden-form:cd-&&-git",
-					"Forbidden form 'cd <path> && git ...'. The harness gate (CVE-2025-59536) prompts on this "+
-						"regardless of approvals. Use two separate Bash calls instead: first 'cd <path>', then the bare "+
-						"'git <subcommand>'. CWD persists across calls in the main session. See rules/git-workflow.md "+
-						"\"Forbidden command forms\".")
+					"Forbidden form 'cd <path> && git ...'. Use two separate Bash calls instead: first "+
+						"'cd <path>', then the bare 'git <subcommand>'. CWD persists across calls in the main "+
+						"session.")
 				hit = true
 				return false
 			}
@@ -57,9 +54,8 @@ func forbiddenForm(file *syntax.File) (Decision, bool) {
 			// Form 2: `git -C <abs-path> ...`.
 			if callIsGitDashCAbs(n) {
 				found = deny("forbidden-form:git-C-abs",
-					"Forbidden form 'git -C <abs-path> <subcommand>'. The harness prompts on these even when "+
-						"allow-listed. Use two separate Bash calls instead: first 'cd <abs-path>', then the bare "+
-						"'git <subcommand>'. See rules/git-workflow.md \"Forbidden command forms\".")
+					"Forbidden form 'git -C <abs-path> <subcommand>'. Use two separate Bash calls instead: "+
+						"first 'cd <abs-path>', then the bare 'git <subcommand>'.")
 				hit = true
 				return false
 			}

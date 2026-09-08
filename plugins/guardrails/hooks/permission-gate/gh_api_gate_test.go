@@ -571,8 +571,8 @@ func TestGhAPIRESTAllow(t *testing.T) {
 	}
 }
 
-// Non-matching endpoints DEFER (Deviation 2 — preserve the escalation escape
-// hatch), and an unknown flag DEFERs (Deviation 1).
+// An endpoint off the allowlist DEFERs rather than denying, keeping the
+// escalation path open; an unknown flag DEFERs for the same reason.
 func TestGhAPIRESTDefer(t *testing.T) {
 	for _, cmd := range []string{
 		"gh api some/odd/endpoint",
@@ -589,7 +589,7 @@ func TestGhAPIRESTDefer(t *testing.T) {
 }
 
 // Endpoint-shape DENYs: a full URL (bypasses prefix matching) and a `..`
-// traversal → DENY (appendix step 7).
+// traversal → DENY.
 func TestGhAPIRESTDeny(t *testing.T) {
 	for _, cmd := range []string{
 		"gh api https://api.github.com/user",

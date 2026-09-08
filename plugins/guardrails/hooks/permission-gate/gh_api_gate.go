@@ -5,9 +5,7 @@ import (
 	"strings"
 )
 
-// This file implements the `gh api` classification the dangerous-command
-// spec's appendix anticipated ("If it later proves hot in the loop, whitelist
-// specific allowed forms, or adopt the GET-gate in the appendix"). It replaces
+// This file implements the `gh api` classification. It replaces
 // the blanket graphql-DENY / any-REST-ASK behavior with two classifiers, both
 // driven from classifyGhAPI in rules.go:
 //
@@ -60,9 +58,9 @@ var ghAPIRESTFlags = map[string]bool{
 }
 
 // restEndpointAllowExact is the set of endpoints (after leading-slash and
-// query-string stripping) allowed as an exact match. These are the fixed,
-// read-only GitHub REST endpoints the issue names (`/issue-create` and
-// `/user-config` call `gh api user`).
+// query-string stripping) allowed as an exact match. These are fixed,
+// read-only GitHub REST endpoints (`/issue-create` and `/user-config` call
+// `gh api user`).
 var restEndpointAllowExact = map[string]bool{
 	"rate_limit": true,
 	"meta":       true,
@@ -90,15 +88,15 @@ var restEndpointAllowPrefixes = []string{
 //
 // Precedence:
 //  1. endpoint containing `://` (full-URL prefix-match bypass) or `..`
-//     (server-side path traversal) → DENY (appendix step 7).
+//     (server-side path traversal) → DENY.
 //  2. any flag not in ghAPIRESTFlags (and not one already handled upstream) →
-//     DEFER (Deviation 1: a hard deny on every future gh flag is the
+//     DEFER, not DENY: a hard deny on every future gh flag is the
 //     no-escape-hatch failure this gate exists to remove, and "the gate does
 //     not model this flag" is an absence of gate knowledge rather than evidence
-//     of harm, so it is the judgment middle rather than a click).
+//     of harm, so it is the judgment middle rather than a click.
 //  3. endpoint on the path-prefix allowlist → ALLOW.
-//  4. otherwise → DEFER (Deviation 2: preserve the escape hatch rather than
-//     getting stricter).
+//  4. otherwise → DEFER, not DENY: an endpoint the allowlist does not cover is
+//     unmodeled rather than shown harmful, so the escalation path stays open.
 func classifyGhAPIREST(endpoint string, restArgs []string) Decision {
 	// Step 1: full-URL / traversal endpoints deny (before any allow can fire).
 	if endpoint != "" {
@@ -214,7 +212,7 @@ func ghAPIRESTUnknownFlag(args []string) (string, bool) {
 			}
 			continue
 		}
-		// Unrecognized flag → surface it (DEFER, Deviation 1).
+		// Unrecognized flag → surface it (DEFER rather than DENY).
 		return a, true
 	}
 	return "", false

@@ -22,8 +22,8 @@ func TestForbiddenForms(t *testing.T) {
 		"git -C ./ log",         // relative -C is not the absolute forbidden form
 		"git status && git log", // && without leading cd is fine
 		"echo 'cd /x && y'",     // quoted literal must not trigger (AST sees one word)
-		// Subagent carve-out (git-workflow.md): cd <subdir> && <non-git-cmd> is
-		// explicitly allowed and must NOT be a forbidden-form deny.
+		// Subagent carve-out: cd <subdir> && <non-git-cmd> must NOT be a
+		// forbidden-form deny.
 		"cd frontend && npm run build",
 		"cd backend && ruff check .",
 	}

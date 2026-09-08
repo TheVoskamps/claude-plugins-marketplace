@@ -45,13 +45,13 @@ on uncertainty buys prompt fatigue rather than safety.
   measured property — see *The hard-ask tier's precedence is unpinned*
   below.) The whole tier is:
   - **Publish verbs** — `gh release create`, `gh gist create`,
-    `gh gist edit`, `gh repo edit --visibility`. CLAUDE.md already
-    treats the human click as the sanctioned escalation for publishing.
+    `gh gist edit`, `gh repo edit --visibility`. The human click is the
+    sanctioned escalation for publishing.
   - **History-destroying pushes** — `git push --force`/`-f` and a
-    `+`-prefixed forced refspec. Fleet rules (core-principles §1)
-    require explicit human permission. `--force-with-lease` stays
-    ALLOW and is named in the reason. `git push --mirror` is stronger
-    still: it DENIES, and always has.
+    `+`-prefixed forced refspec. Fleet policy requires explicit human
+    permission. `--force-with-lease` stays ALLOW and is named in the
+    reason. `git push --mirror` is stronger still: it DENIES, and
+    always has.
   - **Credential/secret reads and mints** — the `aws` credential-read
     operations and the `aws` credential *mints* (`sts assume-role`,
     `iam create-access-key`, …, which issue a live credential the
@@ -709,12 +709,11 @@ The gate's engines feed that decision:
   segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a
   leading `/` and any `?query` suffix stripped first) **allows**; a
   `://`- or `..`-bearing endpoint **denies**; an unknown flag or a
-  non-allowlisted endpoint **defers** (the two owner-decision
-  deviations from the appendix GET-gate — a hard deny would recreate the
-  no-escape-hatch wall this gate exists to remove, and the defer middle
-  dropped the
-  human click that stood in for it, since "the gate does not model this
-  flag" is an absence of gate knowledge rather than evidence of harm).
+  non-allowlisted endpoint **defers** (both defers are owner decisions
+  — a hard deny would recreate the no-escape-hatch wall this gate exists
+  to remove, and the defer middle dropped the human click that stood in
+  for it, since "the gate does not model this flag" is an absence of
+  gate knowledge rather than evidence of harm).
   The egress proxy backstops a GET only against a
   **disallowed** host; against an already-allowed host it sees
   ciphertext and cannot distinguish a read from an exfil, so the GET
@@ -1099,7 +1098,7 @@ The gate's engines feed that decision:
   gate does not model gh's short-flag arity, and a missed token print
   costs a leak while a spurious escalation costs a click.
   **Every other aws op — including
-  ordinary writes the spec does not name (`s3 rm`, `s3 cp`,
+  ordinary writes no deny or ask tier names (`s3 rm`, `s3 cp`,
   `cloudformation delete-stack`, `lambda invoke`, …) — defers**:
   the gate cannot prove the op read-only, and an aws mutation carries
   the guest's credentials to a control plane outside the microVM and
@@ -1133,10 +1132,10 @@ The gate's engines feed that decision:
   and cross-repo access. Fail-closed on any git
   subprocess failure or timeout. Refinements: (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
-  not denied as a cross-repo escape, so the `settings.json` allow-list
-  governs the agent's required startup reads of its own global config;
-  the carve-out is canonicalized on both sides so it cannot be
-  symlink-escaped, and genuine sibling repos are still denied. (2) a
+  not denied as a cross-repo escape, leaving the `settings.json`
+  allow-list governing it. The carve-out is canonicalized on both sides
+  so it cannot be symlink-escaped, and genuine sibling repos are still
+  denied. (2) a
   file-mutating tool (Write/Edit/MultiEdit/NotebookEdit) whose
   canonical target is anywhere under a `.git/` directory is denied (the
   Engine B half of the identity-write rule, broadened from
@@ -1311,8 +1310,7 @@ The gate's engines feed that decision:
   `-Users-<u>--config-macos-setup`, both ordinary session directories
   with the standard `scratchpad`/`tasks` layout. The first
   implementation round shipped a single-dash-only
-  `(-[A-Za-z0-9]+)+`, faithfully implementing an earlier revision of
-  the scratchpad spec, and thereby excluded every such session — silently
+  `(-[A-Za-z0-9]+)+`, and thereby excluded every such session — silently
   reintroducing this issue's own symptom for them. The widening stops
   at the quantifier: the character class stays `[A-Za-z0-9]`, which is
   exactly the alphabet the harness emits.
@@ -1772,7 +1770,7 @@ Logging swallows every failure — an unwritable path, a marshal error, a
 panic — because it must never change a verdict. A logging failure that
 bubbled up would turn an allow into a fail-closed block.
 
-## Comments state the invariant, not the ticket
+## Comments and messages state the rule, not a pointer
 
 A Go comment in this package states its invariant **in place** rather
 than pointing the reader at an issue number. Code must be authoritative
@@ -1794,8 +1792,33 @@ gate emits is behavior rather than documentation: `trackerRefInReason`
 reason-bearing `Reason` carries a bare issue pointer — deny, ask and a
 `deferJudgment` analysis alike. An issue number tells a blocked agent
 nothing about what to do, and tells whoever is tuning the evaluator
-from the §7 log no more, so a Reason must be self-sufficiently
+from the evolution log no more, so a Reason must be self-sufficiently
 actionable wherever it surfaces.
+
+A Reason cites no instruction file this plugin does not own, for the
+same reason. The gate's artifacts are the binary, its Go source and
+this README; a pointer like `rules/git-workflow.md` resolves against
+the operator's own `~/.claude/rules/`, which a machine that installed
+this plugin need not have and whose wording this repo does not
+control. So a remediation states the constraint and the call that
+satisfies it inline and stops there — the `cd <path> && git …` and
+`git -C <abs-path> …` denies name the two-call replacement, and the
+naked-`gh` deny names the wrapper by path. Naming an executable to run
+is the remediation itself, not a pointer to prose someone else worded,
+so the wrapper's path stays even though this plugin does not ship the
+file it names. No test guards this one: `trackerRefInReason` is
+issue-pointer-shaped only, so it is held by inspection whenever a
+Reason is written.
+
+The same bar binds a comment in this package, with one clause added: it
+describes the gate, not the harness around it. A comment that justified
+a deny by the harness prompt the denied shape would otherwise trip
+named behavior this repo neither ships nor tests, so it could go false
+without a line of this package changing — and because it read as the
+reason the rule exists, deleting the stale claim left the rule looking
+unmotivated. The `forbiddenForm` docstring and the naked-`gh` comment
+instead state what the gate denies and what it sends the caller to run
+instead, which stays true for as long as the code does.
 
 ## Rules are compiled in
 
@@ -1863,11 +1886,14 @@ none of these binaries is built at plugin load time.
 ### Binary reproducibility (don't expect a byte-identical rebuild)
 
 Go automatically stamps VCS info into every binary — `vcs.revision`
-(the git commit) and `vcs.modified` — embedded in the build metadata,
-and the build-ID's content-hash segment incorporates it too. So a fresh
-`-trimpath` rebuild of the **same source** at a **different** git HEAD
-(or with uncommitted changes) is **not** byte-identical to the committed
-binary, even though the compiled code is identical. The committed binary
+(the git commit) and `vcs.modified` — embedded in the build metadata.
+So a fresh `-trimpath` rebuild of the **same source** at a
+**different** git HEAD (or with uncommitted changes) is **not**
+byte-identical to the committed binary, even though the compiled code
+is identical. The build-ID's content-hash segment is the one field the
+stamp does not move, which is what makes it the identity check in the
+procedure below: a rebuild at another revision reproduces that segment
+exactly. The committed binary
 was stamped with whatever revision was HEAD when it was built (often a
 parent of a later comment-only commit); a rebuild stamps a different
 revision. The differing bytes cluster only in the buildinfo / build-ID
@@ -1885,10 +1911,28 @@ To correctly verify that a committed binary matches its source:
    `CGO_ENABLED=0`) all match. Expect **only** `vcs.revision` /
    `vcs.modified` to differ.
 3. Confirm the compiled code is identical despite the byte delta: the
-   build-ID content-hash segment matches, and `go tool nm` symbol tables
-   are byte-identical. A raw `cmp` / `shasum` byte-diff against a rebuild
-   is **not** a valid mismatch signal on its own, because of the VCS
-   stamp.
+   build-ID content-hash segment (the third `/`-separated field of
+   `go tool buildid`) matches, and the `go tool nm` symbol tables agree
+   once `runtime.modinfo.str` is excluded from both sides:
+
+   ```sh
+   diff <(go tool nm <committed> | grep -v ' runtime\.modinfo\.str$') \
+        <(go tool nm <rebuilt>   | grep -v ' runtime\.modinfo\.str$')
+   ```
+
+   Empty output is the pass. The exclusion is what makes this a test of
+   the compiled code: `runtime.modinfo.str` is the build-info blob the
+   VCS stamp is written into, so its address can move when the stamp
+   does, and a raw `nm` comparison then reports that one line as a
+   difference on a *correct* binary. Whether it moves varies by arch —
+   one rebuild of a committed tip shifted it on `linux-amd64`, where it
+   was the sole differing line, while `darwin-arm64`'s raw tables came
+   out identical — so drop the line on every arch rather than reading
+   an identical raw table on one arch as proof it never moves. Every
+   other symbol, code symbols included, is compared as before — a line
+   in this diff naming anything else is a real mismatch. A raw `cmp` /
+   `shasum` byte-diff against a rebuild is likewise **not** a valid
+   mismatch signal on its own, because of the VCS stamp.
 
 Committed binaries live under `plugins/guardrails/hooks/bin/<goos>-<goarch>/`:
 `darwin-arm64` for this machine, `linux-amd64` for WSL2, `linux-arm64`
@@ -2006,7 +2050,7 @@ which reads as a total lockout rather than as a mode problem.
 
 ## Deferred
 
-The per-`(session, cwd)` `git rev-parse` cache (§8 of the design)
-remains deferred. Worktree roots do not move mid-session, so it is a
-pure optimization for the worktree-parallel case; build it only if
-profiling shows the per-call fork bites.
+The per-`(session, cwd)` `git rev-parse` cache remains deferred. Worktree
+roots do not move mid-session, so it is a pure optimization for the
+worktree-parallel case; build it only if profiling shows the per-call fork
+bites.

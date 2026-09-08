@@ -3,8 +3,8 @@ package main
 import "testing"
 
 // Adversarial coverage for dangerous git / gh / aws operations, with the
-// heaviest weight on the four bypass gates and on every spec line that reaches a
-// dangerous outcome WITHOUT the flag a naive policy keys on (the §4 test bar).
+// heaviest weight on the four bypass gates and on every classifier branch that
+// reaches a dangerous outcome WITHOUT the flag a naive policy keys on.
 //
 // These all run through classifyBash (the real entrypoint) in the main-session
 // context unless a subagent context is needed.
@@ -182,7 +182,7 @@ func TestGhAskTier(t *testing.T) {
 // --- gh ALLOW default --------------------------------------------------------
 
 func TestGhAllowDefault(t *testing.T) {
-	// Ordinary mutations the spec does not name as dangerous → ALLOW.
+	// Ordinary mutations no deny or ask tier names as dangerous → ALLOW.
 	for _, cmd := range []string{
 		"gh pr create --fill",
 		"gh issue comment 5 --body hi",
@@ -221,7 +221,7 @@ func TestGhAllowDefault(t *testing.T) {
 // A value-taking leading global (`-R owner/repo`) must have its VALUE token
 // consumed before the noun/verb is read. Otherwise the repo slug is mistaken
 // for the noun and an irreparable delete slips past the deny tier to the ALLOW
-// floor — the silent-auto-allow failure mode the spec warns about.
+// floor — a silent auto-allow of an irreparable operation.
 func TestGhLeadingGlobalDesyncBypass(t *testing.T) {
 	// -R <value> forms: the delete noun must still be found and DENIED.
 	for _, cmd := range []string{
@@ -542,7 +542,7 @@ func TestAwsGlobalAbbreviation(t *testing.T) {
 
 // Regression: a BARE read verb (no hyphen) must NOT match the read anchor.
 // `op == "get"`/`"list"`/`"describe"` previously short-circuited to ALLOW,
-// defeating the hyphen anchor. Bare verbs the spec does not name fall to the
+// defeating the hyphen anchor. Bare verbs fall to the
 // non-read-op DEFER residual; the dangerous bare verb (`configure get`
 // secret) is caught by the credential-read ASK tier above.
 func TestAwsBareVerbNotReadAnchored(t *testing.T) {
@@ -608,8 +608,8 @@ func TestAwsDeferNonReadOp(t *testing.T) {
 // The invariant it was protecting survives, restated on what it was actually
 // after: no sampled shape may fall out of the classifier UNACCOUNTED FOR. A
 // bare deferToPipeline is exactly that — no operation label, no analysis, and
-// therefore no §7 log record — so it is what this test forbids. A DEFER with
-// both is the classifier having reached a verdict and said why.
+// therefore no evolution-log record — so it is what this test forbids. A DEFER
+// with both is the classifier having reached a verdict and said why.
 func TestClassifierResidualsAreAccountedFor(t *testing.T) {
 	cmds := []string{
 		"git status", "git commit -m x", "git push origin main", "git push --force origin main",

@@ -49,6 +49,15 @@ binary — main's version, not the branch's. A deny you receive while
 working is evidence about main. Probe the branch's binary explicitly
 (`<pr-bin> < event.json`) whenever you need the branch's verdict.
 
+That live gate also grades the probe you run it with, and nothing about
+it knows the synthetic event's `command` string is data: a
+`printf '…' | <bin>` one-liner whose payload spells a forbidden form is
+denied before the binary reads a byte. Write the event JSON to a file
+with the Write tool and feed it in with `<`, which keeps the payload off
+every command line; splitting the pipeline into plain separate commands
+does not, because the refusal is on the text rather than on the compound
+form.
+
 ### Placing the scratch repo
 
 The gate blocks tool-mediated writes outside the repo root and blocks
@@ -62,6 +71,11 @@ with no `.git`, after which every probe reads `defer` — the
 no-repo-context residual, not the `ask` a stale note may expect, so
 such a note reads as a probe failure rather than the setup mistake
 it is.
+
+A fixture needing a committer identity — the bare-`gh`-in-an-App-repo
+probe wants one — cannot get it from `git config --local user.email …`,
+which the gate denies as a git-identity write. Append the `[user]`
+stanza to the scratch repo's own `.git/config` instead.
 
 These probe-cwd traps each fake a whole result table:
 
@@ -164,8 +178,10 @@ back to the protocol below.
 
 Require all of:
 
-1. `go tool nm <committed>` versus `go tool nm <rebuilt>`
-   byte-identical. This is compiled-code identity and works for a
+1. `go tool nm <committed>` versus `go tool nm <rebuilt>` identical
+   once `runtime.modinfo.str` is filtered out of both — its address
+   tracks the VCS stamp on some arches, so a correct binary can differ
+   on that one line. This is compiled-code identity and works for a
    foreign arch with no execution.
 2. `go tool buildid` third segment (`a/b/CONTENT/d`) matching.
 3. `cmp -l` offsets clustering **only** into vcs-stamp-derived
@@ -177,6 +193,17 @@ Require all of:
 `go version -m <binary>` prints go version, module, deps, `-trimpath`
 and `CGO_ENABLED` for a foreign-arch binary, so use it to confirm every
 committed arch was rebuilt consistently when only one can execute.
+
+### A claim about the build tool holds only on the arches you ran it on
+
+The gate ships three arches, so one rebuild measures a sample rather
+than the rule, and a sentence asserting how the toolchain behaves — a
+symbol moving, a stamp shifting, a hash changing — is run on every
+committed arch before it is allowed to stand. `runtime.modinfo.str` is
+the worked example: it shifts on `linux-amd64` and can stay put on
+`darwin-arm64`, so a recipe correct in every step still carries a false
+universal claim about when it is needed. Scope the prose to what the
+runs showed and keep the recipe.
 
 ### Never read provenance off the embedded vcs stamp
 
@@ -191,10 +218,15 @@ to the `nm` compare and the behavior probes.
 `git archive <commit> plugins/guardrails/hooks/permission-gate | tar -x
 -C <tmp>` for each candidate commit, build all candidates in the same
 environment, then byte-compare and `go tool buildid` against the
-committed binary. An exact match names the commit. Comment-only `.go`
-edits change the artifact (pclntab `file:line`) while `go tool nm`
-stays identical, so policy identity and provenance identity are
-separable claims.
+committed binary. An exact match names the commit. A comment-only `.go`
+edit changes the artifact (pclntab `file:line`) whenever it shifts the
+line numbers of the code below it, while `go tool nm` stays identical
+under the `runtime.modinfo.str` filter, so policy identity and
+provenance identity are separable claims. An edit that leaves its
+comment's line count unchanged shifts nothing, and the rebuild's
+build-ID content-hash segment then matches the committed binary
+exactly — so a matching buildid names a range of commits rather than
+one, and does not on its own rule out a later comment-only commit.
 
 Scope a "only a `_test.go` changed" claim to the **last commit that
 touched `bin/`** (`git log -- plugins/guardrails/hooks/bin/`), not to
@@ -213,7 +245,8 @@ These commands are decisive rather than suggestive:
 
 2. `go tool nm` of the **pre-round** committed binary
    (`git show <parent-commit>:<bin-path> > <tmp>`) versus the tip one
-   must be byte-identical, on every committed arch.
+   must be identical under the same `runtime.modinfo.str` filter, on
+   every committed arch.
 
 Together those separate "the source is comments" from "the shipped
 bytes carry the same policy". The tip-rebuild `cmp` answers the
@@ -227,10 +260,10 @@ Those are the pclntab's boundary and lookup symbols, and that shape is
 exactly what added comment lines produce. A moved `T` symbol, an
 unequal delta, or an added or removed line refutes the claim instead.
 
-A comment-only round that leaves `nm` identical also settles, for free,
-that every other mutation or control count the PR body carries is
-unchanged from the previous round — assertions cannot move when no
-compiled code did.
+A comment-only round that leaves `nm` identical under the
+`runtime.modinfo.str` filter also settles, for free, that every other
+mutation or control count the PR body carries is unchanged from the
+previous round — assertions cannot move when no compiled code did.
 
 ## Negate-check the PR's own tests
 
@@ -270,6 +303,17 @@ Probe helpers go in the package as a `zz_*_test.go` calling
 
 Subagent cwd resets between Bash calls, so run module commands as
 `go -C <abs-module-dir> test ./...` rather than `cd` plus `go`.
+
+## One test measures the machine, so its failure may not be yours
+
+`TestHarnessShapesMatchLiveLayout` in `containment_test.go` walks the
+real per-uid harness scratchpad tree, so it fails on live session
+directories the shipped shape regex rejects — on every branch, whatever
+the diff, until the offending directory ages out. Before attributing a
+failure of this one to your change, read the directory name it prints
+and check it against the regex it quotes; a malformed live name is an
+environment fact to report, not a regression to chase. Every other test
+in the package measures package state and grades your diff normally.
 
 ## Audit a per-verb flag whitelist
 
@@ -530,12 +574,12 @@ and `chmod +x` it. Report the composition as a counter of
 Write that file under `<repo-root>/.claude/tmp/<slug>/`, and spell the
 extraction as one bare `git show … > <file>` — never
 `cd <dir> && git show … > <file>`. A `cd <path> && git …` prefix is
-denied by the forbidden-form guard (CVE-2025-59536) before the redirect
-is graded at all, so that spelling is not a probe of the redirect arms
-and cannot serve as a negative control for them: the
-redirect-unresolvable **defer** holds for `git`, `gh` and `aws` in the
-`;`-joined and prefix-free spellings, and the `&&`-joined `git` one
-denies for an unrelated reason.
+denied by the forbidden-form guard before the redirect is graded at
+all, so that spelling is not a probe of the redirect arms and cannot
+serve as a negative control for them: the redirect-unresolvable
+**defer** holds for `git`, `gh` and `aws` in the `;`-joined and
+prefix-free spellings, and the `&&`-joined `git` one denies for an
+unrelated reason.
 
 The moving **set** is invariant to the cross's width; the count is not.
 So grade the derivation, not the total: a PR that states a width and

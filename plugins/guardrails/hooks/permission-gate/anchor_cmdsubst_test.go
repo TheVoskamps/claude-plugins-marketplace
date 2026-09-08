@@ -45,8 +45,8 @@ grep -rn X "$root/plugins/"`
 	}
 }
 
-// TestGitCommonDirAnchorResolvesThenDeniesGitDir pins the design's
-// explicit carve-out: $(git rev-parse --git-common-dir) resolves (it is NOT
+// TestGitCommonDirAnchorResolvesThenDeniesGitDir pins the carve-out for
+// $(git rev-parse --git-common-dir): the substitution resolves (it is NOT
 // left unresolvable), but a path anchored there lands under .git/ and must
 // hit the deterministic .git/ deny — never a fail-closed ASK, and never a
 // silent allow.

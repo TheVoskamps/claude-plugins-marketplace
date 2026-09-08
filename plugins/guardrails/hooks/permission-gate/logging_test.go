@@ -47,7 +47,7 @@ func runBinaryWithLog(t *testing.T, bin, logPath, stdin string) (string, int, []
 	return string(out), code, recs
 }
 
-// The §7 evolution log records ASK, DENY and DEFER, and a record from a site
+// The evolution log records ASK, DENY and DEFER, and a record from a site
 // that reached a verdict carries the gate's ANALYSIS — not just the operation
 // label. Every ask, every deny and every `deferJudgment` site is such a site;
 // a bare `deferToPipeline` has no account to give and logs both fields empty,
@@ -196,9 +196,9 @@ func TestEvolutionLogSkipsAllow(t *testing.T) {
 	}
 }
 
-// A DEFER's analysis rides the §7 log and NOT the stdout verdict. A deferred
-// call must reach the downstream evaluator exactly as a bare defer does — the
-// gate did not decide, so it puts no words in the judge's mouth.
+// A DEFER's analysis rides the evolution log and NOT the stdout verdict. A
+// deferred call must reach the downstream evaluator exactly as a bare defer
+// does — the gate did not decide, so it puts no words in the judge's mouth.
 func TestDeferAnalysisStaysOutOfTheStdoutVerdict(t *testing.T) {
 	bin := buildBinary(t)
 	logPath := filepath.Join(t.TempDir(), "gate.jsonl")

@@ -14,7 +14,7 @@ import (
 )
 
 // gitRevParseTimeout bounds the git subprocess so a hung git cannot wedge the
-// hook (§8: a wedged required hook MUST NOT fail open).
+// hook (a wedged required hook MUST NOT fail open).
 const gitRevParseTimeout = 5 * time.Second
 
 // repoContext is the resolved git context for the event's cwd. All paths are
@@ -35,10 +35,10 @@ type repoContext struct {
 	primaryClone string
 }
 
-// resolveRepoContext shells out to `git rev-parse` against the event's cwd
-// (§8). On ANY subprocess trouble (non-zero exit, empty output, timeout) it
-// returns an error; the caller treats that as fail-closed (block, or a defer
-// carrying the resolution failure as its analysis — never allow).
+// resolveRepoContext shells out to `git rev-parse` against the event's cwd. On
+// ANY subprocess trouble (non-zero exit, empty output, timeout) it returns an
+// error; the caller treats that as fail-closed (block, or a defer carrying the
+// resolution failure as its analysis — never allow).
 func resolveRepoContext(eventCWD string) (*repoContext, error) {
 	if eventCWD == "" {
 		return nil, fmt.Errorf("event has no cwd; cannot resolve git context (fail-closed)")
@@ -92,9 +92,9 @@ func resolveRepoContext(eventCWD string) (*repoContext, error) {
 
 // runGit executes `git -C <cwd> <args...>` with a timeout. Empty stdout or a
 // non-zero exit is an error (fail-closed). We intentionally do NOT use the
-// forbidden `git -C` *command-line* shape that the harness gates — that gate
-// is about the model generating Bash; here we are a compiled hook forking git
-// directly, which is exactly what the existing shell hooks already do.
+// forbidden `git -C` *command-line* shape the gate denies — that deny is about
+// the model generating Bash; here we are a compiled hook forking git directly,
+// which is exactly what the existing shell hooks already do.
 func runGit(cwd string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitRevParseTimeout)
 	defer cancel()
@@ -420,8 +420,8 @@ func harnessScratchDisplay() string {
 //
 // both of which are real session directories with the standard scratchpad/
 // tasks layout. A pattern admitting only single dashes — `(-[A-Za-z0-9]+)+`,
-// which an earlier revision of the carve-out spec prescribed and this code faithfully
-// implemented — silently excludes every such session and reintroduces the exact
+// which this code once implemented — silently excludes every such
+// session and reintroduces the exact
 // symptom the carve-out exists to fix (in a settings.json-has-a-/tmp-deny environment,
 // the DEFER lands on that deny). Hence the `-+`. The widening stops there: the
 // character class stays [A-Za-z0-9] so the slug alphabet is exactly the one the
@@ -617,17 +617,12 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	if pathUnder(real, rc.topLevel) {
 		return contained, real
 	}
-	// Carve-out: the agent's own global config tree (~/.claude/CLAUDE.md,
-	// ~/.claude/rules/**, etc.) lives outside every repo, yet every subagent and
-	// the main session is REQUIRED to read it at startup and settings.json
-	// allow-lists exactly those reads. A hard cross-repo deny here would override
-	// that allow-list and break the /issue-address workflow this repo depends on.
-	// So a target whose canonical path lands under the real ~/.claude is reported
-	// as claudeConfig → the caller DEFERS, letting the normal settings.json
-	// allow-list govern it. The protection for genuine sibling repos is
-	// unaffected (this is checked BEFORE the escapeRepo classification, and only
-	// matches the ~/.claude subtree). Both sides are canonicalized so the
-	// carve-out cannot be symlink-escaped.
+	// Carve-out: a target whose canonical path lands under the real ~/.claude is
+	// reported as claudeConfig rather than as an escape → the caller DEFERS,
+	// letting the normal settings.json allow-list govern it. The protection for
+	// genuine sibling repos is unaffected (this is checked BEFORE the escapeRepo
+	// classification, and only matches the ~/.claude subtree). Both sides are
+	// canonicalized so the carve-out cannot be symlink-escaped.
 	if cc := claudeConfigRoot(); cc != "" && pathUnder(real, cc) {
 		return claudeConfig, real
 	}

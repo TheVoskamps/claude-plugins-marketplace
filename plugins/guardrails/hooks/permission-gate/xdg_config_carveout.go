@@ -11,7 +11,7 @@ import (
 
 // The operator-configured ~/.config carve-out.
 //
-// docs/config-file-conventions.md puts every per-user plugin config under
+// Every per-user config a plugin in this marketplace writes lives under
 // `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/`, and containment resolves
 // symlinks on both sides before it decides. On a machine whose ~/.config is a
 // symlink into a dotfiles repo, that resolution lands every such config inside
@@ -32,10 +32,10 @@ import (
 // left standing rather than papered over here.
 
 // xdgConfigCarveOutSchemaVersion is the minimum `schema-version` this reader
-// understands, pinned as a literal per docs/config-file-conventions.md. A
-// higher stamp is read for the keys documented here and nothing else; a lower
-// or absent one yields empty lists rather than an abort, because a security
-// hook has no channel to abort into — see the named exception in that document.
+// understands, pinned here as a literal rather than derived. A higher stamp is
+// read for the keys documented here and nothing else; a lower or absent one
+// yields empty lists rather than an abort, because a security hook has no
+// channel to abort into.
 const xdgConfigCarveOutSchemaVersion = 1
 
 // xdgConfigDirName is the LITERAL directory name the carve-out root is built
@@ -48,7 +48,7 @@ const xdgConfigCarveOutSchemaVersion = 1
 const xdgConfigDirName = ".config"
 
 // xdgCarveOutPluginDir and xdgCarveOutFileName spell this plugin's own config
-// under that root, in the shape docs/config-file-conventions.md prescribes.
+// under that root: a directory named for the plugin, holding a YAML file.
 const (
 	xdgCarveOutPluginDir = "guardrails"
 	xdgCarveOutFileName  = "config.yml"
@@ -90,8 +90,9 @@ type xdgConfigCarveOut struct {
 	allowWrite []string
 }
 
-// xdgCarveOutDocument is the on-disk shape. Unknown keys are tolerated, per
-// docs/config-file-conventions.md.
+// xdgCarveOutDocument is the on-disk shape. Unknown keys are tolerated: the
+// unmarshal ignores every key this struct does not declare, so a config
+// carrying keys a later schema adds still parses here.
 type xdgCarveOutDocument struct {
 	SchemaVersion int      `yaml:"schema-version"`
 	AllowRead     []string `yaml:"allow-read"`
