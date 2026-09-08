@@ -498,7 +498,7 @@ func TestHarnessScratchSessionAllowed(t *testing.T) {
 
 // A `.git/` segment inside the scratchpad prefix denies for read and write
 // alike, so no carve-out hands out a git internals tree — the sibling of
-// TestXDGConfigCarveOutDoesNotOpenGitTree, with the same two halves: the write
+// TestOperatorCarveOutDoesNotOpenGitTree, with the same two halves: the write
 // on the top-of-walk rule, the read inside the arm that grades scratchpad
 // eligibility, which is the only place such a read could otherwise reach an
 // ALLOW (a target under the harness prefix is outside the worktree, so without

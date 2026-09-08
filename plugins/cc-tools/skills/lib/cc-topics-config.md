@@ -68,10 +68,10 @@ topics:
 ## Reading it
 
 Read it with the `Read` tool, never `cat` or `grep` from Bash. The
-permission gate's `$HOME/.config` carve-out reaches the file-tool track
+permission gate's operator carve-out reaches the file-tool track
 only, so a Bash read is denied on every machine whether or not the
 operator listed a glob (`docs/config-file-conventions.md` → "The
-permission gate reads `$HOME/.config` literally").
+permission gate's carve-out follows these same roots").
 
 Every skill that reads the file handles each of these outcomes:
 

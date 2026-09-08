@@ -388,6 +388,14 @@ func claudeConfigRoot() string {
 //   - More importantly, deriving a security carve-out from an environment
 //     variable would let whatever set that variable relocate the carve-out to
 //     an arbitrary directory. A fixed path cannot be widened that way.
+//
+// The operator carve-out (operator_carveout.go) does read $XDG_CONFIG_HOME and
+// $XDG_STATE_HOME, and is not a counter-example to that second bullet: it reads
+// them only on an explicit opt-in in a file the operator hand-wrote, and what
+// the relocation can hand out is bounded by two denies that hold whatever the
+// file says. Neither condition is available here — no operator file names this
+// root, and the region it designates is safe by construction rather than by
+// enumeration — so this one stays a literal.
 const harnessScratchDir = "/tmp"
 
 // harnessScratchDisplay returns the un-canonicalized, human-facing spelling of

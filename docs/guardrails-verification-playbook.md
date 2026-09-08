@@ -126,7 +126,7 @@ vacuous probe.
 
 ### A `$HOME`-rooted rule is settled by `go test`, not by a replay
 
-The `~/.config` carve-out and the `~/.claude` one are rooted at the real
+The operator carve-out and the `~/.claude` one are rooted at the real
 home directory, and a worktree-isolated agent can build no fixture for
 either. Each obstacle below is decisive on its own.
 
@@ -151,9 +151,19 @@ inside a fake home never earns the deny the rule under test is meant to
 overturn. A synthetic replay can therefore exercise these rules only
 against whatever the driving machine's own home directory holds.
 
+**The XDG opt-in is not a way around either obstacle.** An
+`XDG_CONFIG_HOME=<dir>` prefix is not refused the way a `HOME=` one is,
+but the gate reads that variable only when the driving machine's own
+`~/.config/guardrails/config.yml` says
+`resolve-xdg-environment-variables: yes` — a file outside the repo,
+which the gate itself refuses every write to. So the relocated root a
+replay could point at still carries whatever globs that machine's
+operator wrote, and a machine with no such file resolves no root from
+the variable at all.
+
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
-(`xdg_config_carveout_test.go` is the worked example). Replay still
+(`operator_carveout_test.go` is the worked example). Replay still
 earns its place as the negative control: the unconfigured machine you
 are running on denies the very reads the carve-out is for, and that
 verdict is real evidence.
@@ -921,7 +931,7 @@ a defer, or the negate-check leaves every `cat` assertion green while
 proving nothing.
 
 A carve-out scoped to the **file-tool track alone** — the
-operator-configured `~/.config` listing is one — inverts the trap
+operator-configured listing is one — inverts the trap
 without escaping it: `cat` of a listed path **denies** before and after,
 because the bash engine never consults the listing. There the file-read
 tool is the only probe that moves, and a bash row belongs in the table

@@ -1146,7 +1146,7 @@ The gate's engines feed that decision:
   unaffected by this refinement; a `.git/` read that resolves into the
   primary clone denies on the read branch described in (3) below, and a
   `.git/` read either file-tool carve-out would otherwise turn into an
-  ALLOW — one the operator's `~/.config` listing covers, or one in an
+  ALLOW — one the operator's own listing covers, or one in an
   allow-eligible region of the harness scratchpad — denies inside that
   carve-out's own arm. If
   you need a repo-scoped scratch file, write it under
@@ -1556,12 +1556,16 @@ The gate's engines feed that decision:
   walk, so `cp <scratchpad-file> <sibling-repo-path>` still denies on
   its destination.
 
-  (6) a **file-tool** target under `$HOME/.config` that matches a glob
-  the operator listed in `~/.config/guardrails/config.yml` is
-  **allowed** (`xdg_config_carveout.go`).
+  (6) a **file-tool** target under one of three operator-configured
+  roots — the XDG config home, the XDG state home, or the home
+  directory — that matches a glob the operator listed for that root in
+  `~/.config/guardrails/config.yml` is **allowed**
+  (`operator_carveout.go`).
   [`docs/config-file-conventions.md`](../../../../docs/config-file-conventions.md)
   puts every per-user plugin config under
-  `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/`, and containment
+  `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/` and every per-user
+  state file under `${XDG_STATE_HOME:-$HOME/.local/state}/<plugin>/`,
+  and containment
   canonicalizes both sides before it decides. On a machine whose
   `~/.config` is a symlink into a dotfiles repo, that resolution lands
   every such config inside **another git repo**, so the cross-repo deny
@@ -1574,30 +1578,58 @@ The gate's engines feed that decision:
   **The gate carries no knowledge of which plugins exist.** There are no
   shipped default entries; a machine that wants the carve-out writes the
   file, in the shape `docs/config-file-conventions.md` prescribes, with
-  lists of globs **relative to `~/.config`**:
+  a pair of glob lists per root, each glob **relative to its own root**:
 
   ```yaml
-  schema-version: 1
-  allow-read:
-    - macos-setup/**
-    - gh/config.yml
-    - git/ignore
-  allow-write:
-    - issues/**
-    - cc-tools/**
+  schema-version: 2
+  resolve-xdg-environment-variables: yes   # optional, default no
+  config-home-default: ~/.config           # optional
+  state-home-default: ~/.local/state       # optional
+  config-home:
+    read:
+      - macos-setup/**
+      - claude-vm/**
+      - gh/config.yml
+      - guardrails/config.yml
+    write:
+      - issues/**
+      - cc-tools/**
+  state-home:
+    write:
+      - sdlc/**
+  home:
+    read:
+      - .ssh/config
+      - .aws/config
   ```
 
-  `allow-write` **implies** `allow-read`: a path writable but not
+  `write` **implies** `read`, per root: a path writable but not
   readable is a half-configured state rather than an intent —
   `/issues:global-user-config` merge-updates its file and so must read
   before it writes. A read-only entry stays expressible by listing it
-  under `allow-read` alone; a **write** to such a path does not allow
+  under `read` alone; a **write** to such a path does not allow
   and keeps the verdict it has today. The glob grammar is `**` for zero
   or more whole path segments plus `path.Match` per segment, so `*` and
-  `?` do not cross a separator.
+  `?` do not cross a separator. A target that sits under more than one
+  root — everything under a config home inside the home directory does
+  — is allowed when **any** of those roots lists it.
 
-  **Absent, unreadable, malformed, or stamped below `schema-version: 1`
-  → both lists empty → today's behaviour**, on every path. The carve-out
+  **How each root resolves.** `home` is `os.UserHomeDir()` and has no
+  setting. `config-home` and `state-home` each take
+  `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` when
+  `resolve-xdg-environment-variables: yes` **and** the variable is set
+  and non-empty — the same test `docs/config-file-conventions.md` gives
+  the plugins, so the gate and the plugins agree in the empty case too
+  — and otherwise the file's own `config-home-default` /
+  `state-home-default` spelling, which may start with `~`. **There are
+  no hidden built-in defaults:** a root the file gives no usable
+  spelling for does not exist, and every glob listed under it is dead.
+  A relative spelling is not usable either — the remainder would then
+  depend on the calling session's cwd.
+
+  **Absent, unreadable, malformed, or stamped below `schema-version: 2`
+  → no usable entry anywhere → today's behaviour**, on every path. The
+  carve-out
   fails closed, and the gate is its only reader, so none of those is an
   error reported anywhere — it is simply an empty list. That is a named
   exception to `docs/config-file-conventions.md`'s abort-on-malformed
@@ -1606,11 +1638,20 @@ The gate's engines feed that decision:
   worse than the behaviour the operator had before writing it. The file
   is read in Go with `gopkg.in/yaml.v3` on each invocation — not a tool
   call, so the carve-out does not gate its own config, and the process
-  is fresh per event, so nothing is cached.
+  is fresh per event, so nothing is cached. A file still spelling the
+  `schema-version: 1` keys `allow-read` / `allow-write` is stamped
+  below the pin, so it lands on exactly that path: one hand edit per
+  machine migrates it, and until then that machine has the behaviour it
+  had before the file existed.
+
+  **This file's own location does not come from this file.** It is read
+  at the literal `$HOME/.config/guardrails/config.yml` whatever
+  `config-home` resolves to — the gate has to know where to read before
+  it knows what the file says.
 
   **No symlink resolution, on either side.** The check runs on the path
   as written: the target is made absolute and lexically `Clean`ed, the
-  `$HOME/.config` prefix is stripped, and the remainder is matched.
+  root's prefix is stripped, and the remainder is matched.
   `~/.config`, `~/.config/<name>` and `~/.config/<name>/<file>` may each
   be a symlink pointing anywhere and the verdict is unchanged — a listed
   path is allowed wherever it lands, including inside another git repo.
@@ -1621,14 +1662,28 @@ The gate's engines feed that decision:
   on a lexically-cleaned path, `~/.config/../../<sibling-repo>/x` cannot
   match whatever the globs say — the cleaning removes the `..` segments
   and the result no longer carries the root prefix — and a glob
-  containing `..` is dead for the same reason.
+  containing `..` is dead for the same reason. The self-write deny
+  below is the one comparison that does canonicalize both sides.
 
-  **`$HOME/.config` literally, not `$XDG_CONFIG_HOME`.** The carve-out
-  root is that one spelling. Deriving it from an environment variable
-  would let whatever set that variable relocate the carve-out, which is
-  the same reason `harnessScratchDir` is a fixed literal. A machine that
-  relocates `$XDG_CONFIG_HOME` therefore gets no carve-out at all, which
-  is the fail-closed direction.
+  **Two denies hold whatever the file says**, and together they are what
+  bounds the environment-variable opt-in. (1) Nothing under a `.git/`
+  segment is handed out, read or write, on any root. (2) No **write** to
+  this config file itself is allowed — at its literal load path or at
+  the resolved `config-home/guardrails/config.yml` — compared
+  canonically, so a symlinked copy and a symlinked ancestor are covered
+  too. Without (2) a `home: write: ['**']` entry would let the gate's
+  own policy be rewritten by the calls it is adjudicating. A **read** of
+  the config file is untouched by (2) and is allowed when listed.
+
+  Reading an environment variable does let its setter relocate a root,
+  which is why the opt-in exists and is off by default rather than why
+  the variable is refused: in practice the hook inherits the launcher's
+  environment, so the only same-session route to a relocated root is a
+  nested `claude` launch from the Bash tool with an `XDG_*` assignment
+  in front of it, and the two denies bound what that could reach. The
+  `harnessScratchDir` literal is a different case and stays a literal —
+  no operator file names it, and the region it designates is safe by
+  construction rather than by enumeration.
 
   **`allow`, not `defer`.** A defer only removes the gate's veto and
   hands the call to the ordinary permission rules, which nothing here
@@ -1638,14 +1693,16 @@ The gate's engines feed that decision:
   under a `.git/` segment denies at the top of the operand walk, before
   the listing is consulted. A `Read` of one denies inside the carve-out
   arm itself, which is the only place such a read could otherwise reach
-  an ALLOW — an unlisted `.git/` read under `~/.config` is already
+  an ALLOW — an unlisted `.git/` read under a carve-out root is already
   denied by containment, so the check is stated where the listing
   overrides it rather than hoisted to the top of the walk, where it
   would flip an **in-repo** `.git/` read from the defer it earns today
   to a deny. Either way a glob wide enough to cover a `.git/` segment
-  hands out nothing. List the plugin directories the convention actually
-  puts a config in, not `**`, all the same — a wide glob still opens
-  whatever else lives under `~/.config`. And the ALLOW terminal requires
+  hands out nothing. List the directories the conventions actually put a
+  file in, not `**`, all the same: a `home: '**'` opens **everything**
+  under the home directory except a `.git/` segment and this config
+  file, which are the only two things the globs cannot reach past. And
+  the ALLOW terminal requires
   **every** target of the call to ride a carve-out, so a call mixing a
   listed path with an ordinary in-repo one falls back to the ordinary
   defer.

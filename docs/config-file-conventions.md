@@ -20,18 +20,26 @@ A skill spells the fallback out once and refers to that spelling
 elsewhere rather than restating it, because a second spelling is a
 second thing to get wrong.
 
-### The permission gate reads `$HOME/.config` literally
+### The permission gate's carve-out follows these same roots
 
 The `guardrails` permission gate carves tool-mediated reads and writes
-under `$HOME/.config` out of its containment deny, driven by globs the
+out of its containment deny, driven by globs the
 operator lists in `~/.config/guardrails/config.yml` — which is what
 makes any of these files reachable at all on a machine whose
-`~/.config` is a symlink into a dotfiles repo. Its carve-out root is
-the `$HOME/.config` spelling and **nothing else**: it does not consult
-`$XDG_CONFIG_HOME`, because deriving a security carve-out from an
-environment variable would let whatever set that variable relocate it.
+`~/.config` is a symlink into a dotfiles repo. Its roots are the two
+this document prescribes plus the home directory, and it resolves
+`$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` by **the same test given above**
+— the variable when set and non-empty — on a per-machine opt-in
+(`resolve-xdg-environment-variables: yes`) that is off by default. So
+where a plugin and the gate disagree about where a config lives, the
+disagreement is that the operator did not opt in, and not two different
+resolution rules.
 
-So on a machine that relocates `$XDG_CONFIG_HOME`, the config a plugin
+Without the opt-in the gate follows the `config-home-default` /
+`state-home-default` spellings the operator's own file gives, and a
+root the file spells nowhere does not exist for the gate at all. So on
+a machine that relocates `$XDG_CONFIG_HOME` and neither opts in nor
+names the relocated path, the config a plugin
 writes is still at the path this document prescribes, and is still
 correct — but it is unreachable from a tool-mediated read or write,
 because no carve-out covers it. A reader that is not a tool call at all
@@ -63,6 +71,10 @@ which is what lets a later session pick a round up where an interrupted
 one left it; a session id in the path would have made the same records
 unreachable. The harness's per-session scratchpad is the opposite
 choice deliberately — it is for what should die with the session.
+
+The permission gate's carve-out roots this directory too, on the same
+terms as the config one — see "The permission gate's carve-out follows
+these same roots" above.
 
 State is not config, so the format and `schema-version` rules below do
 not reach it by default. A state file a human may open and edit takes
@@ -118,7 +130,8 @@ cannot be invented stops and says what to write.
 **Named exception: a reader with no channel to abort into.** The
 `guardrails` permission gate's `~/.config/guardrails/config.yml` (see
 above) treats absent, unreadable, malformed and below-the-pin
-identically, as two empty lists — today's behaviour, with nothing
+identically, as no usable entry on any root — the behaviour the machine
+had before the file existed, with nothing
 reported anywhere. A `PreToolUse` hook cannot abort: failing the hook
 over a broken config denies every tool call on the machine, which is
 strictly worse than the behaviour the operator had before writing the
