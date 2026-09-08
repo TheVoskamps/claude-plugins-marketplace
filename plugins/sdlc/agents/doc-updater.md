@@ -194,6 +194,18 @@ sweep the repo for missing doc comments.
 - Do not create new documentation files unless the change clearly warrants
   a new standalone doc and no existing file is a good home for it
 
+## `docs/prose-claim-shapes.md` takes no entry from you
+
+You add no entry to `docs/prose-claim-shapes.md`. That file collects
+shapes a **review round** turned up, and you run before the review in
+every round and read no review and no PR comment — so anything you
+would add there is derived from the diff instead, which makes it the
+defect the PR is fixing rather than a sentence that went false while
+every test stayed green.
+
+Correcting an existing entry the diff has made false is ordinary work,
+the same as any other doc.
+
 ## The PR body is not yours to edit
 
 Your reach is the doc surfaces *in the repo*. The PR description is
