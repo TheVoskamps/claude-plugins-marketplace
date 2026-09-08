@@ -58,9 +58,9 @@ var ghAPIRESTFlags = map[string]bool{
 }
 
 // restEndpointAllowExact is the set of endpoints (after leading-slash and
-// query-string stripping) allowed as an exact match. These are the fixed,
-// read-only GitHub REST endpoints the issue names (`/issue-create` and
-// `/user-config` call `gh api user`).
+// query-string stripping) allowed as an exact match. These are fixed,
+// read-only GitHub REST endpoints (`/issue-create` and `/user-config` call
+// `gh api user`).
 var restEndpointAllowExact = map[string]bool{
 	"rate_limit": true,
 	"meta":       true,
@@ -88,7 +88,7 @@ var restEndpointAllowPrefixes = []string{
 //
 // Precedence:
 //  1. endpoint containing `://` (full-URL prefix-match bypass) or `..`
-//     (server-side path traversal) → DENY (appendix step 7).
+//     (server-side path traversal) → DENY.
 //  2. any flag not in ghAPIRESTFlags (and not one already handled upstream) →
 //     DEFER (Deviation 1: a hard deny on every future gh flag is the
 //     no-escape-hatch failure this gate exists to remove, and "the gate does

@@ -709,12 +709,11 @@ The gate's engines feed that decision:
   segment-bounded `repos/`, `orgs/`, `users/`, `search/`, with a
   leading `/` and any `?query` suffix stripped first) **allows**; a
   `://`- or `..`-bearing endpoint **denies**; an unknown flag or a
-  non-allowlisted endpoint **defers** (the two owner-decision
-  deviations from the appendix GET-gate — a hard deny would recreate the
-  no-escape-hatch wall this gate exists to remove, and the defer middle
-  dropped the
-  human click that stood in for it, since "the gate does not model this
-  flag" is an absence of gate knowledge rather than evidence of harm).
+  non-allowlisted endpoint **defers** (both defers are owner decisions
+  — a hard deny would recreate the no-escape-hatch wall this gate exists
+  to remove, and the defer middle dropped the human click that stood in
+  for it, since "the gate does not model this flag" is an absence of
+  gate knowledge rather than evidence of harm).
   The egress proxy backstops a GET only against a
   **disallowed** host; against an already-allowed host it sees
   ciphertext and cannot distinguish a read from an exfil, so the GET
@@ -1887,11 +1886,14 @@ none of these binaries is built at plugin load time.
 ### Binary reproducibility (don't expect a byte-identical rebuild)
 
 Go automatically stamps VCS info into every binary — `vcs.revision`
-(the git commit) and `vcs.modified` — embedded in the build metadata,
-and the build-ID's content-hash segment incorporates it too. So a fresh
-`-trimpath` rebuild of the **same source** at a **different** git HEAD
-(or with uncommitted changes) is **not** byte-identical to the committed
-binary, even though the compiled code is identical. The committed binary
+(the git commit) and `vcs.modified` — embedded in the build metadata.
+So a fresh `-trimpath` rebuild of the **same source** at a
+**different** git HEAD (or with uncommitted changes) is **not**
+byte-identical to the committed binary, even though the compiled code
+is identical. The build-ID's content-hash segment is the one field the
+stamp does not move, which is what makes it the identity check in the
+procedure below: a rebuild at another revision reproduces that segment
+exactly. The committed binary
 was stamped with whatever revision was HEAD when it was built (often a
 parent of a later comment-only commit); a rebuild stamps a different
 revision. The differing bytes cluster only in the buildinfo / build-ID

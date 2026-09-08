@@ -193,10 +193,15 @@ to the `nm` compare and the behavior probes.
 `git archive <commit> plugins/guardrails/hooks/permission-gate | tar -x
 -C <tmp>` for each candidate commit, build all candidates in the same
 environment, then byte-compare and `go tool buildid` against the
-committed binary. An exact match names the commit. Comment-only `.go`
-edits change the artifact (pclntab `file:line`) while `go tool nm`
-stays identical under the `runtime.modinfo.str` filter, so policy
-identity and provenance identity are separable claims.
+committed binary. An exact match names the commit. A comment-only `.go`
+edit changes the artifact (pclntab `file:line`) whenever it shifts the
+line numbers of the code below it, while `go tool nm` stays identical
+under the `runtime.modinfo.str` filter, so policy identity and
+provenance identity are separable claims. An edit that leaves its
+comment's line count unchanged shifts nothing, and the rebuild's
+build-ID content-hash segment then matches the committed binary
+exactly — so a matching buildid names a range of commits rather than
+one, and does not on its own rule out a later comment-only commit.
 
 Scope a "only a `_test.go` changed" claim to the **last commit that
 touched `bin/`** (`git log -- plugins/guardrails/hooks/bin/`), not to
