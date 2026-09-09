@@ -282,37 +282,49 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 // string fallback is what still catches a not-yet-created target, e.g. a write
 // to the config-home spelling on a machine that has no file there.
 //
-// The target is put through lexicalAbs FIRST, so the deny sees the same
-// spelling `remainder` matches the globs against. Handing canonicalizeFrom the
-// raw target instead let a trailing separator through: `<...>/config.yml/` does
-// not exist, so the ancestor walk re-attached the tail onto the longest
-// existing ancestor and yielded `<...>/config.yml/config.yml`, which matched
-// neither self spelling and which os.Stat then failed on, skipping the identity
-// check as well — while `remainder` Cleaned the separator away and matched a
-// `**` entry. Cleaning `..` segments lexically before resolving symlinks can
-// only widen this deny (a `..` through a symlinked directory names a different
-// file to the kernel than it does lexically), and widening a deny inside the
-// carve-out arm hands the call back to the verdict it would have had anyway.
+// TWO spellings of the target are canonicalized and a match on either denies,
+// because neither one covers the other's hole and each is a spelling the write
+// really can land on the config file through.
+//
+// The lexically-cleaned spelling — the one `remainder` matches the globs
+// against — is what closes a trailing separator. Canonicalizing the raw
+// `<...>/config.yml/` alone let it through: the path does not exist, so the
+// ancestor walk re-attached the tail onto the longest existing ancestor and
+// yielded `<...>/config.yml/config.yml`, which matched neither self spelling
+// and which os.Stat then failed on, skipping the identity check as well — while
+// `remainder` Cleaned the separator away and matched a `**` entry.
+//
+// The raw spelling is what closes a `..` behind a symlinked directory, which
+// names a different file to the kernel than it does lexically. Cleaning
+// `<home>/<link-into-the-config-directory>/../config.yml` first collapses it to
+// a nonexistent `<home>/config.yml` matching no self path, while the kernel
+// resolves the link and delivers the write to the real config file; leaving the
+// spelling for filepath.EvalSymlinks to resolve is what reaches that file.
+//
+// Comparing both can only widen the deny, and a widened deny inside the
+// carve-out arm hands the call back to the verdict it would have had without
+// the carve-out anyway.
 func (c operatorCarveOut) isSelfWrite(target string, base string) bool {
 	lexical := lexicalAbs(target, base)
 	if lexical == "" {
 		return false
 	}
-	real := canonicalizeFrom(lexical, "")
-	if real == "" {
-		return false
-	}
-	realInfo, realErr := os.Stat(real)
-	for _, p := range c.selfWritePaths {
-		self := canonicalizeFrom(p, "")
-		if self == real {
-			return true
-		}
-		if realErr != nil {
+	for _, real := range []string{canonicalizeFrom(lexical, ""), canonicalizeFrom(target, base)} {
+		if real == "" {
 			continue
 		}
-		if selfInfo, err := os.Stat(self); err == nil && os.SameFile(realInfo, selfInfo) {
-			return true
+		realInfo, realErr := os.Stat(real)
+		for _, p := range c.selfWritePaths {
+			self := canonicalizeFrom(p, "")
+			if self == real {
+				return true
+			}
+			if realErr != nil {
+				continue
+			}
+			if selfInfo, err := os.Stat(self); err == nil && os.SameFile(realInfo, selfInfo) {
+				return true
+			}
 		}
 	}
 	return false

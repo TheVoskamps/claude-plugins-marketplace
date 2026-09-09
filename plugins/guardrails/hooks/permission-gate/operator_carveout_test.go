@@ -362,6 +362,22 @@ config-home:
 	if err := os.Symlink(literal, link); err != nil {
 		t.Fatal(err)
 	}
+	// A symlink to a DIRECTORY inside the config directory, so a `..` segment
+	// behind it climbs to the config directory for the kernel and to the home
+	// directory lexically. The two spellings name different files, which is what
+	// makes one canonicalization of the target insufficient.
+	nested := filepath.Join(home, ".config", "guardrails", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dirLink := filepath.Join(home, "link-to-config-dir")
+	if err := os.Symlink(nested, dirLink); err != nil {
+		t.Fatal(err)
+	}
+	sep := string(filepath.Separator)
+	// Assembled by concatenation, not filepath.Join, which would Clean the `..`
+	// away and destroy the very spelling under test.
+	throughDirLink := dirLink + sep + ".." + sep + "config.yml"
 
 	// The two trailing-separator rows are the spelling the glob match and the
 	// deny once disagreed about: `remainder` takes its path from lexicalAbs,
@@ -371,12 +387,18 @@ config-home:
 	// `<...>/config.yml/config.yml` — a path that matched neither self spelling
 	// and that os.Stat then failed on, skipping the identity check too. One row
 	// per self path, because the two resolve by different halves of the deny.
+	//
+	// The `..`-behind-a-symlink row is the mirror hole, and the reason the deny
+	// canonicalizes the raw target as well: cleaning that spelling first yields
+	// a nonexistent `<home>/config.yml` matching no self path, while the kernel
+	// delivers the write to the real config file.
 	for name, target := range map[string]string{
 		"the literal load path":                                  literal,
 		"the resolved config-home one":                           relocatedCopy,
 		"a symlink to the load path":                             link,
 		"the literal load path with a trailing separator":        literal + string(filepath.Separator),
 		"the resolved config-home one with a trailing separator": relocatedCopy + string(filepath.Separator),
+		"a `..` behind a symlink into the config directory":      throughDirLink,
 	} {
 		d := fileToolVerdict(t, "Write", repo, target)
 		if d.Bucket == BucketAllow {
