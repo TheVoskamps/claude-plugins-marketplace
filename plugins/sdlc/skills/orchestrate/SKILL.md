@@ -585,9 +585,21 @@ teammates, so this section says what it means for one.
 - **A report is input, not authority.** You may not defer to a report
   against your own evidence, and you may not silently overrule one
   either. A discrepancy between what an agent reported and what you
-  observe is itself a finding: name it in the round's report and in
-  the final report's **Needs Your Attention** section, rather than
-  quietly acting on whichever version you prefer.
+  observe is itself a finding: re-read the territory, and name it in
+  the round's report rather than quietly acting on whichever version
+  you prefer. A discrepancy the re-read settles goes no further; one
+  the re-read cannot settle gets a **Needs Your Attention** row,
+  because that is a PR the human cannot trust.
+- **Rule on an out-of-scope observation while the PR is open.** A
+  teammate reports things outside the diff it was briefed on, and the
+  cheap moment to act on one is now. Rule on it before the next spawn
+  for that PR, or before the loop ends for that PR when no spawn
+  follows. Trivial and adjacent to the diff goes into the round's
+  fixer brief as an owner ruling, or is dropped; when no fixer round
+  follows, the choice is drop or ask. Anything larger is put to the
+  human while the PR is still open, with the consequence of each
+  option stated in the question. It never travels to the final report,
+  and it never becomes a follow-up issue on your initiative.
 
 ### For each wave, spawn one issue-developer per batch, simultaneously
 
@@ -1309,6 +1321,13 @@ Nothing has been merged.
 To start the sequential queue, reply: "continue with <link-prefix>103"
 ```
 
+A **Needs Your Attention** row is something the human must act on to
+merge, unblock, or trust a PR of this run. An observation the loop
+already had a chance to act on does not qualify — the loop was where
+it was cheap to settle, and holding it to the end spends the human's
+turn on work that was yours. Round-cap findings, escalations, and a
+discrepancy your re-read could not settle qualify as they stand.
+
 Every cell in those tables is a claim to the human, and most of them
 arrive from a teammate's report rather than from something you
 observed — the `Doc Changes` list is `doc-updater`'s account of its
@@ -1331,10 +1350,11 @@ on the reviewer's severity line and the fixer's report. Fill them per
   broke it, so it is the review's finding by that round, and the
   human's contribution is that the theorem exists at all. Name which
   of those a finding is.
-- A discrepancy between an agent's report and what you observe gets
-  its own **Needs Your Attention** row, naming both versions. Silently
-  publishing whichever one you believe hides the discrepancy that was
-  the actual finding.
+- A discrepancy between an agent's report and what you observe that
+  your re-read of the territory could not settle gets its own **Needs
+  Your Attention** row, naming both versions. Silently publishing
+  whichever one you believe hides the discrepancy that was the actual
+  finding.
 
 ---
 
@@ -1512,7 +1532,8 @@ itself:
   agent-owned work. See "Issue-status transitions" below and the
   `/issue-*` namespace rule for the general "prefer the skill"
   principle.
-- **File follow-up issues via `/issue-create`.** It sets type,
+- **File follow-up issues via `/issue-create`** — only when the human
+  asks for the issue, never on an observation you held. It sets type,
   priority, size, status, project-board entry, and assignee from
   repo-config in one shot, so the issue is fully configured before the
   URL is printed. Raw `gh issue create` is **not** a substitute —
@@ -1530,9 +1551,10 @@ itself:
   Run `/issue-view <new-N>` and confirm that `type`, the configured
   slot fields (`priority`, `size`, `status`), and the assignee are
   populated as repo-config requires. If any required field is empty
-  when repo-config says it should be populated, surface the mismatch
-  in the final report's **Needs Your Attention** section rather than
-  declaring the follow-up issue filed. The check is cheap (one
+  when repo-config says it should be populated, report the mismatch in
+  the reply to the request that filed the issue rather than declaring
+  the follow-up issue filed — the human is already in that turn, so
+  nothing is held. The check is cheap (one
   `/issue-view` call) and catches the case where `/issue-create`
   silently skipped a step. The post-verify is **not** redundant with
   `/issue-create`'s own output checklist: verifying your own output
