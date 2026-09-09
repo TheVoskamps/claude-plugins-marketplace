@@ -866,7 +866,8 @@ verdictless return is indistinguishable from a finished review unless
 you check for the verdict block. Check on every return. A verdictless
 return that posted no review is not an escalation: the reviewer is not
 stopping to ask you anything, and step 3 re-spawns it without asking.
-One that *did* post a review is an escalation — step 1 says why.
+One that *did* post a review stops the loop until the human rules on
+it — step 1 says why.
 
 Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
@@ -900,19 +901,20 @@ responses, so read what the report **says** before you act on it:
    that question is what gets the **Needs Your Attention** row, and
    you act on neither version until the human has ruled on it. Acting
    on neither version is where the loop stops: spawn no `issue-fixer`
-   and re-spawn no reviewer, and wait for the ruling as you would at
-   any other escalation. A re-spawn derives a fresh round from the
+   and re-spawn no reviewer, and let it sit until the ruling arrives.
+   A re-spawn derives a fresh round from the
    live review count, so it would run that round on top of the very
    output you have just asked the human to rule on, and carry its
    records forward as though nothing had been questioned.
 
    The ruling settles how the loop resumes. Ruled trustworthy, the
-   round stands: read its findings off the PR itself, since the report
-   that should have carried them did not, and write the fixer brief
-   from what the posted review says. Ruled untrustworthy, re-spawn the
-   reviewer over the same PR — the new round supersedes the questioned
-   one, and its verdicts and findings are what the loop carries
-   forward.
+   round stands: read the review off the PR itself, since the report
+   that should have carried it did not, and take the path this section
+   gives for the verdict that review carries — APPROVED spawns no
+   fixer, and NEEDS_CHANGES gets a brief written from the findings the
+   review states. Ruled untrustworthy, re-spawn the reviewer over the
+   same PR — the new round supersedes the questioned one, and its
+   verdicts and findings are what the loop carries forward.
 
    Steps 2-4 below are the no-review-posted path, and run only when
    the re-read found none.
@@ -1506,12 +1508,13 @@ on the reviewer's severity line and the fixer's report. Fill them per
   `theorem-disprover` and `counterexample-verifier` agents its
   fan-outs spawned, at whatever generator tier; the `doc-updater` pass
   that precedes each one is not a review and never counts against the
-  cap. A spawn that returned without a verdict block posted nothing
-  and does not count either — an in-progress status or a broken
-  `sdlc-agent-result-persist` call alike (see "Handling review
-  findings — the fix loop"):
+  cap. A spawn that posted no review does not count either — an
+  in-progress status or a broken `sdlc-agent-result-persist` call
+  alike (see "Handling review findings — the fix loop"):
   charging the budget for a spawn that checked nothing spends the
-  loop's headroom on it.
+  loop's headroom on it. What settles it is the review, not the
+  report: a spawn that returned without a verdict block having posted
+  a review anyway counts, because the review is there.
 
 ### What the orchestrator IS allowed to do
 
