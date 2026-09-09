@@ -898,11 +898,14 @@ responses, so read what the report **says** before you act on it:
    "Report-consumption principle". What the re-read cannot settle is
    whether that round's output can be trusted — a reviewer wrong about
    whether it posted a review may be wrong about what is in it — so
-   that question is what gets the **Needs Your Attention** row, and
-   you act on neither version until the human has ruled on it. Acting
-   on neither version is where the loop stops: spawn no `issue-fixer`
-   and re-spawn no reviewer, and let it sit until the ruling arrives.
-   A re-spawn derives a fresh round from the
+   that question goes to the human in the round's report, in
+   conversation, where this skill puts every other mid-loop question:
+   state the discrepancy and the two rulings open to them — the round
+   stands, or it is re-run — and wait. It gets a **Needs Your
+   Attention** row only when the human ends the run without ruling on
+   it. Waiting is where the loop stops: act on neither version, spawn
+   no `issue-fixer` and re-spawn no reviewer, and let it sit until the
+   ruling arrives. A re-spawn derives a fresh round from the
    live review count, so it would run that round on top of the very
    output you have just asked the human to rule on, and carry its
    records forward as though nothing had been questioned.
