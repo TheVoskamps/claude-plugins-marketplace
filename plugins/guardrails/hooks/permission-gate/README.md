@@ -265,9 +265,19 @@ The gate's engines feed that decision:
   reads `cd '~'` as a directory literally named `~` under the current
   directory, whose `cd` normally fails and leaves the cwd where it was.
   So a relative operand after `cd '~'` is graded against `$HOME` rather
-  than the unchanged cwd — wider than bash, and on a machine whose home
-  is outside the worktree that is the direction that loses the allow
-  track rather than gaining one. A `cd` inside a `( … )`
+  than the unchanged cwd — wider than bash, and **in neither direction
+  reliably**: on a machine whose home is outside the worktree the
+  over-approximation loses the allow track, while a `$HOME` that itself
+  lies under a sanctioned root can hand a relative write operand an
+  `allow` where the unchanged, bash-real cwd earns a deny as a worktree
+  escape. No full event reaches an approval that way today, but what
+  prevents it is the aggregate rather than the `cd` arm: the
+  unclassified `cd` residual caps every line of this shape at a defer.
+  The **backslash-escaped** `cd \~` is a third spelling and is covered
+  by neither: the backslash survives expansion, so the operand
+  relative-joins a literal `\~` segment onto the tracked cwd. That is
+  bounded rather than repaired — the join keeps the fabricated path
+  under the already-tracked parent. A `cd` inside a `( … )`
   subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
   the static-variable scope discipline above. Each `cd` also records the
@@ -1680,15 +1690,22 @@ The gate's engines feed that decision:
   match whatever the globs say — the cleaning removes the `..` segments
   and the result no longer carries the root prefix — and a glob
   containing `..` is dead for the same reason. The self-write deny
-  below is the one comparison that does canonicalize both sides.
+  below is the one comparison that does resolve both sides.
 
   **These denies hold whatever the file says**, and together they are
   what bounds the environment-variable opt-in. (1) Nothing under a
   `.git/` segment is handed out, read or write, on any root. (2) No
   **write** to this config file itself is allowed — at its literal load
   path or at the resolved `config-home/guardrails/config.yml` —
-  compared canonically, so a symlinked copy and a symlinked ancestor
-  are covered too. Without (2) a `home: write: ['**']` entry would let
+  compared by asking the filesystem whether the two spellings name one
+  file (`os.SameFile` on the resolved paths, with the canonical strings
+  as the fallback for a target that does not exist yet), so a symlinked
+  copy, a symlinked ancestor and a case-varied spelling on a
+  case-insensitive filesystem are covered too. A string comparison
+  alone was not enough: `filepath.EvalSymlinks` returns the caller's
+  casing, so `CONFIG.YML` and `config.yml` — one file, on the macOS
+  default filesystem — canonicalize to strings that differ. Without (2)
+  a `home: write: ['**']` entry would let
   the gate's own policy be rewritten by the calls it is adjudicating. A
   **read** of the config file is untouched by (2) and is allowed when
   listed.

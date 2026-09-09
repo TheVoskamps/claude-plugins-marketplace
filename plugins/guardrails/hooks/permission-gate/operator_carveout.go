@@ -104,8 +104,8 @@ type operatorCarveOut struct {
 	roots []carveOutRoot
 	// selfWritePaths are the spellings of this config file — its literal load
 	// path, and the one under the resolved config-home when that differs. A
-	// write to either is refused whatever the globs say, compared canonically so
-	// a symlinked copy is covered too.
+	// write to either is refused whatever the globs say, compared by filesystem
+	// identity so a symlinked copy and a case-varied spelling are covered too.
 	selfWritePaths []string
 }
 
@@ -268,13 +268,34 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 // it, or a symlinked ancestor, must not route around it. A `home: write: ['**']`
 // entry would otherwise let the gate's own policy be rewritten by the calls it
 // is adjudicating.
+//
+// The comparison asks the FILESYSTEM whether two spellings name one file, via
+// os.SameFile, and falls back to the canonical strings only when a side does
+// not exist. A string comparison alone is bypassable by letter case: on a
+// case-insensitive filesystem — the macOS default — `CONFIG.YML` names the same
+// file as `config.yml`, and filepath.EvalSymlinks hands back the caller's own
+// casing rather than the name on disk, so the two canonicalize to strings that
+// differ. Asking the filesystem covers whatever normalization it applies (case
+// folding, and Unicode forms a case-folding comparison would still miss) and
+// weakens nothing on a case-sensitive one, where a case-varied spelling either
+// does not exist or is a genuinely different file with a different inode. The
+// string fallback is what still catches a not-yet-created target, e.g. a write
+// to the config-home spelling on a machine that has no file there.
 func (c operatorCarveOut) isSelfWrite(target string, base string) bool {
 	real := canonicalizeFrom(target, base)
 	if real == "" {
 		return false
 	}
+	realInfo, realErr := os.Stat(real)
 	for _, p := range c.selfWritePaths {
-		if canonicalizeFrom(p, "") == real {
+		self := canonicalizeFrom(p, "")
+		if self == real {
+			return true
+		}
+		if realErr != nil {
+			continue
+		}
+		if selfInfo, err := os.Stat(self); err == nil && os.SameFile(realInfo, selfInfo) {
 			return true
 		}
 	}

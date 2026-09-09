@@ -676,7 +676,14 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 		switch {
 		case filepath.IsAbs(lit):
-			runningCWD = lit
+			// Cleaned, not verbatim, for the reason the two arms below Clean:
+			// the tracked cwd is handed to `$PWD` unmodified, so `cd /tmp/`
+			// would otherwise track a trailing slash bash's own $PWD never
+			// carries and `"$PWD"x` would resolve as /tmp/x rather than /tmpx.
+			// This is also the arm an UNQUOTED `cd ~` takes, since literalWord
+			// tilde-expands it upstream (pinned by
+			// TestCdTrackingAbsoluteCdTracksCleanedPath).
+			runningCWD = filepath.Clean(lit)
 		case hasLeadingTilde(lit):
 			home, err := resolver.homeDir()
 			if err != nil || home == "" {
@@ -688,12 +695,24 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// absolute and takes the case above. What arrives here is `cd '~'`
 			// or `cd "~/x"`, which bash does NOT tilde-expand — it looks for a
 			// directory literally named `~` under the cwd, and unless one exists
-			// the `cd` fails and the cwd does not move. Resolving it to $HOME
-			// anyway is a deliberate over-approximation: it grades later
-			// relative operands against home rather than against the unchanged
-			// cwd, and on a machine whose home is outside the worktree that is
-			// the direction that loses the allow track rather than gaining one.
-			// See the README's cd-tracking section.
+			// the `cd` fails and the cwd does not move. A BACKSLASH-escaped
+			// `cd \~` is not covered either: the backslash survives expansion,
+			// so `lit` is `\~`, this guard is false, and the operand
+			// relative-joins a literal `\~` segment onto the tracked cwd. That
+			// spelling is bounded rather than repaired — filepath.Join keeps the
+			// fabricated path under the already-tracked parent, so nothing
+			// escapes what that parent already allowed.
+			//
+			// Resolving the quoted spelling to $HOME anyway is a deliberate
+			// over-approximation: it grades later relative operands against home
+			// rather than against the unchanged cwd. It does not hold to one
+			// direction. On a machine whose home is outside the worktree it
+			// loses the allow track; where $HOME itself lies under a sanctioned
+			// root it can hand a relative write operand an `allow` where the
+			// unchanged, bash-real cwd earns a deny as a worktree escape. What
+			// keeps that off the allow track today is the aggregate rather than
+			// this arm: the unclassified `cd` residual caps every line of this
+			// shape at DEFER. See the README's cd-tracking section.
 			//
 			// ok is already established by the case guard plus a non-empty home.
 			// The result is home Cleaned, not verbatim, so a $HOME carrying a

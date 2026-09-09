@@ -383,6 +383,53 @@ config-home:
 	wantBucket(t, d, BucketAllow, "a read of the carve-out's own config file")
 }
 
+// TestOperatorCarveOutRefusesSelfWriteByCase varies LETTER CASE and nothing
+// else. On a case-insensitive filesystem — the macOS default, so the default
+// posture for this marketplace's own machines — `CONFIG.YML` names the very
+// file `config.yml` does, and a comparison of canonicalized strings misses it
+// (filepath.EvalSymlinks returns the caller's casing, not the name on disk), so
+// the widest possible `**` entry handed out a write to the gate's own policy.
+//
+// The filesystem, not the test's guess about the platform, decides which
+// assertion applies: an os.Stat of the varied spelling answers whether the two
+// name one file here. Both branches assert, so neither platform is left
+// unmeasured — and the case-sensitive branch is what pins that the fix did not
+// widen the deny onto a genuinely different file.
+func TestOperatorCarveOutRefusesSelfWriteByCase(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+	writeCarveOutConfig(t, home, `schema-version: 2
+config-home-default: ~/.config
+home:
+  write:
+    - '**'
+`)
+	literal := filepath.Join(home, ".config", "guardrails", "config.yml")
+	varied := filepath.Join(filepath.Dir(literal), "CONFIG.YML")
+
+	// The baseline the varied spelling is measured against: the exact spelling
+	// denies on every filesystem, so a deny below is about case and not about
+	// the entry failing to cover the path at all.
+	if d := fileToolVerdict(t, "Write", repo, literal); d.Bucket == BucketAllow {
+		t.Fatalf("a write to the config file's own spelling must not ALLOW; got %q (%s)", d.Bucket, d.Reason)
+	}
+
+	d := fileToolVerdict(t, "Write", repo, varied)
+	if _, err := os.Stat(varied); err == nil {
+		if d.Bucket == BucketAllow {
+			t.Errorf("a write to %q, which names the same file as %q on this filesystem, must not ALLOW; got %q (%s)",
+				varied, literal, d.Bucket, d.Reason)
+		}
+		return
+	}
+	// Case-sensitive: the varied spelling names a file that does not exist and
+	// is not this config, so the `**` entry covers it as it covers any other
+	// path under home.
+	wantBucket(t, d, BucketAllow, "a write to a case-varied name on a case-sensitive filesystem")
+}
+
 // A `..` walk out of a carve-out root cannot match, whatever the globs say: the
 // remainder is taken from a lexically-cleaned path, so a target that climbs out
 // of the root no longer carries the root prefix. The sibling repo it climbs
@@ -517,7 +564,7 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	}
 	c = loadOperatorCarveOutFrom(path)
 	if len(c.roots) != 3 {
-		t.Errorf("expected all three roots to resolve; got %+v", c)
+		t.Errorf("expected every root this config spells to resolve; got %+v", c)
 	}
 	// The self-write paths are the literal load path (here the fixture's own,
 	// since that is what was passed in) plus the resolved config-home spelling.

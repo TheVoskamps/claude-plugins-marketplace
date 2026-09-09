@@ -268,8 +268,8 @@ func TestCdTrackingPreservedGuarantees(t *testing.T) {
 // verbatim. The tracked cwd is handed to `$PWD` unmodified, so the trailing
 // slash would otherwise reach concatenation — `"$PWD"x` would resolve as
 // <home>/x rather than <home>x. Bash agrees with the Cleaned spelling: its own
-// $PWD carries no trailing slash after a successful cd (measured: `cd /tmp/`
-// then `echo "$PWD"` prints `/tmp`, in bash and zsh alike).
+// $PWD carries no trailing slash after a successful cd (measured in bash:
+// `cd /tmp/` then `echo "$PWD"` prints `/tmp`).
 //
 // The QUOTED spelling is what this exercises, and it is the only one that
 // reaches applyCd's tilde branch: literalWord expands an unquoted `cd ~`
@@ -328,5 +328,48 @@ func TestCdTrackingBareCdTracksCleanedHome(t *testing.T) {
 	}
 	if len(catCmd.args) != 2 || catCmd.args[1] != want+"x" {
 		t.Errorf("concatenated $PWD operand = %v, want [cat %q]", catCmd.args, want+"x")
+	}
+}
+
+// TestCdTrackingAbsoluteCdTracksCleanedPath pins the third arm of the same
+// class: an absolute `cd` operand is tracked CLEANED, not verbatim. `cd /tmp/`
+// otherwise leaves the trailing slash in the tracked cwd, which reaches `$PWD`
+// concatenation unmodified, so `"$PWD"x` resolves as /tmp/x where bash yields
+// /tmpx (measured in bash: `cd /tmp/` then `echo "$PWD"x` prints `/tmpx`).
+//
+// The second row is the spelling that makes this arm the tilde branch's
+// sibling: an UNQUOTED `cd ~` never reaches applyCd's tilde case, because
+// literalWord tilde-expands it upstream and the result arrives absolute here.
+// So a $HOME carrying a trailing slash rides this arm, not the one the two
+// tests above exercise.
+func TestCdTrackingAbsoluteCdTracksCleanedPath(t *testing.T) {
+	_, wt := setupWorktree(t)
+
+	home := t.TempDir() + string(filepath.Separator)
+
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{"trailing slash on a literal absolute path", "cd /tmp/ && cat \"$PWD\"x", "/tmp"},
+		{"unquoted tilde under a trailing-slash $HOME", "cd ~ && cat \"$PWD\"x", filepath.Clean(home)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmds, err := extractSimpleCommands(mustParse(t, tc.cmd), wt, fakeResolver(home, nil, nil), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cmds) != 2 {
+				t.Fatalf("expected 2 simple commands, got %d: %+v", len(cmds), cmds)
+			}
+			catCmd := cmds[1]
+			if catCmd.cwd != tc.want {
+				t.Errorf("tracked cwd = %q, want %q (Cleaned, not verbatim)", catCmd.cwd, tc.want)
+			}
+			if len(catCmd.args) != 2 || catCmd.args[1] != tc.want+"x" {
+				t.Errorf("concatenated $PWD operand = %v, want [cat %q]", catCmd.args, tc.want+"x")
+			}
+		})
 	}
 }
