@@ -185,10 +185,6 @@ is the thing to fix.
   — read before asserting what a claude-vm launch, image build or guest
   does. Kernel: probe the real hypervisor, kernel and launcher; a green
   fixture-driven suite has measured the fixture.
-- [`docs/prose-claim-shapes.md`](docs/prose-claim-shapes.md) — read
-  before grading prose, and add to it when a round turns up a new shape.
-  Kernel: it collects sentences that go false while every test stays
-  green; a sentence that was simply wrong when written is not one.
 - [`docs/agent-tooling-notes.md`](docs/agent-tooling-notes.md) — read
   when a command here succeeds but the result surprises you. Kernel: the
   Bash tool's shell is zsh, `gh`'s GraphQL verbs can fail while REST is
