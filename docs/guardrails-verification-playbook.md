@@ -160,10 +160,13 @@ rather than every `XDG_*` one. A prefix that does run buys nothing
 either: the gate reads either variable only when the driving machine's
 own `~/.config/guardrails/config.yml` says
 `resolve-xdg-environment-variables: yes` — a file outside the repo,
-which the gate itself refuses every write to. So the relocated root a
-replay could point at still carries whatever globs that machine's
-operator wrote, and a machine with no such file resolves no root from
-the variable at all.
+which the gate denies every **file-tool** write to. A Bash redirect at
+it is not the gate's to refuse and **defers** — measured, a
+`printf x > <that literal path>` event abstains — so what stops that
+route is the outside-the-repo approval policy rather than a gate
+verdict. Either way the relocated root a replay could point at still
+carries whatever globs that machine's operator wrote, and a machine
+with no such file resolves no root from the variable at all.
 
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
