@@ -43,7 +43,8 @@ canonical read sequence and abort messages for
 - `--add-assignees` / `--remove-assignees` (optional): comma-separated
   GitHub usernames to add or remove. Either flag also accepts the
   literal token `@me` in place of a login, resolved before the edit
-  per step 1 of "Execution (GitHub backend)" below.
+  per the `@me` resolution that opens "Execution (GitHub backend)"
+  below.
 
 At least one update flag must be passed. If none are present, abort
 with a short usage reminder.
@@ -121,7 +122,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 
    Capture the pre-edit assignee logins (as a set of strings) and
    label names (as a set of strings) for later use in the post-edit
-   delta check. The pre-edit body, if fetched, feeds step 3.
+   delta check. The pre-edit body, if fetched, feeds the body
+   computation below.
 
 3. **Compute the new body**:
    - If `--body-file`: read the file. That's the new body.
@@ -186,7 +188,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      `gh issue view <N> --json assignees,labels` when both kinds were
      touched, or `--json assignees` when only assignee flags ran.
    - **Compute the actual deltas** against the pre-edit sets captured
-     in step 2:
+     in the pre-edit fetch:
      - actual-added-assignees = post − pre
      - actual-removed-assignees = pre − post
      - actual-added-labels = post − pre
@@ -241,9 +243,9 @@ one summary line shows.
 
 The "labels added", "labels removed", "assignees added", and
 "assignees removed" lines reflect what **actually landed** on the
-issue per the post-edit delta check (step 6 of Execution), not the
-raw CLI input. A requested login or label that didn't land does
-**not** appear on the corresponding "added"/"removed" line; it is
+issue per the post-edit delta check in "Execution (GitHub backend)",
+not the raw CLI input. A requested login or label that didn't land
+does **not** appear on the corresponding "added"/"removed" line; it is
 surfaced on its own mismatch line instead. If every requested
 login/label in a given add/remove direction failed to land, the
 corresponding line is omitted entirely (since nothing actually
