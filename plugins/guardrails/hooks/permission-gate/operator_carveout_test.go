@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -248,57 +249,76 @@ func TestOperatorCarveOutFailsClosed(t *testing.T) {
 // so the gate and the plugins agree on every machine. The relocated directory
 // is outside the fake home entirely, so the allow can only come from the
 // variable having been followed.
+//
+// Both relocatable roots run the whole matrix. The config home and the state
+// home carry their own variable, their own `<root>-default` spelling and their
+// own glob list, and only the config home also feeds the self-write deny — so
+// a pass on one establishes nothing about the other, and the state home is the
+// root the literal ~/.config pin could not reach at all.
 func TestOperatorCarveOutXDGEnvironmentOptIn(t *testing.T) {
-	const optIn = `schema-version: 2
-resolve-xdg-environment-variables: yes
-config-home-default: ~/.config
-config-home:
-  write:
-    - cc-tools/**
-`
-	const optOut = `schema-version: 2
-config-home-default: ~/.config
-config-home:
-  write:
-    - cc-tools/**
-`
+	roots := map[string]struct {
+		envName string
+		// key is the root's block in the config file; its `<root>-default`
+		// spelling is key+"-default".
+		key string
+		// defaultSpelling is that spelling as the file gives it, and defaultRel
+		// is where it lands under the fake home.
+		defaultSpelling string
+		defaultRel      string
+		// listed is the subtree listed under the root, named for the plugin
+		// whose files actually live there.
+		listed string
+	}{
+		"config home": {xdgConfigHomeEnv, "config-home", "~/.config", ".config", "cc-tools"},
+		"state home":  {xdgStateHomeEnv, "state-home", "~/.local/state", filepath.Join(".local", "state"), "sdlc"},
+	}
 	cases := map[string]struct {
-		config string
-		// env is the $XDG_CONFIG_HOME value; "" is the unset-or-empty case.
-		env          string
+		optIn bool
+		// setEnv sets the root's variable to the relocated directory; without
+		// it the variable stays as carveOutFixture left it, i.e. empty.
+		setEnv       bool
 		relocated    Bucket
 		underDefault Bucket
 	}{
 		// Opted in with the variable set: the relocated root is live and the
-		// `config-home-default` spelling is not.
-		"opt-in, variable set": {optIn, "relocated", BucketAllow, BucketDeny},
+		// `<root>-default` spelling is not.
+		"opt-in, variable set": {true, true, BucketAllow, BucketDeny},
 		// Opted in with the variable empty: the default spelling decides.
-		"opt-in, variable empty": {optIn, "", BucketDeny, BucketAllow},
+		"opt-in, variable empty": {true, false, BucketDeny, BucketAllow},
 		// Not opted in: the variable is ignored even when set.
-		"opt-out, variable set": {optOut, "relocated", BucketDeny, BucketAllow},
+		"opt-out, variable set": {false, true, BucketDeny, BucketAllow},
 	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			base := t.TempDir()
-			repo := filepath.Join(base, "repo")
-			gitInit(t, repo)
-			home := carveOutFixture(t, base, "repo")
-			writeCarveOutConfig(t, home, tc.config)
+	for rootName, root := range roots {
+		for name, tc := range cases {
+			t.Run(rootName+", "+name, func(t *testing.T) {
+				config := "schema-version: 2\n"
+				if tc.optIn {
+					config += "resolve-xdg-environment-variables: yes\n"
+				}
+				config += fmt.Sprintf("%s-default: %s\n%s:\n  write:\n    - %s/**\n",
+					root.key, root.defaultSpelling, root.key, root.listed)
 
-			relocated := filepath.Join(base, "relocated")
-			if err := os.MkdirAll(filepath.Join(relocated, "cc-tools"), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if tc.env != "" {
-				t.Setenv(xdgConfigHomeEnv, relocated)
-			}
+				base := t.TempDir()
+				repo := filepath.Join(base, "repo")
+				gitInit(t, repo)
+				home := carveOutFixture(t, base, "repo")
+				writeCarveOutConfig(t, home, config)
 
-			d := fileToolVerdict(t, "Write", repo, filepath.Join(relocated, "cc-tools", "x.md"))
-			wantBucket(t, d, tc.relocated, "write under the relocated config home")
+				relocated := filepath.Join(base, "relocated")
+				if err := os.MkdirAll(filepath.Join(relocated, root.listed), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if tc.setEnv {
+					t.Setenv(root.envName, relocated)
+				}
 
-			d = fileToolVerdict(t, "Write", repo, filepath.Join(home, ".config", "cc-tools", "x.md"))
-			wantBucket(t, d, tc.underDefault, "write under the default config home")
-		})
+				d := fileToolVerdict(t, "Write", repo, filepath.Join(relocated, root.listed, "x.md"))
+				wantBucket(t, d, tc.relocated, "write under the relocated "+rootName)
+
+				d = fileToolVerdict(t, "Write", repo, filepath.Join(home, root.defaultRel, root.listed, "x.md"))
+				wantBucket(t, d, tc.underDefault, "write under the default "+rootName)
+			})
+		}
 	}
 }
 
@@ -541,6 +561,24 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	// list, leaving only the literal load path.
 	if len(c.selfWritePaths) != 1 || c.selfWritePaths[0] != path {
 		t.Errorf("expected only the literal load path as a self-write path; got %+v", c.selfWritePaths)
+	}
+
+	// `~someone/config` is a username reference this gate does not resolve, so
+	// it is still relative when the absolute test runs and the root drops on
+	// exactly the same terms as `.config` above. Only `~` and `~/` expand, and
+	// the README says so where it says a default spelling may start with `~`.
+	if err := os.WriteFile(path, []byte(
+		"schema-version: 2\nconfig-home-default: ~someone/config\nstate-home-default: ~/.local/state\n"+
+			"config-home:\n  write:\n    - cc-tools/**\nstate-home:\n  write:\n    - sdlc/**\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	c = loadOperatorCarveOutFrom(path)
+	if len(c.roots) != 1 {
+		t.Fatalf("a `~someone`-spelled config-home-default must drop that root; got %+v", c)
+	}
+	if want := filepath.Join(home, ".local", "state"); c.roots[0].path != want {
+		t.Errorf("the surviving root = %q, want the state home %q", c.roots[0].path, want)
 	}
 
 	// A stamp ABOVE the pin is read for the keys this version documents, per

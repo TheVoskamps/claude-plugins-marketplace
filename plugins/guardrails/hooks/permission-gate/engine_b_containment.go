@@ -222,6 +222,39 @@ func canonicalize(p string) string {
 	return canonicalizeFrom(p, "")
 }
 
+// hasLeadingTilde reports whether p is spelled `~` or `~/…`, the only two
+// shapes this gate expands. `~other/x` is a username reference it does not
+// resolve, so it is left alone rather than expanded against the current user's
+// home.
+//
+// This is the package's one spelling of that test, and three call sites need
+// the same answer out of it: applyCd's `cd ~` case (engine_a_bash.go),
+// canonicalizeFromResolver below, and both sides of the operator carve-out's
+// lexical match (operator_carveout.go) — a carve-out root that expanded a
+// shape its targets did not would strip a prefix the target never carried.
+// What the three do NOT share is the home lookup or the handling of an
+// unresolvable home, because failing closed means something different at each:
+// applyCd invalidates the running cwd, canonicalizeFromResolver raises
+// unresolvedTilde while keeping the literal for display, and the carve-out
+// drops the root along with every glob listed under it.
+func hasLeadingTilde(p string) bool {
+	return p == "~" || strings.HasPrefix(p, "~/")
+}
+
+// expandLeadingTilde joins a leading `~` or `~/` onto home, and returns a
+// spelling carrying neither unchanged. ok=false means the spelling names the
+// home directory but home is unknown — a substitution no caller can make, so
+// each caller's own fail-closed handling takes it from there.
+func expandLeadingTilde(spelling string, home string) (string, bool) {
+	if !hasLeadingTilde(spelling) {
+		return spelling, true
+	}
+	if home == "" {
+		return "", false
+	}
+	return filepath.Join(home, strings.TrimPrefix(spelling, "~")), true
+}
+
 // canonicalizeFrom is canonicalize with an explicit base directory for the
 // relative-join step. A relative p is joined onto base (via
 // filepath.Join, so base need not itself be absolute — canonicalizeFrom
@@ -283,9 +316,10 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 	if p == "" {
 		return p, false
 	}
-	if p == "~" || strings.HasPrefix(p, "~/") {
+	if hasLeadingTilde(p) {
 		if home, err := homeDir(); err == nil && home != "" {
-			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+			// ok is already established by the guard plus a non-empty home.
+			p, _ = expandLeadingTilde(p, home)
 		} else {
 			unresolvedTilde = true
 		}

@@ -673,17 +673,14 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		switch {
 		case filepath.IsAbs(lit):
 			runningCWD = lit
-		case lit == "~" || strings.HasPrefix(lit, "~/"):
+		case hasLeadingTilde(lit):
 			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				runningCWDInvalid = true
 				return
 			}
-			if lit == "~" {
-				runningCWD = home
-			} else {
-				runningCWD = filepath.Join(home, strings.TrimPrefix(lit, "~/"))
-			}
+			// ok is already established by the case guard plus a non-empty home.
+			runningCWD, _ = expandLeadingTilde(lit, home)
 		case runningCWDInvalid:
 			// Cannot safely join a relative target onto an already-invalid cwd.
 			return

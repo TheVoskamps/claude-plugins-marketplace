@@ -1624,11 +1624,17 @@ The gate's engines feed that decision:
   and non-empty — the same test `docs/config-file-conventions.md` gives
   the plugins, so the gate and the plugins agree in the empty case too
   — and otherwise the file's own `config-home-default` /
-  `state-home-default` spelling, which may start with `~`. **There are
-  no hidden built-in defaults:** a root the file gives no usable
-  spelling for does not exist, and every glob listed under it is dead.
-  A relative spelling is not usable either — the remainder would then
-  depend on the calling session's cwd.
+  `state-home-default` spelling. That spelling may start with `~` or
+  `~/`, expanded against `os.UserHomeDir()`, and with **no other tilde
+  shape**: `~someone/state` is a username reference this gate does not
+  resolve, so it stays relative and the root is unusable, exactly as a
+  plain `state/` would be. **There are no hidden built-in defaults:** a
+  root the file gives no usable spelling for does not exist, and every
+  glob listed under it is dead. A relative spelling is not usable
+  either — the remainder would then depend on the calling session's
+  cwd. Both unusable cases are **silent**: the carve-out has nowhere to
+  report a broken spelling to, so a root that reads as configured hands
+  out nothing, and the tell is the deny the listed path still earns.
 
   **Absent, unreadable, malformed, or stamped below `schema-version: 2`
   → no usable entry anywhere → today's behaviour**, on every path. The
@@ -1683,7 +1689,15 @@ The gate's engines feed that decision:
   the variable is refused: in practice the hook inherits the launcher's
   environment, so the only same-session route to a relocated root is a
   nested `claude` launch from the Bash tool with an `XDG_*` assignment
-  in front of it, and the two denies bound what that could reach. The
+  in front of it, and the two denies bound what that could reach.
+  **No rule against that launch was added, deliberately** — the gate
+  neither denies nor detects an `XDG_*` assignment in front of a nested
+  `claude`. It would be adjudicating an assignment on a command line
+  whose effect on a root it cannot see, in a session it does not
+  adjudicate; the operator who wrote
+  `resolve-xdg-environment-variables: yes` accepted that exposure, and
+  the `.git/` and self-write denies are what bounds it. A PR that wants
+  such a rule is adding one, not restoring one. The
   `harnessScratchDir` literal is a different case and stays a literal —
   no operator file names it, and the region it designates is safe by
   construction rather than by enumeration.

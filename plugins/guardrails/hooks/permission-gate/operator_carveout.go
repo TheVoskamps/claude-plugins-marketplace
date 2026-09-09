@@ -221,27 +221,6 @@ func absoluteRootPath(spelling string, home string) string {
 	return filepath.Clean(spelling)
 }
 
-// expandLeadingTilde joins a leading `~` or `~/` onto home, and returns a
-// spelling carrying neither unchanged. ok=false means the spelling names the
-// home directory but home is unknown, which no caller can substitute anything
-// for.
-//
-// Both the root spellings the operator's file gives and the targets the gate
-// adjudicates are expanded here, so the tilde test cannot be allowed to differ
-// between them: `~other/x` is a username reference this gate does not resolve,
-// and a root that expanded one while a target did not would strip a prefix the
-// target never carried. Where the two callers do differ is in the home they
-// pass and in what each does with a spelling that is still not absolute.
-func expandLeadingTilde(spelling string, home string) (string, bool) {
-	if spelling != "~" && !strings.HasPrefix(spelling, "~/") {
-		return spelling, true
-	}
-	if home == "" {
-		return "", false
-	}
-	return filepath.Join(home, strings.TrimPrefix(spelling, "~")), true
-}
-
 // empty reports whether the carve-out can allow nothing at all — no root with
 // anything listed under it. Callers use it to skip the match entirely, which is
 // the common case on a machine with no config file.
