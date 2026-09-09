@@ -645,14 +645,18 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			return // scoped cd does not persist (mirrors recordAssign)
 		}
 		if len(call.Args) == 1 {
-			// Bare `cd` (no argument) goes to $HOME.
+			// Bare `cd` (no argument) goes to $HOME. It tracks home Cleaned for
+			// the same reason the quoted-tilde case below does: the tracked cwd
+			// is handed to `$PWD` unmodified, so a $HOME carrying a trailing
+			// slash would otherwise reach concatenation (pinned by
+			// TestCdTrackingBareCdTracksCleanedHome).
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				runningCWDInvalid = true
 				return
 			}
-			runningCWD = home
+			runningCWD = filepath.Clean(home)
 			runningCWDInvalid = false
 			return
 		}
@@ -679,10 +683,23 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				runningCWDInvalid = true
 				return
 			}
+			// Only a QUOTED tilde reaches here: literalWord expands an unquoted
+			// `cd ~` / `cd ~/x` upstream, so that spelling arrives already
+			// absolute and takes the case above. What arrives here is `cd '~'`
+			// or `cd "~/x"`, which bash does NOT tilde-expand — it looks for a
+			// directory literally named `~` under the cwd, and unless one exists
+			// the `cd` fails and the cwd does not move. Resolving it to $HOME
+			// anyway is a deliberate over-approximation: it grades later
+			// relative operands against home rather than against the unchanged
+			// cwd, and on a machine whose home is outside the worktree that is
+			// the direction that loses the allow track rather than gaining one.
+			// See the README's cd-tracking section.
+			//
 			// ok is already established by the case guard plus a non-empty home.
-			// A bare `~` tracks home Cleaned, not verbatim, so a $HOME carrying a
-			// trailing slash reaches `$PWD` concatenation the way bash's own `cd ~`
-			// leaves it (pinned by TestCdTrackingBareTildeTracksCleanedHome).
+			// The result is home Cleaned, not verbatim, so a $HOME carrying a
+			// trailing slash cannot reach `$PWD` concatenation — bash's own $PWD
+			// carries no trailing slash after a successful cd (pinned by
+			// TestCdTrackingBareTildeTracksCleanedHome).
 			runningCWD, _ = expandLeadingTilde(lit, home)
 		case runningCWDInvalid:
 			// Cannot safely join a relative target onto an already-invalid cwd.

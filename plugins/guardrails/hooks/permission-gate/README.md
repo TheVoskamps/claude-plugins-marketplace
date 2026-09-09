@@ -259,7 +259,15 @@ The gate's engines feed that decision:
   or `cd -`) invalidates it, and every later command with a relative
   path operand in that scope **defers** rather than guessing (it can
   never ride the allow track — a later re-anchoring `cd` can clear the
-  invalid state, since bash itself would). A `cd` inside a `( … )`
+  invalid state, since bash itself would). The `~`-prefixed form is
+  taken as `$HOME` whether or not the tilde is quoted, which
+  **over-approximates** the quoted spelling: bash expands `cd ~` but
+  reads `cd '~'` as a directory literally named `~` under the current
+  directory, whose `cd` normally fails and leaves the cwd where it was.
+  So a relative operand after `cd '~'` is graded against `$HOME` rather
+  than the unchanged cwd — wider than bash, and on a machine whose home
+  is outside the worktree that is the direction that loses the allow
+  track rather than gaining one. A `cd` inside a `( … )`
   subshell, a function body, or a
   backgrounded group does not persist to the enclosing scope, mirroring
   the static-variable scope discipline above. Each `cd` also records the

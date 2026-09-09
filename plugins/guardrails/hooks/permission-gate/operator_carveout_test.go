@@ -8,8 +8,8 @@ import (
 )
 
 // carveOutFixture is a machine layout for the operator carve-out: a fake $HOME
-// whose ~/.config is one of the three shapes the acceptance criteria
-// distinguish. It returns the fake home.
+// whose ~/.config is one of the shapes the acceptance criteria distinguish. It
+// returns the fake home.
 //
 // configTarget selects the shape:
 //
@@ -19,7 +19,7 @@ import (
 //	"non-repo" — ~/.config is a symlink into a directory that is not a repo
 //
 // The verdict must not depend on which one is in play, which is exactly what
-// pinning all three establishes.
+// pinning every shape above establishes.
 //
 // Both XDG variables are cleared, so a test that does not set one exercises the
 // unset-or-empty case whatever the developer's own environment says. A test
@@ -104,11 +104,11 @@ func fileToolVerdict(t *testing.T, tool string, cwd string, path string) Decisio
 	})
 }
 
-// The reported bug and its fix, across all three ~/.config shapes. Without the
-// config file the read DENIES (that is the bug, and the negative control that
-// proves the allow below comes from the carve-out); with cc-tools/** listed it
-// ALLOWS, and the verdict does not depend on the git state of whatever
-// ~/.config resolves to.
+// The reported bug and its fix, across every ~/.config shape carveOutFixture
+// offers. Without the config file the read DENIES (that is the bug, and the
+// negative control that proves the allow below comes from the carve-out); with
+// cc-tools/** listed it ALLOWS, and the verdict does not depend on the git
+// state of whatever ~/.config resolves to.
 func TestOperatorCarveOutAllowsListedRead(t *testing.T) {
 	for _, shape := range []string{"plain", "repo", "non-repo"} {
 		t.Run(shape, func(t *testing.T) {
