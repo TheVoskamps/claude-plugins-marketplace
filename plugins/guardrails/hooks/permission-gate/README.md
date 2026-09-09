@@ -265,24 +265,28 @@ The gate's engines feed that decision:
   reads `cd '~'` as a directory literally named `~` under the current
   directory, whose `cd` normally fails and leaves the cwd where it was.
   So a relative operand after `cd '~'` is graded against `$HOME` rather
-  than the unchanged cwd — resolving where bash does not, but the
-  grading difference that results runs **in one direction only:
-  stricter**. On a machine whose `$HOME` is outside every sanctioned
-  root the operand is graded an out-of-repo escape and the line is
-  DENIED, where the same operand against the unchanged, bash-real cwd
-  would have ridden the in-repo-write allow (measured against this
-  branch's binary: `touch x` at a worktree cwd allows, while
-  `cd '~' && touch x` at that same cwd denies with the operand resolved
-  to `<home>/x`). The reverse cannot happen: the over-approximation
-  cannot hand an operand an approval the unchanged cwd would not have
-  earned, because a bare relative operand joined onto an in-worktree
-  base grades `contained` — itself allow-eligible on the write track,
-  and never a worktree escape — while a `$HOME` that does lie under a
-  sanctioned root grades the harness-scratch session region, which is
-  allow-eligible in the same way, so nothing widens. And no line of this
-  shape reaches an approval at all: the unclassified `cd` residual caps
-  it at a defer (measured: `cd <session scratchpad> && touch x` returns
-  the abstention envelope).
+  than the unchanged cwd — resolving where bash does not. The usual
+  direction is the strict one: on a machine whose `$HOME` is outside
+  every sanctioned root the operand is graded an out-of-repo escape and
+  the line is DENIED, where the same operand against the unchanged,
+  bash-real cwd would have ridden the in-repo-write allow (measured
+  against this branch's binary: `touch x` at a worktree cwd allows,
+  while `cd '~' && touch x` at that same cwd denies with the operand
+  resolved to `<home>/x`). It is **not one-directional**, though, and a
+  `..`-bearing operand is the counterexample: with a `$HOME` under this
+  worktree, `../x` off home grades `contained` while `../x` off the
+  unchanged worktree cwd grades `escapeWorktree`, a region that denies.
+  Only the strict direction is replayable — a replay cannot relocate
+  `$HOME`, so it measures whatever the driving machine's home happens to
+  be, which is why this arm reads as one-directional from a replay
+  alone. The region pair is a `testContainmentFrom` fact, and nothing
+  short of a package test over a fixture home can measure it.
+  What bounds the widening arm is therefore not the grading direction
+  but the **residual DEFER**: `cd` is an unclassified program, so every
+  line of this shape carries a no-specific-rule defer and none of them
+  can ride the allow track at all (measured: `cd <session scratchpad> &&
+  touch x` returns the abstention envelope). The shipped verdict does
+  not widen, whichever way the region moves.
   The **backslash-escaped** `cd \~` is a third spelling and is covered
   by neither: the backslash survives expansion, so the operand
   relative-joins a literal `\~` segment onto the tracked cwd. That is

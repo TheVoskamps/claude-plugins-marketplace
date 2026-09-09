@@ -717,20 +717,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			//
 			// Resolving the quoted spelling to $HOME anyway is a deliberate
 			// over-approximation: it grades later relative operands against home
-			// rather than against the unchanged cwd. The grading difference
-			// runs in ONE direction, and it is the strict one: with a home
-			// outside every sanctioned root the operand grades an out-of-repo
-			// escape and the line DENIES, where the unchanged, bash-real cwd
-			// would have ridden the in-repo-write allow. It cannot go the other
-			// way — a bare relative operand joined onto an in-worktree base
-			// grades `contained`, itself allow-eligible on the write track and
-			// never a worktree escape, and a home that does lie under a
-			// sanctioned root grades the harness-scratch session region, which
-			// is allow-eligible the same way, so there is no approval for this
-			// arm to hand out that the unchanged cwd would not have earned.
-			// Nothing of this shape reaches an approval regardless: the
-			// unclassified `cd` residual caps every such line at DEFER. See the
-			// README's cd-tracking section.
+			// rather than against the unchanged cwd. The usual direction is the
+			// strict one: with a home outside every sanctioned root the operand
+			// grades an out-of-repo escape and the line DENIES, where the
+			// unchanged, bash-real cwd would have ridden the in-repo-write allow.
+			// It is NOT one-directional, though, and a `..`-bearing operand is
+			// the counterexample: with a home under this worktree, `../x` off
+			// home grades `contained` while `../x` off the unchanged worktree cwd
+			// grades `escapeWorktree`, which denies. What bounds that arm is the
+			// residual DEFER and not the grading direction — `cd` is an
+			// unclassified program, so every line of this shape carries a
+			// no-specific-rule defer and none can ride the allow track. The
+			// shipped verdict does not widen whichever way the region moves. See
+			// the README's cd-tracking section.
 			//
 			// ok is already established by the case guard plus a non-empty home.
 			// The result is home Cleaned, not verbatim, so a $HOME carrying a

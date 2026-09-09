@@ -281,8 +281,24 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 // does not exist or is a genuinely different file with a different inode. The
 // string fallback is what still catches a not-yet-created target, e.g. a write
 // to the config-home spelling on a machine that has no file there.
+//
+// The target is put through lexicalAbs FIRST, so the deny sees the same
+// spelling `remainder` matches the globs against. Handing canonicalizeFrom the
+// raw target instead let a trailing separator through: `<...>/config.yml/` does
+// not exist, so the ancestor walk re-attached the tail onto the longest
+// existing ancestor and yielded `<...>/config.yml/config.yml`, which matched
+// neither self spelling and which os.Stat then failed on, skipping the identity
+// check as well — while `remainder` Cleaned the separator away and matched a
+// `**` entry. Cleaning `..` segments lexically before resolving symlinks can
+// only widen this deny (a `..` through a symlinked directory names a different
+// file to the kernel than it does lexically), and widening a deny inside the
+// carve-out arm hands the call back to the verdict it would have had anyway.
 func (c operatorCarveOut) isSelfWrite(target string, base string) bool {
-	real := canonicalizeFrom(target, base)
+	lexical := lexicalAbs(target, base)
+	if lexical == "" {
+		return false
+	}
+	real := canonicalizeFrom(lexical, "")
 	if real == "" {
 		return false
 	}

@@ -363,10 +363,20 @@ config-home:
 		t.Fatal(err)
 	}
 
+	// The two trailing-separator rows are the spelling the glob match and the
+	// deny once disagreed about: `remainder` takes its path from lexicalAbs,
+	// which Cleans the separator away and matches `**`, while canonicalizeFrom
+	// walked up from the non-existent `<...>/config.yml/` to the longest
+	// existing ancestor and re-attached the tail, yielding
+	// `<...>/config.yml/config.yml` — a path that matched neither self spelling
+	// and that os.Stat then failed on, skipping the identity check too. One row
+	// per self path, because the two resolve by different halves of the deny.
 	for name, target := range map[string]string{
-		"the literal load path":        literal,
-		"the resolved config-home one": relocatedCopy,
-		"a symlink to the load path":   link,
+		"the literal load path":                                  literal,
+		"the resolved config-home one":                           relocatedCopy,
+		"a symlink to the load path":                             link,
+		"the literal load path with a trailing separator":        literal + string(filepath.Separator),
+		"the resolved config-home one with a trailing separator": relocatedCopy + string(filepath.Separator),
 	} {
 		d := fileToolVerdict(t, "Write", repo, target)
 		if d.Bucket == BucketAllow {
