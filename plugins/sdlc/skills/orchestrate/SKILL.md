@@ -896,7 +896,16 @@ responses, so read what the report **says** before you act on it:
    whether that round's output can be trusted — a reviewer wrong about
    whether it posted a review may be wrong about what is in it — so
    that question is what gets the **Needs Your Attention** row, and
-   you act on neither version until the human has ruled on it.
+   you act on neither version until the human has ruled on it. Acting
+   on neither version is where the loop stops: spawn no `issue-fixer`
+   and re-spawn no reviewer, and wait for the ruling as you would at
+   any other escalation. A re-spawn derives a fresh round from the
+   live review count, so it would run that round on top of the very
+   output you have just asked the human to rule on, and carry its
+   records forward as though nothing had been questioned.
+
+   Steps 2-4 below are the no-review-posted path, and run only when
+   the re-read found none.
 
 2. **Spawn no `issue-fixer`.** There are no findings to fix: an
    in-progress status carries none by construction, and briefing a
