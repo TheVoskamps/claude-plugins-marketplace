@@ -313,6 +313,67 @@ func TestContainmentCrossRepo(t *testing.T) {
 	}
 }
 
+// A file-tool target spelled RELATIVE resolves against the EVENT's cwd — the
+// base the tool itself resolves it against — and it resolves segment by
+// segment, so a `..` behind an in-repo symlink pointing outside the repo earns
+// the escape deny for reads and mutating writes alike.
+//
+// The fixture denies the wrong resolution any chance of the right verdict by
+// accident. The gate process is chdir'ed to the repo ROOT while the event's cwd
+// is the subdirectory holding the link, so joining onto the process cwd and
+// Cleaning `link-out/..` away lands on <repo>/secret.txt — a real in-repo file,
+// which DEFERS. Only following the link first reaches the file the kernel
+// delivers to, <base>/outside/secret.txt, outside the repo. A layout whose
+// wrong answer happens to land outside the repo too grades both resolutions
+// DENY and measures nothing, which is why the escape path is asserted in the
+// reason and not just the bucket.
+func TestFileToolRelativeTargetResolvesAgainstEventCWD(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	// A config-less fake home, so no operator carve-out on the developer's own
+	// machine can hand these targets an ALLOW.
+	carveOutFixture(t, base, "plain")
+
+	outsideDir := filepath.Join(base, "outside", "dir")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	escaped := filepath.Join(base, "outside", "secret.txt")
+	if err := os.WriteFile(escaped, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(sub, "link-out")); err != nil {
+		t.Fatal(err)
+	}
+	// The in-repo file the process-cwd resolution lands on, so that resolution
+	// reads as `contained` rather than merely as an absent in-repo tail.
+	if err := os.WriteFile(filepath.Join(repo, "secret.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+
+	// Concatenated, not filepath.Join'ed, which would Clean the `..` away and
+	// destroy the spelling under test.
+	sep := string(filepath.Separator)
+	rel := "link-out" + sep + ".." + sep + "secret.txt"
+	for _, tool := range []string{"Read", "Write", "Edit", "MultiEdit"} {
+		wantReason(t, fileToolVerdict(t, tool, sub, rel), BucketDeny, canonicalize(escaped),
+			tool+" of a relative target escaping through an in-repo symlink")
+	}
+
+	// The negative control: a relative target with no link in it stays in the
+	// repo, so the rows above are the escape being caught and not relative
+	// spellings being refused wholesale.
+	if d := fileToolVerdict(t, "Write", sub, "notes.md"); d.Bucket == BucketDeny {
+		t.Errorf("a relative in-repo write must not DENY; got %q (%s)", d.Bucket, d.Reason)
+	}
+}
+
 // A subagent Read of the agent's own ~/.claude global config tree
 // from inside a repo must DEFER (so the settings.json allow-list governs it),
 // NOT be hard-denied as a cross-repo escape — while a genuine sibling-repo

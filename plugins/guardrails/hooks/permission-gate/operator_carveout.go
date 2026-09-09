@@ -300,18 +300,25 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 // both can only widen the deny, and a widened deny inside the carve-out arm
 // hands the call back to the verdict it would have had without the carve-out
 // anyway.
+//
+// Both sides also pass through selfWriteResolveLink, so a spelling whose final
+// segment is a symlink at a file that does not exist yet is compared as the
+// file the write creates rather than as the link (see there).
 func (c operatorCarveOut) isSelfWrite(target string, base string) bool {
 	lexical := lexicalAbs(target, base)
 	if lexical == "" {
 		return false
 	}
-	for _, real := range []string{canonicalizeFrom(lexical, ""), canonicalizeFrom(target, base)} {
+	for _, real := range []string{
+		selfWriteResolveLink(canonicalizeFrom(lexical, "")),
+		selfWriteResolveLink(canonicalizeFrom(target, base)),
+	} {
 		if real == "" {
 			continue
 		}
 		realInfo, realErr := os.Stat(real)
 		for _, p := range c.selfWritePaths {
-			self := canonicalizeFrom(p, "")
+			self := selfWriteResolveLink(canonicalizeFrom(p, ""))
 			if self == real {
 				return true
 			}
@@ -324,6 +331,41 @@ func (c operatorCarveOut) isSelfWrite(target string, base string) bool {
 		}
 	}
 	return false
+}
+
+// selfWriteResolveLink follows a canonical path whose final segment is a
+// symlink at a destination that does not exist, and returns the destination —
+// the file an open(O_CREAT) through that spelling creates. A path that is not
+// such a link comes back unchanged, so the call is a no-op on every ordinary
+// spelling.
+//
+// resolvePathSegments (engine_b_containment.go) leaves a dangling link as the
+// link's own path, because filepath.EvalSymlinks fails on one. That is the
+// right answer for a containment REGION — the link itself is the thing sitting
+// inside or outside the worktree — but the wrong one for a deny protecting one
+// specific file: the config-home copy of the config file is normally absent (a
+// machine with one config file has it at the literal load path), so a link
+// aimed straight at it is dangling by construction, and comparing the link's
+// path finds neither a string match nor an inode to hand os.SameFile.
+//
+// The chain is followed to a bounded depth. A cycle names no file at all, so
+// exhausting the bound and comparing whatever spelling it reached is harmless.
+func selfWriteResolveLink(real string) string {
+	for i := 0; i < 40; i++ {
+		dest, err := os.Readlink(real)
+		if err != nil {
+			return real
+		}
+		if !filepath.IsAbs(dest) {
+			// A relative link destination is relative to the directory holding
+			// the link. Concatenated rather than Join'ed so a `..` in the
+			// destination survives to resolvePathSegments, which applies it to
+			// the directory the preceding segment resolves to.
+			dest = filepath.Dir(real) + string(filepath.Separator) + dest
+		}
+		real = resolvePathSegments(dest)
+	}
+	return real
 }
 
 // remainder returns target's path relative to this root, in slash form, or

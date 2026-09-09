@@ -422,12 +422,12 @@ config-home:
 //
 // The existing symlinked-directory row aims at a file that EXISTS, where one
 // filepath.EvalSymlinks call over the whole path resolves the spelling. With
-// the file absent that call fails, and the longest-existing-ancestor walk-up
-// that used to take over Cleaned the `..` away with filepath.Dir before
-// resolving the link: the target canonicalized to a nonexistent
-// `<home>/config.yml` matching no self path, while the kernel followed the link
-// and delivered the write to the real config-home copy. The segment-by-segment
-// resolution is what closes it, so all three rows below are one fix.
+// the file absent that call fails, so only the segment-by-segment resolution
+// (resolvePathSegments, engine_b_containment.go) reaches it: a resolution that
+// Cleans the `..` away before following the link lands on a nonexistent
+// `<home>/config.yml` and matches no self path, while the kernel follows the
+// link and delivers the write to the real config-home copy. All three rows
+// below turn on that one property.
 //
 // Every row resolves to the same not-yet-created config-home copy and differs
 // only in how it is spelled, and every row is a path the `**` entries on both
@@ -495,6 +495,82 @@ config-home:
 	// and not the `..`-behind-a-symlink shape being refused wholesale.
 	d := fileToolVerdict(t, "Write", repo, homeLink+sep+".."+sep+"other.yml")
 	wantBucket(t, d, BucketAllow, "a write to a non-config file behind the same symlink")
+}
+
+// TestOperatorCarveOutRefusesSelfWriteThroughDanglingLink aims a symlink
+// DIRECTLY at the config-home copy of the config file on a machine that has no
+// such copy yet, so the FINAL segment of the target is a link whose destination
+// does not exist.
+//
+// That dangling final segment defeats both halves of the identity comparison
+// unless the link is read: filepath.EvalSymlinks fails on it, so the canonical
+// path is the link's own spelling, which matches no self path as a string — and
+// os.Stat of it fails too, which leaves os.SameFile nothing to compare. The
+// write nevertheless creates the config file the link points at, so it must not
+// ALLOW. The `..`-behind-a-symlinked-directory rows above never exercise this:
+// there the link is an interior segment resolving to a directory that exists.
+func TestOperatorCarveOutRefusesSelfWriteThroughDanglingLink(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+
+	relocated := filepath.Join(base, "relocated")
+	if err := os.MkdirAll(filepath.Join(relocated, "guardrails"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(xdgConfigHomeEnv, relocated)
+	// The literal load path exists — the carve-out has to read its own config to
+	// have any entry at all. What deliberately does not exist is the config-home
+	// copy every link below points at.
+	writeCarveOutConfig(t, home, `schema-version: 2
+resolve-xdg-environment-variables: yes
+config-home-default: ~/.config
+home:
+  write:
+    - '**'
+`)
+	selfCopy := filepath.Join(relocated, "guardrails", "config.yml")
+	if _, err := os.Lstat(selfCopy); err == nil {
+		t.Fatalf("%s must not exist: the dangling-destination case is what is under test", selfCopy)
+	}
+
+	direct := filepath.Join(home, "link-to-config")
+	if err := os.Symlink(selfCopy, direct); err != nil {
+		t.Fatal(err)
+	}
+	// A second hop, so a chain is followed and not merely the first link.
+	chained := filepath.Join(home, "link-to-link")
+	if err := os.Symlink(direct, chained); err != nil {
+		t.Fatal(err)
+	}
+	// A RELATIVE destination, which is resolved against the directory holding
+	// the link rather than against the cwd of whoever is reading it.
+	relative := filepath.Join(home, "link-relative")
+	if err := os.Symlink(filepath.Join("..", "relocated", "guardrails", "config.yml"), relative); err != nil {
+		t.Fatal(err)
+	}
+	for name, target := range map[string]string{
+		"a symlink aimed straight at the config-home copy": direct,
+		"a two-hop symlink chain":                          chained,
+		"a symlink with a relative destination":            relative,
+	} {
+		if d := fileToolVerdict(t, "Write", repo, target); d.Bucket == BucketAllow {
+			t.Errorf("a write reaching the not-yet-created config-home copy via %s must not ALLOW; got %q (%s)",
+				name, d.Bucket, d.Reason)
+		}
+	}
+
+	// The negative control: a link of the same shape aimed one segment over, at
+	// a file that is not this config and does not exist either. It stays an
+	// ALLOW, so the rows above are the deny firing on the file each link reaches
+	// and not on links being refused wholesale.
+	other := filepath.Join(home, "link-to-other")
+	if err := os.Symlink(filepath.Join(relocated, "guardrails", "other.yml"), other); err != nil {
+		t.Fatal(err)
+	}
+	wantBucket(t, fileToolVerdict(t, "Write", repo, other), BucketAllow,
+		"a write through a symlink aimed at a non-config file")
 }
 
 // TestOperatorCarveOutRefusesSelfWriteByCase varies LETTER CASE and nothing

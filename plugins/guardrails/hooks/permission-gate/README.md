@@ -1161,7 +1161,14 @@ The gate's engines feed that decision:
   `classify_files.go`): resolves repo/worktree context with
   `git rev-parse` against the event's `cwd`, canonicalizes symlinks on
   both the git-derived root and the target, and blocks worktree escapes
-  and cross-repo access. Fail-closed on any git
+  and cross-repo access. A **relative** `file_path` is joined onto the
+  event's `cwd` — the base the tool itself resolves it against, and the
+  same base the bash operand walks use — and then resolved segment by
+  segment, so a `..` behind an in-repo symlink applies to the directory
+  the link resolves to rather than collapsing lexically.
+  `filepath.Abs`'s process cwd is not that base and Cleans the spelling
+  it is handed, so no call on this track may fall back to it: an escape
+  through such a link then reads as `contained`. Fail-closed on any git
   subprocess failure or timeout. Refinements: (1) a target
   whose canonical path lands under the real `~/.claude` is **deferred**,
   not denied as a cross-repo escape, leaving the `settings.json`
@@ -1719,7 +1726,12 @@ The gate's engines feed that decision:
   each symlink before applying whatever follows it, so a `..` behind a
   symlinked directory is covered as well — and covered whether or not
   the file it reaches exists yet, which the `config-home` copy usually
-  does not. A string comparison
+  does not. A **final** segment that is itself a symlink is followed
+  for the same reason, and a dangling one is followed too: an
+  `open(O_CREAT)` through such a link creates the file the link points
+  at, so what the write reaches is that file rather than the link, and
+  a link aimed straight at the absent `config-home` copy is dangling by
+  construction. A string comparison
   alone was not enough: `filepath.EvalSymlinks` returns the caller's
   casing, so `CONFIG.YML` and `config.yml` — one file, on the macOS
   default filesystem — canonicalize to strings that differ. Without (2)

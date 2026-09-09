@@ -380,10 +380,9 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 // reaches — where collapsing the `..` first yields a nonexistent
 // `<home>/config.yml`. One filepath.EvalSymlinks call over the whole path gets
 // this right too, but only while every segment exists: it fails on a path whose
-// tail does not, and the longest-existing-ancestor walk-up that used to take
-// over from it Cleaned the `..` away via filepath.Dir on the way up. A
-// not-yet-created target is the ordinary case for a Write, and it is the case
-// the gate's own self-write deny (operator_carveout.go) was escapable through.
+// tail does not, so it cannot serve a not-yet-created target — the ordinary
+// case for a Write, and the case the gate's own self-write deny
+// (operator_carveout.go) has to hold on.
 //
 // A segment that does not exist is joined on as written and the walk continues
 // from there: there is no symlink to follow, and no segment after it can exist

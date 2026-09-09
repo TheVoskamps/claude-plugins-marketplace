@@ -79,6 +79,16 @@ func classifyFileTool(ev *Event) Decision {
 	// which carve-outs the ALLOW terminal actually rode, so its reason names
 	// those and no others.
 	readClass := !isMutatingFileTool(ev.ToolName)
+	// A relative `file_path` is resolved against the EVENT's cwd, the base the
+	// tool itself resolves it against — the same base the bash tracks join their
+	// relative operands onto (containPathOperands, classify_inrepo_write.go) and
+	// the one the operator carve-out is already handed below. Leaving it to
+	// filepath.Abs's process cwd would both name the wrong file and destroy the
+	// spelling: that call Cleans, so a `..` behind a symlinked directory
+	// collapses before the link is followed and an escape reads as `contained`.
+	// An empty ev.CWD leaves the process-cwd fallback in place, there being no
+	// better base to offer.
+	base := ev.CWD
 	carve := loadOperatorCarveOut()
 	sawOperator := false
 	sawScratch := false
@@ -95,7 +105,7 @@ func classifyFileTool(ev *Event) Decision {
 		// can rewrite committer identity (`.git/config`), inject commit/push
 		// hooks (`.git/hooks/pre-commit`), or corrupt repo state. Reads of `.git/`
 		// files are not mutations, so this is gated on a mutating tool.
-		if isMutatingFileTool(ev.ToolName) && isUnderGitDir(canonicalize(p), rc) {
+		if isMutatingFileTool(ev.ToolName) && isUnderGitDir(canonicalizeFrom(p, base), rc) {
 			return deny("write:.git tree", fmt.Sprintf(
 				"Blocked: %s target '%s' is inside a .git/ directory. Directly editing anything under .git/ can "+
 					"rewrite committer identity (.git/config), inject commit/push hooks (.git/hooks/*), or corrupt "+
@@ -104,8 +114,8 @@ func classifyFileTool(ev *Event) Decision {
 				ev.ToolName, p, scratchDestinations(rc.topLevel)))
 		}
 
-		res, real := testContainment(p, rc)
-		if carve.allows(p, ev.CWD, readClass) {
+		res, real := testContainmentFrom(p, base, rc)
+		if carve.allows(p, base, readClass) {
 			// A path the operator listed under one of the carve-out's roots. It
 			// is allow-eligible for THIS call's class (a `write` entry covers
 			// reads and writes alike; a `read` entry alone covers only a read, so
@@ -125,7 +135,7 @@ func classifyFileTool(ev *Event) Decision {
 			// defer to a deny. (The carve-out's other unconditional deny, a write
 			// to its own config file, is applied inside allows() rather than
 			// here, because it has to compare canonically.)
-			if isUnderGitDir(canonicalize(p), rc) {
+			if isUnderGitDir(canonicalizeFrom(p, base), rc) {
 				return gitTreeReadDeny(ev.ToolName, p)
 			}
 			sawOperator = true
