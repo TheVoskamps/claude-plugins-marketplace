@@ -107,12 +107,13 @@ rather than your caller's to summarize into a brief.
 
 4. **Read the fixer briefs**, which are the PR comments whose first
    line is the literal marker `<!-- sdlc:fixer-brief -->`. Each one is
-   what a fixer round was told to address — the round's findings, plus
-   the orchestrator's rulings on how to fix them and on any work that
-   is not itself a finding — so together they are the loop's own
-   account of what drove which commits. Comments
-   without that marker — the human's review adjustments, orchestration
-   notes — are context for the scope notes rather than findings.
+   what a fixer round was told to address. It carries that round's
+   findings. It also carries the orchestrator's rulings on how to fix
+   them and on any work that is not itself a finding. Together the
+   briefs are the loop's own account of what drove which commits.
+   Comments without that marker — the human's review adjustments,
+   orchestration notes — are context for the scope notes rather than
+   findings.
 
 5. **Write the section**, per "The section you append" below, into
    `.claude/tmp/<task-slug>/section.md`, and build the body you will

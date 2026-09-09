@@ -38,14 +38,17 @@ canonical read sequence and abort messages for
   `github-project:` block, then built-in default `Feature`.
 - `--labels` (optional): comma-separated label names. Passed straight
   through to `gh issue create --label`. Default: none.
-- `--assignee` (optional): comma-separated GitHub usernames. With no
-  flag, the default is `default-assignee`, resolved across the two
-  user-config scopes per `skills/lib/user-config.md` → "Resolution
-  order across the two scopes"; this reader requires user-config
-  schema-version `1`, and a user-config file that exists at an older
-  version aborts the read rather than degrading. Both files are
-  **optional**: when neither defines the key, resolution degrades to
-  the authenticated GitHub user (`gh api user --jq '.login'`).
+- `--assignee` (optional): comma-separated assignee identifiers, in
+  the form this repo's tracker accepts. With no flag, the default is
+  `default-assignee`, resolved across the two user-config scopes per
+  `skills/lib/user-config.md` → "Resolution order across the two
+  scopes"; this reader requires user-config schema-version `1`, and a
+  user-config file that exists at an older version aborts the read
+  rather than degrading. Both files are **optional**: when neither
+  defines the key, resolution degrades to the current identity — the
+  authenticated GitHub user (`gh api user --jq '.login'`) on the
+  GitHub backend, the account `acli jira auth status` reports on the
+  Jira one.
 - `--parent` (optional): parent issue number. When set, the new issue
   is linked as a sub-issue of the given parent via the `addSubIssue`
   template from `skills/lib/issue.md`. Default: none.

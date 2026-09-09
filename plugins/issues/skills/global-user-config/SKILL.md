@@ -101,9 +101,14 @@ Ask which machine-wide per-user settings to record. Present the keys
 this skill knows about, each with a "leave unset" option, plus an
 "Other" branch:
 
-1. **`default-assignee`** — an optional GitHub login used as a
+1. **`default-assignee`** — an optional assignee identifier in the
+   form the tracker accepts wherever it is used (a GitHub login on
+   GitHub; an Atlassian account identifier on Jira), used as a
    machine-wide self-assign default by the example consumer in
-   `skills/lib/user-config.md`. Recommended: leave unset.
+   `skills/lib/user-config.md`. One value serves every repo on this
+   machine, so a user whose repos span both trackers sets the
+   repo-level key with `/user-config` instead. Recommended: leave
+   unset.
 2. **Other** — any `key: value` pair the user wants as a machine-wide
    personal setting (`preferred-editor`, `default-reviewer`, etc.).
    Capture key and value as strings. Repeat until done.

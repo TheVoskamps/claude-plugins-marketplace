@@ -444,7 +444,7 @@ and still assigns, because an issue someone is driving should say so
 whatever the board offers. `@default-assignee` is a literal token
 `/issue-update` resolves; how it resolves is that skill's business,
 not yours. The call is additive, so a member already carrying the
-resolved login is left as it stands and no other assignee is
+resolved assignee is left as it stands and no other assignee is
 displaced.
 
 ### Spawn-prompt principle
@@ -1006,13 +1006,17 @@ member)**:
    A spawn prompt reaches neither: it is visible to nobody once the
    spawn returns.
 
-3. After issue-fixer returns, read its per-finding report as input
-   rather than as the record: it says which findings it fixed and
-   which it did not, and the next review round is what settles whether
-   it was right. When it reports a finding **unfixed** — escalated for
-   a design decision, or declined — that is yours to judge and act on
-   now, not to carry
+3. After issue-fixer returns, read its report — a line per finding and
+   a line per owner ruling — as input rather than as the record: it
+   says which findings it fixed and which it did not, and the next
+   review round is what settles whether it was right. When it reports
+   a finding **unfixed** — escalated for a design decision, or
+   declined — that is yours to judge and act on now, not to carry
    silently into another round (see "Report-consumption principle").
+   Check the rulings too: a ruling that is not itself a finding has no
+   finding to be reported under, and the review round that follows
+   only re-checks the findings, so an unreported ruling is one nothing
+   else will catch.
 4. Spawn `doc-updater` against the branch, with the same spawn prompt
    as after the developer's round (see "After each issue-developer or
    issue-fixer: doc-updater, then review" above), before the review
@@ -1519,11 +1523,14 @@ itself:
   is always the review pipeline's job. The review-adjustments comment
   under "Posting the human's review adjustments as a PR comment" is
   the same bucket: you relay what the human dictated, you do not grade
-  anything. So is the **fixer brief** under "Handling review findings
-  — the fix loop": the findings in it are the pipeline's, and writing
-  them onto the PR rather than into a spawn prompt is how the fixer
-  and the next round both reach them. Commenting is not editing —
-  the PR *body* is `pr-finalizer`'s alone. PR comments
+  anything. The **fixer brief** under "Handling review findings — the
+  fix loop" is a mixed bucket. Its findings are the pipeline's and you
+  relay them un-tiered. Its owner rulings are not relayed: they carry
+  the human's decisions and your own — an out-of-scope observation you
+  yourself ruled trivial and adjacent is a judgment you made, not a
+  relay. Writing the brief onto the PR rather than into a spawn prompt
+  is how the fixer and the next round reach both halves. Commenting is
+  not editing — the PR *body* is `pr-finalizer`'s alone. PR comments
   (`gh pr comment`)
   have no
   `/issue-*` equivalent, so raw `gh` stays the tool here — but

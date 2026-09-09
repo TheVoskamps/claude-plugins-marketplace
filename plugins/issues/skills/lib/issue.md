@@ -344,8 +344,9 @@ hit wins:
 Built-in defaults:
 
 - `--type`       — `Feature`
-- `--assignee`   — the authenticated GitHub user
-  (`gh api user --jq .login`)
+- `--assignee`   — the current identity: the authenticated GitHub
+  user (`gh api user --jq .login`) on the GitHub backend, the account
+  `acli jira auth status` reports on the Jira one
 - `--labels`     — (none)
 - `--parent`     — (none)
 

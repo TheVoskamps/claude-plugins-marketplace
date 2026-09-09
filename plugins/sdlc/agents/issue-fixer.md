@@ -95,11 +95,13 @@ from its issue.
    git checkout <branch-name>
    ```
 
-3. Read the review findings carefully. Address every finding in the
-   brief, including Low — the review pipeline has already
-   graded severity; your job is to fix, not to re-tier. Before you
-   act on any finding, re-verify what it claims about the world at
-   head (see "Before you write a remedy" below).
+3. Read the review findings and the owner rulings carefully. Address
+   every finding in the brief, including Low — the review pipeline has
+   already graded severity; your job is to fix, not to re-tier. A
+   ruling either says how a finding is to be fixed or names work that
+   is not itself a finding; both are yours to carry out. Before you
+   act on either, re-verify what it claims about the world at head
+   (see "Before you write a remedy" below).
 
    If you need fuller issue context than the fixer brief carries —
    an issue body, its acceptance criteria, or its
@@ -122,7 +124,8 @@ from its issue.
 
 5. Read the affected files before making changes.
 
-6. Address each finding handed to you, including Low:
+6. Address each finding handed to you, including Low, and each owner
+   ruling, whether it directs a finding's fix or stands on its own:
    - Implement the fix — choosing between the arms of an either/or
      remedy, and sweeping a policy-carrying table (see "Before you
      write a remedy" below)
@@ -208,10 +211,13 @@ from its issue.
     subagent worktree can't switch to it. Detaching HEAD releases the
     feature-branch claim equivalently.
 
-13. Report back, per finding, un-tiered:
+13. Report back, per finding and per owner ruling, un-tiered:
     - Which findings were fixed, and how
     - Which findings were not fixed, and why (including any escalated
       for a design decision)
+    - What each owner ruling that is not itself a finding led you to
+      do, or why you did not act on it. A ruling has no finding to
+      report it under, so it gets its own line or it goes unreported.
     - Test results
 
 ## Before you write a remedy
