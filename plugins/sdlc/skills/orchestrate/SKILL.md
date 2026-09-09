@@ -425,12 +425,12 @@ Work in waves of batches, as defined by your plan. Each batch gets one
 
 Immediately after the human confirms the plan (end of Phase 1) and
 **before spawning the developer for a given batch**, transition every
-member of that batch to In Progress and assign it to yourself — they
-start together because one developer starts them together:
+member of that batch to In Progress and assign it — they start
+together because one developer starts them together:
 
 ```text
 /issue-set-status <N> "In Progress"
-/issue-update <N> --add-assignees @me
+/issue-update <N> --add-assignees @default-assignee
 ```
 
 once per member. Do both for a batch as its wave is about to be
@@ -441,10 +441,11 @@ The status flip is gated on the repo having a configured status slot —
 see "Issue-status transitions" below for the gate and the option-name
 fallback. The assign is not: a repo with no status slot skips the flip
 and still assigns, because an issue someone is driving should say so
-whatever the board offers. `@me` is a literal token `/issue-update`
-resolves; how it resolves is that skill's business, not yours. The
-call is additive, so a member already carrying the resolved login is
-left as it stands and no other assignee is displaced.
+whatever the board offers. `@default-assignee` is a literal token
+`/issue-update` resolves; how it resolves is that skill's business,
+not yours. The call is additive, so a member already carrying the
+resolved login is left as it stands and no other assignee is
+displaced.
 
 ### Spawn-prompt principle
 
@@ -971,6 +972,14 @@ member)**:
    the issue it belongs to:
    <paste every finding from the review, un-tiered, keeping the
    review's per-issue tags>
+
+   Owner rulings — how the findings above are to be fixed, and any
+   in-scope work that is not itself a finding:
+   <every ruling you made this round: a human decision from step 1
+   above, the arm to take where a finding offers two, and any
+   out-of-scope observation you ruled trivial and adjacent per
+   "Rule on an out-of-scope observation while the PR is open". Omit
+   the whole section when you made none.>
 
    Address per your agent definition. Report back what you fixed and
    what you didn't.
@@ -1535,8 +1544,8 @@ itself:
   and "End-of-loop lifecycle transitions" above for the
   `/pr-closing-issues` read that feeds the In Review flip.
 - **Set issue status via `/issue-set-status`, and assign via
-  `/issue-update`** — `In Progress` and
-  `--add-assignees @me` when work starts, `In Review` at end-of-loop.
+  `/issue-update`** — `In Progress` and `--add-assignees
+  @default-assignee` when work starts, `In Review` at end-of-loop.
   Coordination metadata, not agent-owned work. See "Issue-status
   transitions" below and the `/issue-*` namespace rule for the general
   "prefer the skill" principle.
@@ -1621,10 +1630,11 @@ them together:
 - **In Progress** — set after plan confirmation, before spawning the
   batch's developer (Phase 2, "Set each batch's issues to In Progress
   and assign them before spawning its developer"), where each member is
-  also assigned via `/issue-update <N> --add-assignees @me`. The assign
-  is outside this section's gate and outside its transitions: it is not
-  a status, it happens once, and nothing later unassigns — a member
-  dropped from a batch mid-run keeps its assignee.
+  also assigned via `/issue-update <N> --add-assignees
+  @default-assignee`. The assign is outside this section's gate and
+  outside its transitions: it is not a status, it happens once, and
+  nothing later unassigns — a member dropped from a batch mid-run keeps
+  its assignee.
 - **In Review** — set on end-of-loop human confirmation, for every
   member the PR closes (Phase 3, "End-of-loop lifecycle
   transitions"). A dropped member is not one of them and stays In

@@ -42,9 +42,8 @@ canonical read sequence and abort messages for
   names to add or remove.
 - `--add-assignees` / `--remove-assignees` (optional): comma-separated
   GitHub usernames to add or remove. Either flag also accepts the
-  literal token `@me` in place of a login, resolved before the edit
-  per the `@me` resolution that opens "Execution (GitHub backend)"
-  below.
+  literal token `@default-assignee` in place of a login, resolved
+  before the edit per "Resolving `@default-assignee`" below.
 
 At least one update flag must be passed. If none are present, abort
 with a short usage reminder.
@@ -62,6 +61,24 @@ with a short usage reminder.
 - All other flag combinations are allowed and are applied in a single
   invocation.
 
+## Resolving `@default-assignee`
+
+The token stands for whoever the caller's configuration says work
+lands on, and it resolves to a login **before** the tracker dispatch
+below, because its first two rungs are tracker-neutral: it is
+`default-assignee` across the two user-config scopes, per
+`skills/lib/user-config.md` → "Resolution order across the two
+scopes". This reader requires user-config schema-version `1`, and a
+user-config file that exists at an older version aborts the read
+rather than degrading. Both files are **optional**: when neither
+defines the key, resolution degrades to the current identity — the
+authenticated GitHub user (`gh api user --jq '.login'`) on the GitHub
+backend, the account `acli jira auth status` reports on the Jira one.
+
+From there the resolved login is handled exactly as if the caller had
+typed it. Echo the resolved login rather than the token in the
+output, so the user sees who landed on the issue.
+
 ## Tracker dispatch
 
 Apply the standard `issues:` switch from `skills/lib/issue.md`.
@@ -71,34 +88,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 
 ## Execution (GitHub backend)
 
-1. **Resolve `@me`, if either assignee flag carries it.** The token
-   stands for the human running the skill, and it resolves through the
-   same order `/issue-create` uses for its `--assignee` default:
-
-   1. `default-assignee` from the **repo-level** user-config
-      (`<repo-root>/.issues/user-config.md`), if present.
-   2. `default-assignee` from the **user-global** user-config
-      (`$XDG_CONFIG_HOME/issues/user-config.md`), if present.
-      (Repo-level overrides user-global, per
-      `skills/lib/user-config.md` → "Resolution order across the two
-      scopes".)
-   3. The authenticated GitHub user (`gh api user --jq '.login'`).
-
-   Rungs 1–2 follow the canonical read sequence in
-   `skills/lib/user-config.md` (this reader requires user-config
-   schema-version `1`). Both files are **optional**: when neither
-   exists or neither defines `default-assignee`, resolution degrades
-   straight to rung 3. A file that *exists* but is schema-stale aborts
-   per that library's "Schema-version stale" message rather than
-   degrading.
-
-   From here on the resolved login is handled exactly as if the caller
-   had typed it — it goes into the `gh issue edit` call and into the
-   post-edit delta check like any other login. Echo the resolved login
-   rather than the token in the output, so the user sees who landed on
-   the issue.
-
-2. **Pre-edit fetch.** Decide which fields need to be read from the
+1. **Pre-edit fetch.** Decide which fields need to be read from the
    issue before the edit, based on the flags in play:
 
    - `--append` or `--prepend` → fetch `body`.
@@ -125,7 +115,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    delta check. The pre-edit body, if fetched, feeds the body
    computation below.
 
-3. **Compute the new body**:
+2. **Compute the new body**:
    - If `--body-file`: read the file. That's the new body.
    - Else if `--append` and/or `--prepend`: start from the current
      body. Build a prepend-prefix by concatenating the `--prepend`
@@ -143,7 +133,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      convention.
    - Else: skip the body update entirely.
 
-4. **Apply edits via `gh issue edit`** in one call where possible.
+3. **Apply edits via `gh issue edit`** in one call where possible.
    `gh issue edit` supports `--title`, `--body-file`, `--add-label`,
    `--remove-label`, `--add-assignee`, and `--remove-assignee` in a
    single invocation:
@@ -168,11 +158,11 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    Build the invocation only from flags the user actually passed. Do
    not pass empty values.
 
-5. **Issue not found**: if `gh issue edit` returns
+4. **Issue not found**: if `gh issue edit` returns
    `could not resolve to an Issue`, emit the "Issue not found"
    error from the catalogue in `skills/lib/issue.md` and abort.
 
-6. **Post-edit delta check** (only when one or more of
+5. **Post-edit delta check** (only when one or more of
    `--add-assignees`, `--remove-assignees`, `--add-labels`, or
    `--remove-labels` was passed).
 

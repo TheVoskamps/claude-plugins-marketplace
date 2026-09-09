@@ -38,28 +38,14 @@ canonical read sequence and abort messages for
   `github-project:` block, then built-in default `Feature`.
 - `--labels` (optional): comma-separated label names. Passed straight
   through to `gh issue create --label`. Default: none.
-- `--assignee` (optional): comma-separated GitHub usernames. Default
-  resolves in this order (this is the demonstration consumer of the
-  user-config read path from `skills/lib/user-config.md`, proving the
-  contract end-to-end):
-  1. The `--assignee` CLI flag, if given.
-  2. `default-assignee` from the **repo-level** user-config
-     (`<repo-root>/.issues/user-config.md`), if present.
-  3. `default-assignee` from the **user-global** user-config
-     (`$XDG_CONFIG_HOME/issues/user-config.md`), if present. (Repo-level
-     overrides user-global, per `skills/lib/user-config.md` →
-     "Resolution order across the two scopes".)
-  4. The authenticated GitHub user (`gh api user --jq '.login'`).
-
-  Steps 2–3 follow the canonical read sequence in
-  `skills/lib/user-config.md` (this reader requires user-config
-  schema-version `1`). Both user-config files are **optional**: when
-  neither exists or neither defines `default-assignee`, the resolver
-  **degrades** straight to step 4 — the pre-existing behavior — so
-  this consumer adds capability without changing the default outcome
-  for any user who has not created a user-config file. A user-config
-  file that *exists* but is schema-stale aborts per that library's
-  "Schema-version stale" message rather than degrading.
+- `--assignee` (optional): comma-separated GitHub usernames. With no
+  flag, the default is `default-assignee`, resolved across the two
+  user-config scopes per `skills/lib/user-config.md` → "Resolution
+  order across the two scopes"; this reader requires user-config
+  schema-version `1`, and a user-config file that exists at an older
+  version aborts the read rather than degrading. Both files are
+  **optional**: when neither defines the key, resolution degrades to
+  the authenticated GitHub user (`gh api user --jq '.login'`).
 - `--parent` (optional): parent issue number. When set, the new issue
   is linked as a sub-issue of the given parent via the `addSubIssue`
   template from `skills/lib/issue.md`. Default: none.
@@ -143,24 +129,16 @@ what didn't — do not roll back successful steps.
    `--labels`, and `--parent` — i.e. CLI flag, then repo-config
    default, then built-in default where applicable. Resolve
    `--assignee` through its own order from the `--assignee` flag spec
-   under "Invocation" above: CLI flag, then `default-assignee` from
-   the **repo-level** user-config, then `default-assignee` from the
-   **user-global** user-config (both read via the canonical sequence
-   in `skills/lib/user-config.md`, which this consumer pins to
-   user-config schema-version `1`), then the authenticated GitHub
-   user as the final fallback. None of these flags prompt; their
+   under "Invocation" above. None of these flags prompt; their
    resolution is complete after this step. The slot flags
    (`--priority`, `--size`, `--status`) get rung 1 here (CLI flag,
    if passed); the remaining rungs are handled in Step 2 below.
 
    If `github-project:` is absent in repo-config, `--type` and
-   `--assignee` still resolve via their defaults (for `--assignee`,
-   the user-config rungs then the authenticated GitHub user; both
-   user-config files are optional and absence degrades straight to
-   the authenticated user), but the slot flags warn-and-skip per
-   "Graceful degradation when the block is missing" — no prompt
-   either (Step 2 is a no-op for any slot whose `kind:` resolves to
-   `skip` / slot-absent).
+   `--assignee` still resolve via their defaults, but the slot flags
+   warn-and-skip per "Graceful degradation when the block is missing"
+   — no prompt either (Step 2 is a no-op for any slot whose `kind:`
+   resolves to `skip` / slot-absent).
 
 2. **Interactive prompts for slot flags.** For each slot in
    `{priority, size, status}` whose CLI flag was **not** passed in
@@ -524,10 +502,6 @@ to assign:
   print `assignee: <set-that-landed> (requested <full-set>; <missing>
   did not land)` so the failure is visible in the output rather than
   silently lost.
-
-(This post-fetch verification overlaps with #108, which adds the same
-re-read-and-compare to `/issue-update`'s assignee path. Whichever
-lands first carries the change; the other becomes a no-op.)
 
 ### Warnings
 

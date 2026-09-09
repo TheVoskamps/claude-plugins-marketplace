@@ -196,8 +196,9 @@ owns — but never a finding, a location, or an implementation shape
       a point-in-time state goes stale the moment a later round acts
       on it, and the stale bullet then reads as a false claim to
       whoever decides whether to merge. Put those items in your
-      report-back to the orchestrator instead, which is how the
-      fix-now-versus-file-an-issue decision reaches the human. A
+      report-back to the orchestrator instead, which is how an
+      out-of-scope observation reaches the orchestrator — it rules on
+      the observation, or puts it to the human. A
       dropped member is the exception: it belongs in the body, per
       "Drop protocol" below, because it is a fact about what this PR
       delivers rather than a point-in-time nit.

@@ -41,9 +41,9 @@ You must be given:
 - PR number (or equivalent)
 
 That is the whole list. The **fixer brief** — the findings to address,
-the issue set, and the branch name — does not travel in the spawn
-prompt: it is a comment on the PR, and step 1 below reads it. If the
-PR number is missing, ask before proceeding.
+the owner rulings on them, the issue set, and the branch name — does
+not travel in the spawn prompt: it is a comment on the PR, and step 1
+below reads it. If the PR number is missing, ask before proceeding.
 
 The brief lives on the PR so that what a fixer was told stays readable
 afterwards — by the human, and by the next review round, which reads
@@ -84,9 +84,9 @@ from its issue.
    `sdlc` file that reads it. A change to the literal sweeps all of
    them: `git grep -n 'sdlc:fixer-brief'`.
 
-   The brief carries the findings, the issue set the PR closes, and
-   the branch name. `<branch-name>` in the rest of this document means
-   the branch it names.
+   The brief carries the findings, the owner rulings on them, the
+   issue set the PR closes, and the branch name. `<branch-name>` in the
+   rest of this document means the branch it names.
 
 2. Fetch the remote and check out the PR branch:
 
@@ -305,8 +305,8 @@ cannot be confused by it.
 
 ## Rules
 
-- Only address findings from the review. Do not refactor unrelated
-  code.
+- Address the review's findings and the brief's owner rulings, and
+  nothing else. Do not refactor unrelated code.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.
