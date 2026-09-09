@@ -41,7 +41,10 @@ canonical read sequence and abort messages for
 - `--add-labels` / `--remove-labels` (optional): comma-separated label
   names to add or remove.
 - `--add-assignees` / `--remove-assignees` (optional): comma-separated
-  GitHub usernames to add or remove.
+  assignee identifiers to add or remove, in the form this repo's
+  tracker accepts. Either flag also accepts the literal token
+  `@default-assignee` in place of an identifier, resolved before the
+  edit per "Resolving `@default-assignee`" below.
 
 At least one update flag must be passed. If none are present, abort
 with a short usage reminder.
@@ -58,6 +61,26 @@ with a short usage reminder.
 
 - All other flag combinations are allowed and are applied in a single
   invocation.
+
+## Resolving `@default-assignee`
+
+The token stands for whoever the caller's configuration says work
+lands on. It resolves to the assignee identifier this repo's
+tracker accepts — a GitHub login on GitHub, an Atlassian account
+identifier on Jira — and it resolves **before** the tracker dispatch
+below, because its first two rungs are tracker-neutral: it is
+`default-assignee` across the two user-config scopes, per
+`skills/lib/user-config.md` → "Resolution order across the two
+scopes". This reader requires user-config schema-version `1`, and a
+user-config file that exists at an older version aborts the read
+rather than degrading. Both files are **optional**: when neither
+defines the key, resolution degrades to the current identity — the
+authenticated GitHub user (`gh api user --jq '.login'`) on the GitHub
+backend, the account `acli jira auth status` reports on the Jira one.
+
+From there the resolved identifier is handled exactly as if the
+caller had typed it. Echo the resolved identifier rather than the
+token in the output, so the user sees who landed on the issue.
 
 ## Tracker dispatch
 
@@ -92,7 +115,8 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 
    Capture the pre-edit assignee logins (as a set of strings) and
    label names (as a set of strings) for later use in the post-edit
-   delta check. The pre-edit body, if fetched, feeds step 2.
+   delta check. The pre-edit body, if fetched, feeds the body
+   computation below.
 
 2. **Compute the new body**:
    - If `--body-file`: read the file. That's the new body.
@@ -157,7 +181,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      `gh issue view <N> --json assignees,labels` when both kinds were
      touched, or `--json assignees` when only assignee flags ran.
    - **Compute the actual deltas** against the pre-edit sets captured
-     in step 1:
+     in the pre-edit fetch:
      - actual-added-assignees = post − pre
      - actual-removed-assignees = pre − post
      - actual-added-labels = post − pre
@@ -212,9 +236,9 @@ one summary line shows.
 
 The "labels added", "labels removed", "assignees added", and
 "assignees removed" lines reflect what **actually landed** on the
-issue per the post-edit delta check (step 5 of Execution), not the
-raw CLI input. A requested login or label that didn't land does
-**not** appear on the corresponding "added"/"removed" line; it is
+issue per the post-edit delta check in "Execution (GitHub backend)",
+not the raw CLI input. A requested login or label that didn't land
+does **not** appear on the corresponding "added"/"removed" line; it is
 surfaced on its own mismatch line instead. If every requested
 login/label in a given add/remove direction failed to land, the
 corresponding line is omitted entirely (since nothing actually

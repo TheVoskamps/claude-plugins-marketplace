@@ -114,8 +114,10 @@ option, plus an "Other" branch for arbitrary keys:
    wiring up #156's identity flow — that flow normally writes this
    key itself. Surface a one-line note: "Usually written by the
    identity skill; set it here only if you know the key name."
-2. **`default-assignee`** — an optional per-user GitHub login used by
-   the example consumer documented in `skills/lib/user-config.md`
+2. **`default-assignee`** — an optional per-user assignee identifier
+   in the form this repo's configured tracker accepts (a GitHub login
+   on GitHub; an Atlassian account identifier on Jira), used by the
+   example consumer documented in `skills/lib/user-config.md`
    (self-assign issues without touching team-shared repo-config).
    Recommended: leave unset.
 3. **Other** — let the user add any `key: value` pair they want to

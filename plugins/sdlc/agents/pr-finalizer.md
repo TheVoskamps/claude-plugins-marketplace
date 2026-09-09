@@ -107,10 +107,13 @@ rather than your caller's to summarize into a brief.
 
 4. **Read the fixer briefs**, which are the PR comments whose first
    line is the literal marker `<!-- sdlc:fixer-brief -->`. Each one is
-   what a fixer round was told to address, so together they are the
-   loop's own account of which findings drove which commits. Comments
-   without that marker — the human's review adjustments, orchestration
-   notes — are context for the scope notes rather than findings.
+   what a fixer round was told to address. It carries that round's
+   findings. It also carries the orchestrator's rulings on how to fix
+   them and on any work that is not itself a finding. Together the
+   briefs are the loop's own account of what drove which commits.
+   Comments without that marker — the human's review adjustments,
+   orchestration notes — are context for the scope notes rather than
+   findings.
 
 5. **Write the section**, per "The section you append" below, into
    `.claude/tmp/<task-slug>/section.md`, and build the body you will
@@ -182,8 +185,9 @@ it is rather than when it was written. It carries:
   final overall verdict, and what the last round's findings were, if
   any. State a count only where you counted it from the reviews
   themselves.
-- **What changed in response** — the findings the loop raised and the
-  change each drove, drawn from the commits and the fixer briefs. This
+- **What changed in response** — what the loop raised, whether a review
+  finding or an orchestrator ruling the brief carried, and the change
+  each drove, drawn from the commits and the fixer briefs. This
   is the part a reviewer of the merged PR cannot reconstruct: the
   diff shows the end state, and this says which of it was the first
   attempt and which was a repair.

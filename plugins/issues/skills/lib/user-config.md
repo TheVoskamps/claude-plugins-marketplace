@@ -337,9 +337,9 @@ contract works. It is intentionally low-touch: a documented reader
 in prose plus the real reader wired in `skills/issue-create/SKILL.md`
 (see the `--assignee` flag spec under "Invocation" there).
 
-A reader that wants a per-user default GitHub assignee — so a
-single user can have their issues self-assigned without changing
-the team-shared repo-config — follows the contract above:
+A reader that wants a per-user default assignee — so a single user
+can have their issues self-assigned without changing the
+team-shared repo-config — follows the contract above:
 
 ```text
 # Resolution order: repo-level overrides user-global.
@@ -348,8 +348,14 @@ cfg_global = read_user_config(scope = "user-global",  required_version = 1)
 
 assignee = cfg_repo.get("default-assignee")
         or cfg_global.get("default-assignee")
-        or <current GitHub user>     # built-in fallback (degrade)
+        or <current tracker identity>   # built-in fallback (degrade)
 ```
+
+The key's value is whatever identifier the repo's configured
+tracker accepts as an assignee: a GitHub login on GitHub, an
+Atlassian account identifier on Jira. The key itself is
+tracker-neutral, so a reader resolves it without dispatching on
+the tracker; only the built-in fallback is tracker-specific.
 
 `default-assignee` is an example owned key (owned by `/user-config`
 / `/global-user-config`'s "Other" interview branch). It is not a

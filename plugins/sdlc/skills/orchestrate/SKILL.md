@@ -421,23 +421,31 @@ teammates yet.
 Work in waves of batches, as defined by your plan. Each batch gets one
 `issue-developer`, one branch, and one PR.
 
-### Set each batch's issues to In Progress before spawning its developer
+### Set each batch's issues to In Progress and assign them before spawning its developer
 
 Immediately after the human confirms the plan (end of Phase 1) and
 **before spawning the developer for a given batch**, transition every
-member of that batch to In Progress — they start together because one
-developer starts them together:
+member of that batch to In Progress and assign it — they start
+together because one developer starts them together:
 
 ```text
 /issue-set-status <N> "In Progress"
+/issue-update <N> --add-assignees @default-assignee
 ```
 
-once per member. This is gated on the repo having a configured status
-slot — see "Issue-status transitions" below for the gate and the
-option-name fallback. Set the status for a batch as its wave is about
-to be spawned (so a batch queued behind another wave flips to In
-Progress only when its own developer is about to start), not all at
-once up front.
+once per member. Do both for a batch as its wave is about to be
+spawned (so a batch queued behind another wave flips only when its own
+developer is about to start), not all at once up front.
+
+The status flip is gated on the repo having a configured status slot —
+see "Issue-status transitions" below for the gate and the option-name
+fallback. The assign is not: a repo with no status slot skips the flip
+and still assigns, because an issue someone is driving should say so
+whatever the board offers. `@default-assignee` is a literal token
+`/issue-update` resolves; how it resolves is that skill's business,
+not yours. The call is additive, so a member already carrying the
+resolved assignee is left as it stands and no other assignee is
+displaced.
 
 ### Spawn-prompt principle
 
@@ -585,9 +593,21 @@ teammates, so this section says what it means for one.
 - **A report is input, not authority.** You may not defer to a report
   against your own evidence, and you may not silently overrule one
   either. A discrepancy between what an agent reported and what you
-  observe is itself a finding: name it in the round's report and in
-  the final report's **Needs Your Attention** section, rather than
-  quietly acting on whichever version you prefer.
+  observe is itself a finding: re-read the territory, and name it in
+  the round's report rather than quietly acting on whichever version
+  you prefer. A discrepancy the re-read settles goes no further; one
+  the re-read cannot settle gets a **Needs Your Attention** row,
+  because that is a PR the human cannot trust.
+- **Rule on an out-of-scope observation while the PR is open.** A
+  teammate reports things outside the diff it was briefed on, and the
+  cheap moment to act on one is now. Rule on it before the next spawn
+  for that PR, or before the loop ends for that PR when no spawn
+  follows. Trivial and adjacent to the diff goes into the round's
+  fixer brief as an owner ruling, or is dropped; when no fixer round
+  follows, the choice is drop or ask. Anything larger is put to the
+  human while the PR is still open, with the consequence of each
+  option stated in the question. It never travels to the final report,
+  and it never becomes a follow-up issue on your initiative.
 
 ### For each wave, spawn one issue-developer per batch, simultaneously
 
@@ -843,8 +863,11 @@ When `theorem-based-pr-reviewer` reports back:
 finish a round. The harness surfaces every one of these as
 `status: completed` with the closing message as the result, so a
 verdictless return is indistinguishable from a finished review unless
-you check for the verdict block. Check on every return; this is not an
-escalation, because the reviewer is not stopping to ask you anything.
+you check for the verdict block. Check on every return. A verdictless
+return that posted no review is not an escalation: the reviewer is not
+stopping to ask you anything, and step 3 re-spawns it without asking.
+One that *did* post a review stops the loop until the human rules on
+it — step 1 says why.
 
 Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
@@ -869,10 +892,35 @@ responses, so read what the report **says** before you act on it:
      --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
    ```
 
-   If a review *was* posted, the report and the PR disagree, and that
-   discrepancy is itself a finding — name both versions per
-   "Report-consumption principle" and give it a **Needs Your
-   Attention** row rather than acting on either.
+   If a review *was* posted, this re-read has settled the discrepancy
+   itself: the review exists, and the report is wrong about the round
+   it just ran. Name both versions in the round's report per
+   "Report-consumption principle". What the re-read cannot settle is
+   whether that round's output can be trusted — a reviewer wrong about
+   whether it posted a review may be wrong about what is in it — so
+   that question goes to the human in the round's report, in
+   conversation, where this skill puts every other mid-loop question:
+   state the discrepancy and the two rulings open to them — the round
+   stands, or it is re-run — and wait. It gets a **Needs Your
+   Attention** row only when the human ends the run without ruling on
+   it. Waiting is where the loop stops: act on neither version, spawn
+   no `issue-fixer` and re-spawn no reviewer, and let it sit until the
+   ruling arrives. A re-spawn derives a fresh round from the
+   live review count, so it would run that round on top of the very
+   output you have just asked the human to rule on, and carry its
+   records forward as though nothing had been questioned.
+
+   The ruling settles how the loop resumes. Ruled trustworthy, the
+   round stands: read the review off the PR itself, since the report
+   that should have carried it did not, and take the path this section
+   gives for the verdict that review carries — APPROVED spawns no
+   fixer, and NEEDS_CHANGES gets a brief written from the findings the
+   review states. Ruled untrustworthy, re-spawn the reviewer over the
+   same PR — the new round supersedes the questioned one, and its
+   verdicts and findings are what the loop carries forward.
+
+   Steps 2-4 below are the no-review-posted path, and run only when
+   the re-read found none.
 
 2. **Spawn no `issue-fixer`.** There are no findings to fix: an
    in-progress status carries none by construction, and briefing a
@@ -953,6 +1001,14 @@ member)**:
    <paste every finding from the review, un-tiered, keeping the
    review's per-issue tags>
 
+   Owner rulings — how the findings above are to be fixed, and any
+   in-scope work that is not itself a finding:
+   <every ruling you made this round: a human decision from step 1
+   above, the arm to take where a finding offers two, and any
+   out-of-scope observation you ruled trivial and adjacent per
+   "Rule on an out-of-scope observation while the PR is open". Omit
+   the whole section when you made none.>
+
    Address per your agent definition. Report back what you fixed and
    what you didn't.
    ```
@@ -978,13 +1034,17 @@ member)**:
    A spawn prompt reaches neither: it is visible to nobody once the
    spawn returns.
 
-3. After issue-fixer returns, read its per-finding report as input
-   rather than as the record: it says which findings it fixed and
-   which it did not, and the next review round is what settles whether
-   it was right. When it reports a finding **unfixed** — escalated for
-   a design decision, or declined — that is yours to judge and act on
-   now, not to carry
+3. After issue-fixer returns, read its report — a line per finding and
+   a line per owner ruling — as input rather than as the record: it
+   says which findings it fixed and which it did not, and the next
+   review round is what settles whether it was right. When it reports
+   a finding **unfixed** — escalated for a design decision, or
+   declined — that is yours to judge and act on now, not to carry
    silently into another round (see "Report-consumption principle").
+   Check the rulings too: a ruling that is not itself a finding has no
+   finding to be reported under, and the review round that follows
+   only re-checks the findings, so an unreported ruling is one nothing
+   else will catch.
 4. Spawn `doc-updater` against the branch, with the same spawn prompt
    as after the developer's round (see "After each issue-developer or
    issue-fixer: doc-updater, then review" above), before the review
@@ -1309,6 +1369,13 @@ Nothing has been merged.
 To start the sequential queue, reply: "continue with <link-prefix>103"
 ```
 
+A **Needs Your Attention** row is something the human must act on to
+merge, unblock, or trust a PR of this run. An observation the loop
+already had a chance to act on does not qualify — the loop was where
+it was cheap to settle, and holding it to the end spends the human's
+turn on work that was yours. Round-cap findings, escalations, and a
+discrepancy your re-read could not settle qualify as they stand.
+
 Every cell in those tables is a claim to the human, and most of them
 arrive from a teammate's report rather than from something you
 observed — the `Doc Changes` list is `doc-updater`'s account of its
@@ -1331,10 +1398,11 @@ on the reviewer's severity line and the fixer's report. Fill them per
   broke it, so it is the review's finding by that round, and the
   human's contribution is that the theorem exists at all. Name which
   of those a finding is.
-- A discrepancy between an agent's report and what you observe gets
-  its own **Needs Your Attention** row, naming both versions. Silently
-  publishing whichever one you believe hides the discrepancy that was
-  the actual finding.
+- A discrepancy between an agent's report and what you observe that
+  your re-read of the territory could not settle gets its own **Needs
+  Your Attention** row, naming both versions. Silently publishing
+  whichever one you believe hides the discrepancy that was the actual
+  finding.
 
 ---
 
@@ -1443,12 +1511,13 @@ on the reviewer's severity line and the fixer's report. Fill them per
   `theorem-disprover` and `counterexample-verifier` agents its
   fan-outs spawned, at whatever generator tier; the `doc-updater` pass
   that precedes each one is not a review and never counts against the
-  cap. A spawn that returned without a verdict block posted nothing
-  and does not count either — an in-progress status or a broken
-  `sdlc-agent-result-persist` call alike (see "Handling review
-  findings — the fix loop"):
+  cap. A spawn that posted no review does not count either — an
+  in-progress status or a broken `sdlc-agent-result-persist` call
+  alike (see "Handling review findings — the fix loop"):
   charging the budget for a spawn that checked nothing spends the
-  loop's headroom on it.
+  loop's headroom on it. What settles it is the review, not the
+  report: a spawn that returned without a verdict block having posted
+  a review anyway counts, because the review is there.
 
 ### What the orchestrator IS allowed to do
 
@@ -1483,11 +1552,14 @@ itself:
   is always the review pipeline's job. The review-adjustments comment
   under "Posting the human's review adjustments as a PR comment" is
   the same bucket: you relay what the human dictated, you do not grade
-  anything. So is the **fixer brief** under "Handling review findings
-  — the fix loop": the findings in it are the pipeline's, and writing
-  them onto the PR rather than into a spawn prompt is how the fixer
-  and the next round both reach them. Commenting is not editing —
-  the PR *body* is `pr-finalizer`'s alone. PR comments
+  anything. The **fixer brief** under "Handling review findings — the
+  fix loop" is a mixed bucket. Its findings are the pipeline's and you
+  relay them un-tiered. Its owner rulings are not relayed: they carry
+  the human's decisions and your own — an out-of-scope observation you
+  yourself ruled trivial and adjacent is a judgment you made, not a
+  relay. Writing the brief onto the PR rather than into a spawn prompt
+  is how the fixer and the next round reach both halves. Commenting is
+  not editing — the PR *body* is `pr-finalizer`'s alone. PR comments
   (`gh pr comment`)
   have no
   `/issue-*` equivalent, so raw `gh` stays the tool here — but
@@ -1507,12 +1579,14 @@ itself:
   for when the orchestrator calls `/pr-link-issue` and `/pr-ready`,
   and "End-of-loop lifecycle transitions" above for the
   `/pr-closing-issues` read that feeds the In Review flip.
-- **Set issue status via `/issue-set-status`** — `In Progress` when
-  work starts, `In Review` at end-of-loop. Coordination metadata, not
-  agent-owned work. See "Issue-status transitions" below and the
-  `/issue-*` namespace rule for the general "prefer the skill"
-  principle.
-- **File follow-up issues via `/issue-create`.** It sets type,
+- **Set issue status via `/issue-set-status`, and assign via
+  `/issue-update`** — `In Progress` and `--add-assignees
+  @default-assignee` when work starts, `In Review` at end-of-loop.
+  Coordination metadata, not agent-owned work. See "Issue-status
+  transitions" below and the `/issue-*` namespace rule for the general
+  "prefer the skill" principle.
+- **File follow-up issues via `/issue-create`** — only when the human
+  asks for the issue, never on an observation you held. It sets type,
   priority, size, status, project-board entry, and assignee from
   repo-config in one shot, so the issue is fully configured before the
   URL is printed. Raw `gh issue create` is **not** a substitute —
@@ -1530,9 +1604,10 @@ itself:
   Run `/issue-view <new-N>` and confirm that `type`, the configured
   slot fields (`priority`, `size`, `status`), and the assignee are
   populated as repo-config requires. If any required field is empty
-  when repo-config says it should be populated, surface the mismatch
-  in the final report's **Needs Your Attention** section rather than
-  declaring the follow-up issue filed. The check is cheap (one
+  when repo-config says it should be populated, report the mismatch in
+  the reply to the request that filed the issue rather than declaring
+  the follow-up issue filed — the human is already in that turn, so
+  nothing is held. The check is cheap (one
   `/issue-view` call) and catches the case where `/issue-create`
   silently skipped a step. The post-verify is **not** redundant with
   `/issue-create`'s own output checklist: verifying your own output
@@ -1590,7 +1665,12 @@ them together:
 
 - **In Progress** — set after plan confirmation, before spawning the
   batch's developer (Phase 2, "Set each batch's issues to In Progress
-  before spawning its developer").
+  and assign them before spawning its developer"), where each member is
+  also assigned via `/issue-update <N> --add-assignees
+  @default-assignee`. The assign is outside this section's gate and
+  outside its transitions: it is not a status, it happens once, and
+  nothing later unassigns — a member dropped from a batch mid-run keeps
+  its assignee.
 - **In Review** — set on end-of-loop human confirmation, for every
   member the PR closes (Phase 3, "End-of-loop lifecycle
   transitions"). A dropped member is not one of them and stays In
