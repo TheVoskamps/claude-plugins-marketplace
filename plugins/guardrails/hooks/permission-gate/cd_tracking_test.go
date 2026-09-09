@@ -262,3 +262,33 @@ func TestCdTrackingPreservedGuarantees(t *testing.T) {
 		wantBucket(t, d, BucketDeny, ".git/-tree write via tracked cwd must still deny")
 	})
 }
+
+// TestCdTrackingBareTildeTracksCleanedHome pins what a bare `cd ~` tracks when
+// $HOME carries a trailing slash: home CLEANED, not home verbatim. The tracked
+// cwd is handed to `$PWD` unmodified, so the trailing slash would otherwise
+// reach concatenation — `"$PWD"x` would resolve as <home>/x rather than
+// <home>x. Bash agrees with the Cleaned spelling: its own `cd ~` canonicalizes
+// $PWD (with HOME set to `/tmp/`, `echo "$PWD"` after `cd ~` prints `/tmp`).
+// The tilde is quoted so it reaches applyCd as a literal `~`.
+func TestCdTrackingBareTildeTracksCleanedHome(t *testing.T) {
+	_, wt := setupWorktree(t)
+
+	home := t.TempDir() + string(filepath.Separator)
+	want := filepath.Clean(home)
+
+	cmd := "cd '~' && cat \"$PWD\"x"
+	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 simple commands, got %d: %+v", len(cmds), cmds)
+	}
+	catCmd := cmds[1]
+	if catCmd.cwd != want {
+		t.Errorf("bare-tilde cd tracked cwd = %q, want %q (home Cleaned, not %q verbatim)", catCmd.cwd, want, home)
+	}
+	if len(catCmd.args) != 2 || catCmd.args[1] != want+"x" {
+		t.Errorf("concatenated $PWD operand = %v, want [cat %q]", catCmd.args, want+"x")
+	}
+}

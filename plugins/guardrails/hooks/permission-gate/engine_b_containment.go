@@ -235,8 +235,10 @@ func canonicalize(p string) string {
 // What the three do NOT share is the home lookup or the handling of an
 // unresolvable home, because failing closed means something different at each:
 // applyCd invalidates the running cwd, canonicalizeFromResolver raises
-// unresolvedTilde while keeping the literal for display, and the carve-out
-// drops the root along with every glob listed under it.
+// unresolvedTilde while keeping the literal for display, and the carve-out's
+// two sides part company: a `~`-spelled ROOT drops out along with every glob
+// listed under it (absoluteRootPath), while a `~`-spelled TARGET simply does
+// not match and leaves the root live for every other target (lexicalAbs).
 func hasLeadingTilde(p string) bool {
 	return p == "~" || strings.HasPrefix(p, "~/")
 }
@@ -245,6 +247,11 @@ func hasLeadingTilde(p string) bool {
 // spelling carrying neither unchanged. ok=false means the spelling names the
 // home directory but home is unknown — a substitution no caller can make, so
 // each caller's own fail-closed handling takes it from there.
+//
+// The join Cleans, so a bare `~` yields home with any trailing slash removed
+// rather than home verbatim. That is what bash's own `cd ~` does to $PWD, and
+// it matters to the one caller that hands its result out as a string rather
+// than re-Cleaning it (applyCd, engine_a_bash.go).
 func expandLeadingTilde(spelling string, home string) (string, bool) {
 	if !hasLeadingTilde(spelling) {
 		return spelling, true

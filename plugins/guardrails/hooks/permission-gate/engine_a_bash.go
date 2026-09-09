@@ -680,6 +680,9 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				return
 			}
 			// ok is already established by the case guard plus a non-empty home.
+			// A bare `~` tracks home Cleaned, not verbatim, so a $HOME carrying a
+			// trailing slash reaches `$PWD` concatenation the way bash's own `cd ~`
+			// leaves it (pinned by TestCdTrackingBareTildeTracksCleanedHome).
 			runningCWD, _ = expandLeadingTilde(lit, home)
 		case runningCWDInvalid:
 			// Cannot safely join a relative target onto an already-invalid cwd.
