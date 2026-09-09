@@ -889,10 +889,14 @@ responses, so read what the report **says** before you act on it:
      --jq '.reviews | sort_by(.submittedAt) | last | .submittedAt'
    ```
 
-   If a review *was* posted, the report and the PR disagree, and that
-   discrepancy is itself a finding — name both versions per
-   "Report-consumption principle" and give it a **Needs Your
-   Attention** row rather than acting on either.
+   If a review *was* posted, this re-read has settled the discrepancy
+   itself: the review exists, and the report is wrong about the round
+   it just ran. Name both versions in the round's report per
+   "Report-consumption principle". What the re-read cannot settle is
+   whether that round's output can be trusted — a reviewer wrong about
+   whether it posted a review may be wrong about what is in it — so
+   that question is what gets the **Needs Your Attention** row, and
+   you act on neither version until the human has ruled on it.
 
 2. **Spawn no `issue-fixer`.** There are no findings to fix: an
    in-progress status carries none by construction, and briefing a
