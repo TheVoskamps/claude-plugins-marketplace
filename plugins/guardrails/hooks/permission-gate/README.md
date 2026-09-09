@@ -1647,8 +1647,8 @@ The gate's engines feed that decision:
   **Absent, unreadable, malformed, or stamped below `schema-version: 2`
   → no usable entry anywhere → today's behaviour**, on every path. The
   carve-out fails closed, and the gate is its only reader, so none of
-  those is an error reported anywhere — it is simply an empty list.
-  That is a named exception to `docs/config-file-conventions.md`'s
+  those is an error reported anywhere — it is simply a carve-out with no
+  root that can allow anything. That is a named exception to `docs/config-file-conventions.md`'s
   abort-on-malformed rule, recorded there: a `PreToolUse` hook has no
   channel to abort into, and failing the hook over a broken config
   would be strictly worse than the behaviour the operator had before

@@ -236,9 +236,13 @@ func canonicalize(p string) string {
 // unresolvable home, because failing closed means something different at each:
 // applyCd invalidates the running cwd, canonicalizeFromResolver raises
 // unresolvedTilde while keeping the literal for display, and the carve-out's
-// two sides part company: a `~`-spelled ROOT drops out along with every glob
-// listed under it (absoluteRootPath), while a `~`-spelled TARGET simply does
-// not match and leaves the root live for every other target (lexicalAbs).
+// two sides part company over where the home comes from. A ROOT is expanded
+// against the home loadOperatorCarveOutFrom has already established non-empty,
+// so an unknown home never reaches absoluteRootPath — the whole carve-out is
+// empty before it is called — and a root drops out, along with every glob
+// listed under it, when its spelling is not absolute after expansion. A TARGET
+// does its own lookup (lexicalAbs), where an unknown home leaves that
+// `~`-spelled target unmatched and the root live for every other target.
 func hasLeadingTilde(p string) bool {
 	return p == "~" || strings.HasPrefix(p, "~/")
 }
