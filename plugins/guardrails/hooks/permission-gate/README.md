@@ -1360,7 +1360,7 @@ The gate's engines feed that decision:
   relocate it to an arbitrary directory. The operator carve-out in (6)
   below does read `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME`, and states
   there what buys that off — an opt-in in a file the operator
-  hand-wrote, and two denies that hold whatever the file says. Neither
+  hand-wrote, and denies that hold whatever the file says. Neither
   is available here.
 
   **Both `/tmp` and `/private/tmp` spellings** are handled by
@@ -1674,22 +1674,23 @@ The gate's engines feed that decision:
   containing `..` is dead for the same reason. The self-write deny
   below is the one comparison that does canonicalize both sides.
 
-  **Two denies hold whatever the file says**, and together they are what
-  bounds the environment-variable opt-in. (1) Nothing under a `.git/`
-  segment is handed out, read or write, on any root. (2) No **write** to
-  this config file itself is allowed — at its literal load path or at
-  the resolved `config-home/guardrails/config.yml` — compared
-  canonically, so a symlinked copy and a symlinked ancestor are covered
-  too. Without (2) a `home: write: ['**']` entry would let the gate's
-  own policy be rewritten by the calls it is adjudicating. A **read** of
-  the config file is untouched by (2) and is allowed when listed.
+  **These denies hold whatever the file says**, and together they are
+  what bounds the environment-variable opt-in. (1) Nothing under a
+  `.git/` segment is handed out, read or write, on any root. (2) No
+  **write** to this config file itself is allowed — at its literal load
+  path or at the resolved `config-home/guardrails/config.yml` —
+  compared canonically, so a symlinked copy and a symlinked ancestor
+  are covered too. Without (2) a `home: write: ['**']` entry would let
+  the gate's own policy be rewritten by the calls it is adjudicating. A
+  **read** of the config file is untouched by (2) and is allowed when
+  listed.
 
   Reading an environment variable does let its setter relocate a root,
   which is why the opt-in exists and is off by default rather than why
   the variable is refused: in practice the hook inherits the launcher's
   environment, so the only same-session route to a relocated root is a
   nested `claude` launch from the Bash tool with an `XDG_*` assignment
-  in front of it, and the two denies bound what that could reach.
+  in front of it, and those denies bound what that could reach.
   **No rule against that launch was added, deliberately** — the gate
   neither denies nor detects an `XDG_*` assignment in front of a nested
   `claude`. It would be adjudicating an assignment on a command line
@@ -1718,7 +1719,7 @@ The gate's engines feed that decision:
   hands out nothing. List the directories the conventions actually put
   a file in, not `**`, all the same: a `**` under `home` opens
   **everything** under the home directory — every credential file
-  included — and the two denies above are the only things it cannot
+  included — and the denies above are the only things it cannot
   reach past, one of which (the self-write deny) does not bound a read
   at all. And the ALLOW terminal requires **every** target of the call
   to ride a carve-out, so a call mixing a listed path with an ordinary

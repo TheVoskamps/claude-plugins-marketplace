@@ -426,7 +426,7 @@ func claudeConfigRoot() string {
 // The operator carve-out (operator_carveout.go) does read $XDG_CONFIG_HOME and
 // $XDG_STATE_HOME, and is not a counter-example to that second bullet: it reads
 // them only on an explicit opt-in in a file the operator hand-wrote, and what
-// the relocation can hand out is bounded by two denies that hold whatever the
+// the relocation can hand out is bounded by denies that hold whatever the
 // file says. Neither condition is available here — no operator file names this
 // root, and the region it designates is safe by construction rather than by
 // enumeration — so this one stays a literal.
@@ -490,11 +490,12 @@ var harnessSessionShape = regexp.MustCompile(
 //
 // The version segment is SHAPE-checked (major.minor.patch) and deliberately NOT
 // pinned to the running Claude Code version: the hook event carries no version
-// field, so the only source would be CLAUDE_CODE_EXECPATH in the environment —
-// deriving a carve-out from an environment variable is the same defect that
-// rules out os.TempDir()/$TMPDIR for harnessScratchDir above. Shape-checking
-// also survives an upgrade, where the previous version's directory lingers
-// alongside the new one.
+// field, so the only source would be CLAUDE_CODE_EXECPATH in the environment,
+// which fails on the same terms $TMPDIR fails for harnessScratchDir above:
+// neither condition stated there — an operator's explicit opt-in, and denies
+// that bound what a relocated root can hand out — is available for this
+// region. Shape-checking also survives an upgrade, where the previous
+// version's directory lingers alongside the new one.
 //
 // The evidence base here is narrower than for the session shape: one version
 // directory, one hash directory, one machine. A channel-tagged version such as

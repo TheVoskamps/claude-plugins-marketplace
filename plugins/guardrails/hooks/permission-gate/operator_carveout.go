@@ -33,7 +33,7 @@ import (
 // them follow $XDG_CONFIG_HOME / $XDG_STATE_HOME, and without it they follow
 // only the `config-home-default` / `state-home-default` spellings the file
 // gives. Reading an environment variable lets whatever set that variable
-// relocate a root, so the opt-in is bounded by the two denies below rather
+// relocate a root, so the opt-in is bounded by the denies below rather
 // than by refusing to read the variable at all: nothing under a `.git/`
 // segment is ever handed out, and no write to this config file itself is ever
 // allowed. In practice the hook inherits the launcher's environment, so the
