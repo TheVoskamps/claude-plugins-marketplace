@@ -421,23 +421,30 @@ teammates yet.
 Work in waves of batches, as defined by your plan. Each batch gets one
 `issue-developer`, one branch, and one PR.
 
-### Set each batch's issues to In Progress before spawning its developer
+### Set each batch's issues to In Progress and assign them before spawning its developer
 
 Immediately after the human confirms the plan (end of Phase 1) and
 **before spawning the developer for a given batch**, transition every
-member of that batch to In Progress — they start together because one
-developer starts them together:
+member of that batch to In Progress and assign it to yourself — they
+start together because one developer starts them together:
 
 ```text
 /issue-set-status <N> "In Progress"
+/issue-update <N> --add-assignees @me
 ```
 
-once per member. This is gated on the repo having a configured status
-slot — see "Issue-status transitions" below for the gate and the
-option-name fallback. Set the status for a batch as its wave is about
-to be spawned (so a batch queued behind another wave flips to In
-Progress only when its own developer is about to start), not all at
-once up front.
+once per member. Do both for a batch as its wave is about to be
+spawned (so a batch queued behind another wave flips only when its own
+developer is about to start), not all at once up front.
+
+The status flip is gated on the repo having a configured status slot —
+see "Issue-status transitions" below for the gate and the option-name
+fallback. The assign is not: a repo with no status slot skips the flip
+and still assigns, because an issue someone is driving should say so
+whatever the board offers. `@me` is a literal token `/issue-update`
+resolves; how it resolves is that skill's business, not yours. The
+call is additive, so a member already carrying the resolved login is
+left as it stands and no other assignee is displaced.
 
 ### Spawn-prompt principle
 
@@ -1527,11 +1534,12 @@ itself:
   for when the orchestrator calls `/pr-link-issue` and `/pr-ready`,
   and "End-of-loop lifecycle transitions" above for the
   `/pr-closing-issues` read that feeds the In Review flip.
-- **Set issue status via `/issue-set-status`** — `In Progress` when
-  work starts, `In Review` at end-of-loop. Coordination metadata, not
-  agent-owned work. See "Issue-status transitions" below and the
-  `/issue-*` namespace rule for the general "prefer the skill"
-  principle.
+- **Set issue status via `/issue-set-status`, and assign via
+  `/issue-update`** — `In Progress` and
+  `--add-assignees @me` when work starts, `In Review` at end-of-loop.
+  Coordination metadata, not agent-owned work. See "Issue-status
+  transitions" below and the `/issue-*` namespace rule for the general
+  "prefer the skill" principle.
 - **File follow-up issues via `/issue-create`** — only when the human
   asks for the issue, never on an observation you held. It sets type,
   priority, size, status, project-board entry, and assignee from
@@ -1612,7 +1620,11 @@ them together:
 
 - **In Progress** — set after plan confirmation, before spawning the
   batch's developer (Phase 2, "Set each batch's issues to In Progress
-  before spawning its developer").
+  and assign them before spawning its developer"), where each member is
+  also assigned via `/issue-update <N> --add-assignees @me`. The assign
+  is outside this section's gate and outside its transitions: it is not
+  a status, it happens once, and nothing later unassigns — a member
+  dropped from a batch mid-run keeps its assignee.
 - **In Review** — set on end-of-loop human confirmation, for every
   member the PR closes (Phase 3, "End-of-loop lifecycle
   transitions"). A dropped member is not one of them and stays In

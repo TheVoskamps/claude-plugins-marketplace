@@ -41,7 +41,9 @@ canonical read sequence and abort messages for
 - `--add-labels` / `--remove-labels` (optional): comma-separated label
   names to add or remove.
 - `--add-assignees` / `--remove-assignees` (optional): comma-separated
-  GitHub usernames to add or remove.
+  GitHub usernames to add or remove. Either flag also accepts the
+  literal token `@me` in place of a login, resolved before the edit
+  per step 1 of "Execution (GitHub backend)" below.
 
 At least one update flag must be passed. If none are present, abort
 with a short usage reminder.
@@ -68,7 +70,34 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 
 ## Execution (GitHub backend)
 
-1. **Pre-edit fetch.** Decide which fields need to be read from the
+1. **Resolve `@me`, if either assignee flag carries it.** The token
+   stands for the human running the skill, and it resolves through the
+   same order `/issue-create` uses for its `--assignee` default:
+
+   1. `default-assignee` from the **repo-level** user-config
+      (`<repo-root>/.issues/user-config.md`), if present.
+   2. `default-assignee` from the **user-global** user-config
+      (`$XDG_CONFIG_HOME/issues/user-config.md`), if present.
+      (Repo-level overrides user-global, per
+      `skills/lib/user-config.md` → "Resolution order across the two
+      scopes".)
+   3. The authenticated GitHub user (`gh api user --jq '.login'`).
+
+   Rungs 1–2 follow the canonical read sequence in
+   `skills/lib/user-config.md` (this reader requires user-config
+   schema-version `1`). Both files are **optional**: when neither
+   exists or neither defines `default-assignee`, resolution degrades
+   straight to rung 3. A file that *exists* but is schema-stale aborts
+   per that library's "Schema-version stale" message rather than
+   degrading.
+
+   From here on the resolved login is handled exactly as if the caller
+   had typed it — it goes into the `gh issue edit` call and into the
+   post-edit delta check like any other login. Echo the resolved login
+   rather than the token in the output, so the user sees who landed on
+   the issue.
+
+2. **Pre-edit fetch.** Decide which fields need to be read from the
    issue before the edit, based on the flags in play:
 
    - `--append` or `--prepend` → fetch `body`.
@@ -92,9 +121,9 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
 
    Capture the pre-edit assignee logins (as a set of strings) and
    label names (as a set of strings) for later use in the post-edit
-   delta check. The pre-edit body, if fetched, feeds step 2.
+   delta check. The pre-edit body, if fetched, feeds step 3.
 
-2. **Compute the new body**:
+3. **Compute the new body**:
    - If `--body-file`: read the file. That's the new body.
    - Else if `--append` and/or `--prepend`: start from the current
      body. Build a prepend-prefix by concatenating the `--prepend`
@@ -112,7 +141,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      convention.
    - Else: skip the body update entirely.
 
-3. **Apply edits via `gh issue edit`** in one call where possible.
+4. **Apply edits via `gh issue edit`** in one call where possible.
    `gh issue edit` supports `--title`, `--body-file`, `--add-label`,
    `--remove-label`, `--add-assignee`, and `--remove-assignee` in a
    single invocation:
@@ -137,11 +166,11 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
    Build the invocation only from flags the user actually passed. Do
    not pass empty values.
 
-4. **Issue not found**: if `gh issue edit` returns
+5. **Issue not found**: if `gh issue edit` returns
    `could not resolve to an Issue`, emit the "Issue not found"
    error from the catalogue in `skills/lib/issue.md` and abort.
 
-5. **Post-edit delta check** (only when one or more of
+6. **Post-edit delta check** (only when one or more of
    `--add-assignees`, `--remove-assignees`, `--add-labels`, or
    `--remove-labels` was passed).
 
@@ -157,7 +186,7 @@ via `acli` (the `/issues-jira:jira-lib` skill); it no longer aborts.
      `gh issue view <N> --json assignees,labels` when both kinds were
      touched, or `--json assignees` when only assignee flags ran.
    - **Compute the actual deltas** against the pre-edit sets captured
-     in step 1:
+     in step 2:
      - actual-added-assignees = post − pre
      - actual-removed-assignees = pre − post
      - actual-added-labels = post − pre
@@ -212,7 +241,7 @@ one summary line shows.
 
 The "labels added", "labels removed", "assignees added", and
 "assignees removed" lines reflect what **actually landed** on the
-issue per the post-edit delta check (step 5 of Execution), not the
+issue per the post-edit delta check (step 6 of Execution), not the
 raw CLI input. A requested login or label that didn't land does
 **not** appear on the corresponding "added"/"removed" line; it is
 surfaced on its own mismatch line instead. If every requested
