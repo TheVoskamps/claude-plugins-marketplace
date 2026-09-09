@@ -73,8 +73,8 @@ func writeCarveOutConfig(t *testing.T, home string, body string) {
 	}
 }
 
-// carveOutConfig exercises each entry shape the grammar offers, on each of the
-// three roots: read-only exact files and subtrees, and writable subtrees. The
+// carveOutConfig exercises each entry shape the grammar offers, on every root
+// it offers: read-only exact files and subtrees, and writable subtrees. The
 // XDG variables are left unresolved, so `config-home-default` and
 // `state-home-default` are what the two non-home roots follow.
 const carveOutConfig = `schema-version: 2

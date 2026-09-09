@@ -265,14 +265,24 @@ The gate's engines feed that decision:
   reads `cd '~'` as a directory literally named `~` under the current
   directory, whose `cd` normally fails and leaves the cwd where it was.
   So a relative operand after `cd '~'` is graded against `$HOME` rather
-  than the unchanged cwd — wider than bash, and **in neither direction
-  reliably**: on a machine whose home is outside the worktree the
-  over-approximation loses the allow track, while a `$HOME` that itself
-  lies under a sanctioned root can hand a relative write operand an
-  `allow` where the unchanged, bash-real cwd earns a deny as a worktree
-  escape. No full event reaches an approval that way today, but what
-  prevents it is the aggregate rather than the `cd` arm: the
-  unclassified `cd` residual caps every line of this shape at a defer.
+  than the unchanged cwd — resolving where bash does not, but the
+  grading difference that results runs **in one direction only:
+  stricter**. On a machine whose `$HOME` is outside every sanctioned
+  root the operand is graded an out-of-repo escape and the line is
+  DENIED, where the same operand against the unchanged, bash-real cwd
+  would have ridden the in-repo-write allow (measured against this
+  branch's binary: `touch x` at a worktree cwd allows, while
+  `cd '~' && touch x` at that same cwd denies with the operand resolved
+  to `<home>/x`). The reverse cannot happen: the over-approximation
+  cannot hand an operand an approval the unchanged cwd would not have
+  earned, because a bare relative operand joined onto an in-worktree
+  base grades `contained` — itself allow-eligible on the write track,
+  and never a worktree escape — while a `$HOME` that does lie under a
+  sanctioned root grades the harness-scratch session region, which is
+  allow-eligible in the same way, so nothing widens. And no line of this
+  shape reaches an approval at all: the unclassified `cd` residual caps
+  it at a defer (measured: `cd <session scratchpad> && touch x` returns
+  the abstention envelope).
   The **backslash-escaped** `cd \~` is a third spelling and is covered
   by neither: the backslash survives expansion, so the operand
   relative-joins a literal `\~` segment onto the tracked cwd. That is

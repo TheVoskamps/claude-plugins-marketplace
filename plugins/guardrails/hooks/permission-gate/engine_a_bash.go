@@ -493,7 +493,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// unresolved variable, or `cd -`) — after that point relative operands
 	// cannot be safely resolved and must fail closed, so every later-emitted
 	// simpleCommand in that scope carries cwdInvalid=true.
+	//
+	// The seed is Cleaned for the reason all four applyCd arms Clean: the
+	// tracked cwd is handed to `$PWD` unmodified, so a seed carrying a trailing
+	// slash would resolve `"$PWD"x` as <seed>/x where bash yields <seed>x. The
+	// seed reaches concatenation on a line with no `cd` in it at all, so the
+	// applyCd Cleans do not cover it (pinned by
+	// TestCdTrackingSeedCWDIsCleaned). The empty seed is exempt: it means the
+	// cwd is UNKNOWN, which resolveVar fails closed on, and filepath.Clean("")
+	// is "." — a resolvable relative path.
 	runningCWD := seedCWD
+	if runningCWD != "" {
+		runningCWD = filepath.Clean(runningCWD)
+	}
 	runningCWDInvalid := false
 
 	// runningOldCWD / runningOldCWDInvalid track $OLDPWD: the value of
@@ -705,14 +717,20 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			//
 			// Resolving the quoted spelling to $HOME anyway is a deliberate
 			// over-approximation: it grades later relative operands against home
-			// rather than against the unchanged cwd. It does not hold to one
-			// direction. On a machine whose home is outside the worktree it
-			// loses the allow track; where $HOME itself lies under a sanctioned
-			// root it can hand a relative write operand an `allow` where the
-			// unchanged, bash-real cwd earns a deny as a worktree escape. What
-			// keeps that off the allow track today is the aggregate rather than
-			// this arm: the unclassified `cd` residual caps every line of this
-			// shape at DEFER. See the README's cd-tracking section.
+			// rather than against the unchanged cwd. The grading difference
+			// runs in ONE direction, and it is the strict one: with a home
+			// outside every sanctioned root the operand grades an out-of-repo
+			// escape and the line DENIES, where the unchanged, bash-real cwd
+			// would have ridden the in-repo-write allow. It cannot go the other
+			// way — a bare relative operand joined onto an in-worktree base
+			// grades `contained`, itself allow-eligible on the write track and
+			// never a worktree escape, and a home that does lie under a
+			// sanctioned root grades the harness-scratch session region, which
+			// is allow-eligible the same way, so there is no approval for this
+			// arm to hand out that the unchanged cwd would not have earned.
+			// Nothing of this shape reaches an approval regardless: the
+			// unclassified `cd` residual caps every such line at DEFER. See the
+			// README's cd-tracking section.
 			//
 			// ok is already established by the case guard plus a non-empty home.
 			// The result is home Cleaned, not verbatim, so a $HOME carrying a
