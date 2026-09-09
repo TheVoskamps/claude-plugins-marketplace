@@ -227,12 +227,12 @@ func canonicalize(p string) string {
 // resolve, so it is left alone rather than expanded against the current user's
 // home.
 //
-// This is the package's one spelling of that test, and three call sites need
+// This is the package's one spelling of that test, and every call site needs
 // the same answer out of it: applyCd's `cd ~` case (engine_a_bash.go),
 // canonicalizeFromResolver below, and both sides of the operator carve-out's
 // lexical match (operator_carveout.go) — a carve-out root that expanded a
 // shape its targets did not would strip a prefix the target never carried.
-// What the three do NOT share is the home lookup or the handling of an
+// What they do NOT share is the home lookup or the handling of an
 // unresolvable home, because failing closed means something different at each:
 // applyCd invalidates the running cwd, canonicalizeFromResolver raises
 // unresolvedTilde while keeping the literal for display, and the carve-out's
