@@ -863,8 +863,10 @@ When `theorem-based-pr-reviewer` reports back:
 finish a round. The harness surfaces every one of these as
 `status: completed` with the closing message as the result, so a
 verdictless return is indistinguishable from a finished review unless
-you check for the verdict block. Check on every return; this is not an
-escalation, because the reviewer is not stopping to ask you anything.
+you check for the verdict block. Check on every return. A verdictless
+return that posted no review is not an escalation: the reviewer is not
+stopping to ask you anything, and step 3 re-spawns it without asking.
+One that *did* post a review is an escalation — step 1 says why.
 
 Two different reports arrive this way and they take opposite
 responses, so read what the report **says** before you act on it:
@@ -903,6 +905,14 @@ responses, so read what the report **says** before you act on it:
    live review count, so it would run that round on top of the very
    output you have just asked the human to rule on, and carry its
    records forward as though nothing had been questioned.
+
+   The ruling settles how the loop resumes. Ruled trustworthy, the
+   round stands: read its findings off the PR itself, since the report
+   that should have carried them did not, and write the fixer brief
+   from what the posted review says. Ruled untrustworthy, re-spawn the
+   reviewer over the same PR — the new round supersedes the questioned
+   one, and its verdicts and findings are what the loop carries
+   forward.
 
    Steps 2-4 below are the no-review-posted path, and run only when
    the re-read found none.
