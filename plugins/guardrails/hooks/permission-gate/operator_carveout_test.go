@@ -415,6 +415,88 @@ config-home:
 	wantBucket(t, d, BucketAllow, "a read of the carve-out's own config file")
 }
 
+// TestOperatorCarveOutRefusesSelfWriteNotYetCreated aims a `..` behind a
+// symlinked directory at the config-home copy of the config file on a machine
+// that has no such copy yet — the state that copy is normally in, since a
+// machine with one config file has it at the literal load path.
+//
+// The existing symlinked-directory row aims at a file that EXISTS, where one
+// filepath.EvalSymlinks call over the whole path resolves the spelling. With
+// the file absent that call fails, and the longest-existing-ancestor walk-up
+// that used to take over Cleaned the `..` away with filepath.Dir before
+// resolving the link: the target canonicalized to a nonexistent
+// `<home>/config.yml` matching no self path, while the kernel followed the link
+// and delivered the write to the real config-home copy. The segment-by-segment
+// resolution is what closes it, so all three rows below are one fix.
+//
+// Every row resolves to the same not-yet-created config-home copy and differs
+// only in how it is spelled, and every row is a path the `**` entries on both
+// roots would otherwise hand out on the lexically-cleaned spelling.
+func TestOperatorCarveOutRefusesSelfWriteNotYetCreated(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+
+	relocated := filepath.Join(base, "relocated")
+	nested := filepath.Join(relocated, "guardrails", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(xdgConfigHomeEnv, relocated)
+	// The literal load path exists — the carve-out has to be able to read its
+	// own config to have any entry at all. What deliberately does not exist is
+	// <relocated>/guardrails/config.yml, the spelling every row resolves to.
+	writeCarveOutConfig(t, home, `schema-version: 2
+resolve-xdg-environment-variables: yes
+config-home-default: ~/.config
+home:
+  write:
+    - '**'
+config-home:
+  write:
+    - '**'
+`)
+	selfCopy := filepath.Join(relocated, "guardrails", "config.yml")
+	if _, err := os.Lstat(selfCopy); err == nil {
+		t.Fatalf("%s must not exist: the not-yet-created case is what is under test", selfCopy)
+	}
+	// A symlink to a DIRECTORY inside the relocated config directory, so a `..`
+	// segment behind it climbs to that directory for the kernel and to the
+	// link's own lexical parent for a Clean. One under home and one under the
+	// relocated root, so neither the target's own prefix nor the root it is
+	// spelled against is what the deny turns on.
+	homeLink := filepath.Join(home, "link-to-relocated-config-dir")
+	if err := os.Symlink(nested, homeLink); err != nil {
+		t.Fatal(err)
+	}
+	rootLink := filepath.Join(relocated, "link-to-config-dir")
+	if err := os.Symlink(nested, rootLink); err != nil {
+		t.Fatal(err)
+	}
+	// Assembled by concatenation, not filepath.Join, which would Clean the `..`
+	// away and destroy the very spelling under test.
+	sep := string(filepath.Separator)
+	for name, target := range map[string]string{
+		"an absolute spelling through a symlink under home":         homeLink + sep + ".." + sep + "config.yml",
+		"the `~` spelling of that same symlink":                     "~" + sep + filepath.Base(homeLink) + sep + ".." + sep + "config.yml",
+		"an absolute spelling through a symlink under the XDG root": rootLink + sep + ".." + sep + "config.yml",
+	} {
+		d := fileToolVerdict(t, "Write", repo, target)
+		if d.Bucket == BucketAllow {
+			t.Errorf("a write reaching the not-yet-created config-home copy via %s must not ALLOW; got %q (%s)",
+				name, d.Bucket, d.Reason)
+		}
+	}
+
+	// The negative control: the same spelling with one segment changed, naming a
+	// file that is not this config and does not exist either. It stays an ALLOW,
+	// so the rows above are the self-write deny firing on the file they reach
+	// and not the `..`-behind-a-symlink shape being refused wholesale.
+	d := fileToolVerdict(t, "Write", repo, homeLink+sep+".."+sep+"other.yml")
+	wantBucket(t, d, BucketAllow, "a write to a non-config file behind the same symlink")
+}
+
 // TestOperatorCarveOutRefusesSelfWriteByCase varies LETTER CASE and nothing
 // else. On a case-insensitive filesystem — the macOS default, so the default
 // posture for this marketplace's own machines — `CONFIG.YML` names the very

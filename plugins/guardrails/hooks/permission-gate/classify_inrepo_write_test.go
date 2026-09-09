@@ -56,8 +56,8 @@ func TestInRepoWriteContainedAllow(t *testing.T) {
 }
 
 // cp/mv with a destination that does not yet exist still resolves correctly
-// (canonicalize handles the non-existent tail via the longest existing ancestor)
-// and ALLOWs.
+// (canonicalize resolves the segments that exist and carries the rest as
+// written) and ALLOWs.
 func TestInRepoWriteNonExistentDest(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")

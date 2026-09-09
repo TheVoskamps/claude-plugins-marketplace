@@ -732,11 +732,16 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// the README's cd-tracking section.
 			//
 			// ok is already established by the case guard plus a non-empty home.
-			// The result is home Cleaned, not verbatim, so a $HOME carrying a
-			// trailing slash cannot reach `$PWD` concatenation — bash's own $PWD
-			// carries no trailing slash after a successful cd (pinned by
-			// TestCdTrackingBareTildeTracksCleanedHome).
-			runningCWD, _ = expandLeadingTilde(lit, home)
+			// Cleaned, not verbatim, so a $HOME carrying a trailing slash cannot
+			// reach `$PWD` concatenation — bash's own $PWD carries no trailing
+			// slash after a successful cd (pinned by
+			// TestCdTrackingBareTildeTracksCleanedHome). The Clean is applied
+			// HERE rather than left to expandLeadingTilde, which carries the
+			// post-`~` remainder verbatim so a `..` reaches the path resolver
+			// intact: a tracked cwd wants bash's logical reading of `..`, which
+			// is the lexical one.
+			expanded, _ := expandLeadingTilde(lit, home)
+			runningCWD = filepath.Clean(expanded)
 		case runningCWDInvalid:
 			// Cannot safely join a relative target onto an already-invalid cwd.
 			return

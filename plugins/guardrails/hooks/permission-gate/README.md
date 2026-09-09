@@ -1715,7 +1715,11 @@ The gate's engines feed that decision:
   file (`os.SameFile` on the resolved paths, with the canonical strings
   as the fallback for a target that does not exist yet), so a symlinked
   copy, a symlinked ancestor and a case-varied spelling on a
-  case-insensitive filesystem are covered too. A string comparison
+  case-insensitive filesystem are covered too. The resolution follows
+  each symlink before applying whatever follows it, so a `..` behind a
+  symlinked directory is covered as well — and covered whether or not
+  the file it reaches exists yet, which the `config-home` copy usually
+  does not. A string comparison
   alone was not enough: `filepath.EvalSymlinks` returns the caller's
   casing, so `CONFIG.YML` and `config.yml` — one file, on the macOS
   default filesystem — canonicalize to strings that differ. Without (2)

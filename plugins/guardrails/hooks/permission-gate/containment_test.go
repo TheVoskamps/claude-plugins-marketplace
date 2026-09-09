@@ -403,8 +403,8 @@ const (
 
 // scratchTarget spells a path under the REAL <system-tmp>/claude-<uid> root.
 // Nothing is created there: the gate only stats paths, and canonicalize
-// re-attaches a non-existent tail to its longest existing ancestor, so these
-// tests never touch the developer's live scratchpad.
+// carries a non-existent segment as written, so these tests never touch the
+// developer's live scratchpad.
 func scratchTarget(uid int, rel ...string) string {
 	return filepath.Join(append([]string{fmt.Sprintf("/tmp/claude-%d", uid)}, rel...)...)
 }

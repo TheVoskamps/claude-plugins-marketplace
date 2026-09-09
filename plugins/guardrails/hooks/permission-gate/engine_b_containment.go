@@ -207,12 +207,13 @@ func parseOwnerRepoFromRemote(url string) string {
 	return strings.ToLower(owner + "/" + repo)
 }
 
-// canonicalize resolves symlinks and `..` to an absolute real path. If the
-// path does not exist, it canonicalizes the longest existing ancestor and
-// re-appends the non-existent tail, so a not-yet-created file still resolves
-// through any symlinked ancestor — a one-sided canonicalization is defeatable,
-// so both sides of every containment comparison are resolved. Returns a
-// best-effort absolute path; never errors (the comparison itself is the gate).
+// canonicalize resolves symlinks and `..` to an absolute real path, segment by
+// segment, so each symlink is followed before whatever follows it is applied
+// (resolvePathSegments). A segment that does not exist is carried as written,
+// so a not-yet-created file still resolves through any symlinked ancestor — a
+// one-sided canonicalization is defeatable, so both sides of every containment
+// comparison are resolved. Returns a best-effort absolute path; never errors
+// (the comparison itself is the gate).
 //
 // A relative p is joined onto the HOOK PROCESS's own cwd via filepath.Abs.
 // Most callers have an explicit base directory to resolve against instead
@@ -252,10 +253,19 @@ func hasLeadingTilde(p string) bool {
 // home directory but home is unknown — a substitution no caller can make, so
 // each caller's own fail-closed handling takes it from there.
 //
-// The join Cleans, so a bare `~` yields home with any trailing slash removed
-// rather than home verbatim. That is what bash's own `cd ~` does to $PWD, and
-// it matters to the one caller that hands its result out as a string rather
-// than re-Cleaning it (applyCd, engine_a_bash.go).
+// HOME is Cleaned and the remainder is carried VERBATIM, rather than the two
+// being filepath.Join'ed: Join Cleans the whole result, which collapses a `..`
+// segment before the segment in front of it has been resolved, and a `..`
+// behind a symlinked directory names a different file collapsed than it does
+// resolved. canonicalizeFromResolver's segment walk is what resolves such a
+// spelling the way the kernel does, and it can only do so if it is handed the
+// `..` intact (see resolvePathSegments). A caller that wants bash's own
+// logical reading of `..` — applyCd, whose $PWD is exactly that — Cleans the
+// result itself.
+//
+// Cleaning home is what keeps a $HOME carrying a trailing slash out of the
+// concatenation, so a bare `~` still yields home with any trailing slash
+// removed rather than home verbatim, which is what bash's `cd ~` does to $PWD.
 func expandLeadingTilde(spelling string, home string) (string, bool) {
 	if !hasLeadingTilde(spelling) {
 		return spelling, true
@@ -263,7 +273,7 @@ func expandLeadingTilde(spelling string, home string) (string, bool) {
 	if home == "" {
 		return "", false
 	}
-	return filepath.Join(home, strings.TrimPrefix(spelling, "~")), true
+	return filepath.Clean(home) + strings.TrimPrefix(spelling, "~"), true
 }
 
 // canonicalizeFrom is canonicalize with an explicit base directory for the
@@ -337,30 +347,66 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 	}
 	if !filepath.IsAbs(p) {
 		if base != "" {
-			p = filepath.Join(base, p)
-		} else if abs, err := filepath.Abs(p); err == nil {
-			p = abs
+			// Concatenated rather than filepath.Join'ed, for the reason
+			// resolvePathSegments below states: Join Cleans, and a `..`
+			// collapsed before the segment in front of it is resolved names a
+			// different file than the one the kernel delivers to.
+			p = base + string(filepath.Separator) + p
+		}
+		if !filepath.IsAbs(p) {
+			// An empty or itself-relative base: fall back to the process cwd,
+			// which is what filepath.Abs joins on. That call Cleans, so the
+			// `..` fidelity above does not extend to this arm.
+			if abs, err := filepath.Abs(p); err == nil {
+				p = abs
+			}
 		}
 	}
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		return real, unresolvedTilde
+	if !filepath.IsAbs(p) {
+		return filepath.Clean(p), unresolvedTilde
 	}
-	// Path (or a tail segment) does not exist. Walk up to the longest
-	// existing ancestor, canonicalize that, then re-attach the tail.
-	dir := p
-	var tail []string
-	for {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break // reached root
+	return resolvePathSegments(p), unresolvedTilde
+}
+
+// resolvePathSegments resolves an absolute, deliberately UNcleaned spelling the
+// way the kernel resolves it: segment by segment against the prefix already
+// resolved, so every symlink is followed before whatever follows it is applied.
+// The result is an absolute, Cleaned path.
+//
+// The order is the whole point. `..` applies to the directory the preceding
+// segment RESOLVES to and not to its lexical parent, so
+// `<home>/<link-into-the-config-directory>/../config.yml` lands on the config
+// directory's own `config.yml` — the file a write through that spelling really
+// reaches — where collapsing the `..` first yields a nonexistent
+// `<home>/config.yml`. One filepath.EvalSymlinks call over the whole path gets
+// this right too, but only while every segment exists: it fails on a path whose
+// tail does not, and the longest-existing-ancestor walk-up that used to take
+// over from it Cleaned the `..` away via filepath.Dir on the way up. A
+// not-yet-created target is the ordinary case for a Write, and it is the case
+// the gate's own self-write deny (operator_carveout.go) was escapable through.
+//
+// A segment that does not exist is joined on as written and the walk continues
+// from there: there is no symlink to follow, and no segment after it can exist
+// either.
+func resolvePathSegments(p string) string {
+	vol := filepath.VolumeName(p)
+	resolved := vol + string(filepath.Separator)
+	for _, seg := range strings.Split(p[len(vol):], string(filepath.Separator)) {
+		switch seg {
+		case "", ".":
+			continue
+		case "..":
+			resolved = filepath.Dir(resolved)
+			continue
 		}
-		tail = append([]string{filepath.Base(dir)}, tail...)
-		dir = parent
-		if real, err := filepath.EvalSymlinks(dir); err == nil {
-			return filepath.Join(append([]string{real}, tail...)...), unresolvedTilde
+		next := filepath.Join(resolved, seg)
+		if real, err := filepath.EvalSymlinks(next); err == nil {
+			resolved = real
+			continue
 		}
+		resolved = next
 	}
-	return filepath.Clean(p), unresolvedTilde
+	return resolved
 }
 
 // containmentResult is the outcome of testing a target path against the repo
@@ -718,8 +764,9 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// /private/tmp symlink. Enumerating the two literals would be actively
 	// wrong on Linux, where there is no such symlink and /private/tmp is a
 	// genuinely different directory a literal allow-list would wrongly match.
-	// Targets that do not exist yet (a Write to a new file) unify too, via
-	// canonicalizeFromResolver's longest-existing-ancestor walk-up.
+	// Targets that do not exist yet (a Write to a new file) unify too:
+	// canonicalizeFromResolver resolves the segments that do exist and carries
+	// the rest as written.
 	//
 	// Everything else under /tmp — including another uid's prefix — still
 	// falls through to the escapeRepo deny below.
