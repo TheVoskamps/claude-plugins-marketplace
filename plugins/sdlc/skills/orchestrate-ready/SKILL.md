@@ -47,18 +47,18 @@ in it can trigger that stop.
 
 Assess the fetched issue against each of these:
 
-- **Self-contained.** The body alone suffices. No links out to docs
-  the developer must fetch to understand the scope, no "see the
-  discussion in X", no competing opinions left standing side by side,
-  and no amendment layers ("Update:", "Actually, on reflection…").
-  One clean, current spec, written as the thing to build.
+- **Self-contained.** The body alone suffices. It carries no reference
+  out of itself — to another issue, a PR, a commit, or a document
+  outside the body. No competing opinions left standing side by side,
+  and no amendment layers ("Update:", "Actually, on reflection…"). One
+  clean, current spec, written as the thing to build.
 - **No unanswered design decisions.** Naming, placement in the tree,
   load mode, the fate of content the change subsumes, and any
   structural contract a downstream consumer depends on are each
   settled in the body — not posed as questions and not left implicit.
 - **Sandbox fit.** Everything the issue asks for lands inside this
   repo. Work that would land in another repo becomes its own issue
-  in that repo, referenced from this one — never folded into this
+  in that repo, tied to this one by an edge — never folded into this
   issue's scope, because the implementer's sandbox is this repo and
   it would have to stop.
 - **Dependency posture.** The issue's `blockedBy`/`blocking` edges
@@ -66,9 +66,14 @@ Assess the fetched issue against each of these:
   or independence from issue titles. Resolve any cross-repo edge to
   the repo it actually lives in before naming it.
 - **Spec quality.** Every sentence changes what the implementer builds
-  or what the reviewer checks. Provenance, history, and the trail of
-  how the issue came to be filed are not spec — they cost the
-  implementer fetches and reads that buy nothing.
+  or what the reviewer checks. A sentence about how the change came to
+  be asked for, what an earlier round did, or why an earlier design
+  was rejected is provenance rather than spec — it costs the
+  implementer reads that buy nothing.
+- **Acceptance criteria.** The body carries an `## Acceptance`
+  section, and each bullet in it is one claim about the delivered
+  change that a reviewer can attempt to disprove against the diff. An
+  issue without one is not orchestrate-ready.
 
 ## Procedure
 
@@ -100,6 +105,27 @@ Assess the fetched issue against each of these:
    own words, and move to the next topic once it is settled. Your
    proposed defaults are proposals; the user decides.
 
+   **The `## Acceptance` section is a gap like any other.** When the
+   body has none, derive candidate criteria from the design prose —
+   one per load-bearing commitment it makes, and never past it: a
+   commitment the design does not make is a design decision to settle
+   first, not a criterion to invent. When the body has one, split a
+   bullet that bundles several checks one claim per bullet, drop a
+   bullet that restates the design prose without adding a checkable
+   claim, and rewrite a bullet that names no artifact to name the
+   file, section, or command it is about. Either way, put the
+   resulting list to the user with the other decisions before step 4
+   rewrites the body.
+
+   Group that list under `## Acceptance` into a `### Mechanical`
+   sub-list and a `### Semantic` one, splitting it by the `class`
+   definitions in `sdlc:theorem-generation` → "Output format" so the
+   two files agree by construction. An issue that touches
+   `plugins/<name>/` always gets the plugin version bump as a
+   mechanical criterion: the repo's `CLAUDE.md` requires that bump on
+   every such PR, and the generator makes a theorem of every
+   criterion.
+
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped
    replying — the issue is **not** orchestrate-ready, and inventing
@@ -128,6 +154,14 @@ Assess the fetched issue against each of these:
    amendment layer is one of the gaps this skill exists to remove, so
    introducing one while resolving the others is self-defeating.
 
+   The rewrite is also what enforces the readiness bar's exclusions,
+   by removing rather than noting: every reference the bar excludes
+   and every provenance sentence comes out, a fact the body needs
+   from a referenced document is restated in the body in the present
+   tense, and a dependency the prose stated is created with
+   `/issue-set-blocked-by <blocked> <blocker>`. The agreed
+   `## Acceptance` section goes in as its two grouped sub-lists.
+
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,
    name it, show the user the title and body you would file, and file
@@ -135,25 +169,21 @@ Assess the fetched issue against each of these:
    one issue; it does not carry to the next.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.
-   - **In another repo** → the `issues:*` namespace is scoped to the
-     current repo, so there is no skill for this. File it with
+   - **In another repo** → `/issue-create` files into the current
+     repo only, so there is no skill for this. File it with
      `gh issue create --repo <owner>/<repo> --title "…"
      --body-file <path>`. This is a write outside the current
      repository, which is why the explicit per-issue yes is the gate
      rather than a formality.
 
-   Link the new issue back. A same-repo dependency gets a real edge,
-   in whichever direction the work actually runs:
+   Link the new issue back with a real edge, in whichever direction
+   the work actually runs:
    `/issue-set-blocked-by <blocked> <blocker>` when the new issue is a
    prerequisite of the groomed one,
    `/issue-set-blocks <blocker> <blocked>` when it is the other way
-   round. A cross-repo relation gets a
-   `References: <owner>/<repo>#<M>` line in the body instead — the
-   groomed issue's, the new one's, or both, whichever makes the
-   relation findable from the side that needs it. **Never** a closing
-   keyword — a closing keyword in a body
-   auto-closes the referenced issue on merge, and one aimed at an
-   issue outside a branch's own set is precisely what
+   round. **Never** a closing keyword in either body — a closing
+   keyword auto-closes the referenced issue on merge, and one aimed at
+   an issue outside a branch's own set is precisely what
    `~/.claude/rules/git-workflow.md` → "Issue references" forbids.
 
 6. **Set the status, then verify the write landed.** Skip this step

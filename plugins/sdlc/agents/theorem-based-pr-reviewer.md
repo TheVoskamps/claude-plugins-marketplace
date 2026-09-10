@@ -922,7 +922,7 @@ Everything else — every retired theorem the bullets above do not name
 
 Acceptance-criterion theorems are the one class that regenerates on
 every round that fans out, because the issues can be edited between
-rounds and the class is mechanical: one theorem per criterion. Invariant
+rounds and the rule is mechanical: one theorem per criterion. Invariant
 theorems persist instead of regenerating. An empty-delta round never
 reaches this step, so it skips even this regeneration; an
 adjustment-only round does reach it and does regenerate them. Both terms
