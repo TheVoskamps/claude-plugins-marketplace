@@ -776,6 +776,19 @@ swap. This is the sibling of negate-checking: that establishes a *new*
 test reaches the new code, this one establishes an *old* test still
 reaches the code it was written for after the code moved beneath it.
 
+**A relative operand grades no resolution base unless the process cwd
+is placed on purpose.** A fixture repository under `t.TempDir()` leaves
+the process cwd at the package directory, so a resolution taken against
+that cwd lands outside the fixture's `topLevel` and denies — the same
+verdict the correct resolution earns, from the wrong reason, and the row
+passes either way. Place the process cwd with `t.Chdir(<fixture root>)`,
+give the event a cwd one **subdirectory** deeper holding the path under
+test, and put a real in-repo file at the name the wrong base would
+reach: then the wrong base grades contained and the row discriminates.
+Assert the escaped path in the deny reason, not the bucket. A binary
+replay of a relative target needs the same placement — pass the
+subprocess its cwd explicitly, and say in the write-up where it was.
+
 ## The gate adjudicates the commands you edit it with
 
 The compiled gate is a live `PreToolUse` hook while you work on it, so
