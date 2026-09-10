@@ -290,9 +290,10 @@ CHECKED: <what you checked and how — the commands you ran, the files
 you read, the region you covered>
 ```
 
-`CHECKED` is published in the review's Verified list, so it is the
-coverage record. Say what you actually did, including where you
-stopped.
+`CHECKED` is published in the round's argued review, in its Verified
+list, and `pr-finalizer` posts that review to the PR once the fix loop
+concludes — so it is the coverage record. Say what you actually did,
+including where you stopped.
 
 ## End-of-run cleanup
 
