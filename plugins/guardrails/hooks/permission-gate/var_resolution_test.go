@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -104,6 +105,92 @@ func TestHomeVarUnresolvableFailsClosed(t *testing.T) {
 	if len(cmds3[0].args) > 1 && strings.Contains(cmds3[0].args[1], "relative/home") {
 		t.Errorf("$HOME under a relative home resolved the operand to %q; a non-absolute home must not reach the operand",
 			cmds3[0].args[1])
+	}
+}
+
+// TestUnresolvableHomeTildeIsInexact pins the TILDE spelling of the rule the
+// test above pins for `$HOME`: the two must agree. Failing to resolve $HOME is
+// what leaves an unquoted `~` unexpanded — expand.Literal tilde-expands through
+// resolveVar — and the surviving literal used to stay EXACT, so `cat ~/x` was
+// relative-joined onto the tracked cwd, graded `contained`, and ALLOWed while
+// `cat "$HOME/x"` deferred. Bare `cat ~` is the same hole with nothing after the
+// tilde.
+//
+// The quoted `'~/x'` row is deliberate over-approximation rather than bash
+// parity (bash reads it as a literal filename under the cwd): containment
+// expands a leading tilde whatever the quoting was, so grading it exact here
+// would put the two paths back out of step in the fail-open direction.
+func TestUnresolvableHomeTildeIsInexact(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+
+	for _, home := range []struct {
+		name     string
+		resolver varResolver
+	}{
+		{"erroring home", fakeResolver("", errors.New("no home directory"), nil)},
+		{"empty home", fakeResolver("", nil, nil)},
+		{"relative home", fakeResolver("relative/home", nil, nil)},
+	} {
+		for _, cmd := range []string{`cat ~/x`, `cat ~`, `cat '~/x'`} {
+			cmds, err := extractSimpleCommands(mustParse(t, cmd), cwd, home.resolver, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cmds) != 1 {
+				t.Fatalf("expected 1 simple command for %q, got %d", cmd, len(cmds))
+			}
+			if !cmds[0].hasUnknownExpansion {
+				t.Errorf("%q under an %s: hasUnknownExpansion = false, want true; a tilde left unexpanded because "+
+					"$HOME did not resolve is no more exact than the $HOME spelling it stands in for", cmd, home.name)
+			}
+		}
+	}
+
+	// Negative control: with a usable (absolute) home the tilde resolves, so the
+	// word stays EXACT and flows into ordinary containment — this guard must not
+	// mark every tilde operand inexact.
+	absHome := t.TempDir()
+	cmds, err := extractSimpleCommands(mustParse(t, `cat ~/x`), cwd, fakeResolver(absHome, nil, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmds[0].hasUnknownExpansion {
+		t.Errorf("`cat ~/x` under an absolute home %q: hasUnknownExpansion = true, want false", absHome)
+	}
+	if want := filepath.Join(absHome, "x"); len(cmds[0].args) < 2 || cmds[0].args[1] != want {
+		t.Errorf("`cat ~/x` under an absolute home resolved to %v, want the operand %q", cmds[0].args, want)
+	}
+}
+
+// TestUnresolvableHomeTildeWithholdsAllow pins the same rule end to end, at the
+// shipped verdict: os.UserHomeDir reads $HOME directly on Unix, so a relative
+// $HOME reaches classifyBash's own resolver and the tilde spellings must reach
+// the same withheld-allow the `$HOME` spelling reaches. Before the fix all three
+// tilde rows ALLOWed — a read of the operator's home directory graded as a
+// contained, in-worktree path.
+func TestUnresolvableHomeTildeWithholdsAllow(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	t.Setenv("HOME", "relative/home")
+
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo), AgentType: "main"}
+
+	want := classifyBash(`cat "$HOME/x"`, ev).Bucket
+	if want == BucketAllow {
+		t.Fatalf(`cat "$HOME/x" under a relative $HOME must not allow; got %q — the tilde rows below are graded `+
+			`against this spelling, so an allow here would make them vacuous`, want)
+	}
+	for _, cmd := range []string{`cat ~/x`, `cat ~`, `cat ~/.ssh/id_rsa`} {
+		if got := classifyBash(cmd, ev).Bucket; got != want {
+			t.Errorf("%q under a relative $HOME = %q, want %q (matching the `$HOME` spelling)", cmd, got, want)
+		}
 	}
 }
 

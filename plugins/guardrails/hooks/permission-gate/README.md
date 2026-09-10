@@ -237,7 +237,21 @@ The gate's engines feed that decision:
   env, which holds the event's cwd and would be wrong after an
   in-script `cd`. An in-script static assignment always takes
   precedence over that allowlist when both apply (`HOME=/tmp cat
-  "$HOME/x"` resolves to `/tmp`). Any other env var (`$FOO`, `$PATH`,
+  "$HOME/x"` resolves to `/tmp`). A `$HOME` that is unresolvable, empty,
+  or **not absolute** fails to resolve, which marks the word inexact and
+  keeps the line off the allow track — and the same three-part test
+  grades a **tilde** operand, because `expand.Literal` tilde-expands
+  through that same resolution, so a `~` left unexpanded by an unusable
+  `$HOME` is marked inexact too. That keeps `cat ~/x` and bare `cat ~`
+  in step with `cat "$HOME/x"`: before it, the surviving `~` stayed
+  exact, relative-joined onto the tracked cwd and ALLOWed as a
+  contained in-worktree read (pinned by
+  `TestUnresolvableHomeTildeIsInexact` and
+  `TestUnresolvableHomeTildeWithholdsAllow`). A quoted `'~/x'` is marked
+  inexact on the same test — an over-approximation in the fail-closed
+  direction, matching what the `cd '~'` handling below does and what
+  containment already does with the quoted spelling. Any other env var
+  (`$FOO`, `$PATH`,
   …) stays unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
   environment is unverified. Static-variable resolution is
@@ -1270,12 +1284,20 @@ The gate's engines feed that decision:
   brace-list escaping member, `{a.md,~/.ssh/id_rsa}`, but pre-existing
   and reachable through any single-operand path too, e.g. plain
   `cat ~/.ssh/id_rsa`) — now it earns the escape verdict its real
-  location deserves. If the home directory cannot be resolved (`HOME`
-  unset/empty — real in cron jobs, minimal containers, stripped
-  environments), the containment layer (`testContainmentFrom`) treats
-  the operand as an unconditional `escapeRepo` — denied, never
+  location deserves. If the home directory is not usable — `HOME`
+  unset/empty (real in cron jobs, minimal containers, stripped
+  environments), or set to a **relative** path, which `os.UserHomeDir`
+  hands back unchecked — the containment layer (`testContainmentFrom`)
+  treats the operand as an unconditional `escapeRepo` — denied, never
   `contained` — genuinely mirroring `applyCd`'s fail-safe posture
-  (invalidate rather than guess) rather than merely claiming to. An
+  (invalidate rather than guess) rather than merely claiming to. The
+  relative member is the least obvious of the three and was the last
+  closed: it is neither an error nor empty, so `~/.ssh/id_rsa` expanded
+  to `relhome/.ssh/id_rsa`, which is still not `filepath.IsAbs` and
+  joined onto the base as `<base>/relhome/.ssh/id_rsa` — the same
+  in-repo-looking disguise by a different route (pinned by
+  `TestCanonicalizeFromResolverRelativeHomeUnresolvedTilde` and
+  `TestContainmentRelativeHomeTildeFailsClosed`). An
   earlier version of this fix left `~` as a literal
   relative segment in this branch instead, which actually resolved as
   `<base>/~/...` and read as `contained` — a live fail-open, caught by

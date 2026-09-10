@@ -328,9 +328,15 @@ func canonicalizeFrom(p string, base string) string {
 // on the real environment having (or lacking) $HOME.
 //
 // It returns (real, unresolvedTilde). unresolvedTilde is true exactly when p
-// has a leading `~`/`~/...` AND homeDir() failed (non-nil error, or an empty
-// home string) — i.e. the tilde could NOT be expanded against a real home
-// directory. In that case real is still populated (best-effort, p with `~`
+// has a leading `~`/`~/...` AND homeDir() did not yield a usable home — a
+// non-nil error, an empty home string, or a RELATIVE one — i.e. the tilde
+// could NOT be expanded against a real home directory. A relative home is
+// unusable for the same reason applyCd's $HOME arms invalidate the tracked cwd
+// on one (engine_a_bash.go): expanding `~/.ssh/id_rsa` against `relhome` yields
+// `relhome/.ssh/id_rsa`, which the relative-join branch below anchors onto base
+// as `<base>/relhome/.ssh/id_rsa` and grades `contained` — the same
+// in-repo-looking disguise an unexpanded `~` segment would produce. In that
+// case real is still populated (best-effort, p with `~`
 // left as a literal segment) for callers that only want a display string,
 // but the caller MUST NOT treat real as eligible for a `contained` verdict:
 // an unresolvable `~` must fail closed (deny, or a defer that withholds the
@@ -349,7 +355,7 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 		return p, false
 	}
 	if hasLeadingTilde(p) {
-		if home, err := homeDir(); err == nil && home != "" {
+		if home, err := homeDir(); err == nil && home != "" && filepath.IsAbs(home) {
 			// ok is already established by the guard plus a non-empty home.
 			p, _ = expandLeadingTilde(p, home)
 		} else {

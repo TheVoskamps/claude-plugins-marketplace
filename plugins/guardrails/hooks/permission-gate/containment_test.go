@@ -2447,3 +2447,62 @@ func TestContainmentNoHomeTildeFailsClosed(t *testing.T) {
 		}
 	}
 }
+
+// relativeHomeDir is a homeDir resolver that succeeds with a RELATIVE home, the
+// one shape neither failingHomeDir nor a t.TempDir()-backed fixture can supply:
+// os.UserHomeDir returns whatever $HOME holds without checking it, so a
+// relative $HOME arrives here as a non-error, non-empty, unusable value.
+func relativeHomeDir() (string, error) {
+	return "relhome", nil
+}
+
+// TestCanonicalizeFromResolverRelativeHomeUnresolvedTilde pins the third member
+// of canonicalizeFromResolver's unusable-home class; the error and empty members
+// are covered above. A relative home passes `err == nil && home != ""` and
+// expands `~/.ssh/id_rsa` to `relhome/.ssh/id_rsa`, which is still not absolute
+// — so the relative-join branch anchors it onto base and testContainmentFrom
+// grades `<base>/relhome/.ssh/id_rsa` as `contained`. That is the same fail-OPEN
+// an unexpanded `~` segment produces, reached by a different route, which is why
+// the guard tests all three parts rather than two.
+func TestCanonicalizeFromResolverRelativeHomeUnresolvedTilde(t *testing.T) {
+	base := t.TempDir()
+
+	for _, p := range []string{"~", "~/.ssh/id_rsa"} {
+		_, unresolvedTilde := canonicalizeFromResolver(p, base, relativeHomeDir)
+		if !unresolvedTilde {
+			t.Errorf("canonicalizeFromResolver(%q, base, relativeHomeDir) unresolvedTilde = false, want true "+
+				"(a relative home expands to a relative path that joins onto base and reads as contained)", p)
+		}
+	}
+
+	// A non-tilde path never consults the resolver, so a relative home leaves it
+	// exactly where the resolvable-home case does.
+	if real, unresolvedTilde := canonicalizeFromResolver("a.md", base, relativeHomeDir); unresolvedTilde {
+		t.Errorf("canonicalizeFromResolver(%q, ...) unresolvedTilde = true, want false; real = %q", "a.md", real)
+	}
+}
+
+// TestContainmentRelativeHomeTildeFailsClosed pins the same fix one layer up,
+// through testContainmentFrom, the way TestContainmentNoHomeTildeFailsClosed
+// does for the unset-home member: os.UserHomeDir reads $HOME directly on Unix,
+// so a relative $HOME reaches the real containment path unmodified and a
+// leading-tilde operand must earn escapeRepo rather than `contained`.
+func TestContainmentRelativeHomeTildeFailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	t.Setenv("HOME", "relhome")
+
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	rc := &repoContext{insideWorkTree: true, topLevel: canonicalize(repo)}
+
+	for _, p := range []string{"~", "~/.ssh/id_rsa"} {
+		result, _ := testContainmentFrom(p, canonicalize(repo), rc)
+		if result != escapeRepo {
+			t.Errorf("testContainmentFrom(%q, repo, rc) with a relative $HOME = %v, want escapeRepo (fail closed); "+
+				"a contained verdict here resolves under <repo>/relhome/", p, result)
+		}
+	}
+}

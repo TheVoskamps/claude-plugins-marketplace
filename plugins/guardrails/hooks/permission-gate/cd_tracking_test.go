@@ -445,12 +445,15 @@ func TestCdTrackingSeedCWDIsCleaned(t *testing.T) {
 // literalWord tilde-expands `cd ~` upstream through expand.Literal, whose tilde
 // handling reads $HOME from the same resolveVar the operand path uses, so with a
 // resolvable home the word arrives at applyCd already ABSOLUTE and never reaches
-// the leading-tilde arm at all. What routes it there instead is resolveVar's
-// absolute-home guard: a relative home fails to resolve, the `~` survives
-// expansion unexpanded, and the leading-tilde arm invalidates on it. Without
-// that guard the word expanded to `relative/home`, took the relative-target arm,
-// and tracked `<cwd>/relative/home` as a VALID cwd — the one spelling that made
-// the README's rule false.
+// the leading-tilde arm at all. What routes it elsewhere instead is resolveVar's
+// absolute-home guard: a relative home fails to resolve and the `~` survives
+// expansion unexpanded, which literalWord marks INEXACT — so the word lands in
+// applyCd's dynamic-target arm and invalidates there. (Both the quoted and the
+// unquoted spelling take that arm now; the leading-tilde arm keeps its own
+// unusable-home guard as the error path of the homeDir call it has to make.)
+// Without resolveVar's guard the word expanded to `relative/home`, took the
+// relative-target arm, and tracked `<cwd>/relative/home` as a VALID cwd — the one
+// spelling that made the README's rule false.
 func TestCdTrackingNonAbsoluteHomeInvalidates(t *testing.T) {
 	_, wt := setupWorktree(t)
 
