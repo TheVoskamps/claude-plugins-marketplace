@@ -245,8 +245,15 @@ The gate's engines feed that decision:
   than crashing: the anchor matcher grades a substitution's argv against
   a source-less resolver on purpose (no anchor form carries a `~` or a
   `$HOME`), and calling the absent source panicked, so an unquoted `~`
-  or a `$HOME`/`$USER`/`$TMPDIR` anywhere inside ANY command
-  substitution rode the fail-closed backstop and blocked the call.
+  or a `$HOME`/`$USER`/`$TMPDIR` inside a substitution whose argv that
+  matcher actually grades — a single plain command with no assignments,
+  redirects, negation or background marker — rode the fail-closed
+  backstop and blocked the call. Every other substitution shape is
+  declined before a word is graded and so never reached the absent
+  source: measured by running the classifier against the pre-fix
+  source, `echo $(cat ~/x)` blocked while `echo $(cat ~/x; ls)`,
+  `echo $(A=1 cat ~/x)` and `echo $(cat ~/x &)` each classified on the
+  inner command, as all four do now.
   Static-variable resolution is
   also **scope-aware**: an assignment made inside a `( … )` subshell, a
   function body, or a backgrounded group/subshell (`{ … ; } &`,

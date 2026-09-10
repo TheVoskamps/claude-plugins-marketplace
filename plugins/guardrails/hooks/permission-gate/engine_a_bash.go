@@ -1523,7 +1523,11 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 		// `$USER` / `$TMPDIR` and no `~`, so resolving one buys nothing there.
 		// Calling the nil func instead panicked, and main's fail-closed
 		// recover then blocked every command carrying an unquoted `~` or a
-		// `$HOME`/`$USER`/`$TMPDIR` inside a command substitution.
+		// `$HOME`/`$USER`/`$TMPDIR` inside a substitution whose argv the
+		// matcher grades at all — a single plain command, no assignments,
+		// redirects, negation or background marker. Any other substitution
+		// shape is declined before a word is graded, so it never reached the
+		// nil source and classified on its inner command throughout.
 		switch name {
 		case "HOME":
 			if resolver.homeDir == nil {

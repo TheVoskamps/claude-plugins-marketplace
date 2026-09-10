@@ -327,11 +327,13 @@ func TestEscapingResolvedVarsStillDenyNoNewPolicy(t *testing.T) {
 // resolveVar. The anchor matcher grades a substitution's argv against the
 // ZERO-VALUE varResolver — the anchor forms carry no `~` and no `$HOME`, so
 // resolving one buys nothing there — and an unquoted `~` (or a `$HOME`) inside
-// ANY command substitution used to reach that resolver's nil homeDir and
-// panic, which main's fail-closed recover turned into a blocked tool call.
+// a substitution whose argv that matcher grades at all (a single plain command,
+// no assignments, redirects, negation or background marker — the shape every
+// row below carries) used to reach that resolver's nil homeDir and panic, which
+// main's fail-closed recover turned into a blocked tool call.
 //
 // Each row asserts the shape earns the SAME bucket as the substituted command
-// spelled bare: the nil source makes the word inexact, so the anchor is
+// spelled bare: none of these argvs is an anchor form, so the anchor is
 // declined and the inner command is graded on its own terms — which is the
 // documented grading for a non-anchor `$(…)`, and it resolves `~` through the
 // REAL resolver the main walk carries. `echo $(cat ~/x)` therefore denies on
