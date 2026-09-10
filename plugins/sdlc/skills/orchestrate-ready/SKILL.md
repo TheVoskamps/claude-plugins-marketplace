@@ -47,11 +47,18 @@ in it can trigger that stop.
 
 Assess the fetched issue against each of these:
 
-- **Self-contained.** The body alone suffices. No links out to docs
-  the developer must fetch to understand the scope, no "see the
-  discussion in X", no competing opinions left standing side by side,
-  and no amendment layers ("Update:", "Actually, on reflection…").
-  One clean, current spec, written as the thing to build.
+- **Self-contained.** The body alone suffices. It carries no reference
+  out of itself — to another issue, a PR, a commit, or a document
+  outside the body — in any form: a `#N`, a URL, a "see", a "per", a
+  "depends on". A dependency on another issue is a blocked-by edge,
+  never a sentence in the body. No competing opinions left standing
+  side by side, and no amendment layers ("Update:", "Actually, on
+  reflection…"). One clean, current spec, written as the thing to
+  build.
+
+  One reference survives, named: the cross-repo `References:` line
+  step 5 writes, which is how that step makes a relation the
+  repo-scoped `issues:*` edge verbs cannot express findable at all.
 - **No unanswered design decisions.** Naming, placement in the tree,
   load mode, the fate of content the change subsumes, and any
   structural contract a downstream consumer depends on are each
@@ -66,9 +73,14 @@ Assess the fetched issue against each of these:
   or independence from issue titles. Resolve any cross-repo edge to
   the repo it actually lives in before naming it.
 - **Spec quality.** Every sentence changes what the implementer builds
-  or what the reviewer checks. Provenance, history, and the trail of
-  how the issue came to be filed are not spec — they cost the
-  implementer fetches and reads that buy nothing.
+  or what the reviewer checks. A sentence about how the change came to
+  be asked for, what an earlier round did, or why an earlier design
+  was rejected is provenance rather than spec — it costs the
+  implementer reads that buy nothing.
+- **Acceptance criteria.** The body carries an `## Acceptance`
+  section, and each bullet in it is one claim about the delivered
+  change that a reviewer can attempt to disprove against the diff. An
+  issue without one is not orchestrate-ready.
 
 ## Procedure
 
@@ -100,6 +112,27 @@ Assess the fetched issue against each of these:
    own words, and move to the next topic once it is settled. Your
    proposed defaults are proposals; the user decides.
 
+   **The `## Acceptance` section is a gap like any other.** When the
+   body has none, derive candidate criteria from the design prose —
+   one per load-bearing commitment it makes, and never past it: a
+   commitment the design does not make is a design decision to settle
+   first, not a criterion to invent. When the body has one, split a
+   bullet that bundles several checks one claim per bullet, drop a
+   bullet that restates the design prose without adding a checkable
+   claim, and rewrite a bullet that names no artifact to name the
+   file, section, or command it is about. Either way, put the
+   resulting list to the user with the other decisions before step 4
+   rewrites the body.
+
+   Group that list under `## Acceptance` into a `### Mechanical`
+   sub-list and a `### Semantic` one, splitting it by the `class`
+   definitions in `sdlc:theorem-generation` → "Output format" so the
+   two files agree by construction. An issue that touches
+   `plugins/<name>/` always gets the plugin version bump as a
+   mechanical criterion: the repo's `CLAUDE.md` requires that bump on
+   every such PR, and the generator makes a theorem of every
+   criterion.
+
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped
    replying — the issue is **not** orchestrate-ready, and inventing
@@ -127,6 +160,14 @@ Assess the fetched issue against each of these:
    leave superseded wording standing next to its replacement: an
    amendment layer is one of the gaps this skill exists to remove, so
    introducing one while resolving the others is self-defeating.
+
+   The rewrite is also what enforces the readiness bar's exclusions,
+   by removing rather than noting: every reference the bar excludes
+   and every provenance sentence comes out, a fact the body needs
+   from a referenced document is restated in the body in the present
+   tense, and a dependency the prose stated becomes a blocked-by edge
+   (`/issue-set-blocked-by <blocked> <blocker>`). The agreed
+   `## Acceptance` section goes in as its two grouped sub-lists.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
    Where the discussion establishes work that belongs in another repo,

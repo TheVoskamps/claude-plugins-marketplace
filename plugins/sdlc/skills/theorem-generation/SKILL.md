@@ -182,6 +182,12 @@ Keep the members separate. A batch PR is precisely where one member
 can be under-delivered while the diff as a whole reads well, so tag
 each of these theorems to the single member its criterion came from.
 
+**A groomed issue hands you the class.** Under an `## Acceptance`
+section, emit a criterion listed beneath `### Mechanical` with
+`class: mechanical` and one beneath `### Semantic` with
+`class: semantic`. A criterion under neither heading falls back to
+the `class` rule in "Output format" below.
+
 ### 2. PR-body claims
 
 Every load-bearing claim the developer made becomes a theorem to
@@ -432,7 +438,7 @@ prevent.
 
 **Acceptance-criterion theorems are the exception, and they
 regenerate in full.** Issues can be edited between rounds, and the
-class is mechanical — one theorem per criterion of every member
+rule is mechanical — one theorem per criterion of every member
 issue — so re-read each issue via `/issue-view <N>` and emit the
 criterion theorems for this round regardless of the delta. Give a
 criterion whose theorem the records already carry that theorem's
