@@ -125,6 +125,14 @@ func classifyBash(command string, ev *Event) Decision {
 			err, parseErrorCauseSentence(command, err)))
 	}
 
+	// Home-usability chokepoint: any word referencing a home the gate cannot
+	// place DENIES here, before a single track-specific rule runs. Downstream
+	// of this line every site that reads home gets a usable absolute one (see
+	// home.go).
+	if d, hit := bashHomeChokepoint(file, defaultVarResolver()); hit {
+		return d
+	}
+
 	// Forbidden command shapes: `cd <path> && git …` and `git -C <abs-path>
 	// …`. The gate denies each with a remediation naming the two-call
 	// replacement — `cd <path>`, then the bare `git <subcommand>` — rather
@@ -665,8 +673,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// slash would otherwise reach concatenation (pinned by
 			// TestCdTrackingBareCdTracksCleanedHome).
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
-			home, err := resolver.homeDir()
-			if err != nil || home == "" {
+			home, ok := resolveHome(resolver.homeDir)
+			if !ok {
 				runningCWDInvalid = true
 				return
 			}
@@ -699,8 +707,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// TestCdTrackingAbsoluteCdTracksCleanedPath).
 			runningCWD = filepath.Clean(lit)
 		case hasLeadingTilde(lit):
-			home, err := resolver.homeDir()
-			if err != nil || home == "" {
+			home, ok := resolveHome(resolver.homeDir)
+			if !ok {
 				runningCWDInvalid = true
 				return
 			}
@@ -1484,9 +1492,13 @@ func isAssignment(tok string) bool {
 // resolveVar resolves a bare variable name to its value and whether
 // resolution succeeded, applying the documented precedence: an in-script static
 // assignment (knownVars) always wins over any environment/engine-derived
-// source, so `HOME=/tmp cat "$HOME/x"` resolves $HOME to /tmp, not the
-// process env. Only when the name is ABSENT from knownVars does resolution
-// fall through to the closed allowlists:
+// source, so `HOME=/tmp; cat "$HOME/x"` resolves $HOME to /tmp, not the
+// process env. Only a PERSISTENT assignment reaches knownVars: the prefix
+// spelling `HOME=/tmp cat "$HOME/x"` sets env for that one command, is never
+// recorded here, and resolves to the process home (measured against the
+// committed binary — this comment previously used that spelling as the
+// example and had it backwards). Only when the name is ABSENT from
+// knownVars does resolution fall through to the closed allowlists:
 //
 //   - cwdResolvableNames ($PWD, $OLDPWD): resolved from the tracked cwd (cc),
 //     never the process env — the hook's own $PWD is the EVENT cwd, which
@@ -1528,14 +1540,9 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 		// graded and classifies on its inner command.
 		switch name {
 		case "HOME":
-			if resolver.homeDir == nil {
-				return "", false
-			}
-			home, err := resolver.homeDir()
-			if err != nil || home == "" {
-				return "", false
-			}
-			return home, true
+			// resolveHome grades a nil source, an erroring one, an empty home
+			// and a relative one identically — the one predicate, in home.go.
+			return resolveHome(resolver.homeDir)
 		case "USER", "TMPDIR":
 			if resolver.lookupEnv == nil {
 				return "", false

@@ -281,7 +281,7 @@ func expandLeadingTilde(spelling string, home string) (string, bool) {
 	if !hasLeadingTilde(spelling) {
 		return spelling, true
 	}
-	if home == "" {
+	if !homeUsable(home, nil) {
 		return "", false
 	}
 	return filepath.Clean(home) + strings.TrimPrefix(spelling, "~"), true
@@ -349,8 +349,8 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 		return p, false
 	}
 	if hasLeadingTilde(p) {
-		if home, err := homeDir(); err == nil && home != "" {
-			// ok is already established by the guard plus a non-empty home.
+		if home, ok := resolveHome(homeDir); ok {
+			// ok is already established by the guard plus a usable home.
 			p, _ = expandLeadingTilde(p, home)
 		} else {
 			unresolvedTilde = true
@@ -472,8 +472,8 @@ const (
 // cannot be symlink-escaped (a target whose canonical real path lands under
 // the real ~/.claude is the one that matters, not its un-canonicalized spelling).
 func claudeConfigRoot() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	home, ok := processHome()
+	if !ok {
 		return ""
 	}
 	return canonicalize(filepath.Join(home, ".claude"))

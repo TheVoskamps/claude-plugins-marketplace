@@ -81,8 +81,8 @@ const (
 // the allow reason and for the self-write deny. Returns "" when the home
 // directory cannot be determined.
 func operatorCarveOutConfigPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	home, ok := processHome()
+	if !ok {
 		return ""
 	}
 	return filepath.Join(home, operatorCarveOutConfigDirName, operatorCarveOutPluginDir, operatorCarveOutFileName)
@@ -160,8 +160,8 @@ func loadOperatorCarveOutFrom(configPath string) operatorCarveOut {
 	if doc.SchemaVersion < operatorCarveOutSchemaVersion {
 		return operatorCarveOut{}
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	home, ok := processHome()
+	if !ok {
 		return operatorCarveOut{}
 	}
 	home = filepath.Clean(home)
@@ -527,9 +527,9 @@ func lexicalAbs(target string, base string) string {
 	if target == "" {
 		return ""
 	}
-	// os.UserHomeDir returns "" alongside its error, which expandLeadingTilde
-	// reads as an unknown home.
-	home, _ := os.UserHomeDir()
+	// An unusable home yields "", which expandLeadingTilde reads as an unknown
+	// home.
+	home, _ := processHome()
 	target, ok := expandLeadingTilde(target, home)
 	if !ok {
 		return ""

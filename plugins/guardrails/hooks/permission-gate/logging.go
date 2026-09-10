@@ -79,8 +79,8 @@ func logPath() string {
 	if p := os.Getenv(logEnvVar); p != "" {
 		return p
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	home, ok := processHome()
+	if !ok {
 		return ""
 	}
 	return filepath.Join(home, ".claude", "logs", "permission-gate.jsonl")
