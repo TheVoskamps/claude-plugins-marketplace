@@ -422,3 +422,49 @@ func TestCdTrackingSeedCWDIsCleaned(t *testing.T) {
 		}
 	})
 }
+
+// TestCdTrackingNonAbsoluteHomeInvalidates pins the invariant the two $HOME
+// arms of applyCd carry: a valid tracked cwd is always ABSOLUTE. Every other
+// writer already guarantees it — the seed is the event cwd, which
+// resolveRepoContext fails closed on unless it is absolute, and a relative `cd`
+// target joins onto an already-absolute cwd — so a relative $HOME is the only
+// spelling that could track a non-absolute cwd while reporting it valid. Such a
+// cwd reaches testContainmentFrom as the base, where canonicalizeFromResolver
+// falls through to filepath.Abs and grades the operand against the hook
+// PROCESS's cwd, which can read a genuine escape as `contained`.
+//
+// The fixture home is deliberately RELATIVE, which is what no other
+// cd-tracking test can supply: they all use t.TempDir(), which is absolute, so
+// nothing else in the suite exercises this path. Both arms are covered — bare
+// `cd` and the quoted tilde `cd '~'` — because both take $HOME as the target
+// and both must invalidate, exactly as they already do for an unresolvable or
+// empty home.
+func TestCdTrackingNonAbsoluteHomeInvalidates(t *testing.T) {
+	_, wt := setupWorktree(t)
+
+	for _, tc := range []struct {
+		name string
+		cmd  string
+	}{
+		{"bare cd", "cd && cat ../x"},
+		{"quoted tilde", "cd '~' && cat ../x"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmds, err := extractSimpleCommands(mustParse(t, tc.cmd), wt, fakeResolver("relative/home", nil, nil), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cmds) != 2 {
+				t.Fatalf("expected 2 simple commands, got %d: %+v", len(cmds), cmds)
+			}
+			catCmd := cmds[1]
+			if !catCmd.cwdInvalid {
+				t.Errorf("tracked cwd after %q under a relative $HOME: cwdInvalid = false, cwd = %q; want invalid "+
+					"(a non-absolute cwd reaches testContainmentFrom's filepath.Abs fallback)", tc.cmd, catCmd.cwd)
+			}
+			if catCmd.cwd != "" && !filepath.IsAbs(catCmd.cwd) {
+				t.Errorf("tracked cwd after %q = %q, want absolute or empty", tc.cmd, catCmd.cwd)
+			}
+		})
+	}
+}

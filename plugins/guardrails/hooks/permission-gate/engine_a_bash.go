@@ -664,7 +664,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// TestCdTrackingBareCdTracksCleanedHome).
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			home, err := resolver.homeDir()
-			if err != nil || home == "" {
+			if err != nil || home == "" || !filepath.IsAbs(home) {
+				// A home that is unresolvable, empty, or RELATIVE invalidates
+				// rather than being tracked, so that every VALID tracked cwd is
+				// absolute. Nothing else writes a non-absolute one: the seed is
+				// the event cwd, which resolveRepoContext fails closed on unless
+				// it is absolute, and the relative-target arm below joins onto an
+				// already-absolute cwd. A relative $HOME is therefore the only
+				// way a non-absolute base could reach testContainmentFrom, where
+				// canonicalizeFromResolver would fall through to filepath.Abs and
+				// grade the operand against the hook PROCESS's cwd — reading a
+				// genuine escape as `contained`, which is exactly what that
+				// resolveRepoContext guard exists to prevent (pinned by
+				// TestCdTrackingNonAbsoluteHomeInvalidates).
 				runningCWDInvalid = true
 				return
 			}
@@ -698,7 +710,11 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			runningCWD = filepath.Clean(lit)
 		case hasLeadingTilde(lit):
 			home, err := resolver.homeDir()
-			if err != nil || home == "" {
+			if err != nil || home == "" || !filepath.IsAbs(home) {
+				// Invalidates on all three for the reason the bare-`cd` arm
+				// above states: a valid tracked cwd is always absolute, and a
+				// relative $HOME is the only spelling that could make one that
+				// is not.
 				runningCWDInvalid = true
 				return
 			}

@@ -256,10 +256,12 @@ The gate's engines feed that decision:
   relative path, or bare `cd` to `$HOME`) updates the running cwd for
   every later command in the walk; a `cd` whose target cannot be
   resolved statically (a command substitution, an unresolved variable,
-  or `cd -`) invalidates it, and every later command with a relative
-  path operand in that scope **defers** rather than guessing (it can
-  never ride the allow track — a later re-anchoring `cd` can clear the
-  invalid state, since bash itself would). The `~`-prefixed form is
+  `cd -`, or — for the two forms that target `$HOME` — a home directory
+  that is unresolvable, empty, or **not absolute**) invalidates it, and
+  every later command with a relative path operand in that scope
+  **defers** rather than guessing (it can never ride the allow track —
+  a later re-anchoring `cd` can clear the invalid state, since bash
+  itself would). The `~`-prefixed form is
   taken as `$HOME` whether or not the tilde is quoted, which
   **over-approximates** the quoted spelling: bash expands `cd ~` but
   reads `cd '~'` as a directory literally named `~` under the current
