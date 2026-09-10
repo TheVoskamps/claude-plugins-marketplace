@@ -244,17 +244,18 @@ func canonicalize(p string) string {
 // canonicalizeFromResolver below, and both sides of the operator carve-out's
 // lexical match (operator_carveout.go) — a carve-out root that expanded a
 // shape its targets did not would strip a prefix the target never carried.
-// What they do NOT share is the home lookup or the handling of an
-// unresolvable home, because failing closed means something different at each:
-// applyCd invalidates the running cwd, canonicalizeFromResolver raises
-// unresolvedTilde while keeping the literal for display, and the carve-out's
-// two sides part company over where the home comes from. A ROOT is expanded
-// against the home loadOperatorCarveOutFrom has already established non-empty,
-// so an unknown home never reaches absoluteRootPath — the whole carve-out is
-// empty before it is called — and a root drops out, along with every glob
-// listed under it, when its spelling is not absolute after expansion. A TARGET
-// does its own lookup (lexicalAbs), where an unknown home leaves that
-// `~`-spelled target unmatched and the root live for every other target.
+// What they do NOT share is where the home comes from or what failing closed
+// means, because that differs at each: applyCd invalidates the running cwd,
+// canonicalizeFromResolver raises unresolvedTilde while keeping the literal for
+// display, and the carve-out's two sides part company over the lookup itself. A
+// ROOT is expanded against the home loadOperatorCarveOutFrom has already
+// established USABLE, so an unusable home never reaches absoluteRootPath — the
+// whole carve-out is empty before it is called — and a root drops out, along
+// with every glob listed under it, when its spelling is not absolute after
+// expansion. A TARGET does its own lookup (lexicalAbs), where an unusable home
+// leaves that `~`-spelled target unmatched and the root live for every other
+// target. What they DO share is the test each applies to whatever home it
+// found: usableHome, below.
 func hasLeadingTilde(p string) bool {
 	return p == "~" || strings.HasPrefix(p, "~/")
 }
@@ -285,6 +286,27 @@ func expandLeadingTilde(spelling string, home string) (string, bool) {
 		return "", false
 	}
 	return filepath.Clean(home) + strings.TrimPrefix(spelling, "~"), true
+}
+
+// usableHome reports whether a home-directory lookup yielded a home that can be
+// expanded against: no error, non-empty, and ABSOLUTE. It is the package's one
+// spelling of that three-part test, and EVERY site that reads a home directory
+// applies it — the resolver's own lookup, `$HOME` from the environment, an
+// in-script `HOME=` assignment, and os.UserHomeDir wherever it is called
+// directly (the ~/.claude root, the operator carve-out's config path, roots and
+// targets, the evolution log's path).
+//
+// The absolute member is the one a per-site test keeps dropping, because it is
+// the only one that is neither an error nor empty: os.UserHomeDir hands back
+// whatever $HOME holds without checking it, so a RELATIVE home arrives looking
+// resolved and then resolves against the GATE PROCESS's cwd — which is the
+// calling session's, not the operator's. That turns a home-directory path into
+// an in-repo-looking one, which is the disguise every fail-closed branch here
+// exists to refuse.
+//
+// A caller with no error to pass (a home read from a map) passes nil.
+func usableHome(home string, err error) bool {
+	return err == nil && home != "" && filepath.IsAbs(home)
 }
 
 // canonicalizeFrom is canonicalize with an explicit base directory for the
@@ -355,8 +377,9 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 		return p, false
 	}
 	if hasLeadingTilde(p) {
-		if home, err := homeDir(); err == nil && home != "" && filepath.IsAbs(home) {
-			// ok is already established by the guard plus a non-empty home.
+		if home, err := homeDir(); usableHome(home, err) {
+			// ok is already established by the guard plus usableHome's
+			// non-empty member.
 			p, _ = expandLeadingTilde(p, home)
 		} else {
 			unresolvedTilde = true
@@ -473,13 +496,16 @@ const (
 )
 
 // claudeConfigRoot returns the canonicalized $HOME/.claude directory, or "" if
-// the home directory cannot be determined. The path is symlink-resolved the
+// the home directory is not usable. A relative one would resolve `.claude`
+// against the gate process's cwd and designate a directory in the CALLING
+// SESSION's tree as the operator's config root, so it drops out with the empty
+// and the erroring home. The path is symlink-resolved the
 // same way Engine B canonicalizes every other path so the carve-out below
 // cannot be symlink-escaped (a target whose canonical real path lands under
 // the real ~/.claude is the one that matters, not its un-canonicalized spelling).
 func claudeConfigRoot() string {
 	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	if !usableHome(home, err) {
 		return ""
 	}
 	return canonicalize(filepath.Join(home, ".claude"))

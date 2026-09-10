@@ -103,6 +103,21 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// operand may be dynamically built and cannot be statically contained.
 	// DEFER, the same posture the read side holds for dynamic paths.
 	if sc.hasUnknownExpansion {
+		// Except a `~` the gate could not expand, which containment grades as an
+		// escape on either side: `cp a.md ~/f` writes the operator's home
+		// directory and denies rather than prompting (tildeEscapeDeny,
+		// classify_files.go). The read sources are graded first, the ordering
+		// the full walk below states.
+		if d, hit := tildeEscapeDeny(sc, writeReadSources(args, spec, sc), func(ps []string) (Decision, bool) {
+			return containReadSources(prog, ps, sc, ev)
+		}); hit {
+			return d
+		}
+		if d, hit := tildeEscapeDeny(sc, spec.operandsFn(args), func(ps []string) (Decision, bool) {
+			return containWriteOperands(prog, ps, sc.cwd, ev)
+		}); hit {
+			return d
+		}
 		return deferJudgment("bash-write:dynamic-path", fmt.Sprintf(
 			"'%s' has an argument built from an expansion the gate cannot resolve statically, so its write "+
 				"target cannot be proven in-repo.", prog))
@@ -139,8 +154,7 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	// defective scratchpad root, an unresolvable repo boundary) is held back
 	// until after the write walk, so a write escape still outranks it — the same
 	// ordering containWriteOperands applies to its own recorded defer.
-	readSources := append(pathFlagValues(args, spec.valueFlags, spec.pathValueFlags), sc.inputRedirectTargets...)
-	inputEscape, inputClean := containReadSources(prog, readSources, sc, ev)
+	inputEscape, inputClean := containReadSources(prog, writeReadSources(args, spec, sc), sc, ev)
 	if !inputClean && inputEscape.Bucket == BucketDeny {
 		return inputEscape
 	}
@@ -158,6 +172,19 @@ func classifyInRepoWrite(prog string, args []string, sc simpleCommand, ev *Event
 	return allow(fmt.Sprintf(
 		"%s writes only paths inside the current worktree or a harness session scratchpad (in-repo write)",
 		prog))
+}
+
+// writeReadSources returns the paths a write-class command READS: the values of
+// its path-valued flags (`sed -i -f ../sibling-repo/x.sed f.md`) and its
+// input-redirect sources (`tee f.md < ../sibling-repo/.env`). Neither is a path
+// the operand parser returns, so both are graded through the read containment
+// rather than the write one.
+//
+// It is a named list because the classifier needs it twice — once for the tilde
+// deny ahead of the dynamic-path defer, once for the full walk — and two
+// spellings of "what this command reads" could drift apart.
+func writeReadSources(args []string, spec inRepoWriteSpec, sc simpleCommand) []string {
+	return append(pathFlagValues(args, spec.valueFlags, spec.pathValueFlags), sc.inputRedirectTargets...)
 }
 
 // containWriteOperands runs Engine B containment on a write-class command's path

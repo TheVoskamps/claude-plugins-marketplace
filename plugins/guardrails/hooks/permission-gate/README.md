@@ -237,20 +237,27 @@ The gate's engines feed that decision:
   env, which holds the event's cwd and would be wrong after an
   in-script `cd`. An in-script static assignment always takes
   precedence over that allowlist when both apply (`HOME=/tmp cat
-  "$HOME/x"` resolves to `/tmp`). A `$HOME` that is unresolvable, empty,
-  or **not absolute** fails to resolve, which marks the word inexact and
-  keeps the line off the allow track — and the same three-part test
-  grades a **tilde** operand, because `expand.Literal` tilde-expands
-  through that same resolution, so a `~` left unexpanded by an unusable
-  `$HOME` is marked inexact too. That keeps `cat ~/x` and bare `cat ~`
-  in step with `cat "$HOME/x"`: before it, the surviving `~` stayed
-  exact, relative-joined onto the tracked cwd and ALLOWed as a
-  contained in-worktree read (pinned by
-  `TestUnresolvableHomeTildeIsInexact` and
-  `TestUnresolvableHomeTildeWithholdsAllow`). A quoted `'~/x'` is marked
-  inexact on the same test — an over-approximation in the fail-closed
-  direction, matching what the `cd '~'` handling below does and what
-  containment already does with the quoted spelling. Any other env var
+  "$HOME/x"` resolves to `/tmp`). A home directory that is
+  unresolvable, empty, or **not absolute** is unusable and fails to
+  resolve, whichever of the three sources it came from — the resolver's
+  own lookup, the environment's `$HOME`, or an in-script `HOME=`
+  assignment, which is graded by exactly the same test rather than
+  taken at its word (`usableHome`, pinned by
+  `TestInScriptHomeAssignmentGraded`). Failing to resolve marks the
+  word inexact and keeps the line off the allow track — and the same
+  test grades a **tilde** operand, because `expand.Literal`
+  tilde-expands through that same resolution, so a `~` left unexpanded
+  by an unusable home is marked inexact too, quoted `'~/x'` included
+  (pinned by `TestUnresolvableHomeTildeIsInexact`). That inexactness
+  never COSTS the operand a verdict: containment grades an unexpandable
+  `~` as an escape, and that **deny** is delivered ahead of the
+  dynamic-path defer the marking would otherwise earn, so
+  `cat ~/.ssh/id_rsa` under an unusable home is refused outright rather
+  than prompted (`tildeEscapeDeny`, pinned by
+  `TestUnresolvableHomeTildeOperandDenies`). What the marking buys is
+  the rest of the word's surface — a tilde no operand walk returns
+  (`echo ~`), an argv position a credentialed tool classifies on —
+  where there was no containment verdict to lose. Any other env var
   (`$FOO`, `$PATH`,
   …) stays unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
@@ -1699,8 +1706,16 @@ The gate's engines feed that decision:
   report a broken spelling to, so a root that reads as configured hands
   out nothing, and the tell is the deny the listed path still earns.
 
-  **Absent, unreadable, malformed, or stamped below `schema-version: 2`
-  → no usable entry anywhere → today's behaviour**, on every path. The
+  **Absent, unreadable, malformed, stamped below `schema-version: 2`,
+  or read under an unusable home directory → no usable entry anywhere →
+  today's behaviour**, on every path. The home is the one input the
+  operator does not spell in the file, and it is graded by the same
+  `usableHome` test every other home read applies: unresolvable, empty
+  or **not absolute** yields no config path to load, no root to resolve
+  and no `~`-spelled target to match (pinned by
+  `TestCarveOutHomeMustBeUsable`). A relative one would name a
+  `.config/guardrails/` under the calling session's own cwd, which is
+  that session supplying the operator's config. The
   carve-out fails closed, and the gate is its only reader, so none of
   those is an error reported anywhere — it is simply a carve-out with no
   root that can allow anything. That is a named exception to `docs/config-file-conventions.md`'s

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -245,6 +244,58 @@ func TestOperatorCarveOutFailsClosed(t *testing.T) {
 	}
 }
 
+// TestCarveOutHomeMustBeUsable pins the class rule on both sides of the
+// carve-out's home handling: every home it reads goes through usableHome, so an
+// unusable one leaves the carve-out with nothing to match and leaves a
+// `~`-spelled TARGET unexpanded rather than anchored somewhere else.
+//
+// The relative member is the one a two-part test misses, because it is neither
+// an error nor empty: os.UserHomeDir hands back whatever $HOME holds, so
+// `relhome` reads as resolved and then resolves against the GATE PROCESS's cwd
+// — the calling session's, which is not the operator's to predict.
+func TestCarveOutHomeMustBeUsable(t *testing.T) {
+	for _, home := range []struct{ name, value string }{
+		{"relative home", "relhome"},
+		{"empty home", ""},
+	} {
+		t.Run(home.name, func(t *testing.T) {
+			base := t.TempDir()
+			repo := filepath.Join(base, "repo")
+			gitInit(t, repo)
+			fixtureHome := carveOutFixture(t, base, "plain")
+			writeCarveOutConfig(t, fixtureHome, carveOutConfig)
+
+			// The ROOT side: the listed read that ALLOWs under this same config
+			// (TestOperatorCarveOutAllowsListedRead) denies, because the whole
+			// carve-out is empty before any root is resolved.
+			listed := filepath.Join(fixtureHome, ".config", "cc-tools", "whats-new.md")
+			t.Setenv("HOME", home.value)
+			wantBucket(t, fileToolVerdict(t, "Read", repo, listed), BucketDeny,
+				"a listed read under an unusable $HOME")
+
+			// The TARGET side: lexicalAbs expands a leading `~` only against a
+			// home usableHome accepts, so the spelling matches no root at all.
+			if got := lexicalAbs("~/.config/cc-tools/whats-new.md", base); got != "" {
+				t.Errorf("lexicalAbs(%q) under an %s = %q, want \"\"; a target anchored on the gate "+
+					"process's cwd is matched against a root it has no relation to",
+					"~/.config/cc-tools/whats-new.md", home.name, got)
+			}
+		})
+	}
+
+	// Negative controls, with a usable home: the tilde expands, and a target
+	// that carries none never consults the home at all.
+	base := t.TempDir()
+	absHome := t.TempDir()
+	t.Setenv("HOME", absHome)
+	if got, want := lexicalAbs("~/x", base), filepath.Join(absHome, "x"); got != want {
+		t.Errorf("lexicalAbs(%q) under an absolute home = %q, want %q", "~/x", got, want)
+	}
+	if got, want := lexicalAbs("x", base), filepath.Join(base, "x"); got != want {
+		t.Errorf("lexicalAbs(%q) = %q, want %q", "x", got, want)
+	}
+}
+
 // The XDG variables are read only on the opt-in, and only when set and
 // non-empty — the same test docs/config-file-conventions.md gives the plugins,
 // so the gate and the plugins agree on every machine. The relocated directory
@@ -380,19 +431,18 @@ config-home:
 	// away and destroy the very spelling under test.
 	throughDirLink := dirLink + sep + ".." + sep + "config.yml"
 
-	// The two trailing-separator rows are the spelling the glob match and the
-	// deny once disagreed about: `remainder` takes its path from lexicalAbs,
-	// which Cleans the separator away and matches `**`, while canonicalizeFrom
-	// walked up from the non-existent `<...>/config.yml/` to the longest
-	// existing ancestor and re-attached the tail, yielding
-	// `<...>/config.yml/config.yml` — a path that matched neither self spelling
-	// and that os.Stat then failed on, skipping the identity check too. One row
-	// per self path, because the two resolve by different halves of the deny.
-	//
-	// The `..`-behind-a-symlink row is the mirror hole, and the reason the deny
-	// canonicalizes the raw target as well: cleaning that spelling first yields
-	// a nonexistent `<home>/config.yml` matching no self path, while the kernel
-	// delivers the write to the real config file.
+	// The trailing-separator rows and the `..`-behind-a-symlink row are the two
+	// directions in which a spelling's lexical reading and its kernel reading
+	// name different files, which is why the deny canonicalizes BOTH the cleaned
+	// and the raw spelling and matches on either. A trailing separator Cleans
+	// away lexically, so `remainder` matches the `**` entry on the path without
+	// it, while the raw spelling reaches the same file through the segment walk
+	// with its empty final segment skipped. A `..` behind a symlinked directory
+	// runs the other way: cleaned first it names a nonexistent
+	// `<home>/config.yml` that matches no self path, while the kernel delivers
+	// the write to the real config file. One trailing-separator row per self
+	// path, because the two self paths are reached by different halves of the
+	// deny.
 	for name, target := range map[string]string{
 		"the literal load path":                                  literal,
 		"the resolved config-home one":                           relocatedCopy,
@@ -701,19 +751,23 @@ config-home:
 }
 
 // caseFoldingFilesystem reports whether the volume holding dir folds letter
-// case, measured rather than assumed: it re-reaches the directory under a
-// case-varied spelling of its own final segment and asks whether that is the
-// same directory. The test needs this because the paths it varies do not exist,
-// so the os.Stat the exists-side test uses to pick a branch answers nothing
-// there.
+// case. The test needs the answer because the paths it varies do not exist, so
+// the os.Stat the exists-side test uses to pick a branch answers nothing there.
+//
+// It asks dirFoldsCase — the production predicate the deny itself branches on
+// — rather than probing again here. A second probe would let the test agree
+// with the gate on this machine and disagree on the next, which is the one
+// thing a case-sensitivity fixture must not do.
+//
+// The stat is the fixture's own precondition, not part of the question:
+// dirFoldsCase answers true for a directory it cannot reach, which would make
+// the rows below pass for the wrong reason.
 func caseFoldingFilesystem(t *testing.T, dir string) bool {
 	t.Helper()
-	self, err := os.Stat(dir)
-	if err != nil {
+	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("stat %s: %v", dir, err)
 	}
-	other, err := os.Stat(filepath.Join(filepath.Dir(dir), strings.ToUpper(filepath.Base(dir))))
-	return err == nil && os.SameFile(self, other)
+	return dirFoldsCase(dir)
 }
 
 // A `..` walk out of a carve-out root cannot match, whatever the globs say: the

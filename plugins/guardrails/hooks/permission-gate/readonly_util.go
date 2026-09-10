@@ -418,6 +418,14 @@ func classifyReadOnlyUtility(prog string, args []string, sc simpleCommand, ev *E
 		// ANALYSIS (the same posture classifyPathReader holds), not a silent
 		// bare defer: the verdict is the same, but the log records why.
 		if sc.hasUnknownExpansion {
+			// Except a `~` the gate could not expand, which containment grades
+			// as an escape: `cat ~/.ssh/id_rsa` under an unusable $HOME denies
+			// rather than prompting (tildeEscapeDeny, classify_files.go).
+			if d, hit := tildeEscapeDeny(sc, readPaths, func(ps []string) (Decision, bool) {
+				return containPathOperands(prog, ps, sc, ev)
+			}); hit {
+				return d
+			}
 			return deferJudgment("bash-read:dynamic-path", fmt.Sprintf(
 				"'%s' has a path argument built from an expansion the gate cannot resolve statically, so "+
 					"containment cannot be run on it.", prog))

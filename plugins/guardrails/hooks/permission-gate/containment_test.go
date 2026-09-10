@@ -380,8 +380,8 @@ func TestFileToolRelativeTargetResolvesAgainstEventCWD(t *testing.T) {
 // node_modules read is still denied (that deny must not regress).
 func TestClaudeConfigCarveOut(t *testing.T) {
 	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		t.Skip("no home directory; carve-out not testable")
+	if !usableHome(home, err) {
+		t.Skip("no usable home directory; carve-out not testable")
 	}
 	// Use a real file under ~/.claude so canonicalization resolves it; fall back
 	// to a path under ~/.claude that may not exist (canonicalize handles the
@@ -2329,8 +2329,8 @@ func TestContainmentRelativeCWDNeverAllows(t *testing.T) {
 // path that masked an escape to the real home directory as `contained`.
 func TestCanonicalizeFromExpandsTilde(t *testing.T) {
 	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		t.Skip("no resolvable home directory in this environment")
+	if !usableHome(home, err) {
+		t.Skip("no usable home directory in this environment")
 	}
 	wantHomeFile := canonicalize(filepath.Join(home, ".ssh", "id_rsa"))
 

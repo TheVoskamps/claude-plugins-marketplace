@@ -148,6 +148,14 @@ func classifyRedirectOnly(sc simpleCommand, ev *Event) Decision {
 		// one after a dynamic `cd`, cannot be contained — DEFER, the same posture
 		// the read tracks hold for an unresolvable operand.
 		if sc.hasUnknownExpansion {
+			// Except a `~` the gate could not expand, which containment grades
+			// as an escape: `< ~/.ssh/id_rsa` denies rather than prompting
+			// (tildeEscapeDeny, classify_files.go).
+			if d, hit := tildeEscapeDeny(sc, sc.inputRedirectTargets, func(ps []string) (Decision, bool) {
+				return containPathOperands(prog, ps, sc, ev)
+			}); hit {
+				return d
+			}
 			return deferJudgment("bash-read:dynamic-path", fmt.Sprintf(
 				"'%s' opens a path built from an expansion the gate cannot resolve statically, so containment "+
 					"cannot be run on it.", prog))

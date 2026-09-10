@@ -111,10 +111,13 @@ func TestHomeVarUnresolvableFailsClosed(t *testing.T) {
 // TestUnresolvableHomeTildeIsInexact pins the TILDE spelling of the rule the
 // test above pins for `$HOME`: the two must agree. Failing to resolve $HOME is
 // what leaves an unquoted `~` unexpanded — expand.Literal tilde-expands through
-// resolveVar — and the surviving literal used to stay EXACT, so `cat ~/x` was
-// relative-joined onto the tracked cwd, graded `contained`, and ALLOWed while
-// `cat "$HOME/x"` deferred. Bare `cat ~` is the same hole with nothing after the
-// tilde.
+// resolveVar — and a surviving literal graded EXACT is a word the gate claims
+// to have pinned while it holds a path whose base it does not know. Bare `cat ~`
+// is the same word with nothing after the tilde.
+//
+// Inexactness is where this rule stops. What such an operand is WORTH is
+// containment's, and containment denies it: see
+// TestUnresolvableHomeTildeOperandDenies.
 //
 // The quoted `'~/x'` row is deliberate over-approximation rather than bash
 // parity (bash reads it as a literal filename under the cwd): containment
@@ -165,13 +168,20 @@ func TestUnresolvableHomeTildeIsInexact(t *testing.T) {
 	}
 }
 
-// TestUnresolvableHomeTildeWithholdsAllow pins the same rule end to end, at the
-// shipped verdict: os.UserHomeDir reads $HOME directly on Unix, so a relative
-// $HOME reaches classifyBash's own resolver and the tilde spellings must reach
-// the same withheld-allow the `$HOME` spelling reaches. Before the fix all three
-// tilde rows ALLOWed — a read of the operator's home directory graded as a
-// contained, in-worktree path.
-func TestUnresolvableHomeTildeWithholdsAllow(t *testing.T) {
+// TestUnresolvableHomeTildeOperandDenies pins the shipped verdict the
+// inexactness above must not cost: a `~`-spelled OPERAND under an unusable
+// $HOME is a containment escape, and containment's DENY is delivered ahead of
+// the dynamic-path defer the marking would otherwise earn (tildeEscapeDeny,
+// classify_files.go). os.UserHomeDir reads $HOME directly on Unix, so a
+// relative $HOME reaches classifyBash's own resolver.
+//
+// A defer here would be a REGRESSION, not a conservative reading: `cat
+// ~/.ssh/id_rsa` denied outright before the tilde was ever marked inexact, and
+// trading that terminal for a prompt weakens the gate on exactly the read the
+// deny exists for. Every path list that carries such a spelling is covered — a
+// read operand, an input-redirect source, a write target, and a credentialed
+// tool's redirect destination — because each defers through an arm of its own.
+func TestUnresolvableHomeTildeOperandDenies(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
 	}
@@ -182,15 +192,66 @@ func TestUnresolvableHomeTildeWithholdsAllow(t *testing.T) {
 	gitInit(t, repo)
 	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo), AgentType: "main"}
 
-	want := classifyBash(`cat "$HOME/x"`, ev).Bucket
-	if want == BucketAllow {
-		t.Fatalf(`cat "$HOME/x" under a relative $HOME must not allow; got %q — the tilde rows below are graded `+
-			`against this spelling, so an allow here would make them vacuous`, want)
-	}
-	for _, cmd := range []string{`cat ~/x`, `cat ~`, `cat ~/.ssh/id_rsa`} {
-		if got := classifyBash(cmd, ev).Bucket; got != want {
-			t.Errorf("%q under a relative $HOME = %q, want %q (matching the `$HOME` spelling)", cmd, got, want)
+	for _, cmd := range []string{
+		`cat ~/x`, `cat ~`, `cat ~/.ssh/id_rsa`, `cat '~/x'`,
+		`cat < ~/.ssh/id_rsa`, `less ~/x`,
+		`cp a.md ~/f`, `mkdir ~/d`,
+		`git status > ~/f`,
+	} {
+		if got := classifyBash(cmd, ev).Bucket; got != BucketDeny {
+			t.Errorf("%q under a relative $HOME = %q, want %q; a tilde the gate cannot expand is an escape "+
+				"containment grades, not a path it cannot read", cmd, got, BucketDeny)
 		}
+	}
+
+	// The other side of the same rule: a tilde no operand walk returns was never
+	// graded by containment, so there is no deny to deliver and the inexactness
+	// stands on its own — withholding the allow the word would otherwise ride.
+	// `echo ~` ALLOWed before the marking; it must not deny either, since
+	// nothing established where that tilde points.
+	for _, cmd := range []string{`echo ~`, `printf %s ~`} {
+		if got := classifyBash(cmd, ev).Bucket; got == BucketAllow || got == BucketDeny {
+			t.Errorf("%q under a relative $HOME = %q, want the withheld allow: no path operand carries the "+
+				"tilde, so it is neither provable nor an escape", cmd, got)
+		}
+	}
+}
+
+// TestInScriptHomeAssignmentGraded pins the third source of a home directory
+// against the same test the other two get: an in-script `HOME=` assignment is
+// what bash expands this script's own `~` against, and resolveVar used to hand
+// it back unchecked. With an ABSOLUTE process $HOME masking the fault, a
+// relative in-script one expanded `~/x` to `relhome/x`, which relative-joined
+// onto the tracked cwd and ALLOWed as an in-worktree read.
+func TestInScriptHomeAssignmentGraded(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir reads the USERPROFILE env var on windows, not HOME")
+	}
+	absHome := t.TempDir()
+	t.Setenv("HOME", absHome)
+
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: canonicalize(repo), AgentType: "main"}
+
+	if got := classifyBash(`HOME=relhome; cat ~/x`, ev).Bucket; got != BucketDeny {
+		t.Errorf("`HOME=relhome; cat ~/x` = %q, want %q; the script's own home is the one its `~` expands "+
+			"against, so a relative one fails closed however usable the process's home is", got, BucketDeny)
+	}
+	// A bare `cd` goes to the script's home too, so the same assignment
+	// invalidates the tracked cwd rather than tracking the process's home.
+	if got := classifyBash(`HOME=relhome; cd; cat a.md`, ev).Bucket; got == BucketAllow || got == BucketDeny {
+		t.Errorf("`HOME=relhome; cd; cat a.md` = %q, want the withheld allow: the cwd the read resolves "+
+			"against is unknown, not known-good and not known-bad", got)
+	}
+
+	// Negative control: an ABSOLUTE in-script home resolves, and it is that home
+	// — not the process's — that the operand is graded against.
+	other := filepath.Join(t.TempDir(), "other")
+	if got := classifyBash(`HOME=`+other+`; cat ~/x`, ev); got.Bucket != BucketDeny ||
+		!strings.Contains(got.Reason, other) {
+		t.Errorf("`HOME=%s; cat ~/x` = %q / %q, want a deny naming %q", other, got.Bucket, got.Reason, other)
 	}
 }
 

@@ -310,6 +310,14 @@ type simpleCommand struct {
 	// substitution or an unresolved parameter expansion. Such a command
 	// cannot be statically proven safe, so it must not ALLOW.
 	hasUnknownExpansion bool
+	// unusableHomeTilde is true when one of those words was inexact for exactly
+	// one reason: a leading `~` left unexpanded because the home it would have
+	// expanded against is unusable (carriesUnusableHomeTilde, below). Such a
+	// word is not a path the gate cannot read — containment grades it as an
+	// unconditional escape — so tildeEscapeDeny (classify_files.go) uses this
+	// flag to deliver that DENY before a dynamic-path arm defers, and the defer
+	// keeps every other word the marking covers.
+	unusableHomeTilde bool
 	// argMeta is parallel to args, one entry per token. hasUnknownExpansion
 	// answers "was anything dynamic?"; this answers "WHICH token was, and where
 	// inside it", which is what lets the credentialed-tool precondition ask
@@ -663,8 +671,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// slash would otherwise reach concatenation (pinned by
 			// TestCdTrackingBareCdTracksCleanedHome).
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
-			home, err := resolver.homeDir()
-			if err != nil || home == "" || !filepath.IsAbs(home) {
+			home, ok := resolveVar("HOME", knownVars, resolver, cc)
+			if !ok {
 				// A home that is unresolvable, empty, or RELATIVE invalidates
 				// rather than being tracked, so that every VALID tracked cwd is
 				// absolute. Nothing else writes a non-absolute one: the seed is
@@ -677,6 +685,12 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				// genuine escape as `contained`, which is exactly what that
 				// resolveRepoContext guard exists to prevent (pinned by
 				// TestCdTrackingNonAbsoluteHomeInvalidates).
+				//
+				// The home comes from resolveVar rather than from the resolver
+				// directly, so the home this `cd` actually moves to is the one
+				// graded: an in-script `HOME=` assignment is what bash sends a
+				// bare `cd` to, and reading past it would track the process's
+				// home as a cwd the shell never entered.
 				runningCWDInvalid = true
 				return
 			}
@@ -709,12 +723,12 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// TestCdTrackingAbsoluteCdTracksCleanedPath).
 			runningCWD = filepath.Clean(lit)
 		case hasLeadingTilde(lit):
-			home, err := resolver.homeDir()
-			if err != nil || home == "" || !filepath.IsAbs(home) {
+			home, ok := resolveVar("HOME", knownVars, resolver, cc)
+			if !ok {
 				// Invalidates on all three for the reason the bare-`cd` arm
 				// above states: a valid tracked cwd is always absolute, and a
 				// relative $HOME is the only spelling that could make one that
-				// is not. It is the error path of the homeDir call this arm has
+				// is not. It is the error path of the home lookup this arm has
 				// to make anyway, and it is now also a backstop rather than the
 				// live route: literalWord marks a word whose `~` survived an
 				// unusable $HOME INEXACT, so such a `cd` target is already
@@ -723,12 +737,17 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				runningCWDInvalid = true
 				return
 			}
-			// Only a QUOTED tilde reaches here: literalWord expands an unquoted
-			// `cd ~` / `cd ~/x` upstream, so that spelling arrives already
-			// absolute and takes the case above. What arrives here is `cd '~'`
-			// or `cd "~/x"`, which bash does NOT tilde-expand — it looks for a
-			// directory literally named `~` under the cwd, and unless one exists
-			// the `cd` fails and the cwd does not move. A BACKSLASH-escaped
+			// A tilde reaches here when expand.Literal declined to expand it,
+			// which is TWO spellings and not only the quoted one. The quoted
+			// `cd '~'` / `cd "~/x"` is the one bash does not expand either — it
+			// looks for a directory literally named `~` under the cwd, and
+			// unless one exists the `cd` fails and the cwd does not move. The
+			// other is `cd ~"/x"`, whose tilde is UNQUOTED and which bash DOES
+			// send to $HOME: expand.Literal declines it because its tilde prefix
+			// is followed by a further field with no unquoted slash of its own
+			// (expandUser, mvdan.cc/sh/v3/expand). Expanding it here is exactly
+			// right for that spelling and an over-approximation only for the
+			// quoted one, which the paragraph below bounds. A BACKSLASH-escaped
 			// `cd \~` is not covered either: the backslash survives expansion,
 			// so `lit` is `\~`, this guard is false, and the operand
 			// relative-joins a literal `\~` segment onto the tracked cwd. That
@@ -752,7 +771,8 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// shipped verdict does not widen whichever way the region moves. See
 			// the README's cd-tracking section.
 			//
-			// ok is already established by the case guard plus a non-empty home.
+			// expandLeadingTilde's own ok is already established by the case
+			// guard plus a home usableHome passed.
 			// Cleaned, not verbatim, so a $HOME carrying a trailing slash cannot
 			// reach `$PWD` concatenation — bash's own $PWD carries no trailing
 			// slash after a successful cd (pinned by
@@ -1303,6 +1323,9 @@ func reduceCallExpr(c *syntax.CallExpr, redirs []*syntax.Redirect, knownVars map
 		if !exact {
 			sc.hasUnknownExpansion = true
 		}
+		if carriesUnusableHomeTilde(lit, knownVars, resolver, cc) {
+			sc.unusableHomeTilde = true
+		}
 		sc.args = append(sc.args, lit)
 		sc.argMeta = append(sc.argMeta, argMeta{exact: exact, staticPrefix: staticWordPrefix(w)})
 	}
@@ -1387,6 +1410,12 @@ func applyRedirs(sc *simpleCommand, redirs []*syntax.Redirect, knownVars map[str
 		// the same as the argv spelling `comm -3 <(cat ../sibling-repo/.env) x`.
 		if !exact {
 			sc.hasUnknownExpansion = true
+		}
+		// A redirect word carries the same mark for the same reason: `cat < ~/x`
+		// opens a path the operand walk never sees, and its DENY must survive
+		// the dynamic-path defer the mark otherwise earns.
+		if carriesUnusableHomeTilde(target, knownVars, resolver, cc) {
+			sc.unusableHomeTilde = true
 		}
 		switch r.Op {
 		case syntax.RdrOut, syntax.AppOut, syntax.RdrAll, syntax.AppAll, syntax.ClbOut:
@@ -1513,6 +1542,15 @@ func isAssignment(tok string) bool {
 // resolve — the gate must not resolve arbitrary environment state.
 func resolveVar(name string, knownVars map[string]string, resolver varResolver, cc cwdCtx) (string, bool) {
 	if v, ok := knownVars[name]; ok {
+		if name == "HOME" && !usableHome(v, nil) {
+			// An in-script `HOME=` assignment is a home directory like any
+			// other, so it is graded by the same test as the environment's:
+			// `HOME=relhome cat ~/x` would otherwise expand to `relhome/x`,
+			// relative-join onto the tracked cwd and grade a home-directory read
+			// as an in-repo path — the very disguise the env arm's guard below
+			// refuses, reached by the one source that bypasses it.
+			return "", false
+		}
 		return v, true
 	}
 	if cwdResolvableNames[name] {
@@ -1532,8 +1570,15 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 	if envResolvableNames[name] {
 		switch name {
 		case "HOME":
+			if resolver.homeDir == nil {
+				// A resolver with no homeDir source at all (the zero
+				// varResolver resolveAnchorCmdSubst passes, which has no
+				// environment to consult) has no home to grade, which is
+				// "unusable" rather than a nil dereference.
+				return "", false
+			}
 			home, err := resolver.homeDir()
-			if err != nil || home == "" || !filepath.IsAbs(home) {
+			if !usableHome(home, err) {
 				// A RELATIVE home fails to resolve for the same reason applyCd's
 				// two $HOME arms invalidate on one: nothing downstream re-anchors
 				// it, so `$HOME/x` would relative-join onto the tracked cwd and
@@ -1806,7 +1851,7 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 		// inexact so the command cannot ride the allow track.
 		return printWord(w), false
 	}
-	if hasLeadingTilde(lit) && !usableHome(resolver) {
+	if carriesUnusableHomeTilde(lit, knownVars, resolver, cc) {
 		// The `~` survived expansion because $HOME did not resolve: expand.Literal
 		// tilde-expands through the same resolveVar the operand path uses, and
 		// that fails closed on a home that errors, is empty, or is RELATIVE. A
@@ -1822,27 +1867,39 @@ func literalWord(w *syntax.Word, knownVars map[string]string, resolver varResolv
 		// in the fail-closed direction, and it matches what containment already
 		// does with the quoted spelling: canonicalizeFromResolver expands a
 		// leading tilde whatever the quoting was, so the two paths agree.
+		//
+		// Inexactness is all this does. It must not COST the operand its DENY:
+		// containment grades an unexpandable `~` as an escape, and that verdict
+		// is delivered ahead of the dynamic-path defer arms that hold a path
+		// list (tildeEscapeDeny, classify_files.go). What the marking buys is
+		// the rest of the word's
+		// surface — a tilde no operand walk returns, an argv position a
+		// credentialed tool classifies on — where there was never a containment
+		// verdict to lose.
 		return lit, false
 	}
 	return lit, exact
 }
 
-// usableHome reports whether resolver's home directory can be expanded against:
-// non-empty, no error, and ABSOLUTE. It is the same three-part test resolveVar's
-// $HOME arm and applyCd's two $HOME arms apply, named once so a tilde left
-// unexpanded is graded by exactly the condition that left it that way.
+// carriesUnusableHomeTilde reports whether lit is a word whose LEADING `~`
+// survived expansion because the home it would have expanded against is
+// unusable. It is the condition literalWord marks inexact on, and the one the
+// simpleCommand builders record on the command
+// (simpleCommand.unusableHomeTilde), named once so the mark and the record can
+// never disagree about which words carry it.
 //
-// A resolver with no homeDir source at all (the zero varResolver
-// resolveAnchorCmdSubst passes, which has no environment to consult) is "not
-// usable" rather than a nil dereference: this is the one caller reached by a
-// QUOTED tilde, which expand.Literal never expands and so never routes through
-// resolveVar's own homeDir call.
-func usableHome(resolver varResolver) bool {
-	if resolver.homeDir == nil {
+// The home comes from resolveVar, which is where expand.Literal read it too
+// (cfg.Env above), so the three sources are graded identically: an in-script
+// `HOME=` assignment, the environment's `$HOME`, and the resolver's own lookup
+// all reach usableHome, and a resolver with no homeDir source at all (the zero
+// varResolver resolveAnchorCmdSubst passes, which has no environment to
+// consult) resolves nothing rather than dereferencing nil.
+func carriesUnusableHomeTilde(lit string, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {
+	if !hasLeadingTilde(lit) {
 		return false
 	}
-	home, err := resolver.homeDir()
-	return err == nil && home != "" && filepath.IsAbs(home)
+	_, ok := resolveVar("HOME", knownVars, resolver, cc)
+	return !ok
 }
 
 // maxForFanOut bounds how many items a static `for x in <words>` fan-out
