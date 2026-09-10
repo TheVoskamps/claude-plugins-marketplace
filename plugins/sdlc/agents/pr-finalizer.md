@@ -152,9 +152,9 @@ into a brief.
    chunk of the assembled detail a finalizer run posted — your own
    output, not anyone's input. Match that shape rather than a fixed
    string: the numbers vary per chunk, so no posted comment ever
-   carries the bytes `i/N`. Skip it here on the same terms as a brief,
-   and count it under "Post the run's assembled detail" below, which is
-   where a chain an earlier run already posted is settled.
+   carries the bytes `i/N`. Skip it here on the same terms as a brief:
+   reading your own detail back as a scope note would turn the run's
+   record into input for the section that reports on it.
 
 5. **Post the run's assembled detail**, per "Post the run's assembled
    detail" below, before you touch the body. It lands first so the
@@ -219,9 +219,7 @@ into a brief.
    body.
 
 9. **Report back**: how many detail comments you posted and what they
-   covered — or that you reused a complete chain an earlier run had
-   posted, or that a partial one sits above yours — what you appended,
-   in outline, and whether the posted body
+   covered, what you appended, in outline, and whether the posted body
    verified — base intact and section present. Name anything you found
    that the section could not settle from the rounds and the branch
    alone, and name any round whose log existed but whose review file did
@@ -235,38 +233,22 @@ order, so a reader scrolling the chain reads the run forwards:
 
 1. the final theorem records, from `--mode print-records`;
 2. then, per round in ascending order: that round's argued review,
-   followed by each of its children's result files.
+   followed by its children's result files grouped by theorem, in
+   theorem-id order.
 
 Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
 
-**Check first whether a chain is already posted.** A finalizer spawned
-again over the same PR — after a run that posted the detail and then
-failed at the amendment, say — finds its predecessor's chunks sitting
-on the PR, and a second chain would double the run's whole record with
-nothing to tell the copies apart. Collect the markers, shape-matched
-as in step 4:
-
-```bash
-gh pr view <PR> --json comments \
-  --jq '.comments[] | .body | split("\n")[0]' \
-  | grep -o 'sdlc:theorem-records [0-9]*/[0-9]*'
-```
-
-A chain is **complete** when, for one `N`, every position `1` through
-`N` is present. Finding one, post nothing: it is the record you would
-have assembled, so the section you append names that chain, and your
-report says you reused it rather than posting. Otherwise post the whole
-chain, chunked as below, even when part of an incomplete one is already
-up — you delete no comment, an earlier run's included, so say in your
-report that a partial chain sits above the one you posted.
-
-**Chunk the assembly at a piece boundary, under GitHub's 64 KB
-comment cap.** A boundary is between two whole pieces — between two
-theorem records, or between one result file and the next — and never
-inside one. Start a new chunk when the next piece would carry the
-current one past the cap; the cap is on the whole comment body, marker
-line included, so leave headroom rather than filling to the byte.
+**Chunk the assembly at a theorem boundary, under GitHub's 64 KB
+comment cap.** Three kinds of piece are whole and never split: the
+records file, one round's review file, and — per round, per theorem —
+that theorem's result files, its `-theorem-disprover` report and its
+`-counterexample-verifier` report together. A chunk breaks between two
+such pieces and never inside one, so a reader never meets a theorem's
+disproof in one comment and its verification in another. Start a new
+chunk when the next piece would carry the current one past the cap; the
+cap is on the whole comment body, marker line included, so leave
+headroom rather than filling to the byte.
 
 **Each chunk's first line is the literal marker**
 `<!-- sdlc:theorem-records i/N -->`, on a line of its own, with `i` the
@@ -289,9 +271,10 @@ inline body is read by the shell.
 
 **A single piece larger than the cap is never truncated.** It gets a
 chunk of its own; if it still will not fit, the chunk carries the
-piece's name and its path relative to the PR's state root
+piece's name and the path of each file in it, relative to the PR's
+state root
 `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR>/`
-instead, and says the file was too large to post. A silently cut report
+instead, and says it was too large to post. A silently cut report
 reads exactly like a complete one, which is the failure this whole
 design exists to remove.
 
@@ -307,8 +290,7 @@ it is rather than when it was written. It carries:
 
 - **How the review loop went** — how many rounds reached disposition,
   the final overall verdict, and what the last round's findings were, if
-  any, plus where the full detail now is: the comment chain — the one
-  you posted, or the complete one an earlier run had already posted —
+  any, plus where the full detail now is: the comment chain you posted,
   named as such. State a count only where you counted it from the round
   files themselves.
 - **What changed in response** — what the loop raised, whether a review

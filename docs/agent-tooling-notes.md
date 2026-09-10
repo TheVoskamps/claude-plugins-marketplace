@@ -81,16 +81,20 @@ answer for a reason that will not survive a reader who checks it.
 What actually breaks an inline body is the shell. A body spelled into
 a double-quoted word — `gh pr review <PR> --approve --body "<body>"` —
 has every backtick and `$` in it read by the shell before `gh` sees a
-byte, and a review or PR body is Markdown that quotes code throughout.
-A 26 KB review body posted on this repo carried backticks on 97 of its
-lines.
+byte, and the bodies these agents post are Markdown carrying backticks
+throughout: `sdlc:pr-finalizer`'s detail chunks reproduce each child's
+result file verbatim, quoted code included, and even a review summary
+quotes theorem claims and state-relative paths. A 26 KB review body
+posted on this repo, back when the argued detail still travelled in the
+review, carried backticks on 97 of its lines.
 
 So pass a long body by path. `gh`'s body-carrying verbs each take
 `-F`/`--body-file` alongside `-b`/`--body` and reject both at once, so
 the file form needs no quoting at all: stage the text with `Write`
 under `<repo-root>/.claude/tmp/<task-slug>/` and name the path.
 `sdlc:theorem-based-pr-reviewer` posts every review that way, through
-`/github-prs:pr-review-submit --body-file`.
+`/github-prs:pr-review-submit --body-file`, and `sdlc:pr-finalizer`
+posts each detail chunk with `gh pr comment --body-file`.
 
 ## `gh pr create` is GraphQL and can fail while REST is healthy
 

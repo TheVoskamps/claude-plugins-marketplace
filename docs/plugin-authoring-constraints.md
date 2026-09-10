@@ -394,15 +394,23 @@ leave the resumed spawner unable to reach its own records. See
 `docs/config-file-conventions.md` → "State goes under
 `$XDG_STATE_HOME/<plugin>/`".
 
-**A PR artifact is not a store.** Everything a later round or a later
-agent reads back belongs in that same directory, never in a review body
-or a comment. A human can edit, withdraw or delete either one; the
-platform caps both — GitHub at 64 KB — and a carrier that outgrows the
-cap is truncated into something a reader cannot tell from a complete
-one. Post a summary that names where the files are, and publish the
-detail once the pipeline is finished, when no later round can read it
-back as an instruction. `sdlc`'s review kept its theorem records in the
-review body it posted until issue #422 moved them here.
+**A PR artifact is not a store.** The state a pipeline accumulates over
+its own rounds — the records a later round diffs against, the reports it
+re-reads — belongs in that same directory, never in a body the pipeline
+posts and then parses back. A human can edit, withdraw or delete a
+review or a comment; the platform caps both — GitHub at 64 KB — and a
+carrier that outgrows the cap is truncated into something a reader
+cannot tell from a complete one. Post a summary that names where the
+files are, and publish the detail once the pipeline is finished, when no
+later round can read it back as an instruction. `sdlc`'s review kept its
+theorem records in the review body it posted until issue #422 moved them
+here.
+
+This is about the pipeline's own store, not about every comment an agent
+reads. A comment written for an agent to act on once — the human's
+review adjustments, the `issue-fixer` brief — is input the pipeline was
+handed, and it stays on the PR where the human wrote it and can read it
+afterwards.
 
 **Nothing may depend on the spawner hearing back.** A child that ran,
 finished and reported can still skip its own last call, and a
