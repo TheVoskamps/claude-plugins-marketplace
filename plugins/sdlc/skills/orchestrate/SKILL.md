@@ -1287,8 +1287,9 @@ only then, the orchestrator performs these transitions, in this order:
    its theorem records and each child's report under the PR's XDG state
    directory (see "Reading a round's detail"), so the PR carries none of
    the detail while the loop runs. The finalizer posts that detail as a
-   chain of PR comments, each opening with the literal marker
-   `<!-- sdlc:theorem-records i/N -->`, and then appends one section
+   chain of PR comments, each opening with a marker of the form
+   `<!-- sdlc:theorem-records i/N -->`, where `i` and `N` stand for the
+   chunk's 1-based position and the total, and then appends one section
    summarising the review rounds, the changes made in response, and any
    scope notes the run settled. The body has been frozen since the
    developer wrote it (see "The PR body is frozen for the loop"), so it
