@@ -244,12 +244,13 @@ func canonicalize(p string) string {
 // canonicalizeFromResolver below, and both sides of the operator carve-out's
 // lexical match (operator_carveout.go) — a carve-out root that expanded a
 // shape its targets did not would strip a prefix the target never carried.
-// What they do NOT share is the home lookup or the handling of an
-// unresolvable home, because failing closed means something different at each:
+// What they do NOT share is the home lookup or the handling of an unusable
+// home — the GRADING of a home value is shared (homeUsable, home.go), but
+// failing closed means something different at each:
 // applyCd invalidates the running cwd, canonicalizeFromResolver raises
 // unresolvedTilde while keeping the literal for display, and the carve-out's
 // two sides part company over where the home comes from. A ROOT is expanded
-// against the home loadOperatorCarveOutFrom has already established non-empty,
+// against the home loadOperatorCarveOutFrom has already graded usable,
 // so an unknown home never reaches absoluteRootPath — the whole carve-out is
 // empty before it is called — and a root drops out, along with every glob
 // listed under it, when its spelling is not absolute after expansion. A TARGET
@@ -261,8 +262,9 @@ func hasLeadingTilde(p string) bool {
 
 // expandLeadingTilde joins a leading `~` or `~/` onto home, and returns a
 // spelling carrying neither unchanged. ok=false means the spelling names the
-// home directory but home is unknown — a substitution no caller can make, so
-// each caller's own fail-closed handling takes it from there.
+// home directory but the home value is not usable by homeUsable's one test —
+// empty, or relative — a substitution no caller can make, so each caller's own
+// fail-closed handling takes it from there.
 //
 // HOME is Cleaned and the remainder is carried VERBATIM, rather than the two
 // being filepath.Join'ed: Join Cleans the whole result, which collapses a `..`
@@ -328,14 +330,14 @@ func canonicalizeFrom(p string, base string) string {
 // on the real environment having (or lacking) $HOME.
 //
 // It returns (real, unresolvedTilde). unresolvedTilde is true exactly when p
-// has a leading `~`/`~/...` AND homeDir() failed (non-nil error, or an empty
-// home string) — i.e. the tilde could NOT be expanded against a real home
-// directory. In that case real is still populated (best-effort, p with `~`
-// left as a literal segment) for callers that only want a display string,
-// but the caller MUST NOT treat real as eligible for a `contained` verdict:
-// an unresolvable `~` must fail closed (deny, or a defer that withholds the
-// allow), mirroring applyCd's own
-// posture for `cd ~` when the home directory can't be resolved (engine_a_
+// has a leading `~`/`~/...` AND resolveHome graded the home unusable (a nil
+// source, a non-nil error, an empty home, or a relative one) — i.e. the tilde
+// could NOT be expanded against a home directory the gate can place. In that
+// case real is still populated (best-effort, p with `~` left as a literal
+// segment) for callers that only want a display string, but the caller MUST
+// NOT treat real as eligible for a `contained` verdict: an unexpandable `~`
+// must fail closed (deny, or a defer that withholds the allow), mirroring
+// applyCd's own posture for `cd ~` with no usable home (engine_a_
 // bash.go: applyCd sets runningCWDInvalid = true rather than guessing). A
 // literal `~/.ssh/id_rsa` segment left unexpanded would otherwise fall
 // through to the ordinary relative-join branch below and resolve as
@@ -703,17 +705,19 @@ func harnessScratchRemainder(real, root string) string {
 //
 // It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
 // wrapper) so it can see the unresolvedTilde signal: a leading `~`/`~/...`
-// operand whose home directory could not be resolved (os.UserHomeDir
-// failing — HOME unset/empty, a stripped/minimal environment) must fail
-// CLOSED rather than fall through to the ordinary pathUnder checks against
-// the best-effort (still-literal-`~`) string, which would otherwise resolve
-// as an in-repo child path and read as `contained` — masking a real escape
-// to the (unresolvable) home directory as safe. This mirrors applyCd's own
-// posture for `cd ~` with no resolvable home (engine_a_bash.go: it sets
+// operand whose home directory is unusable (os.UserHomeDir failing, or
+// returning an empty or relative home — a stripped/minimal environment) must
+// fail CLOSED rather than fall through to the ordinary pathUnder checks
+// against the best-effort (still-literal-`~`) string, which would otherwise
+// resolve as an in-repo child path and read as `contained` — masking a real
+// escape to the (unusable) home directory as safe. This mirrors applyCd's own
+// posture for `cd ~` with no usable home (engine_a_bash.go: it sets
 // runningCWDInvalid = true rather than guessing) — escapeRepo is
 // testContainmentFrom's equivalent "invalidate rather than guess" verdict:
 // every caller (classifyFileTool, containPathOperands, containWriteOperands)
-// treats escapeRepo as deny, never allow.
+// treats escapeRepo as deny, never allow. On today's paths that arm is
+// defence in depth: the home chokepoint (home.go) denies a `~` operand under
+// an unusable home before containment is reached.
 func testContainmentFrom(target string, base string, rc *repoContext) (containmentResult, string) {
 	real, unresolvedTilde := canonicalizeFromResolver(target, base, os.UserHomeDir)
 	if unresolvedTilde {

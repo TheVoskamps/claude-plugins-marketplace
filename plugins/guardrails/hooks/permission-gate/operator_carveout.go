@@ -78,8 +78,8 @@ const (
 )
 
 // operatorCarveOutConfigPath is the operator-written config file's path, for
-// the allow reason and for the self-write deny. Returns "" when the home
-// directory cannot be determined.
+// the allow reason and for the self-write deny. Returns "" when the process
+// home is unusable.
 func operatorCarveOutConfigPath() string {
 	home, ok := processHome()
 	if !ok {
@@ -521,7 +521,7 @@ func (r carveOutRoot) remainder(target string, base string) (string, bool) {
 
 // lexicalAbs expands a leading `~`, makes target absolute against base (or the
 // process cwd when base is empty), and Cleans it — with NO symlink resolution,
-// which is the whole point of this carve-out. An unresolvable home directory
+// which is the whole point of this carve-out. An unusable home directory
 // yields "", so a `~`-spelled target simply does not match.
 func lexicalAbs(target string, base string) string {
 	if target == "" {

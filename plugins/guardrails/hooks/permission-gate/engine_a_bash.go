@@ -22,15 +22,17 @@ import (
 // the process environment" note in the var-resolution design).
 //
 // Fields are injectable funcs (mirroring the `homeDir` resolver for
-// `~`) so the fail-closed branches (homeDir erroring/empty, a var absent from
+// `~`) so the fail-closed branches (a home homeUsable rejects, a var absent from
 // the process env) are deterministically testable rather than dependent on
 // ambient environment. The ZERO VALUE — both funcs nil — is a legitimate
 // resolver meaning "no source for any of these names", and resolveVar grades
 // every name it backs as unresolvable rather than calling a nil func.
 type varResolver struct {
 	// homeDir returns the process's home directory, or an error/empty string
-	// when it cannot be determined. Authoritative for $HOME — the same source
-	// applyCd's `cd ~` handling and claudeConfigRoot already use.
+	// when it cannot be determined. Every reader runs it through resolveHome
+	// (home.go), so an erroring, empty or relative home is unusable alike.
+	// Authoritative for $HOME — the same source applyCd's `cd ~` handling and
+	// claudeConfigRoot already use.
 	homeDir func() (string, error)
 	// lookupEnv returns the process-environment value of name and whether it
 	// was set. Authoritative for $USER / $TMPDIR — variables that do not

@@ -133,18 +133,23 @@ The gate's engines feed that decision:
   arm, `lexicalAbs`, the carve-out loader, the Claude config root, the
   evolution-log path) asks `resolveHome` for one and gets either a
   usable absolute home or nothing at all, so none of them carries an
-  emptiness or `IsAbs` test of its own. The one site that still *runs*
-  under an unusable home is **bare `cd`**, which goes to `$HOME`
-  while referencing no word the chokepoint could deny: it invalidates
+  emptiness or `IsAbs` test of its own. The one classifier site that
+  still *runs* under an unusable home is **bare `cd`**, which goes to
+  `$HOME` while referencing no word the chokepoint could deny: it invalidates
   the tracked cwd rather than tracking a relative one, so a later
   relative operand fails closed instead of being graded against
-  `<worktree>/relhome`. The three **non-verdict** readers fail closed
-  the same way: an unusable
-  home loads no carve-out config, resolves no `~/.claude` root, and
-  writes no evolution-log entry, rather than composing a path against a
-  relative home. An event that references **no** home path is
-  unaffected — its verdict is identical under an unusable home and an
-  absolute one.
+  `<worktree>/relhome`. The three **process-home** readers fail closed
+  the same way, rather than composing a path against a relative home: an
+  unusable home loads no carve-out config (so no operator allow),
+  resolves no `~/.claude` root (so a target landing there grades as an
+  ordinary escape — a **deny** — instead of the `claudeConfig` defer
+  that root buys), and writes no evolution-log entry. Only the log sits
+  outside the verdict; the other two are relaxations an unusable home
+  withdraws. So an event carrying no `~` and no `$HOME` is never denied
+  by the chokepoint, and its verdict is identical under an unusable home
+  and an absolute one **unless** its absolutely-spelled target lands
+  under one of those two home-rooted roots, which an unusable home
+  leaves unresolved.
 
   Before this, each of those sites decided for itself, so one relative
   `$HOME` produced a different outcome per site: `cat ~/x` ALLOWed (the
@@ -1742,16 +1747,19 @@ The gate's engines feed that decision:
   root — everything under a config home inside the home directory does
   — is allowed when **any** of those roots lists it.
 
-  **How each root resolves.** `home` is `os.UserHomeDir()` and has no
-  setting. `config-home` and `state-home` each take
+  **How each root resolves.** `home` is the process home —
+  `os.UserHomeDir()` graded by `homeUsable` (see the home chokepoint
+  above), so an unusable one leaves the whole carve-out empty rather
+  than rooting it at a relative path — and has no setting.
+  `config-home` and `state-home` each take
   `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` when
   `resolve-xdg-environment-variables: yes` **and** the variable is set
   and non-empty — the same test `docs/config-file-conventions.md` gives
   the plugins, so the gate and the plugins agree in the empty case too
   — and otherwise the file's own `config-home-default` /
   `state-home-default` spelling. That spelling may start with `~` or
-  `~/`, expanded against `os.UserHomeDir()`, and with **no other tilde
-  shape**: `~someone/state` is a username reference this gate does not
+  `~/`, expanded against that same process home, and with **no other
+  tilde shape**: `~someone/state` is a username reference this gate does not
   resolve, so it stays relative and the root is unusable, exactly as a
   plain `state/` would be. **There are no hidden built-in defaults:** a
   root the file gives no usable spelling for does not exist, and every

@@ -74,7 +74,7 @@ func logEvent(ev *Event, d Decision) {
 
 // logPath returns the evolution-log file path: the PERMISSION_GATE_LOG
 // override if set, else ~/.claude/logs/permission-gate.jsonl. Returns "" when
-// no home directory can be determined (logging is then skipped).
+// the process home is unusable (logging is then skipped).
 func logPath() string {
 	if p := os.Getenv(logEnvVar); p != "" {
 		return p
