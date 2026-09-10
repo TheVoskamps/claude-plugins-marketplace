@@ -66,19 +66,35 @@ skill computes.
    The reviewer reads `issue-link-prefix` from the repo's
    `.issues/repo-config.md` (for recognizing `References:`
    trailers), resolves the issue set, carries the previous round's
-   theorem records forward off the PR, computes the round's delta,
+   theorem records forward out of the PR's XDG state directory,
+   computes the round's delta,
    picks a generator tier, spawns the generator, the disprovers, and
    then the verifiers in their own throwaway worktrees, derives the
-   verdicts, and **posts the review to the PR as a single call** via
+   verdicts, stores the round's records and its argued review under
+   that same state directory, and **posts a summary of them to the PR
+   as a single call** via
    `/github-prs:pr-review-submit`, carrying both verdict and body,
    exactly as it does in the `/sdlc:orchestrate` flow. The body
    travels as a file — the reviewer stages it under
-   `.claude/tmp/<task-slug>/` and passes `--body-file`, because a real
-   round's body is tens of kilobytes of Markdown that quotes code
-   throughout, which the inline form would hand to the shell. It
+   `.claude/tmp/<task-slug>/` and passes `--body-file`, because it
+   quotes code and state-relative paths throughout, which the inline
+   form would hand to the shell. It
    commits nothing and pushes nothing.
 
    Remove the reviewer agent's worktree when it returns.
+
+   **This path leaves the round's detail on disk and nothing else.** In
+   the `/sdlc:orchestrate` flow, `pr-finalizer` posts the assembled
+   argued reviews and theorem records to the PR once the fix loop
+   concludes; a review run from here concludes no loop, so nothing posts
+   them. The records, the argued review and every child's report stay
+   under
+   `${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR_N>/`,
+   where `sdlc-agent-result-persist --mode print-review` and
+   `--mode print` reach them, and the PR carries the summary alone. That
+   is accepted rather than a gap to close here: the detail is on disk in
+   full for anyone who wants it, and a standalone review has no loop
+   whose end would be the honest moment to post it.
 
 3. **Check for a verdict block before relaying anything.** A reviewer
    that returns mid-round reports an **in-progress status** — which
@@ -104,7 +120,9 @@ skill computes.
    call again. Quote the script's message verbatim to the user and
    offer no re-spawn.
 
-4. **Relay the reviewer's verdicts and findings** back to the user:
+4. **Relay the reviewer's verdicts and findings** back to the user, and
+   say where the round's detail is — the state path above — since the
+   posted review carries the summary alone:
    the overall APPROVED / NEEDS_CHANGES / BLOCKED, plus every
    per-issue verdict (a PR may deliver a batch of several), plus the
    severity counts (Critical, High, Medium, Low) and the theorem

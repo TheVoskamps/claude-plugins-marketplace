@@ -65,9 +65,11 @@ under `agents/` owns:
   the branch in a fresh `isolation: worktree` worktree. When it
   returns, every change that pass decided on is a pushed commit on the
   branch and the inbox is empty
-- `pr-finalizer` — appends the run's final section to the PR body in a
+- `pr-finalizer` — posts the run's assembled review detail as chained
+  PR comments and appends the run's final section to the PR body, in a
   fresh `isolation: worktree` worktree, once the loop is over. When it
-  returns, the PR body carries that section and nothing else about the
+  returns, the PR carries that comment chain and that section, and
+  nothing else about the
   PR has moved: it makes no merge decision, spawns no agent, and flips
   no status. It is the **only** agent that edits a PR body
 
@@ -780,6 +782,36 @@ an empty-delta round's verdicts are carried forward from the previous
 round rather than freshly checked, and the reviewer says which kind of
 round it ran.
 
+### Reading a round's detail
+
+What the reviewer **posts** on the PR is a summary: one line per
+theorem, one line per finding, the verdicts, and the Review method
+section. The argued findings, the quoted counterexamples and the
+theorem records are not in it. They are in the round's own files under
+the PR's XDG state directory, and that is where you read them when you
+brief the human on a round or write a fixer brief:
+
+```bash
+gh repo view --json owner,name --jq '.owner.login + " " + .name'
+
+sdlc-agent-result-persist --mode print-review \
+  --owner <owner> --repo <repo> --pr <PR_N> --round <N>
+```
+
+The round number is the count of reviews on the PR at the time that
+round ran, so the round just finished is the current review count. A
+finding whose child report you need — the disprover's or the verifier's
+own words — is reached the same way: the summary's line for it names
+the file, relative to
+`${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/<owner>/<repo>/pr<PR_N>/`,
+and `--mode print --round <N>` lists every result file that round holds.
+
+**Consult the posted review only for its existence and its
+`submittedAt`** — the two facts step 1 of "Handling review findings —
+the fix loop" checks it for. Nothing else you decide about a round comes
+out of it. The detail reaches the PR once, at the end: `pr-finalizer`
+posts it as a chain of comments in Phase 3, before it amends the body.
+
 ### Overriding the generator tier
 
 You do not pick a tier. The rubric lives in the reviewer, next to the
@@ -911,11 +943,13 @@ responses, so read what the report **says** before you act on it:
    records forward as though nothing had been questioned.
 
    The ruling settles how the loop resumes. Ruled trustworthy, the
-   round stands: read the review off the PR itself, since the report
+   round stands: read the round's own review file, since the report
    that should have carried it did not, and take the path this section
    gives for the verdict that review carries — APPROVED spawns no
    fixer, and NEEDS_CHANGES gets a brief written from the findings the
-   review states. Ruled untrustworthy, re-spawn the reviewer over the
+   review states. That file, not the summary posted on the PR, is where
+   the argued findings are — see "Reading a round's detail" below.
+   Ruled untrustworthy, re-spawn the reviewer over the
    same PR — the new round supersedes the questioned one, and its
    verdicts and findings are what the loop carries forward.
 
@@ -998,8 +1032,8 @@ member)**:
 
    Findings to address — all of them, including Low, each tagged with
    the issue it belongs to:
-   <paste every finding from the review, un-tiered, keeping the
-   review's per-issue tags>
+   <paste every finding from the round's review file, un-tiered,
+   keeping the review's per-issue tags>
 
    Owner rulings — how the findings above are to be fixed, and any
    in-scope work that is not itself a finding:
@@ -1247,35 +1281,43 @@ confirms — per PR — that the loop is done and the PR is good enough to
 move forward. On that end-of-loop confirmation for a given PR, and
 only then, the orchestrator performs these transitions, in this order:
 
-1. **Spawn `pr-finalizer` to amend the PR body.** The body has been
-   frozen since the developer wrote it (see "The PR body is frozen for
-   the loop"), so it still describes the PR as first opened. The
-   finalizer appends one section summarising the review rounds, the
-   changes made in response, and any scope notes the run settled.
+1. **Spawn `pr-finalizer` to post the run's detail and amend the PR
+   body.** Each round posted only a summary and kept its argued review,
+   its theorem records and each child's report under the PR's XDG state
+   directory (see "Reading a round's detail"), so the PR carries none of
+   the detail while the loop runs. The finalizer posts that detail as a
+   chain of PR comments, each opening with the literal marker
+   `<!-- sdlc:theorem-records i/N -->`, and then appends one section
+   summarising the review rounds, the changes made in response, and any
+   scope notes the run settled. The body has been frozen since the
+   developer wrote it (see "The PR body is frozen for the loop"), so it
+   still describes the PR as first opened.
 
-   The amendment lands **before** the flips below, so the status flip
-   stays the run's single "done" signal and there is no window in
-   which the PR is ready for review carrying no final note.
+   The comments and the amendment both land **before** the flips below,
+   so the status flip stays the run's single "done" signal and there is
+   no window in which the PR is ready for review carrying no final note.
+   The finalizer is the one agent that posts those comments; you post
+   none of them.
 
    Spawn it after the memory scrub and after any final `issue-fixer`
    round — those put commits on the branch, and a summary written
    before them would describe a PR that no longer exists. Give it the
    PR number, the branch name, and the scope notes the run settled
-   that the reviewer's own posted reviews do not carry:
+   that the rounds themselves do not carry:
 
    ```text
    PR <PR_N> has finished its review loop. Branch: <branch-name>
 
    Scope notes this run settled, for the final section:
    <the deferrals, dropped members, and rulings the human made that
-   the posted reviews do not carry — or "none">
+   the rounds do not carry — or "none">
 
-   Append the final section per your agent definition. Report back
-   what you appended.
+   Post the detail and append the final section per your agent
+   definition. Report back what you posted and what you appended.
    ```
 
-   It reads the PR's own reviews and commits for the rest; that is its
-   job, not yours to summarize into the brief.
+   It reads the rounds out of state and the commits off the branch for
+   the rest; that is its job, not yours to summarize into the brief.
 
 2. **Flip the PR draft → ready:**
 

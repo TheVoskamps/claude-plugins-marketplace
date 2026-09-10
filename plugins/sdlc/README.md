@@ -130,7 +130,7 @@ changes how the two relate edits it here.
 | `/sdlc:git-review-pr <PR> [--generator <name>] [--full]` | Review one PR — a thin standalone wrapper that spawns the reviewer agent | main session |
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
-| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, and the verifier |
+| `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
 
 `theorem-generation`, `theorem-agents-interface` and
 `agent-result-persist-interface` carry no leading slash here because
@@ -174,7 +174,8 @@ convention "Executables" above sets. Which mode writes each, and the
 record grammar the log holds, are part of that contract and are owned
 by `skills/agent-result-persist-interface/SKILL.md`.
 
-The implementing agents are outside that claim and write nothing this
+`pr-finalizer` reads that state and writes none of it. The implementing
+agents are outside the claim entirely and write nothing this
 list owns: `issue-developer`, `issue-fixer` and `doc-updater` commit
 their work to the branch and capture their agent memory into the
 session's inbox, and `agent-memory-scrubber` commits what that inbox
@@ -188,6 +189,8 @@ the round's own directory:
 | ------- | --------------- |
 | `<round-dir>/log` | the round log |
 | `<round-dir>/<theorem>-<agent>` | one child's full report |
+| `<round-dir>/records` | the round's theorem records, which the next round carries forward |
+| `<round-dir>/review` | the round's argued review, which the posted review summarises and `pr-finalizer` posts in full once the loop concludes |
 | `<round-dir>.voided-<instant>/` | the whole directory of a round whose branch moved under it, set aside rather than overwritten |
 
 The PR number keys the path because a PR is worked by one orchestrate
@@ -227,7 +230,7 @@ throwaway worktree per spawn.
 | `issue-fixer` | Applies review findings to an open PR's branch |
 | `doc-updater` | Updates the docs a PR's changes falsify |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
-| `pr-finalizer` | Appends the run's final section to a finished PR's body |
+| `pr-finalizer` | Posts the run's assembled review detail to a finished PR and appends the run's final section to its body |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
 | `theorem-generator` | Searches one PR for claims worth trying to disprove |
 | `theorem-generator-medium` | The same generator at a higher reasoning tier |

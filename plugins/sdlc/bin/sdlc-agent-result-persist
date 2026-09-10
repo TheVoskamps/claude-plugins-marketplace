@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Record one theorem-review round's progress in a log outside every
-# worktree, and hold each child's full report in a file of its own, so a
+# worktree, and hold each child's full report, the round's theorem
+# records and the round's argued review in files of their own, so a
 # round completes from what is on disk rather than from what a caller
-# heard back.
+# heard back, and so the next round reads its predecessor's records off
+# disk rather than off the PR.
 #
 # Every path is composed here and nowhere else — the round log, each
-# result file, and each child's harness transcript — so no agent ever
-# holds a path string to mistype or to carry across a turn boundary.
+# result file, the records file, the review file, and each child's
+# harness transcript — so no agent ever holds a path string to mistype
+# or to carry across a turn boundary.
 #
 # The contract this implements — modes, flags, paths, line grammar — is
 # plugins/sdlc/skills/agent-result-persist-interface/SKILL.md.
@@ -22,7 +25,8 @@ die() {
 usage() {
   cat <<EOF
 usage: $PROGRAM --mode anchor|spawn|enter|leave|return|stopped|print
-                --owner <owner> --repo <repo> --pr <n> --round <n>
+                       |records|review|print-records|print-review
+                --owner <owner> --repo <repo> --pr <n> [--round <n>]
                 [--head-sha <sha>] [--theorem <id>]
                 [--stage generate|disprove|verify] [--agent <name>]
                 [--model <name>] [--effort <name>] [--agent-id <id>]
@@ -83,6 +87,7 @@ done
 
 case "$mode" in
   anchor|spawn|enter|leave|return|stopped|print) ;;
+  records|review|print-records|print-review) ;;
   '') die "--mode is required" ;;
   *)  die "unknown --mode: $mode" ;;
 esac
@@ -99,9 +104,16 @@ for pair in "owner:$owner" "repo:$repo"; do
   esac
 done
 
+# --round is the one identifying flag a mode may refuse: print-records
+# selects the round itself, so a caller passing one would be naming a
+# round the mode is not going to read.
 for pair in "pr:$pr" "round:$round"; do
   name=${pair%%:*}
   given=${pair#*:}
+  if [ "$name" = round ] && [ "$mode" = print-records ]; then
+    [ -z "$given" ] || die "--round is not accepted in --mode print-records: $given"
+    continue
+  fi
   [ -n "$given" ] || die "--$name is required"
   case "$given" in
     *[!0-9]*) die "--$name must be a number: $given" ;;
@@ -178,9 +190,12 @@ done
 # The round gets a directory of its own under XDG state, composed from
 # the identifying flags alone: no session is part of the path, so a
 # round interrupted by a session ending is resumed from the same one.
-readonly dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$owner/$repo/pr$pr/round$round"
+readonly pr_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sdlc/$owner/$repo/pr$pr"
+readonly dir="$pr_dir/round$round"
 readonly file="$dir/log"
 readonly result_file="$dir/$theorem-$agent"
+readonly records_file="$dir/records"
+readonly review_file="$dir/review"
 
 now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
@@ -216,8 +231,30 @@ transcript_path() {
   printf '%s\n' "$HOME/.claude/projects/$project/$session/subagents/agent-$(this_agent_id).jsonl"
 }
 
-# Every mode but print writes, and each writes into the same directory.
-[ "$mode" = print ] || mkdir -p "$dir"
+# A file arriving on stdin lands in a staging name and is renamed into
+# place only once it is whole, because a stored file's mere existence is
+# what a reader takes as settled: a file streamed straight to its own
+# name would read as complete the moment the first byte landed, and a
+# writer killed mid-write would leave that fragment there for good. The
+# -$$ suffix is what keeps two writers from staging over each other.
+store_from_stdin() {
+  target=$1
+  noun=$2
+  staged="$target.partial-$$"
+  cat > "$staged"
+  if [ ! -s "$staged" ]; then
+    rm -f -- "$staged"
+    die "--mode $mode takes the $noun on stdin, and nothing arrived"
+  fi
+  mv -- "$staged" "$target"
+}
+
+# Every mode that writes writes into the same directory; the reading
+# modes create nothing.
+case "$mode" in
+  print|print-records|print-review) ;;
+  *) mkdir -p "$dir" ;;
+esac
 
 case "$mode" in
   anchor)
@@ -260,13 +297,7 @@ case "$mode" in
     # The report is written before the record that names it, so a run
     # that dies between the two leaves the report readable rather than a
     # record pointing at nothing.
-    staged="$result_file.partial-$$"
-    cat > "$staged"
-    if [ ! -s "$staged" ]; then
-      rm -f -- "$staged"
-      die "--mode leave takes the report on stdin, and nothing arrived"
-    fi
-    mv -- "$staged" "$result_file"
+    store_from_stdin "$result_file" report
     printf 'leave %s %s %s %s %s\n' \
       "$theorem" "$stage" "$(now)" "$(this_agent_id)" "$result_file" >> "$file"
     ;;
@@ -287,9 +318,48 @@ case "$mode" in
       [ -e "$found" ] || continue
       rest=${found##*/}
       case "$rest" in
-        log|*.partial-*) continue ;;
+        log|records|review|*.partial-*) continue ;;
       esac
       printf 'result %s %s %s\n' "${rest%%-*}" "${rest#*-}" "$found"
     done
+    ;;
+  records)
+    store_from_stdin "$records_file" records
+    ;;
+  review)
+    store_from_stdin "$review_file" review
+    ;;
+  print-records)
+    # The caller names no round: the records to carry forward are the
+    # most recent ones there are, and which round wrote them is what the
+    # first line of the output says. A voided round's directory carries
+    # its records with it under the .voided- name, and is skipped here
+    # for the same reason its result files are — it describes a tree
+    # that no longer exists.
+    best=
+    best_round=
+    for candidate in "$pr_dir"/round*; do
+      [ -d "$candidate" ] || continue
+      base=${candidate##*/}
+      case "$base" in
+        *.voided-*) continue ;;
+      esac
+      n=${base#round}
+      case "$n" in
+        ''|*[!0-9]*) continue ;;
+      esac
+      [ -f "$candidate/records" ] || continue
+      if [ -z "$best_round" ] || [ "$n" -gt "$best_round" ]; then
+        best_round=$n
+        best=$candidate
+      fi
+    done
+    [ -n "$best" ] || die "no round under $pr_dir holds a records file"
+    printf 'round %s\n' "$best_round"
+    cat -- "$best/records"
+    ;;
+  print-review)
+    [ -e "$review_file" ] || die "no round review at $review_file"
+    cat -- "$review_file"
     ;;
 esac
