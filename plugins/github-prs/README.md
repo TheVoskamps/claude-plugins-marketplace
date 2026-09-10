@@ -142,11 +142,12 @@ as `--body-file <path>` naming a file that holds it — and either works
 with every verdict.
 `sdlc:theorem-based-pr-reviewer` uses the file form — it stages the
 review summary under `.claude/tmp/<task-slug>/` and posts it by path,
-because that summary quotes theorem claims and state-relative paths
-throughout, and the inline form hands every backtick and `$` in it to
-the shell. In the file form the skill composes a **new** file carrying
-the verdict line ahead of the caller's text, leaving the caller's own
-file untouched.
+because that summary carries a backticked state-relative detail path on
+every theorem and finding line, under the
+`${XDG_STATE_HOME:-$HOME/.local/state}` root it names once, and the
+inline form hands every backtick and `$` in it to the shell. In the
+file form the skill composes a **new** file carrying the verdict line
+ahead of the caller's text, leaving the caller's own file untouched.
 
 ### `/pr-ready <N>`
 

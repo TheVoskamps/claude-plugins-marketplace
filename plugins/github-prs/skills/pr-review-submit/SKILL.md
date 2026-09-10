@@ -48,9 +48,11 @@ scope for this plugin.
     and `$` in it to the shell:
     `sdlc:theorem-based-pr-reviewer` stages the review summary it
     posts under `.claude/tmp/<task-slug>/` and posts it by path, and
-    that summary quotes theorem claims and state-relative paths
-    throughout. GitHub caps a review body at 64 KB, which bounds
-    what either form can carry.
+    that summary carries a backticked state-relative detail path on
+    every theorem and finding line, under the
+    `${XDG_STATE_HOME:-$HOME/.local/state}` root it names once. GitHub
+    caps a review body at 64 KB, which bounds what either form can
+    carry.
 
 Both forms work for every verdict, and map to `gh pr review`'s
 own `--body` and `--body-file` flags respectively. They differ only in
