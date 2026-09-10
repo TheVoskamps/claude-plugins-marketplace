@@ -2290,6 +2290,36 @@ func TestContainmentNoCWDNeverAllows(t *testing.T) {
 	}
 }
 
+// And the same when the event's cwd is RELATIVE. `git -C` accepts a relative
+// directory, so such a cwd used to resolve a repo context against whatever
+// directory the hook process happens to be running in — and every relative
+// target graded against it would then fall through canonicalizeFromResolver's
+// filepath.Abs arm onto that same process cwd, the base whose Clean collapses a
+// `..` behind a symlink before the link is followed. `.` is the adversarial
+// spelling: the test binary runs inside this repo, so it DOES resolve a context
+// (which is what makes a bucket-only pass here meaningless without the
+// operation assertion below).
+func TestContainmentRelativeCWDNeverAllows(t *testing.T) {
+	for _, cwd := range []string{".", "..", "sub/dir", "./"} {
+		for _, tool := range []string{"Read", "Write"} {
+			ev := &Event{
+				ToolName:  tool,
+				CWD:       cwd,
+				AgentType: "issue-developer",
+				ToolInput: []byte(`{"file_path":"x/../../etc/passwd"}`),
+			}
+			d := classifyFileTool(ev)
+			if d.Bucket != BucketDefer {
+				t.Errorf("%s with relative cwd %q must defer; got %q (%s)", tool, cwd, d.Bucket, d.Reason)
+			}
+			if d.Operation != "file:no-repo-context" {
+				t.Errorf("%s with relative cwd %q must fail closed in resolveRepoContext; got op=%q reason=%q",
+					tool, cwd, d.Operation, d.Reason)
+			}
+		}
+	}
+}
+
 // TestCanonicalizeFromExpandsTilde pins the containment-level fix (found in PR
 // follow-up review) directly at canonicalizeFrom, independent of any Bash
 // classification path. Before this fix, `~/.ssh/id_rsa` was not

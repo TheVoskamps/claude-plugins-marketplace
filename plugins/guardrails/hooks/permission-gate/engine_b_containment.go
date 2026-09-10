@@ -39,9 +39,20 @@ type repoContext struct {
 // ANY subprocess trouble (non-zero exit, empty output, timeout) it returns an
 // error; the caller treats that as fail-closed (block, or a defer carrying the
 // resolution failure as its analysis — never allow).
+//
+// A cwd that is not ABSOLUTE fails closed here too, alongside an empty one, and
+// this is the guard that makes the event cwd usable as a resolution base
+// everywhere downstream. `git -C` accepts a relative directory, so a relative
+// spelling would resolve the repo context against the HOOK PROCESS's own cwd,
+// and every relative operand joined onto that base would still be relative
+// afterwards and land in canonicalizeFromResolver's filepath.Abs arm — the
+// process cwd again, and Cleaned, which collapses a `..` behind a symlinked
+// directory before the link is followed and reads a genuine escape as
+// `contained`. There is no better base to substitute for a relative cwd, so the
+// whole call fails closed instead.
 func resolveRepoContext(eventCWD string) (*repoContext, error) {
-	if eventCWD == "" {
-		return nil, fmt.Errorf("event has no cwd; cannot resolve git context (fail-closed)")
+	if !filepath.IsAbs(eventCWD) {
+		return nil, fmt.Errorf("event cwd %q is not an absolute path; cannot resolve git context (fail-closed)", eventCWD)
 	}
 
 	// One combined rev-parse call returns all three flags, newline-separated,
@@ -678,21 +689,17 @@ func harnessScratchRemainder(real, root string) string {
 	return filepath.ToSlash(rem)
 }
 
-// testContainment canonicalizes the target and tests it against the resolved
-// worktree root. The target is canonicalized BEFORE comparison (both
+// testContainmentFrom canonicalizes the target and tests it against the
+// resolved worktree root. The target is canonicalized BEFORE comparison (both
 // sides). Returns one of the containmentResult values.
 //
-// testContainment resolves a relative target against the process/event cwd
-// (via canonicalize). Use testContainmentFrom when the caller has tracked a
-// different base cwd for this specific target (a Bash command whose
-// relative operand must resolve against a preceding `cd`, not ev.CWD).
-func testContainment(target string, rc *repoContext) (containmentResult, string) {
-	return testContainmentFrom(target, "", rc)
-}
-
-// testContainmentFrom is testContainment with an explicit base directory for
-// the relative-join step. An empty base preserves testContainment's
-// existing behavior (process/event cwd).
+// base is the directory a relative target is joined onto: the event's cwd for a
+// file tool, or — for a Bash operand — the running cwd tracked through any
+// preceding `cd`. An empty base would leave the join to
+// canonicalizeFromResolver's filepath.Abs arm, i.e. the hook PROCESS's cwd,
+// which is not a base Engine B may grade against; resolveRepoContext fails
+// closed on an event cwd that is not absolute so that no such base is derived
+// from one.
 //
 // It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
 // wrapper) so it can see the unresolvedTilde signal: a leading `~`/`~/...`

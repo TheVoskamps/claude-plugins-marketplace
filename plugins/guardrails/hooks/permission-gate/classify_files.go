@@ -81,13 +81,14 @@ func classifyFileTool(ev *Event) Decision {
 	readClass := !isMutatingFileTool(ev.ToolName)
 	// A relative `file_path` is resolved against the EVENT's cwd, the base the
 	// tool itself resolves it against — the same base the bash tracks join their
-	// relative operands onto (containPathOperands, classify_inrepo_write.go) and
-	// the one the operator carve-out is already handed below. Leaving it to
-	// filepath.Abs's process cwd would both name the wrong file and destroy the
-	// spelling: that call Cleans, so a `..` behind a symlinked directory
-	// collapses before the link is followed and an escape reads as `contained`.
-	// An empty ev.CWD leaves the process-cwd fallback in place, there being no
-	// better base to offer.
+	// relative operands onto (containPathOperands below; containWriteOperands in
+	// classify_inrepo_write.go) and the one the operator carve-out is already
+	// handed below. Leaving it to filepath.Abs's process cwd would both name the
+	// wrong file and destroy the spelling: that call Cleans, so a `..` behind a
+	// symlinked directory collapses before the link is followed and an escape
+	// reads as `contained`. That fallback is unreachable from here: the
+	// resolveRepoContext call above has already failed closed on an ev.CWD that
+	// is not absolute, so this base always is.
 	base := ev.CWD
 	carve := loadOperatorCarveOut()
 	sawOperator := false
