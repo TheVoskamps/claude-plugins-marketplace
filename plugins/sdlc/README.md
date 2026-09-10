@@ -62,13 +62,11 @@ rather than recalling it:
   reference wrapped across two lines survives a single-line grep.
 - A changed count or roster: a back-reference like "those three" goes
   stale in silence. Read the paragraph; don't trust the grep.
-- A renamed heading in the issue-body grammar:
-  `skills/orchestrate-ready/SKILL.md` writes `## Acceptance` and its
-  `### Mechanical` / `### Semantic` sub-lists into a groomed body, and
-  `skills/theorem-generation/SKILL.md` reads those sub-headings to set
-  each criterion theorem's `class`. Neither file can hold the grammar
-  alone — a writer and a reader both have to spell it — so grep the
-  heading text across `skills/` and move both sides in one PR.
+- A renamed heading in the issue-body grammar: the grammar has a
+  writer, `skills/orchestrate-ready/SKILL.md`, and a reader,
+  `skills/theorem-generation/SKILL.md`, which keys a criterion
+  theorem's `class` off the headings the writer emits. Neither side can
+  hold the grammar alone, so both move in one PR.
 
 Surfaces outside this plugin that a contract change reaches:
 `plugins/github-prs/` attributes PR verbs to named `sdlc` agents in its
