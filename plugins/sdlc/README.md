@@ -75,7 +75,11 @@ the agent names across that plugin rather than by recalling which files
 carried them last time.
 `plugins/issues/` deliberately names no `sdlc` reader of its
 repo-config, for the reason `plugins/issues/README.md` gives — do not
-add one back.
+add one back. Its `skills/issue-create/SKILL.md` does read the
+issue-body grammar, though: it sizes an issue partly by counting the
+bullets under an `Acceptance` heading, and it reports nothing when it
+finds no heading it recognizes — so a rename there changes the size
+that skill derives, silently.
 
 ## A spawn template and its receiving agent are one change
 
