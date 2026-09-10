@@ -235,15 +235,7 @@ func classifyFileTool(ev *Event) Decision {
 //
 // A bash-read targeting a sibling repo's node_modules is blocked.
 func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event) Decision {
-	readPaths := readTargets(pathOperands(args), sc)
 	if sc.hasUnknownExpansion {
-		// A `~` the gate could not expand is not unpinnable — containment
-		// grades it — so its DENY is delivered before this defer.
-		if d, hit := tildeEscapeDeny(sc, readPaths, func(ps []string) (Decision, bool) {
-			return containPathOperands(prog, ps, sc, ev)
-		}); hit {
-			return d
-		}
 		// A path built from a command substitution / unresolved variable can't
 		// be statically contained → hand it to the judge that CAN read the
 		// surrounding context, with the reason it was unpinnable.
@@ -255,7 +247,7 @@ func classifyPathReader(prog string, args []string, sc simpleCommand, ev *Event)
 		return d
 	}
 
-	if d, ok := containPathOperands(prog, readPaths, sc, ev); !ok {
+	if d, ok := containPathOperands(prog, readTargets(pathOperands(args), sc), sc, ev); !ok {
 		return d
 	}
 	return deferToPipeline()
@@ -278,52 +270,6 @@ func cdInvalidDefer(prog string, sc simpleCommand) (Decision, bool) {
 		"'%s' runs after a 'cd' whose target the gate could not resolve statically (a dynamic value, or "+
 			"'cd -'), so any relative path argument cannot be resolved against the actual current directory.",
 		prog)), true
-}
-
-// tildeEscapeDeny returns the containment DENY a `~`-spelled path earned when
-// its tilde could not be expanded, and hit=false when none of paths is such a
-// spelling. The dynamic-path defer arms that hold a path list — read operands,
-// input-redirect sources, write operands, redirect destinations — call it
-// before deferring, each over its own list and through its own containment.
-//
-// It exists because inexactness must never CONVERT a deny into a defer. A word
-// whose `~` survived an unusable $HOME is marked inexact (literalWord,
-// engine_a_bash.go) so it cannot ride the allow track — but a tilde is not a
-// path the gate cannot read: containment grades it as an unconditional escape
-// (canonicalizeFromResolver's unresolvedTilde, engine_b_containment.go), and
-// that DENY was the shipped verdict for `cat ~/.ssh/id_rsa` before the word was
-// marked at all. Deferring instead would trade a terminal refusal for a prompt
-// on exactly the read the deny exists for. It is the same ordering the `<>`
-// redirect arm states in engine_a_bash.go: a flag that suppresses containment
-// replaces that read's DENY with a defer, which is strictly worse.
-//
-// Only the `~`-spelled members of paths are graded, and only when this command
-// carries such a word. Every other operand may genuinely have been built from
-// an expansion the gate could not resolve, and running containment on those is
-// exactly what the defer withholds.
-//
-// Only a DENY is delivered. contain's other terminals — the scratchpad ALLOW,
-// the unresolvable-boundary defer — are its caller's to reach on a command it
-// could grade in full, and returning one here would let an unprovable command
-// ride a verdict its remaining words never earned.
-func tildeEscapeDeny(sc simpleCommand, paths []string, contain func([]string) (Decision, bool)) (Decision, bool) {
-	if !sc.unusableHomeTilde {
-		return Decision{}, false
-	}
-	var tildes []string
-	for _, p := range paths {
-		if hasLeadingTilde(p) {
-			tildes = append(tildes, p)
-		}
-	}
-	if len(tildes) == 0 {
-		return Decision{}, false
-	}
-	d, ok := contain(tildes)
-	if ok || d.Bucket != BucketDeny {
-		return Decision{}, false
-	}
-	return d, true
 }
 
 // containPathOperands runs Engine B containment on a read-class command's path
@@ -780,14 +726,6 @@ func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Deci
 				"lands inside this worktree rather than clobbering something outside it.", tool, why)), true
 	}
 	if sc.hasUnknownExpansion {
-		// Except a `~` the gate could not expand, which containment grades as an
-		// escape: `git status > ~/f` clobbers a file in the operator's home
-		// directory and denies rather than prompting (tildeEscapeDeny).
-		if d, hit := tildeEscapeDeny(sc, sc.redirectTargets, func(ps []string) (Decision, bool) {
-			return credentialedRedirectDestinations(tool, ps, sc, ev)
-		}); hit {
-			return d, true
-		}
 		return unpinnable("the destination is built from an expansion or command substitution")
 	}
 	if sc.cwdInvalid {
@@ -796,38 +734,20 @@ func credentialedRedirectVerdict(tool string, sc simpleCommand, ev *Event) (Deci
 	if len(sc.redirectTargets) == 0 {
 		return unpinnable("the redirect names no statically-recorded destination")
 	}
-	if d, ok := credentialedRedirectDestinations(tool, sc.redirectTargets, sc, ev); !ok {
-		return d, true
-	}
-	return Decision{}, false
-}
-
-// credentialedRedirectDestinations is credentialedRedirectVerdict's walk over
-// the destinations themselves, split out so the tilde deny above can run it
-// over one subset of them. It follows the operand tracks' convention rather
-// than its caller's: ok=true means every destination named is fine, and
-// ok=false means the returned Decision is TERMINAL.
-//
-// An unresolvable repository boundary is one of those terminals, as the defer
-// its caller's other arms return.
-func credentialedRedirectDestinations(tool string, targets []string, sc simpleCommand, ev *Event) (Decision, bool) {
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
-		return deferJudgment(tool+" redirect-unresolvable", fmt.Sprintf(
-			"'%s' redirects output to a file the gate cannot pin statically (the repository boundary could not "+
-				"be resolved: %v), so it cannot prove the write lands inside this worktree rather than "+
-				"clobbering something outside it.", tool, err)), false
+		return unpinnable(fmt.Sprintf("the repository boundary could not be resolved: %v", err))
 	}
 	base := sc.cwd
 	if base == "" {
 		base = ev.CWD
 	}
-	for _, t := range targets {
+	for _, t := range sc.redirectTargets {
 		if isUnderGitDir(canonicalizeFrom(t, base), rc) {
 			return deny(tool+" redirect-into-.git", fmt.Sprintf(
 				"Blocked: '%s' redirects output to '%s', inside a .git/ directory. Writing there can rewrite "+
 					"committer identity, inject hooks, or corrupt repo state. %s",
-				tool, t, scratchDestinations(rc.topLevel))), false
+				tool, t, scratchDestinations(rc.topLevel))), true
 		}
 		res, real := testContainmentFrom(t, base, rc)
 		if res == contained || scratchAllowEligible(res, false) {
@@ -837,9 +757,9 @@ func credentialedRedirectDestinations(tool string, targets []string, sc simpleCo
 			"Blocked: '%s' redirects output to '%s', which resolves to %s — outside this worktree (%s). A "+
 				"redirect clobbers whatever is at the destination, and the gate cannot vouch for a destination "+
 				"it does not own. %s",
-			tool, t, real, rc.topLevel, scratchDestinations(rc.topLevel))), false
+			tool, t, real, rc.topLevel, scratchDestinations(rc.topLevel))), true
 	}
-	return Decision{}, true
+	return Decision{}, false
 }
 
 // eligibleScratchRegions names, in the allow reason, exactly the carve-out regions

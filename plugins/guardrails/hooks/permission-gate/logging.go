@@ -74,15 +74,13 @@ func logEvent(ev *Event, d Decision) {
 
 // logPath returns the evolution-log file path: the PERMISSION_GATE_LOG
 // override if set, else ~/.claude/logs/permission-gate.jsonl. Returns "" when
-// the home directory is not usable (logging is then skipped) — a relative one
-// would scatter a `.claude/logs/` tree through whatever directory each session
-// happened to run the gate from.
+// no home directory can be determined (logging is then skipped).
 func logPath() string {
 	if p := os.Getenv(logEnvVar); p != "" {
 		return p
 	}
 	home, err := os.UserHomeDir()
-	if !usableHome(home, err) {
+	if err != nil || home == "" {
 		return ""
 	}
 	return filepath.Join(home, ".claude", "logs", "permission-gate.jsonl")

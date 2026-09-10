@@ -244,58 +244,6 @@ func TestOperatorCarveOutFailsClosed(t *testing.T) {
 	}
 }
 
-// TestCarveOutHomeMustBeUsable pins the class rule on both sides of the
-// carve-out's home handling: every home it reads goes through usableHome, so an
-// unusable one leaves the carve-out with nothing to match and leaves a
-// `~`-spelled TARGET unexpanded rather than anchored somewhere else.
-//
-// The relative member is the one a two-part test misses, because it is neither
-// an error nor empty: os.UserHomeDir hands back whatever $HOME holds, so
-// `relhome` reads as resolved and then resolves against the GATE PROCESS's cwd
-// — the calling session's, which is not the operator's to predict.
-func TestCarveOutHomeMustBeUsable(t *testing.T) {
-	for _, home := range []struct{ name, value string }{
-		{"relative home", "relhome"},
-		{"empty home", ""},
-	} {
-		t.Run(home.name, func(t *testing.T) {
-			base := t.TempDir()
-			repo := filepath.Join(base, "repo")
-			gitInit(t, repo)
-			fixtureHome := carveOutFixture(t, base, "plain")
-			writeCarveOutConfig(t, fixtureHome, carveOutConfig)
-
-			// The ROOT side: the listed read that ALLOWs under this same config
-			// (TestOperatorCarveOutAllowsListedRead) denies, because the whole
-			// carve-out is empty before any root is resolved.
-			listed := filepath.Join(fixtureHome, ".config", "cc-tools", "whats-new.md")
-			t.Setenv("HOME", home.value)
-			wantBucket(t, fileToolVerdict(t, "Read", repo, listed), BucketDeny,
-				"a listed read under an unusable $HOME")
-
-			// The TARGET side: lexicalAbs expands a leading `~` only against a
-			// home usableHome accepts, so the spelling matches no root at all.
-			if got := lexicalAbs("~/.config/cc-tools/whats-new.md", base); got != "" {
-				t.Errorf("lexicalAbs(%q) under an %s = %q, want \"\"; a target anchored on the gate "+
-					"process's cwd is matched against a root it has no relation to",
-					"~/.config/cc-tools/whats-new.md", home.name, got)
-			}
-		})
-	}
-
-	// Negative controls, with a usable home: the tilde expands, and a target
-	// that carries none never consults the home at all.
-	base := t.TempDir()
-	absHome := t.TempDir()
-	t.Setenv("HOME", absHome)
-	if got, want := lexicalAbs("~/x", base), filepath.Join(absHome, "x"); got != want {
-		t.Errorf("lexicalAbs(%q) under an absolute home = %q, want %q", "~/x", got, want)
-	}
-	if got, want := lexicalAbs("x", base), filepath.Join(base, "x"); got != want {
-		t.Errorf("lexicalAbs(%q) = %q, want %q", "x", got, want)
-	}
-}
-
 // The XDG variables are read only on the opt-in, and only when set and
 // non-empty — the same test docs/config-file-conventions.md gives the plugins,
 // so the gate and the plugins agree on every machine. The relocated directory

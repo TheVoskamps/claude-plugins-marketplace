@@ -237,28 +237,7 @@ The gate's engines feed that decision:
   env, which holds the event's cwd and would be wrong after an
   in-script `cd`. An in-script static assignment always takes
   precedence over that allowlist when both apply (`HOME=/tmp cat
-  "$HOME/x"` resolves to `/tmp`). A home directory that is
-  unresolvable, empty, or **not absolute** is unusable and fails to
-  resolve, whichever of the three sources it came from — the resolver's
-  own lookup, the environment's `$HOME`, or an in-script `HOME=`
-  assignment, which is graded by exactly the same test rather than
-  taken at its word (`usableHome`, pinned by
-  `TestInScriptHomeAssignmentGraded`). Failing to resolve marks the
-  word inexact and keeps the line off the allow track — and the same
-  test grades a **tilde** operand, because `expand.Literal`
-  tilde-expands through that same resolution, so a `~` left unexpanded
-  by an unusable home is marked inexact too, quoted `'~/x'` included
-  (pinned by `TestUnresolvableHomeTildeIsInexact`). That inexactness
-  never COSTS the operand a verdict: containment grades an unexpandable
-  `~` as an escape, and that **deny** is delivered ahead of the
-  dynamic-path defer the marking would otherwise earn, so
-  `cat ~/.ssh/id_rsa` under an unusable home is refused outright rather
-  than prompted (`tildeEscapeDeny`, pinned by
-  `TestUnresolvableHomeTildeOperandDenies`). What the marking buys is
-  the rest of the word's surface — a tilde no operand walk returns
-  (`echo ~`), an argv position a credentialed tool classifies on —
-  where there was no containment verdict to lose. Any other env var
-  (`$FOO`, `$PATH`,
+  "$HOME/x"` resolves to `/tmp`). Any other env var (`$FOO`, `$PATH`,
   …) stays unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
   environment is unverified. Static-variable resolution is
@@ -277,12 +256,10 @@ The gate's engines feed that decision:
   relative path, or bare `cd` to `$HOME`) updates the running cwd for
   every later command in the walk; a `cd` whose target cannot be
   resolved statically (a command substitution, an unresolved variable,
-  `cd -`, or — for the two forms that target `$HOME` — a home directory
-  that is unresolvable, empty, or **not absolute**) invalidates it, and
-  every later command with a relative path operand in that scope
-  **defers** rather than guessing (it can never ride the allow track —
-  a later re-anchoring `cd` can clear the invalid state, since bash
-  itself would). The `~`-prefixed form is
+  or `cd -`) invalidates it, and every later command with a relative
+  path operand in that scope **defers** rather than guessing (it can
+  never ride the allow track — a later re-anchoring `cd` can clear the
+  invalid state, since bash itself would). The `~`-prefixed form is
   taken as `$HOME` whether or not the tilde is quoted, which
   **over-approximates** the quoted spelling: bash expands `cd ~` but
   reads `cd '~'` as a directory literally named `~` under the current
@@ -1291,20 +1268,12 @@ The gate's engines feed that decision:
   brace-list escaping member, `{a.md,~/.ssh/id_rsa}`, but pre-existing
   and reachable through any single-operand path too, e.g. plain
   `cat ~/.ssh/id_rsa`) — now it earns the escape verdict its real
-  location deserves. If the home directory is not usable — `HOME`
-  unset/empty (real in cron jobs, minimal containers, stripped
-  environments), or set to a **relative** path, which `os.UserHomeDir`
-  hands back unchecked — the containment layer (`testContainmentFrom`)
-  treats the operand as an unconditional `escapeRepo` — denied, never
+  location deserves. If the home directory cannot be resolved (`HOME`
+  unset/empty — real in cron jobs, minimal containers, stripped
+  environments), the containment layer (`testContainmentFrom`) treats
+  the operand as an unconditional `escapeRepo` — denied, never
   `contained` — genuinely mirroring `applyCd`'s fail-safe posture
-  (invalidate rather than guess) rather than merely claiming to. The
-  relative member is the least obvious of the three and was the last
-  closed: it is neither an error nor empty, so `~/.ssh/id_rsa` expanded
-  to `relhome/.ssh/id_rsa`, which is still not `filepath.IsAbs` and
-  joined onto the base as `<base>/relhome/.ssh/id_rsa` — the same
-  in-repo-looking disguise by a different route (pinned by
-  `TestCanonicalizeFromResolverRelativeHomeUnresolvedTilde` and
-  `TestContainmentRelativeHomeTildeFailsClosed`). An
+  (invalidate rather than guess) rather than merely claiming to. An
   earlier version of this fix left `~` as a literal
   relative segment in this branch instead, which actually resolved as
   `<base>/~/...` and read as `contained` — a live fail-open, caught by
@@ -1706,16 +1675,8 @@ The gate's engines feed that decision:
   report a broken spelling to, so a root that reads as configured hands
   out nothing, and the tell is the deny the listed path still earns.
 
-  **Absent, unreadable, malformed, stamped below `schema-version: 2`,
-  or read under an unusable home directory → no usable entry anywhere →
-  today's behaviour**, on every path. The home is the one input the
-  operator does not spell in the file, and it is graded by the same
-  `usableHome` test every other home read applies: unresolvable, empty
-  or **not absolute** yields no config path to load, no root to resolve
-  and no `~`-spelled target to match (pinned by
-  `TestCarveOutHomeMustBeUsable`). A relative one would name a
-  `.config/guardrails/` under the calling session's own cwd, which is
-  that session supplying the operator's config. The
+  **Absent, unreadable, malformed, or stamped below `schema-version: 2`
+  → no usable entry anywhere → today's behaviour**, on every path. The
   carve-out fails closed, and the gate is its only reader, so none of
   those is an error reported anywhere — it is simply a carve-out with no
   root that can allow anything. That is a named exception to `docs/config-file-conventions.md`'s

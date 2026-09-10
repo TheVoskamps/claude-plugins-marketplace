@@ -79,12 +79,10 @@ const (
 
 // operatorCarveOutConfigPath is the operator-written config file's path, for
 // the allow reason and for the self-write deny. Returns "" when the home
-// directory is not usable — a relative one would name a `.config/guardrails/`
-// under the gate process's cwd, which is the calling session's tree, and let
-// that session supply the operator's own config file.
+// directory cannot be determined.
 func operatorCarveOutConfigPath() string {
 	home, err := os.UserHomeDir()
-	if !usableHome(home, err) {
+	if err != nil || home == "" {
 		return ""
 	}
 	return filepath.Join(home, operatorCarveOutConfigDirName, operatorCarveOutPluginDir, operatorCarveOutFileName)
@@ -163,7 +161,7 @@ func loadOperatorCarveOutFrom(configPath string) operatorCarveOut {
 		return operatorCarveOut{}
 	}
 	home, err := os.UserHomeDir()
-	if !usableHome(home, err) {
+	if err != nil || home == "" {
 		return operatorCarveOut{}
 	}
 	home = filepath.Clean(home)
@@ -523,22 +521,15 @@ func (r carveOutRoot) remainder(target string, base string) (string, bool) {
 
 // lexicalAbs expands a leading `~`, makes target absolute against base (or the
 // process cwd when base is empty), and Cleans it — with NO symlink resolution,
-// which is the whole point of this carve-out. A home directory usableHome
-// rejects yields "", so a `~`-spelled target simply does not match.
+// which is the whole point of this carve-out. An unresolvable home directory
+// yields "", so a `~`-spelled target simply does not match.
 func lexicalAbs(target string, base string) string {
 	if target == "" {
 		return ""
 	}
-	// An unusable home is passed on as "", which expandLeadingTilde reads as an
-	// unknown home. The absolute member of that test is the one this site turns
-	// on: a RELATIVE home expands `~/x` to `relhome/x`, which is not absolute,
-	// so the join below would anchor the carve-out TARGET on the gate process's
-	// cwd — the calling session's — and match it against a root it has no
-	// relation to.
-	home, err := os.UserHomeDir()
-	if !usableHome(home, err) {
-		home = ""
-	}
+	// os.UserHomeDir returns "" alongside its error, which expandLeadingTilde
+	// reads as an unknown home.
+	home, _ := os.UserHomeDir()
 	target, ok := expandLeadingTilde(target, home)
 	if !ok {
 		return ""
