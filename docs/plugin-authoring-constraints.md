@@ -394,6 +394,16 @@ leave the resumed spawner unable to reach its own records. See
 `docs/config-file-conventions.md` → "State goes under
 `$XDG_STATE_HOME/<plugin>/`".
 
+**A PR artifact is not a store.** Everything a later round or a later
+agent reads back belongs in that same directory, never in a review body
+or a comment. A human can edit, withdraw or delete either one; the
+platform caps both — GitHub at 64 KB — and a carrier that outgrows the
+cap is truncated into something a reader cannot tell from a complete
+one. Post a summary that names where the files are, and publish the
+detail once the pipeline is finished, when no later round can read it
+back as an instruction. `sdlc`'s review kept its theorem records in the
+review body it posted until issue #422 moved them here.
+
 **Nothing may depend on the spawner hearing back.** A child that ran,
 finished and reported can still skip its own last call, and a
 notification the harness never delivers looks the same from the
@@ -439,12 +449,14 @@ a different commit. Then no procedure needs to say who writes first,
 and a child spawned later in the round records itself as readily as one
 spawned in the first fan-out.
 
-**Name every mode for the record it writes.** A mode called `header` or
+**Name every mode for what it writes.** A mode called `header` or
 `detail` describes the shape of a call rather than its meaning, and the
 two vocabularies then drift apart file by file. One word per record kind
 — `anchor`, `spawn`, `enter`, `leave`, `return`, `stopped` — is what
 lets a reader move between the CLI, the log and the procedure without a
-translation table.
+translation table. A mode that stores a whole file rather than appending
+a record takes that file's own name, and the mode that reads one back
+takes that name under `print-`.
 
 **One log per round, not one per fan-out.** A stage column on every
 record says which fan-out it belongs to, so two files can never disagree
