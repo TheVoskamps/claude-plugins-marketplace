@@ -50,11 +50,9 @@ Assess the fetched issue against each of these:
 - **Self-contained.** The body alone suffices. It carries no reference
   out of itself — to another issue, a PR, a commit, or a document
   outside the body — in any form: a `#N`, a URL, a "see", a "per", a
-  "depends on". A dependency on another issue is a blocked-by edge,
-  never a sentence in the body. No competing opinions left standing
-  side by side, and no amendment layers ("Update:", "Actually, on
-  reflection…"). One clean, current spec, written as the thing to
-  build.
+  "depends on". No competing opinions left standing side by side, and
+  no amendment layers ("Update:", "Actually, on reflection…"). One
+  clean, current spec, written as the thing to build.
 
   One reference survives, named: the cross-repo `References:` line
   step 5 writes, which is how that step makes a relation the
@@ -165,8 +163,8 @@ Assess the fetched issue against each of these:
    by removing rather than noting: every reference the bar excludes
    and every provenance sentence comes out, a fact the body needs
    from a referenced document is restated in the body in the present
-   tense, and a dependency the prose stated becomes a blocked-by edge
-   (`/issue-set-blocked-by <blocked> <blocker>`). The agreed
+   tense, and a dependency the prose stated is created with
+   `/issue-set-blocked-by <blocked> <blocker>`. The agreed
    `## Acceptance` section goes in as its two grouped sub-lists.
 
 5. **Create side-effect issues only on an explicit yes, per issue.**
