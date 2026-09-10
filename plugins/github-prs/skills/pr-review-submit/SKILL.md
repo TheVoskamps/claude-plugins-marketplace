@@ -46,10 +46,10 @@ scope for this plugin.
     form a caller uses when the body would not survive the inline
     form's double-quoted `--body "<body>"`, which hands every backtick
     and `$` in it to the shell:
-    `sdlc:theorem-based-pr-reviewer` stages its review under
-    `.claude/tmp/<task-slug>/` and posts it by path, and a real
-    round's body runs to tens of kilobytes of Markdown that quotes
-    code throughout. GitHub caps a review body at 64 KB, which bounds
+    `sdlc:theorem-based-pr-reviewer` stages the review summary it
+    posts under `.claude/tmp/<task-slug>/` and posts it by path, and
+    that summary quotes theorem claims and state-relative paths
+    throughout. GitHub caps a review body at 64 KB, which bounds
     what either form can carry.
 
 Both forms work for every verdict, and map to `gh pr review`'s

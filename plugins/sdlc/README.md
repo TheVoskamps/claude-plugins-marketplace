@@ -203,7 +203,7 @@ in-progress return, and equally a spawn from a later session, such as
 anchor the round", which it runs on every spawn; no caller looks for
 the log on its behalf.
 
-The `enter` record also carries a fourth path,
+The `enter` record also carries a path outside that directory,
 `~/.claude/projects/<project>/<session>/subagents/agent-<agent-id>.jsonl`
 — the harness's own transcript of that child. The script **composes**
 that path and writes nothing there; recording it is what lets a

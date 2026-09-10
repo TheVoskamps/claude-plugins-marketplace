@@ -141,8 +141,8 @@ The body arrives in exactly one form — inline as the last argument, or
 as `--body-file <path>` naming a file that holds it — and either works
 with every verdict.
 `sdlc:theorem-based-pr-reviewer` uses the file form — it stages the
-review under `.claude/tmp/<task-slug>/` and posts it by path, because
-a real round's body is tens of kilobytes of Markdown that quotes code
+review summary under `.claude/tmp/<task-slug>/` and posts it by path,
+because that summary quotes theorem claims and state-relative paths
 throughout, and the inline form hands every backtick and `$` in it to
 the shell. In the file form the skill composes a **new** file carrying
 the verdict line ahead of the caller's text, leaving the caller's own
