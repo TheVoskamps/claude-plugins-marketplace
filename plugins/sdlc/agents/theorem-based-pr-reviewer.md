@@ -669,11 +669,14 @@ that already minted a theorem would mint it a second time under a new
 id.
 
 **Not every comment is an adjustment.** A comment whose first line is
-the literal marker `<!-- sdlc:theorem-records i/N -->` is a chunk of the
-run's assembled detail, which `pr-finalizer` posts once the fix loop has
-concluded (see that agent's own definition). It is your own output
-coming back at you, so skip it entirely on the same terms as the brief
-below. A comment whose first line is the literal marker
+a marker of the form `<!-- sdlc:theorem-records i/N -->`, with `i` and
+`N` standing for the chunk's 1-based position and the total, is a chunk
+of the run's assembled detail, which `pr-finalizer` posts once the fix
+loop has concluded (see that agent's own definition). Match that shape
+rather than a fixed string: the numbers vary per chunk, so no posted
+comment ever carries the bytes `i/N`. It is your own output coming
+back at you, so skip it entirely on the same terms as the brief below.
+A comment whose first line is the literal marker
 `<!-- sdlc:fixer-brief -->` is the orchestrator's
 brief to `issue-fixer`, not an instruction to you: it carries findings
 *you* filed last round, so applying it would mint theorems for defects
