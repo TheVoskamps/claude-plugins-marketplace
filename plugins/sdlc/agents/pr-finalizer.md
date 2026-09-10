@@ -228,7 +228,7 @@ order, so a reader scrolling the chain reads the run forwards:
 Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
 
-**Chunk the assembly at a theorem boundary, under GitHub's 64 KB
+**Chunk the assembly at a piece boundary, under GitHub's 64 KB
 comment cap.** A boundary is between two whole pieces — between two
 theorem records, or between one result file and the next — and never
 inside one. Start a new chunk when the next piece would carry the

@@ -798,8 +798,9 @@ sdlc-agent-result-persist --mode print-review \
   --owner <owner> --repo <repo> --pr <PR_N> --round <N>
 ```
 
-The round number is the count of reviews on the PR at the time that
-round ran, so the round just finished is the current review count. A
+The reviewer numbers a round the PR's review count when it was spawned
+**plus one**, so the round that has just posted is numbered by the
+PR's current review count. A
 finding whose child report you need — the disprover's or the verifier's
 own words — is reached the same way: the summary's line for it names
 the file, relative to
@@ -948,7 +949,7 @@ responses, so read what the report **says** before you act on it:
    gives for the verdict that review carries — APPROVED spawns no
    fixer, and NEEDS_CHANGES gets a brief written from the findings the
    review states. That file, not the summary posted on the PR, is where
-   the argued findings are — see "Reading a round's detail" below.
+   the argued findings are — see "Reading a round's detail" above.
    Ruled untrustworthy, re-spawn the reviewer over the
    same PR — the new round supersedes the questioned one, and its
    verdicts and findings are what the loop carries forward.

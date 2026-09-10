@@ -283,9 +283,11 @@ REASON: <what is wrong with this counterexample — which attack axis
 failed, and the command output or quoted text that shows it>
 ```
 
-`REASON` is published in the review's Verified list next to the
-offered counterexample, so it is what tells a human why a candidate
-finding was dropped. It must engage this counterexample specifically.
+`REASON` is published in the round's argued review, in its Verified
+list next to the offered counterexample, and `pr-finalizer` posts that
+review to the PR once the fix loop concludes — so it is what tells a
+human why a candidate finding was dropped. It must engage this
+counterexample specifically.
 A reason that only says the theorem looks fine, or that you could not
 follow the disprover, is malformed — you get no second attempt, and a
 malformed report makes the finding stand on the disprover's proposed
