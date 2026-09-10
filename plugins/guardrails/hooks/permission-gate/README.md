@@ -240,7 +240,14 @@ The gate's engines feed that decision:
   "$HOME/x"` resolves to `/tmp`). Any other env var (`$FOO`, `$PATH`,
   …) stays unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
-  environment is unverified. Static-variable resolution is
+  environment is unverified. A resolver whose source for one of those
+  three names is **absent** likewise makes the name unresolvable rather
+  than crashing: the anchor matcher grades a substitution's argv against
+  a source-less resolver on purpose (no anchor form carries a `~` or a
+  `$HOME`), and calling the absent source panicked, so an unquoted `~`
+  or a `$HOME`/`$USER`/`$TMPDIR` anywhere inside ANY command
+  substitution rode the fail-closed backstop and blocked the call.
+  Static-variable resolution is
   also **scope-aware**: an assignment made inside a `( … )` subshell, a
   function body, or a backgrounded group/subshell (`{ … ; } &`,
   `( … ) &`) runs in a child shell and does NOT leak into the

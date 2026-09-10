@@ -24,7 +24,9 @@ import (
 // Fields are injectable funcs (mirroring the `homeDir` resolver for
 // `~`) so the fail-closed branches (homeDir erroring/empty, a var absent from
 // the process env) are deterministically testable rather than dependent on
-// ambient environment.
+// ambient environment. The ZERO VALUE — both funcs nil — is a legitimate
+// resolver meaning "no source for any of these names", and resolveVar grades
+// every name it backs as unresolvable rather than calling a nil func.
 type varResolver struct {
 	// homeDir returns the process's home directory, or an error/empty string
 	// when it cannot be determined. Authoritative for $HOME — the same source
@@ -1514,14 +1516,28 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 		}
 	}
 	if envResolvableNames[name] {
+		// A nil source is UNRESOLVABLE, graded exactly like an erroring or
+		// empty home and an unset env var. The zero-value varResolver has nil
+		// sources and resolveAnchorCmdSubst passes one deliberately (see its
+		// literalWord call): the anchor forms it matches carry no `$HOME` /
+		// `$USER` / `$TMPDIR` and no `~`, so resolving one buys nothing there.
+		// Calling the nil func instead panicked, and main's fail-closed
+		// recover then blocked every command carrying an unquoted `~` or a
+		// `$HOME`/`$USER`/`$TMPDIR` inside a command substitution.
 		switch name {
 		case "HOME":
+			if resolver.homeDir == nil {
+				return "", false
+			}
 			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				return "", false
 			}
 			return home, true
 		case "USER", "TMPDIR":
+			if resolver.lookupEnv == nil {
+				return "", false
+			}
 			v, ok := resolver.lookupEnv(name)
 			if !ok || v == "" {
 				return "", false

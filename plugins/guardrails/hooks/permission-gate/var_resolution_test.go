@@ -322,3 +322,85 @@ func TestEscapingResolvedVarsStillDenyNoNewPolicy(t *testing.T) {
 	homeDeny := classifyBash(`cat "$HOME/.ssh/id_rsa"`, ev)
 	wantBucket(t, homeDeny, BucketDeny, "resolved $HOME escaping the repo denies via existing containment")
 }
+
+// TestHomeRelativePathInCmdSubstDoesNotPanic pins the nil-source guard in
+// resolveVar. The anchor matcher grades a substitution's argv against the
+// ZERO-VALUE varResolver — the anchor forms carry no `~` and no `$HOME`, so
+// resolving one buys nothing there — and an unquoted `~` (or a `$HOME`) inside
+// ANY command substitution used to reach that resolver's nil homeDir and
+// panic, which main's fail-closed recover turned into a blocked tool call.
+//
+// Each row asserts the shape earns the SAME bucket as the substituted command
+// spelled bare: the nil source makes the word inexact, so the anchor is
+// declined and the inner command is graded on its own terms — which is the
+// documented grading for a non-anchor `$(…)`, and it resolves `~` through the
+// REAL resolver the main walk carries. `echo $(cat ~/x)` therefore denies on
+// the containment escape `cat ~/x` earns, not on the relative spelling's
+// verdict. A panic here fails the test outright — the classifier is called
+// directly, with no recover in front of it.
+func TestHomeRelativePathInCmdSubstDoesNotPanic(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	for _, row := range []struct{ enclosing, inner string }{
+		{`echo $(cat ~/x)`, `cat ~/x`},
+		{`f=$(cat ~/x)`, `cat ~/x`},
+		{`f=$(ls ~/x)`, `ls ~/x`},
+		{`f=$(readlink -f ~/x)`, `readlink -f ~/x`},
+		{`f=$(readlink -f "$HOME/x")`, `readlink -f "$HOME/x"`},
+		{`echo $(cat ~)`, `cat ~`},
+	} {
+		want := classifyBash(row.inner, ev)
+		got := classifyBash(row.enclosing, ev)
+		wantBucket(t, got, want.Bucket,
+			row.enclosing+" must classify like its inner "+row.inner+" rather than panicking")
+	}
+}
+
+// TestEnvVarInCmdSubstDoesNotPanic is the same nil-source guard on the
+// resolver's OTHER field: the zero-value varResolver's nil lookupEnv backs
+// $USER and $TMPDIR, and calling it panicked identically. Each row is graded
+// against its bare inner command for the same reason the rows above are.
+func TestEnvVarInCmdSubstDoesNotPanic(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	for _, row := range []struct{ enclosing, inner string }{
+		{`f=$(cat $USER)`, `cat $USER`},
+		{`f=$(cat $TMPDIR/x)`, `cat $TMPDIR/x`},
+	} {
+		want := classifyBash(row.inner, ev)
+		got := classifyBash(row.enclosing, ev)
+		wantBucket(t, got, want.Bucket,
+			row.enclosing+" must classify like its inner "+row.inner+" rather than panicking")
+	}
+}
+
+// TestHomeRelativePathOutsideCmdSubstKeepsItsVerdict is the negative control
+// for the two tests above: the same home-relative paths OUTSIDE a command
+// substitution never reached the zero-value resolver and always classified, so
+// the guard must leave their verdicts untouched.
+func TestHomeRelativePathOutsideCmdSubstKeepsItsVerdict(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	cwd := canonicalize(repo)
+	ev := &Event{HookEventName: "PreToolUse", ToolName: "Bash", CWD: cwd, AgentType: "main"}
+
+	wantBucket(t, classifyBash(`cat ~/x`, ev), BucketDeny,
+		"cat ~/x must keep its containment deny")
+	wantBucket(t, classifyBash(`readlink -f ~/x`, ev), BucketDefer,
+		"readlink -f ~/x must keep its defer")
+	wantBucket(t, classifyBash(`echo $(cat x)`, ev), BucketDefer,
+		"echo $(cat x) must keep its defer")
+	wantBucket(t, classifyBash(`f=$(readlink -f x)`, ev), BucketDefer,
+		"f=$(readlink -f x) must keep its defer")
+	wantBucket(t, classifyBash(`f=$(readlink -f /abs/x)`, ev), BucketDefer,
+		"f=$(readlink -f /abs/x) must keep its defer")
+}
