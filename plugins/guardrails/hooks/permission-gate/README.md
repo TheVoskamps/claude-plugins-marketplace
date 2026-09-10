@@ -240,21 +240,21 @@ The gate's engines feed that decision:
   "$HOME/x"` resolves to `/tmp`). Any other env var (`$FOO`, `$PATH`,
   …) stays unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
-  environment is unverified. A resolver whose source for one of those
-  three names is **absent** likewise makes the name unresolvable rather
-  than crashing: the anchor matcher grades a substitution's argv against
-  a source-less resolver on purpose (no anchor form carries a `~` or a
-  `$HOME`), and calling the absent source panicked, so an unquoted `~`
-  or a `$HOME`/`$USER`/`$TMPDIR` inside a substitution whose argv that
-  matcher actually grades — a single plain command with no assignments,
-  redirects, negation or background marker — rode the fail-closed
-  backstop and blocked the call. Every other substitution shape is
-  declined before a word is graded and so never reached the absent
-  source: measured by running the classifier against the pre-fix
-  source, `echo $(cat ~/x)` blocked while `echo $(cat ~/x; ls)`,
-  `echo $(A=1 cat ~/x)` and `echo $(cat ~/x &)` each classified on the
-  inner command, as all four do now.
-  Static-variable resolution is
+  environment is unverified. A resolver whose source for one of
+  the resolver-backed names (`$HOME`, `$USER`, `$TMPDIR`) is **absent**
+  likewise makes that name unresolvable, graded exactly like an erroring
+  home or an unset variable. A source-less resolver is not a degenerate
+  case: the anchor matcher grades a substitution's argv against one
+  deliberately, because no anchor form carries a `~` or one of those
+  names, so resolving either there would buy nothing. The only
+  substitutions whose argv it grades at all are the ones a single plain
+  command with no assignments, redirects, negation or background marker
+  spells; every other shape is declined before a word is graded. Either
+  way an unquoted `~` or a `$HOME`/`$USER`/`$TMPDIR` inside `$(…)` is
+  graded on the substitution's inner command through the REAL resolver
+  the main walk carries, so `echo $(cat ~/x)` earns the containment deny
+  `cat ~/x` earns bare rather than a verdict of the relative spelling's
+  own. Static-variable resolution is
   also **scope-aware**: an assignment made inside a `( … )` subshell, a
   function body, or a backgrounded group/subshell (`{ … ; } &`,
   `( … ) &`) runs in a child shell and does NOT leak into the
