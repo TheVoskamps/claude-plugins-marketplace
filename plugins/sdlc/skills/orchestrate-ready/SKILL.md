@@ -49,21 +49,16 @@ Assess the fetched issue against each of these:
 
 - **Self-contained.** The body alone suffices. It carries no reference
   out of itself — to another issue, a PR, a commit, or a document
-  outside the body — in any form: a `#N`, a URL, a "see", a "per", a
-  "depends on". No competing opinions left standing side by side, and
-  no amendment layers ("Update:", "Actually, on reflection…"). One
+  outside the body. No competing opinions left standing side by side,
+  and no amendment layers ("Update:", "Actually, on reflection…"). One
   clean, current spec, written as the thing to build.
-
-  One reference survives, named: the cross-repo `References:` line
-  step 5 writes, which is how that step makes a relation the
-  repo-scoped `issues:*` edge verbs cannot express findable at all.
 - **No unanswered design decisions.** Naming, placement in the tree,
   load mode, the fate of content the change subsumes, and any
   structural contract a downstream consumer depends on are each
   settled in the body — not posed as questions and not left implicit.
 - **Sandbox fit.** Everything the issue asks for lands inside this
   repo. Work that would land in another repo becomes its own issue
-  in that repo, referenced from this one — never folded into this
+  in that repo, tied to this one by an edge — never folded into this
   issue's scope, because the implementer's sandbox is this repo and
   it would have to stop.
 - **Dependency posture.** The issue's `blockedBy`/`blocking` edges
@@ -174,25 +169,21 @@ Assess the fetched issue against each of these:
    one issue; it does not carry to the next.
 
    - **In this repo** → `/issue-create --title "…" --body-file <path>`.
-   - **In another repo** → the `issues:*` namespace is scoped to the
-     current repo, so there is no skill for this. File it with
+   - **In another repo** → `/issue-create` files into the current
+     repo only, so there is no skill for this. File it with
      `gh issue create --repo <owner>/<repo> --title "…"
      --body-file <path>`. This is a write outside the current
      repository, which is why the explicit per-issue yes is the gate
      rather than a formality.
 
-   Link the new issue back. A same-repo dependency gets a real edge,
-   in whichever direction the work actually runs:
+   Link the new issue back with a real edge, in whichever direction
+   the work actually runs:
    `/issue-set-blocked-by <blocked> <blocker>` when the new issue is a
    prerequisite of the groomed one,
    `/issue-set-blocks <blocker> <blocked>` when it is the other way
-   round. A cross-repo relation gets a
-   `References: <owner>/<repo>#<M>` line in the body instead — the
-   groomed issue's, the new one's, or both, whichever makes the
-   relation findable from the side that needs it. **Never** a closing
-   keyword — a closing keyword in a body
-   auto-closes the referenced issue on merge, and one aimed at an
-   issue outside a branch's own set is precisely what
+   round. **Never** a closing keyword in either body — a closing
+   keyword auto-closes the referenced issue on merge, and one aimed at
+   an issue outside a branch's own set is precisely what
    `~/.claude/rules/git-workflow.md` → "Issue references" forbids.
 
 6. **Set the status, then verify the write landed.** Skip this step
