@@ -224,8 +224,9 @@ These are the ways a check goes wrong often enough to be worth naming:
 
 If you cannot settle the claim, say so under `SURVIVED` with what you
 tried. Guessing a counterexample is worse than reporting a survival:
-the pipeline copies your quote into the posted review verbatim, so a
-fabricated one reaches the human as fact.
+the pipeline copies your quote into the round's argued review
+verbatim, and `pr-finalizer` posts that review to the PR once the fix
+loop concludes, so a fabricated one reaches the human as fact.
 
 A `DISPROVED` report is handed to a `counterexample-verifier`, which
 tries to reject your counterexample before it can become a finding.
@@ -263,7 +264,7 @@ CLASS: <one of the tokens the `sdlc:theorem-agents-interface` skill defines>
 The `EVIDENCE` quote must be a byte-for-byte copy of the source text —
 not a summary, not a reconstruction from memory, not a "this is
 roughly what it says" paraphrase. The pipeline copies it into the
-posted review unchanged, and a hallucinated quote is immediately
+round's argued review unchanged, and a hallucinated quote is immediately
 falsifiable against the file you claim to have read. If you cannot
 produce a verbatim quote, you have not read the source closely enough
 to report the counterexample: re-read, then quote.
