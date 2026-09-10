@@ -1836,9 +1836,10 @@ sections, in this order:
    whatever its delta, per the precedence in "Carry the previous
    round's theorems forward".
 
-   The head SHA is not decoration here — it is what the *next* round
-   diffs against to compute its delta, so a body that omits it forces
-   that round back to round-1 behavior.
+   The head SHA is not decoration here — it is what pins every verdict
+   below to a revision, so a reader who arrives after the branch has
+   moved can tell whether this review still describes the tree in front
+   of them.
 
    Say so too when this round was **resumed** from an earlier
    instance's records: how many theorems it inherited already
