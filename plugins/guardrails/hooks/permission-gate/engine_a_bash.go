@@ -1521,13 +1521,11 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 		// sources and resolveAnchorCmdSubst passes one deliberately (see its
 		// literalWord call): the anchor forms it matches carry no `$HOME` /
 		// `$USER` / `$TMPDIR` and no `~`, so resolving one buys nothing there.
-		// Calling the nil func instead panicked, and main's fail-closed
-		// recover then blocked every command carrying an unquoted `~` or a
-		// `$HOME`/`$USER`/`$TMPDIR` inside a substitution whose argv the
-		// matcher grades at all — a single plain command, no assignments,
-		// redirects, negation or background marker. Any other substitution
-		// shape is declined before a word is graded, so it never reached the
-		// nil source and classified on its inner command throughout.
+		// A nil source must therefore never be called here. Only a substitution
+		// whose argv that matcher grades at all — a single plain command, no
+		// assignments, redirects, negation or background marker — reaches this
+		// resolver source-less; every other shape is declined before a word is
+		// graded and classifies on its inner command.
 		switch name {
 		case "HOME":
 			if resolver.homeDir == nil {

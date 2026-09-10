@@ -329,8 +329,8 @@ func TestEscapingResolvedVarsStillDenyNoNewPolicy(t *testing.T) {
 // resolving one buys nothing there — and an unquoted `~` (or a `$HOME`) inside
 // a substitution whose argv that matcher grades at all (a single plain command,
 // no assignments, redirects, negation or background marker — the shape every
-// row below carries) used to reach that resolver's nil homeDir and panic, which
-// main's fail-closed recover turned into a blocked tool call.
+// row below carries) reaches that resolver's nil homeDir, which resolveVar
+// must grade unresolvable rather than call.
 //
 // Each row asserts the shape earns the SAME bucket as the substituted command
 // spelled bare: none of these argvs is an anchor form, so the anchor is
@@ -364,8 +364,9 @@ func TestHomeRelativePathInCmdSubstDoesNotPanic(t *testing.T) {
 
 // TestEnvVarInCmdSubstDoesNotPanic is the same nil-source guard on the
 // resolver's OTHER field: the zero-value varResolver's nil lookupEnv backs
-// $USER and $TMPDIR, and calling it panicked identically. Each row is graded
-// against its bare inner command for the same reason the rows above are.
+// $USER and $TMPDIR, and resolveVar must grade both unresolvable rather than
+// call it. Each row is graded against its bare inner command for the same
+// reason the rows above are.
 func TestEnvVarInCmdSubstDoesNotPanic(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -386,8 +387,8 @@ func TestEnvVarInCmdSubstDoesNotPanic(t *testing.T) {
 
 // TestHomeRelativePathOutsideCmdSubstKeepsItsVerdict is the negative control
 // for the two tests above: the same home-relative paths OUTSIDE a command
-// substitution never reached the zero-value resolver and always classified, so
-// the guard must leave their verdicts untouched.
+// substitution never reach the zero-value resolver, so the guard must leave
+// their verdicts untouched.
 func TestHomeRelativePathOutsideCmdSubstKeepsItsVerdict(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
