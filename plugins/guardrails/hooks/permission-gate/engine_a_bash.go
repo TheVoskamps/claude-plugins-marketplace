@@ -1528,7 +1528,17 @@ func resolveVar(name string, knownVars map[string]string, resolver varResolver, 
 		switch name {
 		case "HOME":
 			home, err := resolver.homeDir()
-			if err != nil || home == "" {
+			if err != nil || home == "" || !filepath.IsAbs(home) {
+				// A RELATIVE home fails to resolve for the same reason applyCd's
+				// two $HOME arms invalidate on one: nothing downstream re-anchors
+				// it, so `$HOME/x` would relative-join onto the tracked cwd and
+				// grade a home-directory operand as an in-repo path. Failing to
+				// resolve marks the word inexact, which keeps the line off the
+				// allow track — and it is also what makes an UNQUOTED `cd ~`
+				// invalidate: expand.Literal tilde-expands through this resolver,
+				// so an unset $HOME leaves the `~` unexpanded for applyCd's
+				// leading-tilde arm to invalidate on (pinned by
+				// TestCdTrackingNonAbsoluteHomeInvalidates).
 				return "", false
 			}
 			return home, true

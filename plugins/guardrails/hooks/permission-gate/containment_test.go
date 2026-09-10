@@ -2291,8 +2291,9 @@ func TestContainmentNoCWDNeverAllows(t *testing.T) {
 }
 
 // And the same when the event's cwd is RELATIVE. `git -C` accepts a relative
-// directory, so such a cwd used to resolve a repo context against whatever
-// directory the hook process happens to be running in — and every relative
+// directory, so without resolveRepoContext's absolute-cwd guard such a cwd
+// resolves a repo context against whatever directory the hook process happens
+// to be running in — and every relative
 // target graded against it would then fall through canonicalizeFromResolver's
 // filepath.Abs arm onto that same process cwd, the base whose Clean collapses a
 // `..` behind a symlink before the link is followed. `.` is the adversarial

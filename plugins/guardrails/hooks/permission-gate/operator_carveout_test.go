@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -618,6 +619,101 @@ home:
 	// is not this config, so the `**` entry covers it as it covers any other
 	// path under home.
 	wantBucket(t, d, BucketAllow, "a write to a case-varied name on a case-sensitive filesystem")
+}
+
+// TestOperatorCarveOutRefusesSelfWriteByCaseWhenAbsent is the case test above
+// aimed at the config-home copy, which on a normal machine does NOT exist: one
+// config file lives at the literal load path, and the copy under a relocated
+// `config-home` is the spelling nothing has created.
+//
+// That absence is what made the case bypass reachable in the first place. An
+// identity comparison that ran only when os.Stat of the target succeeded had
+// nothing to say here, so the deny fell back to bare string equality — and a
+// `home: write: ['**']` entry then handed out a write CREATING the gate's own
+// policy file under a case-varied spelling. The exists-side test above cannot
+// reach this: its target is the literal load path, which the carve-out has to
+// have read to hold any entry at all.
+//
+// The filesystem decides which assertion applies, as above, but the probe has
+// to be indirect: the varied spelling names nothing either way, so os.Stat of
+// it answers nothing. The DIRECTORY holding it does exist, so a case-varied
+// spelling of that directory is what reports the rule this volume applies.
+func TestOperatorCarveOutRefusesSelfWriteByCaseWhenAbsent(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	home := carveOutFixture(t, base, "repo")
+
+	relocated := filepath.Join(base, "relocated")
+	selfDir := filepath.Join(relocated, "guardrails")
+	if err := os.MkdirAll(selfDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(xdgConfigHomeEnv, relocated)
+	// The widest entry on the CONFIG-HOME root, so every spelling below sits
+	// inside a root whose glob covers it. A `home` entry would not: the
+	// relocated root is outside the fake home, so a deny there would be the
+	// ordinary cross-repo one and would measure nothing about this deny.
+	writeCarveOutConfig(t, home, `schema-version: 2
+resolve-xdg-environment-variables: yes
+config-home-default: ~/.config
+config-home:
+  write:
+    - '**'
+`)
+	selfCopy := filepath.Join(selfDir, "config.yml")
+	if _, err := os.Lstat(selfCopy); err == nil {
+		t.Fatalf("%s must not exist: the ABSENT config-home copy is what is under test", selfCopy)
+	}
+
+	// The baseline: the exact spelling of the absent copy denies on every
+	// filesystem, so a deny below is about case and not about the entry failing
+	// to cover the path at all.
+	if d := fileToolVerdict(t, "Write", repo, selfCopy); d.Bucket == BucketAllow {
+		t.Fatalf("a write creating the config-home copy at its own spelling must not ALLOW; got %q (%s)",
+			d.Bucket, d.Reason)
+	}
+
+	for _, varied := range []string{
+		filepath.Join(selfDir, "CONFIG.YML"),                 // final segment only
+		filepath.Join(relocated, "GUARDRAILS", "config.yml"), // the directory segment
+		filepath.Join(relocated, "GuardRails", "Config.Yml"), // both, mixed
+	} {
+		d := fileToolVerdict(t, "Write", repo, varied)
+		if caseFoldingFilesystem(t, selfDir) {
+			if d.Bucket == BucketAllow {
+				t.Errorf("a write to %q, which creates the same file as %q on this filesystem, must not ALLOW; got %q (%s)",
+					varied, selfCopy, d.Bucket, d.Reason)
+			}
+			continue
+		}
+		// Case-sensitive: the varied spelling creates a file that is not this
+		// config, so the `**` entry covers it as it covers any other path.
+		wantBucket(t, d, BucketAllow, "a write to a case-varied name on a case-sensitive filesystem")
+	}
+
+	// The negative control, on both kinds of filesystem: a sibling name that
+	// differs by more than case still ALLOWs, so the rows above are the deny
+	// firing on the file each spelling creates and not on absent targets under
+	// this directory being refused wholesale.
+	wantBucket(t, fileToolVerdict(t, "Write", repo, filepath.Join(selfDir, "other.yml")), BucketAllow,
+		"a write creating a non-config file beside the absent copy")
+}
+
+// caseFoldingFilesystem reports whether the volume holding dir folds letter
+// case, measured rather than assumed: it re-reaches the directory under a
+// case-varied spelling of its own final segment and asks whether that is the
+// same directory. The test needs this because the paths it varies do not exist,
+// so the os.Stat the exists-side test uses to pick a branch answers nothing
+// there.
+func caseFoldingFilesystem(t *testing.T, dir string) bool {
+	t.Helper()
+	self, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat %s: %v", dir, err)
+	}
+	other, err := os.Stat(filepath.Join(filepath.Dir(dir), strings.ToUpper(filepath.Base(dir))))
+	return err == nil && os.SameFile(self, other)
 }
 
 // A `..` walk out of a carve-out root cannot match, whatever the globs say: the

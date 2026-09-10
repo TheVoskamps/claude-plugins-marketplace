@@ -269,18 +269,16 @@ func (c operatorCarveOut) allows(target string, base string, readClass bool) boo
 // entry would otherwise let the gate's own policy be rewritten by the calls it
 // is adjudicating.
 //
-// The comparison asks the FILESYSTEM whether two spellings name one file, via
-// os.SameFile, and falls back to the canonical strings only when a side does
-// not exist. A string comparison alone is bypassable by letter case: on a
-// case-insensitive filesystem — the macOS default — `CONFIG.YML` names the same
-// file as `config.yml`, and filepath.EvalSymlinks hands back the caller's own
-// casing rather than the name on disk, so the two canonicalize to strings that
-// differ. Asking the filesystem covers whatever normalization it applies (case
-// folding, and Unicode forms a case-folding comparison would still miss) and
-// weakens nothing on a case-sensitive one, where a case-varied spelling either
-// does not exist or is a genuinely different file with a different inode. The
-// string fallback is what still catches a not-yet-created target, e.g. a write
-// to the config-home spelling on a machine that has no file there.
+// The comparison asks the FILESYSTEM whether two spellings name one file
+// (sameSelfWriteTarget), which a comparison of canonical strings cannot do: on
+// a case-insensitive filesystem — the macOS default — `CONFIG.YML` names the
+// same file as `config.yml`, and filepath.EvalSymlinks hands back the caller's
+// own casing rather than the name on disk, so the two canonicalize to strings
+// that differ. That question is asked whether or not the target exists yet, and
+// the not-yet-created case is the one that matters most here: the config-home
+// copy of this config is normally absent, so a deny that fell back to bare
+// string equality there was bypassable by letter case on exactly the spelling
+// a `home: write: ['**']` entry hands out.
 //
 // TWO spellings of the target are canonicalized and a match on either denies.
 //
@@ -316,21 +314,143 @@ func (c operatorCarveOut) isSelfWrite(target string, base string) bool {
 		if real == "" {
 			continue
 		}
-		realInfo, realErr := os.Stat(real)
 		for _, p := range c.selfWritePaths {
-			self := selfWriteResolveLink(canonicalizeFrom(p, ""))
-			if self == real {
-				return true
-			}
-			if realErr != nil {
-				continue
-			}
-			if selfInfo, err := os.Stat(self); err == nil && os.SameFile(realInfo, selfInfo) {
+			if sameSelfWriteTarget(real, selfWriteResolveLink(canonicalizeFrom(p, ""))) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// sameSelfWriteTarget reports whether two canonical spellings name one file,
+// asking the filesystem rather than comparing strings wherever it can answer.
+//
+// Three answers, in order. Identical strings name one file. Two spellings that
+// both EXIST are settled by os.SameFile, which covers whatever normalization
+// the filesystem applies — case folding, and the Unicode forms a case-folding
+// comparison would still miss. When at least one side does NOT exist, os.Stat
+// has no inode to offer and the question moves down to the deepest ancestor
+// each spelling does have on disk: those two are compared by identity, and the
+// segments hanging below them by name, under the case rule probed off the
+// ancestor itself (dirFoldsCase).
+//
+// The residual bound is that third answer's: a segment naming nothing on disk
+// is compared as text, so a filesystem that equates two spellings by something
+// other than letter case is not covered for the absent segments. os.SameFile
+// covers exactly that the moment the file exists.
+func sameSelfWriteTarget(a string, b string) bool {
+	if a == b {
+		return true
+	}
+	aInfo, aErr := os.Stat(a)
+	bInfo, bErr := os.Stat(b)
+	if aErr == nil && bErr == nil {
+		return os.SameFile(aInfo, bInfo)
+	}
+	aAnchor, aRest := deepestExistingAncestor(a)
+	bAnchor, bRest := deepestExistingAncestor(b)
+	if aAnchor == "" || bAnchor == "" || len(aRest) != len(bRest) {
+		return false
+	}
+	aAnchorInfo, err := os.Stat(aAnchor)
+	if err != nil {
+		return false
+	}
+	bAnchorInfo, err := os.Stat(bAnchor)
+	if err != nil {
+		return false
+	}
+	if !os.SameFile(aAnchorInfo, bAnchorInfo) {
+		return false
+	}
+	folds := dirFoldsCase(aAnchor)
+	for i := range aRest {
+		if aRest[i] == bRest[i] {
+			continue
+		}
+		if !folds || !strings.EqualFold(aRest[i], bRest[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// deepestExistingAncestor splits p at the deepest prefix that exists on disk,
+// returning that prefix and the segments below it, outermost first. A path that
+// exists comes back whole with an empty remainder; a path no prefix of which
+// can be stat'ed comes back with an empty anchor, which its caller reads as no
+// match rather than as a match on nothing.
+//
+// The walk is what lets an ABSENT target be compared at all: the deepest
+// existing prefix is the last thing the filesystem can answer an identity
+// question about, so it is where sameSelfWriteTarget anchors.
+func deepestExistingAncestor(p string) (string, []string) {
+	var rest []string
+	for {
+		if _, err := os.Stat(p); err == nil {
+			return p, rest
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "", nil
+		}
+		rest = append([]string{filepath.Base(p)}, rest...)
+		p = parent
+	}
+}
+
+// dirFoldsCase reports whether the filesystem holding dir treats two spellings
+// differing only in letter case as one name. It PROBES rather than deciding
+// from runtime.GOOS: a macOS machine can carry a case-sensitive APFS volume and
+// a Linux one a case-insensitive mount, and a deny is only as good as the rule
+// the filesystem in front of it actually applies.
+//
+// The probe re-stats a directory under a case-flipped spelling of its own final
+// segment and asks os.SameFile whether that reached the same directory. A
+// segment with no ASCII letter to flip answers nothing, so the walk climbs to
+// one that has them — case sensitivity is a property of the volume, not of the
+// entry. When no ancestor can answer, it reports true, which widens the deny
+// rather than narrowing it.
+func dirFoldsCase(dir string) bool {
+	for p := dir; ; {
+		parent := filepath.Dir(p)
+		if parent == p {
+			return true
+		}
+		seg := filepath.Base(p)
+		if flipped := flipASCIICase(seg); flipped != seg {
+			self, err := os.Stat(p)
+			if err != nil {
+				return true
+			}
+			other, err := os.Stat(filepath.Join(parent, flipped))
+			return err == nil && os.SameFile(self, other)
+		}
+		p = parent
+	}
+}
+
+// flipASCIICase returns s with the case of every ASCII letter inverted and
+// every other byte untouched, or s itself when there was no ASCII letter to
+// flip. Only ASCII is flipped: a rune whose case mapping is not one-to-one
+// would make the probe's spelling differ by more than case, which is not the
+// question dirFoldsCase asks.
+func flipASCIICase(s string) string {
+	b := []byte(s)
+	flipped := false
+	for i, ch := range b {
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			b[i], flipped = ch-('a'-'A'), true
+		case ch >= 'A' && ch <= 'Z':
+			b[i], flipped = ch+('a'-'A'), true
+		}
+	}
+	if !flipped {
+		return s
+	}
+	return string(b)
 }
 
 // selfWriteResolveLink follows a canonical path whose final segment is a

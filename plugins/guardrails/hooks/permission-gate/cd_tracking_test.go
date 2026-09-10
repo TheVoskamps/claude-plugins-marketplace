@@ -435,10 +435,22 @@ func TestCdTrackingSeedCWDIsCleaned(t *testing.T) {
 //
 // The fixture home is deliberately RELATIVE, which is what no other
 // cd-tracking test can supply: they all use t.TempDir(), which is absolute, so
-// nothing else in the suite exercises this path. Both arms are covered — bare
-// `cd` and the quoted tilde `cd '~'` — because both take $HOME as the target
-// and both must invalidate, exactly as they already do for an unresolvable or
-// empty home.
+// nothing else in the suite exercises this path. All three spellings the README
+// folds into this rule are covered — bare `cd`, the quoted tilde `cd '~'`, and
+// the UNQUOTED `cd ~` — because each takes $HOME as the target and each must
+// invalidate, exactly as they already do for an unresolvable or empty home.
+//
+// The unquoted spelling reaches the rule by a different route than the other
+// two, which is why it is a row here rather than an obvious duplicate.
+// literalWord tilde-expands `cd ~` upstream through expand.Literal, whose tilde
+// handling reads $HOME from the same resolveVar the operand path uses, so with a
+// resolvable home the word arrives at applyCd already ABSOLUTE and never reaches
+// the leading-tilde arm at all. What routes it there instead is resolveVar's
+// absolute-home guard: a relative home fails to resolve, the `~` survives
+// expansion unexpanded, and the leading-tilde arm invalidates on it. Without
+// that guard the word expanded to `relative/home`, took the relative-target arm,
+// and tracked `<cwd>/relative/home` as a VALID cwd — the one spelling that made
+// the README's rule false.
 func TestCdTrackingNonAbsoluteHomeInvalidates(t *testing.T) {
 	_, wt := setupWorktree(t)
 
@@ -448,6 +460,7 @@ func TestCdTrackingNonAbsoluteHomeInvalidates(t *testing.T) {
 	}{
 		{"bare cd", "cd && cat ../x"},
 		{"quoted tilde", "cd '~' && cat ../x"},
+		{"unquoted tilde", "cd ~ && cat ../x"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cmds, err := extractSimpleCommands(mustParse(t, tc.cmd), wt, fakeResolver("relative/home", nil, nil), nil)

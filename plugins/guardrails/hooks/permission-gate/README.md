@@ -1721,10 +1721,23 @@ The gate's engines feed that decision:
   **write** to this config file itself is allowed — at its literal load
   path or at the resolved `config-home/guardrails/config.yml` —
   compared by asking the filesystem whether the two spellings name one
-  file (`os.SameFile` on the resolved paths, with the canonical strings
-  as the fallback for a target that does not exist yet), so a symlinked
-  copy, a symlinked ancestor and a case-varied spelling on a
-  case-insensitive filesystem are covered too. The resolution follows
+  file, so a symlinked copy, a symlinked ancestor and a case-varied
+  spelling on a case-insensitive filesystem are covered too — and
+  covered **whether or not the target exists yet**, which is the half
+  that matters most here, the `config-home` copy being absent on a
+  normal machine. When both spellings exist that question is
+  `os.SameFile` on the resolved paths. When one does not, the same
+  identity question is asked of the deepest ancestor each spelling
+  *does* have on disk, and the segments hanging below it are compared
+  by name under the case rule **probed off that ancestor** rather than
+  guessed from `runtime.GOOS` — a macOS machine can carry a
+  case-sensitive volume and a Linux one a case-insensitive mount. The
+  residual bound is that third path's: a segment naming nothing on disk
+  is compared as text, so a filesystem equating two spellings by
+  something other than letter case is not covered until the file
+  exists. Restricting the identity question to targets that exist is
+  what left a case-varied spelling of the absent copy on bare string
+  equality, i.e. handed out by a broad `write` glob. The resolution follows
   each symlink before applying whatever follows it, so a `..` behind a
   symlinked directory is covered as well — and covered whether or not
   the file it reaches exists yet, which the `config-home` copy usually

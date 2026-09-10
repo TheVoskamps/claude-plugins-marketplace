@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,25 @@ func TestHomeVarUnresolvableFailsClosed(t *testing.T) {
 	}
 	if !cmds2[0].hasUnknownExpansion {
 		t.Errorf("$HOME must fail closed when homeDir() returns empty; got hasUnknownExpansion=false")
+	}
+
+	// A RELATIVE home is the third spelling, and the one that fails closed
+	// least obviously: it is neither an error nor empty, so resolving it hands
+	// back a path that is not absolute. `$HOME/.ssh/id_rsa` would then
+	// relative-join onto the tracked cwd — the repo — and a home-directory
+	// operand would be graded as an in-repo path, which is the same fabricated
+	// base applyCd's two $HOME arms already invalidate on.
+	resolverRelative := fakeResolver("relative/home", nil, nil)
+	cmds3, err := extractSimpleCommands(file, cwd, resolverRelative, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cmds3[0].hasUnknownExpansion {
+		t.Errorf("$HOME must fail closed when homeDir() returns a RELATIVE path; got hasUnknownExpansion=false")
+	}
+	if len(cmds3[0].args) > 1 && strings.Contains(cmds3[0].args[1], "relative/home") {
+		t.Errorf("$HOME under a relative home resolved the operand to %q; a non-absolute home must not reach the operand",
+			cmds3[0].args[1])
 	}
 }
 
