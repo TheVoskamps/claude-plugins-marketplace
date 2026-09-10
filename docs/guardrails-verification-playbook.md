@@ -126,7 +126,7 @@ vacuous probe.
 
 ### A `$HOME`-rooted rule is settled by `go test`, not by a replay
 
-The `~/.config` carve-out and the `~/.claude` one are rooted at the real
+The operator carve-out and the `~/.claude` one are rooted at the real
 home directory, and a worktree-isolated agent can build no fixture for
 either. Each obstacle below is decisive on its own.
 
@@ -151,9 +151,26 @@ inside a fake home never earns the deny the rule under test is meant to
 overturn. A synthetic replay can therefore exercise these rules only
 against whatever the driving machine's own home directory holds.
 
+**The XDG opt-in is not a way around either obstacle.** An
+`XDG_CONFIG_HOME=<dir>` prefix is refused by the same isolation guard
+and with the same message as a `HOME=` one — measured on
+`/usr/bin/env`, which runs under an `XDG_STATE_HOME=<dir>` prefix, so
+the guard is refusing the variables that inject git configuration
+rather than every `XDG_*` one. A prefix that does run buys nothing
+either: the gate reads either variable only when the driving machine's
+own `~/.config/guardrails/config.yml` says
+`resolve-xdg-environment-variables: yes` — a file outside the repo,
+which the gate denies every **file-tool** write to. A Bash redirect at
+it is not the gate's to refuse and **defers** — measured, a
+`printf x > <that literal path>` event abstains — so what stops that
+route is the outside-the-repo approval policy rather than a gate
+verdict. Either way the relocated root a replay could point at still
+carries whatever globs that machine's operator wrote, and a machine
+with no such file resolves no root from the variable at all.
+
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
-(`xdg_config_carveout_test.go` is the worked example). Replay still
+(`operator_carveout_test.go` is the worked example). Replay still
 earns its place as the negative control: the unconfigured machine you
 are running on denies the very reads the carve-out is for, and that
 verdict is real evidence.
@@ -759,6 +776,19 @@ swap. This is the sibling of negate-checking: that establishes a *new*
 test reaches the new code, this one establishes an *old* test still
 reaches the code it was written for after the code moved beneath it.
 
+**A relative operand grades no resolution base unless the process cwd
+is placed on purpose.** A fixture repository under `t.TempDir()` leaves
+the process cwd at the package directory, so a resolution taken against
+that cwd lands outside the fixture's `topLevel` and denies — the same
+verdict the correct resolution earns, from the wrong reason, and the row
+passes either way. Place the process cwd with `t.Chdir(<fixture root>)`,
+give the event a cwd one **subdirectory** deeper holding the path under
+test, and put a real in-repo file at the name the wrong base would
+reach: then the wrong base grades contained and the row discriminates.
+Assert the escaped path in the deny reason, not the bucket. A binary
+replay of a relative target needs the same placement — pass the
+subprocess its cwd explicitly, and say in the write-up where it was.
+
 ## The gate adjudicates the commands you edit it with
 
 The compiled gate is a live `PreToolUse` hook while you work on it, so
@@ -921,8 +951,8 @@ a defer, or the negate-check leaves every `cat` assertion green while
 proving nothing.
 
 A carve-out scoped to the **file-tool track alone** — the
-operator-configured `~/.config` listing is one — inverts the trap
-without escaping it: `cat` of a listed path **denies** before and after,
+operator-configured listing is one — inverts the trap without escaping
+it: `cat` of a listed path **denies** before and after,
 because the bash engine never consults the listing. There the file-read
 tool is the only probe that moves, and a bash row belongs in the table
 only as the control that pins the asymmetry.

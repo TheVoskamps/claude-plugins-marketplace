@@ -313,6 +313,67 @@ func TestContainmentCrossRepo(t *testing.T) {
 	}
 }
 
+// A file-tool target spelled RELATIVE resolves against the EVENT's cwd — the
+// base the tool itself resolves it against — and it resolves segment by
+// segment, so a `..` behind an in-repo symlink pointing outside the repo earns
+// the escape deny for reads and mutating writes alike.
+//
+// The fixture denies the wrong resolution any chance of the right verdict by
+// accident. The gate process is chdir'ed to the repo ROOT while the event's cwd
+// is the subdirectory holding the link, so joining onto the process cwd and
+// Cleaning `link-out/..` away lands on <repo>/secret.txt — a real in-repo file,
+// which DEFERS. Only following the link first reaches the file the kernel
+// delivers to, <base>/outside/secret.txt, outside the repo. A layout whose
+// wrong answer happens to land outside the repo too grades both resolutions
+// DENY and measures nothing, which is why the escape path is asserted in the
+// reason and not just the bucket.
+func TestFileToolRelativeTargetResolvesAgainstEventCWD(t *testing.T) {
+	base := t.TempDir()
+	repo := filepath.Join(base, "repo")
+	gitInit(t, repo)
+	// A config-less fake home, so no operator carve-out on the developer's own
+	// machine can hand these targets an ALLOW.
+	carveOutFixture(t, base, "plain")
+
+	outsideDir := filepath.Join(base, "outside", "dir")
+	if err := os.MkdirAll(outsideDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	escaped := filepath.Join(base, "outside", "secret.txt")
+	if err := os.WriteFile(escaped, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(repo, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(sub, "link-out")); err != nil {
+		t.Fatal(err)
+	}
+	// The in-repo file the process-cwd resolution lands on, so that resolution
+	// reads as `contained` rather than merely as an absent in-repo tail.
+	if err := os.WriteFile(filepath.Join(repo, "secret.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+
+	// Concatenated, not filepath.Join'ed, which would Clean the `..` away and
+	// destroy the spelling under test.
+	sep := string(filepath.Separator)
+	rel := "link-out" + sep + ".." + sep + "secret.txt"
+	for _, tool := range []string{"Read", "Write", "Edit", "MultiEdit"} {
+		wantReason(t, fileToolVerdict(t, tool, sub, rel), BucketDeny, canonicalize(escaped),
+			tool+" of a relative target escaping through an in-repo symlink")
+	}
+
+	// The negative control: a relative target with no link in it stays in the
+	// repo, so the rows above are the escape being caught and not relative
+	// spellings being refused wholesale.
+	if d := fileToolVerdict(t, "Write", sub, "notes.md"); d.Bucket == BucketDeny {
+		t.Errorf("a relative in-repo write must not DENY; got %q (%s)", d.Bucket, d.Reason)
+	}
+}
+
 // A subagent Read of the agent's own ~/.claude global config tree
 // from inside a repo must DEFER (so the settings.json allow-list governs it),
 // NOT be hard-denied as a cross-repo escape — while a genuine sibling-repo
@@ -403,8 +464,8 @@ const (
 
 // scratchTarget spells a path under the REAL <system-tmp>/claude-<uid> root.
 // Nothing is created there: the gate only stats paths, and canonicalize
-// re-attaches a non-existent tail to its longest existing ancestor, so these
-// tests never touch the developer's live scratchpad.
+// carries a non-existent segment as written, so these tests never touch the
+// developer's live scratchpad.
 func scratchTarget(uid int, rel ...string) string {
 	return filepath.Join(append([]string{fmt.Sprintf("/tmp/claude-%d", uid)}, rel...)...)
 }
@@ -498,7 +559,7 @@ func TestHarnessScratchSessionAllowed(t *testing.T) {
 
 // A `.git/` segment inside the scratchpad prefix denies for read and write
 // alike, so no carve-out hands out a git internals tree — the sibling of
-// TestXDGConfigCarveOutDoesNotOpenGitTree, with the same two halves: the write
+// TestOperatorCarveOutDoesNotOpenGitTree, with the same two halves: the write
 // on the top-of-walk rule, the read inside the arm that grades scratchpad
 // eligibility, which is the only place such a read could otherwise reach an
 // ALLOW (a target under the harness prefix is outside the worktree, so without
@@ -2226,6 +2287,37 @@ func TestContainmentNoCWDNeverAllows(t *testing.T) {
 	}
 	if d.Operation != "file:no-repo-context" || d.Reason == "" {
 		t.Errorf("no-cwd defer must be loggable; got op=%q reason=%q", d.Operation, d.Reason)
+	}
+}
+
+// And the same when the event's cwd is RELATIVE. `git -C` accepts a relative
+// directory, so without resolveRepoContext's absolute-cwd guard such a cwd
+// resolves a repo context against whatever directory the hook process happens
+// to be running in — and every relative target graded against it would then
+// fall through canonicalizeFromResolver's filepath.Abs arm onto that same
+// process cwd, the base whose Clean collapses a `..` behind a symlink before
+// the link is followed. `.` is the adversarial
+// spelling: the test binary runs inside this repo, so it DOES resolve a context
+// (which is what makes a bucket-only pass here meaningless without the
+// operation assertion below).
+func TestContainmentRelativeCWDNeverAllows(t *testing.T) {
+	for _, cwd := range []string{".", "..", "sub/dir", "./"} {
+		for _, tool := range []string{"Read", "Write"} {
+			ev := &Event{
+				ToolName:  tool,
+				CWD:       cwd,
+				AgentType: "issue-developer",
+				ToolInput: []byte(`{"file_path":"x/../../etc/passwd"}`),
+			}
+			d := classifyFileTool(ev)
+			if d.Bucket != BucketDefer {
+				t.Errorf("%s with relative cwd %q must defer; got %q (%s)", tool, cwd, d.Bucket, d.Reason)
+			}
+			if d.Operation != "file:no-repo-context" {
+				t.Errorf("%s with relative cwd %q must fail closed in resolveRepoContext; got op=%q reason=%q",
+					tool, cwd, d.Operation, d.Reason)
+			}
+		}
 	}
 }
 

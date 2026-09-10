@@ -552,12 +552,12 @@ flat list, with no `.packages.bake` normalization on that path.
 
 **Getting a real linux-arm64 claude binary.** The host's cache under
 `~/.config/claude-vm/` is unreadable from a worktree-isolated agent
-unless this machine's operator listed `claude-vm/**` in the permission
-gate's `~/.config` carve-out (see
+unless this machine's operator listed `claude-vm/**` under
+`config-home` in the permission gate's operator carve-out (see
 [`docs/config-file-conventions.md`](config-file-conventions.md) →
-"The permission gate reads `$HOME/.config` literally"); the gate ships
-no default entries, so assume it is unreadable until a `Read` says
-otherwise. The carve-out reaches the file tools only, so a `cat` or a
+"The permission gate's carve-out follows these same roots"); the gate
+ships no default entries, so assume it is unreadable until a `Read`
+says otherwise. The carve-out reaches the file tools only, so a `cat` or a
 `cp` of the cache denies whatever the listing says, which rules out
 copying the binary out of it.
 Fetch one into repo scratch through the product's own verified path

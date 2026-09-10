@@ -39,9 +39,20 @@ type repoContext struct {
 // ANY subprocess trouble (non-zero exit, empty output, timeout) it returns an
 // error; the caller treats that as fail-closed (block, or a defer carrying the
 // resolution failure as its analysis — never allow).
+//
+// A cwd that is not ABSOLUTE fails closed here too, alongside an empty one, and
+// this is the guard that makes the event cwd usable as a resolution base
+// everywhere downstream. `git -C` accepts a relative directory, so a relative
+// spelling would resolve the repo context against the HOOK PROCESS's own cwd,
+// and every relative operand joined onto that base would still be relative
+// afterwards and land in canonicalizeFromResolver's filepath.Abs arm — the
+// process cwd again, and Cleaned, which collapses a `..` behind a symlinked
+// directory before the link is followed and reads a genuine escape as
+// `contained`. There is no better base to substitute for a relative cwd, so the
+// whole call fails closed instead.
 func resolveRepoContext(eventCWD string) (*repoContext, error) {
-	if eventCWD == "" {
-		return nil, fmt.Errorf("event has no cwd; cannot resolve git context (fail-closed)")
+	if !filepath.IsAbs(eventCWD) {
+		return nil, fmt.Errorf("event cwd %q is not an absolute path; cannot resolve git context (fail-closed)", eventCWD)
 	}
 
 	// One combined rev-parse call returns all three flags, newline-separated,
@@ -207,12 +218,13 @@ func parseOwnerRepoFromRemote(url string) string {
 	return strings.ToLower(owner + "/" + repo)
 }
 
-// canonicalize resolves symlinks and `..` to an absolute real path. If the
-// path does not exist, it canonicalizes the longest existing ancestor and
-// re-appends the non-existent tail, so a not-yet-created file still resolves
-// through any symlinked ancestor — a one-sided canonicalization is defeatable,
-// so both sides of every containment comparison are resolved. Returns a
-// best-effort absolute path; never errors (the comparison itself is the gate).
+// canonicalize resolves symlinks and `..` to an absolute real path, segment by
+// segment, so each symlink is followed before whatever follows it is applied
+// (resolvePathSegments). A segment that does not exist is carried as written,
+// so a not-yet-created file still resolves through any symlinked ancestor — a
+// one-sided canonicalization is defeatable, so both sides of every containment
+// comparison are resolved. Returns a best-effort absolute path; never errors
+// (the comparison itself is the gate).
 //
 // A relative p is joined onto the HOOK PROCESS's own cwd via filepath.Abs.
 // Most callers have an explicit base directory to resolve against instead
@@ -220,6 +232,59 @@ func parseOwnerRepoFromRemote(url string) string {
 // any preceding `cd`) and should call canonicalizeFrom instead.
 func canonicalize(p string) string {
 	return canonicalizeFrom(p, "")
+}
+
+// hasLeadingTilde reports whether p is spelled `~` or `~/…`, the only two
+// shapes this gate expands. `~other/x` is a username reference it does not
+// resolve, so it is left alone rather than expanded against the current user's
+// home.
+//
+// This is the package's one spelling of that test, and every call site needs
+// the same answer out of it: applyCd's `cd ~` case (engine_a_bash.go),
+// canonicalizeFromResolver below, and both sides of the operator carve-out's
+// lexical match (operator_carveout.go) — a carve-out root that expanded a
+// shape its targets did not would strip a prefix the target never carried.
+// What they do NOT share is the home lookup or the handling of an
+// unresolvable home, because failing closed means something different at each:
+// applyCd invalidates the running cwd, canonicalizeFromResolver raises
+// unresolvedTilde while keeping the literal for display, and the carve-out's
+// two sides part company over where the home comes from. A ROOT is expanded
+// against the home loadOperatorCarveOutFrom has already established non-empty,
+// so an unknown home never reaches absoluteRootPath — the whole carve-out is
+// empty before it is called — and a root drops out, along with every glob
+// listed under it, when its spelling is not absolute after expansion. A TARGET
+// does its own lookup (lexicalAbs), where an unknown home leaves that
+// `~`-spelled target unmatched and the root live for every other target.
+func hasLeadingTilde(p string) bool {
+	return p == "~" || strings.HasPrefix(p, "~/")
+}
+
+// expandLeadingTilde joins a leading `~` or `~/` onto home, and returns a
+// spelling carrying neither unchanged. ok=false means the spelling names the
+// home directory but home is unknown — a substitution no caller can make, so
+// each caller's own fail-closed handling takes it from there.
+//
+// HOME is Cleaned and the remainder is carried VERBATIM, rather than the two
+// being filepath.Join'ed: Join Cleans the whole result, which collapses a `..`
+// segment before the segment in front of it has been resolved, and a `..`
+// behind a symlinked directory names a different file collapsed than it does
+// resolved. canonicalizeFromResolver's segment walk is what resolves such a
+// spelling the way the kernel does, and it can only do so if it is handed the
+// `..` intact (see resolvePathSegments). A caller that wants bash's own
+// logical reading of `..` — applyCd, whose $PWD is exactly that — Cleans the
+// result itself.
+//
+// Cleaning home is what keeps a $HOME carrying a trailing slash out of the
+// concatenation, so a bare `~` still yields home with any trailing slash
+// removed rather than home verbatim, which is what bash's `cd ~` does to $PWD.
+func expandLeadingTilde(spelling string, home string) (string, bool) {
+	if !hasLeadingTilde(spelling) {
+		return spelling, true
+	}
+	if home == "" {
+		return "", false
+	}
+	return filepath.Clean(home) + strings.TrimPrefix(spelling, "~"), true
 }
 
 // canonicalizeFrom is canonicalize with an explicit base directory for the
@@ -283,39 +348,75 @@ func canonicalizeFromResolver(p string, base string, homeDir func() (string, err
 	if p == "" {
 		return p, false
 	}
-	if p == "~" || strings.HasPrefix(p, "~/") {
+	if hasLeadingTilde(p) {
 		if home, err := homeDir(); err == nil && home != "" {
-			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
+			// ok is already established by the guard plus a non-empty home.
+			p, _ = expandLeadingTilde(p, home)
 		} else {
 			unresolvedTilde = true
 		}
 	}
 	if !filepath.IsAbs(p) {
 		if base != "" {
-			p = filepath.Join(base, p)
-		} else if abs, err := filepath.Abs(p); err == nil {
-			p = abs
+			// Concatenated rather than filepath.Join'ed, for the reason
+			// resolvePathSegments below states: Join Cleans, and a `..`
+			// collapsed before the segment in front of it is resolved names a
+			// different file than the one the kernel delivers to.
+			p = base + string(filepath.Separator) + p
+		}
+		if !filepath.IsAbs(p) {
+			// An empty or itself-relative base: fall back to the process cwd,
+			// which is what filepath.Abs joins on. That call Cleans, so the
+			// `..` fidelity above does not extend to this arm.
+			if abs, err := filepath.Abs(p); err == nil {
+				p = abs
+			}
 		}
 	}
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		return real, unresolvedTilde
+	if !filepath.IsAbs(p) {
+		return filepath.Clean(p), unresolvedTilde
 	}
-	// Path (or a tail segment) does not exist. Walk up to the longest
-	// existing ancestor, canonicalize that, then re-attach the tail.
-	dir := p
-	var tail []string
-	for {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break // reached root
+	return resolvePathSegments(p), unresolvedTilde
+}
+
+// resolvePathSegments resolves an absolute, deliberately UNcleaned spelling the
+// way the kernel resolves it: segment by segment against the prefix already
+// resolved, so every symlink is followed before whatever follows it is applied.
+// The result is an absolute, Cleaned path.
+//
+// The order is the whole point. `..` applies to the directory the preceding
+// segment RESOLVES to and not to its lexical parent, so
+// `<home>/<link-into-the-config-directory>/../config.yml` lands on the config
+// directory's own `config.yml` — the file a write through that spelling really
+// reaches — where collapsing the `..` first yields a nonexistent
+// `<home>/config.yml`. One filepath.EvalSymlinks call over the whole path gets
+// this right too, but only while every segment exists: it fails on a path whose
+// tail does not, so it cannot serve a not-yet-created target — the ordinary
+// case for a Write, and the case the gate's own self-write deny
+// (operator_carveout.go) has to hold on.
+//
+// A segment that does not exist is joined on as written and the walk continues
+// from there: there is no symlink to follow, and no segment after it can exist
+// either.
+func resolvePathSegments(p string) string {
+	vol := filepath.VolumeName(p)
+	resolved := vol + string(filepath.Separator)
+	for _, seg := range strings.Split(p[len(vol):], string(filepath.Separator)) {
+		switch seg {
+		case "", ".":
+			continue
+		case "..":
+			resolved = filepath.Dir(resolved)
+			continue
 		}
-		tail = append([]string{filepath.Base(dir)}, tail...)
-		dir = parent
-		if real, err := filepath.EvalSymlinks(dir); err == nil {
-			return filepath.Join(append([]string{real}, tail...)...), unresolvedTilde
+		next := filepath.Join(resolved, seg)
+		if real, err := filepath.EvalSymlinks(next); err == nil {
+			resolved = real
+			continue
 		}
+		resolved = next
 	}
-	return filepath.Clean(p), unresolvedTilde
+	return resolved
 }
 
 // containmentResult is the outcome of testing a target path against the repo
@@ -388,6 +489,14 @@ func claudeConfigRoot() string {
 //   - More importantly, deriving a security carve-out from an environment
 //     variable would let whatever set that variable relocate the carve-out to
 //     an arbitrary directory. A fixed path cannot be widened that way.
+//
+// The operator carve-out (operator_carveout.go) does read $XDG_CONFIG_HOME and
+// $XDG_STATE_HOME, and is not a counter-example to that second bullet: it reads
+// them only on an explicit opt-in in a file the operator hand-wrote, and what
+// the relocation can hand out is bounded by denies that hold whatever the
+// file says. Neither condition is available here — no operator file names this
+// root, and the region it designates is safe by construction rather than by
+// enumeration — so this one stays a literal.
 const harnessScratchDir = "/tmp"
 
 // harnessScratchDisplay returns the un-canonicalized, human-facing spelling of
@@ -448,11 +557,12 @@ var harnessSessionShape = regexp.MustCompile(
 //
 // The version segment is SHAPE-checked (major.minor.patch) and deliberately NOT
 // pinned to the running Claude Code version: the hook event carries no version
-// field, so the only source would be CLAUDE_CODE_EXECPATH in the environment —
-// deriving a carve-out from an environment variable is the same defect that
-// rules out os.TempDir()/$TMPDIR for harnessScratchDir above. Shape-checking
-// also survives an upgrade, where the previous version's directory lingers
-// alongside the new one.
+// field, so the only source would be CLAUDE_CODE_EXECPATH in the environment,
+// which fails on the same terms $TMPDIR fails for harnessScratchDir above:
+// neither condition stated there — an operator's explicit opt-in, and denies
+// that bound what a relocated root can hand out — is available for this
+// region. Shape-checking also survives an upgrade, where the previous
+// version's directory lingers alongside the new one.
 //
 // The evidence base here is narrower than for the session shape: one version
 // directory, one hash directory, one machine. A channel-tagged version such as
@@ -579,21 +689,17 @@ func harnessScratchRemainder(real, root string) string {
 	return filepath.ToSlash(rem)
 }
 
-// testContainment canonicalizes the target and tests it against the resolved
-// worktree root. The target is canonicalized BEFORE comparison (both
+// testContainmentFrom canonicalizes the target and tests it against the
+// resolved worktree root. The target is canonicalized BEFORE comparison (both
 // sides). Returns one of the containmentResult values.
 //
-// testContainment resolves a relative target against the process/event cwd
-// (via canonicalize). Use testContainmentFrom when the caller has tracked a
-// different base cwd for this specific target (a Bash command whose
-// relative operand must resolve against a preceding `cd`, not ev.CWD).
-func testContainment(target string, rc *repoContext) (containmentResult, string) {
-	return testContainmentFrom(target, "", rc)
-}
-
-// testContainmentFrom is testContainment with an explicit base directory for
-// the relative-join step. An empty base preserves testContainment's
-// existing behavior (process/event cwd).
+// base is the directory a relative target is joined onto: the event's cwd for a
+// file tool, or — for a Bash operand — the running cwd tracked through any
+// preceding `cd`. An empty base would leave the join to
+// canonicalizeFromResolver's filepath.Abs arm, i.e. the hook PROCESS's cwd,
+// which is not a base Engine B may grade against; resolveRepoContext fails
+// closed on an event cwd that is not absolute so that no such base is derived
+// from one.
 //
 // It calls canonicalizeFromResolver (not the canonicalizeFrom convenience
 // wrapper) so it can see the unresolvedTilde signal: a leading `~`/`~/...`
@@ -664,8 +770,9 @@ func testContainmentFrom(target string, base string, rc *repoContext) (containme
 	// /private/tmp symlink. Enumerating the two literals would be actively
 	// wrong on Linux, where there is no such symlink and /private/tmp is a
 	// genuinely different directory a literal allow-list would wrongly match.
-	// Targets that do not exist yet (a Write to a new file) unify too, via
-	// canonicalizeFromResolver's longest-existing-ancestor walk-up.
+	// Targets that do not exist yet (a Write to a new file) unify too:
+	// canonicalizeFromResolver resolves the segments that do exist and carries
+	// the rest as written.
 	//
 	// Everything else under /tmp — including another uid's prefix — still
 	// falls through to the escapeRepo deny below.

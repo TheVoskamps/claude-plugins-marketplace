@@ -262,3 +262,163 @@ func TestCdTrackingPreservedGuarantees(t *testing.T) {
 		wantBucket(t, d, BucketDeny, ".git/-tree write via tracked cwd must still deny")
 	})
 }
+
+// TestCdTrackingBareTildeTracksCleanedHome pins what a quoted bare tilde,
+// `cd '~'`, tracks when $HOME carries a trailing slash: home CLEANED, not home
+// verbatim. The tracked cwd is handed to `$PWD` unmodified, so the trailing
+// slash would otherwise reach concatenation — `"$PWD"x` would resolve as
+// <home>/x rather than <home>x. Bash agrees with the Cleaned spelling: its own
+// $PWD carries no trailing slash after a successful cd (measured in bash:
+// `cd /tmp/` then `echo "$PWD"` prints `/tmp`).
+//
+// The QUOTED spelling is what this exercises, and it is the only one that
+// reaches applyCd's tilde branch: literalWord expands an unquoted `cd ~`
+// upstream, so that spelling arrives absolute and takes the branch above it.
+// Bash does not expand the quoted one at all — `cd '~'` looks for a directory
+// literally named `~`, and unless one exists the cd fails and leaves $PWD put
+// (measured in bash: `bash: line 0: cd: ~: No such file or directory`; zsh
+// spells the same failure `zsh:cd:1: no such file or directory: ~`). Treating
+// it as $HOME is the gate's over-approximation, recorded in applyCd's own
+// comment and in the README's cd-tracking section; the sibling below pins the
+// no-argument `cd`, whose $HOME target bash really does take.
+func TestCdTrackingBareTildeTracksCleanedHome(t *testing.T) {
+	_, wt := setupWorktree(t)
+
+	home := t.TempDir() + string(filepath.Separator)
+	want := filepath.Clean(home)
+
+	cmd := "cd '~' && cat \"$PWD\"x"
+	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 simple commands, got %d: %+v", len(cmds), cmds)
+	}
+	catCmd := cmds[1]
+	if catCmd.cwd != want {
+		t.Errorf("bare-tilde cd tracked cwd = %q, want %q (home Cleaned, not %q verbatim)", catCmd.cwd, want, home)
+	}
+	if len(catCmd.args) != 2 || catCmd.args[1] != want+"x" {
+		t.Errorf("concatenated $PWD operand = %v, want [cat %q]", catCmd.args, want+"x")
+	}
+}
+
+// TestCdTrackingBareCdTracksCleanedHome is the sibling of the test above on the
+// branch bash agrees with unconditionally: a no-argument `cd` really does go to
+// $HOME, and bash's $PWD carries no trailing slash afterwards. So the tracked
+// cwd must be home Cleaned here too, or `"$PWD"x` after a trailing-slash $HOME
+// resolves as <home>/x rather than <home>x.
+func TestCdTrackingBareCdTracksCleanedHome(t *testing.T) {
+	_, wt := setupWorktree(t)
+
+	home := t.TempDir() + string(filepath.Separator)
+	want := filepath.Clean(home)
+
+	cmd := "cd && cat \"$PWD\"x"
+	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmds) != 2 {
+		t.Fatalf("expected 2 simple commands, got %d: %+v", len(cmds), cmds)
+	}
+	catCmd := cmds[1]
+	if catCmd.cwd != want {
+		t.Errorf("bare-cd tracked cwd = %q, want %q (home Cleaned, not %q verbatim)", catCmd.cwd, want, home)
+	}
+	if len(catCmd.args) != 2 || catCmd.args[1] != want+"x" {
+		t.Errorf("concatenated $PWD operand = %v, want [cat %q]", catCmd.args, want+"x")
+	}
+}
+
+// TestCdTrackingAbsoluteCdTracksCleanedPath pins the third arm of the same
+// class: an absolute `cd` operand is tracked CLEANED, not verbatim. `cd /tmp/`
+// otherwise leaves the trailing slash in the tracked cwd, which reaches `$PWD`
+// concatenation unmodified, so `"$PWD"x` resolves as /tmp/x where bash yields
+// /tmpx (measured in bash: `cd /tmp/` then `echo "$PWD"x` prints `/tmpx`).
+//
+// The second row is the spelling that makes this arm the tilde branch's
+// sibling: an UNQUOTED `cd ~` never reaches applyCd's tilde case, because
+// literalWord tilde-expands it upstream and the result arrives absolute here.
+// So a $HOME carrying a trailing slash rides this arm, not the one the two
+// tests above exercise.
+func TestCdTrackingAbsoluteCdTracksCleanedPath(t *testing.T) {
+	_, wt := setupWorktree(t)
+
+	home := t.TempDir() + string(filepath.Separator)
+
+	for _, tc := range []struct {
+		name string
+		cmd  string
+		want string
+	}{
+		{"trailing slash on a literal absolute path", "cd /tmp/ && cat \"$PWD\"x", "/tmp"},
+		{"unquoted tilde under a trailing-slash $HOME", "cd ~ && cat \"$PWD\"x", filepath.Clean(home)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmds, err := extractSimpleCommands(mustParse(t, tc.cmd), wt, fakeResolver(home, nil, nil), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(cmds) != 2 {
+				t.Fatalf("expected 2 simple commands, got %d: %+v", len(cmds), cmds)
+			}
+			catCmd := cmds[1]
+			if catCmd.cwd != tc.want {
+				t.Errorf("tracked cwd = %q, want %q (Cleaned, not verbatim)", catCmd.cwd, tc.want)
+			}
+			if len(catCmd.args) != 2 || catCmd.args[1] != tc.want+"x" {
+				t.Errorf("concatenated $PWD operand = %v, want [cat %q]", catCmd.args, tc.want+"x")
+			}
+		})
+	}
+}
+
+// TestCdTrackingSeedCWDIsCleaned pins the fourth arm of the same class, and
+// the only one that reaches `$PWD` with no `cd` on the line at all: the
+// event's own cwd seeds the tracked cwd, so a seed carrying a trailing slash
+// reaches concatenation directly. `cat "$PWD"x` under a seed of `<dir>/` must
+// resolve as <dir>x, matching what bash yields — its $PWD carries no trailing
+// slash (measured in bash: `cd /tmp/` then `echo "$PWD"x` prints `/tmpx`).
+//
+// The empty seed is the row that keeps the Clean from being unconditional:
+// filepath.Clean("") is ".", while an empty ev.CWD means the cwd is UNKNOWN
+// rather than the process's relative ".". Turning it into "." would hand
+// resolveVar a resolvable `$PWD` where its `cc.cwd == ""` guard instead has to
+// fail closed, so the second row pins that an empty seed stays empty.
+func TestCdTrackingSeedCWDIsCleaned(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("trailing slash on the seed cwd", func(t *testing.T) {
+		seed := dir + string(filepath.Separator)
+		want := filepath.Clean(seed)
+
+		cmds, err := extractSimpleCommands(mustParse(t, "cat \"$PWD\"x"), seed, defaultVarResolver(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cmds) != 1 {
+			t.Fatalf("expected 1 simple command, got %d: %+v", len(cmds), cmds)
+		}
+		if cmds[0].cwd != want {
+			t.Errorf("seeded cwd = %q, want %q (Cleaned, not %q verbatim)", cmds[0].cwd, want, seed)
+		}
+		if len(cmds[0].args) != 2 || cmds[0].args[1] != want+"x" {
+			t.Errorf("concatenated $PWD operand = %v, want [cat %q]", cmds[0].args, want+"x")
+		}
+	})
+
+	t.Run("empty seed cwd stays empty", func(t *testing.T) {
+		cmds, err := extractSimpleCommands(mustParse(t, "cat \"$PWD\"x"), "", defaultVarResolver(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cmds) != 1 {
+			t.Fatalf("expected 1 simple command, got %d: %+v", len(cmds), cmds)
+		}
+		if cmds[0].cwd != "" {
+			t.Errorf("seeded cwd = %q, want %q (unknown, not Clean's %q)", cmds[0].cwd, "", filepath.Clean(""))
+		}
+	})
+}

@@ -493,7 +493,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// unresolved variable, or `cd -`) — after that point relative operands
 	// cannot be safely resolved and must fail closed, so every later-emitted
 	// simpleCommand in that scope carries cwdInvalid=true.
+	//
+	// The seed is Cleaned for the reason all four applyCd arms Clean: the
+	// tracked cwd is handed to `$PWD` unmodified, so a seed carrying a trailing
+	// slash would resolve `"$PWD"x` as <seed>/x where bash yields <seed>x. The
+	// seed reaches concatenation on a line with no `cd` in it at all, so the
+	// applyCd Cleans do not cover it (pinned by
+	// TestCdTrackingSeedCWDIsCleaned). The empty seed is exempt: it means the
+	// cwd is UNKNOWN, which resolveVar fails closed on, and filepath.Clean("")
+	// is "." — a resolvable relative path.
 	runningCWD := seedCWD
+	if runningCWD != "" {
+		runningCWD = filepath.Clean(runningCWD)
+	}
 	runningCWDInvalid := false
 
 	// runningOldCWD / runningOldCWDInvalid track $OLDPWD: the value of
@@ -645,14 +657,18 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			return // scoped cd does not persist (mirrors recordAssign)
 		}
 		if len(call.Args) == 1 {
-			// Bare `cd` (no argument) goes to $HOME.
+			// Bare `cd` (no argument) goes to $HOME. It tracks home Cleaned for
+			// the same reason the quoted-tilde case below does: the tracked cwd
+			// is handed to `$PWD` unmodified, so a $HOME carrying a trailing
+			// slash would otherwise reach concatenation (pinned by
+			// TestCdTrackingBareCdTracksCleanedHome).
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				runningCWDInvalid = true
 				return
 			}
-			runningCWD = home
+			runningCWD = filepath.Clean(home)
 			runningCWDInvalid = false
 			return
 		}
@@ -672,18 +688,65 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 		switch {
 		case filepath.IsAbs(lit):
-			runningCWD = lit
-		case lit == "~" || strings.HasPrefix(lit, "~/"):
+			// Cleaned, not verbatim, for the reason the two arms below Clean:
+			// the tracked cwd is handed to `$PWD` unmodified, so `cd /tmp/`
+			// would otherwise track a trailing slash bash's own $PWD never
+			// carries and `"$PWD"x` would resolve as /tmp/x rather than /tmpx.
+			// This is also the arm an UNQUOTED `cd ~` takes, since literalWord
+			// tilde-expands it upstream (pinned by
+			// TestCdTrackingAbsoluteCdTracksCleanedPath).
+			runningCWD = filepath.Clean(lit)
+		case hasLeadingTilde(lit):
 			home, err := resolver.homeDir()
 			if err != nil || home == "" {
 				runningCWDInvalid = true
 				return
 			}
-			if lit == "~" {
-				runningCWD = home
-			} else {
-				runningCWD = filepath.Join(home, strings.TrimPrefix(lit, "~/"))
-			}
+			// A tilde reaches here when expand.Literal declined to expand it,
+			// which is TWO spellings and not only the quoted one. The quoted
+			// `cd '~'` / `cd "~/x"` is the one bash does not expand either — it
+			// looks for a directory literally named `~` under the cwd, and
+			// unless one exists the `cd` fails and the cwd does not move. The
+			// other is `cd ~"/x"`, whose tilde is UNQUOTED and which bash DOES
+			// send to $HOME: expand.Literal declines it because its tilde prefix
+			// is followed by a further field with no unquoted slash of its own
+			// (expandUser, mvdan.cc/sh/v3/expand). Expanding it here is exactly
+			// right for that spelling and an over-approximation only for the
+			// quoted one, which the paragraph below bounds. A BACKSLASH-escaped
+			// `cd \~` is not covered either: the backslash survives expansion,
+			// so `lit` is `\~`, this guard is false, and the operand
+			// relative-joins a literal `\~` segment onto the tracked cwd. That
+			// spelling is bounded rather than repaired — filepath.Join keeps the
+			// fabricated path under the already-tracked parent, so nothing
+			// escapes what that parent already allowed.
+			//
+			// Resolving the quoted spelling to $HOME anyway is a deliberate
+			// over-approximation: it grades later relative operands against home
+			// rather than against the unchanged cwd. The usual direction is the
+			// strict one: with a home outside every sanctioned root the operand
+			// grades an out-of-repo escape and the line DENIES, where the
+			// unchanged, bash-real cwd would have ridden the in-repo-write allow.
+			// It is NOT one-directional, though, and a `..`-bearing operand is
+			// the counterexample: with a home under this worktree, `../x` off
+			// home grades `contained` while `../x` off the unchanged worktree cwd
+			// grades `escapeWorktree`, which denies. What bounds that arm is the
+			// residual DEFER and not the grading direction — `cd` is an
+			// unclassified program, so every line of this shape carries a
+			// no-specific-rule defer and none can ride the allow track. The
+			// shipped verdict does not widen whichever way the region moves. See
+			// the README's cd-tracking section.
+			//
+			// ok is already established by the case guard plus a non-empty home.
+			// Cleaned, not verbatim, so a $HOME carrying a trailing slash cannot
+			// reach `$PWD` concatenation — bash's own $PWD carries no trailing
+			// slash after a successful cd (pinned by
+			// TestCdTrackingBareTildeTracksCleanedHome). The Clean is applied
+			// HERE rather than left to expandLeadingTilde, which carries the
+			// post-`~` remainder verbatim so a `..` reaches the path resolver
+			// intact: a tracked cwd wants bash's logical reading of `..`, which
+			// is the lexical one.
+			expanded, _ := expandLeadingTilde(lit, home)
+			runningCWD = filepath.Clean(expanded)
 		case runningCWDInvalid:
 			// Cannot safely join a relative target onto an already-invalid cwd.
 			return
