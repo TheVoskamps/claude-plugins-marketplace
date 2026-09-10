@@ -146,6 +146,16 @@ into a brief.
    orchestration notes — are context for the scope notes rather than
    findings.
 
+   **One kind of comment is neither.** A comment whose first line is a
+   marker of the form `<!-- sdlc:theorem-records i/N -->`, with `i` and
+   `N` standing for the chunk's 1-based position and the total, is a
+   chunk of the assembled detail a finalizer run posted — your own
+   output, not anyone's input. Match that shape rather than a fixed
+   string: the numbers vary per chunk, so no posted comment ever
+   carries the bytes `i/N`. Skip it here on the same terms as a brief,
+   and count it under "Post the run's assembled detail" below, which is
+   where a chain an earlier run already posted is settled.
+
 5. **Post the run's assembled detail**, per "Post the run's assembled
    detail" below, before you touch the body. It lands first so the
    section you append can name the comment chain, and so a run that
@@ -209,7 +219,9 @@ into a brief.
    body.
 
 9. **Report back**: how many detail comments you posted and what they
-   covered, what you appended, in outline, and whether the posted body
+   covered — or that you reused a complete chain an earlier run had
+   posted, or that a partial one sits above yours — what you appended,
+   in outline, and whether the posted body
    verified — base intact and section present. Name anything you found
    that the section could not settle from the rounds and the branch
    alone, and name any round whose log existed but whose review file did
@@ -227,6 +239,27 @@ order, so a reader scrolling the chain reads the run forwards:
 
 Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
+
+**Check first whether a chain is already posted.** A finalizer spawned
+again over the same PR — after a run that posted the detail and then
+failed at the amendment, say — finds its predecessor's chunks sitting
+on the PR, and a second chain would double the run's whole record with
+nothing to tell the copies apart. Collect the markers, shape-matched
+as in step 4:
+
+```bash
+gh pr view <PR> --json comments \
+  --jq '.comments[] | .body | split("\n")[0]' \
+  | grep -o 'sdlc:theorem-records [0-9]*/[0-9]*'
+```
+
+A chain is **complete** when, for one `N`, every position `1` through
+`N` is present. Finding one, post nothing: it is the record you would
+have assembled, so the section you append names that chain, and your
+report says you reused it rather than posting. Otherwise post the whole
+chain, chunked as below, even when part of an incomplete one is already
+up — you delete no comment, an earlier run's included, so say in your
+report that a partial chain sits above the one you posted.
 
 **Chunk the assembly at a piece boundary, under GitHub's 64 KB
 comment cap.** A boundary is between two whole pieces — between two
@@ -274,7 +307,8 @@ it is rather than when it was written. It carries:
 
 - **How the review loop went** — how many rounds reached disposition,
   the final overall verdict, and what the last round's findings were, if
-  any, plus where the full detail now is: the comment chain you posted,
+  any, plus where the full detail now is: the comment chain — the one
+  you posted, or the complete one an earlier run had already posted —
   named as such. State a count only where you counted it from the round
   files themselves.
 - **What changed in response** — what the loop raised, whether a review
