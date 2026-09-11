@@ -31,9 +31,9 @@ questions.
 
 Sibling observability plugins cover adjacent surfaces but not this one:
 
-- [`show-loaded-rules`](../show-loaded-rules/README.md) surfaces
+- `show-loaded-rules` surfaces
   CLAUDE.md / `.claude/rules/*.md` loads via `InstructionsLoaded`.
-- [`show-loaded-skills`](../show-loaded-skills/README.md) surfaces
+- `show-loaded-skills` surfaces
   skill loads via `UserPromptExpansion` and `PreToolUse(Skill)`.
 
 Neither fires for a subagent spawn, so this plugin fills that gap.
@@ -50,7 +50,7 @@ parameters and what prompt", which is the whole point of this plugin.
 
 The spawn parameters live only in the tool call's `tool_input`, which
 is visible on `PreToolUse`. The repo's existing
-[`block-background-agents`](../block-background-agents/README.md)
+`block-background-agents`
 plugin already registers `PreToolUse` with matcher `Agent|Task` and
 demonstrably fires and reads `tool_input.run_in_background`, proving
 this event+matcher matches the subagent-spawn tool on the current

@@ -919,10 +919,14 @@ adjustments as a PR comment") and the fixer brief you write (see
 and carries a timestamp the next round can cut against; a body edit is
 neither.
 
-A finding whose remedy really is a PR-body change is not lost by this.
-Relay it to `pr-finalizer` as part of what the final section has to
-settle, and say so in the round's report — the fix lands once, at the
-end, rather than mid-loop where nothing can see it.
+A PR-body claim the run made stale is not lost by this. You are the
+party that surfaces it: collect every one the teammate reports you
+consume during the loop name — a finding whose remedy is a body change,
+a body change a fixer reports it did not make, a claim a change
+falsified — and carry each into the scope notes you hand
+`pr-finalizer`, quoted, with what is true now. Say so in the round's
+report. The fix lands once, at the end, rather than mid-loop where
+nothing can see it.
 
 ### Handling review findings — the fix loop
 

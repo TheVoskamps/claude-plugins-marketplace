@@ -68,7 +68,8 @@ You must be given:
 - Branch name
 - The scope notes the run settled — deferrals, dropped members,
   rulings the human made that the rounds do not carry, every claim in
-  the PR body the run made stale, and `docs-writer`'s per-file list of
+  the PR body the run made stale, quoted, with what is true now, and
+  `docs-writer`'s per-file list of
   the documentation it changed after the last round. May be "none".
 
 If the PR number is missing, ask before proceeding.
