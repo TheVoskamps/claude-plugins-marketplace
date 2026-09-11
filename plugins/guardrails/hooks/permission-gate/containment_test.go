@@ -891,7 +891,7 @@ func TestInputRedirectRecording(t *testing.T) {
 
 	reduce := func(cmd string) simpleCommand {
 		t.Helper()
-		cmds, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
 		if err != nil || len(cmds) != 1 {
 			t.Fatalf("reduce %q: %d commands, err %v", cmd, len(cmds), err)
 		}
@@ -1101,7 +1101,7 @@ func TestCompoundRedirectThreading(t *testing.T) {
 
 	reduceAll := func(cmd string) []simpleCommand {
 		t.Helper()
-		cmds, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(mustParse(t, cmd), cwd, defaultVarResolver(), nil)
 		if err != nil {
 			t.Fatalf("reduce %q: %v", cmd, err)
 		}
@@ -1267,7 +1267,7 @@ func TestRedirectOnlyConstructGraded(t *testing.T) {
 
 	// Structural: the synthetic command is flagged, carries no real program, and
 	// records the paths it opens.
-	cmds, err := extractSimpleCommands(mustParse(t, "[[ -f a ]] > out.log < in.txt"), root,
+	cmds, _, err := extractSimpleCommands(mustParse(t, "[[ -f a ]] > out.log < in.txt"), root,
 		defaultVarResolver(), nil)
 	if err != nil || len(cmds) != 1 {
 		t.Fatalf("expected one synthetic command; got %d (%v)", len(cmds), err)

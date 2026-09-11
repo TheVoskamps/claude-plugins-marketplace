@@ -129,13 +129,30 @@ The gate's engines feed that decision:
   `HOME=` assignment a later word resolves against — **DENIES**
   (`home:unusable`), and so does a **`cd` carrying no directory
   operand**, which bash sends to `$HOME` and which is therefore a home
-  reference carrying no home-referencing *word* — the operand-less `cd`
-  and every all-options spelling, `cd -P`, `cd -L`, `cd --` and their
+  reference carrying no home-referencing *word* — the operand-less `cd`,
+  every all-options spelling (`cd -P`, `cd -L`, `cd --` and their
   combinations, an operand bash would reject as an invalid option
-  included — and so does a file-tool operand whose `~`
+  included), and every operand that expands to **no field at all**
+  (`X=; cd $X`, which bash word-splits away before `cd` sees it) — and
+  so does a file-tool operand whose `~`
   names one. A `cd` that still carries a directory (`cd sub`,
   `cd -P /abs`) is not one of these, and neither is `cd -`, which names
-  `$OLDPWD`. Downstream of that line every site that reads home (`$HOME`
+  `$OLDPWD`, nor `cd ""` / `cd "$X"` with `X` empty, which pass bash one
+  empty operand and leave it where it is.
+
+  On the Bash track that chokepoint **is the classifier's own walk**
+  (`extractSimpleCommands`), which raises the deny as it goes and
+  abandons the rest of the line; the file-tool track has a chokepoint of
+  its own (`fileToolHomeChokepoint`), a raw operand needing none of the
+  walk's machinery. Grading a Bash home reference needs three things the
+  walk already carries — the variables assigned so far, the scope depth
+  they are recorded at, and the tracked cwd their values resolve
+  against — so a separate scan has to mirror all three, and whatever it
+  fails to mirror is an escape: a loop-variable binding it does not
+  learn hides the `cd` in `for C in cd; do $C; done`, and an assignment
+  RHS it does not descend into hides a `HOME=` inside a command
+  substitution. One walk, one variable map, one scope counter.
+  Downstream of that line every site that reads home (`$HOME`
   resolution, `cd` / `cd ~` tracking, the containment resolver's tilde
   arm, `lexicalAbs`, the carve-out loader, the Claude config root, the
   evolution-log path) asks `resolveHome` for one and gets either a
@@ -146,9 +163,15 @@ The gate's engines feed that decision:
   composing a path against a relative home: an unusable home loads no
   carve-out config (so no operator allow), resolves no `~/.claude` root
   (so a target landing there grades as an ordinary escape — a **deny**
-  — instead of the `claudeConfig` defer that root buys), and writes no
-  evolution-log entry unless `PERMISSION_GATE_LOG` names the file, that
-  override being the one log path no home resolves. Only the log sits
+  — instead of the `claudeConfig` defer that root buys), and resolves no
+  log path. The criterion there is that **no home-derived path is ever
+  composed**, not that nothing is written: the home-rooted default is
+  withheld, while the `PERMISSION_GATE_LOG` override — the operator's
+  own explicit destination, which reads no home — still writes, provided
+  it is **absolute**. A relative override is graded with the same
+  predicate a home is, for the same reason: it would compose against
+  whatever directory the gate happens to be running in, which is the
+  outcome the predicate exists to prevent. Only the log sits
   outside the verdict; the
   carve-out and the `~/.claude` root are relaxations an unusable home
   withdraws. So an event carrying no `~`, no `$HOME` and no
@@ -181,35 +204,35 @@ The gate's engines feed that decision:
   home and deny nothing. What the resolver cannot resolve **exactly** is
   graded **unusable**, because the gate cannot place the home the later
   words resolve against: an append, an array, a **command substitution**
-  (any one — the anchor allowlist buys nothing here, because this scan
-  resolves with an empty cwd context and no anchor resolves without
-  one), and an expansion this scan cannot
-  resolve — `$PWD`, or a variable assigned earlier in the same program.
+  (any one — the anchor allowlist buys nothing here, because the value
+  is resolved with an empty cwd context and no anchor resolves without
+  one), and an expansion that resolution cannot
+  reach — `$PWD`, or a variable assigned earlier in the same program.
   That last arm denies with both homes
   perfectly usable: `HOME=$(pwd); cat ~/x` denies, where bash would have
   placed that home fine (measured against this branch's binary). A
   **naked** `export HOME` is not in that set and is not the empty home
   either: it carries no value, so bash leaves `$HOME` exactly as it was
-  and so does the scan — the grade in effect is inherited, and only a
+  and so does the gate — the grade in effect is inherited, and only a
   spelling carrying an `=` reaches the grader. `HOME=` is one, and sets
   the empty home.
 
-  Where the scan diverges from `recordAssign`, and on which axis:
+  Two asymmetries inside that one walk, each deliberate:
 
-  - **The cwd.** The scan resolves every value with an EMPTY cwd
-    context, because it runs before the classifier that tracks the cwd,
-    so a `$PWD`-built value is inexact here and exact there.
-  - **The variable chain, on one side only.** The scan records the same
-    top-level static assignments `recordAssign` does and consults them
-    where an unresolved word would make it MISS a home reference — the
-    `cd` program word, so that `C=cd; $C` is the same `cd` call at both
-    sites. Grading a `HOME=` **value** keeps a nil map on purpose: an
-    unresolved value grades unusable there, which denies already.
+  - **A `HOME=` value is resolved with neither the walk's variable map
+    nor its tracked cwd**, though `recordAssign` has both a line away.
+    Withholding them can only make the grade stricter, and stricter is
+    the deny direction: the gate denies a later `~` rather than placing
+    the home on a resolution the word itself never gets. The `cd`
+    **program** word is the opposite case — an unresolved word there
+    would MISS a `cd` call — so it is resolved with both, which is why
+    `C=cd; $C` and `for C in cd; do $C; done` are the same `cd` call
+    here that they are in `applyCd`.
   - **Scope, in the deny direction only.** A `HOME=` inside a subshell,
     a function body, a backgrounded statement or a substitution does not
-    set the home a word after the scope resolves against, so the scan
-    applies it only when it grades **unusable** — and then leaves it in
-    effect past the scope, which `recordAssign` would not. A scoped
+    set the home a word after the scope resolves against, so it is
+    applied only when it grades **unusable** — and then left in effect
+    past the scope, which the variable map would not do. A scoped
     `HOME=<relative>` therefore denies a later `~` bash would have
     resolved against a usable process home, while `(HOME=/abs); cat ~/x`
     under an unusable process home denies rather than riding a home the
@@ -225,9 +248,11 @@ The gate's engines feed that decision:
     against, which for that word is the process home.
   - `Grep` and `Glob` raise no event, as today, so a `~`-spelled path
     handed to either is not graded at this chokepoint or anywhere else.
-  - An all-options `cd` is a home reference **to the chokepoint only**.
-    The cd-tracking code below carries no option arm, so under a usable
-    home `cd -P` tracks `<cwd>/-P` where bash goes to `$HOME`. What
+  - An all-options `cd`, and one whose operand expands to no field, are
+    home references **to the chokepoint only**. The cd-tracking code
+    below carries neither arm, so under a usable home `cd -P` tracks
+    `<cwd>/-P` and `X=; cd $X` leaves the tracked cwd where it was,
+    where bash goes to `$HOME` in both. What
     bounds that is the residual defer `cd` carries as an unclassified
     program: measured, `cd -P; touch x` in a repo defers
     (`bash:no-specific-rule`) where the same line without the `cd`
@@ -340,7 +365,11 @@ The gate's engines feed that decision:
   assigned from a command substitution / another unresolved expansion,
   or a non-plain expansion (`${P:-x}`, `${#P}`, …) stays inexact and
   keeps escalating (fail-closed); a `VAR=x cmd` prefix sets env for
-  that one command only and does not persist to later commands. A name
+  that one command only and does not persist to later commands; and a
+  **naked** `export VAR` carrying no `=` is not an assignment at all —
+  bash leaves the value exactly as it was, so the name keeps whatever
+  it resolved to before, rather than being recorded as the empty
+  string and collapsing a later `"$VAR/x"` to `/x`. A name
   absent from that in-script static-assignment map falls through to a
   **closed allowlist of process-environment-derived variables**
   — `$HOME`, `$USER`, `$TMPDIR`, `$PWD`, `$OLDPWD` — each
@@ -362,9 +391,10 @@ The gate's engines feed that decision:
   environment is unverified. A resolver whose source for one of
   the resolver-backed names (`$HOME`, `$USER`, `$TMPDIR`) is **absent**
   likewise makes that name unresolvable, graded like an unset variable.
-  (For `$HOME` that arm is reachable only through a source-less
-  resolver: an unusable home denies at the home chokepoint above before
-  any word is resolved.) A source-less resolver is not a degenerate
+  (For `$HOME` that arm is not reachable through a Bash event at all:
+  an absent source is an unusable home, and a word carrying `$HOME`
+  denies at the home chokepoint above before it is resolved. It is
+  pinned on `resolveVar` directly instead.) A source-less resolver is not a degenerate
   case: the anchor matcher grades a substitution's argv against one
   deliberately, because no anchor form carries a `~` or one of those
   names, so resolving either there would buy nothing. The only

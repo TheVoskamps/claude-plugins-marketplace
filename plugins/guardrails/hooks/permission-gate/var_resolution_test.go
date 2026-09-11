@@ -53,9 +53,14 @@ func TestHomeVarResolvesLikeTilde(t *testing.T) {
 
 // TestHomeVarUnresolvableFailsClosed pins the fail-closed branch: when
 // os.UserHomeDir() (via the injected resolver) errors or returns empty,
-// $HOME must NOT resolve — the word stays inexact and the command withholds
-// the allow (a dynamic-path DEFER), it must never silently resolve to "" or
-// guess ALLOW.
+// $HOME must NOT resolve — it must never silently resolve to "" or guess
+// ALLOW.
+//
+// Both halves are asserted, because the home a word resolves against and the
+// home the gate can place are the same predicate: the resolution itself
+// withholds a value, and a word carrying `$HOME` never reaches a command at
+// all — the home-usability chokepoint denies the whole event as the walk
+// reaches that word (home.go), which is stricter than the inexact-word defer.
 func TestHomeVarUnresolvableFailsClosed(t *testing.T) {
 	base := t.TempDir()
 	repo := filepath.Join(base, "repo")
@@ -63,27 +68,70 @@ func TestHomeVarUnresolvableFailsClosed(t *testing.T) {
 	cwd := canonicalize(repo)
 
 	file := mustParse(t, `cat "$HOME/.ssh/id_rsa"`)
-	resolver := fakeResolver("", errors.New("no home directory"), nil)
-	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
+	for _, tc := range []struct {
+		name     string
+		resolver varResolver
+	}{
+		{name: "errors", resolver: fakeResolver("", errors.New("no home directory"), nil)},
+		{name: "empty", resolver: fakeResolver("", nil, nil)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if val, ok := resolveVar("HOME", nil, tc.resolver, cwdCtx{}); ok {
+				t.Errorf("$HOME must fail closed when homeDir() %s; resolved to %q", tc.name, val)
+			}
+			cmds, homeDeny, err := extractSimpleCommands(file, cwd, tc.resolver, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if homeDeny.Bucket != BucketDeny || homeDeny.Operation != homeUnusableOp {
+				t.Fatalf("a `$HOME` word under a home that %s must deny at the chokepoint; got bucket %q op %q",
+					tc.name, homeDeny.Bucket, homeDeny.Operation)
+			}
+			if len(cmds) != 0 {
+				t.Errorf("a denied event extracts no command to grade; got %d", len(cmds))
+			}
+		})
+	}
+}
+
+// TestNakedExportIsNotAnAssignment pins what a `export VAR` carrying no `=`
+// does to the variable map: nothing. Bash exports the variable and leaves its
+// value exactly as it was, so recording the empty string would resolve a later
+// `"$VAR/x"` against the filesystem root. For an exported name the gate has a
+// source for ($HOME) that is the process home; for one it does not, the word
+// must stay inexact rather than resolve to "".
+func TestNakedExportIsNotAnAssignment(t *testing.T) {
+	_, wt := setupWorktree(t)
+	home := t.TempDir()
+	resolver := fakeResolver(home, nil, nil)
+
+	file := mustParse(t, `export HOME; cat "$HOME/x"`)
+	cmds, homeDeny, err := extractSimpleCommands(file, wt, resolver, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if homeDeny.Bucket == BucketDeny {
+		t.Fatalf("a naked `export HOME` sets no value, so the usable process home stands (reason=%q)",
+			homeDeny.Reason)
+	}
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 simple command (cat), got %d", len(cmds))
+	}
+	wantArg := filepath.Join(home, "x")
+	if len(cmds[0].args) < 2 || cmds[0].args[1] != wantArg {
+		t.Errorf("after a naked `export HOME`, $HOME/x must resolve to %q, got args=%v", wantArg, cmds[0].args)
+	}
+
+	file = mustParse(t, `export P; cat "$P/x"`)
+	cmds, _, err = extractSimpleCommands(file, wt, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cmds) != 1 {
-		t.Fatalf("expected 1 simple command, got %d", len(cmds))
+		t.Fatalf("expected 1 simple command (cat), got %d", len(cmds))
 	}
 	if !cmds[0].hasUnknownExpansion {
-		t.Errorf("$HOME must fail closed (hasUnknownExpansion=true) when homeDir() errors; got false")
-	}
-
-	// Empty string from homeDir() (no error, but no home) must also fail
-	// closed, not resolve to an empty-string $HOME.
-	resolverEmpty := fakeResolver("", nil, nil)
-	cmds2, err := extractSimpleCommands(file, cwd, resolverEmpty, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cmds2[0].hasUnknownExpansion {
-		t.Errorf("$HOME must fail closed when homeDir() returns empty; got hasUnknownExpansion=false")
+		t.Errorf("a naked `export P` assigns nothing, so $P must stay unresolved; got args=%v", cmds[0].args)
 	}
 }
 
@@ -113,7 +161,7 @@ func TestPWDResolvesAgainstTrackedCwdNotEventCwd(t *testing.T) {
 	// Directly assert the resolved value via extractSimpleCommands, so the
 	// test pins the RESOLVED PATH, not just the eventual bucket.
 	file := mustParse(t, cmd)
-	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
+	cmds, _, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +211,7 @@ func TestOLDPWDResolvesToPriorTrackedCwd(t *testing.T) {
 	}
 
 	file := mustParse(t, cmd)
-	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
+	cmds, _, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +268,7 @@ func TestUserAndTmpdirResolveFromProcessEnv(t *testing.T) {
 
 	file := mustParse(t, `cat "$USER/x"`)
 	resolver := fakeResolver(base, nil, map[string]string{"USER": "alice"})
-	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
+	cmds, _, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +290,7 @@ func TestTmpdirUnsetFailsClosed(t *testing.T) {
 
 	file := mustParse(t, `cat "$TMPDIR/x"`)
 	resolver := fakeResolver(base, nil, nil) // no TMPDIR key at all
-	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
+	cmds, _, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +319,7 @@ func TestInScriptAssignmentWinsOverEnv(t *testing.T) {
 	// Inject a DIFFERENT home dir than the in-script assignment, so a pass
 	// would prove precedence rather than accidentally matching.
 	resolver := fakeResolver(filepath.Join(base, "real-home"), nil, nil)
-	cmds, err := extractSimpleCommands(file, cwd, resolver, nil)
+	cmds, _, err := extractSimpleCommands(file, cwd, resolver, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

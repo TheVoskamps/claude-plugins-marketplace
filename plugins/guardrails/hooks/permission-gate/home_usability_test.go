@@ -153,13 +153,20 @@ func TestHomeChokepointBashShapes(t *testing.T) {
 		{cmd: `export HOME; cat ~/x`},
 		{cmd: `HOME=; cat ~/x`, alwaysDenies: true},
 		// A SCOPED assignment does not set the home the words after the scope
-		// resolve against, so it may only make the scan stricter. An absolute
+		// resolve against, so it may only make the gate stricter. An absolute
 		// one cannot rescue a `~` from an unusable process home…
 		{cmd: `(HOME=/absolute/home); cat ~/x`},
 		{cmd: `f() { HOME=/absolute/home; }; cat ~/x`},
 		// …while a relative one is still graded as if it persisted, which
 		// denies under a process home bash would have resolved the `~` against.
 		{cmd: `(HOME=relhome); cat ~/x`, alwaysDenies: true},
+		// A command substitution on a PERSISTENT assignment's RHS is one of
+		// those scopes: the walk descends into it like any other, so the
+		// `HOME=` inside takes effect in the unusable direction.
+		{cmd: `X=$(HOME=relhome; echo hi); cat ~/x`, alwaysDenies: true},
+		// A loop variable bound by the walk's own fan-out names `cd` as
+		// surely as a plain assignment does.
+		{cmd: `HOME=relhome; for C in cd; do $C; done`, alwaysDenies: true},
 	}
 	for _, shape := range homeShapes() {
 		for _, tc := range commands {
@@ -216,11 +223,13 @@ func TestHomeChokepointInScriptAbsoluteHome(t *testing.T) {
 // it is a home reference by definition and denies at the chokepoint under an
 // unusable home exactly as `cat ~/x` does. That is the operand-less spelling
 // and every all-options one — `cd -P`, `cd -L`, `cd --` and their combinations,
-// each of which bash sends to $HOME too. `$C` with `C=cd` is here because the
-// chokepoint must recognize the same `cd` call applyCd does, which needs the
-// walk's own knownVars: resolved against a nil map the program word is opaque,
-// the chokepoint stays silent, and applyCd is left tracking a home the gate
-// cannot place.
+// each of which bash sends to $HOME too — and every operand that expands to no
+// field at all, which bash word-splits away before `cd` ever sees it
+// (`X=; cd $X`). `$C` with `C=cd` is here, as a plain assignment and as a
+// loop-variable binding, because the chokepoint must recognize the same `cd`
+// call applyCd does: resolved against a variable map that never learned `C`
+// the program word is opaque, the chokepoint stays silent, and applyCd is left
+// tracking a home the gate cannot place.
 //
 // Under a usable home none of them may ride the allow track. The operand-less
 // spelling tracks $HOME, so the command reads outside the repo; the
@@ -236,6 +245,8 @@ func TestHomeChokepointBareCd(t *testing.T) {
 		`cd --; cat x`,
 		`cd -P -L; cat x`,
 		`C=cd; $C; cat x`,
+		`for C in cd; do $C; done; cat x`,
+		`X=; cd $X; cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
@@ -267,9 +278,17 @@ func TestHomeChokepointBareCd(t *testing.T) {
 // above: a `cd` that carries a directory operand names no home, so it must not
 // deny at the chokepoint even under an unusable home. `cd -` is one of these —
 // it names $OLDPWD, not $HOME — and so is an all-options `cd` that still has a
-// directory after the options.
+// directory after the options. So is an operand that expands to one EMPTY
+// field rather than to none: bash keeps a quoted empty operand and stays put,
+// where it word-splits an unquoted empty expansion away and goes to $HOME.
 func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
-	for _, cmd := range []string{`cd sub; cat x`, `cd -; cat x`, `cd -P /absolute/dir; cat x`} {
+	for _, cmd := range []string{
+		`cd sub; cat x`,
+		`cd -; cat x`,
+		`cd -P /absolute/dir; cat x`,
+		`cd ""; cat x`,
+		`X=; cd "$X"; cat x`,
+	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
 				repo := homeTestRepo(t)
@@ -386,6 +405,32 @@ func TestHomeUsabilityNonVerdictReaders(t *testing.T) {
 			if gotConfig == "" || !filepath.IsAbs(gotConfig) {
 				t.Errorf("operatorCarveOutConfigPath() = %q with an absolute home, want an absolute path",
 					gotConfig)
+			}
+		})
+	}
+}
+
+// TestHomeUsabilityLogOverride pins the one log path that resolves no home.
+// PERMISSION_GATE_LOG is the operator's own explicit destination, so an
+// ABSOLUTE override is written under every home shape, unusable ones included.
+// A RELATIVE override is not a destination the gate can place — it would
+// compose against whatever directory the gate is running in — so it is graded
+// with the same predicate a home is and writes nothing.
+func TestHomeUsabilityLogOverride(t *testing.T) {
+	for _, shape := range homeShapes() {
+		t.Run(shape.name, func(t *testing.T) {
+			abs := filepath.Join(t.TempDir(), "gate.jsonl")
+			t.Setenv(logEnvVar, abs)
+			applyHomeShape(t, shape)
+
+			if got := logPath(); got != abs {
+				t.Errorf("logPath() = %q with an absolute override and a %s home, want %q", got, shape.name, abs)
+			}
+
+			t.Setenv(logEnvVar, "relative/gate.jsonl")
+			if got := logPath(); got != "" {
+				t.Errorf("logPath() = %q with a relative override and a %s home, want \"\" (no log written)",
+					got, shape.name)
 			}
 		})
 	}

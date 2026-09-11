@@ -174,14 +174,18 @@ with no such file resolves no root from the variable at all.
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
 (`operator_carveout_test.go` is the worked example). A home-usability
-row needs two more steps, both in `home_usability_test.go`: build the
-git worktree the event runs in (`homeTestRepo`) **before** installing
-the home shape, and point `GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` at
-`os.DevNull` as part of installing it (`applyHomeShape`). Git itself
-reads `~`, so under an unusable home a driving machine whose global
-config carries a tilde-spelled include fails both the `git init` that
-builds the fixture and every `git rev-parse` the gate shells out to —
-measuring that machine's gitconfig rather than the gate. Replay still
+row that runs an EVENT through the gate needs two more steps, both in
+`home_usability_test.go`: build the git worktree the event runs in
+(`homeTestRepo`) **before** installing the home shape, and point
+`GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` at `os.DevNull` as part of
+installing it (`applyHomeShape`). Git itself reads `~`, so under an
+unusable home a driving machine whose global config carries a
+tilde-spelled include fails both the `git init` that builds the fixture
+and every `git rev-parse` the gate shells out to — measuring that
+machine's gitconfig rather than the gate. A row that exercises a home
+READER on its own instead — `logPath`, the carve-out loader, the
+`~/.claude` root — runs no event and forks no git, so it installs the
+shape and builds no repo. Replay still
 earns its place as the negative control: the unconfigured machine you
 are running on denies the very reads the carve-out is for, and that
 verdict is real evidence.

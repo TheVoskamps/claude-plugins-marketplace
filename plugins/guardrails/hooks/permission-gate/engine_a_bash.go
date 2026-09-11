@@ -127,18 +127,16 @@ func classifyBash(command string, ev *Event) Decision {
 			err, parseErrorCauseSentence(command, err)))
 	}
 
-	// Home-usability chokepoint: any word referencing a home the gate cannot
-	// place DENIES here, before a single track-specific rule runs. Downstream
-	// of this line every site that reads home gets a usable absolute one (see
-	// home.go).
-	if d, hit := bashHomeChokepoint(file, defaultVarResolver()); hit {
-		return d
-	}
-
 	// Forbidden command shapes: `cd <path> && git …` and `git -C <abs-path>
 	// …`. The gate denies each with a remediation naming the two-call
 	// replacement — `cd <path>`, then the bare `git <subcommand>` — rather
 	// than letting the compound shape through.
+	//
+	// It runs BEFORE the extraction below, and must: brace expansion
+	// (staticForItems) calls syntax.SplitBraces, which rewrites a word's Parts
+	// in place, and syntax.Walk panics on the *syntax.BraceExp that leaves
+	// behind. Every whole-file Walk therefore belongs on this side of the
+	// extraction.
 	if d, hit := forbiddenForm(file); hit {
 		return d
 	}
@@ -152,7 +150,19 @@ func classifyBash(command string, ev *Event) Decision {
 	// does NOT abort classification of the rest of the line.
 	rc, _ := resolveRepoContext(ev.CWD)
 
-	cmds, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver(), rc)
+	cmds, homeDeny, extractErr := extractSimpleCommands(file, ev.CWD, defaultVarResolver(), rc)
+
+	// Home-usability chokepoint: a word referencing a home the gate cannot
+	// place DENIES, before every track-specific rule and before the
+	// unhandled-construct defer below. The walk above raises it as it goes —
+	// grading a home reference needs that walk's variables, scope depth and
+	// tracked cwd (see home.go) — and abandons the rest of the line once it
+	// does. Downstream of this line every site that reads home gets a usable
+	// absolute one.
+	if homeDeny.Bucket == BucketDeny {
+		return homeDeny
+	}
+
 	if extractErr != nil {
 		return deferJudgment("bash:unhandled-construct", fmt.Sprintf(
 			"the Bash command contains a construct the permission gate cannot statically classify (%v), so no "+
@@ -495,7 +505,14 @@ func (sc simpleCommand) allowEligible() bool {
 // `$(git rev-parse --show-toplevel)` / `$(git rev-parse --git-common-dir)`
 // can be recorded as a known literal instead of always being dropped as an
 // unresolvable command substitution.
-func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolver, rc *repoContext) ([]simpleCommand, error) {
+//
+// The second return is the home-usability chokepoint's verdict (home.go): a
+// deny when some word this walk reached references a home the gate cannot
+// place, and the zero Decision otherwise. The walk stops at the first such
+// word, so the commands it returns alongside a deny are a partial list and
+// the caller returns the deny instead of grading them.
+func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolver, rc *repoContext) (
+	[]simpleCommand, Decision, error) {
 	var out []simpleCommand
 	var walkErr error
 
@@ -565,6 +582,64 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// the read side (literalWord).
 	scopeDepth := 0
 
+	// homeDeny / homeHit carry the home-usability chokepoint's verdict (see
+	// home.go). homeHit stops the walk exactly as walkErr does: once a word
+	// referencing an unplaceable home has been found the whole event is denied,
+	// so there is nothing left to extract.
+	//
+	// homeOK grades the PROCESS home once, and scriptHomeSeen/scriptHomeOK the
+	// value of the in-script `HOME=` assignments the walk records, so a word is
+	// judged against the in-script value once one has been seen and against the
+	// process home before that — the same precedence resolveVar applies to
+	// `$HOME`.
+	var homeDeny Decision
+	homeHit := false
+	_, homeOK := resolveHome(resolver.homeDir)
+	scriptHomeSeen := false
+	scriptHomeOK := false
+	effectiveHomeOK := func() bool {
+		if scriptHomeSeen {
+			return scriptHomeOK
+		}
+		return homeOK
+	}
+
+	// gradeHomeWords denies on the first home-referencing word beneath n,
+	// judged against the home in effect at the point of the call.
+	//
+	// It stops at two kinds of node BENEATH the one it is given, each graded
+	// elsewhere at the point the home in effect for it is known: a nested
+	// *syntax.Stmt, which the walk reaches on its own (a `for` body, a `case`
+	// arm, a substitution's statements), and a *syntax.Assign, whose words
+	// recordAssign grades — by handing this function that assign as its root —
+	// before applying the assignment, so `HOME=~/sub` is graded against the OLD
+	// home, which is the home bash expands that RHS against. A PREFIX
+	// assignment (`HOME=x cmd …`) never reaches recordAssign, so walkCmd grades
+	// its assignments where it recognizes them.
+	gradeHomeWords := func(root syntax.Node) {
+		if root == nil || homeHit {
+			return
+		}
+		syntax.Walk(root, func(n syntax.Node) bool {
+			if n == nil || homeHit {
+				return false
+			}
+			if n != root {
+				switch n.(type) {
+				case *syntax.Stmt, *syntax.Assign:
+					return false
+				}
+			}
+			if w, ok := n.(*syntax.Word); ok {
+				if spelling, ok := wordHomeReference(w); ok && !effectiveHomeOK() {
+					homeDeny, homeHit = denyUnusableHome(spelling), true
+					return false
+				}
+			}
+			return true
+		})
+	}
+
 	// walkStmt's second parameter is the set of redirects INHERITED from an
 	// enclosing statement — see mergeRedirs and walkCmd for why a compound
 	// command's redirects have to travel down to the simple commands inside it.
@@ -583,8 +658,49 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// NOT recorded; to be safe we also DELETE any previously-known value for
 	// the name, since after such an assignment the variable is no longer
 	// statically known.
+	//
+	// It is also where a PERSISTENT `HOME=` takes effect for the home-usability
+	// chokepoint, because "persistent" is the same set on both counts: only an
+	// assignment a later word resolves against is one the home a later word
+	// resolves against can come from. A `HOME=x cmd …` PREFIX is neither — the
+	// gate's word resolution does not record it (measured: `HOME=/absolute/home
+	// cat ~/x` resolves the tilde against the PROCESS home, while
+	// `HOME=/absolute/home; cat ~/x` resolves it against `/absolute/home`), so a
+	// prefix neither rescues a word from an unusable process home nor condemns
+	// one under a usable process home.
 	recordAssign = func(a *syntax.Assign) {
-		if a == nil || a.Name == nil {
+		if a == nil {
+			return
+		}
+		// The right-hand side is expanded with the home in effect BEFORE the
+		// assignment, so it is graded first — `HOME=~/sub` references the old
+		// home — and only then does the new value take effect.
+		gradeHomeWords(a)
+		if homeHit || a.Name == nil {
+			return
+		}
+		if a.Name.Value == "HOME" && !a.Naked {
+			// A SCOPED `HOME=` does not set the home a word after the scope
+			// resolves against, so it may only make the gate stricter, never
+			// laxer: it takes effect when it grades UNUSABLE (and then stays in
+			// effect past the scope, which the knownVars recording below would
+			// not), and is ignored when it grades usable. So a scoped
+			// `HOME=<relative>` denies a later home word that real bash would
+			// resolve against a usable process home, while `(HOME=/abs); cat ~/x`
+			// under an UNUSABLE process home still denies rather than riding a
+			// home the enclosing shell never had.
+			usable := assignedHomeUsable(a, resolver)
+			if scopeDepth == 0 || !usable {
+				scriptHomeSeen, scriptHomeOK = true, usable
+			}
+		}
+		// A NAKED `export VAR` (no `=`) is not an assignment: it exports the
+		// variable and leaves its value exactly as it was, so recording the
+		// empty string here would resolve a later `$VAR` to nothing. For $HOME
+		// that means the grade in effect is inherited too (above), and only a
+		// spelling carrying an `=` reaches the grader — `HOME=` included, which
+		// sets the empty home.
+		if a.Naked {
 			return
 		}
 		// Inside a subshell / function body / backgrounded group the assignment
@@ -675,17 +791,14 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// slash would otherwise reach concatenation (pinned by
 			// TestCdTrackingBareCdTracksCleanedHome).
 			//
-			// The !ok arm is very nearly unreachable: a `cd` with no directory
-			// operand is a home reference, so the home chokepoint (home.go) has
-			// already DENIED the event when the home is unusable. What still
-			// reaches it is a program word only THIS resolution recognizes as
-			// `cd`, because the chokepoint's scan resolves with an empty cwdCtx
-			// where this one carries the tracked cwd — measured:
-			// `C=$PWD/cd; $C; touch x` under a relative $HOME passes the
-			// chokepoint and defers here as `bash-write:cd-unresolved-cwd`,
-			// where `C=cd; $C; touch x` denies `home:unusable`. So this arm is
-			// the fail-safe for that residual, and it invalidates rather than
-			// guessing.
+			// The !ok arm is reached only through an in-script `HOME=`: a `cd`
+			// with no directory operand is a home reference, so the home
+			// chokepoint has already DENIED the event when the home IN EFFECT
+			// is unusable, but the home in effect is the in-script one once a
+			// persistent `HOME=` has been seen while this resolution always
+			// reads the PROCESS home. So `HOME=/absolute/home; cd; touch x`
+			// under a relative process home passes the chokepoint and lands
+			// here, and it invalidates rather than guessing.
 			runningOldCWD, runningOldCWDInvalid = runningCWD, runningCWDInvalid
 			home, ok := resolveHome(resolver.homeDir)
 			if !ok {
@@ -995,7 +1108,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	// line to a bare non-path-bearing `echo` or an operand-less `cat` and ALLOWed
 	// it, bypassing containment on both the read and the write side.
 	walkCmd = func(cmd syntax.Command, redirs []*syntax.Redirect) {
-		if walkErr != nil {
+		if walkErr != nil || homeHit {
 			return
 		}
 		switch c := cmd.(type) {
@@ -1010,6 +1123,16 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 				for _, a := range c.Assigns {
 					recordAssign(a)
 				}
+			} else {
+				// A `VAR=x cmd` PREFIX assignment is not recorded, so
+				// recordAssign never grades its words; grade them here, against
+				// the home in effect for the command they prefix.
+				for _, a := range c.Assigns {
+					gradeHomeWords(a)
+				}
+			}
+			if homeHit {
+				return
 			}
 			// Stamp the running cwd (and its validity) AT THE POINT this command
 			// is walked, BEFORE applying this call's own `cd` side
@@ -1035,6 +1158,14 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// on its own terms by the statement-level descent in walkStmt, which runs
 			// before this arm and before applyCd.
 			//
+			// A `cd` carrying no DIRECTORY operand is a home reference that no
+			// word spells: bash sends it to $HOME. It is graded here, against
+			// the same knownVars and pre-cd cwd context applyCd resolves the
+			// call with, so both recognize the same calls as `cd`.
+			if !effectiveHomeOK() && bareCd(c, knownVars, resolver, cc) {
+				homeDeny, homeHit = denyUnusableHome("cd"), true
+				return
+			}
 			// Apply this call's `cd` side effect (if any) so LATER commands in
 			// the walk see the updated cwd.
 			applyCd(c)
@@ -1175,7 +1306,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	}
 
 	walkStmt = func(stmt *syntax.Stmt, inherited []*syntax.Redirect) {
-		if walkErr != nil || stmt == nil {
+		if walkErr != nil || homeHit || stmt == nil {
 			return
 		}
 		// This statement's own redirects PLUS everything inherited from an
@@ -1212,6 +1343,19 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 		if stmt.Cmd != nil {
 			descendProcSubsts(stmt.Cmd)
 			descendCmdSubsts(stmt.Cmd)
+		}
+
+		// Home-usability chokepoint (home.go): grade every word this statement
+		// owns — argv, a redirect target, a `for` item list, a `case` subject
+		// or pattern — against the home in effect here. The words of a nested
+		// statement and of an assignment are graded where each of those is
+		// reached (gradeHomeWords).
+		for _, r := range stmt.Redirs {
+			gradeHomeWords(r)
+		}
+		gradeHomeWords(stmt.Cmd)
+		if homeHit {
+			return
 		}
 
 		emitted := len(out)
@@ -1274,10 +1418,13 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 	for _, stmt := range file.Stmts {
 		walkStmt(stmt, nil)
 	}
-	if walkErr != nil {
-		return nil, walkErr
+	if homeHit {
+		return nil, homeDeny, nil
 	}
-	return out, nil
+	if walkErr != nil {
+		return nil, Decision{}, walkErr
+	}
+	return out, Decision{}, nil
 }
 
 // reduceCallExpr turns a single CallExpr into a simpleCommand. It expands
