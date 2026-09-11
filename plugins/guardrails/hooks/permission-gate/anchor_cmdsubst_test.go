@@ -104,7 +104,7 @@ func TestPwdAnchorResolvesToTrackedCwd(t *testing.T) {
 	// Directly assert the RESOLVED value is the tracked post-cd cwd (sub),
 	// not the event cwd (wt).
 	file := mustParse(t, cmd)
-	cmds, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
+	cmds, _, err := extractSimpleCommands(file, wt, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

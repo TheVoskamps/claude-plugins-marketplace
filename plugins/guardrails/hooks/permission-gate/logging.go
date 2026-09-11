@@ -74,13 +74,24 @@ func logEvent(ev *Event, d Decision) {
 
 // logPath returns the evolution-log file path: the PERMISSION_GATE_LOG
 // override if set, else ~/.claude/logs/permission-gate.jsonl. Returns "" when
-// no home directory can be determined (logging is then skipped).
+// the path it would compose is one the gate cannot place (logging is then
+// skipped).
+//
+// The override is graded with the same predicate as a home, for the same
+// reason: an override that is not an absolute path composes against whatever
+// directory the gate happens to be running in — the worktree — which is the
+// outcome the home predicate exists to prevent. An ABSOLUTE override is the
+// operator's own explicit destination and reads no home, so an unusable home
+// does not withhold it.
 func logPath() string {
 	if p := os.Getenv(logEnvVar); p != "" {
+		if !homeUsable(p, nil) {
+			return ""
+		}
 		return p
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	home, ok := processHome()
+	if !ok {
 		return ""
 	}
 	return filepath.Join(home, ".claude", "logs", "permission-gate.jsonl")

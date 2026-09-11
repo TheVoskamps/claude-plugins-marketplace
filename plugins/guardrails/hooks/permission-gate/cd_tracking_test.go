@@ -161,7 +161,7 @@ func TestCdTrackingSubshellCdDoesNotPersist(t *testing.T) {
 	}
 
 	cmd := "( cd " + a + " ) && cat ../x"
-	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, defaultVarResolver(), nil)
+	cmds, _, err := extractSimpleCommands(mustParse(t, cmd), wt, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestCdTrackingBareTildeTracksCleanedHome(t *testing.T) {
 	want := filepath.Clean(home)
 
 	cmd := "cd '~' && cat \"$PWD\"x"
-	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
+	cmds, _, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +316,7 @@ func TestCdTrackingBareCdTracksCleanedHome(t *testing.T) {
 	want := filepath.Clean(home)
 
 	cmd := "cd && cat \"$PWD\"x"
-	cmds, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
+	cmds, _, err := extractSimpleCommands(mustParse(t, cmd), wt, fakeResolver(home, nil, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestCdTrackingAbsoluteCdTracksCleanedPath(t *testing.T) {
 		{"unquoted tilde under a trailing-slash $HOME", "cd ~ && cat \"$PWD\"x", filepath.Clean(home)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cmds, err := extractSimpleCommands(mustParse(t, tc.cmd), wt, fakeResolver(home, nil, nil), nil)
+			cmds, _, err := extractSimpleCommands(mustParse(t, tc.cmd), wt, fakeResolver(home, nil, nil), nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -394,7 +394,7 @@ func TestCdTrackingSeedCWDIsCleaned(t *testing.T) {
 		seed := dir + string(filepath.Separator)
 		want := filepath.Clean(seed)
 
-		cmds, err := extractSimpleCommands(mustParse(t, "cat \"$PWD\"x"), seed, defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(mustParse(t, "cat \"$PWD\"x"), seed, defaultVarResolver(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -410,7 +410,7 @@ func TestCdTrackingSeedCWDIsCleaned(t *testing.T) {
 	})
 
 	t.Run("empty seed cwd stays empty", func(t *testing.T) {
-		cmds, err := extractSimpleCommands(mustParse(t, "cat \"$PWD\"x"), "", defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(mustParse(t, "cat \"$PWD\"x"), "", defaultVarResolver(), nil)
 		if err != nil {
 			t.Fatal(err)
 		}

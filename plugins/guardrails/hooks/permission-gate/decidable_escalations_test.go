@@ -424,7 +424,7 @@ func TestProcSubstInRedirectPositionIsClassified(t *testing.T) {
 		"[[ -f a ]] > out.log < <(echo hi)",
 		"[[ -f <(echo hi) ]] > out.log",
 	} {
-		cmds, err := extractSimpleCommands(mustParse(t, src), root, defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(mustParse(t, src), root, defaultVarResolver(), nil)
 		if err != nil {
 			t.Fatalf("%q: extract failed: %v", src, err)
 		}
@@ -644,7 +644,7 @@ func TestProcSubstDescentIsExhaustive(t *testing.T) {
 		if nodes == 0 {
 			t.Errorf("%q: the corpus row must contain a ProcSubst node to be worth anything", tc.src)
 		}
-		cmds, err := extractSimpleCommands(file, t.TempDir(), defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(file, t.TempDir(), defaultVarResolver(), nil)
 		if err != nil {
 			t.Fatalf("%q: extract failed: %v", tc.src, err)
 		}
@@ -894,7 +894,7 @@ func TestCmdSubstDescentIsExhaustive(t *testing.T) {
 		if nodes == 0 {
 			t.Errorf("%q: the corpus row must contain a CmdSubst node to be worth anything", tc.src)
 		}
-		cmds, err := extractSimpleCommands(file, t.TempDir(), defaultVarResolver(), nil)
+		cmds, _, err := extractSimpleCommands(file, t.TempDir(), defaultVarResolver(), nil)
 		if err != nil {
 			t.Fatalf("%q: extract failed: %v", tc.src, err)
 		}
@@ -1012,7 +1012,7 @@ func TestAnchorCmdSubstIsNotDescendedInto(t *testing.T) {
 		if nodes := countCmdSubstNodes(file); nodes != 1 {
 			t.Fatalf("%q: want exactly 1 CmdSubst node, got %d", src, nodes)
 		}
-		cmds, err := extractSimpleCommands(file, root, defaultVarResolver(), rc)
+		cmds, _, err := extractSimpleCommands(file, root, defaultVarResolver(), rc)
 		if err != nil {
 			t.Fatalf("%q: extract failed: %v", src, err)
 		}
@@ -1043,7 +1043,7 @@ func TestAnchorCmdSubstIsNotDescendedInto(t *testing.T) {
 	// repoContext, `$(git rev-parse --show-toplevel)` is an ordinary substitution
 	// and the descent grades it like any other.
 	file := mustParse(t, `cat "$(git rev-parse --show-toplevel)/a.txt"`)
-	cmds, err := extractSimpleCommands(file, root, defaultVarResolver(), nil)
+	cmds, _, err := extractSimpleCommands(file, root, defaultVarResolver(), nil)
 	if err != nil {
 		t.Fatalf("extract failed: %v", err)
 	}

@@ -126,9 +126,12 @@ vacuous probe.
 
 ### A `$HOME`-rooted rule is settled by `go test`, not by a replay
 
-The operator carve-out and the `~/.claude` one are rooted at the real
-home directory, and a worktree-isolated agent can build no fixture for
-either. Each obstacle below is decisive on its own.
+Two kinds of rule are rooted at the real home directory: the operator
+carve-out and the `~/.claude` one, which sit under it, and the
+home-usability chokepoint (`home.go`), which grades the home value
+itself — an unset, empty or relative `$HOME` denies where an absolute
+one does not. A worktree-isolated agent can build no fixture for any of
+them. Each obstacle below is decisive on its own.
 
 **A `HOME=<dir>` prefix is refused** — not by the gate, but by the
 harness's worktree-isolation guard, which answers "this command sets
@@ -170,7 +173,19 @@ with no such file resolves no root from the variable at all.
 
 Settle them in the package tests instead, where `t.Setenv("HOME", …)`
 over a `t.TempDir()` builds the fixture the replay cannot
-(`operator_carveout_test.go` is the worked example). Replay still
+(`operator_carveout_test.go` is the worked example). A home-usability
+row that runs an EVENT through the gate needs more than that, all of it
+in `home_usability_test.go`: build the git worktree the event runs in
+(`homeTestRepo`) **before** installing the home shape, and point
+`GIT_CONFIG_GLOBAL` / `GIT_CONFIG_SYSTEM` at `os.DevNull` as part of
+installing it (`applyHomeShape`). Git itself reads `~`, so under an
+unusable home a driving machine whose global config carries a
+tilde-spelled include fails both the `git init` that builds the fixture
+and every `git rev-parse` the gate shells out to — measuring that
+machine's gitconfig rather than the gate. A row that exercises a home
+READER on its own instead — `logPath`, the carve-out loader, the
+`~/.claude` root — runs no event and forks no git, so it installs the
+shape and builds no repo. Replay still
 earns its place as the negative control: the unconfigured machine you
 are running on denies the very reads the carve-out is for, and that
 verdict is real evidence.
@@ -658,8 +673,12 @@ only ever escalating by accident shows up here as a bucket change with
 no corresponding arm in the diff.
 
 The synthetic replay also reads the evolution log, which is the second
-half of the evidence: `PERMISSION_GATE_LOG=<path>` puts the record where
-the probe can read it, and `ask`, `deny` and `defer` each append one.
+half of the evidence: `PERMISSION_GATE_LOG=<absolute path>` puts the
+record where the probe can read it, and `ask`, `deny` and `defer` each
+append one. The override must be **absolute** — the gate grades it with
+the home predicate (`home.go`) and writes nothing at all for a relative
+one, so a probe pointed at `gate.jsonl` measures an empty log rather
+than a silent arm.
 That is how a probe distinguishes *which* arm produced a `defer` — every
 defer is byte-identical on stdout, because `emitDecision` omits both the
 decision and the reason for one. Assert the `operation` label, not just
@@ -987,6 +1006,17 @@ and one redirect, so an early nil-command return silently drops it; a
 redirect on a binary command parks on the *inner* statement, leaving
 the outer one with none; a redirect on a function definition parks on
 the body's statement.
+
+The traversal itself takes the same treatment. `syntax.Walk` reports a
+node's exit by calling the callback with a nil node after that node's
+children — but only for a node whose own callback returned true. A
+callback that prunes a subtree by returning false gets no matching nil,
+so a `depth++` / `depth--` pair keyed on the exit call goes out of
+balance and every later node is graded at the wrong nesting depth.
+Bracket a depth change around an explicit descent instead, or push a
+stack entry only on the path that returns true. Probe which nodes get
+an exit call rather than reading it off the library's doc comment,
+which does not say.
 
 ## The worktree git gate counts git-prefixed basenames
 

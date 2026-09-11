@@ -49,6 +49,13 @@ func classifyFileTool(ev *Event) Decision {
 		return deferToPipeline()
 	}
 
+	// Home-usability chokepoint, the same one Engine A applies to a Bash word:
+	// an operand naming a home the gate cannot place DENIES before any
+	// containment or carve-out logic runs (see home.go).
+	if d, hit := fileToolHomeChokepoint(paths); hit {
+		return d
+	}
+
 	rc, err := resolveRepoContext(ev.CWD)
 	if err != nil {
 		// We cannot establish the boundary, so we cannot prove the target is
