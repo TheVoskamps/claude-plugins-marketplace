@@ -233,22 +233,29 @@ order, so a reader scrolling the chain reads the run forwards:
 
 1. the final theorem records, from `--mode print-records`;
 2. then, per round in ascending order: that round's generator result
-   file — named for the literal `list` its theorem column carries, so
-   `list-<agent>` — which is where the round's detail begins; then that
-   round's argued review; then its children's result files grouped by
-   theorem, in theorem-id order.
+   files — each named for the literal `list` its theorem column carries,
+   so `list-<agent>` — in agent-name order, which is where the round's
+   detail begins; then that round's argued review; then its children's
+   result files grouped by theorem, in theorem-id order.
+
+A round holds **more than one** generator file whenever generators of
+two names ran in it — a `theorem-generator` the round wrote off and that
+wrote its file late anyway, leaving `list-theorem-generator` beside the
+`list-theorem-generator-medium` a `--generator`-overridden replacement
+wrote. The names differ, so neither file overwrites the other: post
+every `list-` file the round holds rather than the first one you find.
 
 Name each piece with the round it came from and the file it is, so a
 reader can find it on disk afterwards.
 
 **Chunk the assembly at a theorem boundary, under GitHub's 64 KB
 comment cap.** Four kinds of piece are whole and never split: the
-records file, one round's `list-<agent>` generator file, one round's
-review file, and — per round, per theorem — that theorem's result files,
-its `-theorem-disprover` report and its `-counterexample-verifier`
-report together. A chunk breaks between two such pieces and never
-inside one, so a reader never meets a theorem's disproof in one comment
-and its verification in another. Start a new
+records file, each of a round's `list-<agent>` generator files, one
+round's review file, and — per round, per theorem — that theorem's
+result files, its `-theorem-disprover` report and its
+`-counterexample-verifier` report together. A chunk breaks between two
+such pieces and never inside one, so a reader never meets a theorem's
+disproof in one comment and its verification in another. Start a new
 chunk when the next piece would carry the current one past the cap; the
 cap is on the whole comment body, marker line included, so leave
 headroom rather than filling to the byte.
