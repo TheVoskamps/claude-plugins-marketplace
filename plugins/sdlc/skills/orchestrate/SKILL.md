@@ -909,7 +909,7 @@ responses, so read what the report **says** before you act on it:
   on and how much of it is outstanding, the theorem list itself as
   readily as the disprovers or the verifiers, and on a reviewer that
   had already exhausted its own resume loop, which exit it took. A
-  round is under way; follow the four steps below.
+  round is under way; follow the steps below.
 - **A broken call** — the report names a `sdlc-agent-result-persist`
   call the reviewer could not repair and quotes the script's message
   verbatim. No round is under way, so follow "A broken call" below
@@ -1167,7 +1167,7 @@ memory-declaring teammate was spawned after the scrubber last ran.**
 That is this trigger's one full statement; every other mention of it
 in this file uses the same noun phrase or points here. Decide it from
 your own spawn history: capture happens inside the teammate's
-end-of-run, and none of the three reports a *successful* capture back
+end-of-run, and none of them reports a *successful* capture back
 to you — a failed one it does report, stopping before its cleanup — so
 a spawn is the only evidence you have that entries may be waiting. That over-approximates
 — a round that wrote no entry triggers a scrubber spawn that finds
@@ -1360,7 +1360,7 @@ only then, the orchestrator performs these transitions, in this order:
    They flip together, because they ship together. Gated on a
    configured status slot — see "Issue-status transitions" below.
 
-None of the three merges the PR; the human still owns the merge. If
+None of them merges the PR; the human still owns the merge. If
 the human ends the loop without blessing a PR (e.g. it lands in "Needs
 Your Attention"), leave that PR draft and its issues In Progress — do
 not flip it to ready or them to In Review, and do not spawn
@@ -1687,11 +1687,12 @@ draft-first lifecycle:
    is frozen for the loop").
 4. **Finalized, then ready at end-of-loop, on human confirmation
    only.** In Phase 3, when the human confirms a PR is good enough to
-   end the loop, the orchestrator spawns `pr-finalizer` to append the
-   run's final section to the body, and only then calls
-   `/github-prs:pr-ready <PR>` (see "End-of-loop lifecycle
-   transitions"). That order is what keeps the PR from being ready for
-   review for a window in which its body has no final note. The
+   end the loop, the orchestrator spawns `pr-finalizer` to post the
+   run's assembled review detail and append the run's final section to
+   the body, and only then calls `/github-prs:pr-ready <PR>` (see
+   "End-of-loop lifecycle transitions"). That order is what keeps the
+   PR from being ready for review for a window in which its body has
+   no final note. The
    `/pr-ready` call is the single point where the PR becomes
    mergeable, and even then the human — never the orchestrator —
    performs the merge.
