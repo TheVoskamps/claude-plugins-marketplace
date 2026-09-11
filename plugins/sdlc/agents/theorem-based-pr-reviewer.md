@@ -422,7 +422,7 @@ reader contract in the `issues` plugin's `skills/lib/repo-config.md`.
 That lib file lives inside the `issues` plugin, and plugins are
 file-sandboxed (a bare `Read` from an `sdlc` file cannot resolve a
 path inside another plugin's directory — see
-`docs/plugin-authoring-constraints.md` → "A cross-plugin reference
+`docs/rules/plugin-authoring-constraints.md` → "A cross-plugin reference
 does not resolve"). `sdlc` no longer bundles its own copy of that lib
 (`plugins/sdlc/skills/lib/repo-config.md` was deleted), so do not
 attempt to `Read` it by any bare or qualified path.
@@ -457,13 +457,25 @@ quotes that name, so inserting a section renames nothing.
 ### Read the PR's shape
 
 ```bash
-gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions,files
+gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
 ```
 
+Then read the paths the diff touches, with `<owner>` and `<repo>`
+resolved per "The round log" above:
+
+```bash
+gh api graphql --paginate -F owner=<owner> -F repo=<repo> -F pr=<PR> \
+  -f query='query($owner:String!, $repo:String!, $pr:Int!, $endCursor:String) { repository(owner:$owner, name:$repo) { pullRequest(number:$pr) { files(first:100, after:$endCursor) { nodes { path additions deletions changeType } pageInfo { hasNextPage endCursor } } } } }' \
+  --jq '.data.repository.pullRequest.files.nodes[].path'
+```
+
+`--paginate` follows `endCursor` until `hasNextPage` is false, so the
+list is complete however many files the PR changes — `gh pr view
+--json files` stops at the first 100. "Documentation is outside the
+review" reads this list; it is a path list, not the diff.
+
 `changedFiles`, `additions`, and `deletions` are the change counts the
-review body reports. `files` names the paths the diff touches, which
-"Documentation is outside the review" reads; it is a path list, not the
-diff. `headRefName` and `body` feed "Identify the issue
+review body reports. `headRefName` and `body` feed "Identify the issue
 set"; `headRefOid` feeds the single fetch in "Fan out the disprovers"
 and every disprover's and verifier's brief; `baseRefName` is what bounds
 the delta in "Carry the previous round's theorems forward" to this PR's
@@ -508,9 +520,8 @@ one branch — and a batch of one is the ordinary single-issue PR.
 - **Reconcile the claim against the branch.** Invoke
   `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
   skill that parses a branch name and the one place the global
-  issue-to-branch rule in `rules/git-workflow.md` → "Issue references"
-  is applied. Never parse a branch name and never re-derive the
-  resolution yourself. **The set you review against is the resolved
+  issue-to-branch rule is applied. Never parse a branch name and never
+  re-derive the resolution yourself. **The set you review against is the resolved
   set it reports.**
 
 The lists it reports alongside the resolved set are findings rather
@@ -1656,7 +1667,7 @@ inside an `isolation: worktree` worktree under the repo's
 the very directory the agents you spawned sit in. So the short form can
 remove a *different* worktree than you meant, or match two and fail
 with an error that reads as though the worktree were already gone. See
-`docs/agent-tooling-notes.md` → "Remove a worktree by the path
+`docs/rules/agent-tooling-notes.md` → "Remove a worktree by the path
 `git worktree list` prints".
 
 Remove them **serially**, never in parallel — see

@@ -245,7 +245,7 @@ func TestOperatorCarveOutFailsClosed(t *testing.T) {
 }
 
 // The XDG variables are read only on the opt-in, and only when set and
-// non-empty — the same test docs/config-file-conventions.md gives the plugins,
+// non-empty — the same test docs/rules/config-file-conventions.md gives the plugins,
 // so the gate and the plugins agree on every machine. The relocated directory
 // is outside the fake home entirely, so the allow can only come from the
 // variable having been followed.
@@ -917,7 +917,7 @@ func TestLoadOperatorCarveOutFrom(t *testing.T) {
 	}
 
 	// A stamp ABOVE the pin is read for the keys this version documents, per
-	// docs/config-file-conventions.md: newer versions are additive.
+	// docs/rules/config-file-conventions.md: newer versions are additive.
 	if err := os.WriteFile(path, []byte(
 		"schema-version: 99\nconfig-home-default: ~/.config\nconfig-home:\n  write:\n    - cc-tools/**\n"),
 		0o644); err != nil {

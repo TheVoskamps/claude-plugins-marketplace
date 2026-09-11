@@ -71,7 +71,9 @@ You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
 `--branch`, `--owner`, `--repo`, `--round`, and — on a re-review only —
-`--carried-records` and `--delta-commits`.
+`--carried-records` and `--delta-commits`. When the PR changes a
+documentation file, the brief also carries the documentation-paths
+line that skill describes; apply it as it says.
 
 Without `--owner`, `--repo` and `--round` you can still generate the
 list but cannot record that you started or write it where a resumed
@@ -350,7 +352,7 @@ not a reason to drop a claim; failing either question above is.
 Duplicated-looking prose across consumers is often a deliberate
 per-caller **policy** arm, kept precisely so the callers can differ,
 with only the *mechanism* extracted into a shared skill (see
-`docs/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
+`docs/rules/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
 lookup, a derivation)", which says in as many words that each consumer
 keeps its own policy so the extraction does not flatten deliberate
 per-caller differences). "This is duplicated" is not a theorem in that

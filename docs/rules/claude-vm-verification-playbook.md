@@ -554,7 +554,7 @@ flat list, with no `.packages.bake` normalization on that path.
 `~/.config/claude-vm/` is unreadable from a worktree-isolated agent
 unless this machine's operator listed `claude-vm/**` under
 `config-home` in the permission gate's operator carve-out (see
-[`docs/config-file-conventions.md`](config-file-conventions.md) →
+[`docs/rules/config-file-conventions.md`](config-file-conventions.md) →
 "The permission gate's carve-out follows these same roots"); the gate
 ships no default entries, so assume it is unreadable until a `Read`
 says otherwise. The carve-out reaches the file tools only, so a `cat` or a

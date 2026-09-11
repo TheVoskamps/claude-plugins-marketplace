@@ -12,8 +12,8 @@ These skills serve the `/sdlc:orchestrate` flow and its agents. The
 `theorem-based-pr-reviewer` posts the single review that carries the
 verdict, and — when run standalone on a bare PR number — reads the
 PR's closing lines to learn which issues it claims; the
-`theorem-generator`, `theorem-disprover`, and `counterexample-verifier`
-agents it spawns fetch the diff, as do the `issue-fixer`,
+agents it spawns — every `theorem-generator` variant,
+`theorem-disprover`, and `counterexample-verifier` — fetch the diff, as do the `issue-fixer`,
 `code-documenter`, `style-checker`, and `docs-writer`. The orchestrator
 keeps PRs draft through the review/fix loop, reads those same closing
 lines for the issues it flips to In Review, and only flips draft → ready
@@ -30,9 +30,8 @@ single-issue PR, so nothing below is extra work for that case.
 `git-tools:git-branch-create` encodes the set in the branch name, and
 `git-tools:git-issues-from-branch` — its inverse — recovers it. That
 skill is also where the **issue-to-branch reconciliation rule** is
-applied: the rule itself is global, stated normatively in
-`rules/git-workflow.md` → "Issue References", and neither skill here
-restates it. `/pr-create` and `/pr-link-issue` each hand
+applied: the rule itself is global, and neither skill here restates
+it. `/pr-create` and `/pr-link-issue` each hand
 `git-issues-from-branch` the branch plus their own claim — the numbers
 their caller passed, which a caller of either always has in hand — and
 act on the outcome it reports. Neither parses a branch name and
@@ -41,7 +40,7 @@ neither re-derives the resolution.
 That cross-plugin invocation is why this plugin's `plugin.json`
 declares a `dependencies` edge on `git-tools`: the edge guarantees the
 skill is installed and enabled wherever these skills run (see
-`docs/plugin-authoring-constraints.md` → "`dependencies` coordinates
+`docs/rules/plugin-authoring-constraints.md` → "`dependencies` coordinates
 install/enable, not files").
 
 What differs between the two is only the **action** each takes on what
@@ -80,7 +79,7 @@ configuration at all. Only `pr-create` reads repo-config —
 front-matter lines, not the `issues` plugin's full
 `skills/lib/repo-config.md` reader contract (that lib lives inside the
 `issues` plugin and isn't reachable across the plugin sandbox boundary
-— see `docs/plugin-authoring-constraints.md` → "Plugins are
+— see `docs/rules/plugin-authoring-constraints.md` → "Plugins are
 file-sandboxed"). Neither `pr-create` nor `pr-link-issue`
 reads anything about the **branch name**: both invoke
 `git-tools:git-issues-from-branch`, which reads
@@ -123,8 +122,8 @@ own issue set only, never a commit).
 ### `/pr-diff <PR>`
 
 Fetches the full unified diff of a pull request via `gh pr diff <PR>`.
-This is the diff-fetch that `theorem-generator`, `theorem-disprover`,
-`counterexample-verifier`, `issue-fixer`, `code-documenter`,
+This is the diff-fetch that every `theorem-generator` variant,
+`theorem-disprover`, `counterexample-verifier`, `issue-fixer`, `code-documenter`,
 `style-checker`, and `docs-writer` need
 before they read a PR's changes.
 
@@ -184,8 +183,7 @@ deliberately deferred member stays un-closed.
 ### `/pr-closing-issues <PR>`
 
 Fetches the PR body and reports the set of issues it closes, applying
-the closing-keyword-immediately-before-reference syntax
-(`rules/git-workflow.md` → "Issue References" is the authority). It is
+the closing-keyword-immediately-before-reference syntax. It is
 the one place in this marketplace that syntax is applied to a PR body,
 so `/pr-link-issue`, `sdlc:theorem-based-pr-reviewer` running
 standalone, and

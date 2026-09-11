@@ -31,7 +31,7 @@ The review procedure is an **agent**, not a skill, so both
 `/sdlc:orchestrate` and `/sdlc:git-review-pr` reach it by spawning it,
 and a change to what a review does touches the reviewer, both callers,
 and — when it changes which agents a round spawns —
-`docs/plugin-authoring-constraints.md`'s worked fan-out instance. And
+`docs/rules/plugin-authoring-constraints.md`'s worked fan-out instance. And
 this file is a **roster**, not a contract: the rosters below carry a
 one-line purpose and a pointer, never a restatement. A README that
 added a copy of a contract would add a surface to sweep — one that no
@@ -143,7 +143,7 @@ The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
 edit it" above. Why a fan-out procedure lives in one agent rather than
 in a skill its subagents preload is worked through in
-`docs/plugin-authoring-constraints.md` →
+`docs/rules/plugin-authoring-constraints.md` →
 "Fanning out parallel agents: one home for the procedure".
 
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
@@ -278,4 +278,4 @@ The same `git-tools` edge also covers
 `skills/orchestrate/SKILL.md` invokes once. The edge coordinates
 install and enablement, not file access: plugins are file-sandboxed,
 so nothing here reads another plugin's files (see
-`docs/plugin-authoring-constraints.md`).
+`docs/rules/plugin-authoring-constraints.md`).

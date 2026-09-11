@@ -24,7 +24,7 @@ Consumers in other plugins — `github-prs:pr-create`,
 invoke it
 instead of restating either rule: skill invocation crosses the plugin
 sandbox boundary that a `Read` cannot (see
-`docs/plugin-authoring-constraints.md` → "Skill invocation
+`docs/rules/plugin-authoring-constraints.md` → "Skill invocation
 is global and namespaced"). Each of them keeps its own **action** per
 outcome; none of them re-derives the outcome itself.
 
@@ -55,7 +55,7 @@ full reader contract in the `issues` plugin's
 `skills/lib/repo-config.md`: that lib file lives inside the `issues`
 plugin, and plugins are file-sandboxed (a bare `Read` from another
 plugin's skill cannot resolve a path outside its own plugin directory
-— see `docs/plugin-authoring-constraints.md` → "Plugins are
+— see `docs/rules/plugin-authoring-constraints.md` → "Plugins are
 file-sandboxed"). It is the same inline read
 `git-tools:git-branch-create` performs on the same field, which is
 what keeps the two halves of the round trip agreeing.

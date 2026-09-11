@@ -6,10 +6,11 @@ user-invocable: false
 
 # What Counts as Documentation
 
-Documentation is any `README.md`, and any file under `docs/` that is
-not under `docs/rules/`.
+Documentation is any `README.md`, and any file under a `docs/`
+directory, at any depth in the repo, that is not under that
+directory's `rules/`.
 
 Everything else is code, including `CLAUDE.md` at any depth,
-`.claude/rules/**`, `docs/rules/**`, every `SKILL.md`, and every agent
+`.claude/rules/**`, `**/docs/rules/**`, every `SKILL.md`, and every agent
 definition. Claude reads those into its context, so a change to one
 changes what an agent does, and it is reviewed as code.

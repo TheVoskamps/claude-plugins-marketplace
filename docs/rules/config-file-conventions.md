@@ -51,7 +51,7 @@ listing can reach, and it reaches it only for a path that machine's
 operator actually listed — on an unconfigured machine the `Read` denies
 too, and a skill has to survive that rather than assume the file is
 readable. See
-[`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md)
+[`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md)
 for the carve-out's schema and scope limits.
 
 ## State goes under `$XDG_STATE_HOME/<plugin>/`

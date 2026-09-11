@@ -72,14 +72,6 @@ know. Weight the work toward what a reader cannot cheaply recover from
 the code: the decisions and the why behind them, and the constraints
 the change embodies.
 
-**Every "Known gaps", "Out of scope" or non-goal statement in an issue
-is a required documentation statement** until the docs carry it. What a
-change deliberately does not do is exactly what a reader cannot
-recover from the code — the absence of a check reads as an oversight to
-fix rather than a decision to respect. Grep the documentation for each
-one's mechanism name before concluding it is covered, and check whether
-nearby prose now reads as a completeness claim it cannot support.
-
 Name things semantically, never by sequence: no "Phase 1" or "Step 3"
 as the name of a section, because inserting a step renumbers every
 reference to it. Never introduce a list with its own count — "The
@@ -128,8 +120,7 @@ the PR's agent memory".
    (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
    `resolves`/`resolved`, case-insensitive) immediately before an issue
    reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that
-   pattern auto-closes the referenced issue. See `git-workflow.md` →
-   "Issue references" for the full rule.
+   pattern auto-closes the referenced issue.
 4. Capture your own agent memory into the session inbox:
 
    ```text

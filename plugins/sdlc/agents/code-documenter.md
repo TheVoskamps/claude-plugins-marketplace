@@ -70,6 +70,14 @@ code it sits on is deleted rather than updated.
 Change comments only. A code change that a comment's truth would need is
 not yours: say so in your report-back rather than making it.
 
+In the comments you write, name things semantically, never by sequence:
+no "Phase 1" or "Step 3" as the name of a phase, section or step,
+because inserting a step renumbers every reference to it. And never
+introduce a list with its own count — "The options are:", not "The
+three options are:" — because a written-out tally goes stale the moment
+an item is added. A count that carries independent meaning ("retry up
+to 3 times") is a constraint, not a tally, and stays.
+
 ## A comment that describes the code is a claim to verify
 
 A comment describing *how* the code works is a claim to check against
@@ -115,8 +123,7 @@ the PR's agent memory".
    (`close`/`closes`/`closed`/`fix`/`fixes`/`fixed`/`resolve`/
    `resolves`/`resolved`, case-insensitive) immediately before an issue
    reference (`#N`, `owner/repo#N`, `GH-N`, or an issue URL) — that
-   pattern auto-closes the referenced issue. See `git-workflow.md` →
-   "Issue references" for the full rule.
+   pattern auto-closes the referenced issue.
 4. Capture your own agent memory into the session inbox:
 
    ```text

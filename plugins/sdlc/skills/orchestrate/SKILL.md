@@ -237,7 +237,7 @@ full six-field reader contract that used to live at
 (issue #143): `sdlc` no longer bundles its own copy of the `issues`
 plugin's reader contract, and a bare cross-plugin reference to
 `skills/lib/repo-config.md` cannot resolve it either — plugins are
-file-sandboxed (see `docs/plugin-authoring-constraints.md` → "A
+file-sandboxed (see `docs/rules/plugin-authoring-constraints.md` → "A
 cross-plugin reference does not resolve"). This is deliberate, not a
 gap: the orchestrator no longer does branch/PR mechanics itself — the
 branch and the draft PR both exist by the time `issue-developer`
@@ -507,7 +507,9 @@ Do not:
   so a brief that repeats them is pure cross-surface repetition. If a
   constraint keeps needing repetition across briefs, the repetition is
   the signal to make it durable — a PR against `CLAUDE.md` or the
-  agent definition — not to repeat it better.
+  agent definition — not to repeat it better. The one named exception
+  is the documentation boundary, under "Carve away scope the agent
+  needs" below.
 - **Name the expected conclusion, the likely dominant move, or where
   to look.** Naming the finding makes the agent's report an echo of
   your judgment, which destroys the independence the teammate exists
@@ -1290,9 +1292,8 @@ run it on the subset per the remedy below while the human decides what
 becomes of the dropped issue. Unless the human says otherwise:
 
 - The already-committed members stay, and the branch keeps its name.
-  A PR closing a subset of its branch's issue set is sanctioned by
-  `rules/git-workflow.md` → "Issue references", so the PR closes only
-  the landed subset and the developer names the deferral in the PR
+  A PR closing a subset of its branch's issue set is sanctioned, so the
+  PR closes only the landed subset and the developer names the deferral in the PR
   body.
 - The rest of the loop runs on that subset: `/pr-link-issue`, the
   review pipeline, and `docs-writer` all get the set the PR actually
@@ -1614,8 +1615,7 @@ on the reviewer's severity line and the fixer's report. Fill them per
   `fix`/`fixes`/`fixed`/`resolve`/`resolves`/`resolved`,
   case-insensitive) **immediately followed by** an issue reference
   (`#N`, `owner/repo#N`, `GH-N`, or issue URL) auto-closes the
-  referenced issue and must never appear. See
-  `rules/git-workflow.md` → "Issue references" for the full rule.
+  referenced issue and must never appear.
 - **Always wait for explicit human confirmation** before starting
   Phase 2.
 - **Max review rounds per PR: 5.** Escalate to human after that. A

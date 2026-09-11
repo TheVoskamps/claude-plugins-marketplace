@@ -10,7 +10,7 @@
 # "args", so tool_input.skill is tried first; tool_input.name is tried as
 # a fallback in case a future/older Claude Code build uses that key
 # instead. Update this list if the docs later publish the authoritative
-# field name (tracked in docs/hook-event-notes.md).
+# field name (tracked in docs/rules/hook-event-notes.md).
 #
 # This hook is display-only: PreToolUse supports hookSpecificOutput with
 # permissionDecision (allow/deny/ask) and updatedInput, but this plugin

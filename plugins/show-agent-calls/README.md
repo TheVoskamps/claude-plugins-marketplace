@@ -102,7 +102,7 @@ the rest (`subagent_type`, `prompt`, `model`, `description`,
 `isolation`) are **inferred** from the Agent tool's own parameter
 schema — the same doc-gap inference `show-loaded-skills` already
 documents for `tool_input.skill`. See
-[`docs/hook-event-notes.md`](../../docs/hook-event-notes.md) for the
+[`docs/rules/hook-event-notes.md`](../../docs/rules/hook-event-notes.md) for the
 durable, per-event write-up.
 
 ### Display-only guarantee

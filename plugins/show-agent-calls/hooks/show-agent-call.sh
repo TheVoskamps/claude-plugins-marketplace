@@ -3,7 +3,7 @@
 # parameters, and the full prompt every time the model spawns a subagent,
 # so the user can see what was delegated without running --verbose.
 #
-# Event/matcher choice (see docs/hook-event-notes.md for the full write-up):
+# Event/matcher choice (see docs/rules/hook-event-notes.md for the full write-up):
 # the purpose-built SubagentStart event carries only agent_id and
 # agent_type per the official hooks docs (https://code.claude.com/docs/en/hooks)
 # - not the prompt, description, model, or spawn parameters - so it cannot
@@ -22,7 +22,7 @@
 # isolation, prompt) are inferred from the Agent tool's own parameter
 # schema, exactly the same doc-gap inference show-loaded-skills already
 # documents for tool_input.skill. Update this comment and
-# docs/hook-event-notes.md together if a future run observes the actual
+# docs/rules/hook-event-notes.md together if a future run observes the actual
 # field names (e.g. via --debug transcript output).
 #
 # This hook is display-only: PreToolUse supports hookSpecificOutput with

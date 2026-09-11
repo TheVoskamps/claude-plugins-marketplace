@@ -49,7 +49,7 @@ more notes.
   `session_start` is the only reason it will see.
 
 First demonstrated by the `show-loaded-rules` plugin (see
-[`plugins/show-loaded-rules/README.md`](../plugins/show-loaded-rules/README.md)).
+[`plugins/show-loaded-rules/README.md`](../../plugins/show-loaded-rules/README.md)).
 
 ## `UserPromptExpansion`
 
@@ -74,7 +74,7 @@ First demonstrated by the `show-loaded-rules` plugin (see
   consumer).
 
 First demonstrated by the `show-loaded-skills` plugin (see
-[`plugins/show-loaded-skills/README.md`](../plugins/show-loaded-skills/README.md)).
+[`plugins/show-loaded-skills/README.md`](../../plugins/show-loaded-skills/README.md)).
 
 ## `PreToolUse` (matcher `Skill`)
 
@@ -104,7 +104,7 @@ First demonstrated by the `show-loaded-skills` plugin (see
   resolution.
 
 First demonstrated by the `show-loaded-skills` plugin (see
-[`plugins/show-loaded-skills/README.md`](../plugins/show-loaded-skills/README.md)).
+[`plugins/show-loaded-skills/README.md`](../../plugins/show-loaded-skills/README.md)).
 
 ## `PreToolUse` (matcher `Agent|Task`)
 
@@ -140,7 +140,7 @@ First demonstrated by the `show-loaded-skills` plugin (see
   interfere with it.
 
 First demonstrated by the `show-agent-calls` plugin (see
-[`plugins/show-agent-calls/README.md`](../plugins/show-agent-calls/README.md)).
+[`plugins/show-agent-calls/README.md`](../../plugins/show-agent-calls/README.md)).
 
 ## `PreToolUse` (the decision channel, any matcher)
 
@@ -182,4 +182,4 @@ First demonstrated by the `show-agent-calls` plugin (see
 
 Discovered by the `guardrails` permission-gate (issue #271); the
 reasoning and the tests that pin it are in
-[`plugins/guardrails/hooks/permission-gate/README.md`](../plugins/guardrails/hooks/permission-gate/README.md).
+[`plugins/guardrails/hooks/permission-gate/README.md`](../../plugins/guardrails/hooks/permission-gate/README.md).

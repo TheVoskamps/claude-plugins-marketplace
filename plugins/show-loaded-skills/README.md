@@ -91,8 +91,8 @@ Both hooks are **display-only**:
 Only the `systemMessage` JSON stdout field reaches the user for these
 events (plain stdout on `UserPromptExpansion` feeds Claude's context, not
 the user's UI; plain stdout on `PreToolUse` isn't surfaced to either). See
-[`docs/hook-event-notes.md`](../../docs/hook-event-notes.md) for the full
-verified notes on both events.
+[`docs/rules/hook-event-notes.md`](../../docs/rules/hook-event-notes.md)
+for the full verified notes on both events.
 
 ### Malformed / empty stdin
 

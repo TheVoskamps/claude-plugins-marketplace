@@ -16,7 +16,7 @@ bare PR number, and `/sdlc:orchestrate` for the member list its
 end-of-loop
 status flip acts on — invoke it rather than each describing the scan
 again. Skill invocation crosses the plugin sandbox boundary that a
-`Read` cannot (see `docs/plugin-authoring-constraints.md` → "Skill
+`Read` cannot (see `docs/rules/plugin-authoring-constraints.md` → "Skill
 invocation is global and namespaced"). Each consumer keeps its own
 action on the result; none re-derives the result itself.
 
@@ -48,9 +48,8 @@ configures.
 
 ## The syntax
 
-`rules/git-workflow.md` → "Issue References" is the normative
-statement and this skill's authority. It is applied here, once, so
-that no consumer applies it again.
+The closing-keyword syntax is a global rule. It is applied here, once,
+so that no consumer applies it again.
 
 A **closing keyword** — `close`, `closes`, `closed`, `fix`, `fixes`,
 `fixed`, `resolve`, `resolves`, `resolved`, case-insensitive —

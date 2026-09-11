@@ -183,8 +183,8 @@ Assess the fetched issue against each of these:
    `/issue-set-blocks <blocker> <blocked>` when it is the other way
    round. **Never** a closing keyword in either body — a closing
    keyword auto-closes the referenced issue on merge, and one aimed at
-   an issue outside a branch's own set is precisely what
-   `~/.claude/rules/git-workflow.md` → "Issue references" forbids.
+   an issue outside a branch's own set is precisely what the global
+   closing-keyword rule forbids.
 
 6. **Set the status, then verify the write landed.** Skip this step
    whenever a gap from step 2 went unresolved (see step 3) — the issue

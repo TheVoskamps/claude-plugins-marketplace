@@ -45,7 +45,7 @@ not the full reader contract in the `issues` plugin's
 `skills/lib/repo-config.md`: that lib file lives inside the `issues`
 plugin, and plugins are file-sandboxed (a bare `Read` from another
 plugin's skill cannot resolve a path outside its own plugin directory
-— see `docs/plugin-authoring-constraints.md` → "Plugins are
+— see `docs/rules/plugin-authoring-constraints.md` → "Plugins are
 file-sandboxed"). Bundling a duplicate copy of that lib into this
 plugin, or inventing a cross-plugin `Read`, would either
 reproduce the exact coupling issue #143 removed from `sdlc` or simply
@@ -81,7 +81,6 @@ branch's own issue set only — exists to prevent.
 
 That rule also settles what happens when the caller's numbers and the
 branch name disagree, and it is **global** rather than this skill's:
-`rules/git-workflow.md` → "Issue References" is the authority, and
 `/git-tools:git-issues-from-branch` is the one skill that applies it.
 
 This skill's part is small. Its **claim** is the caller-supplied

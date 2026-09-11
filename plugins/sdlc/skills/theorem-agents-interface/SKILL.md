@@ -115,6 +115,18 @@ derives the agent id from the worktree the agent is standing in, so a
 re-spawned child is distinguishable from the one it replaced without a
 handle travelling in a brief.
 
+One brief line is not a parameter. A generator's or a disprover's
+brief can carry `Leave these documentation paths out of every diff you
+read:` — on a generator's delta-round brief, `… every diff and delta
+commit you read:` — followed by paths. Each is a documentation file,
+as `sdlc:documentation-definition` defines it, that the PR changes;
+the reviewer lists them because documentation is outside the review.
+Comply by treating those paths' hunks as absent from every diff and
+delta commit you read: settle nothing from them, and name none of them
+in a claim, a pointer, or a counterexample. The line is absent when
+the PR changes no documentation file, and it narrows what you read,
+never what you may check out.
+
 ## The consequence classes
 
 A `DISPROVED` report and a `STANDS` report each carry one of exactly

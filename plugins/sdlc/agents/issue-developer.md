@@ -147,8 +147,7 @@ owns — but never a finding, a location, or an implementation shape
    before an issue reference (`#N`, `owner/repo#N`, `GH-N`, or an
    issue URL) — that pattern auto-closes the referenced issue. The
    keyword as plain English prose with no adjacent issue reference
-   is fine. See `git-workflow.md` → "Issue references" for the full
-   rule.
+   is fine.
 
 8. **Do the per-PR side effects once, at the end** — after the last
    member's commit, not once per member. A change that the repo
@@ -264,9 +263,8 @@ The batch does not die with the member. The default remedy:
 
 - The members you already committed **stay**. Do not revert them.
 - The branch **keeps its name**. A PR closing a subset of its
-  branch's issue set is sanctioned by `rules/git-workflow.md` →
-  "Issue references" — see that rule — so there is nothing to rename
-  on a branch that already carries commits.
+  branch's issue set is sanctioned, so there is nothing to rename on a
+  branch that already carries commits.
 - The PR closes **only the landed subset**: pass just those members to
   `/github-prs:pr-create`, and name the dropped issue and the reason
   in the PR body. A batch member missing from the body with no

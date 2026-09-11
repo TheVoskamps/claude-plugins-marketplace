@@ -1440,7 +1440,7 @@ extra-mount block *and* again at its `claude_vm_check_mounts` call site); an
 operator-facing surface no test opens (`config-boot.example.yml`'s boxed
 warning, and the config wizard under `skills/`); and evidence rather than
 prose — `test/config-test.sh` pins the abort in every spelling, and
-[`docs/claude-vm-verification-playbook.md`](../../../docs/claude-vm-verification-playbook.md),
+[`docs/rules/claude-vm-verification-playbook.md`](../../../docs/rules/claude-vm-verification-playbook.md),
 which carries the vfkit and kernel measurements the impossibility claim rests
 on.
 

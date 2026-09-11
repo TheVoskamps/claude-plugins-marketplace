@@ -1831,7 +1831,7 @@ The gate's engines feed that decision:
   directory — that matches a glob the operator listed for that root in
   `~/.config/guardrails/config.yml` is **allowed**
   (`operator_carveout.go`).
-  [`docs/config-file-conventions.md`](../../../../docs/config-file-conventions.md)
+  [`docs/rules/config-file-conventions.md`](../../../../docs/rules/config-file-conventions.md)
   puts every per-user plugin config under
   `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/` and every per-user
   state file under `${XDG_STATE_HOME:-$HOME/.local/state}/<plugin>/`,
@@ -1846,7 +1846,7 @@ The gate's engines feed that decision:
 
   **The gate carries no knowledge of which plugins exist.** There are no
   shipped default entries; a machine that wants the carve-out writes the
-  file, in the shape `docs/config-file-conventions.md` prescribes, with
+  file, in the shape `docs/rules/config-file-conventions.md` prescribes, with
   a pair of glob lists per root, each glob **relative to its own root**:
 
   ```yaml
@@ -1891,7 +1891,7 @@ The gate's engines feed that decision:
   `config-home` and `state-home` each take
   `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` when
   `resolve-xdg-environment-variables: yes` **and** the variable is set
-  and non-empty — the same test `docs/config-file-conventions.md` gives
+  and non-empty — the same test `docs/rules/config-file-conventions.md` gives
   the plugins, so the gate and the plugins agree in the empty case too
   — and otherwise the file's own `config-home-default` /
   `state-home-default` spelling. That spelling may start with `~` or
@@ -1910,7 +1910,7 @@ The gate's engines feed that decision:
   → no usable entry anywhere → today's behaviour**, on every path. The
   carve-out fails closed, and the gate is its only reader, so none of
   those is an error reported anywhere — it is simply a carve-out with no
-  root that can allow anything. That is a named exception to `docs/config-file-conventions.md`'s
+  root that can allow anything. That is a named exception to `docs/rules/config-file-conventions.md`'s
   abort-on-malformed rule, recorded there: a `PreToolUse` hook has no
   channel to abort into, and failing the hook over a broken config
   would be strictly worse than the behaviour the operator had before
@@ -2094,7 +2094,7 @@ tool call. An interactive session logs a warning and ignores the hook
 result, and so does a turn issuing several tool calls at once — so the
 same binary was inert in the session a human types into and fatal in
 every headless agent spawned from it. The vendor-side detail lives in
-[`docs/hook-event-notes.md`](../../../../docs/hook-event-notes.md) →
+[`docs/rules/hook-event-notes.md`](../../../../docs/rules/hook-event-notes.md) →
 `PreToolUse` (the decision channel, any matcher); what follows here is
 this gate's own handling.
 
@@ -2207,18 +2207,18 @@ that names a verdict is bounded to one reader — so sweep by grepping
 what each names rather than by opening the files this list happens to
 mention:
 
-- [`docs/guardrails-verification-playbook.md`](../../../../docs/guardrails-verification-playbook.md)
+- [`docs/rules/guardrails-verification-playbook.md`](../../../../docs/rules/guardrails-verification-playbook.md)
   names verdicts as the **controls a probe needs**. A verdict change
   that moves a control row updates it; grep it for `deny`, `allow`,
   `defer` and `ask`.
-- [`docs/agent-tooling-notes.md`](../../../../docs/agent-tooling-notes.md)
+- [`docs/rules/agent-tooling-notes.md`](../../../../docs/rules/agent-tooling-notes.md)
   names them **for the agent being denied**: what a primary-clone read
   comes back as, and the routes that reach the wrong bytes with no deny
   at all. A change that opens or closes one of those routes updates it
   — and so does a change to the `PreToolUse` matcher, which is quoted
   verbatim there and twice in this file, so sweep it by grepping the
   matcher string.
-- [`docs/verification-playbook.md`](../../../../docs/verification-playbook.md)
+- [`docs/rules/verification-playbook.md`](../../../../docs/rules/verification-playbook.md)
   names one verdict only, to keep a lint-baselining technique runnable.
 
 `.claude/agent-memory/` is deliberately absent from that list: the tree
@@ -2231,7 +2231,7 @@ README, `docs/` and `CLAUDE.md` for the gate's own message fragments
 "cannot resolve statically") whenever a verdict changes.
 
 What a verdict looks like **on the wire** is a different axis, owned by
-`docs/hook-event-notes.md`, which this file already points at where it
+`docs/rules/hook-event-notes.md`, which this file already points at where it
 explains why a defer omits `permissionDecision` rather than spelling
 it. A rebucketing PR touches none of it; a PR that changes how a
 bucket is spelled on stdout touches that file, this one, and the
