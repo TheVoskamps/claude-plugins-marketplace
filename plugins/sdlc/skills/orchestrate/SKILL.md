@@ -1342,8 +1342,7 @@ only then, the orchestrator performs these transitions, in this order:
    Write the PR's documentation per your agent definition. Report back
    every file you changed with a one-line reason (or "none"), the
    commit SHA you pushed, and anything the change made wrong that was
-   not yours to fix — a code file, or a PR-body claim, quoted, with
-   what is true now.
+   not yours to fix — a PR-body claim, quoted, with what is true now.
    ```
 
    Its per-file list is the summary's `Doc Changes` cell, and it goes

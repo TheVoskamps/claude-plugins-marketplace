@@ -147,8 +147,8 @@ the PR's agent memory".
      so it names every file and nothing else. Write `none` when you
      changed nothing.
    - The commit SHA you pushed.
-   - Anything the change made wrong that was not yours to fix — a code
-     file, or a PR-body claim, quoted, with what is true now.
+   - Anything the change made wrong that was not yours to fix — a
+     PR-body claim, quoted, with what is true now.
 
 ## End-of-run cleanup
 
