@@ -91,7 +91,7 @@ func denyUnusableHome(spelling string) Decision {
 // denies here under an unusable home like any `~`-spelling would, and nothing
 // downstream is left to track a home the gate cannot place.
 //
-// Two deliberate over-approximations, both in the deny direction:
+// Deliberate over-approximations, each in the deny direction:
 //
 //   - An in-script `HOME=` whose value literalWord cannot resolve EXACTLY is
 //     graded unusable, because the gate cannot place the home the later words
@@ -99,8 +99,10 @@ func denyUnusableHome(spelling string) Decision {
 //     outside the anchor allowlist, and an expansion this scan cannot resolve —
 //     `$PWD`, or a variable assigned earlier in the same program, neither of
 //     which it tracks (assignedHomeUsable). It does NOT include `HOME=$HOME/sub`
-//     or `HOME=~/sub`: literalWord resolves both against the home in effect, so
-//     under a usable home each sets a usable home and denies nothing. This arm
+//     or `HOME=~/sub`: literalWord resolves both against the PROCESS home — the
+//     resolution threads no in-script value, so a second `HOME=` built from the
+//     first resolves against the process home too — and under a usable process
+//     home each sets a usable home and denies nothing. This arm
 //     therefore does move with both homes usable — `HOME=$(pwd); cat ~/x` denies
 //     though bash would have placed that home fine.
 //   - The scan is flat: an assignment inside a subshell, a function body or a
@@ -228,7 +230,7 @@ func fileToolHomeChokepoint(paths []string) (Decision, bool) {
 }
 
 // wordHomeReference reports whether a word references the home directory, and
-// with which spelling. Two spellings count:
+// with which spelling. These spellings count:
 //
 //   - a leading `~` or `~/…`, in ANY quoting — the gate's own tilde handling
 //     (applyCd, canonicalizeFromResolver) expands the quoted spelling too, so

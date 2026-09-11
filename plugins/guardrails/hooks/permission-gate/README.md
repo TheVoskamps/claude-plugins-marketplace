@@ -137,13 +137,13 @@ The gate's engines feed that decision:
   usable absolute home or nothing at all, so none of them carries an
   emptiness or `IsAbs` test of its own — bare `cd` included, which is
   why nothing downstream ever tracks `<worktree>/relhome` as the cwd.
-  The three **process-home** readers fail closed
-  the same way, rather than composing a path against a relative home: an
-  unusable home loads no carve-out config (so no operator allow),
-  resolves no `~/.claude` root (so a target landing there grades as an
-  ordinary escape — a **deny** — instead of the `claudeConfig` defer
-  that root buys), and writes no evolution-log entry. Only the log sits
-  outside the verdict; the other two are relaxations an unusable home
+  Every **process-home** reader fails closed the same way, rather than
+  composing a path against a relative home: an unusable home loads no
+  carve-out config (so no operator allow), resolves no `~/.claude` root
+  (so a target landing there grades as an ordinary escape — a **deny**
+  — instead of the `claudeConfig` defer that root buys), and writes no
+  evolution-log entry. Only the log sits outside the verdict; the
+  carve-out and the `~/.claude` root are relaxations an unusable home
   withdraws. So an event carrying no `~`, no `$HOME` and no bare `cd` is
   never denied by the chokepoint, and its verdict is identical under an
   unusable home and an absolute one **unless** its absolutely-spelled
@@ -160,7 +160,7 @@ The gate's engines feed that decision:
   that. Measured against the committed binary at the merge base:
   `HOME=relhome; cat ~/x` returned **allow**, and returns **deny** here.
 
-  Two grading rules are worth stating because they are not guessable
+  These grading rules are worth stating because they are not guessable
   from the deny. A `HOME=x cmd` **prefix** assignment scopes the value
   to that one command and is not recorded by the gate's word
   resolution, so it neither rescues a word from an unusable process
@@ -183,7 +183,7 @@ The gate's engines feed that decision:
   inside a subshell or function body is graded as if it persisted — an
   over-approximation in the deny direction only.
 
-  **Known gaps**, both left in place deliberately:
+  **Known gaps**, each left in place deliberately:
 
   - A `HOME=` **prefix** assignment carrying an absolute path is not
     the home a `~` on that same command resolves against; the process
@@ -316,16 +316,13 @@ The gate's engines feed that decision:
   (resolves to `/tmp`) and not the `HOME=/tmp cat "$HOME/x"` prefix
   spelling, which sets env for that one command, is not recorded here,
   and resolves to the process home. Measured both ways against the
-  committed binary; the earlier prefix-spelled example in this
-  paragraph asserted the opposite and was wrong, and it contradicted
-  the "does not persist to later commands" rule two sentences above
-  it. Any other env var (`$FOO`, `$PATH`,
-  …) stays unresolvable — the gate does not resolve arbitrary
+  committed binary. Any other env var (`$FOO`, `$PATH`, …) stays
+  unresolvable — the gate does not resolve arbitrary
   environment state whose relationship to the command's actual
   environment is unverified. A resolver whose source for one of
   the resolver-backed names (`$HOME`, `$USER`, `$TMPDIR`) is **absent**
   likewise makes that name unresolvable, graded like an unset variable.
-  (For `$HOME` that arm is now reachable only through a source-less
+  (For `$HOME` that arm is reachable only through a source-less
   resolver: an unusable home denies at the home chokepoint above before
   any word is resolved.) A source-less resolver is not a degenerate
   case: the anchor matcher grades a substitution's argv against one

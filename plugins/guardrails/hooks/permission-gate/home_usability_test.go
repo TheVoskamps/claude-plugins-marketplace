@@ -135,7 +135,7 @@ func TestHomeChokepointBashShapes(t *testing.T) {
 		{cmd: `X=~/x; cat "$X"`},
 		{cmd: `HOME=relhome; cat ~/x`, alwaysDenies: true},
 		{cmd: `echo $(cat ~/x)`},
-		// An in-script HOME= built from the home in effect is resolved by the
+		// An in-script HOME= built from the process home is resolved by the
 		// package's own literalWord, so under a usable home these set a usable
 		// home and deny nothing — the chokepoint carries no second, stricter
 		// notion of "literal".
