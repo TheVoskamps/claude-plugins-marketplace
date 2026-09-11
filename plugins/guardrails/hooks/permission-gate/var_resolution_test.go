@@ -100,6 +100,12 @@ func TestHomeVarUnresolvableFailsClosed(t *testing.T) {
 // `"$VAR/x"` against the filesystem root. For an exported name the gate has a
 // source for ($HOME) that is the process home; for one it does not, the word
 // must stay inexact rather than resolve to "".
+//
+// The assign-then-export sequence is the third row, and the one that moves a
+// verdict for a name that is not $HOME: a variable assigned a static literal
+// earlier in the line keeps that literal across the export, so
+// `P=<worktree>; export P; cat "$P/README.md"` resolves in-repo where the
+// merge base recorded `P=""` and read `/README.md`.
 func TestNakedExportIsNotAnAssignment(t *testing.T) {
 	_, wt := setupWorktree(t)
 	home := t.TempDir()
@@ -132,6 +138,20 @@ func TestNakedExportIsNotAnAssignment(t *testing.T) {
 	}
 	if !cmds[0].hasUnknownExpansion {
 		t.Errorf("a naked `export P` assigns nothing, so $P must stay unresolved; got args=%v", cmds[0].args)
+	}
+
+	file = mustParse(t, `P=`+wt+`; export P; cat "$P/README.md"`)
+	cmds, _, err = extractSimpleCommands(file, wt, resolver, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cmds) != 1 {
+		t.Fatalf("expected 1 simple command (cat), got %d", len(cmds))
+	}
+	wantArg = filepath.Join(wt, "README.md")
+	if cmds[0].hasUnknownExpansion || len(cmds[0].args) < 2 || cmds[0].args[1] != wantArg {
+		t.Errorf("a naked `export P` must leave the earlier P=%q standing, so $P/README.md resolves to %q; "+
+			"got args=%v inexact=%v", wt, wantArg, cmds[0].args, cmds[0].hasUnknownExpansion)
 	}
 }
 

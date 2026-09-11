@@ -132,11 +132,17 @@ func classifyBash(command string, ev *Event) Decision {
 	// replacement — `cd <path>`, then the bare `git <subcommand>` — rather
 	// than letting the compound shape through.
 	//
-	// It runs BEFORE the extraction below, and must: brace expansion
-	// (staticForItems) calls syntax.SplitBraces, which rewrites a word's Parts
-	// in place, and syntax.Walk panics on the *syntax.BraceExp that leaves
-	// behind. Every whole-file Walk therefore belongs on this side of the
-	// extraction.
+	// It runs BEFORE the extraction below, and must: it Walks the WHOLE file,
+	// and brace expansion (staticForItems) calls syntax.SplitBraces, which
+	// rewrites a word's Parts in place, leaving a *syntax.BraceExp that
+	// syntax.Walk panics on. A pre-extraction Walk therefore has to run before
+	// staticForItems mutates anything, which is here.
+	//
+	// That is not a claim that the extraction Walks nothing: the home
+	// chokepoint Walks each statement it reaches (gradeHomeWords). Such a Walk
+	// is unsafe over a statement the `for` fan-out has already re-walked, whose
+	// words carry the split Parts — the panic issue #436 tracks, pre-existing
+	// on main and deliberately not fixed here.
 	if d, hit := forbiddenForm(file); hit {
 		return d
 	}
@@ -155,7 +161,15 @@ func classifyBash(command string, ev *Event) Decision {
 	// Home-usability chokepoint: a word referencing a home the gate cannot
 	// place DENIES, before every rule that grades a path and before the
 	// unhandled-construct defer below. The parse-error and forbidden-form
-	// denies above read no home and stay ahead of it. The walk above raises it as it goes —
+	// denies above stay ahead of it, and one of them does read a home:
+	// callIsGitDashCAbs expands its `-C` operand before testing absoluteness,
+	// so `git -C ~/repo …` denies as a forbidden form under a usable home and
+	// falls through to this chokepoint's deny under an unusable one. The
+	// chokepoint's guarantee is about GRADING a home's usability — one
+	// predicate, homeUsable — not about being the only site that touches a home
+	// value: that expansion goes through resolveHome like every other read, so
+	// it never places a home this predicate rejects. The walk above raises the
+	// deny as it goes —
 	// grading a home reference needs that walk's variables, scope depth and
 	// tracked cwd (see home.go) — and abandons the rest of the line once it
 	// does. Downstream of this line every site that reads home gets a usable

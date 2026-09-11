@@ -673,8 +673,12 @@ only ever escalating by accident shows up here as a bucket change with
 no corresponding arm in the diff.
 
 The synthetic replay also reads the evolution log, which is the second
-half of the evidence: `PERMISSION_GATE_LOG=<path>` puts the record where
-the probe can read it, and `ask`, `deny` and `defer` each append one.
+half of the evidence: `PERMISSION_GATE_LOG=<absolute path>` puts the
+record where the probe can read it, and `ask`, `deny` and `defer` each
+append one. The override must be **absolute** — the gate grades it with
+the home predicate (`home.go`) and writes nothing at all for a relative
+one, so a probe pointed at `gate.jsonl` measures an empty log rather
+than a silent arm.
 That is how a probe distinguishes *which* arm produced a `defer` — every
 defer is byte-identical on stdout, because `emitDecision` omits both the
 decision and the reason for one. Assert the `operation` label, not just

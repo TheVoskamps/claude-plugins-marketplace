@@ -223,9 +223,12 @@ func TestHomeChokepointInScriptAbsoluteHome(t *testing.T) {
 // it is a home reference by definition and denies at the chokepoint under an
 // unusable home exactly as `cat ~/x` does. That is the operand-less spelling
 // and every all-options one — `cd -P`, `cd -L`, `cd --` and their combinations,
-// each of which bash sends to $HOME too — and every operand that expands to no
-// field at all, which bash word-splits away before `cd` ever sees it
-// (`X=; cd $X`). `$C` with `C=cd` is here, as a plain assignment and as a
+// each of which bash sends to $HOME too — and every operand that MAY expand to
+// no field at all: one that certainly does, which bash word-splits away before
+// `cd` ever sees it (`X=; cd $X`), and equally one whose field count the gate
+// cannot resolve (`cd $Z`, `cd $(…)`), which is graded as possibly none because
+// an operand the gate cannot place belongs on the deny side.
+// `$C` with `C=cd` is here, as a plain assignment and as a
 // loop-variable binding, because the chokepoint must recognize the same `cd`
 // call applyCd does: resolved against a variable map that never learned `C`
 // the program word is opaque, the chokepoint stays silent, and applyCd is left
@@ -247,6 +250,12 @@ func TestHomeChokepointBareCd(t *testing.T) {
 		`C=cd; $C; cat x`,
 		`for C in cd; do $C; done; cat x`,
 		`X=; cd $X; cat x`,
+		// An unquoted operand the gate cannot resolve has a field count it
+		// cannot count either, and zero is one of the possibilities — bash
+		// word-splits an unset expansion away and goes to $HOME. Graded as
+		// possibly none, which is the deny direction.
+		`cd $Z; cat x`,
+		`cd $(printf sub); cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
@@ -280,7 +289,11 @@ func TestHomeChokepointBareCd(t *testing.T) {
 // it names $OLDPWD, not $HOME — and so is an all-options `cd` that still has a
 // directory after the options. So is an operand that expands to one EMPTY
 // field rather than to none: bash keeps a quoted empty operand and stays put,
-// where it word-splits an unquoted empty expansion away and goes to $HOME.
+// where it word-splits an unquoted empty expansion away and goes to $HOME. So
+// is an unresolvable expansion carrying a literal or quoted part beside it —
+// that part yields a field whatever the expansion turns out to be, which is
+// what separates these rows from the `cd $Z` one above and keeps the
+// possibly-no-field arm from collapsing into "every unresolved operand".
 func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
 	for _, cmd := range []string{
 		`cd sub; cat x`,
@@ -288,6 +301,11 @@ func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
 		`cd -P /absolute/dir; cat x`,
 		`cd ""; cat x`,
 		`X=; cd "$X"; cat x`,
+		// A literal or quoted part guarantees at least one field however
+		// unresolvable the expansion beside it is, so an unresolved `$Z` alone
+		// is a bare `cd` (above) while these two are not.
+		`cd $Z/sub; cat x`,
+		`cd "$Z"; cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
@@ -411,11 +429,16 @@ func TestHomeUsabilityNonVerdictReaders(t *testing.T) {
 }
 
 // TestHomeUsabilityLogOverride pins the one log path that resolves no home.
-// PERMISSION_GATE_LOG is the operator's own explicit destination, so an
-// ABSOLUTE override is written under every home shape, unusable ones included.
-// A RELATIVE override is not a destination the gate can place — it would
-// compose against whatever directory the gate is running in — so it is graded
-// with the same predicate a home is and writes nothing.
+// PERMISSION_GATE_LOG is the operator's own explicit destination, so this test
+// asserts that an ABSOLUTE override is returned verbatim under every home
+// shape, unusable ones included: the criterion is that no HOME-DERIVED path is
+// composed, not that nothing is written.
+//
+// It asserts the override's own absoluteness alongside, which is what logPath
+// grades — a RELATIVE override would compose against whatever directory the
+// gate is running in, so it is graded with the same predicate a home is and
+// writes nothing. Neither half reads the process home at all; the home shape
+// is crossed in to show that it does not move the result.
 func TestHomeUsabilityLogOverride(t *testing.T) {
 	for _, shape := range homeShapes() {
 		t.Run(shape.name, func(t *testing.T) {

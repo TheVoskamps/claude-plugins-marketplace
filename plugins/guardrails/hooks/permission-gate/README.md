@@ -122,7 +122,9 @@ The gate's engines feed that decision:
 - **Home usability — one predicate, one chokepoint** (`home.go`): a
   home directory is **usable** iff it resolves without error, is
   non-empty, and is **absolute**. That predicate (`homeUsable`) is the
-  only place in the gate where a home value is graded, and it is
+  only place in the gate where a home's **usability** is graded — not
+  the only place a home value is touched, which is a different claim and
+  a false one (see the forbidden forms below) — and it is
   applied at one chokepoint per track, ahead of every rule that grades
   a path: a Bash word that references a home the gate cannot place — `~` or
   `~/…` in any quoting, `$HOME`/`${HOME}`, or a persistent in-script
@@ -132,13 +134,26 @@ The gate's engines feed that decision:
   reference carrying no home-referencing *word* — the operand-less `cd`,
   every all-options spelling (`cd -P`, `cd -L`, `cd --` and their
   combinations, an operand bash would reject as an invalid option
-  included), and every operand that expands to **no field at all**
-  (`X=; cd $X`, which bash word-splits away before `cd` sees it) — and
+  included), and every operand that **may** expand to no field at all —
+  `X=; cd $X`, which bash word-splits away before `cd` sees it, and
+  equally `cd $Z` with `Z` never assigned or `cd $(…)`, whose field
+  count the gate cannot resolve and which it therefore grades as
+  possibly none, failing closed — and
   so does a file-tool operand whose `~`
   names one. A `cd` that still carries a directory (`cd sub`,
   `cd -P /abs`) is not one of these, and neither is `cd -`, which names
   `$OLDPWD`, nor `cd ""` / `cd "$X"` with `X` empty, which pass bash one
   empty operand and leave it where it is.
+
+  The home a word is graded against is the **effective** home at that
+  point in the line: the persistent in-script `HOME=` once the walk has
+  seen one, and the process home before that — the same precedence
+  `$HOME` resolution applies. Every statement here about "an absolute
+  home" is therefore about the *effective* one. A word after
+  `HOME=relhome` denies however absolute the process home is, because
+  the home that word resolves against is not one: `HOME=relhome; cat
+  ~/x` denies under every process home, and that is the rule rather
+  than an exception to it.
 
   On the Bash track that chokepoint **is the classifier's own walk**
   (`extractSimpleCommands`), which raises the deny as it goes and
@@ -146,9 +161,15 @@ The gate's engines feed that decision:
   its own (`fileToolHomeChokepoint`), a raw operand needing none of the
   walk's machinery. A parse error and a forbidden form
   (`cd <path> && git …`, `git -C <abs>`) still deny ahead of it on the
-  Bash track — each refuses the line's shape and reads no home — so an
+  Bash track — each refuses the line's shape — so an
   unusable home is not always the `home:unusable` reason, though it is
-  always a deny. Grading a Bash home reference needs state the walk
+  always a deny. The parse error reads no home; the `git -C` form does,
+  expanding the operand before testing whether it is absolute, so
+  `git -C ~/repo status` denies as `forbidden-form:git-C-abs` under a
+  usable home and as `home:unusable` under an unusable one. That
+  expansion still goes through `resolveHome`, so it never places a home
+  the predicate rejects — what moves is the label, not the deny.
+  Grading a Bash home reference needs state the walk
   already carries — the variables assigned so far, the scope depth they
   are recorded at, and the tracked cwd their values resolve against — so
   a separate scan has to mirror every piece of it, and whatever it fails
@@ -252,11 +273,11 @@ The gate's engines feed that decision:
     against, which for that word is the process home.
   - `Grep` and `Glob` raise no event, as today, so a `~`-spelled path
     handed to either is not graded at this chokepoint or anywhere else.
-  - An all-options `cd`, and one whose operand expands to no field, are
-    home references **to the chokepoint only**. The cd-tracking code
+  - An all-options `cd`, and one whose operand may expand to no field,
+    are home references **to the chokepoint only**. The cd-tracking code
     below carries neither arm, so under a usable home `cd -P` tracks
-    `<cwd>/-P` and `X=; cd $X` leaves the tracked cwd where it was,
-    where bash goes to `$HOME` in both. What
+    `<cwd>/-P` and both `X=; cd $X` and `cd $Z` leave the tracked cwd
+    where it was, where bash goes to `$HOME` in all three. What
     bounds that is the residual defer `cd` carries as an unclassified
     program: measured, `cd -P; touch x` in a repo defers
     (`bash:no-specific-rule`) where the same line without the `cd`
@@ -373,7 +394,13 @@ The gate's engines feed that decision:
   **naked** `export VAR` carrying no `=` is not an assignment at all —
   bash leaves the value exactly as it was, so the name keeps whatever
   it resolved to before, rather than being recorded as the empty
-  string and collapsing a later `"$VAR/x"` to `/x`. A name
+  string and collapsing a later `"$VAR/x"` to `/x`. That arm is about
+  **every** name, not just `$HOME`: a variable assigned a static
+  literal earlier in the line keeps that literal across the export, so
+  `P=<worktree>; export P; cat "$P/README.md"` resolves to an in-repo
+  path and can reach the allow track, where the merge-base binary
+  recorded the export as `P=""` and denied the resulting `/README.md`
+  as an escape (measured both ways). A name
   absent from that in-script static-assignment map falls through to a
   **closed allowlist of process-environment-derived variables**
   — `$HOME`, `$USER`, `$TMPDIR`, `$PWD`, `$OLDPWD` — each

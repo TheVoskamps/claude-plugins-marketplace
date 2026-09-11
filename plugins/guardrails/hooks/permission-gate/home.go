@@ -205,12 +205,12 @@ func assignedHomeUsable(a *syntax.Assign, resolver varResolver) bool {
 // holds, so this and applyCd recognize the same calls as `cd`: `C=cd; $C` and
 // `C=$PWD/cd; $C` are `cd` at both sites.
 //
-// An operand is a DIRECTORY operand unless it is an option (cdOption) or
-// expands to no field at all (wordYieldsNoField), so `cd`, `cd -P`, `cd -L`,
-// `cd --`, `X=; cd $X` and their combinations are all this shape, while `cd x`,
-// `cd ~`, `cd ""` and `cd -` are not — the first two carry a word of their own
-// for the walk to grade, `cd ""` passes bash one empty operand and stays put,
-// and `cd -` names $OLDPWD rather than $HOME.
+// An operand is a DIRECTORY operand unless it is an option (cdOption) or MAY
+// expand to no field at all (wordMayYieldNoField), so `cd`, `cd -P`, `cd -L`,
+// `cd --`, `X=; cd $X`, `cd $Z` with `Z` unresolved and their combinations are
+// all this shape, while `cd x`, `cd ~`, `cd ""` and `cd -` are not — the first
+// two carry a word of their own for the walk to grade, `cd ""` passes bash one
+// empty operand and stays put, and `cd -` names $OLDPWD rather than $HOME.
 //
 // applyCd reads the same operands less strictly: it has no option arm and no
 // zero-field arm, so under a usable home `cd -P` tracks `<cwd>/-P` and
@@ -227,7 +227,7 @@ func bareCd(n syntax.Node, knownVars map[string]string, resolver varResolver, cc
 		return false
 	}
 	for _, arg := range call.Args[1:] {
-		if wordYieldsNoField(arg, knownVars, resolver, cc) {
+		if wordMayYieldNoField(arg, knownVars, resolver, cc) {
 			continue
 		}
 		lit, exact := literalWord(arg, knownVars, resolver, cc)
@@ -238,23 +238,27 @@ func bareCd(n syntax.Node, knownVars map[string]string, resolver varResolver, cc
 	return true
 }
 
-// wordYieldsNoField reports whether a word expands to NO field, rather than to
-// one empty field. Bash word-splits an unquoted expansion that came out empty
-// into zero fields, so `X=; cd $X` passes `cd` no operand at all and goes to
-// $HOME, while any quoted or literal part in the word — `cd ""`, `cd "$X"`,
-// `cd $X""` — leaves one empty operand, which bash reads as "stay put".
-func wordYieldsNoField(w *syntax.Word, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {
-	lit, exact := literalWord(w, knownVars, resolver, cc)
-	if !exact || lit != "" {
-		return false
-	}
+// wordMayYieldNoField reports whether a word MAY expand to no field at all,
+// rather than certainly yielding at least one. Bash word-splits an unquoted
+// expansion that came out empty into zero fields, so `X=; cd $X` passes `cd`
+// no operand and goes to $HOME, while any quoted or literal part in the word —
+// `cd ""`, `cd "$X"`, `cd $X""` — leaves one empty operand, which bash reads
+// as "stay put".
+//
+// A word made only of unquoted expansions the resolution cannot reach —
+// `cd $Z` with `Z` never assigned, `cd $(…)` — is graded MAY: the gate cannot
+// count its fields, and a word that yields none sends the call to $HOME. That
+// is the deny direction, which is where an operand the gate cannot place
+// belongs.
+func wordMayYieldNoField(w *syntax.Word, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {
 	for _, p := range w.Parts {
 		switch p.(type) {
 		case *syntax.Lit, *syntax.SglQuoted, *syntax.DblQuoted:
 			return false
 		}
 	}
-	return true
+	lit, exact := literalWord(w, knownVars, resolver, cc)
+	return !exact || lit == ""
 }
 
 // cdOption reports whether a resolved `cd` operand is an OPTION rather than the
