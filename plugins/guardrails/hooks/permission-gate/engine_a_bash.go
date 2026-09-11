@@ -141,8 +141,7 @@ func classifyBash(command string, ev *Event) Decision {
 	// That is not a claim that the extraction Walks nothing: the home
 	// chokepoint Walks each statement it reaches (gradeHomeWords). Such a Walk
 	// is unsafe over a statement the `for` fan-out has already re-walked, whose
-	// words carry the split Parts — the panic issue #436 tracks, pre-existing
-	// on main and deliberately not fixed here.
+	// words carry the split Parts — the panic issue #436 tracks.
 	if d, hit := forbiddenForm(file); hit {
 		return d
 	}

@@ -134,10 +134,14 @@ The gate's engines feed that decision:
   every all-options spelling (`cd -P`, `cd -L`, `cd --` and their
   combinations, an operand bash would reject as an invalid option
   included), and every operand that **may** expand to no field at all —
-  `X=; cd $X`, which bash word-splits away before `cd` sees it, and
-  equally `cd $Z` with `Z` never assigned or `cd $(…)`, whose field
+  `X=; cd $X`, which bash word-splits away before `cd` sees it;
+  `cd $Z` with `Z` never assigned or `cd $(…)`, whose field
   count the gate cannot resolve and which it therefore grades as
-  possibly none, failing closed — and
+  possibly none; and an unquoted glob (`cd *`), which under
+  `shopt -s nullglob` is dropped entirely when it matches nothing
+  (measured) — the gate reads no filesystem and tracks no shell
+  option, so it cannot tell a matching pattern from a failing one and
+  grades every one of them as possibly none, failing closed — and
   so does a file-tool operand whose `~`
   names one. A `cd` that still carries a directory (`cd sub`,
   `cd -P /abs`) is not one of these, and neither is `cd -`, which names
@@ -152,7 +156,13 @@ The gate's engines feed that decision:
   `HOME=relhome` denies however absolute the process home is, because
   the home that word resolves against is not one: `HOME=relhome; cat
   ~/x` denies under every process home, and that is the rule rather
-  than an exception to it.
+  than an exception to it. It is also the one home-referencing shape
+  whose verdict **moves** under an absolute process home — measured
+  against the committed binary at the merge base, that line returned
+  **allow** and returns **deny** here. Every other shape classifies on
+  both sides alike once the home it resolves against is absolute, which
+  is what makes this one the rule's single visible consequence rather
+  than a second behaviour change.
 
   On the Bash track that chokepoint **is the classifier's own walk**
   (`extractSimpleCommands`), which raises the deny as it goes and
@@ -201,9 +211,15 @@ The gate's engines feed that decision:
   withdraws. So an event carrying no `~`, no `$HOME` and no
   operand-less `cd` is
   never denied by the chokepoint, and its verdict is identical under an
-  unusable home and an absolute one **unless** its absolutely-spelled
-  target lands under one of those home-rooted roots, which an
-  unusable home leaves unresolved.
+  unusable home and an absolute one **unless** it was riding one of
+  those two relaxations, which an unusable home leaves unresolved. The
+  `~/.claude` root is home-rooted, so that half only reaches a target
+  under the home. The carve-out's is **not**: its roots are whatever
+  the operator's file spells, up to and including a `config-home-default`
+  nowhere near `$HOME` — and the file itself is read at the fixed
+  `$HOME/.config/guardrails/config.yml`, so an unusable home loads no
+  config at all and withdraws the carve-out from **every** target it
+  would have covered, wherever that target sits.
 
   Before this, each of those sites decided for itself, so one relative
   `$HOME` produced a different outcome per site: `cat ~/x` ALLOWed (the
@@ -212,8 +228,7 @@ The gate's engines feed that decision:
   Nothing escaped — a relative home is joined *under* the worktree —
   but the gate believed the operator's home sat at
   `<worktree>/relhome`, and every rule added later would have inherited
-  that. Measured against the committed binary at the merge base:
-  `HOME=relhome; cat ~/x` returned **allow**, and returns **deny** here.
+  that.
 
   A `HOME=x cmd` **prefix** assignment scopes the value
   to that one command and is not recorded by the gate's word
@@ -273,10 +288,16 @@ The gate's engines feed that decision:
     this chokepoint nor anywhere else.
   - An all-options `cd`, and one whose operand may expand to no field,
     are home references **to the chokepoint only**. The cd-tracking code
-    below carries neither arm, so under a usable home `cd -P` tracks
-    `<cwd>/-P` and both `X=; cd $X` and `cd $Z` leave the tracked cwd
-    where it was, where bash goes to `$HOME` in each. What
-    bounds that is the residual defer `cd` carries as an unclassified
+    below carries neither arm, so under a usable home none of them
+    tracks the `$HOME` bash goes to, in one of two ways. The operands it
+    resolves **exactly** it takes at face value: `cd -P` tracks
+    `<cwd>/-P`, `cd *` tracks `<cwd>/*`, and `X=; cd $X` resolves to the
+    empty operand bash reads as "stay put" and leaves the tracked cwd
+    where it was. `cd $Z` resolves to nothing at all and so hits the
+    tracker's **invalidating** arm, which is the fail-closed side: every
+    later relative operand in that scope escalates, and measured,
+    `cd $Z; cat x` defers as `bash-read:cd-unresolved-cwd`. What bounds
+    the exact arm is the residual defer `cd` carries as an unclassified
     program: measured, `cd -P; touch x` in a repo defers
     (`bash:no-specific-rule`) where the same line without the `cd`
     allows, so the mis-tracked cwd can never carry a line onto the allow

@@ -207,15 +207,20 @@ func assignedHomeUsable(a *syntax.Assign, resolver varResolver) bool {
 //
 // An operand is a DIRECTORY operand unless it is an option (cdOption) or MAY
 // expand to no field at all (wordMayYieldNoField), so `cd`, `cd -P`, `cd -L`,
-// `cd --`, `X=; cd $X`, `cd $Z` with `Z` unresolved and their combinations are
-// all this shape, while `cd x`, `cd ~`, `cd ""` and `cd -` are not — the first
-// two carry a word of their own for the walk to grade, `cd ""` passes bash one
-// empty operand and stays put, and `cd -` names $OLDPWD rather than $HOME.
+// `cd --`, `X=; cd $X`, `cd $Z` with `Z` unresolved, `cd *` and their
+// combinations are all this shape, while `cd x`, `cd ~`, `cd ""` and `cd -` are
+// not — the first two carry a word of their own for the walk to grade, `cd ""`
+// passes bash one empty operand and stays put, and `cd -` names $OLDPWD rather
+// than $HOME.
 //
 // applyCd reads the same operands less strictly: it has no option arm and no
-// zero-field arm, so under a usable home `cd -P` tracks `<cwd>/-P` and
-// `X=; cd $X` tracks the cwd unchanged where bash goes to $HOME in both. That
-// is a cwd-tracking question and not this predicate's, which only decides
+// zero-field arm, so under a usable home each of those spellings leaves a cwd
+// bash would not be in, in one of two ways. `cd -P`, `X=; cd $X` and `cd *`
+// resolve EXACTLY — to `<cwd>/-P`, to the unchanged cwd, and to `<cwd>/*` —
+// where bash goes to $HOME in each. `cd $Z` does not resolve at all and so
+// takes applyCd's INVALIDATING arm, after which every relative operand in that
+// scope fails closed: `cd $Z; cat x` defers as `bash-read:cd-unresolved-cwd`.
+// That is a cwd-tracking question and not this predicate's, which only decides
 // whether the call references the home.
 func bareCd(n syntax.Node, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {
 	call, ok := n.(*syntax.CallExpr)
@@ -245,12 +250,28 @@ func bareCd(n syntax.Node, knownVars map[string]string, resolver varResolver, cc
 // `cd ""`, `cd "$X"`, `cd $X""` — leaves one empty operand, which bash reads
 // as "stay put".
 //
+// A word carrying an UNQUOTED glob metacharacter is graded MAY too: under
+// `shopt -s nullglob` a pattern matching nothing expands to no field at all, so
+// `shopt -s nullglob; cd *nomatch*` goes to $HOME (measured in bash). The gate
+// reads no filesystem and tracks no shell option, so it cannot tell a pattern
+// that matches from one that does not, and grades every such operand as
+// possibly none — `cd *` denies under an unusable home where bash would have
+// changed directory, which is the fail-closed direction.
+//
 // A word made only of unquoted expansions the resolution cannot reach —
 // `cd $Z` with `Z` never assigned, `cd $(…)` — is graded MAY: the gate cannot
 // count its fields, and a word that yields none sends the call to $HOME. That
 // is the deny direction, which is where an operand the gate cannot place
 // belongs.
 func wordMayYieldNoField(w *syntax.Word, knownVars map[string]string, resolver varResolver, cc cwdCtx) bool {
+	for _, p := range w.Parts {
+		// The glob test runs over the whole word before the guarantee below,
+		// because a quoted part beside the pattern does not stop nullglob from
+		// dropping the word: `cd "a"*nomatch*` yields no field either.
+		if lit, ok := p.(*syntax.Lit); ok && hasGlobMeta(lit.Value) {
+			return true
+		}
+	}
 	for _, p := range w.Parts {
 		switch p.(type) {
 		case *syntax.Lit, *syntax.SglQuoted, *syntax.DblQuoted:

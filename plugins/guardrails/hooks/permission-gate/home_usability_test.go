@@ -227,7 +227,9 @@ func TestHomeChokepointInScriptAbsoluteHome(t *testing.T) {
 // no field at all: one that certainly does, which bash word-splits away before
 // `cd` ever sees it (`X=; cd $X`), and equally one whose field count the gate
 // cannot resolve (`cd $Z`, `cd $(…)`), which is graded as possibly none because
-// an operand the gate cannot place belongs on the deny side.
+// an operand the gate cannot place belongs on the deny side, and equally an
+// unquoted glob (`cd *nomatch*`), which `shopt -s nullglob` drops entirely when
+// it matches nothing.
 // `$C` with `C=cd` is here, as a plain assignment and as a
 // loop-variable binding, because the chokepoint must recognize the same `cd`
 // call applyCd does: resolved against a variable map that never learned `C`
@@ -256,6 +258,13 @@ func TestHomeChokepointBareCd(t *testing.T) {
 		// possibly none, which is the deny direction.
 		`cd $Z; cat x`,
 		`cd $(printf sub); cat x`,
+		// An unquoted glob is a possible zero-field expansion too: under
+		// `shopt -s nullglob` bash drops a pattern that matches nothing, and
+		// `shopt -s nullglob; cd *nomatch*` lands in $HOME (measured). A quoted
+		// part beside the pattern does not save it — `cd "a"*nomatch*` is
+		// dropped the same way — so the whole word is graded possibly-none.
+		`cd *nomatch*; cat x`,
+		`cd "a"*nomatch*; cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
@@ -294,6 +303,21 @@ func TestHomeChokepointBareCd(t *testing.T) {
 // that part yields a field whatever the expansion turns out to be, which is
 // what separates these rows from the `cd $Z` one above and keeps the
 // possibly-no-field arm from collapsing into "every unresolved operand".
+//
+// The rows come in two families, and a negation of wordMayYieldNoField reaches
+// them in a fixed order — measured, by running each mutation against this file:
+//
+//   - Grading only a CERTAINLY-empty operand as zero-field (`exact &&
+//     lit == ""`, the predicate's shape before it learned to count fields)
+//     moves the three rows that RESOLVE to the empty string — `cd ""`,
+//     `X=; cd "$X"`, `X=; cd $X""` — and leaves `cd $Z/sub` and `cd "$Z"`
+//     passing, because an inexact word is not empty to it.
+//   - Dropping the word-parts test instead (`!exact || lit == ""` alone) moves
+//     those two as well: with nothing guaranteeing a field, every unresolvable
+//     operand becomes a bare `cd`.
+//
+// So the inexact rows are pinned by the second mutation and not by the first,
+// and no claim that "the negate-check moves every row here" is available.
 func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
 	for _, cmd := range []string{
 		`cd sub; cat x`,
@@ -301,11 +325,19 @@ func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
 		`cd -P /absolute/dir; cat x`,
 		`cd ""; cat x`,
 		`X=; cd "$X"; cat x`,
+		// A quoted part beside an expansion that resolves EXACTLY to the empty
+		// string still leaves one field, so this row grades as a directory
+		// operand where `X=; cd $X` (above) grades as none.
+		`X=; cd $X""; cat x`,
 		// A literal or quoted part guarantees at least one field however
 		// unresolvable the expansion beside it is, so an unresolved `$Z` alone
 		// is a bare `cd` (above) while these two are not.
 		`cd $Z/sub; cat x`,
 		`cd "$Z"; cat x`,
+		// A QUOTED glob is not a glob: bash matches no pathname against it, so
+		// it cannot be dropped by nullglob and `cd "*nomatch*"` stays put
+		// (measured). The negative control for the glob rows above.
+		`cd "*nomatch*"; cat x`,
 	} {
 		for _, shape := range homeShapes() {
 			t.Run(shape.name+"/"+cmd, func(t *testing.T) {
@@ -357,6 +389,14 @@ func TestHomeChokepointFileTool(t *testing.T) {
 // change: an event that references no home path gets the SAME verdict under
 // an unusable home as under an absolute one. Without this the chokepoint could
 // be a blanket deny and every row above would still pass.
+//
+// The carve-out row below is the stated exception, and it is here rather than
+// in a test of its own because it is the boundary of the invariant above: a
+// relaxation an unusable home withdraws moves the verdict even for an event
+// that names no home. Its root deliberately sits OUTSIDE every home shape, so
+// the row measures the withdrawal of the whole carve-out — the config file is
+// found only at `$HOME/.config/guardrails/config.yml`, so an unusable home
+// loads no config and no root survives, wherever that root pointed.
 func TestHomeUsabilityDoesNotMoveHomelessEvents(t *testing.T) {
 	commands := []string{
 		`cat file.txt`,
@@ -383,6 +423,47 @@ func TestHomeUsabilityDoesNotMoveHomelessEvents(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("carve-out root outside the home", func(t *testing.T) {
+		for _, shape := range homeShapes() {
+			t.Run(shape.name, func(t *testing.T) {
+				base := t.TempDir()
+				repo := filepath.Join(base, "repo")
+				gitInit(t, repo)
+				// The root, the target under it, and the fixture home holding
+				// the config are siblings, so the root is under no home shape
+				// this test installs.
+				root := filepath.Join(base, "operator-config")
+				target := filepath.Join(root, "cc-tools", "whats-new.md")
+				home := filepath.Join(base, "home")
+				writeCarveOutConfig(t, home, "schema-version: 2\n"+
+					"config-home-default: "+root+"\n"+
+					"config-home:\n  read:\n    - cc-tools/**\n")
+
+				applyHomeShape(t, shape)
+				if shape.usable {
+					// The shape's own home holds no config; point the process
+					// at the one written above, so the file on disk is the same
+					// in every row and only its reachability moves.
+					t.Setenv("HOME", home)
+				}
+
+				d := fileToolVerdict(t, "Read", repo, target)
+				if shape.usable {
+					wantBucket(t, d, BucketAllow, "read of a listed path under a carve-out root outside the home")
+					return
+				}
+				if d.Bucket == BucketAllow {
+					t.Fatalf("a %s home must withdraw the carve-out even for a root outside the home "+
+						"(reason=%q)", shape.name, d.Reason)
+				}
+				if d.Operation == homeUnusableOp {
+					t.Fatalf("the target names no home, so the withdrawal must not read as a chokepoint "+
+						"deny (reason=%q)", d.Reason)
+				}
+			})
+		}
+	})
 }
 
 // TestHomeUsabilityNonVerdictReaders pins the three readers that produce no
