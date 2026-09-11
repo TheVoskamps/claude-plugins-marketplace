@@ -1007,6 +1007,17 @@ redirect on a binary command parks on the *inner* statement, leaving
 the outer one with none; a redirect on a function definition parks on
 the body's statement.
 
+The traversal itself takes the same treatment. `syntax.Walk` reports a
+node's exit by calling the callback with a nil node after that node's
+children — but only for a node whose own callback returned true. A
+callback that prunes a subtree by returning false gets no matching nil,
+so a `depth++` / `depth--` pair keyed on the exit call goes out of
+balance and every later node is graded at the wrong nesting depth.
+Bracket a depth change around an explicit descent instead, or push a
+stack entry only on the path that returns true. Probe which nodes get
+an exit call rather than reading it off the library's doc comment,
+which does not say.
+
 ## The worktree git gate counts git-prefixed basenames
 
 In a worktree-isolated agent, a git command is refused as "names git
