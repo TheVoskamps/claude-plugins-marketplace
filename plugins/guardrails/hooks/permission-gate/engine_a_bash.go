@@ -889,7 +889,7 @@ func extractSimpleCommands(file *syntax.File, seedCWD string, resolver varResolv
 			// shipped verdict does not widen whichever way the region moves. See
 			// the README's cd-tracking section.
 			//
-			// ok is already established by the case guard plus a non-empty home.
+			// ok is already established by the case guard plus a usable home.
 			// Cleaned, not verbatim, so a $HOME carrying a trailing slash cannot
 			// reach `$PWD` concatenation — bash's own $PWD carries no trailing
 			// slash after a successful cd (pinned by
@@ -2284,10 +2284,11 @@ func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
 }
 
 // hasGlobMeta reports whether s contains a shell glob metacharacter
-// (`*`, `?`, `[`) that bash would expand via pathname expansion. Used to
-// detect a static `for x in <words>` item that merely LOOKS like a
-// literal but actually depends on runtime directory contents; it is not a
-// general-purpose literalWord change.
+// (`*`, `?`, `[`) that bash would expand via pathname expansion — the test for
+// a word that merely LOOKS like a literal but actually depends on runtime
+// directory contents. It grades an already-resolved string; literalWord itself
+// is not glob-aware, so a word carrying a metacharacter still resolves to its
+// own text there.
 func hasGlobMeta(s string) bool {
 	return strings.ContainsAny(s, "*?[")
 }
