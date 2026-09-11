@@ -98,11 +98,6 @@ justified once, in SKILL.md's "Spawn-prompt principle" and
 what follows a pointer is that site's application of the rule, never
 the rule restated.
 
-SKILL.md's `Phase 1` / `Phase 2` / `Phase 3` headings stay as they
-are. They read as sequence names, but they are load-bearing across the
-file's report templates and a Hard Constraint, so renaming them is a
-cross-file refactor rather than a doc-pass sweep.
-
 What this file *does* own is the roster itself: which skills, which
 agents and which executables the plugin ships, plus the `dependencies`
 edges and the cross-plugin skills those edges cover. A PR that adds,
