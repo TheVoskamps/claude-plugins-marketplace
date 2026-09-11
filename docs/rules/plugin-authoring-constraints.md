@@ -119,10 +119,10 @@ branch-name grammar is stated once, in
 `github-prs:pr-create`, `github-prs:pr-link-issue`, and
 `sdlc:theorem-based-pr-reviewer` invoke `git-issues-from-branch`
 rather than each restating the rule. The same skill also applies the global
-issue-to-branch reconciliation rule in `rules/git-workflow.md`,
-because that rule is global rather than per-caller; what each consumer
-keeps is its own **action** per reported outcome, which is exactly the
-deliberate per-caller difference the extraction must not flatten.
+issue-to-branch reconciliation rule, because that rule is global
+rather than per-caller; what each consumer keeps is its own **action**
+per reported outcome, which is exactly the deliberate per-caller
+difference the extraction must not flatten.
 
 A new skill's registration surfaces are the owning plugin's
 `plugin.json` `description` and — where the plugin ships a `README.md`
@@ -315,7 +315,7 @@ receives it must still work without it: `theorem-disprover` and
 `counterexample-verifier` alike fetch whenever the brief carries
 neither parameter, the ref is missing, or the SHA differs, which is
 what keeps a standalone run correct. See
-`docs/verification-playbook.md` → "Skip the fetch when
+`docs/rules/verification-playbook.md` → "Skip the fetch when
 `origin/<branch>` already matches".
 
 **A fan-out's wait is a resume loop, and it needs a deadline.** The
@@ -391,7 +391,7 @@ reader call by bare name. Key that path on what the round is about and
 on nothing that names the session running it — a session ending is one
 of the ways a fan-out is interrupted, and a session-keyed path would
 leave the resumed spawner unable to reach its own records. See
-`docs/config-file-conventions.md` → "State goes under
+`docs/rules/config-file-conventions.md` → "State goes under
 `$XDG_STATE_HOME/<plugin>/`".
 
 **A PR artifact is not a store.** The state a pipeline accumulates over
@@ -583,9 +583,8 @@ is stated once, in
 `plugins/cc-tools/skills/lib/agent-memory-inbox.md`, and nowhere else
 — and `/cc-tools:agent-memory-inbox-cleanup` grades every captured
 entry transfer-or-delete, then commits the documentation files its
-transfers landed in. `sdlc`'s `issue-developer`, `issue-fixer`, and
-`doc-updater` call the writer; `agent-memory-scrubber` calls the
-curator.
+transfers landed in. `sdlc`'s agents that declare `memory: project`
+call the writer; `agent-memory-scrubber` calls the curator.
 
 These properties come with the pattern rather than with that
 instance:
@@ -674,7 +673,7 @@ fact:
   "Patterns this marketplace uses" section. That is the durable home
   for a generalization, and a new shape is not covered by the existing
   cross-plugin entries.
-- **A hook-event behavior fact** belongs in `docs/hook-event-notes.md`
+- **A hook-event behavior fact** belongs in `docs/rules/hook-event-notes.md`
   with a citation to the hooks documentation. It does not belong here:
   such facts hold for any `settings.json` hook with no plugin
   involved, so they are off this file's charter.
@@ -684,7 +683,7 @@ fact:
 - **A fact about working inside one plugin's tree** — which file owns
   which statement, what a change there sweeps — belongs in that
   plugin's own README, not here and not in a second file under
-  `docs/`.
+  `docs/rules/`.
 
 Two surfaces a skill-extraction round leaves behind: the consumer
 plugin's README does not mention the `dependencies` edge its

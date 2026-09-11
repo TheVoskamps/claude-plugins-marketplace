@@ -192,8 +192,8 @@ func loadOperatorCarveOutFrom(configPath string) operatorCarveOut {
 
 // carveOutRootPath resolves one of the two XDG roots. The environment variable
 // is consulted only when the operator opted in AND it is set and non-empty —
-// the same test docs/config-file-conventions.md gives the plugins, so the gate
-// and the plugins agree in the empty case too. Otherwise the file's own
+// the same test the plugins apply to those variables, so the gate and the
+// plugins agree in the empty case too. Otherwise the file's own
 // `<root>-default` spelling decides, and when the file gives none the root is
 // unusable and its entries are dead: there are no hidden built-in defaults, so
 // no root exists that the operator did not spell out somewhere.

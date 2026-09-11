@@ -10,8 +10,8 @@ worktree) to the **remote**. Use this when you want the guest's work to
 land on a remote branch directly, without first mirroring it onto the
 local source.
 
-This skill pushes to the remote. Per the repo's git-workflow rules,
-**pushing requires explicit approval** — show the commits and target
+This skill pushes to the remote, so **pushing requires explicit
+approval** — show the commits and target
 branch, ask, and wait for a clear yes before pushing. Never
 force-push.
 

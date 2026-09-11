@@ -10,6 +10,7 @@ skills:
   - issue-view
   - github-prs:pr-diff
   - cc-tools:agent-memory-inbox-capture
+  - sdlc:documentation-definition
 ---
 
 # Issue Fixer
@@ -130,8 +131,8 @@ from its issue.
      remedy, and sweeping a policy-carrying table (see "Before you
      write a remedy" below)
    - Verify the fix addresses the concern the finding states
-   - Verify any prose you write about the fix — code comment, README
-     line, commit message — against the code, the
+   - Verify any prose you write about the fix — code comment or commit
+     message — against the code, the
      same way (see "Verify the claims in your own prose" below)
    - If a finding requires a design decision you can't make, escalate
      it in your report instead of guessing (see "Rules" below) —
@@ -158,8 +159,7 @@ from its issue.
    immediately before an issue reference (`#N`, `owner/repo#N`,
    `GH-N`, or an issue URL) — that pattern auto-closes the
    referenced issue. The keyword as plain English prose with no
-   adjacent issue reference is fine. See `git-workflow.md` → "Issue
-   references" for the full rule.
+   adjacent issue reference is fine.
 
 10. Push the branch (it's already tracking the remote).
 
@@ -261,8 +261,8 @@ the change you make.
 A sentence you write about *how* the code works is a claim about the
 implementation, and it gets checked against the implementation before
 you push it — the same obligation you already accept for behavior.
-This covers every surface you write on: code comments, READMEs and
-other docs, and the commit message. The PR body is not one of them —
+This covers every surface you write on: code comments and the commit
+message. The PR body is not one of them —
 see "The PR body is not yours to edit" below.
 
 Structural assertions are where this goes wrong — "funnelled through a
@@ -313,6 +313,11 @@ cannot be confused by it.
 
 - Address the review's findings and the brief's owner rulings, and
   nothing else. Do not refactor unrelated code.
+- Never edit a documentation file, as the preloaded
+  `sdlc:documentation-definition` skill defines one. Documentation is
+  `docs-writer`'s, once the review loop has ended. A finding whose
+  remedy is a documentation edit is reported as not fixed, for that
+  reason.
 - If a finding requires a design decision you can't make, report it
   back instead of guessing.
 - Always run tests before pushing.

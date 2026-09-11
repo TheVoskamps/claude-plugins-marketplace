@@ -9,7 +9,7 @@ the human a set of PRs to bless.
 ## Find the owner of a statement before you edit it
 
 This plugin's hazard is duplication. Its behavior is described across
-an agent file, a skill body, this README and the repo's `docs/`, and
+an agent file, a skill body and this README, and
 nothing tests prose, so a change made in one place leaves the others
 asserting the opposite. Every fact has exactly one owner: edit the
 owner, repair pointers elsewhere, and never let a second file restate
@@ -29,11 +29,9 @@ the fact.
 Some owners are worth spelling out, because the obvious guess is wrong.
 The review procedure is an **agent**, not a skill, so both
 `/sdlc:orchestrate` and `/sdlc:git-review-pr` reach it by spawning it,
-and a change to what a review does touches the reviewer, both callers,
-and — when it changes which agents a round spawns —
-`docs/plugin-authoring-constraints.md`'s worked fan-out instance. And
-this file is a **roster**, not a contract: the rosters below carry a
-one-line purpose and a pointer, never a restatement. A README that
+and a change to what a review does touches the reviewer and both
+callers. And this file is a **roster**, not a contract: the rosters
+below carry a one-line purpose and a pointer, never a restatement. A README that
 added a copy of a contract would add a surface to sweep — one that no
 test and no doc pass naturally opens — and it would go stale silently.
 When something here and an owner file disagree, the owner file wins
@@ -98,11 +96,6 @@ justified once, in SKILL.md's "Spawn-prompt principle" and
 what follows a pointer is that site's application of the rule, never
 the rule restated.
 
-SKILL.md's `Phase 1` / `Phase 2` / `Phase 3` headings stay as they
-are. They read as sequence names, but they are load-bearing across the
-file's report templates and a Hard Constraint, so renaming them is a
-cross-file refactor rather than a doc-pass sweep.
-
 What this file *does* own is the roster itself: which skills, which
 agents and which executables the plugin ships, plus the `dependencies`
 edges and the cross-plugin skills those edges cover. A PR that adds,
@@ -131,10 +124,10 @@ changes how the two relate edits it here.
 | `sdlc:theorem-generation` | How a generator turns a PR into disprovable theorems | preloaded into each generator agent |
 | `sdlc:theorem-agents-interface` | What the reviewer's brief parameters and the consequence classes mean | preloaded into each theorem agent |
 | `sdlc:agent-result-persist-interface` | What the `sdlc-agent-result-persist` CLI does — its modes, flags, paths and record grammar | preloaded into the reviewer, each generator variant, the disprover, the verifier, and `pr-finalizer` |
+| `sdlc:documentation-definition` | What counts as documentation rather than code | preloaded into the agents that decide which files they may edit or review |
 
-`theorem-generation`, `theorem-agents-interface` and
-`agent-result-persist-interface` carry no leading slash here because
-they are not user verbs — each declares `user-invocable: false`, which
+The rows with no leading slash are not user verbs — each declares
+`user-invocable: false`, which
 keeps it out of the human `/` menu while leaving it invocable.
 `theorem-generation` is preloaded into each
 `theorem-generator` variant through that agent's `skills:`
@@ -146,10 +139,10 @@ glosses it grades its own theorem-less findings by.
 
 The review procedure is absent from that table because it is an agent
 rather than a skill, per "Find the owner of a statement before you
-edit it" above. Why a fan-out procedure lives in one agent rather than
-in a skill its subagents preload is worked through in
-`docs/plugin-authoring-constraints.md` →
-"Fanning out parallel agents: one home for the procedure".
+edit it" above. Every caller spawns that one agent to run the fan-out,
+so the procedure is its body: a skill wrapping a procedure only one
+agent ever runs would split one contract across two files that must
+agree, and an agent body is already loaded at spawn.
 
 `/sdlc:orchestrate-ready` is the grooming step in front of the flow,
 and `/sdlc:orchestrate` does not invoke it — the user runs it first,
@@ -176,9 +169,9 @@ by `skills/agent-result-persist-interface/SKILL.md`.
 
 `pr-finalizer` reads that state and writes none of it. The implementing
 agents are outside the claim entirely and write nothing this
-list owns: `issue-developer`, `issue-fixer` and `doc-updater` commit
-their work to the branch and capture their agent memory into the
-session's inbox, and `agent-memory-scrubber` commits what that inbox
+list owns: those declaring `memory: project` capture their agent memory
+into the session's inbox, each of them but `style-checker` commits its
+work to the branch, and `agent-memory-scrubber` commits what that inbox
 transfers.
 
 Write `<round-dir>` for
@@ -228,7 +221,9 @@ throwaway worktree per spawn.
 | ------- | --------- |
 | `issue-developer` | Implements one batch of issues on one branch |
 | `issue-fixer` | Applies review findings to an open PR's branch |
-| `doc-updater` | Updates the docs a PR's changes falsify |
+| `code-documenter` | Adds or corrects the comments the style guides require in a round's code, before its review |
+| `style-checker` | Reports a round's style-guide violations for the human to rule on, before its review |
+| `docs-writer` | Writes a PR's documentation once, after its review loop ends |
 | `agent-memory-scrubber` | Curates the run's agent-memory inbox onto the PR |
 | `pr-finalizer` | Posts the run's assembled review detail to a finished PR and appends the run's final section to its body |
 | `theorem-based-pr-reviewer` | Reviews one PR, fanning out the generator, the disprovers, and the verifiers from inside itself |
@@ -280,5 +275,4 @@ The same `git-tools` edge also covers
 `git-cleanup-branches-and-worktrees`, which
 `skills/orchestrate/SKILL.md` invokes once. The edge coordinates
 install and enablement, not file access: plugins are file-sandboxed,
-so nothing here reads another plugin's files (see
-`docs/plugin-authoring-constraints.md`).
+so nothing here reads another plugin's files.

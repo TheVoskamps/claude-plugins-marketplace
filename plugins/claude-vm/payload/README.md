@@ -1439,10 +1439,7 @@ away from the code it governs (`claude-vm.sh` carries the rule in its
 extra-mount block *and* again at its `claude_vm_check_mounts` call site); an
 operator-facing surface no test opens (`config-boot.example.yml`'s boxed
 warning, and the config wizard under `skills/`); and evidence rather than
-prose — `test/config-test.sh` pins the abort in every spelling, and
-[`docs/claude-vm-verification-playbook.md`](../../../docs/claude-vm-verification-playbook.md),
-which carries the vfkit and kernel measurements the impossibility claim rests
-on.
+prose — `test/config-test.sh` pins the abort in every spelling.
 
 *Where the `ro` on a built-in share comes from.* claude-vm's own shares —
 `runconfig`, `claudebin`, `claudecreds` — are described throughout this

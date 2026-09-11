@@ -52,8 +52,7 @@ the guest exits (clone mode).
 
    The user then reviews `git status` / `git diff` in the source and
    commits as they see fit. This skill does **not** commit on the
-   user's behalf — staging and commit decisions stay with the user, per
-   the repo's git-workflow rules.
+   user's behalf — staging and commit decisions stay with the user.
 5. Report what changed (`git -C "<repo_src>" status --short`).
 
 ## Notes

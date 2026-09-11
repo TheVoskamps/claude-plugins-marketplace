@@ -1831,8 +1831,7 @@ The gate's engines feed that decision:
   directory — that matches a glob the operator listed for that root in
   `~/.config/guardrails/config.yml` is **allowed**
   (`operator_carveout.go`).
-  [`docs/config-file-conventions.md`](../../../../docs/config-file-conventions.md)
-  puts every per-user plugin config under
+  This marketplace's plugins put every per-user config under
   `${XDG_CONFIG_HOME:-$HOME/.config}/<plugin>/` and every per-user
   state file under `${XDG_STATE_HOME:-$HOME/.local/state}/<plugin>/`,
   and containment canonicalizes both sides before it decides. On a
@@ -1846,7 +1845,7 @@ The gate's engines feed that decision:
 
   **The gate carries no knowledge of which plugins exist.** There are no
   shipped default entries; a machine that wants the carve-out writes the
-  file, in the shape `docs/config-file-conventions.md` prescribes, with
+  file — YAML, stamped `schema-version` as its first key — with
   a pair of glob lists per root, each glob **relative to its own root**:
 
   ```yaml
@@ -1891,8 +1890,8 @@ The gate's engines feed that decision:
   `config-home` and `state-home` each take
   `$XDG_CONFIG_HOME` / `$XDG_STATE_HOME` when
   `resolve-xdg-environment-variables: yes` **and** the variable is set
-  and non-empty — the same test `docs/config-file-conventions.md` gives
-  the plugins, so the gate and the plugins agree in the empty case too
+  and non-empty — the same test the marketplace's plugins apply to
+  those variables, so the gate and the plugins agree in the empty case too
   — and otherwise the file's own `config-home-default` /
   `state-home-default` spelling. That spelling may start with `~` or
   `~/`, expanded against that same process home, and with **no other
@@ -1910,8 +1909,9 @@ The gate's engines feed that decision:
   → no usable entry anywhere → today's behaviour**, on every path. The
   carve-out fails closed, and the gate is its only reader, so none of
   those is an error reported anywhere — it is simply a carve-out with no
-  root that can allow anything. That is a named exception to `docs/config-file-conventions.md`'s
-  abort-on-malformed rule, recorded there: a `PreToolUse` hook has no
+  root that can allow anything. That departs deliberately from the
+  abort-on-malformed rule the marketplace's other config readers
+  follow: a `PreToolUse` hook has no
   channel to abort into, and failing the hook over a broken config
   would be strictly worse than the behaviour the operator had before
   writing it. The file
@@ -2093,10 +2093,8 @@ non-interactive (`-p`) mode, and only on a turn that makes a single
 tool call. An interactive session logs a warning and ignores the hook
 result, and so does a turn issuing several tool calls at once — so the
 same binary was inert in the session a human types into and fatal in
-every headless agent spawned from it. The vendor-side detail lives in
-[`docs/hook-event-notes.md`](../../../../docs/hook-event-notes.md) →
-`PreToolUse` (the decision channel, any matcher); what follows here is
-this gate's own handling.
+every headless agent spawned from it. What follows is this gate's own
+handling.
 
 The other spelling of abstention — writing nothing at all — is
 unavailable here, and deliberately so: the `hooks.json` wrapper reads
@@ -2171,8 +2169,8 @@ actionable wherever it surfaces.
 
 A Reason cites no instruction file this plugin does not own, for the
 same reason. The gate's artifacts are the binary, its Go source and
-this README; a pointer like `rules/git-workflow.md` resolves against
-the operator's own `~/.claude/rules/`, which a machine that installed
+this README; a pointer into `~/.claude/rules/` resolves against the
+operator's own configuration, which a machine that installed
 this plugin need not have and whose wording this repo does not
 control. So a remediation states the constraint and the call that
 satisfies it inline and stops there — the `cd <path> && git …` and
@@ -2201,41 +2199,28 @@ must not be runtime-editable. **Changing policy means editing the Go
 source, re-running the test suite, rebuilding every committed binary,
 and recommitting them.**
 
-It also means sweeping the surfaces that describe a verdict. Classifier
-behavior is owned here and by no other plugin, and each `/docs` surface
-that names a verdict is bounded to one reader — so sweep by grepping
-what each names rather than by opening the files this list happens to
-mention:
+It also means sweeping the surfaces that describe a verdict.
+Classifier behavior is owned here and by no other plugin, so find
+every other surface that names a verdict by grepping the repository
+for what it names, never by recalling which files carried it last
+time: the verdict words `deny`, `allow`, `defer` and `ask`; the
+`PreToolUse` matcher string, which is quoted verbatim twice in this
+file; and the gate's own message fragments ("not all static literals",
+"resolves outside the current repository", "cannot resolve
+statically").
 
-- [`docs/guardrails-verification-playbook.md`](../../../../docs/guardrails-verification-playbook.md)
-  names verdicts as the **controls a probe needs**. A verdict change
-  that moves a control row updates it; grep it for `deny`, `allow`,
-  `defer` and `ask`.
-- [`docs/agent-tooling-notes.md`](../../../../docs/agent-tooling-notes.md)
-  names them **for the agent being denied**: what a primary-clone read
-  comes back as, and the routes that reach the wrong bytes with no deny
-  at all. A change that opens or closes one of those routes updates it
-  — and so does a change to the `PreToolUse` matcher, which is quoted
-  verbatim there and twice in this file, so sweep it by grepping the
-  matcher string.
-- [`docs/verification-playbook.md`](../../../../docs/verification-playbook.md)
-  names one verdict only, to keep a lint-baselining technique runnable.
+`.claude/agent-memory/` needs no sweep of its own: the tree is
+gitignored, lives only in a throwaway worktree, and the session inbox
+its entries reach dies with the session, so nothing there survives to
+be falsified. Such a note reaches the repo only once a curator
+transfers it into the repo's own documentation, where the grep above
+finds it.
 
-`.claude/agent-memory/` is deliberately absent from that list: the tree
-is gitignored, lives only in a throwaway worktree, and the session
-inbox its entries reach dies with the session, so nothing there
-survives to be falsified. Such a note reaches the repo only once a
-curator transfers it into the repo's own documentation — grep this
-README, `docs/` and `CLAUDE.md` for the gate's own message fragments
-("not all static literals", "resolves outside the current repository",
-"cannot resolve statically") whenever a verdict changes.
-
-What a verdict looks like **on the wire** is a different axis, owned by
-`docs/hook-event-notes.md`, which this file already points at where it
-explains why a defer omits `permissionDecision` rather than spelling
-it. A rebucketing PR touches none of it; a PR that changes how a
-bucket is spelled on stdout touches that file, this one, and the
-playbook's probe-reading note together.
+What a verdict looks like **on the wire** is a different axis — why a
+defer omits `permissionDecision` rather than spelling it, explained
+above. A rebucketing PR touches none of it; a PR that changes how a
+bucket is spelled on stdout touches that explanation and every surface
+the same grep finds.
 
 ## Build / test / cross-compile
 

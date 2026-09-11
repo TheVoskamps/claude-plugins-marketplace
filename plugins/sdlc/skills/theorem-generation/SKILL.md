@@ -71,7 +71,9 @@ You are given exactly these, as double-dash parameters, each meaning
 what the `sdlc:theorem-agents-interface` skill (preloaded into your
 agent alongside this one) says it means: `--pr`, `--issues`,
 `--branch`, `--owner`, `--repo`, `--round`, and — on a re-review only —
-`--carried-records` and `--delta-commits`.
+`--carried-records` and `--delta-commits`. When the PR changes a
+documentation file, the brief also carries the documentation-paths
+line that skill describes; apply it as it says.
 
 Without `--owner`, `--repo` and `--round` you can still generate the
 list but cannot record that you started or write it where a resumed
@@ -171,6 +173,11 @@ Work these sources in the order given. Each produces claims of a
 different shape, and codebase consistency and design shape are what
 force the review out of the diff.
 
+Documentation files, as the `sdlc:documentation-definition` skill
+defines them, are outside the review — invoke that skill for the
+definition. No theorem is about one, and none names one as a stale
+restatement.
+
 ### 1. Acceptance criteria
 
 Every criterion of every member issue becomes a theorem: "the diff
@@ -207,7 +214,7 @@ disproved, the finding is the unmet criterion.
 
 For every interface, contract, name, file path, config key, or
 convention the diff touches: "no other consumer or restatement in the
-repo still assumes the old behavior."
+repo's code still assumes the old behavior."
 
 These quantify over the repo, so they force the review out of the diff
 by construction, and they are the class the old checklist review could
@@ -231,7 +238,10 @@ order:
 2. Ask whether this diff changes that fact. If it does not, emit
    nothing for that section, however many of its named files the diff
    touches. If it does, emit one theorem naming the specific surfaces
-   that restate it and must have moved with it.
+   that restate it in code and must have moved with it. A restatement
+   in a documentation file is `docs-writer`'s to repair once the loop
+   has ended, and warrants no theorem; when every surface the section
+   names is documentation, emit nothing for it.
 
 Sweep sections often say this themselves — that rebuilding a file in
 place mirrors nothing, that a given surface takes the edit only when a
@@ -249,6 +259,8 @@ Further reliable members of this class:
 - **Restated counts and enumerations.** Prose that says how many arms,
   cases, or surfaces something has is a claim the code settles.
 
+Both hold only where the pointer or the prose sits in code.
+
 ### 4. Design shape
 
 - "This change sits where the codebase already puts this kind of
@@ -262,36 +274,9 @@ Further reliable members of this class:
 These are `semantic` by nature. State them against named files, not in
 the abstract, or the disprover has nowhere to start.
 
-### 5. Style guides
-
-The code and documentation style guides are a theorem source of the
-same standing as the sources above. A style rule that reaches a
-developer agent as prose alone gets applied unevenly, and the
-violations that do surface arrive as ad-hoc reviewer nits rather than
-as reproduced, verified findings.
-
-Read the global guides, at `~/.claude/docs/rules/code-style.md` and
-`~/.claude/docs/rules/documentation-style.md`. Each names the Structure
-contract that governs it and the repo extension file that extends it,
-and both are the guide's to state and yours to follow: what a rule is,
-what in a guide is one, and where any further layer lives all come from
-the guide you are reading rather than from here.
-
-An absent file yields no style theorems from that file, silently. A
-missing global guide is not an abort. Never reconstruct a style rule
-from memory when its file is absent: an invented rule is precisely the
-ad-hoc nit this source exists to remove.
-
-A rule maps to a theorem with no rewriting: quote the rule and state
-it against this change. Do not paraphrase a rule into a claim of your
-own wording, and do not merge several rules into one theorem — a
-counterexample to one rule says nothing about the others.
-
-A rule becomes a theorem only when the diff **plausibly engages it**.
-This mirrors the test "Codebase consistency" above applies to the
-repo's sweep sections: touching a file a rule could apply to is not
-the trigger, and treating it as one turns every diff into one
-vacuously-true theorem per rule.
+Style is not a theorem source: `code-documenter` and `style-checker`
+own it, before the review runs, so no theorem states a style-guide
+rule.
 
 ## The emission bar: falsifiability, then stakes
 
@@ -366,11 +351,9 @@ not a reason to drop a claim; failing either question above is.
 
 Duplicated-looking prose across consumers is often a deliberate
 per-caller **policy** arm, kept precisely so the callers can differ,
-with only the *mechanism* extracted into a shared skill (see
-`docs/plugin-authoring-constraints.md` → "Sharing behavior (a parse, a
-lookup, a derivation)", which says in as many words that each consumer
+with only the *mechanism* extracted into a shared skill: each consumer
 keeps its own policy so the extraction does not flatten deliberate
-per-caller differences). "This is duplicated" is not a theorem in that
+per-caller differences. "This is duplicated" is not a theorem in that
 shape, and
 generating it produces a finding the human has already ruled on.
 

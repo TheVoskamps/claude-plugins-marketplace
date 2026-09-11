@@ -55,9 +55,8 @@ lightweight **inline** parse of just these two front-matter lines,
 not the full reader contract in the `issues` plugin's
 `skills/lib/repo-config.md`: that lib file lives inside the `issues`
 plugin, and plugins are file-sandboxed (a bare `Read` from another
-plugin's skill cannot resolve a path outside its own plugin directory
-— see `docs/plugin-authoring-constraints.md` → "Plugins are
-file-sandboxed"). Bundling a duplicate copy of that lib into this
+plugin's skill cannot resolve a path outside its own plugin
+directory). Bundling a duplicate copy of that lib into this
 plugin, or inventing a cross-plugin `Read`, would either
 reproduce the exact coupling issue #143 removed from `sdlc` or simply
 not work; a two-field inline parse avoids both.

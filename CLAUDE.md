@@ -64,10 +64,15 @@ encodes the narrow syntactic case as the definition of the class, making
 the tree look clean when the wrap-split instances are still there. A
 check over text the program **emits** is behavior and stays.
 
-Removing such a mechanism sweeps every claim it spawned in the same
-round — README sections, comments, the PR body — including any "every X
-is gone" or "fails the build if reintroduced". Keep the convention and
-its rationale; drop the enforcement story.
+Removing such a mechanism sweeps every claim it spawned, including any
+"every X is gone" or "fails the build if reintroduced". Comments and
+other code are the implementer's to sweep in the same round. Under an
+orchestrated run, README sections are written after the review loop, and
+a stale PR-body claim is not deleted from the body: the orchestrator
+collects it, and `pr-finalizer`'s appended final section corrects it. On
+a PR no orchestrator runs, whoever changes the mechanism corrects the
+body claim themselves. Keep the convention and its rationale; drop the
+enforcement story.
 
 ## MD041 on a SKILL.md is convention, not debt
 
@@ -105,17 +110,6 @@ capability claim reads.
 Sweep every restatement rather than the one the issue names, and say in
 the PR body which grade you gave, so the reviewer grades that judgment
 rather than re-finding the contradiction. This is not an escalation.
-
-## An issue's "Known gaps" section is a doc requirement
-
-When an issue body states what the change deliberately does *not* do,
-treat it as an unmet doc requirement until the PR proves otherwise. The
-gaps read as nothing to write down, and they are exactly what a future
-agent cannot recover from the code — the absence of a check looks like
-an oversight to fix rather than a decision to respect. Grep the README
-for each gap's mechanism name before concluding it is covered, and check
-whether nearby prose now reads as a completeness claim it cannot
-support.
 
 ## The PR description is a doc surface
 
@@ -172,36 +166,36 @@ its hardest rule. Playbooks record technique, not policy: when a
 playbook step and a rule above disagree, the rule wins and the playbook
 is the thing to fix.
 
-- [`docs/verification-playbook.md`](docs/verification-playbook.md) —
+- [`docs/rules/verification-playbook.md`](docs/rules/verification-playbook.md) —
   read before claiming a change was verified, in any domain. Kernel: a
   measurement without a baseline and a negative control establishes
   nothing.
-- [`docs/guardrails-verification-playbook.md`](docs/guardrails-verification-playbook.md)
+- [`docs/rules/guardrails-verification-playbook.md`](docs/rules/guardrails-verification-playbook.md)
   — read before asserting what the permission gate does. Kernel: the
   gate ships policy inside a committed binary, so settle a verdict by
   replaying a synthetic event against that binary, never by reading the
   Go source.
-- [`docs/claude-vm-verification-playbook.md`](docs/claude-vm-verification-playbook.md)
+- [`docs/rules/claude-vm-verification-playbook.md`](docs/rules/claude-vm-verification-playbook.md)
   — read before asserting what a claude-vm launch, image build or guest
   does. Kernel: probe the real hypervisor, kernel and launcher; a green
   fixture-driven suite has measured the fixture.
-- [`docs/agent-tooling-notes.md`](docs/agent-tooling-notes.md) — read
+- [`docs/rules/agent-tooling-notes.md`](docs/rules/agent-tooling-notes.md) — read
   when a command here succeeds but the result surprises you. Kernel: the
   Bash tool's shell is zsh, `gh`'s GraphQL verbs can fail while REST is
   healthy, and a worktree-isolated agent reads the worktree, never the
   primary clone's path.
-- [`docs/hook-event-notes.md`](docs/hook-event-notes.md) — read before
+- [`docs/rules/hook-event-notes.md`](docs/rules/hook-event-notes.md) — read before
   writing or changing a hook, or asserting how the harness treats one.
   Kernel: a PreToolUse hook abstains by omitting `permissionDecision`;
   emitting the literal `"defer"` ends a headless subagent's run.
-- [`docs/config-file-conventions.md`](docs/config-file-conventions.md) —
-  read before a plugin reads or writes a config or state file of its
+- [`docs/rules/config-file-conventions.md`](docs/rules/config-file-conventions.md)
+  — read before a plugin reads or writes a config or state file of its
   own. Kernel: a config goes under `$XDG_CONFIG_HOME/<plugin>/` and is
   never JSON, whatever `settings.json` beside it does — YAML, or
   Markdown with front-matter when a human needs the prose too, stamped
   `schema-version`; state goes under `$XDG_STATE_HOME/<plugin>/`, keyed
   on what it is about and never on the session that wrote it.
-- [`docs/plugin-authoring-constraints.md`](docs/plugin-authoring-constraints.md)
+- [`docs/rules/plugin-authoring-constraints.md`](docs/rules/plugin-authoring-constraints.md)
   — read before adding a plugin, or a file one plugin expects another to
   reach. Kernel: plugins are file-sandboxed, so a cross-plugin `Read`
   does not resolve; skill invocation is what crosses instead.

@@ -95,9 +95,9 @@ carries a closing keyword has an **issue-side** side effect, and that
 side effect runs under the *merging* token's authority — so an App
 with `contents: write` + `pull_requests: write` and no `issues` scope
 merges the PR successfully and silently leaves every linked issue
-open. That is the exact half of `rules/git-workflow.md`'s
-closing-keyword convention (PR body only, the branch's own issue set
-only) that the automation exists to deliver.
+open. That is the exact half of the closing-keyword convention (PR
+body only, the branch's own issue set only) that the automation exists
+to deliver.
 
 `Checks: read` and `Commit statuses: read` are what let the App see
 whether CI passed. `GET /repos/{owner}/{repo}/commits/{ref}/check-runs`

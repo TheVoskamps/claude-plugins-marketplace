@@ -122,9 +122,8 @@ Assess the fetched issue against each of these:
    definitions in `sdlc:theorem-generation` → "Output format" so the
    two files agree by construction. An issue that touches
    `plugins/<name>/` always gets the plugin version bump as a
-   mechanical criterion: the repo's `CLAUDE.md` requires that bump on
-   every such PR, and the generator makes a theorem of every
-   criterion.
+   mechanical criterion: every PR that changes a plugin bumps its
+   version, and the generator makes a theorem of every criterion.
 
    **If any gap from step 2 is still unresolved when the conversation
    ends** — the user deferred it, answered around it, or stopped
@@ -183,8 +182,8 @@ Assess the fetched issue against each of these:
    `/issue-set-blocks <blocker> <blocked>` when it is the other way
    round. **Never** a closing keyword in either body — a closing
    keyword auto-closes the referenced issue on merge, and one aimed at
-   an issue outside a branch's own set is precisely what
-   `~/.claude/rules/git-workflow.md` → "Issue references" forbids.
+   an issue outside a branch's own set is precisely what the
+   closing-keyword rule forbids.
 
 6. **Set the status, then verify the write landed.** Skip this step
    whenever a gap from step 2 went unresolved (see step 3) — the issue

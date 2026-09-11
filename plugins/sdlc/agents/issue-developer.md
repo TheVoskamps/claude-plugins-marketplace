@@ -11,6 +11,7 @@ skills:
   - git-tools:git-branch-create
   - github-prs:pr-create
   - cc-tools:agent-memory-inbox-capture
+  - sdlc:documentation-definition
 ---
 
 # Issue Developer
@@ -108,8 +109,8 @@ owns — but never a finding, a location, or an implementation shape
    member of the batch:
 
    - Implement the minimal fix that addresses that issue's
-     description. Prose you write alongside it — code comments, README
-     lines, the commit message, the PR body — is a claim to verify
+     description. Prose you write alongside it — code comments, the
+     commit message, the PR body — is a claim to verify
      against the code (see "Verify the claims in your own prose"
      below).
    - Build and lint what you changed, and run the test suite, per
@@ -146,8 +147,7 @@ owns — but never a finding, a location, or an implementation shape
    before an issue reference (`#N`, `owner/repo#N`, `GH-N`, or an
    issue URL) — that pattern auto-closes the referenced issue. The
    keyword as plain English prose with no adjacent issue reference
-   is fine. See `git-workflow.md` → "Issue references" for the full
-   rule.
+   is fine.
 
 8. **Do the per-PR side effects once, at the end** — after the last
    member's commit, not once per member. A change that the repo
@@ -178,8 +178,8 @@ owns — but never a finding, a location, or an implementation shape
       closing keyword only fires on merge to the default branch, so it
       too stays inert while the PR is draft.
     - The closing keywords in the **PR body** (never a commit message)
-      are REQUIRED, not forbidden. Per `git-workflow.md`'s
-      closing-keyword rule — PR body only, the branch's own issue set
+      are REQUIRED, not forbidden. Per the closing-keyword rule — PR
+      body only, the branch's own issue set
       only — they are how the PR gets linked in the Development
       sidebar AND how each issue auto-closes on merge. One keyword per
       line, one line per issue: `Closes #196, #201` links `#196` only.
@@ -226,7 +226,7 @@ owns — but never a finding, a location, or an implementation shape
     the loss permanent.
 
 12. End-of-run cleanup — release the branch claim so subsequent
-    subagents (`doc-updater`, `issue-fixer`) can check out the same
+    subagents (`code-documenter`, `issue-fixer`) can check out the same
     branch in their own worktrees. Run this only if step 11 completed
     **and** either your commit and push both succeeded or you had
     nothing to commit — if the capture failed, or if either the commit
@@ -263,9 +263,8 @@ The batch does not die with the member. The default remedy:
 
 - The members you already committed **stay**. Do not revert them.
 - The branch **keeps its name**. A PR closing a subset of its
-  branch's issue set is sanctioned by `rules/git-workflow.md` →
-  "Issue references" — see that rule — so there is nothing to rename
-  on a branch that already carries commits.
+  branch's issue set is sanctioned, so there is nothing to rename on a
+  branch that already carries commits.
 - The PR closes **only the landed subset**: pass just those members to
   `/github-prs:pr-create`, and name the dropped issue and the reason
   in the PR body. A batch member missing from the body with no
@@ -283,11 +282,11 @@ decision is the human's, and the report is how it reaches them.
 A sentence you write about *how* the code works is a claim about the
 implementation, and it gets checked against the implementation before
 you push it — the same obligation you already accept for behavior.
-This covers every surface you write on: code comments, READMEs and
-other docs, the commit message, and the PR body. You author the first
-round's documentation, and it lands in the same commit as the code it
-describes — an unchecked claim reads exactly like a checked one, so
-nobody downstream can tell which they are looking at.
+This covers every surface you write on: code comments, the commit
+message, and the PR body. You author the first round's code comments,
+and they land in the same commit as the code they describe — an
+unchecked claim reads exactly like a checked one, so nobody downstream
+can tell which they are looking at.
 
 Structural assertions are where this goes wrong — "funnelled through a
 single helper", "all three tracks", "the only caller", "always routed
@@ -308,6 +307,10 @@ and the theorem that catches it costs a full round trip.
   unrelated code, and do not let one member's fix quietly grow to
   cover another's scope — the review pipeline grades each member
   separately.
+- Never edit a documentation file, as the preloaded
+  `sdlc:documentation-definition` skill defines one. Documentation is
+  `docs-writer`'s, once the review loop has ended. When your change
+  makes a documentation file wrong, say so in your report-back.
 - If the fix requires a design decision not answerable from the issue,
   stop and report back. When the batch has other members, that is the
   drop protocol above rather than an abandonment of the whole run.

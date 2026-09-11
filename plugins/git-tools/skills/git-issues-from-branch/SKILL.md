@@ -23,9 +23,9 @@ Consumers in other plugins — `github-prs:pr-create`,
 `github-prs:pr-link-issue`, and `sdlc:theorem-based-pr-reviewer` —
 invoke it
 instead of restating either rule: skill invocation crosses the plugin
-sandbox boundary that a `Read` cannot (see
-`docs/plugin-authoring-constraints.md` → "Skill invocation
-is global and namespaced"). Each of them keeps its own **action** per
+sandbox boundary that a `Read` cannot, since an enabled plugin's
+skills are invocable from anywhere by their namespaced name while file
+access stays sandboxed per plugin. Each of them keeps its own **action** per
 outcome; none of them re-derives the outcome itself.
 
 The skill parses strings. It runs no git command, so the branch need
@@ -54,9 +54,8 @@ lightweight **inline** parse of just that front-matter line, not the
 full reader contract in the `issues` plugin's
 `skills/lib/repo-config.md`: that lib file lives inside the `issues`
 plugin, and plugins are file-sandboxed (a bare `Read` from another
-plugin's skill cannot resolve a path outside its own plugin directory
-— see `docs/plugin-authoring-constraints.md` → "Plugins are
-file-sandboxed"). It is the same inline read
+plugin's skill cannot resolve a path outside its own plugin
+directory). It is the same inline read
 `git-tools:git-branch-create` performs on the same field, which is
 what keeps the two halves of the round trip agreeing.
 
@@ -89,10 +88,8 @@ exists to prevent.
 
 ## Reconciling a claimed list
 
-How a PR's issues relate to its branch's name is a **global** rule,
-not a per-caller convention. `rules/git-workflow.md` → "Issue
-References" is its normative statement and this skill's authority for
-everything below: the branch's set is a maximum rather than an
+How a PR's issues relate to its branch's name is one rule for every
+caller, not a per-caller convention: the branch's set is a maximum rather than an
 equality, a PR may close a subset of it and never a superset, and
 where a caller's claim and the branch name disagree the branch name is
 the higher-fidelity source of truth. This skill is where that rule is

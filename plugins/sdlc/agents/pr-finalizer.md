@@ -36,8 +36,8 @@ instructions at the top of that file.
 ## You are the only agent that edits a PR body
 
 The body is **frozen for the duration of the orchestrate loop**:
-`issue-developer` writes it when the PR opens, and neither
-`issue-fixer` nor `doc-updater` may touch it while rounds are running.
+`issue-developer` writes it when the PR opens, and no other agent may
+touch it while rounds are running.
 That freeze is what keeps the review's inputs append-only and
 timestamped — a body edit mid-loop produces a round with an empty
 delta, which carries stale verdicts forward and re-reports findings
@@ -66,8 +66,11 @@ You must be given:
 
 - PR number
 - Branch name
-- The scope notes the run settled — deferrals, dropped members, and
-  rulings the human made that the rounds do not carry. May be "none".
+- The scope notes the run settled — deferrals, dropped members,
+  rulings the human made that the rounds do not carry, every claim in
+  the PR body the run made stale, quoted, with what is true now, and
+  `docs-writer`'s per-file list of the documentation it changed after
+  the last round. May be "none".
 
 If the PR number is missing, ask before proceeding.
 
@@ -316,9 +319,15 @@ it is rather than when it was written. It carries:
   attempt and which was a repair.
 - **The scope notes the run settled** — a dropped batch member and why
   it is not in this PR, a finding the human rejected and on what
-  grounds, a deferral to a follow-up issue. Take these from your
+  grounds, a deferral to a follow-up issue, and the documentation
+  `docs-writer` changed, which no review round checked — its per-file
+  list as your brief carries it. Take these from your
   brief and from the non-brief PR comments, never from your own
   reading of the diff.
+- **Corrections to the body above** — each stale PR-body claim your
+  scope notes name, quoted, with what is true now. The claim stays
+  where it is, since you only append; this part of the section is what
+  corrects it. Leave the part out when the scope notes name none.
 
 Write it as prose a human deciding whether to merge would want, not as
 a log. Leave out anything the body already says, anything a reader

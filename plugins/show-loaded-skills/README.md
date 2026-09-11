@@ -23,7 +23,7 @@ plugin makes each visible in a normal session by printing a short
 Knowing which skill just loaded — and whether you typed it or Claude
 chose it — is useful for debugging "why is Claude doing X" questions and
 for building trust that the right skill actually ran. Sibling plugin
-[`show-loaded-rules`](../show-loaded-rules/README.md) covers the analogous
+`show-loaded-rules` covers the analogous
 question for CLAUDE.md / rules files via `InstructionsLoaded`; this
 plugin covers skills specifically, since `InstructionsLoaded` does not
 fire for skill loads.
@@ -90,9 +90,7 @@ Both hooks are **display-only**:
 
 Only the `systemMessage` JSON stdout field reaches the user for these
 events (plain stdout on `UserPromptExpansion` feeds Claude's context, not
-the user's UI; plain stdout on `PreToolUse` isn't surfaced to either). See
-[`docs/hook-event-notes.md`](../../docs/hook-event-notes.md) for the full
-verified notes on both events.
+the user's UI; plain stdout on `PreToolUse` isn't surfaced to either).
 
 ### Malformed / empty stdin
 
@@ -104,4 +102,4 @@ observational, so a best-effort message beats a hard failure.
 
 This plugin only covers skill-loading visibility. Rules/instruction-file
 loading is a separate concern, covered by
-[`show-loaded-rules`](../show-loaded-rules/README.md).
+`show-loaded-rules`.

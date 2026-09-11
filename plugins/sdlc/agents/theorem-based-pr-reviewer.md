@@ -10,6 +10,7 @@ skills:
   - github-prs:pr-review-submit
   - git-tools:git-issues-from-branch
   - sdlc:agent-result-persist-interface
+  - sdlc:documentation-definition
 ---
 
 # Theorem-Based PR Reviewer
@@ -32,7 +33,8 @@ Both entry paths spawn you rather than running the procedure in their
 own session:
 
 - `/sdlc:git-review-pr <PR>` — the standalone review.
-- The `/sdlc:orchestrate` loop, after each `doc-updater` pass.
+- The `/sdlc:orchestrate` loop, after each round's `code-documenter`
+  and `style-checker` passes.
 
 ## Read global rules first
 
@@ -274,8 +276,7 @@ mismatch, the records describe a tree that no longer exists: discard
 them, say so in the Review method section, and run the round fresh from
 "Read the PR's shape" against the new head rather than mixing verdicts
 from two trees. This is not hypothetical — a scheduled sweep
-force-rebases open PR branches and can fire mid-round (see `CLAUDE.md` →
-"The rebase automation can move a PR branch mid-session"). Then make the
+force-rebases open PR branches and can fire mid-round. Then make the
 `--mode anchor` call for the fresh round carrying the new head SHA: the
 preloaded `sdlc:agent-result-persist-interface` skill → "The modes" owns
 what the script does with the stale log and the result files beside it.
@@ -369,6 +370,17 @@ you into re-reviewing by hand — an opinion nothing asked for.
 The delta "Carry the previous round's theorems forward" computes is a
 commit list, not a diff, so computing it does not breach this.
 
+## Documentation is outside the review
+
+Documentation files, as the preloaded `sdlc:documentation-definition`
+skill defines them, are not reviewed: `docs-writer` writes them once the
+loop has ended, and no round runs over that commit. So the diff you hand
+the generator and the disprovers excludes them. From the paths "Read the
+PR's shape" lists, collect those the definition calls documentation, and
+name them in the generator's brief and in every disprover's brief as
+paths to leave out of every diff the child reads. Omit that line when
+there are none.
+
 ## Inputs
 
 Your brief carries double-dash parameters. One vocabulary serves every
@@ -408,9 +420,8 @@ Read this repo's `.issues/repo-config.md` with a lightweight
 reader contract in the `issues` plugin's `skills/lib/repo-config.md`.
 That lib file lives inside the `issues` plugin, and plugins are
 file-sandboxed (a bare `Read` from an `sdlc` file cannot resolve a
-path inside another plugin's directory — see
-`docs/plugin-authoring-constraints.md` → "A cross-plugin reference
-does not resolve"). `sdlc` no longer bundles its own copy of that lib
+path inside another plugin's directory, and a `dependencies` edge
+grants no file access either). `sdlc` no longer bundles its own copy of that lib
 (`plugins/sdlc/skills/lib/repo-config.md` was deleted), so do not
 attempt to `Read` it by any bare or qualified path.
 
@@ -446,6 +457,20 @@ quotes that name, so inserting a section renames nothing.
 ```bash
 gh pr view <PR> --json headRefName,headRefOid,baseRefName,body,changedFiles,additions,deletions
 ```
+
+Then read the paths the diff touches, with `<owner>` and `<repo>`
+resolved per "The round log" above:
+
+```bash
+gh api graphql --paginate -F owner=<owner> -F repo=<repo> -F pr=<PR> \
+  -f query='query($owner:String!, $repo:String!, $pr:Int!, $endCursor:String) { repository(owner:$owner, name:$repo) { pullRequest(number:$pr) { files(first:100, after:$endCursor) { nodes { path additions deletions changeType } pageInfo { hasNextPage endCursor } } } } }' \
+  --jq '.data.repository.pullRequest.files.nodes[].path'
+```
+
+`--paginate` follows `endCursor` until `hasNextPage` is false, so the
+list is complete however many files the PR changes — `gh pr view
+--json files` stops at the first 100. "Documentation is outside the
+review" reads this list; it is a path list, not the diff.
 
 `changedFiles`, `additions`, and `deletions` are the change counts the
 review body reports. `headRefName` and `body` feed "Identify the issue
@@ -492,10 +517,9 @@ one branch — and a batch of one is the ordinary single-issue PR.
   body's closing lines. Never scan the body for them yourself.
 - **Reconcile the claim against the branch.** Invoke
   `/git-tools:git-issues-from-branch <headRefName> <claim…>` — the one
-  skill that parses a branch name and the one place the global
-  issue-to-branch rule in `rules/git-workflow.md` → "Issue references"
-  is applied. Never parse a branch name and never re-derive the
-  resolution yourself. **The set you review against is the resolved
+  skill that parses a branch name and the one place the
+  issue-to-branch rule is applied. Never parse a branch name and never
+  re-derive the resolution yourself. **The set you review against is the resolved
   set it reports.**
 
 The lists it reports alongside the resolved set are findings rather
@@ -574,7 +598,7 @@ your copy at all: `/github-prs:pr-closing-issues` fetches the body
 itself. That is safe rather than a gap, because the body is **frozen for
 the duration of an orchestrate loop** — written once at PR creation,
 amended once by `pr-finalizer` after the loop ends, and edited by no
-`issue-fixer` and no `doc-updater` in between. Everything in flight
+other agent in between. Everything in flight
 travels as a PR comment instead. Do not add the body as a delta source:
 the freeze is what removes the input, so detecting body edits buys
 nothing, and a round that diffed the body would fan out on
@@ -888,6 +912,9 @@ On a **round-1 or fallback round**, the brief is the whole PR:
 --repo <repo>
 --round <this round's number>
 
+Leave these documentation paths out of every diff you read: <the paths
+"Documentation is outside the review" collected>
+
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file and report it back in the theorem-record format that
 skill defines, and nothing else.
@@ -905,6 +932,9 @@ round's delta commits, and the generator emits only what those imply:
 --owner <owner>
 --repo <repo>
 --round <this round's number>
+
+Leave these documentation paths out of every diff and delta commit you
+read: <the paths "Documentation is outside the review" collected>
 
 Generate the theorem list per your preloaded generation skill. Record it
 to your result file and report it back in the theorem-record format that
@@ -1136,6 +1166,9 @@ Each disprover's brief is one theorem and nothing more:
 --owner <owner>
 --repo <repo>
 --round <this round's number>
+
+Leave these documentation paths out of every diff you read: <the paths
+"Documentation is outside the review" collected>
 
 Try to disprove this one claim per your agent definition. Report
 DISPROVED with a verbatim-quoted counterexample, a consequence
@@ -1631,9 +1664,9 @@ inside an `isolation: worktree` worktree under the repo's
 `.claude/worktrees/`, which carries a `.claude/worktrees/` of its own —
 the very directory the agents you spawned sit in. So the short form can
 remove a *different* worktree than you meant, or match two and fail
-with an error that reads as though the worktree were already gone. See
-`docs/agent-tooling-notes.md` → "Remove a worktree by the path
-`git worktree list` prints".
+with an error that reads as though the worktree were already gone. The
+absolute path the listing prints is unique by construction and names
+the same worktree from any cwd, so it never reaches either trap.
 
 Remove them **serially**, never in parallel — see
 [Anthropic issue #48927](https://github.com/anthropics/claude-code/issues/48927)

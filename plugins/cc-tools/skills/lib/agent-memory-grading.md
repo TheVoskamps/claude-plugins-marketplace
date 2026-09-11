@@ -26,7 +26,7 @@ So read, in full:
 - every entry you are grading
 - the root `CLAUDE.md`, plus any nested `CLAUDE.md`
 - `.claude/rules/*.md`
-- `docs/*.md`
+- `docs/rules/*.md`
 - the README governing what each entry claims about — the nearest one
   above that code, which in most repositories is the repo's single
   top-level README
@@ -46,8 +46,8 @@ An entry is deleted when it:
   changelog, and `git log` already holds it. A memory earns its place
   by binding future behavior, not by recording past behavior.
 - **Restates content already in a transfer destination** — `CLAUDE.md`,
-  a `docs/*.md`, or a governing README — or in `.claude/rules/`, or in
-  a skill or agent definition.
+  a `docs/rules/*.md`, or a governing README — or in `.claude/rules/`,
+  or in a skill or agent definition.
 - **Duplicates another entry.** Merge the surviving content into the
   more complete entry first, then delete the duplicate.
 
@@ -61,7 +61,7 @@ deleting, produce the check:
 | the code already says it | the file and lines that say it |
 | names an external source of truth | the pointer, quoted from the entry |
 | narrates finished work | the past-tense narration, quoted |
-| already in `CLAUDE.md`, a `docs/*.md`, a governing README, a rule, or a skill or agent definition | the file and lines that say it |
+| already in `CLAUDE.md`, a `docs/rules/*.md`, a governing README, a rule, or a skill or agent definition | the file and lines that say it |
 | duplicate | the entry it duplicates |
 
 If you cannot produce the check, the verdict is not delete. Fall back
@@ -119,7 +119,7 @@ Narrowest first. Take the first one that fits:
   it needs, how to start, and what it deliberately does not do — never
   a per-file catalogue, and mirror the shape of a README the repo
   already ships elsewhere.
-- **The closest-fitting `docs/*.md`** when the lore spans trees.
+- **The closest-fitting `docs/rules/*.md`** when the lore spans trees.
 - **`CLAUDE.md`** when the constraint governs how anyone works
   anywhere in the repo.
 
