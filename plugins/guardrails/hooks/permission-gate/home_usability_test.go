@@ -341,10 +341,13 @@ func TestHomeChokepointCdCarryingADirectory(t *testing.T) {
 		// is a bare `cd` (above) while these two are not.
 		`cd $Z/sub; cat x`,
 		`cd "$Z"; cat x`,
-		// A QUOTED pattern is not a pattern: bash matches no pathname against
-		// it, so it cannot be dropped by nullglob and `cd "*nomatch*"` stays
-		// put (measured). The negative control for the glob rows above, in
-		// both the metacharacter and the extended-glob spelling.
+		// A pattern in QUOTES is not a pattern: bash matches no pathname
+		// against it, so it cannot be dropped by nullglob and `cd "*nomatch*"`
+		// stays put (measured). The negative control for the glob rows above,
+		// in both the metacharacter and the extended-glob spelling. Quotes
+		// only — a backslash escapes the `@` of `cd \@(nomatch)x` and leaves
+		// the `(` unquoted, which bash refuses to parse and the gate denies at
+		// its parse-error arm, so that spelling is no member of this class.
 		`cd "*nomatch*"; cat x`,
 		`cd "@(nomatch)x"; cat x`,
 	} {

@@ -2286,9 +2286,11 @@ func staticExpandBraceFallback(raw string, cwdInvalid bool) ([]string, bool) {
 // hasGlobMeta reports whether s contains a shell glob metacharacter
 // (`*`, `?`, `[`) that bash would expand via pathname expansion — the test for
 // a word that merely LOOKS like a literal but actually depends on runtime
-// directory contents. It grades an already-resolved string; literalWord itself
-// is not glob-aware, so a word carrying a metacharacter still resolves to its
-// own text there.
+// directory contents. It grades either an already-resolved string or one word
+// part's raw text — wordMayYieldNoField hands it a *syntax.Lit's Value straight
+// off the AST, before any resolution runs. A literal part carries its own text
+// through resolution unchanged, and literalWord is not glob-aware either, so a
+// word carrying a metacharacter still resolves to its own text there.
 func hasGlobMeta(s string) bool {
 	return strings.ContainsAny(s, "*?[")
 }
